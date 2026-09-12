@@ -57,8 +57,20 @@ export function getDb(): Database.Database {
       UNIQUE (court_id, date, hour)
     );
 
+    -- Hours a court is closed for maintenance/private events; blocked hours
+    -- never appear as bookable.
+    CREATE TABLE IF NOT EXISTS slot_blocks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      court_id INTEGER NOT NULL REFERENCES courts(id),
+      date TEXT NOT NULL,
+      hour INTEGER NOT NULL,
+      reason TEXT,
+      UNIQUE (court_id, date, hour)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
     CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
+    CREATE INDEX IF NOT EXISTS idx_blocks_court_date ON slot_blocks(court_id, date);
   `);
 
   seedIfEmpty(db);

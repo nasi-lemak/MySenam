@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Booking, Court } from "@/lib/types";
 import { formatHour } from "@/lib/time";
+import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 
 interface Result {
   booking: Booking;
@@ -139,13 +140,56 @@ export default function MyBookingPage() {
             ))}
           </dl>
           {b.status === "confirmed" && (
-            <button
-              onClick={cancel}
-              disabled={busy}
-              className="mt-5 w-full rounded-lg border border-red-300 py-2.5 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              Cancel booking
-            </button>
+            <>
+              <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
+                {(() => {
+                  const shareInfo = {
+                    code: b.code,
+                    date: b.date,
+                    startHour: b.startHour,
+                    endHour: b.endHour,
+                    courtName: result.court.name,
+                    venueName: result.venue.name,
+                    venueAddress: result.venue.address,
+                    totalPrice: b.totalPrice,
+                  };
+                  return (
+                    <>
+                      <a
+                        href={whatsappShareUrl(shareInfo)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
+                      >
+                        💬 WhatsApp
+                      </a>
+                      <a
+                        href={googleCalendarUrl(shareInfo)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
+                      >
+                        📅 Google Cal
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => downloadIcs(shareInfo)}
+                        className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
+                      >
+                        ⬇️ .ics file
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+              <button
+                onClick={cancel}
+                disabled={busy}
+                className="mt-3 w-full rounded-lg border border-red-300 py-2.5 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                Cancel booking
+              </button>
+            </>
           )}
         </div>
       )}

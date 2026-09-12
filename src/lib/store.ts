@@ -9,7 +9,7 @@ import {
   Sport,
   Venue,
 } from "./types";
-import { isBookableDate, isPastSlot, isPeak } from "./time";
+import { addDays, isBookableDate, isPastSlot, isPeak } from "./time";
 
 interface CourtRow {
   id: number;
@@ -99,14 +99,20 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
     .all(date, venueId) as { court_id: number; hour: number }[];
   const takenSet = new Set(taken.map((t) => `${t.court_id}:${t.hour}`));
 
+  const blocked = db
+    .prepare("SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
+    .all(date, venueId) as { court_id: number; hour: number }[];
+  const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
+
   return courts.map((court) => ({
     court,
     slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
       const hour = OPEN_HOUR + i;
+      const key = `${court.id}:${hour}`;
       return {
         hour,
         rate: isPeak(date, hour) ? court.peakRate : court.offPeakRate,
-        available: !takenSet.has(`${court.id}:${hour}`) && !isPastSlot(date, hour),
+        available: !takenSet.has(key) && !blockedSet.has(key) && !isPastSlot(date, hour),
       };
     }),
   }));
@@ -167,8 +173,14 @@ export function createBooking(input: {
     "INSERT INTO booking_slots (booking_id, court_id, date, hour) VALUES (?, ?, ?, ?)"
   );
 
+  const blockedCheck = db.prepare(
+    `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${hours.map(() => "?").join(",")})`
+  );
+
   try {
     const booking = db.transaction(() => {
+      const blocked = blockedCheck.get(courtId, date, ...hours) as { n: number };
+      if (blocked.n > 0) throw new Error("SLOT_BLOCKED");
       const code = generateCode();
       const bookingId = insertBooking.run(
         code, courtId, date, hours[0], hours[hours.length - 1] + 1,
@@ -180,6 +192,9 @@ export function createBooking(input: {
     return { ok: true, booking };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    if (message === "SLOT_BLOCKED") {
+      return { ok: false, error: "One or more of those slots is closed for maintenance. Please pick again." };
+    }
     if (message.includes("UNIQUE constraint failed: booking_slots")) {
       return { ok: false, error: "One or more of those slots was just booked by someone else. Please pick again." };
     }
@@ -220,6 +235,168 @@ export function cancelBooking(code: string, phone: string): CancelResult {
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   return { ok: true, booking: { ...booking, status: "cancelled" } };
+}
+
+export type AdminSlotStatus = "free" | "booked" | "blocked" | "past";
+
+export interface AdminCourtSlots {
+  court: Court;
+  slots: { hour: number; status: AdminSlotStatus; bookingCode?: string; blockReason?: string }[];
+}
+
+/** Full slot-status grid for a venue on a date (admin view). */
+export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] {
+  const db = getDb();
+  const courts = (
+    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+  ).map(toCourt);
+
+  const booked = db
+    .prepare(`
+      SELECT s.court_id, s.hour, b.code FROM booking_slots s
+      JOIN bookings b ON b.id = s.booking_id
+      WHERE s.date = ? AND s.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
+    `)
+    .all(date, venueId) as { court_id: number; hour: number; code: string }[];
+  const bookedMap = new Map(booked.map((b) => [`${b.court_id}:${b.hour}`, b.code]));
+
+  const blocks = db
+    .prepare("SELECT court_id, hour, reason FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
+    .all(date, venueId) as { court_id: number; hour: number; reason: string | null }[];
+  const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b.reason ?? ""]));
+
+  return courts.map((court) => ({
+    court,
+    slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
+      const hour = OPEN_HOUR + i;
+      const key = `${court.id}:${hour}`;
+      const bookingCode = bookedMap.get(key);
+      const blockReason = blockMap.get(key);
+      const status: AdminSlotStatus = bookingCode
+        ? "booked"
+        : blockReason !== undefined
+          ? "blocked"
+          : isPastSlot(date, hour)
+            ? "past"
+            : "free";
+      return {
+        hour,
+        status,
+        ...(bookingCode ? { bookingCode } : {}),
+        ...(blockReason !== undefined ? { blockReason } : {}),
+      };
+    }),
+  }));
+}
+
+export type BlockResult = { ok: true; changed: number } | { ok: false; error: string };
+
+/** Block hours on a court (maintenance/closure). Skips hours that are booked. */
+export function blockSlots(courtId: number, date: string, hours: number[], reason?: string): BlockResult {
+  if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
+  const valid = [...new Set(hours)].filter((h) => h >= OPEN_HOUR && h < CLOSE_HOUR);
+  if (valid.length === 0) return { ok: false, error: "No valid hours given." };
+
+  const db = getDb();
+  const isBooked = db.prepare(
+    "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
+  );
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO slot_blocks (court_id, date, hour, reason) VALUES (?, ?, ?, ?)"
+  );
+  let changed = 0;
+  db.transaction(() => {
+    for (const hour of valid) {
+      const booked = isBooked.get(courtId, date, hour) as { n: number };
+      if (booked.n > 0) continue; // never block over an existing booking
+      changed += insert.run(courtId, date, hour, reason ?? null).changes;
+    }
+  })();
+  return { ok: true, changed };
+}
+
+export function unblockSlots(courtId: number, date: string, hours: number[]): BlockResult {
+  if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
+  const valid = [...new Set(hours)];
+  if (valid.length === 0) return { ok: false, error: "No valid hours given." };
+  const db = getDb();
+  const result = db
+    .prepare(`DELETE FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${valid.map(() => "?").join(",")})`)
+    .run(courtId, date, ...valid);
+  return { ok: true, changed: result.changes };
+}
+
+/** Admin cancellation by code — no phone check, works even after start time. */
+export function adminCancelBooking(code: string): CancelResult {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?)")
+    .get(code.trim()) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+  if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+
+  db.transaction(() => {
+    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+    db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+  })();
+  return { ok: true, booking: { ...booking, status: "cancelled" } };
+}
+
+export interface OccupancyDay {
+  date: string;
+  perCourt: { courtId: number; booked: number; blocked: number }[];
+}
+
+export interface OccupancyReport {
+  totalSlotsPerDay: number;
+  courts: Court[];
+  days: OccupancyDay[];
+}
+
+/** Booked/blocked hour counts per court for `numDays` days from `start`. */
+export function getOccupancy(venueId: number, start: string, numDays: number): OccupancyReport {
+  const db = getDb();
+  const courts = (
+    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+  ).map(toCourt);
+  const courtIds = new Set(courts.map((c) => c.id));
+
+  const dates = Array.from({ length: numDays }, (_, i) => addDays(start, i));
+  const end = dates[dates.length - 1];
+
+  const bookedRows = db
+    .prepare(`
+      SELECT court_id, date, COUNT(*) AS n FROM booking_slots
+      WHERE date >= ? AND date <= ? GROUP BY court_id, date
+    `)
+    .all(start, end) as { court_id: number; date: string; n: number }[];
+  const blockedRows = db
+    .prepare(`
+      SELECT court_id, date, COUNT(*) AS n FROM slot_blocks
+      WHERE date >= ? AND date <= ? GROUP BY court_id, date
+    `)
+    .all(start, end) as { court_id: number; date: string; n: number }[];
+
+  const bookedMap = new Map(
+    bookedRows.filter((r) => courtIds.has(r.court_id)).map((r) => [`${r.court_id}:${r.date}`, r.n])
+  );
+  const blockedMap = new Map(
+    blockedRows.filter((r) => courtIds.has(r.court_id)).map((r) => [`${r.court_id}:${r.date}`, r.n])
+  );
+
+  return {
+    totalSlotsPerDay: CLOSE_HOUR - OPEN_HOUR,
+    courts,
+    days: dates.map((date) => ({
+      date,
+      perCourt: courts.map((c) => ({
+        courtId: c.id,
+        booked: bookedMap.get(`${c.id}:${date}`) ?? 0,
+        blocked: blockedMap.get(`${c.id}:${date}`) ?? 0,
+      })),
+    })),
+  };
 }
 
 export interface AdminBookingRow extends Booking {

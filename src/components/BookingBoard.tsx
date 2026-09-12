@@ -11,6 +11,7 @@ import {
   SPORT_LABELS,
 } from "@/lib/types";
 import { formatHour } from "@/lib/time";
+import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 
 interface Props {
   venueId: number;
@@ -356,6 +357,15 @@ function ConfirmationModal({
   onClose: () => void;
 }) {
   const { booking, court, venue } = confirmation;
+  const shareInfo = {
+    code: booking.code,
+    date: booking.date,
+    startHour: booking.startHour,
+    endHour: booking.endHour,
+    courtName: court.name,
+    venueName: venue.name,
+    totalPrice: booking.totalPrice,
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
@@ -384,9 +394,34 @@ function ConfirmationModal({
             </div>
           ))}
         </dl>
+        <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
+          <a
+            href={whatsappShareUrl(shareInfo)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
+          >
+            💬 WhatsApp
+          </a>
+          <a
+            href={googleCalendarUrl(shareInfo)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
+          >
+            📅 Google Cal
+          </a>
+          <button
+            type="button"
+            onClick={() => downloadIcs(shareInfo)}
+            className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
+          >
+            ⬇️ .ics file
+          </button>
+        </div>
         <button
           onClick={onClose}
-          className="mt-6 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          className="mt-3 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
         >
           Done
         </button>
