@@ -1,0 +1,249 @@
+import { getDb } from "./db";
+import {
+  Booking,
+  Court,
+  CourtAvailability,
+  OPEN_HOUR,
+  CLOSE_HOUR,
+  MAX_HOURS_PER_BOOKING,
+  Sport,
+  Venue,
+} from "./types";
+import { isBookableDate, isPastSlot, isPeak } from "./time";
+
+interface CourtRow {
+  id: number;
+  venue_id: number;
+  name: string;
+  sport: Sport;
+  off_peak_rate: number;
+  peak_rate: number;
+}
+
+interface BookingRow {
+  id: number;
+  code: string;
+  court_id: number;
+  date: string;
+  start_hour: number;
+  end_hour: number;
+  name: string;
+  phone: string;
+  email: string | null;
+  total_price: number;
+  status: "confirmed" | "cancelled";
+  created_at: string;
+}
+
+function toCourt(r: CourtRow): Court {
+  return {
+    id: r.id,
+    venueId: r.venue_id,
+    name: r.name,
+    sport: r.sport,
+    offPeakRate: r.off_peak_rate,
+    peakRate: r.peak_rate,
+  };
+}
+
+function toBooking(r: BookingRow): Booking {
+  return {
+    id: r.id,
+    code: r.code,
+    courtId: r.court_id,
+    date: r.date,
+    startHour: r.start_hour,
+    endHour: r.end_hour,
+    name: r.name,
+    phone: r.phone,
+    email: r.email,
+    totalPrice: r.total_price,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+}
+
+export function listVenues(): (Venue & { courts: Court[] })[] {
+  const db = getDb();
+  const venues = db.prepare("SELECT * FROM venues ORDER BY id").all() as Venue[];
+  const courts = (db.prepare("SELECT * FROM courts ORDER BY id").all() as CourtRow[]).map(toCourt);
+  return venues.map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) }));
+}
+
+export function getVenue(id: number): (Venue & { courts: Court[] }) | null {
+  const db = getDb();
+  const venue = db.prepare("SELECT * FROM venues WHERE id = ?").get(id) as Venue | undefined;
+  if (!venue) return null;
+  const courts = (
+    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(id) as CourtRow[]
+  ).map(toCourt);
+  return { ...venue, courts };
+}
+
+export function getCourt(id: number): Court | null {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM courts WHERE id = ?").get(id) as CourtRow | undefined;
+  return row ? toCourt(row) : null;
+}
+
+/** Availability grid for every court of a venue (optionally one sport) on a date. */
+export function getAvailability(venueId: number, date: string, sport?: Sport): CourtAvailability[] {
+  const db = getDb();
+  let courts = (
+    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+  ).map(toCourt);
+  if (sport) courts = courts.filter((c) => c.sport === sport);
+
+  const taken = db
+    .prepare("SELECT court_id, hour FROM booking_slots WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
+    .all(date, venueId) as { court_id: number; hour: number }[];
+  const takenSet = new Set(taken.map((t) => `${t.court_id}:${t.hour}`));
+
+  return courts.map((court) => ({
+    court,
+    slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
+      const hour = OPEN_HOUR + i;
+      return {
+        hour,
+        rate: isPeak(date, hour) ? court.peakRate : court.offPeakRate,
+        available: !takenSet.has(`${court.id}:${hour}`) && !isPastSlot(date, hour),
+      };
+    }),
+  }));
+}
+
+export function computePrice(court: Court, date: string, hours: number[]): number {
+  return hours.reduce(
+    (sum, h) => sum + (isPeak(date, h) ? court.peakRate : court.offPeakRate),
+    0
+  );
+}
+
+function generateCode(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let code = "MT-";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+export type CreateBookingResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; error: string };
+
+export function createBooking(input: {
+  courtId: number;
+  date: string;
+  hours: number[];
+  name: string;
+  phone: string;
+  email?: string;
+}): CreateBookingResult {
+  const { courtId, date, name, phone, email } = input;
+  const hours = [...new Set(input.hours)].sort((a, b) => a - b);
+
+  const court = getCourt(courtId);
+  if (!court) return { ok: false, error: "Court not found." };
+  if (!isBookableDate(date)) return { ok: false, error: "Date is outside the booking window." };
+  if (hours.length === 0) return { ok: false, error: "Select at least one hour." };
+  if (hours.length > MAX_HOURS_PER_BOOKING)
+    return { ok: false, error: `Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.` };
+  for (let i = 1; i < hours.length; i++) {
+    if (hours[i] !== hours[i - 1] + 1)
+      return { ok: false, error: "Selected hours must be consecutive." };
+  }
+  if (hours[0] < OPEN_HOUR || hours[hours.length - 1] >= CLOSE_HOUR)
+    return { ok: false, error: "Selected hours are outside operating hours." };
+  if (isPastSlot(date, hours[0]))
+    return { ok: false, error: "That time slot has already passed." };
+
+  const totalPrice = computePrice(court, date, hours);
+  const db = getDb();
+
+  const insertBooking = db.prepare(`
+    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertSlot = db.prepare(
+    "INSERT INTO booking_slots (booking_id, court_id, date, hour) VALUES (?, ?, ?, ?)"
+  );
+
+  try {
+    const booking = db.transaction(() => {
+      const code = generateCode();
+      const bookingId = insertBooking.run(
+        code, courtId, date, hours[0], hours[hours.length - 1] + 1,
+        name, phone, email ?? null, totalPrice
+      ).lastInsertRowid as number;
+      for (const hour of hours) insertSlot.run(bookingId, courtId, date, hour);
+      return getBookingById(bookingId)!;
+    })();
+    return { ok: true, booking };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("UNIQUE constraint failed: booking_slots")) {
+      return { ok: false, error: "One or more of those slots was just booked by someone else. Please pick again." };
+    }
+    if (message.includes("UNIQUE constraint failed: bookings.code")) {
+      // Astronomically rare code collision — one retry is plenty.
+      return createBooking(input);
+    }
+    throw err;
+  }
+}
+
+function getBookingById(id: number): Booking | null {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM bookings WHERE id = ?").get(id) as BookingRow | undefined;
+  return row ? toBooking(row) : null;
+}
+
+export function findBooking(code: string, phone: string): Booking | null {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?) AND phone = ?")
+    .get(code.trim(), phone.trim()) as BookingRow | undefined;
+  return row ? toBooking(row) : null;
+}
+
+export type CancelResult = { ok: true; booking: Booking } | { ok: false; error: string };
+
+export function cancelBooking(code: string, phone: string): CancelResult {
+  const booking = findBooking(code, phone);
+  if (!booking) return { ok: false, error: "Booking not found. Check the code and phone number." };
+  if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (isPastSlot(booking.date, booking.startHour))
+    return { ok: false, error: "This booking has already started or passed and can no longer be cancelled." };
+
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+    db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+  })();
+  return { ok: true, booking: { ...booking, status: "cancelled" } };
+}
+
+export interface AdminBookingRow extends Booking {
+  courtName: string;
+  sport: Sport;
+  venueName: string;
+}
+
+export function listBookingsForDate(date: string): AdminBookingRow[] {
+  const db = getDb();
+  const rows = db
+    .prepare(`
+      SELECT b.*, c.name AS court_name, c.sport AS court_sport, v.name AS venue_name
+      FROM bookings b
+      JOIN courts c ON c.id = b.court_id
+      JOIN venues v ON v.id = c.venue_id
+      WHERE b.date = ?
+      ORDER BY v.id, c.id, b.start_hour
+    `)
+    .all(date) as (BookingRow & { court_name: string; court_sport: Sport; venue_name: string })[];
+  return rows.map((r) => ({
+    ...toBooking(r),
+    courtName: r.court_name,
+    sport: r.court_sport,
+    venueName: r.venue_name,
+  }));
+}

@@ -1,0 +1,69 @@
+export type Sport = "badminton" | "tennis" | "pickleball" | "futsal";
+
+export const SPORTS: Sport[] = ["badminton", "tennis", "pickleball", "futsal"];
+
+export const SPORT_LABELS: Record<Sport, string> = {
+  badminton: "Badminton",
+  tennis: "Tennis",
+  pickleball: "Pickleball",
+  futsal: "Futsal",
+};
+
+export const SPORT_ICONS: Record<Sport, string> = {
+  badminton: "🏸",
+  tennis: "🎾",
+  pickleball: "🥒",
+  futsal: "⚽",
+};
+
+export interface Venue {
+  id: number;
+  name: string;
+  area: string;
+  address: string;
+  phone: string;
+}
+
+export interface Court {
+  id: number;
+  venueId: number;
+  name: string;
+  sport: Sport;
+  offPeakRate: number;
+  peakRate: number;
+}
+
+export type BookingStatus = "confirmed" | "cancelled";
+
+export interface Booking {
+  id: number;
+  code: string;
+  courtId: number;
+  date: string; // YYYY-MM-DD
+  startHour: number;
+  endHour: number; // exclusive
+  name: string;
+  phone: string;
+  email: string | null;
+  totalPrice: number;
+  status: BookingStatus;
+  createdAt: string;
+}
+
+export interface SlotInfo {
+  hour: number;
+  rate: number;
+  available: boolean;
+}
+
+export interface CourtAvailability {
+  court: Court;
+  slots: SlotInfo[];
+}
+
+// Operating hours: first bookable slot starts at OPEN_HOUR,
+// last bookable slot starts at CLOSE_HOUR - 1.
+export const OPEN_HOUR = 8;
+export const CLOSE_HOUR = 23;
+export const MAX_HOURS_PER_BOOKING = 4;
+export const MAX_ADVANCE_DAYS = 14;
