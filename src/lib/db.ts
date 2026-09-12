@@ -68,13 +68,40 @@ export function getDb(): Database.Database {
       UNIQUE (court_id, date, hour)
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      phone TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
     CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_blocks_court_date ON slot_blocks(court_id, date);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
   `);
+
+  migrate(db);
 
   seedIfEmpty(db);
   return db;
+}
+
+// Additive migrations for databases created before a column existed.
+function migrate(db: Database.Database) {
+  const bookingCols = db.prepare("PRAGMA table_info(bookings)").all() as { name: string }[];
+  if (!bookingCols.some((c) => c.name === "user_id")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN user_id INTEGER REFERENCES users(id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id)");
+  }
 }
 
 function seedIfEmpty(db: Database.Database) {

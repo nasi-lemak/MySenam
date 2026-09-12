@@ -274,6 +274,19 @@ function BookingForm({
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Prefill contact details for signed-in users.
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.user) return;
+        setName((v) => v || data.user.name);
+        setPhone((v) => v || data.user.phone);
+        setEmail((v) => v || data.user.email);
+      })
+      .catch(() => {});
+  }, []);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);

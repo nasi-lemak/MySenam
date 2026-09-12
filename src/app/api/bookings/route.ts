@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth";
 import { createBooking, findBooking, getCourt, getVenue } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
 
+  const user = getSessionUser(req);
   const result = createBooking({
     courtId: courtId as number,
     date,
@@ -35,6 +37,7 @@ export async function POST(req: NextRequest) {
     name: name.trim(),
     phone: phone.trim(),
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
+    userId: user?.id,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });

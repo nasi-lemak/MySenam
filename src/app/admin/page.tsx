@@ -5,7 +5,7 @@ import { formatHour } from "@/lib/time";
 import { Court, SPORT_ICONS, Venue } from "@/lib/types";
 import type { AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
 
-type Tab = "bookings" | "schedule" | "occupancy";
+type Tab = "bookings" | "schedule" | "occupancy" | "courts";
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
@@ -109,6 +109,7 @@ export default function AdminPage() {
             ["bookings", "Bookings"],
             ["schedule", "Court schedule"],
             ["occupancy", "Occupancy"],
+            ["courts", "Courts & rates"],
           ] as [Tab, string][]
         ).map(([id, label]) => (
           <button
@@ -128,6 +129,9 @@ export default function AdminPage() {
       {tab === "bookings" && <BookingsTab passcode={passcode} />}
       {tab === "schedule" && <ScheduleTab passcode={passcode} venues={venues} />}
       {tab === "occupancy" && <OccupancyTab passcode={passcode} venues={venues} />}
+      {tab === "courts" && (
+        <CourtsTab passcode={passcode} venues={venues} onVenuesChange={setVenues} />
+      )}
     </div>
   );
 }
@@ -429,6 +433,233 @@ function ScheduleTab({
         </div>
       )}
     </div>
+  );
+}
+
+/* ---------------- Courts & rates tab ---------------- */
+
+function CourtsTab({
+  passcode,
+  venues,
+  onVenuesChange,
+}: {
+  passcode: string;
+  venues: (Venue & { courts: Court[] })[];
+  onVenuesChange: (venues: (Venue & { courts: Court[] })[]) => void;
+}) {
+  const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [newCourt, setNewCourt] = useState({ name: "", sport: "badminton", offPeak: "", peak: "" });
+
+  const venue = venues.find((v) => v.id === venueId);
+
+  async function refreshVenues() {
+    const res = await fetch("/api/venues", { cache: "no-store" });
+    const data = await res.json();
+    onVenuesChange(data.venues);
+  }
+
+  async function saveCourt(court: Court, name: string, offPeak: string, peak: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/courts/${court.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        body: JSON.stringify({
+          name,
+          offPeakRate: Number(offPeak),
+          peakRate: Number(peak),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      setNotice(`Saved ${data.court.name}.`);
+      refreshVenues();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  async function addCourt(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/courts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        body: JSON.stringify({
+          venueId,
+          name: newCourt.name,
+          sport: newCourt.sport,
+          offPeakRate: Number(newCourt.offPeak),
+          peakRate: Number(newCourt.peak),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not add court");
+      setNotice(`Added ${data.court.name}.`);
+      setNewCourt({ name: "", sport: newCourt.sport, offPeak: "", peak: "" });
+      refreshVenues();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add court");
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <select
+        value={venueId}
+        onChange={(e) => setVenueId(Number(e.target.value))}
+        className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+      >
+        {venues.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.name}
+          </option>
+        ))}
+      </select>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      {venue && (
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                {["Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)", ""].map((h, i) => (
+                  <th key={i} className="px-3 py-2 font-semibold">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {venue.courts.map((court) => (
+                <CourtRow key={court.id} court={court} onSave={saveCourt} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <form
+        onSubmit={addCourt}
+        className="flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-4"
+      >
+        <div className="text-sm font-semibold text-slate-700">Add court:</div>
+        <input
+          required
+          minLength={2}
+          value={newCourt.name}
+          onChange={(e) => setNewCourt({ ...newCourt, name: e.target.value })}
+          placeholder="Court name"
+          className="w-44 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <select
+          value={newCourt.sport}
+          onChange={(e) => setNewCourt({ ...newCourt, sport: e.target.value })}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        >
+          {Object.entries(SPORT_ICONS).map(([sport, icon]) => (
+            <option key={sport} value={sport}>
+              {icon} {sport}
+            </option>
+          ))}
+        </select>
+        <input
+          required
+          type="number"
+          min={1}
+          value={newCourt.offPeak}
+          onChange={(e) => setNewCourt({ ...newCourt, offPeak: e.target.value })}
+          placeholder="Off-peak RM"
+          className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <input
+          required
+          type="number"
+          min={1}
+          value={newCourt.peak}
+          onChange={(e) => setNewCourt({ ...newCourt, peak: e.target.value })}
+          placeholder="Peak RM"
+          className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          Add
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function CourtRow({
+  court,
+  onSave,
+}: {
+  court: Court;
+  onSave: (court: Court, name: string, offPeak: string, peak: string) => void;
+}) {
+  const [name, setName] = useState(court.name);
+  const [offPeak, setOffPeak] = useState(String(court.offPeakRate));
+  const [peak, setPeak] = useState(String(court.peakRate));
+  const dirty =
+    name !== court.name || offPeak !== String(court.offPeakRate) || peak !== String(court.peakRate);
+
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="px-3 py-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-44 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
+        {SPORT_ICONS[court.sport]} {court.sport}
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="number"
+          min={1}
+          value={offPeak}
+          onChange={(e) => setOffPeak(e.target.value)}
+          className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="number"
+          min={1}
+          value={peak}
+          onChange={(e) => setPeak(e.target.value)}
+          className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
+        <button
+          disabled={!dirty}
+          onClick={() => onSave(court, name, offPeak, peak)}
+          className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
+        >
+          Save
+        </button>
+      </td>
+    </tr>
   );
 }
 

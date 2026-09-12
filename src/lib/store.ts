@@ -143,8 +143,9 @@ export function createBooking(input: {
   name: string;
   phone: string;
   email?: string;
+  userId?: number;
 }): CreateBookingResult {
-  const { courtId, date, name, phone, email } = input;
+  const { courtId, date, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
 
   const court = getCourt(courtId);
@@ -166,8 +167,8 @@ export function createBooking(input: {
   const db = getDb();
 
   const insertBooking = db.prepare(`
-    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
     "INSERT INTO booking_slots (booking_id, court_id, date, hour) VALUES (?, ?, ?, ?)"
@@ -184,7 +185,7 @@ export function createBooking(input: {
       const code = generateCode();
       const bookingId = insertBooking.run(
         code, courtId, date, hours[0], hours[hours.length - 1] + 1,
-        name, phone, email ?? null, totalPrice
+        name, phone, email ?? null, totalPrice, userId ?? null
       ).lastInsertRowid as number;
       for (const hour of hours) insertSlot.run(bookingId, courtId, date, hour);
       return getBookingById(bookingId)!;
@@ -403,6 +404,97 @@ export interface AdminBookingRow extends Booking {
   courtName: string;
   sport: Sport;
   venueName: string;
+}
+
+export interface UserBookingRow extends Booking {
+  courtName: string;
+  sport: Sport;
+  venueName: string;
+  venueArea: string;
+  venueAddress: string;
+}
+
+export function listUserBookings(userId: number): UserBookingRow[] {
+  const db = getDb();
+  const rows = db
+    .prepare(`
+      SELECT b.*, c.name AS court_name, c.sport AS court_sport,
+             v.name AS venue_name, v.area AS venue_area, v.address AS venue_address
+      FROM bookings b
+      JOIN courts c ON c.id = b.court_id
+      JOIN venues v ON v.id = c.venue_id
+      WHERE b.user_id = ?
+      ORDER BY b.date DESC, b.start_hour DESC
+    `)
+    .all(userId) as (BookingRow & {
+    court_name: string;
+    court_sport: Sport;
+    venue_name: string;
+    venue_area: string;
+    venue_address: string;
+  })[];
+  return rows.map((r) => ({
+    ...toBooking(r),
+    courtName: r.court_name,
+    sport: r.court_sport,
+    venueName: r.venue_name,
+    venueArea: r.venue_area,
+    venueAddress: r.venue_address,
+  }));
+}
+
+/** Cancel a booking that belongs to this user (before it starts). */
+export function cancelUserBooking(userId: number, bookingId: number): CancelResult {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM bookings WHERE id = ? AND user_id = ?")
+    .get(bookingId, userId) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+  if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (isPastSlot(booking.date, booking.startHour))
+    return { ok: false, error: "This booking has already started or passed and can no longer be cancelled." };
+
+  db.transaction(() => {
+    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+    db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+  })();
+  return { ok: true, booking: { ...booking, status: "cancelled" } };
+}
+
+export type CourtEditResult = { ok: true; court: Court } | { ok: false; error: string };
+
+export function createCourt(input: {
+  venueId: number;
+  name: string;
+  sport: Sport;
+  offPeakRate: number;
+  peakRate: number;
+}): CourtEditResult {
+  const db = getDb();
+  if (!getVenue(input.venueId)) return { ok: false, error: "Venue not found." };
+  const info = db
+    .prepare(
+      "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(input.venueId, input.name.trim(), input.sport, input.offPeakRate, input.peakRate);
+  return { ok: true, court: getCourt(info.lastInsertRowid as number)! };
+}
+
+export function updateCourt(
+  courtId: number,
+  changes: { name?: string; offPeakRate?: number; peakRate?: number }
+): CourtEditResult {
+  const db = getDb();
+  const court = getCourt(courtId);
+  if (!court) return { ok: false, error: "Court not found." };
+  db.prepare("UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ? WHERE id = ?").run(
+    changes.name?.trim() ?? court.name,
+    changes.offPeakRate ?? court.offPeakRate,
+    changes.peakRate ?? court.peakRate,
+    courtId
+  );
+  return { ok: true, court: getCourt(courtId)! };
 }
 
 export function listBookingsForDate(date: string): AdminBookingRow[] {

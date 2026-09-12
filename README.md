@@ -9,12 +9,14 @@ badminton, tennis, pickleball and futsal.
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
-- **Self-service management** — look up or cancel a booking with the code + phone number (`/my-booking`)
+- **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
+- **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
 - **Admin dashboard** (`/admin`) — three tabs behind a passcode:
   - **Bookings**: all bookings and confirmed revenue for any date, with admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
+  - **Courts & rates**: rename courts, edit peak/off-peak rates, add new courts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
 ## Tech stack
@@ -50,6 +52,17 @@ The admin page (`/admin`) is protected by a passcode checked server-side.
 | GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
 
+Account endpoints (session cookie):
+
+| Method | Path                      | Description                                     |
+| ------ | ------------------------- | ----------------------------------------------- |
+| POST   | `/api/auth/register`      | `{name, email, phone, password}` → sign up + in |
+| POST   | `/api/auth/login`         | `{email, password}`                             |
+| POST   | `/api/auth/logout`        | Ends the session                                |
+| GET    | `/api/auth/me`            | Current user or `null`                          |
+| GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
+| POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
+
 Admin endpoints (all require the `x-admin-passcode` header):
 
 | Method | Path                          | Description                                          |
@@ -60,6 +73,8 @@ Admin endpoints (all require the `x-admin-passcode` header):
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
 | GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → booked/blocked counts     |
+| POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate}`      |
+| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?}`                   |
 
 Prices are always computed server-side; the client's displayed total is informational.
 
@@ -75,8 +90,9 @@ src/
   components/
     BookingBoard.tsx  # Interactive slot-picker (client component)
   lib/
-    db.ts             # SQLite schema + seed data
+    db.ts             # SQLite schema, migrations + seed data
     store.ts          # All queries & booking/cancel/block logic
+    auth.ts           # Accounts: scrypt passwords + session cookies
     admin-auth.ts     # Passcode check shared by admin routes
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
     time.ts           # Malaysia-timezone helpers, peak-hour rules
@@ -86,7 +102,7 @@ src/
 ## Roadmap ideas
 
 - Online payment (FPX / e-wallet) instead of pay-at-counter
-- User accounts and booking history
-- Venue-owner self-service for courts and rates (closures are done — see Court schedule)
 - Automated WhatsApp/email booking confirmations & reminders
 - Recurring bookings for leagues and training sessions
+- Session cookies are not marked `Secure`; set that (and a strong
+  `ADMIN_PASSCODE`) before deploying behind HTTPS in production
