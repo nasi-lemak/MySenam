@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { createBooking, findBooking, getCourt, getVenue } from "@/lib/store";
+import { createBookingSeries, findBooking, getCourt, getVenue } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
+import { MAX_RECUR_WEEKS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, date, hours, name, phone, email } = (body ?? {}) as Record<string, unknown>;
+  const { courtId, date, hours, name, phone, email, weeks, skipConflicts } = (body ??
+    {}) as Record<string, unknown>;
 
   if (!Number.isInteger(courtId) || (courtId as number) <= 0)
     return NextResponse.json({ error: "courtId is required." }, { status: 400 });
@@ -28,24 +30,39 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+  if (weeks !== undefined &&
+      (!Number.isInteger(weeks) || (weeks as number) < 1 || (weeks as number) > MAX_RECUR_WEEKS))
+    return NextResponse.json(
+      { error: `weeks must be between 1 and ${MAX_RECUR_WEEKS}.` },
+      { status: 400 }
+    );
 
   const user = getSessionUser(req);
-  const result = createBooking({
+  const result = createBookingSeries({
     courtId: courtId as number,
     date,
     hours: hours as number[],
+    weeks: (weeks as number) ?? 1,
     name: name.trim(),
     phone: phone.trim(),
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
+    skipConflicts: skipConflicts === true,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
-  const court = getCourt(result.booking.courtId)!;
+  const court = getCourt(result.bookings[0].courtId)!;
   const venue = getVenue(court.venueId)!;
   return NextResponse.json(
-    { booking: result.booking, court, venue: { id: venue.id, name: venue.name, area: venue.area } },
+    {
+      booking: result.bookings[0],
+      bookings: result.bookings,
+      skipped: result.skipped,
+      seriesCode: result.seriesCode,
+      court,
+      venue: { id: venue.id, name: venue.name, area: venue.area },
+    },
     { status: 201 }
   );
 }

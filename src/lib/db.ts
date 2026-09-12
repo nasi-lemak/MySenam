@@ -7,9 +7,15 @@ let db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (db) return db;
 
-  const dataDir = path.join(process.cwd(), "data");
-  fs.mkdirSync(dataDir, { recursive: true });
-  db = new Database(path.join(dataDir, "mudahtempah.db"));
+  // MUDAHTEMPAH_DB overrides the location (tests use ":memory:").
+  const dbPath = process.env.MUDAHTEMPAH_DB;
+  if (dbPath) {
+    db = new Database(dbPath);
+  } else {
+    const dataDir = path.join(process.cwd(), "data");
+    fs.mkdirSync(dataDir, { recursive: true });
+    db = new Database(path.join(dataDir, "mudahtempah.db"));
+  }
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 
@@ -101,6 +107,10 @@ function migrate(db: Database.Database) {
   if (!bookingCols.some((c) => c.name === "user_id")) {
     db.exec("ALTER TABLE bookings ADD COLUMN user_id INTEGER REFERENCES users(id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id)");
+  }
+  if (!bookingCols.some((c) => c.name === "series_code")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN series_code TEXT");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_series ON bookings(series_code)");
   }
 }
 

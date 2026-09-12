@@ -45,6 +45,23 @@ export default function AccountPage() {
     window.location.href = "/";
   }
 
+  async function cancelSeries(seriesCode: string, phone: string) {
+    if (!window.confirm(`Cancel ALL upcoming sessions in series ${seriesCode}?`)) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/bookings/cancel-series", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seriesCode, phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancellation failed");
+    }
+  }
+
   async function cancel(bookingId: number) {
     if (!window.confirm("Cancel this booking? The slots will be released.")) return;
     setError(null);
@@ -109,7 +126,14 @@ export default function AccountPage() {
         ) : (
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             {upcoming.map((b) => (
-              <BookingCard key={b.id} booking={b} onCancel={() => cancel(b.id)} />
+              <BookingCard
+                key={b.id}
+                booking={b}
+                onCancel={() => cancel(b.id)}
+                onCancelSeries={
+                  b.seriesCode ? () => cancelSeries(b.seriesCode!, user.phone) : undefined
+                }
+              />
             ))}
           </div>
         )}
@@ -166,9 +190,11 @@ export default function AccountPage() {
 function BookingCard({
   booking: b,
   onCancel,
+  onCancelSeries,
 }: {
   booking: UserBookingRow;
   onCancel: () => void;
+  onCancelSeries?: () => void;
 }) {
   const shareInfo = {
     code: b.code,
@@ -184,9 +210,19 @@ function BookingCard({
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="font-mono text-lg font-bold text-teal-700">{b.code}</div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-          Confirmed
-        </span>
+        <div className="flex items-center gap-1.5">
+          {b.seriesCode && (
+            <span
+              className="rounded-full bg-violet-50 px-2.5 py-1 font-mono text-xs font-semibold text-violet-700"
+              title="Part of a weekly series"
+            >
+              🔁 {b.seriesCode}
+            </span>
+          )}
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            Confirmed
+          </span>
+        </div>
       </div>
       <div className="mt-3 space-y-1 text-sm">
         <div className="font-semibold">
@@ -225,12 +261,22 @@ function BookingCard({
           ⬇️ .ics
         </button>
       </div>
-      <button
-        onClick={onCancel}
-        className="mt-2 w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
-      >
-        Cancel booking
-      </button>
+      <div className={`mt-2 grid gap-2 ${onCancelSeries ? "grid-cols-2" : ""}`}>
+        <button
+          onClick={onCancel}
+          className="w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+        >
+          Cancel booking
+        </button>
+        {onCancelSeries && (
+          <button
+            onClick={onCancelSeries}
+            className="w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+          >
+            Cancel whole series
+          </button>
+        )}
+      </div>
     </div>
   );
 }

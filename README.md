@@ -8,6 +8,7 @@ badminton, tennis, pickleball and futsal.
 - **Live availability grid** — per venue, per sport, per day, with hourly slots (8 AM – 11 PM)
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
+- **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
@@ -32,6 +33,12 @@ npm install
 npm run dev
 ```
 
+Run the test suite (Vitest against an in-memory database) with:
+
+```bash
+npm test
+```
+
 Open http://localhost:3000. The database is created and seeded with three demo venues
 (Petaling Jaya, Subang Jaya, Bangsar) on first request.
 
@@ -48,9 +55,10 @@ The admin page (`/admin`) is protected by a passcode checked server-side.
 | ------ | --------------------- | -------------------------------------------------- |
 | GET    | `/api/venues`         | All venues with their courts                        |
 | GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → hourly grid    |
-| POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?}`     |
+| POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?, weeks?, skipConflicts?}` |
 | GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
+| POST   | `/api/bookings/cancel-series` | `{seriesCode, phone}` → cancel all future sessions |
 
 Account endpoints (session cookie):
 
@@ -97,12 +105,12 @@ src/
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
+tests/                # Vitest suite (booking rules, blocks, series, auth)
 ```
 
 ## Roadmap ideas
 
 - Online payment (FPX / e-wallet) instead of pay-at-counter
 - Automated WhatsApp/email booking confirmations & reminders
-- Recurring bookings for leagues and training sessions
 - Session cookies are not marked `Secure`; set that (and a strong
   `ADMIN_PASSCODE`) before deploying behind HTTPS in production

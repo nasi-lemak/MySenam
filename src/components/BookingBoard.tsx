@@ -6,6 +6,7 @@ import {
   Court,
   CourtAvailability,
   MAX_HOURS_PER_BOOKING,
+  MAX_RECUR_WEEKS,
   Sport,
   SPORT_ICONS,
   SPORT_LABELS,
@@ -26,6 +27,9 @@ interface Selection {
 
 interface Confirmation {
   booking: Booking;
+  bookings: Booking[];
+  skipped: { date: string; reason: string }[];
+  seriesCode: string | null;
   court: Court;
   venue: { name: string; area: string };
 }
@@ -272,6 +276,8 @@ function BookingForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [weeks, setWeeks] = useState(1);
+  const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   // Prefill contact details for signed-in users.
@@ -294,7 +300,16 @@ function BookingForm({
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courtId: court.id, date, hours, name, phone, email }),
+        body: JSON.stringify({
+          courtId: court.id,
+          date,
+          hours,
+          name,
+          phone,
+          email,
+          weeks,
+          skipConflicts,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Booking failed");
@@ -350,14 +365,44 @@ function BookingForm({
             className="mt-1 w-44 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           />
         </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Repeat
+          <select
+            value={weeks}
+            onChange={(e) => setWeeks(Number(e.target.value))}
+            className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
+          >
+            <option value={1}>Just once</option>
+            {Array.from({ length: MAX_RECUR_WEEKS - 1 }, (_, i) => i + 2).map((w) => (
+              <option key={w} value={w}>
+                Weekly × {w}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           disabled={submitting}
           className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50"
         >
-          {submitting ? "Booking…" : `Book · RM${totalPrice}`}
+          {submitting
+            ? "Booking…"
+            : weeks > 1
+              ? `Book ${weeks} weeks · RM${totalPrice}/wk`
+              : `Book · RM${totalPrice}`}
         </button>
       </div>
+      {weeks > 1 && (
+        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            checked={skipConflicts}
+            onChange={(e) => setSkipConflicts(e.target.checked)}
+            className="accent-teal-600"
+          />
+          Skip weeks that are already taken (otherwise the whole series is rejected on any clash)
+        </label>
+      )}
     </form>
   );
 }
@@ -369,37 +414,46 @@ function ConfirmationModal({
   confirmation: Confirmation;
   onClose: () => void;
 }) {
-  const { booking, court, venue } = confirmation;
+  const { booking, bookings, skipped, seriesCode, court, venue } = confirmation;
+  const isSeries = bookings.length > 1 || seriesCode !== null;
+  const seriesTotal = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const shareInfo = {
-    code: booking.code,
+    code: seriesCode ?? booking.code,
     date: booking.date,
     startHour: booking.startHour,
     endHour: booking.endHour,
     courtName: court.name,
     venueName: venue.name,
-    totalPrice: booking.totalPrice,
+    totalPrice: isSeries ? seriesTotal : booking.totalPrice,
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
         <div className="text-center">
           <div className="text-4xl">✅</div>
-          <h2 className="mt-2 text-xl font-bold">Booking confirmed!</h2>
+          <h2 className="mt-2 text-xl font-bold">
+            {isSeries ? `${bookings.length} weekly sessions booked!` : "Booking confirmed!"}
+          </h2>
           <p className="mt-1 text-sm text-slate-600">
             Show this code at the counter. Save it — you&apos;ll need it (with your phone number)
-            to view or cancel the booking.
+            to view or cancel {isSeries ? "the series" : "the booking"}.
           </p>
           <div className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
-            {booking.code}
+            {seriesCode ?? booking.code}
           </div>
         </div>
         <dl className="mt-5 space-y-1.5 text-sm">
           {[
             ["Venue", `${venue.name} (${venue.area})`],
             ["Court", court.name],
-            ["Date", booking.date],
+            ...(isSeries
+              ? ([] as [string, string][])
+              : ([["Date", booking.date]] as [string, string][])),
             ["Time", `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
-            ["Total", `RM${booking.totalPrice} (pay at counter)`],
+            [
+              "Total",
+              `RM${isSeries ? seriesTotal : booking.totalPrice} (pay at counter)`,
+            ],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between gap-4">
               <dt className="text-slate-500">{label}</dt>
@@ -407,6 +461,27 @@ function ConfirmationModal({
             </div>
           ))}
         </dl>
+        {isSeries && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="font-semibold text-slate-700">Sessions</div>
+            <ul className="mt-1 space-y-0.5">
+              {bookings.map((b) => (
+                <li key={b.id} className="flex justify-between">
+                  <span>📅 {b.date}</span>
+                  <span className="font-mono text-xs text-slate-500">
+                    {b.code} · RM{b.totalPrice}
+                  </span>
+                </li>
+              ))}
+              {skipped.map((s) => (
+                <li key={s.date} className="flex justify-between text-slate-400">
+                  <span>📅 {s.date}</span>
+                  <span className="text-xs">skipped — {s.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
           <a
             href={whatsappShareUrl(shareInfo)}

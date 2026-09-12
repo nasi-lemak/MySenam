@@ -6,6 +6,7 @@ import {
   OPEN_HOUR,
   CLOSE_HOUR,
   MAX_HOURS_PER_BOOKING,
+  MAX_RECUR_WEEKS,
   Sport,
   Venue,
 } from "./types";
@@ -33,6 +34,7 @@ interface BookingRow {
   total_price: number;
   status: "confirmed" | "cancelled";
   created_at: string;
+  series_code: string | null;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -60,6 +62,7 @@ function toBooking(r: BookingRow): Booking {
     totalPrice: r.total_price,
     status: r.status,
     createdAt: r.created_at,
+    seriesCode: r.series_code,
   };
 }
 
@@ -125,15 +128,27 @@ export function computePrice(court: Court, date: string, hours: number[]): numbe
   );
 }
 
-function generateCode(): string {
+function randomCode(prefix: string): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  let code = "MT-";
+  let code = prefix;
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
 
+const generateCode = () => randomCode("MT-");
+const generateSeriesCode = () => randomCode("SR-");
+
 export type CreateBookingResult =
   | { ok: true; booking: Booking }
+  | { ok: false; error: string };
+
+export interface SeriesSkip {
+  date: string;
+  reason: string;
+}
+
+export type CreateSeriesResult =
+  | { ok: true; bookings: Booking[]; skipped: SeriesSkip[]; seriesCode: string | null }
   | { ok: false; error: string };
 
 export function createBooking(input: {
@@ -145,12 +160,37 @@ export function createBooking(input: {
   email?: string;
   userId?: number;
 }): CreateBookingResult {
-  const { courtId, date, name, phone, email, userId } = input;
+  const result = createBookingSeries({ ...input, weeks: 1 });
+  if (!result.ok) return result;
+  return { ok: true, booking: result.bookings[0] };
+}
+
+/**
+ * Book the same court and hours weekly for `weeks` weeks. With
+ * `skipConflicts`, weeks that clash with existing bookings or blocks are
+ * skipped and reported; otherwise any clash fails the whole series.
+ */
+export function createBookingSeries(input: {
+  courtId: number;
+  date: string;
+  hours: number[];
+  weeks: number;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+  skipConflicts?: boolean;
+}): CreateSeriesResult {
+  const { courtId, date, weeks, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
+  const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
 
   const court = getCourt(courtId);
   if (!court) return { ok: false, error: "Court not found." };
-  if (!isBookableDate(date)) return { ok: false, error: "Date is outside the booking window." };
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_RECUR_WEEKS)
+    return { ok: false, error: `Weeks must be between 1 and ${MAX_RECUR_WEEKS}.` };
+  if (!isBookableDate(date))
+    return { ok: false, error: "The first date is outside the booking window." };
   if (hours.length === 0) return { ok: false, error: "Select at least one hour." };
   if (hours.length > MAX_HOURS_PER_BOOKING)
     return { ok: false, error: `Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.` };
@@ -163,48 +203,107 @@ export function createBooking(input: {
   if (isPastSlot(date, hours[0]))
     return { ok: false, error: "That time slot has already passed." };
 
-  const totalPrice = computePrice(court, date, hours);
   const db = getDb();
-
+  const placeholders = hours.map(() => "?").join(",");
+  const takenCheck = db.prepare(
+    `SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
+  );
+  const blockedCheck = db.prepare(
+    `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
+  );
   const insertBooking = db.prepare(`
-    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
     "INSERT INTO booking_slots (booking_id, court_id, date, hour) VALUES (?, ?, ?, ?)"
   );
 
-  const blockedCheck = db.prepare(
-    `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${hours.map(() => "?").join(",")})`
-  );
+  const seriesCode = weeks > 1 ? generateSeriesCode() : null;
 
   try {
-    const booking = db.transaction(() => {
-      const blocked = blockedCheck.get(courtId, date, ...hours) as { n: number };
-      if (blocked.n > 0) throw new Error("SLOT_BLOCKED");
-      const code = generateCode();
-      const bookingId = insertBooking.run(
-        code, courtId, date, hours[0], hours[hours.length - 1] + 1,
-        name, phone, email ?? null, totalPrice, userId ?? null
-      ).lastInsertRowid as number;
-      for (const hour of hours) insertSlot.run(bookingId, courtId, date, hour);
-      return getBookingById(bookingId)!;
+    const result = db.transaction(() => {
+      const bookings: Booking[] = [];
+      const skipped: SeriesSkip[] = [];
+      for (let week = 0; week < weeks; week++) {
+        const weekDate = addDays(date, week * 7);
+        let reason: string | null = null;
+        if ((takenCheck.get(courtId, weekDate, ...hours) as { n: number }).n > 0) {
+          reason = "already booked";
+        } else if ((blockedCheck.get(courtId, weekDate, ...hours) as { n: number }).n > 0) {
+          reason = "closed for maintenance";
+        }
+        if (reason) {
+          if (!skipConflicts) throw new Error(`CONFLICT:${weekDate}:${reason}`);
+          skipped.push({ date: weekDate, reason });
+          continue;
+        }
+        const bookingId = insertBooking.run(
+          generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
+          name, phone, email ?? null, computePrice(court, weekDate, hours),
+          userId ?? null, seriesCode
+        ).lastInsertRowid as number;
+        for (const hour of hours) insertSlot.run(bookingId, courtId, weekDate, hour);
+        bookings.push(getBookingById(bookingId)!);
+      }
+      if (bookings.length === 0) throw new Error("ALL_CONFLICT");
+      return { bookings, skipped };
     })();
-    return { ok: true, booking };
+    return { ok: true, ...result, seriesCode };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message === "SLOT_BLOCKED") {
-      return { ok: false, error: "One or more of those slots is closed for maintenance. Please pick again." };
+    if (message.startsWith("CONFLICT:")) {
+      const [, conflictDate, reason] = message.split(":");
+      return {
+        ok: false,
+        error:
+          weeks > 1
+            ? `${conflictDate} is unavailable (${reason}). Enable "skip unavailable weeks" or pick another slot.`
+            : reason === "closed for maintenance"
+              ? "One or more of those slots is closed for maintenance. Please pick again."
+              : "One or more of those slots was just booked by someone else. Please pick again.",
+      };
+    }
+    if (message === "ALL_CONFLICT") {
+      return { ok: false, error: "Every week in that series is already taken. Please pick another slot." };
     }
     if (message.includes("UNIQUE constraint failed: booking_slots")) {
       return { ok: false, error: "One or more of those slots was just booked by someone else. Please pick again." };
     }
     if (message.includes("UNIQUE constraint failed: bookings.code")) {
       // Astronomically rare code collision — one retry is plenty.
-      return createBooking(input);
+      return createBookingSeries(input);
     }
     throw err;
   }
+}
+
+/** Cancel all future confirmed bookings in a series (verified by phone). */
+export function cancelSeries(seriesCode: string, phone: string): {
+  ok: boolean;
+  cancelled: number;
+  error?: string;
+} {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND phone = ? AND status = 'confirmed'"
+    )
+    .all(seriesCode.trim(), phone.trim()) as BookingRow[];
+  if (rows.length === 0)
+    return { ok: false, cancelled: 0, error: "Series not found. Check the series code and phone number." };
+
+  const future = rows.filter((r) => !isPastSlot(r.date, r.start_hour));
+  if (future.length === 0)
+    return { ok: false, cancelled: 0, error: "All sessions in this series have already started or passed." };
+
+  db.transaction(() => {
+    for (const row of future) {
+      db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
+      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+    }
+  })();
+  return { ok: true, cancelled: future.length };
 }
 
 function getBookingById(id: number): Booking | null {
