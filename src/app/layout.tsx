@@ -14,14 +14,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
             <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">
               <span aria-hidden>🏸</span>
               <span>
                 My<span className="text-slate-900">Senam</span>
               </span>
             </Link>
-            <nav className="flex items-center gap-4 text-sm font-medium text-slate-600">
+            {/* Wraps to a second line on a phone rather than pushing the page sideways. */}
+            <nav className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm font-medium text-slate-600">
               <Link href="/" className="hover:text-teal-700">
                 Venues
               </Link>
