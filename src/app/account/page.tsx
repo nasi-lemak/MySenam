@@ -10,6 +10,7 @@ import type { UserBookingRow } from "@/lib/store";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 import Wallet from "@/components/Wallet";
+import MyWaitlist from "@/components/MyWaitlist";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -117,6 +118,8 @@ export default function AccountPage() {
       )}
 
       <Wallet />
+
+      <MyWaitlist phone={user.phone} />
 
       <section>
         <h2 className="text-lg font-bold">Upcoming bookings</h2>

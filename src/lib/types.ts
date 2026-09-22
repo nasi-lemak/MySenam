@@ -134,6 +134,32 @@ export interface WalletEntry {
 
 export const MAX_TOP_UP = 1000;
 
+export type WaitlistStatus = "waiting" | "offered" | "claimed" | "expired" | "cancelled";
+
+/** Somebody queuing for a place that is currently full. */
+export interface WaitlistEntry {
+  id: number;
+  classId: number | null;
+  courtId: number | null;
+  date: string | null;
+  startHour: number | null;
+  endHour: number | null;
+  name: string;
+  phone: string;
+  status: WaitlistStatus;
+  offeredAt: string | null;
+  /** Only ever sent to the person holding the offer. */
+  offerToken: string | null;
+  createdAt: string;
+  /** Filled in for display. */
+  label?: string;
+  /** Seconds left to claim, when offered. */
+  expiresInSeconds?: number;
+}
+
+/** How long someone gets to claim a place before it passes to the next. */
+export const WAITLIST_OFFER_MINUTES = 30;
+
 export interface SlotInfo {
   hour: number;
   rate: number;

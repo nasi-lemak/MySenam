@@ -16,6 +16,9 @@ import {
   MAX_CLASS_WEEKS,
   MAX_TOP_UP,
   WalletEntry,
+  WaitlistEntry,
+  WaitlistStatus,
+  WAITLIST_OFFER_MINUTES,
   Sport,
   Venue,
 } from "./types";
@@ -624,6 +627,8 @@ export function cancelBooking(code: string, phone: string): CancelResult {
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   refundBookingToWallet(booking.id);
+  // A freed class place goes to whoever has waited longest.
+  if (booking.classId) offerClassPlace(booking.classId);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -751,6 +756,8 @@ export function adminCancelBooking(code: string): CancelResult {
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   refundBookingToWallet(booking.id);
+  // A freed class place goes to whoever has waited longest.
+  if (booking.classId) offerClassPlace(booking.classId);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -948,6 +955,8 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   refundBookingToWallet(booking.id);
+  // A freed class place goes to whoever has waited longest.
+  if (booking.classId) offerClassPlace(booking.classId);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -1680,4 +1689,242 @@ export function findUserForWallet(
     | { id: number; name: string; email: string; phone: string }
     | undefined;
   return row ? { ...row, balance: getWalletBalance(row.id) } : null;
+}
+
+/* ---------------- Waitlists ---------------- */
+
+interface WaitlistRow {
+  id: number;
+  class_id: number | null;
+  court_id: number | null;
+  date: string | null;
+  start_hour: number | null;
+  end_hour: number | null;
+  name: string;
+  phone: string;
+  email: string | null;
+  user_id: number | null;
+  status: WaitlistStatus;
+  offered_at: string | null;
+  offer_token: string | null;
+  created_at: string;
+}
+
+function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
+  const entry: WaitlistEntry = {
+    id: r.id,
+    classId: r.class_id,
+    courtId: r.court_id,
+    date: r.date,
+    startHour: r.start_hour,
+    endHour: r.end_hour,
+    name: r.name,
+    phone: r.phone,
+    status: r.status,
+    offeredAt: r.offered_at,
+    offerToken: includeToken ? r.offer_token : null,
+    createdAt: r.created_at,
+  };
+  if (r.status === "offered" && r.offered_at) {
+    const deadline = parseUtc(r.offered_at) + WAITLIST_OFFER_MINUTES * 60_000;
+    entry.expiresInSeconds = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+  }
+  return entry;
+}
+
+/** SQLite's datetime('now') is UTC without a zone marker. */
+function parseUtc(stamp: string): number {
+  return new Date(stamp.includes("Z") ? stamp : `${stamp.replace(" ", "T")}Z`).getTime();
+}
+
+/**
+ * Time out offers nobody claimed. There is no scheduler, so this runs at the
+ * start of every waitlist operation — the queue is only ever read through one
+ * of these, so a stale offer never blocks the next person for long.
+ */
+function expireStaleOffers(): void {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT id, offered_at FROM waitlist WHERE status = 'offered'")
+    .all() as { id: number; offered_at: string | null }[];
+  const now = Date.now();
+  for (const row of rows) {
+    if (!row.offered_at) continue;
+    if (parseUtc(row.offered_at) + WAITLIST_OFFER_MINUTES * 60_000 <= now) {
+      db.prepare(
+        "UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ?"
+      ).run(row.id);
+    }
+  }
+}
+
+export type WaitlistResult =
+  | { ok: true; entry: WaitlistEntry; position: number }
+  | { ok: false; error: string };
+
+/** Queue for a class place. Only possible while the class is actually full. */
+export function joinClassWaitlist(input: {
+  classId: number;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+}): WaitlistResult {
+  expireStaleOffers();
+  const session = getClass(input.classId);
+  if (!session) return { ok: false, error: "Class not found." };
+  if (session.status === "cancelled") return { ok: false, error: "This class was cancelled." };
+  if (isPastSlot(session.date, session.startHour))
+    return { ok: false, error: "This class has already started." };
+  if (session.enrolled < session.capacity)
+    return { ok: false, error: "This class still has places — enrol instead." };
+
+  const db = getDb();
+  const already = db
+    .prepare(
+      "SELECT id FROM waitlist WHERE class_id = ? AND phone = ? AND status IN ('waiting','offered')"
+    )
+    .get(input.classId, input.phone.trim());
+  if (already) return { ok: false, error: "You are already on this waitlist." };
+  const enrolled = db
+    .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'")
+    .get(input.classId, input.phone.trim());
+  if (enrolled) return { ok: false, error: "You are already enrolled in this class." };
+
+  const info = db
+    .prepare(
+      "INSERT INTO waitlist (class_id, name, phone, email, user_id) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(
+      input.classId,
+      input.name.trim(),
+      input.phone.trim(),
+      input.email?.trim() ?? null,
+      input.userId ?? null
+    );
+  const entry = toWaitlistEntry(
+    db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
+  );
+  return { ok: true, entry, position: classQueue(input.classId).length };
+}
+
+function classQueue(classId: number): WaitlistRow[] {
+  return getDb()
+    .prepare(
+      "SELECT * FROM waitlist WHERE class_id = ? AND status IN ('waiting','offered') ORDER BY id"
+    )
+    .all(classId) as WaitlistRow[];
+}
+
+/**
+ * A place in a class opened up: offer it to the person who has waited longest.
+ * Does nothing if someone already holds a live offer for it.
+ */
+export function offerClassPlace(classId: number): WaitlistEntry | null {
+  expireStaleOffers();
+  const queue = classQueue(classId);
+  if (queue.some((row) => row.status === "offered")) return null;
+
+  const session = getClass(classId);
+  if (!session || session.status === "cancelled") return null;
+  if (session.enrolled >= session.capacity) return null;
+
+  const next = queue.find((row) => row.status === "waiting");
+  if (!next) return null;
+
+  const db = getDb();
+  db.prepare(
+    "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
+  ).run(randomBytes(16).toString("hex"), next.id);
+  return toWaitlistEntry(
+    db.prepare("SELECT * FROM waitlist WHERE id = ?").get(next.id) as WaitlistRow,
+    true
+  );
+}
+
+export type ClaimResult =
+  | { ok: true; booking: Booking; entry: WaitlistEntry }
+  | { ok: false; error: string };
+
+/** Take up an offered place. The offer token is the only way in. */
+export function claimWaitlistOffer(token: string): ClaimResult {
+  expireStaleOffers();
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM waitlist WHERE offer_token = ?")
+    .get(token.trim()) as WaitlistRow | undefined;
+  if (!row) return { ok: false, error: "This offer is no longer valid." };
+  if (row.status !== "offered")
+    return { ok: false, error: "This offer has expired or was already claimed." };
+  if (!row.class_id) return { ok: false, error: "This offer is no longer valid." };
+
+  const enrolled = enrolInClass({
+    classId: row.class_id,
+    name: row.name,
+    phone: row.phone,
+    email: row.email ?? undefined,
+    userId: row.user_id ?? undefined,
+  });
+  if (!enrolled.ok) return { ok: false, error: enrolled.error };
+
+  db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
+  return {
+    ok: true,
+    booking: enrolled.booking,
+    entry: toWaitlistEntry(
+      db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow
+    ),
+  };
+}
+
+/** Give up a place in the queue. */
+export function leaveWaitlist(entryId: number, phone: string): { ok: boolean; error?: string } {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM waitlist WHERE id = ? AND phone = ?")
+    .get(entryId, phone.trim()) as WaitlistRow | undefined;
+  if (!row) return { ok: false, error: "Waitlist entry not found." };
+  if (row.status === "claimed") return { ok: false, error: "This place was already claimed." };
+
+  db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
+  // Someone dropping out may free a live offer for the next person.
+  if (row.class_id) offerClassPlace(row.class_id);
+  return { ok: true };
+}
+
+/** The queue for a class, for staff. */
+export function listClassWaitlist(classId: number): WaitlistEntry[] {
+  expireStaleOffers();
+  const rows = getDb()
+    .prepare(
+      "SELECT * FROM waitlist WHERE class_id = ? AND status IN ('waiting','offered') ORDER BY id"
+    )
+    .all(classId) as WaitlistRow[];
+  return rows.map((r) => toWaitlistEntry(r));
+}
+
+/** What this person is queuing for, with any live offer's token. */
+export function listWaitlistFor(phone: string): WaitlistEntry[] {
+  expireStaleOffers();
+  const rows = getDb()
+    .prepare(
+      "SELECT * FROM waitlist WHERE phone = ? AND status IN ('waiting','offered') ORDER BY id DESC"
+    )
+    .all(phone.trim()) as WaitlistRow[];
+  return rows.map((row) => {
+    const entry = toWaitlistEntry(row, row.status === "offered");
+    if (row.class_id) {
+      const session = getClass(row.class_id);
+      if (session) {
+        entry.label = `${session.name} · ${session.date} ${formatHourLabel(session.startHour)}`;
+      }
+    }
+    return entry;
+  });
+}
+
+function formatHourLabel(hour: number): string {
+  const h = hour % 24;
+  const suffix = h >= 12 ? "PM" : "AM";
+  return `${h % 12 === 0 ? 12 : h % 12}:00 ${suffix}`;
 }

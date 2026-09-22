@@ -1424,7 +1424,12 @@ function VenueRow({
 function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [classes, setClasses] = useState<ClassSession[] | null>(null);
-  const [roster, setRoster] = useState<{ session: ClassSession; roster: Booking[] } | null>(null);
+  const [roster, setRoster] = useState<{
+    session: ClassSession;
+    roster: Booking[];
+    waitlist?: { id: number; name: string; phone: string; status: string }[];
+  } | null>(null);
+  const [waiting, setWaiting] = useState<Record<number, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -1450,6 +1455,7 @@ function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load classes");
       setClasses(data.classes);
+      setWaiting(data.waiting ?? {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load classes");
       setClasses(null);
@@ -1559,7 +1565,7 @@ function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           <table className="w-full min-w-[820px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {["Class", "Instructor", "Where", "When", "Enrolled", "Price", "", ""].map(
+                {["Class", "Instructor", "Where", "When", "Enrolled", "Waiting", "Price", "", ""].map(
                   (h, i) => (
                     <th key={i} className="px-3 py-2 font-semibold">
                       {h}
@@ -1593,6 +1599,15 @@ function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                     >
                       {session.enrolled}/{session.capacity}
                     </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    {waiting[session.id] ? (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        {waiting[session.id]}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">RM{session.price}</td>
                   <td className="px-3 py-2">
@@ -1714,6 +1729,28 @@ function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
               {roster.session.date} · {formatHour(roster.session.startHour)}–
               {formatHour(roster.session.endHour)} with {roster.session.instructor}
             </p>
+            {roster.waitlist && roster.waitlist.length > 0 && (
+              <div className="mt-4 rounded-lg bg-amber-50 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                  Waiting ({roster.waitlist.length})
+                </div>
+                <ul className="mt-1 space-y-1 text-sm text-amber-900">
+                  {roster.waitlist.map((w) => (
+                    <li key={w.id} className="flex items-center justify-between gap-3">
+                      <span>
+                        {w.name}
+                        <span className="ml-2 text-xs opacity-70">{w.phone}</span>
+                      </span>
+                      {w.status === "offered" && (
+                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold">
+                          offered
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {roster.roster.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">Nobody has enrolled yet.</p>
             ) : (

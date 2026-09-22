@@ -95,6 +95,28 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Somebody waiting for a place that is currently full. A row targets
+    -- either a class, or a specific court + date + hour window. When a place
+    -- frees up the earliest waiter is offered it for a short hold; if they do
+    -- not claim in time the offer expires and passes to the next.
+    CREATE TABLE IF NOT EXISTS waitlist (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
+      court_id INTEGER REFERENCES courts(id),
+      date TEXT,
+      start_hour INTEGER,
+      end_hour INTEGER,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      email TEXT,
+      user_id INTEGER REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT 'waiting'
+        CHECK (status IN ('waiting','offered','claimed','expired','cancelled')),
+      offered_at TEXT,
+      offer_token TEXT UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Hours a court is closed for maintenance/private events; blocked hours
     -- never appear as bookable.
     CREATE TABLE IF NOT EXISTS slot_blocks (
@@ -165,6 +187,8 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_blocks_court_date ON slot_blocks(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_classes_court_date ON classes(court_id, date);
+    CREATE INDEX IF NOT EXISTS idx_waitlist_class ON waitlist(class_id, status);
+    CREATE INDEX IF NOT EXISTS idx_waitlist_slot ON waitlist(court_id, date, status);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_entries(user_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_booking ON wallet_entries(booking_id);

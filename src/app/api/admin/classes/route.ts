@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { createClassSessions, getCourt, listClasses } from "@/lib/store";
+import { createClassSessions, getCourt, listClasses, listClassWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
 
@@ -16,9 +16,14 @@ export function GET(req: NextRequest) {
     const denied = denyVenue(admin, venueId);
     if (denied) return denied;
   }
-  return NextResponse.json({
-    classes: listClasses({ venueId, includeCancelled: true }),
-  });
+  const classes = listClasses({ venueId, includeCancelled: true });
+  // Queue length per class, so the list can flag demand at a glance.
+  const waiting: Record<number, number> = {};
+  for (const session of classes) {
+    const queue = listClassWaitlist(session.id).length;
+    if (queue > 0) waiting[session.id] = queue;
+  }
+  return NextResponse.json({ classes, waiting });
 }
 
 export async function POST(req: NextRequest) {

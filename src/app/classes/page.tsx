@@ -129,11 +129,14 @@ export default function ClassesPage() {
                         </div>
                       </div>
                       <button
-                        disabled={left === 0}
                         onClick={() => setEnrolling(session)}
-                        className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                          left === 0
+                            ? "border border-teal-600 text-teal-700 hover:bg-teal-50"
+                            : "bg-teal-600 text-white hover:bg-teal-700"
+                        }`}
                       >
-                        {left === 0 ? "Full" : "Enrol"}
+                        {left === 0 ? "Join waitlist" : "Enrol"}
                       </button>
                     </li>
                   );
@@ -173,6 +176,8 @@ function EnrolModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
+  const [queued, setQueued] = useState<number | null>(null);
+  const isFull = session.enrolled >= session.capacity;
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
@@ -191,16 +196,17 @@ function EnrolModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/classes/enrol", {
+      const res = await fetch(isFull ? "/api/waitlist" : "/api/classes/enrol", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ classId: session.id, name, phone, email }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Enrolment failed");
-      setCode(data.booking.code);
+      if (!res.ok) throw new Error(data.error ?? (isFull ? "Could not join" : "Enrolment failed"));
+      if (isFull) setQueued(data.position);
+      else setCode(data.booking.code);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Enrolment failed");
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setBusy(false);
     }
@@ -212,7 +218,25 @@ function EnrolModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
-        {code ? (
+        {queued !== null ? (
+          <div className="text-center">
+            <div className="text-4xl">⏳</div>
+            <h2 className="mt-2 text-xl font-bold">You&apos;re on the waitlist</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Number {queued} in the queue for {session.name}.
+            </p>
+            <p className="mt-3 text-xs text-slate-500">
+              If someone cancels, the place is offered to whoever has waited longest. Signed-in
+              customers see the offer on their account page.
+            </p>
+            <button
+              onClick={onDone}
+              className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+            >
+              Done
+            </button>
+          </div>
+        ) : code ? (
           <div className="text-center">
             <div className="text-4xl">✅</div>
             <h2 className="mt-2 text-xl font-bold">You&apos;re enrolled</h2>
@@ -239,6 +263,12 @@ function EnrolModal({
               {formatHour(session.startHour)} – {formatHour(session.endHour)} with{" "}
               {session.instructor} · RM{session.price}
             </p>
+            {isFull && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                This class is full. Join the waitlist and we&apos;ll offer you the first place
+                that frees up.
+              </p>
+            )}
             <form onSubmit={submit} className="mt-4 space-y-3">
               <label className="block text-sm font-medium text-slate-700">
                 Name
@@ -266,7 +296,13 @@ function EnrolModal({
                   disabled={busy}
                   className="flex-1 rounded-lg bg-teal-600 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                 >
-                  {busy ? "Enrolling…" : `Enrol · RM${session.price}`}
+                  {busy
+                    ? isFull
+                      ? "Joining…"
+                      : "Enrolling…"
+                    : isFull
+                      ? "Join waitlist"
+                      : `Enrol · RM${session.price}`}
                 </button>
               </div>
             </form>

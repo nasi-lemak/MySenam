@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { cancelClassSession, getClass, getClassRoster } from "@/lib/store";
+import {
+  cancelClassSession,
+  getClass,
+  getClassRoster,
+  listClassWaitlist,
+} from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +31,11 @@ async function resolve(req: NextRequest, params: Promise<{ id: string }>) {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { error, session } = await resolve(req, params);
   if (error) return error;
-  return NextResponse.json({ session, roster: getClassRoster(session.id) });
+  return NextResponse.json({
+    session,
+    roster: getClassRoster(session.id),
+    waitlist: listClassWaitlist(session.id),
+  });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

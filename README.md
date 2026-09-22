@@ -6,6 +6,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 ## Features
 
 - **Cross-venue search** (`/search`) — pick a sport, day, time window and duration, and see every free court across all venues at once, grouped by venue and cheapest-first; one click deep-links into the venue page with the slot already selected
+- **Waitlists** — when a class is full, customers queue instead; a cancellation offers the place to whoever has waited longest, held for 30 minutes before passing on
 - **Instructor-led classes** (`/classes`) — schedule a session or a whole weekly term on a shared facility; customers enrol rather than book, the resource is reserved while the class runs, and staff get a live roster showing who has checked in
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
 - **Live availability grid** — per venue, per sport, per day, with hourly slots (8 AM – 11 PM)
@@ -26,7 +27,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates and capacity, add new courts
-  - **Classes**: schedule one-off or weekly classes, view the roster, cancel a class (releasing every enrolment)
+  - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
   - **Venues & staff**: edit venue details and the cancellation cutoff; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
@@ -84,6 +85,9 @@ Every admin endpoint checks the scope server-side, so a venue operator gets a
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
 | GET    | `/api/classes`        | `?venueId=&sport=&from=&to=` → upcoming classes     |
 | POST   | `/api/classes/enrol`  | `{classId, name, phone, email?}` → take a place     |
+| POST   | `/api/waitlist`       | `{classId, name, phone, email?}` → queue for a full class |
+| DELETE | `/api/waitlist`       | `{entryId, phone}` → leave the queue                |
+| POST   | `/api/waitlist/claim` | `{token}` → take up an offered place                |
 | POST   | `/api/checkin`        | `{token}` → self check-in from the booking QR       |
 | GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
 | POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?, weeks?, skipConflicts?}` |
@@ -101,6 +105,7 @@ Account endpoints (session cookie):
 | GET    | `/api/auth/me`            | Current user or `null`                          |
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
+| GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 
 Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
@@ -200,6 +205,23 @@ Classes can repeat weekly for a term (up to 12 weeks) under a shared `CL-`
 series code. Cancelling a class releases every enrolment and returns the hours
 to general booking. Staff see a roster per class with each attendee's check-in
 state.
+
+## Waitlists
+
+A full class can still be joined — as a queue. When a place frees up (an
+enrolment cancelled, or someone ahead dropping out), it is **offered to whoever
+has waited longest**, with a secret token and a 30-minute hold. Only one offer
+is ever live per class, so two cancellations do not hand the same place to two
+people.
+
+There is no scheduler, so stale offers are expired **lazily**: every waitlist
+read or write first times out any hold that has run out, then the next person
+can be offered the place. The queue is only ever reached through one of those
+operations, so nobody is blocked for long by someone who walked away.
+
+Claiming is deliberately a tap rather than automatic on page load, because
+unlike check-in it creates a booking that costs money. Claiming enrols the
+holder at the class price and closes their queue entry; the token is then spent.
 
 ## Stored credit
 
@@ -303,6 +325,7 @@ push and pull request (Node 22, `npm ci`).
 
 - Turnstile or access-gate integration, so entry is physically gated rather
   than trusted
+- Waitlists for ordinary court and facility slots, not just classes
 - Multi-visit passes (10 entries, expiring) — different from a credit balance
 - Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
