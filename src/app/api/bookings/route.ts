@@ -93,6 +93,12 @@ export function GET(req: NextRequest) {
   return NextResponse.json({
     booking,
     court,
-    venue: { id: venue.id, name: venue.name, area: venue.area, address: venue.address },
+    venue: {
+      id: venue.id,
+      name: venue.name,
+      area: venue.area,
+      address: venue.address,
+      cancelCutoffHours: venue.cancelCutoffHours,
+    },
   });
 }

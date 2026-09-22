@@ -25,7 +25,9 @@ export function getDb(): Database.Database {
       name TEXT NOT NULL,
       area TEXT NOT NULL,
       address TEXT NOT NULL,
-      phone TEXT NOT NULL
+      phone TEXT NOT NULL,
+      -- Customers may cancel until this many hours before start.
+      cancel_cutoff_hours INTEGER NOT NULL DEFAULT 2
     );
 
     CREATE TABLE IF NOT EXISTS courts (
@@ -128,6 +130,15 @@ function migrate(db: Database.Database) {
   if (!bookingCols.some((c) => c.name === "series_code")) {
     db.exec("ALTER TABLE bookings ADD COLUMN series_code TEXT");
     db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_series ON bookings(series_code)");
+  }
+  if (!bookingCols.some((c) => c.name === "no_show")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN no_show INTEGER NOT NULL DEFAULT 0");
+  }
+  const venueCols = db.prepare("PRAGMA table_info(venues)").all() as { name: string }[];
+  if (!venueCols.some((c) => c.name === "cancel_cutoff_hours")) {
+    db.exec(
+      "ALTER TABLE venues ADD COLUMN cancel_cutoff_hours INTEGER NOT NULL DEFAULT 2"
+    );
   }
   if (!bookingCols.some((c) => c.name === "payment_status")) {
     db.exec(

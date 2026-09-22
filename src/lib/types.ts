@@ -22,7 +22,12 @@ export interface Venue {
   area: string;
   address: string;
   phone: string;
+  /** Customers may cancel until this many hours before the booking starts. */
+  cancelCutoffHours: number;
 }
+
+export const DEFAULT_CANCEL_CUTOFF_HOURS = 2;
+export const MAX_CANCEL_CUTOFF_HOURS = 72;
 
 export interface Court {
   id: number;
@@ -52,6 +57,8 @@ export interface Booking {
   seriesCode: string | null;
   paymentStatus: PaymentStatus;
   paidAt: string | null;
+  /** Set by staff after the slot passes and nobody turned up. */
+  noShow: boolean;
 }
 
 export interface SlotInfo {

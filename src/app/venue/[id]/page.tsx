@@ -32,7 +32,12 @@ export default async function VenuePage({
         <p className="mt-1 text-sm text-slate-600">
           📍 {venue.address} · ☎ {venue.phone}
         </p>
-        <p className="mt-1 text-sm text-slate-500">Open daily 8:00 AM – 11:00 PM</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Open daily 8:00 AM – 11:00 PM ·{" "}
+          {venue.cancelCutoffHours > 0
+            ? `free cancellation until ${venue.cancelCutoffHours} hour${venue.cancelCutoffHours === 1 ? "" : "s"} before your slot`
+            : "cancel any time before your slot starts"}
+        </p>
       </div>
       <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
     </div>

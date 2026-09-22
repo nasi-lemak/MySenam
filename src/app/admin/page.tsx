@@ -260,6 +260,22 @@ function BookingsTab() {
     }
   }
 
+  async function toggleNoShow(code: string, noShow: boolean) {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/no-show", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, noShow }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
   async function paySeries(seriesCode: string) {
     if (!window.confirm(`Mark all unpaid sessions in series ${seriesCode} as paid?`)) return;
     setError(null);
@@ -343,6 +359,7 @@ function BookingsTab() {
                   "Total",
                   "Status",
                   "Payment",
+                  "Attendance",
                   "",
                 ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
@@ -373,7 +390,17 @@ function BookingsTab() {
                   <td className="whitespace-nowrap px-3 py-2">
                     {formatHour(b.startHour)} – {formatHour(b.endHour)}
                   </td>
-                  <td className="px-3 py-2">{b.name}</td>
+                  <td className="px-3 py-2">
+                    {b.name}
+                    {b.priorNoShows > 0 && (
+                      <span
+                        title={`${b.priorNoShows} previous no-show${b.priorNoShows > 1 ? "s" : ""}`}
+                        className="ml-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600"
+                      >
+                        ⚠ {b.priorNoShows}
+                      </span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-3 py-2">{b.phone}</td>
                   <td className="px-3 py-2 font-medium">RM{b.totalPrice}</td>
                   <td className="px-3 py-2">
@@ -403,6 +430,25 @@ function BookingsTab() {
                         }`}
                       >
                         {b.paymentStatus === "paid" ? "✓ paid" : "unpaid"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {b.status === "confirmed" ? (
+                      <button
+                        onClick={() => toggleNoShow(b.code, !b.noShow)}
+                        title={
+                          b.noShow ? "Click to clear the no-show" : "Mark the customer as a no-show"
+                        }
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
+                          b.noShow
+                            ? "bg-red-100 text-red-700 hover:bg-red-200"
+                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        }`}
+                      >
+                        {b.noShow ? "no-show" : "mark no-show"}
                       </button>
                     ) : (
                       <span className="text-xs text-slate-400">—</span>
@@ -1175,12 +1221,14 @@ function VenueRow({
     area: venue.area,
     address: venue.address,
     phone: venue.phone,
+    cancelCutoffHours: venue.cancelCutoffHours,
   });
   const dirty =
     fields.name !== venue.name ||
     fields.area !== venue.area ||
     fields.address !== venue.address ||
-    fields.phone !== venue.phone;
+    fields.phone !== venue.phone ||
+    fields.cancelCutoffHours !== venue.cancelCutoffHours;
 
   const inputClass =
     "rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none";
@@ -1217,6 +1265,20 @@ function VenueRow({
           value={fields.phone}
           onChange={(e) => setFields({ ...fields, phone: e.target.value })}
           className={`mt-1 w-36 ${inputClass}`}
+        />
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Cancel cutoff (hrs)
+        <input
+          type="number"
+          min={0}
+          max={72}
+          value={fields.cancelCutoffHours}
+          onChange={(e) =>
+            setFields({ ...fields, cancelCutoffHours: Number(e.target.value) })
+          }
+          title="Customers can cancel until this many hours before a booking starts"
+          className={`mt-1 w-24 ${inputClass}`}
         />
       </label>
       <span className="text-xs text-slate-400">{venue.courts.length} courts</span>

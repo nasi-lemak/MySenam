@@ -12,6 +12,8 @@ badminton, tennis, pickleball and futsal.
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
+- **Cancellation policy** — each venue sets how many hours before a slot customers may still cancel (default 2); the window is shown up front on the venue page and in the booking lookup, and staff can always override from the dashboard
+- **No-show tracking** — staff flag a passed booking whose customer never turned up, and the day list warns when that phone number has prior no-shows
 - **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
 - **Per-venue admin accounts** — operators sign in with email + password; a venue admin only ever sees their own venue's bookings, schedule, courts and revenue, while a platform owner manages every venue, creates venues and issues staff accounts
@@ -20,7 +22,7 @@ badminton, tennis, pickleball and futsal.
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates, add new courts
-  - **Venues & staff**: edit venue details; owners can also add venues and create/remove staff accounts
+  - **Venues & staff**: edit venue details and the cancellation cutoff; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
 ## Tech stack
@@ -99,6 +101,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/bookings`         | `?date=` → bookings + expected/collected/outstanding |
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
+| POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | GET    | `/api/admin/slots`            | `?venueId=&date=` → per-slot status grid             |
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
@@ -106,7 +109,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate}`      |
 | PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?}`                   |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
-| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?}`                   |
+| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?}` |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
 | POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
@@ -145,6 +148,19 @@ settled in one click). Customers see the payment state on `/account` and in the
 `/my-booking` lookup. The daily view splits **expected** vs **collected** vs
 **outstanding** revenue so a shift can be reconciled at closing.
 
+## Cancellation and no-shows
+
+Each venue carries a `cancel_cutoff_hours` (default 2, max 72). Customer-facing
+cancellation — by code, from an account, or for a whole series — is refused
+inside that window with a message naming the cutoff, while
+`/api/admin/bookings/cancel` always succeeds so the front desk can make
+exceptions. Cancelling a series drops only the sessions still outside the
+window.
+
+After a slot has passed, staff can flag it a no-show from the Bookings tab. The
+flag is reversible, never applies to a cancelled booking, and the day list shows
+a ⚠ badge counting that phone number's previous no-shows.
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited
@@ -170,7 +186,6 @@ push and pull request (Node 22, `npm ci`).
 ## Roadmap ideas
 
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
-- Cancellation cutoff window and no-show tracking
 - Member rates, promo codes and bulk discounts
 - Waitlist for fully-booked slots
 - Per-venue operating hours and public-holiday closures

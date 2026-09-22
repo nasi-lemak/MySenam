@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { updateVenue } from "@/lib/store";
+import { MAX_CANCEL_CUTOFF_HOURS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,13 @@ export async function PATCH(
   }
   const input = (body ?? {}) as Record<string, unknown>;
 
-  const changes: Record<string, string> = {};
+  const changes: {
+    name?: string;
+    area?: string;
+    address?: string;
+    phone?: string;
+    cancelCutoffHours?: number;
+  } = {};
   for (const field of FIELDS) {
     const value = input[field];
     if (value === undefined) continue;
@@ -36,6 +43,17 @@ export async function PATCH(
       return NextResponse.json({ error: `A valid ${field} is required.` }, { status: 400 });
     changes[field] = value;
   }
+
+  const cutoff = input.cancelCutoffHours;
+  if (cutoff !== undefined) {
+    if (!Number.isInteger(cutoff) || (cutoff as number) < 0 || (cutoff as number) > MAX_CANCEL_CUTOFF_HOURS)
+      return NextResponse.json(
+        { error: `Cancellation cutoff must be 0–${MAX_CANCEL_CUTOFF_HOURS} hours.` },
+        { status: 400 }
+      );
+    changes.cancelCutoffHours = cutoff as number;
+  }
+
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 

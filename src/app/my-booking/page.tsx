@@ -8,7 +8,7 @@ import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number };
 }
 
 export default function MyBookingPage() {
@@ -144,6 +144,12 @@ export default function MyBookingPage() {
           </dl>
           {b.status === "confirmed" && (
             <>
+              {result.venue.cancelCutoffHours > 0 && (
+                <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Free cancellation until {result.venue.cancelCutoffHours} hour
+                  {result.venue.cancelCutoffHours === 1 ? "" : "s"} before your slot starts.
+                </p>
+              )}
               <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
                 {(() => {
                   const shareInfo = {

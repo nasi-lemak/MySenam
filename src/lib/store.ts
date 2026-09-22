@@ -10,7 +10,13 @@ import {
   Sport,
   Venue,
 } from "./types";
-import { addDays, isBookableDate, isPastSlot, isPeak } from "./time";
+import {
+  addDays,
+  isBookableDate,
+  isPastSlot,
+  isPeak,
+  isWithinCancelWindow,
+} from "./time";
 
 interface CourtRow {
   id: number;
@@ -19,6 +25,26 @@ interface CourtRow {
   sport: Sport;
   off_peak_rate: number;
   peak_rate: number;
+}
+
+interface VenueRow {
+  id: number;
+  name: string;
+  area: string;
+  address: string;
+  phone: string;
+  cancel_cutoff_hours: number;
+}
+
+function toVenue(r: VenueRow): Venue {
+  return {
+    id: r.id,
+    name: r.name,
+    area: r.area,
+    address: r.address,
+    phone: r.phone,
+    cancelCutoffHours: r.cancel_cutoff_hours,
+  };
 }
 
 interface BookingRow {
@@ -37,6 +63,7 @@ interface BookingRow {
   series_code: string | null;
   payment_status: "unpaid" | "paid";
   paid_at: string | null;
+  no_show: number;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -67,20 +94,22 @@ function toBooking(r: BookingRow): Booking {
     seriesCode: r.series_code,
     paymentStatus: r.payment_status,
     paidAt: r.paid_at,
+    noShow: r.no_show === 1,
   };
 }
 
 export function listVenues(): (Venue & { courts: Court[] })[] {
   const db = getDb();
-  const venues = db.prepare("SELECT * FROM venues ORDER BY id").all() as Venue[];
+  const venues = (db.prepare("SELECT * FROM venues ORDER BY id").all() as VenueRow[]).map(toVenue);
   const courts = (db.prepare("SELECT * FROM courts ORDER BY id").all() as CourtRow[]).map(toCourt);
   return venues.map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) }));
 }
 
 export function getVenue(id: number): (Venue & { courts: Court[] }) | null {
   const db = getDb();
-  const venue = db.prepare("SELECT * FROM venues WHERE id = ?").get(id) as Venue | undefined;
-  if (!venue) return null;
+  const row = db.prepare("SELECT * FROM venues WHERE id = ?").get(id) as VenueRow | undefined;
+  if (!row) return null;
+  const venue = toVenue(row);
   const courts = (
     db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(id) as CourtRow[]
   ).map(toCourt);
@@ -168,7 +197,8 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
   const params: (string | number)[] = [input.sport];
   let sql = `
     SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
-           v.address AS v_address, v.phone AS v_phone
+           v.address AS v_address, v.phone AS v_phone,
+           v.cancel_cutoff_hours AS v_cutoff
     FROM courts c JOIN venues v ON v.id = c.venue_id
     WHERE c.sport = ?
   `;
@@ -184,6 +214,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     v_area: string;
     v_address: string;
     v_phone: string;
+    v_cutoff: number;
   })[];
   if (rows.length === 0) return [];
 
@@ -209,6 +240,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
       area: row.v_area,
       address: row.v_address,
       phone: row.v_phone,
+      cancelCutoffHours: row.v_cutoff,
     };
     for (let start = fromHour; start <= lastStart; start++) {
       const hours = Array.from({ length: duration }, (_, i) => start + i);
@@ -408,9 +440,14 @@ export function cancelSeries(seriesCode: string, phone: string): {
   if (rows.length === 0)
     return { ok: false, cancelled: 0, error: "Series not found. Check the series code and phone number." };
 
-  const future = rows.filter((r) => !isPastSlot(r.date, r.start_hour));
+  const cutoff = cancelCutoffForBooking(rows[0].id);
+  const future = rows.filter((r) => isWithinCancelWindow(r.date, r.start_hour, cutoff));
   if (future.length === 0)
-    return { ok: false, cancelled: 0, error: "All sessions in this series have already started or passed." };
+    return {
+      ok: false,
+      cancelled: 0,
+      error: `No sessions left to cancel — the rest start within ${cutoff} hour${cutoff === 1 ? "" : "s"}.`,
+    };
 
   db.transaction(() => {
     for (const row of future) {
@@ -437,12 +474,32 @@ export function findBooking(code: string, phone: string): Booking | null {
 
 export type CancelResult = { ok: true; booking: Booking } | { ok: false; error: string };
 
+/** The cancellation cutoff of the venue a booking belongs to. */
+function cancelCutoffForBooking(bookingId: number): number {
+  const row = getDb()
+    .prepare(`
+      SELECT v.cancel_cutoff_hours AS hours FROM bookings b
+      JOIN courts c ON c.id = b.court_id
+      JOIN venues v ON v.id = c.venue_id
+      WHERE b.id = ?
+    `)
+    .get(bookingId) as { hours: number } | undefined;
+  return row?.hours ?? 0;
+}
+
+function cutoffMessage(hours: number): string {
+  return hours === 0
+    ? "This booking has already started and can no longer be cancelled."
+    : `Bookings can only be cancelled at least ${hours} hour${hours === 1 ? "" : "s"} before they start. Please call the venue.`;
+}
+
 export function cancelBooking(code: string, phone: string): CancelResult {
   const booking = findBooking(code, phone);
   if (!booking) return { ok: false, error: "Booking not found. Check the code and phone number." };
   if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
-  if (isPastSlot(booking.date, booking.startHour))
-    return { ok: false, error: "This booking has already started or passed and can no longer be cancelled." };
+  const cutoff = cancelCutoffForBooking(booking.id);
+  if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
+    return { ok: false, error: cutoffMessage(cutoff) };
 
   const db = getDb();
   db.transaction(() => {
@@ -626,28 +683,41 @@ export function createVenue(input: {
   const info = db
     .prepare("INSERT INTO venues (name, area, address, phone) VALUES (?, ?, ?, ?)")
     .run(input.name.trim(), input.area.trim(), input.address.trim(), input.phone.trim());
-  const venue = db
-    .prepare("SELECT * FROM venues WHERE id = ?")
-    .get(info.lastInsertRowid) as Venue;
+  const venue = toVenue(
+    db.prepare("SELECT * FROM venues WHERE id = ?").get(info.lastInsertRowid) as VenueRow
+  );
   return { ok: true, venue };
 }
 
 export function updateVenue(
   venueId: number,
-  changes: { name?: string; area?: string; address?: string; phone?: string }
+  changes: {
+    name?: string;
+    area?: string;
+    address?: string;
+    phone?: string;
+    cancelCutoffHours?: number;
+  }
 ): VenueEditResult {
   const db = getDb();
-  const current = db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as Venue | undefined;
-  if (!current) return { ok: false, error: "Venue not found." };
+  const row = db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow | undefined;
+  if (!row) return { ok: false, error: "Venue not found." };
+  const current = toVenue(row);
 
-  db.prepare("UPDATE venues SET name = ?, area = ?, address = ?, phone = ? WHERE id = ?").run(
+  db.prepare(
+    "UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ? WHERE id = ?"
+  ).run(
     changes.name?.trim() ?? current.name,
     changes.area?.trim() ?? current.area,
     changes.address?.trim() ?? current.address,
     changes.phone?.trim() ?? current.phone,
+    changes.cancelCutoffHours ?? current.cancelCutoffHours,
     venueId
   );
-  return { ok: true, venue: db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as Venue };
+  return {
+    ok: true,
+    venue: toVenue(db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow),
+  };
 }
 
 /** Which venue a booking code belongs to — used to scope admin actions. */
@@ -678,6 +748,8 @@ export interface AdminBookingRow extends Booking {
   courtName: string;
   sport: Sport;
   venueName: string;
+  /** Prior no-shows by this phone number, so the desk can spot repeats. */
+  priorNoShows: number;
 }
 
 export interface UserBookingRow extends Booking {
@@ -726,8 +798,9 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
   if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
-  if (isPastSlot(booking.date, booking.startHour))
-    return { ok: false, error: "This booking has already started or passed and can no longer be cancelled." };
+  const cutoff = cancelCutoffForBooking(booking.id);
+  if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
+    return { ok: false, error: cutoffMessage(cutoff) };
 
   db.transaction(() => {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
@@ -787,6 +860,36 @@ export function paySeries(seriesCode: string): { ok: boolean; paid: number; erro
   return { ok: true, paid: rows.length };
 }
 
+export type NoShowResult = { ok: true; booking: Booking } | { ok: false; error: string };
+
+/** Flag a passed booking whose customer never turned up (staff only). */
+export function setNoShow(code: string, noShow: boolean): NoShowResult {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?)")
+    .get(code.trim()) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+
+  if (booking.status === "cancelled")
+    return { ok: false, error: "This booking was cancelled." };
+  if (noShow && !isPastSlot(booking.date, booking.startHour))
+    return { ok: false, error: "This booking has not started yet." };
+  if (booking.noShow === noShow)
+    return { ok: false, error: `Already marked ${noShow ? "a no-show" : "attended"}.` };
+
+  db.prepare("UPDATE bookings SET no_show = ? WHERE id = ?").run(noShow ? 1 : 0, booking.id);
+  return { ok: true, booking: { ...booking, noShow } };
+}
+
+/** How many times this phone number has been flagged a no-show. */
+export function countNoShows(phone: string): number {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE phone = ? AND no_show = 1")
+    .get(phone.trim()) as { n: number };
+  return row.n;
+}
+
 export type CourtEditResult = { ok: true; court: Court } | { ok: false; error: string };
 
 export function createCourt(input: {
@@ -838,10 +941,15 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
     court_sport: Sport;
     venue_name: string;
   })[];
-  return rows.map((r) => ({
-    ...toBooking(r),
-    courtName: r.court_name,
-    sport: r.court_sport,
-    venueName: r.venue_name,
-  }));
+  return rows.map((r) => {
+    const booking = toBooking(r);
+    return {
+      ...booking,
+      courtName: r.court_name,
+      sport: r.court_sport,
+      venueName: r.venue_name,
+      // Exclude this booking so the count reads as history, not self-reference.
+      priorNoShows: countNoShows(booking.phone) - (booking.noShow ? 1 : 0),
+    };
+  });
 }

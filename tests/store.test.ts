@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MUDAHTEMPAH_DB = ":memory:";
 
@@ -12,8 +12,12 @@ import {
   createCourt,
   getAvailability,
   listBookingsForDate,
+  countNoShows,
   listAreas,
   listVenues,
+  setNoShow,
+  updateVenue,
+  getVenue,
   paySeries,
   searchAvailability,
   setPaymentStatus,
@@ -346,6 +350,151 @@ describe("cross-venue search", () => {
     for (const r of results) {
       expect(r.totalPrice).toBe(expectedPrice(r.court, date, [r.startHour, r.startHour + 1]));
     }
+  });
+});
+
+describe("cancellation cutoff", () => {
+  it("blocks a customer cancel inside the venue's cutoff but lets admin override", () => {
+    const venue = listVenues()[0];
+    // 48h cutoff makes a booking 3 days out cancellable, one tomorrow not
+    updateVenue(venue.id, { cancelCutoffHours: 48 });
+
+    const far = createBooking({
+      courtId: venue.courts[0].id, date: futureDate(4), hours: [8], name: "Far", phone: PHONE,
+    });
+    const near = createBooking({
+      courtId: venue.courts[0].id, date: futureDate(1), hours: [8], name: "Near", phone: PHONE,
+    });
+    expect(far.ok && near.ok).toBe(true);
+    if (!far.ok || !near.ok) return;
+
+    expect(cancelBooking(far.booking.code, PHONE)).toMatchObject({ ok: true });
+
+    const refused = cancelBooking(near.booking.code, PHONE);
+    expect(refused).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("48 hours before"),
+    });
+
+    // staff can still cancel on the customer's behalf
+    expect(adminCancelBooking(near.booking.code)).toMatchObject({ ok: true });
+    updateVenue(venue.id, { cancelCutoffHours: 2 });
+  });
+
+  it("stores the cutoff on the venue and defaults to 2 hours", () => {
+    const venue = listVenues()[1];
+    expect(venue.cancelCutoffHours).toBe(2);
+    expect(updateVenue(venue.id, { cancelCutoffHours: 12 })).toMatchObject({
+      ok: true,
+      venue: { cancelCutoffHours: 12 },
+    });
+    expect(getVenue(venue.id)?.cancelCutoffHours).toBe(12);
+    updateVenue(venue.id, { cancelCutoffHours: 2 });
+  });
+
+  it("cancels only the series sessions still outside the cutoff", () => {
+    const venue = listVenues()[2];
+    updateVenue(venue.id, { cancelCutoffHours: 48 });
+    const series = createBookingSeries({
+      courtId: venue.courts[0].id,
+      date: futureDate(1), // inside the cutoff
+      hours: [22],
+      weeks: 3,
+      name: "Liga",
+      phone: PHONE,
+    });
+    expect(series.ok).toBe(true);
+    if (!series.ok) return;
+
+    // week 1 is too close; weeks 2 and 3 are far enough out
+    const result = cancelSeries(series.seriesCode!, PHONE);
+    expect(result).toMatchObject({ ok: true, cancelled: 2 });
+    updateVenue(venue.id, { cancelCutoffHours: 2 });
+  });
+});
+
+describe("no-show tracking", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses to flag a booking that has not started, or an unknown code", () => {
+    const court = listVenues()[0].courts[2];
+    const future = createBooking({
+      courtId: court.id, date: futureDate(3), hours: [8], name: "Future", phone: "0170000001",
+    });
+    expect(future.ok).toBe(true);
+    if (!future.ok) return;
+    expect(future.booking.noShow).toBe(false);
+
+    expect(setNoShow(future.booking.code, true)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("not started"),
+    });
+    expect(setNoShow("MT-NOSUCH", true)).toMatchObject({ ok: false });
+  });
+
+  it("flags a passed booking, is reversible, and counts repeats per phone", () => {
+    const court = listVenues()[1].courts[4];
+    const phone = "0170000002";
+    const date = futureDate(3);
+    expect(countNoShows(phone)).toBe(0);
+
+    const first = createBooking({ courtId: court.id, date, hours: [9], name: "Repeat", phone });
+    const second = createBooking({ courtId: court.id, date, hours: [11], name: "Repeat", phone });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    // travel past both slots so they can be judged
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${date}T16:00:00+08:00`));
+
+    expect(setNoShow(first.booking.code, true)).toMatchObject({
+      ok: true,
+      booking: { noShow: true },
+    });
+    expect(countNoShows(phone)).toBe(1);
+
+    // flagging twice is refused
+    expect(setNoShow(first.booking.code, true)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("Already marked"),
+    });
+
+    expect(setNoShow(second.booking.code, true)).toMatchObject({ ok: true });
+    expect(countNoShows(phone)).toBe(2);
+
+    // the desk sees the history on the day list, excluding the row itself
+    const rows = listBookingsForDate(date).filter((r) => r.phone === phone);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.noShow).toBe(true);
+      expect(row.priorNoShows).toBe(1);
+    }
+
+    // a mistake can be undone
+    expect(setNoShow(second.booking.code, false)).toMatchObject({
+      ok: true,
+      booking: { noShow: false },
+    });
+    expect(countNoShows(phone)).toBe(1);
+  });
+
+  it("never flags a cancelled booking", () => {
+    const court = listVenues()[1].courts[5];
+    const phone = "0170000003";
+    const booking = createBooking({
+      courtId: court.id, date: futureDate(3), hours: [10], name: "Gone", phone,
+    });
+    expect(booking.ok).toBe(true);
+    if (!booking.ok) return;
+
+    cancelBooking(booking.booking.code, phone);
+    expect(setNoShow(booking.booking.code, true)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("cancelled"),
+    });
+    expect(countNoShows(phone)).toBe(0);
   });
 });
 

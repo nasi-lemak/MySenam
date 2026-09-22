@@ -56,6 +56,28 @@ export function isPastSlot(date: string, hour: number): boolean {
   return hour <= currentHour();
 }
 
+const MYT_OFFSET_HOURS = 8;
+
+/** The UTC instant at which a Malaysia-time slot begins. */
+export function slotStartsAt(date: string, hour: number): Date {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, hour - MYT_OFFSET_HOURS));
+}
+
+/** Hours from now until a slot starts; negative once it has begun. */
+export function hoursUntilSlot(date: string, hour: number): number {
+  return (slotStartsAt(date, hour).getTime() - Date.now()) / 3_600_000;
+}
+
+/** Is a customer still inside the free-cancellation window? */
+export function isWithinCancelWindow(
+  date: string,
+  hour: number,
+  cutoffHours: number
+): boolean {
+  return hoursUntilSlot(date, hour) >= cutoffHours;
+}
+
 export function formatHour(hour: number): string {
   const h = hour % 24;
   const suffix = h >= 12 ? "PM" : "AM";
