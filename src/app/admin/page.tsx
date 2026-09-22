@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { Court, SPORT_ICONS, Venue } from "@/lib/types";
+import { Court, isShared, MAX_CAPACITY, SPORT_ICONS, Venue } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import type { AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
 
@@ -580,6 +580,11 @@ function ScheduleTab({
                 <tr key={court.id} className="border-b border-slate-100 last:border-0">
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 font-medium">
                     {SPORT_ICONS[court.sport]} {court.name}
+                    {isShared(court) && (
+                      <span className="ml-1 text-xs font-normal text-slate-400">
+                        {court.capacity} places
+                      </span>
+                    )}
                   </td>
                   {slots.map((slot) => (
                     <td key={slot.hour} className="p-1 text-center">
@@ -587,13 +592,15 @@ function ScheduleTab({
                         onClick={() => toggle(court.id, slot.hour, slot.status)}
                         disabled={slot.status === "booked"}
                         title={
-                          slot.status === "booked"
-                            ? `Booked: ${slot.bookingCode}`
-                            : slot.status === "blocked"
-                              ? `Blocked${slot.blockReason ? `: ${slot.blockReason}` : ""} — click to release`
-                              : slot.status === "past"
-                                ? "Past — can still block/unblock"
-                                : "Free — click to block"
+                          isShared(court)
+                            ? `${slot.booked} of ${court.capacity} places taken`
+                            : slot.status === "booked"
+                              ? `Booked: ${slot.bookingCode}`
+                              : slot.status === "blocked"
+                                ? `Blocked${slot.blockReason ? `: ${slot.blockReason}` : ""} — click to release`
+                                : slot.status === "past"
+                                  ? "Past — can still block/unblock"
+                                  : "Free — click to block"
                         }
                         className={`h-9 w-12 rounded-md text-[10px] font-semibold transition ${
                           slot.status === "booked"
@@ -605,13 +612,15 @@ function ScheduleTab({
                                 : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                         }`}
                       >
-                        {slot.status === "booked"
-                          ? slot.bookingCode?.slice(3)
-                          : slot.status === "blocked"
-                            ? "⛔"
-                            : slot.status === "past"
-                              ? "—"
-                              : "·"}
+                        {isShared(court) && slot.status !== "blocked"
+                          ? `${slot.booked}/${court.capacity}`
+                          : slot.status === "booked"
+                            ? slot.bookingCode?.slice(3)
+                            : slot.status === "blocked"
+                              ? "⛔"
+                              : slot.status === "past"
+                                ? "—"
+                                : "·"}
                       </button>
                     </td>
                   ))}
@@ -637,7 +646,13 @@ function CourtsTab({
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [newCourt, setNewCourt] = useState({ name: "", sport: "badminton", offPeak: "", peak: "" });
+  const [newCourt, setNewCourt] = useState({
+    name: "",
+    sport: "badminton",
+    offPeak: "",
+    peak: "",
+    capacity: "1",
+  });
 
   const venue = venues.find((v) => v.id === venueId);
 
@@ -647,7 +662,13 @@ function CourtsTab({
     onVenuesChange(data.venues);
   }
 
-  async function saveCourt(court: Court, name: string, offPeak: string, peak: string) {
+  async function saveCourt(
+    court: Court,
+    name: string,
+    offPeak: string,
+    peak: string,
+    capacity: string
+  ) {
     setError(null);
     setNotice(null);
     try {
@@ -658,6 +679,7 @@ function CourtsTab({
           name,
           offPeakRate: Number(offPeak),
           peakRate: Number(peak),
+          capacity: Number(capacity),
         }),
       });
       const data = await res.json();
@@ -683,12 +705,13 @@ function CourtsTab({
           sport: newCourt.sport,
           offPeakRate: Number(newCourt.offPeak),
           peakRate: Number(newCourt.peak),
+          capacity: Number(newCourt.capacity),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not add court");
       setNotice(`Added ${data.court.name}.`);
-      setNewCourt({ name: "", sport: newCourt.sport, offPeak: "", peak: "" });
+      setNewCourt({ name: "", sport: newCourt.sport, offPeak: "", peak: "", capacity: "1" });
       refreshVenues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add court");
@@ -725,7 +748,7 @@ function CourtsTab({
           <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {["Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)", ""].map((h, i) => (
+                {["Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)", "Capacity", ""].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
                     {h}
                   </th>
@@ -783,6 +806,17 @@ function CourtsTab({
           placeholder="Peak RM"
           className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
+        <input
+          required
+          type="number"
+          min={1}
+          max={MAX_CAPACITY}
+          value={newCourt.capacity}
+          onChange={(e) => setNewCourt({ ...newCourt, capacity: e.target.value })}
+          title="1 for an exclusive court; higher for a shared facility like a gym floor"
+          placeholder="Capacity"
+          className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -799,13 +833,23 @@ function CourtRow({
   onSave,
 }: {
   court: Court;
-  onSave: (court: Court, name: string, offPeak: string, peak: string) => void;
+  onSave: (
+    court: Court,
+    name: string,
+    offPeak: string,
+    peak: string,
+    capacity: string
+  ) => void;
 }) {
   const [name, setName] = useState(court.name);
   const [offPeak, setOffPeak] = useState(String(court.offPeakRate));
   const [peak, setPeak] = useState(String(court.peakRate));
+  const [capacity, setCapacity] = useState(String(court.capacity));
   const dirty =
-    name !== court.name || offPeak !== String(court.offPeakRate) || peak !== String(court.peakRate);
+    name !== court.name ||
+    offPeak !== String(court.offPeakRate) ||
+    peak !== String(court.peakRate) ||
+    capacity !== String(court.capacity);
 
   return (
     <tr className="border-b border-slate-100 last:border-0">
@@ -838,9 +882,20 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
+        <input
+          type="number"
+          min={1}
+          max={MAX_CAPACITY}
+          value={capacity}
+          onChange={(e) => setCapacity(e.target.value)}
+          title="1 for an exclusive court; higher for a shared facility"
+          className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
         <button
           disabled={!dirty}
-          onClick={() => onSave(court, name, offPeak, peak)}
+          onClick={() => onSave(court, name, offPeak, peak, capacity)}
           className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
         >
           Save
@@ -934,12 +989,13 @@ function OccupancyTab({
                   {report.days.map((d) => {
                     const cell = d.perCourt.find((c) => c.courtId === court.id);
                     const booked = cell?.booked ?? 0;
-                    const pct = Math.round((booked / report.totalSlotsPerDay) * 100);
+                    const places = report.totalSlotsPerDay * court.capacity;
+                    const pct = Math.round((booked / places) * 100);
                     return (
                       <td key={d.date} className="p-1 text-center">
                         <div
                           className={`rounded-md py-1.5 text-xs font-semibold ${heat(pct)}`}
-                          title={`${booked}/${report.totalSlotsPerDay} hours booked${cell?.blocked ? `, ${cell.blocked} blocked` : ""}`}
+                          title={`${booked}/${places} places booked${cell?.blocked ? `, ${cell.blocked} hours blocked` : ""}`}
                         >
                           {booked > 0 ? `${pct}%` : "·"}
                           {cell?.blocked ? <span className="ml-0.5">⛔</span> : null}
@@ -953,7 +1009,10 @@ function OccupancyTab({
                 <td className="px-3 py-2">Venue total</td>
                 {report.days.map((d) => {
                   const booked = d.perCourt.reduce((s, c) => s + c.booked, 0);
-                  const total = report.totalSlotsPerDay * report.courts.length;
+                  const total = report.courts.reduce(
+                    (sum, c) => sum + report.totalSlotsPerDay * c.capacity,
+                    0
+                  );
                   const pct = total > 0 ? Math.round((booked / total) * 100) : 0;
                   return (
                     <td key={d.date} className="px-2 py-2 text-center text-teal-700">

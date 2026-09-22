@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getCourt, updateCourt } from "@/lib/store";
+import { MAX_CAPACITY } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +30,14 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, offPeakRate, peakRate } = (body ?? {}) as Record<string, unknown>;
+  const { name, offPeakRate, peakRate, capacity } = (body ?? {}) as Record<string, unknown>;
 
-  const changes: { name?: string; offPeakRate?: number; peakRate?: number } = {};
+  const changes: {
+    name?: string;
+    offPeakRate?: number;
+    peakRate?: number;
+    capacity?: number;
+  } = {};
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length < 2)
       return NextResponse.json({ error: "Court name is too short." }, { status: 400 });
@@ -44,10 +50,23 @@ export async function PATCH(
       changes[key] = rate as number;
     }
   }
+  if (capacity !== undefined) {
+    if (!Number.isInteger(capacity) || (capacity as number) < 1 || (capacity as number) > MAX_CAPACITY)
+      return NextResponse.json(
+        { error: `Capacity must be 1–${MAX_CAPACITY}.` },
+        { status: 400 }
+      );
+    changes.capacity = capacity as number;
+  }
+
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
   const result = updateCourt(courtId, changes);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
+  if (!result.ok)
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.error === "Court not found." ? 404 : 409 }
+    );
   return NextResponse.json({ court: result.court });
 }

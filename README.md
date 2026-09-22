@@ -1,11 +1,12 @@
 # MudahTempah 🏸
 
 **Tempah gelanggang dengan mudah** — an online booking platform for sports courts:
-badminton, tennis, pickleball and futsal.
+badminton, tennis, pickleball, futsal — and shared facilities like gyms and pools.
 
 ## Features
 
 - **Cross-venue search** (`/search`) — pick a sport, day, time window and duration, and see every free court across all venues at once, grouped by venue and cheapest-first; one click deep-links into the venue page with the slot already selected
+- **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
 - **Live availability grid** — per venue, per sport, per day, with hourly slots (8 AM – 11 PM)
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
@@ -140,6 +141,30 @@ tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping)
 ```
 
+## Exclusive courts vs shared facilities
+
+Every bookable resource carries a `capacity`:
+
+| Capacity | Behaves like | Example |
+| -------- | ------------ | ------- |
+| 1 | Exclusive use — one booking owns the hour | Badminton court |
+| > 1 | Shared — that many people may hold the same hour | Gym floor, lap pool, class |
+
+The guarantee is the same for both. Each booked hour takes a numbered *place*
+(`booking_slots.seat`), and `UNIQUE (court_id, date, hour, seat)` is what makes
+overbooking impossible under concurrent requests — a court is simply the case
+where the only place is seat 0. Booking allocates the lowest free place inside
+the transaction; if two requests race for it, the loser retries against the
+winner's state (bounded), and a genuinely full resource is refused outright.
+
+Capacity cannot be reduced below the places already booked in an upcoming hour,
+so shrinking a gym never strands a customer.
+
+For a customer this is the crowd signal: a shared facility shows **places left**
+rather than a price in each cell, shaded from quiet through filling to busy.
+Note this reflects *bookings*, not people physically present — a live headcount
+of the kind ActiveSG shows would need check-in at the door (see roadmap).
+
 ## Payments
 
 Bookings are pay-at-counter: every booking starts `unpaid`, and front-desk staff
@@ -185,6 +210,10 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
+- Check-in at the door (QR/turnstile) — the prerequisite for a live headcount
+  rather than a bookings-derived one, and for real attendance data
+- Instructor-led classes: a shared slot plus an enrolment roster and terms
+- Memberships, passes and stored credit
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Member rates, promo codes and bulk discounts
 - Waitlist for fully-booked slots

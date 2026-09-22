@@ -30,13 +30,20 @@ export function getDb(): Database.Database {
       cancel_cutoff_hours INTEGER NOT NULL DEFAULT 2
     );
 
+    -- A bookable resource. Despite the table name this is not always a court:
+    -- capacity 1 means exclusive use (a badminton court), capacity > 1 means a
+    -- shared facility where that many people may hold the same hour (a gym
+    -- floor, a pool, a class).
     CREATE TABLE IF NOT EXISTS courts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       venue_id INTEGER NOT NULL REFERENCES venues(id),
       name TEXT NOT NULL,
-      sport TEXT NOT NULL CHECK (sport IN ('badminton','tennis','pickleball','futsal')),
+      -- The activity vocabulary is validated in lib/types.ts so it can grow
+      -- without rebuilding this table.
+      sport TEXT NOT NULL,
       off_peak_rate INTEGER NOT NULL,
-      peak_rate INTEGER NOT NULL
+      peak_rate INTEGER NOT NULL,
+      capacity INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS bookings (
@@ -54,15 +61,18 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    -- One row per booked hour; the UNIQUE constraint is what makes
-    -- double-booking impossible even under concurrent requests.
+    -- One row per booked hour per place taken. The seat column is which of the
+    -- resource's capacity places this booking holds (0-based, always 0 for an
+    -- exclusive court), so the UNIQUE constraint is still what makes
+    -- overbooking impossible under concurrent requests.
     CREATE TABLE IF NOT EXISTS booking_slots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
       court_id INTEGER NOT NULL REFERENCES courts(id),
       date TEXT NOT NULL,
       hour INTEGER NOT NULL,
-      UNIQUE (court_id, date, hour)
+      seat INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (court_id, date, hour, seat)
     );
 
     -- Hours a court is closed for maintenance/private events; blocked hours
@@ -131,6 +141,52 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE bookings ADD COLUMN series_code TEXT");
     db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_series ON bookings(series_code)");
   }
+  // courts: add capacity and drop the sport CHECK. Both need a table
+  // rebuild, so copy through a new table with foreign keys briefly off.
+  const courtCols = db.prepare("PRAGMA table_info(courts)").all() as { name: string }[];
+  if (courtCols.length > 0 && !courtCols.some((c) => c.name === "capacity")) {
+    rebuild(db, () => {
+      db.exec(`
+        CREATE TABLE courts_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          venue_id INTEGER NOT NULL REFERENCES venues(id),
+          name TEXT NOT NULL,
+          sport TEXT NOT NULL,
+          off_peak_rate INTEGER NOT NULL,
+          peak_rate INTEGER NOT NULL,
+          capacity INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT INTO courts_new (id, venue_id, name, sport, off_peak_rate, peak_rate, capacity)
+          SELECT id, venue_id, name, sport, off_peak_rate, peak_rate, 1 FROM courts;
+        DROP TABLE courts;
+        ALTER TABLE courts_new RENAME TO courts;
+      `);
+    });
+  }
+
+  // booking_slots: add seat and widen the UNIQUE constraint to include it.
+  const slotCols = db.prepare("PRAGMA table_info(booking_slots)").all() as { name: string }[];
+  if (slotCols.length > 0 && !slotCols.some((c) => c.name === "seat")) {
+    rebuild(db, () => {
+      db.exec(`
+        CREATE TABLE booking_slots_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+          court_id INTEGER NOT NULL REFERENCES courts(id),
+          date TEXT NOT NULL,
+          hour INTEGER NOT NULL,
+          seat INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (court_id, date, hour, seat)
+        );
+        INSERT INTO booking_slots_new (id, booking_id, court_id, date, hour, seat)
+          SELECT id, booking_id, court_id, date, hour, 0 FROM booking_slots;
+        DROP TABLE booking_slots;
+        ALTER TABLE booking_slots_new RENAME TO booking_slots;
+        CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
+      `);
+    });
+  }
+
   if (!bookingCols.some((c) => c.name === "no_show")) {
     db.exec("ALTER TABLE bookings ADD COLUMN no_show INTEGER NOT NULL DEFAULT 0");
   }
@@ -148,6 +204,20 @@ function migrate(db: Database.Database) {
   }
 }
 
+/**
+ * Run a table rebuild. PRAGMA foreign_keys is a no-op inside a transaction, so
+ * it is toggled outside one while the copy itself stays atomic.
+ */
+function rebuild(db: Database.Database, work: () => void): void {
+  const hadForeignKeys = db.pragma("foreign_keys", { simple: true }) === 1;
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(work)();
+  } finally {
+    if (hadForeignKeys) db.pragma("foreign_keys = ON");
+  }
+}
+
 function seedIfEmpty(db: Database.Database) {
   const count = db.prepare("SELECT COUNT(*) AS n FROM venues").get() as { n: number };
   if (count.n > 0) return;
@@ -156,7 +226,7 @@ function seedIfEmpty(db: Database.Database) {
     "INSERT INTO venues (name, area, address, phone) VALUES (?, ?, ?, ?)"
   );
   const insertCourt = db.prepare(
-    "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity) VALUES (?, ?, ?, ?, ?, ?)"
   );
 
   const seed = db.transaction(() => {
@@ -167,9 +237,11 @@ function seedIfEmpty(db: Database.Database) {
       "+60 3-1234 5678"
     ).lastInsertRowid as number;
 
-    for (let i = 1; i <= 4; i++) insertCourt.run(arena, `Badminton Court ${i}`, "badminton", 15, 25);
-    for (let i = 1; i <= 2; i++) insertCourt.run(arena, `Pickleball Court ${i}`, "pickleball", 20, 30);
-    insertCourt.run(arena, "Futsal Pitch A", "futsal", 80, 120);
+    for (let i = 1; i <= 4; i++) insertCourt.run(arena, `Badminton Court ${i}`, "badminton", 15, 25, 1);
+    for (let i = 1; i <= 2; i++) insertCourt.run(arena, `Pickleball Court ${i}`, "pickleball", 20, 30, 1);
+    insertCourt.run(arena, "Futsal Pitch A", "futsal", 80, 120, 1);
+    // Shared-capacity facilities: many people hold the same hour.
+    insertCourt.run(arena, "Gym Floor", "gym", 5, 8, 40);
 
     const sunway = insertVenue.run(
       "SmashPoint Sports Centre",
@@ -178,8 +250,9 @@ function seedIfEmpty(db: Database.Database) {
       "+60 3-8765 4321"
     ).lastInsertRowid as number;
 
-    for (let i = 1; i <= 6; i++) insertCourt.run(sunway, `Badminton Court ${i}`, "badminton", 12, 22);
-    for (let i = 1; i <= 2; i++) insertCourt.run(sunway, `Tennis Court ${i}`, "tennis", 25, 40);
+    for (let i = 1; i <= 6; i++) insertCourt.run(sunway, `Badminton Court ${i}`, "badminton", 12, 22, 1);
+    for (let i = 1; i <= 2; i++) insertCourt.run(sunway, `Tennis Court ${i}`, "tennis", 25, 40, 1);
+    insertCourt.run(sunway, "Lap Pool", "swimming", 4, 6, 25);
 
     const bangsar = insertVenue.run(
       "Bangsar Racquet Club",
@@ -188,8 +261,8 @@ function seedIfEmpty(db: Database.Database) {
       "+60 3-2222 3333"
     ).lastInsertRowid as number;
 
-    for (let i = 1; i <= 3; i++) insertCourt.run(bangsar, `Tennis Court ${i}`, "tennis", 30, 45);
-    for (let i = 1; i <= 4; i++) insertCourt.run(bangsar, `Pickleball Court ${i}`, "pickleball", 18, 28);
+    for (let i = 1; i <= 3; i++) insertCourt.run(bangsar, `Tennis Court ${i}`, "tennis", 30, 45, 1);
+    for (let i = 1; i <= 4; i++) insertCourt.run(bangsar, `Pickleball Court ${i}`, "pickleball", 18, 28, 1);
   });
 
   seed();

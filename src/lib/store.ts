@@ -25,6 +25,7 @@ interface CourtRow {
   sport: Sport;
   off_peak_rate: number;
   peak_rate: number;
+  capacity: number;
 }
 
 interface VenueRow {
@@ -74,6 +75,7 @@ function toCourt(r: CourtRow): Court {
     sport: r.sport,
     offPeakRate: r.off_peak_rate,
     peakRate: r.peak_rate,
+    capacity: r.capacity,
   };
 }
 
@@ -130,10 +132,7 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
   ).map(toCourt);
   if (sport) courts = courts.filter((c) => c.sport === sport);
 
-  const taken = db
-    .prepare("SELECT court_id, hour FROM booking_slots WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
-    .all(date, venueId) as { court_id: number; hour: number }[];
-  const takenSet = new Set(taken.map((t) => `${t.court_id}:${t.hour}`));
+  const takenCounts = countTakenPlaces(date, venueId);
 
   const blocked = db
     .prepare("SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
@@ -145,13 +144,33 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
     slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
       const hour = OPEN_HOUR + i;
       const key = `${court.id}:${hour}`;
+      const booked = takenCounts.get(key) ?? 0;
       return {
         hour,
         rate: isPeak(date, hour) ? court.peakRate : court.offPeakRate,
-        available: !takenSet.has(key) && !blockedSet.has(key) && !isPastSlot(date, hour),
+        booked,
+        capacity: court.capacity,
+        available:
+          booked < court.capacity && !blockedSet.has(key) && !isPastSlot(date, hour),
       };
     }),
   }));
+}
+
+/** Places already taken per `courtId:hour` on a date, for one venue or all. */
+function countTakenPlaces(date: string, venueId?: number): Map<string, number> {
+  const rows = getDb()
+    .prepare(`
+      SELECT court_id, hour, COUNT(*) AS n FROM booking_slots
+      WHERE date = ? AND (? IS NULL OR court_id IN (SELECT id FROM courts WHERE venue_id = ?))
+      GROUP BY court_id, hour
+    `)
+    .all(date, venueId ?? null, venueId ?? null) as {
+    court_id: number;
+    hour: number;
+    n: number;
+  }[];
+  return new Map(rows.map((r) => [`${r.court_id}:${r.hour}`, r.n]));
 }
 
 export interface SearchResult {
@@ -221,15 +240,16 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
   const courtIds = rows.map((r) => r.id);
   const idList = courtIds.map(() => "?").join(",");
   const taken = db
-    .prepare(`SELECT court_id, hour FROM booking_slots WHERE date = ? AND court_id IN (${idList})`)
-    .all(input.date, ...courtIds) as { court_id: number; hour: number }[];
+    .prepare(`
+      SELECT court_id, hour, COUNT(*) AS n FROM booking_slots
+      WHERE date = ? AND court_id IN (${idList}) GROUP BY court_id, hour
+    `)
+    .all(input.date, ...courtIds) as { court_id: number; hour: number; n: number }[];
+  const takenCounts = new Map(taken.map((t) => [`${t.court_id}:${t.hour}`, t.n]));
   const blocked = db
     .prepare(`SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (${idList})`)
     .all(input.date, ...courtIds) as { court_id: number; hour: number }[];
-  const unavailable = new Set([
-    ...taken.map((t) => `${t.court_id}:${t.hour}`),
-    ...blocked.map((b) => `${b.court_id}:${b.hour}`),
-  ]);
+  const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
 
   const results: SearchResult[] = [];
   for (const row of rows) {
@@ -244,9 +264,14 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     };
     for (let start = fromHour; start <= lastStart; start++) {
       const hours = Array.from({ length: duration }, (_, i) => start + i);
-      const free = hours.every(
-        (h) => !unavailable.has(`${court.id}:${h}`) && !isPastSlot(input.date, h)
-      );
+      const free = hours.every((h) => {
+        const key = `${court.id}:${h}`;
+        return (
+          (takenCounts.get(key) ?? 0) < court.capacity &&
+          !blockedSet.has(key) &&
+          !isPastSlot(input.date, h)
+        );
+      });
       if (!free) continue;
       results.push({
         venue,
@@ -289,6 +314,9 @@ export type CreateBookingResult =
   | { ok: true; booking: Booking }
   | { ok: false; error: string };
 
+/** Bounded retries when two requests race for the same place. */
+const MAX_SEAT_RETRIES = 5;
+
 export interface SeriesSkip {
   date: string;
   reason: string;
@@ -327,7 +355,7 @@ export function createBookingSeries(input: {
   email?: string;
   userId?: number;
   skipConflicts?: boolean;
-}): CreateSeriesResult {
+}, attempt = 0): CreateSeriesResult {
   const { courtId, date, weeks, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
@@ -352,8 +380,8 @@ export function createBookingSeries(input: {
 
   const db = getDb();
   const placeholders = hours.map(() => "?").join(",");
-  const takenCheck = db.prepare(
-    `SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
+  const seatsTaken = db.prepare(
+    "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
   );
   const blockedCheck = db.prepare(
     `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
@@ -363,8 +391,19 @@ export function createBookingSeries(input: {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
-    "INSERT INTO booking_slots (booking_id, court_id, date, hour) VALUES (?, ?, ?, ?)"
+    "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
   );
+
+  /** Lowest unused place for an hour, or null when the resource is full. */
+  const freeSeat = (weekDate: string, hour: number): number | null => {
+    const used = new Set(
+      (seatsTaken.all(courtId, weekDate, hour) as { seat: number }[]).map((r) => r.seat)
+    );
+    for (let seat = 0; seat < court.capacity; seat++) {
+      if (!used.has(seat)) return seat;
+    }
+    return null;
+  };
 
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
 
@@ -374,9 +413,11 @@ export function createBookingSeries(input: {
       const skipped: SeriesSkip[] = [];
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
+        const seats = hours.map((hour) => freeSeat(weekDate, hour));
+
         let reason: string | null = null;
-        if ((takenCheck.get(courtId, weekDate, ...hours) as { n: number }).n > 0) {
-          reason = "already booked";
+        if (seats.some((seat) => seat === null)) {
+          reason = court.capacity > 1 ? "fully booked" : "already booked";
         } else if ((blockedCheck.get(courtId, weekDate, ...hours) as { n: number }).n > 0) {
           reason = "closed for maintenance";
         }
@@ -390,7 +431,7 @@ export function createBookingSeries(input: {
           name, phone, email ?? null, computePrice(court, weekDate, hours),
           userId ?? null, seriesCode
         ).lastInsertRowid as number;
-        for (const hour of hours) insertSlot.run(bookingId, courtId, weekDate, hour);
+        hours.forEach((hour, i) => insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!));
         bookings.push(getBookingById(bookingId)!);
       }
       if (bookings.length === 0) throw new Error("ALL_CONFLICT");
@@ -408,18 +449,28 @@ export function createBookingSeries(input: {
             ? `${conflictDate} is unavailable (${reason}). Enable "skip unavailable weeks" or pick another slot.`
             : reason === "closed for maintenance"
               ? "One or more of those slots is closed for maintenance. Please pick again."
-              : "One or more of those slots was just booked by someone else. Please pick again.",
+              : reason === "fully booked"
+                ? "That session filled up while you were booking. Please pick another time."
+                : "One or more of those slots was just booked by someone else. Please pick again.",
       };
     }
     if (message === "ALL_CONFLICT") {
       return { ok: false, error: "Every week in that series is already taken. Please pick another slot." };
     }
     if (message.includes("UNIQUE constraint failed: booking_slots")) {
-      return { ok: false, error: "One or more of those slots was just booked by someone else. Please pick again." };
+      // Two requests picked the same place at once; the loser retries against
+      // the winner's state. A genuinely full resource fails the seat check
+      // above instead, so this cannot spin, but bound it regardless.
+      if (attempt < MAX_SEAT_RETRIES) return createBookingSeries(input, attempt + 1);
+      return {
+        ok: false,
+        error: "That session is filling up very quickly. Please try again.",
+      };
     }
     if (message.includes("UNIQUE constraint failed: bookings.code")) {
       // Astronomically rare code collision — one retry is plenty.
-      return createBookingSeries(input);
+      if (attempt < MAX_SEAT_RETRIES) return createBookingSeries(input, attempt + 1);
+      throw err;
     }
     throw err;
   }
@@ -513,7 +564,15 @@ export type AdminSlotStatus = "free" | "booked" | "blocked" | "past";
 
 export interface AdminCourtSlots {
   court: Court;
-  slots: { hour: number; status: AdminSlotStatus; bookingCode?: string; blockReason?: string }[];
+  slots: {
+    hour: number;
+    status: AdminSlotStatus;
+    /** Places taken this hour (0 or 1 for an exclusive court). */
+    booked: number;
+    /** Only meaningful for an exclusive court. */
+    bookingCode?: string;
+    blockReason?: string;
+  }[];
 }
 
 /** Full slot-status grid for a venue on a date (admin view). */
@@ -528,9 +587,16 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
       SELECT s.court_id, s.hour, b.code FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       WHERE s.date = ? AND s.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
+      ORDER BY s.seat
     `)
     .all(date, venueId) as { court_id: number; hour: number; code: string }[];
-  const bookedMap = new Map(booked.map((b) => [`${b.court_id}:${b.hour}`, b.code]));
+  const bookedMap = new Map<string, string>();
+  const bookedCounts = new Map<string, number>();
+  for (const row of booked) {
+    const key = `${row.court_id}:${row.hour}`;
+    if (!bookedMap.has(key)) bookedMap.set(key, row.code);
+    bookedCounts.set(key, (bookedCounts.get(key) ?? 0) + 1);
+  }
 
   const blocks = db
     .prepare("SELECT court_id, hour, reason FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
@@ -542,19 +608,24 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
     slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
       const hour = OPEN_HOUR + i;
       const key = `${court.id}:${hour}`;
-      const bookingCode = bookedMap.get(key);
+      const count = bookedCounts.get(key) ?? 0;
       const blockReason = blockMap.get(key);
-      const status: AdminSlotStatus = bookingCode
-        ? "booked"
-        : blockReason !== undefined
-          ? "blocked"
-          : isPastSlot(date, hour)
-            ? "past"
-            : "free";
+      // A shared facility only reads as "booked" once every place is gone.
+      const status: AdminSlotStatus =
+        count >= court.capacity
+          ? "booked"
+          : blockReason !== undefined
+            ? "blocked"
+            : isPastSlot(date, hour)
+              ? "past"
+              : "free";
       return {
         hour,
         status,
-        ...(bookingCode ? { bookingCode } : {}),
+        booked: count,
+        ...(court.capacity === 1 && bookedMap.has(key)
+          ? { bookingCode: bookedMap.get(key) }
+          : {}),
         ...(blockReason !== undefined ? { blockReason } : {}),
       };
     }),
@@ -898,28 +969,58 @@ export function createCourt(input: {
   sport: Sport;
   offPeakRate: number;
   peakRate: number;
+  capacity?: number;
 }): CourtEditResult {
   const db = getDb();
   if (!getVenue(input.venueId)) return { ok: false, error: "Venue not found." };
   const info = db
     .prepare(
-      "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity) VALUES (?, ?, ?, ?, ?, ?)"
     )
-    .run(input.venueId, input.name.trim(), input.sport, input.offPeakRate, input.peakRate);
+    .run(
+      input.venueId,
+      input.name.trim(),
+      input.sport,
+      input.offPeakRate,
+      input.peakRate,
+      input.capacity ?? 1
+    );
   return { ok: true, court: getCourt(info.lastInsertRowid as number)! };
 }
 
 export function updateCourt(
   courtId: number,
-  changes: { name?: string; offPeakRate?: number; peakRate?: number }
+  changes: { name?: string; offPeakRate?: number; peakRate?: number; capacity?: number }
 ): CourtEditResult {
   const db = getDb();
   const court = getCourt(courtId);
   if (!court) return { ok: false, error: "Court not found." };
-  db.prepare("UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ? WHERE id = ?").run(
+
+  // Shrinking capacity below what is already booked would strand those
+  // bookings, so refuse rather than silently overbook.
+  if (changes.capacity !== undefined && changes.capacity < court.capacity) {
+    const peak = db
+      .prepare(`
+        SELECT COUNT(*) AS n FROM booking_slots
+        WHERE court_id = ? AND date >= date('now')
+        GROUP BY date, hour ORDER BY n DESC LIMIT 1
+      `)
+      .get(courtId) as { n: number } | undefined;
+    if (peak && peak.n > changes.capacity) {
+      return {
+        ok: false,
+        error: `Capacity cannot go below ${peak.n} — that many places are already booked in an upcoming hour.`,
+      };
+    }
+  }
+
+  db.prepare(
+    "UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?, capacity = ? WHERE id = ?"
+  ).run(
     changes.name?.trim() ?? court.name,
     changes.offPeakRate ?? court.offPeakRate,
     changes.peakRate ?? court.peakRate,
+    changes.capacity ?? court.capacity,
     courtId
   );
   return { ok: true, court: getCourt(courtId)! };

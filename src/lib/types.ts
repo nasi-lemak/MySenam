@@ -1,12 +1,27 @@
-export type Sport = "badminton" | "tennis" | "pickleball" | "futsal";
+export type Sport =
+  | "badminton"
+  | "tennis"
+  | "pickleball"
+  | "futsal"
+  | "gym"
+  | "swimming";
 
-export const SPORTS: Sport[] = ["badminton", "tennis", "pickleball", "futsal"];
+export const SPORTS: Sport[] = [
+  "badminton",
+  "tennis",
+  "pickleball",
+  "futsal",
+  "gym",
+  "swimming",
+];
 
 export const SPORT_LABELS: Record<Sport, string> = {
   badminton: "Badminton",
   tennis: "Tennis",
   pickleball: "Pickleball",
   futsal: "Futsal",
+  gym: "Gym",
+  swimming: "Swimming",
 };
 
 export const SPORT_ICONS: Record<Sport, string> = {
@@ -14,6 +29,8 @@ export const SPORT_ICONS: Record<Sport, string> = {
   tennis: "🎾",
   pickleball: "🥒",
   futsal: "⚽",
+  gym: "🏋️",
+  swimming: "🏊",
 };
 
 export interface Venue {
@@ -29,6 +46,11 @@ export interface Venue {
 export const DEFAULT_CANCEL_CUTOFF_HOURS = 2;
 export const MAX_CANCEL_CUTOFF_HOURS = 72;
 
+/**
+ * A bookable resource. `capacity` 1 is a court held exclusively; greater than
+ * 1 is a shared facility (gym floor, pool, class) where that many people can
+ * hold the same hour.
+ */
 export interface Court {
   id: number;
   venueId: number;
@@ -36,6 +58,13 @@ export interface Court {
   sport: Sport;
   offPeakRate: number;
   peakRate: number;
+  capacity: number;
+}
+
+export const MAX_CAPACITY = 500;
+
+export function isShared(court: Pick<Court, "capacity">): boolean {
+  return court.capacity > 1;
 }
 
 export type BookingStatus = "confirmed" | "cancelled";
@@ -65,7 +94,28 @@ export interface SlotInfo {
   hour: number;
   rate: number;
   available: boolean;
+  /** Places already taken, and the resource's total, for this hour. */
+  booked: number;
+  capacity: number;
 }
+
+/** How full a shared facility is, for the crowd indicator. */
+export type Busyness = "quiet" | "filling" | "busy" | "full";
+
+export function busyness(booked: number, capacity: number): Busyness {
+  if (capacity <= 0 || booked >= capacity) return "full";
+  const ratio = booked / capacity;
+  if (ratio < 0.4) return "quiet";
+  if (ratio < 0.75) return "filling";
+  return "busy";
+}
+
+export const BUSYNESS_LABELS: Record<Busyness, string> = {
+  quiet: "Quiet",
+  filling: "Filling up",
+  busy: "Busy",
+  full: "Full",
+};
 
 export interface CourtAvailability {
   court: Court;

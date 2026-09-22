@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Booking,
+  BUSYNESS_LABELS,
+  busyness,
   Court,
   CourtAvailability,
+  isShared,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
   Sport,
@@ -35,6 +38,14 @@ interface Confirmation {
   court: Court;
   venue: { name: string; area: string };
 }
+
+/** Cell colour by how full a shared facility is — the crowd signal. */
+const BUSY_STYLES: Record<string, string> = {
+  quiet: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+  filling: "bg-amber-50 text-amber-700 hover:bg-amber-100",
+  busy: "bg-orange-100 text-orange-800 hover:bg-orange-200",
+  full: "bg-slate-100 text-slate-300",
+};
 
 function formatDateLabel(date: string): { day: string; num: string } {
   const d = new Date(`${date}T00:00:00Z`);
@@ -97,6 +108,11 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
     setSelection(null);
     loadAvailability();
   }, [loadAvailability]);
+
+  const hasShared = useMemo(
+    () => (availability ?? []).some((a) => a.court.capacity > 1),
+    [availability]
+  );
 
   const selectedCourt = useMemo(
     () => availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null,
@@ -201,30 +217,40 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     {court.name}
                     <div className="text-xs font-normal text-slate-400">
                       RM{court.offPeakRate}–{court.peakRate}/hr
+                      {isShared(court) && ` · ${court.capacity} places`}
                     </div>
                   </td>
                   {slots.map((slot) => {
                     const isSelected =
                       selection?.courtId === court.id && selection.hours.includes(slot.hour);
+                    const shared = isShared(court);
+                    const left = slot.capacity - slot.booked;
+                    const level = busyness(slot.booked, slot.capacity);
                     return (
                       <td key={slot.hour} className="p-1 text-center">
                         <button
                           disabled={!slot.available}
                           onClick={() => toggleSlot(court.id, slot.hour)}
                           title={
-                            slot.available
-                              ? `${formatHour(slot.hour)} · RM${slot.rate}`
-                              : "Unavailable"
+                            !slot.available
+                              ? shared
+                                ? "Unavailable"
+                                : "Unavailable"
+                              : shared
+                                ? `${formatHour(slot.hour)} · RM${slot.rate} · ${left} of ${slot.capacity} places left (${BUSYNESS_LABELS[level]})`
+                                : `${formatHour(slot.hour)} · RM${slot.rate}`
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
                             !slot.available
                               ? "cursor-not-allowed bg-slate-100 text-slate-300"
                               : isSelected
                                 ? "bg-teal-600 text-white shadow"
-                                : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                : shared
+                                  ? BUSY_STYLES[level]
+                                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           }`}
                         >
-                          {slot.available ? slot.rate : "—"}
+                          {!slot.available ? "—" : shared ? left : slot.rate}
                         </button>
                       </td>
                     );
@@ -238,6 +264,12 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
               <span className="mr-1 inline-block h-3 w-3 rounded bg-emerald-100 align-middle" />
               Available (number = RM/hr)
             </span>
+            {hasShared && (
+              <span>
+                <span className="mr-1 inline-block h-3 w-3 rounded bg-amber-100 align-middle" />
+                Shared facility (number = places left)
+              </span>
+            )}
             <span>
               <span className="mr-1 inline-block h-3 w-3 rounded bg-teal-600 align-middle" />
               Selected
