@@ -3,83 +3,118 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { Court, SPORT_ICONS, Venue } from "@/lib/types";
+import type { Admin } from "@/lib/admin-auth";
 import type { AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
 
-type Tab = "bookings" | "schedule" | "occupancy" | "courts";
+type Tab = "bookings" | "schedule" | "occupancy" | "courts" | "venues";
+
+type ManagedVenue = Venue & { courts: Court[] };
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
 }
 
 export default function AdminPage() {
-  const [passcode, setPasscode] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
+  const [admin, setAdmin] = useState<Admin | null>(null);
+  const [venues, setVenues] = useState<ManagedVenue[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("bookings");
-  const [venues, setVenues] = useState<(Venue & { courts: Court[] })[]>([]);
 
-  useEffect(() => {
-    const saved = sessionStorage.getItem("mt-admin-passcode");
-    if (saved) {
-      setPasscode(saved);
-      void tryUnlock(saved);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  /** Re-read the session and the venues this admin may manage. */
+  const refreshVenues = useCallback(async () => {
+    const res = await fetch("/api/admin/auth/me", { cache: "no-store" });
+    const data = await res.json();
+    setAdmin(data.admin);
+    setVenues(data.venues);
+    return data.admin as Admin | null;
   }, []);
 
-  async function tryUnlock(code: string) {
+  useEffect(() => {
+    refreshVenues()
+      .catch(() => setAdmin(null))
+      .finally(() => setLoaded(true));
+  }, [refreshVenues]);
+
+  async function signIn(e: React.FormEvent) {
+    e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/bookings?date=${todayLocal()}`, {
-        headers: { "x-admin-passcode": code },
-        cache: "no-store",
+      const res = await fetch("/api/admin/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
-      if (res.status === 401) throw new Error("Wrong passcode.");
-      if (!res.ok) throw new Error("Could not reach the server.");
-      const venuesRes = await fetch("/api/venues", { cache: "no-store" });
-      const venuesData = await venuesRes.json();
-      setVenues(venuesData.venues);
-      sessionStorage.setItem("mt-admin-passcode", code);
-      setUnlocked(true);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sign-in failed");
+      await refreshVenues();
+      setPassword("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-      sessionStorage.removeItem("mt-admin-passcode");
+      setError(err instanceof Error ? err.message : "Sign-in failed");
     } finally {
       setBusy(false);
     }
   }
 
-  if (!unlocked) {
+  async function signOut() {
+    await fetch("/api/admin/auth/logout", { method: "POST" });
+    setAdmin(null);
+    setVenues([]);
+  }
+
+  if (!loaded) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!admin) {
     return (
       <div className="mx-auto max-w-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Admin</h1>
-          <p className="mt-1 text-sm text-slate-600">Enter the admin passcode to continue.</p>
+          <h1 className="text-2xl font-bold">Venue admin</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Sign in with your operator account to manage your venue.
+          </p>
         </div>
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            tryUnlock(passcode);
-          }}
+          onSubmit={signIn}
           className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
         >
-          <input
-            type="password"
-            required
-            autoFocus
-            value={passcode}
-            onChange={(e) => setPasscode(e.target.value)}
-            placeholder="Passcode"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none"
-          />
+          <label className="block text-sm font-medium text-slate-700">
+            Email
+            <input
+              type="email"
+              required
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@venue.com"
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none"
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Password
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none"
+            />
+          </label>
           <button
             type="submit"
             disabled={busy}
             className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {busy ? "Checking…" : "Unlock"}
+            {busy ? "Checking…" : "Sign in"}
           </button>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </form>
@@ -87,31 +122,38 @@ export default function AdminPage() {
     );
   }
 
+  const isOwner = admin.venueId === null;
+  const tabs: [Tab, string][] = [
+    ["bookings", "Bookings"],
+    ["schedule", "Court schedule"],
+    ["occupancy", "Occupancy"],
+    ["courts", "Courts & rates"],
+    ["venues", isOwner ? "Venues & staff" : "Venue details"],
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Admin dashboard</h1>
-        <button
-          onClick={() => {
-            sessionStorage.removeItem("mt-admin-passcode");
-            setUnlocked(false);
-            setPasscode("");
-          }}
-          className="text-sm text-slate-500 underline hover:text-teal-700"
-        >
-          Lock
+        <div>
+          <h1 className="text-2xl font-bold">Admin dashboard</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {admin.name} ·{" "}
+            {isOwner ? (
+              <span className="font-medium text-teal-700">Platform owner — all venues</span>
+            ) : (
+              <span className="font-medium text-teal-700">
+                {venues[0]?.name ?? "Your venue"}
+              </span>
+            )}
+          </p>
+        </div>
+        <button onClick={signOut} className="text-sm text-slate-500 underline hover:text-teal-700">
+          Sign out
         </button>
       </div>
 
-      <div className="flex gap-2">
-        {(
-          [
-            ["bookings", "Bookings"],
-            ["schedule", "Court schedule"],
-            ["occupancy", "Occupancy"],
-            ["courts", "Courts & rates"],
-          ] as [Tab, string][]
-        ).map(([id, label]) => (
+      <div className="flex flex-wrap gap-2">
+        {tabs.map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -126,11 +168,24 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {tab === "bookings" && <BookingsTab passcode={passcode} />}
-      {tab === "schedule" && <ScheduleTab passcode={passcode} venues={venues} />}
-      {tab === "occupancy" && <OccupancyTab passcode={passcode} venues={venues} />}
-      {tab === "courts" && (
-        <CourtsTab passcode={passcode} venues={venues} onVenuesChange={setVenues} />
+      {venues.length === 0 && tab !== "venues" ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
+          No venues yet. Create one in the{" "}
+          <button onClick={() => setTab("venues")} className="font-medium text-teal-700 underline">
+            Venues &amp; staff
+          </button>{" "}
+          tab.
+        </div>
+      ) : (
+        <>
+          {tab === "bookings" && <BookingsTab />}
+          {tab === "schedule" && <ScheduleTab venues={venues} />}
+          {tab === "occupancy" && <OccupancyTab venues={venues} />}
+          {tab === "courts" && <CourtsTab venues={venues} onVenuesChange={refreshVenues} />}
+          {tab === "venues" && (
+            <VenuesTab admin={admin} venues={venues} onChange={refreshVenues} />
+          )}
+        </>
       )}
     </div>
   );
@@ -138,7 +193,7 @@ export default function AdminPage() {
 
 /* ---------------- Bookings tab ---------------- */
 
-function BookingsTab({ passcode }: { passcode: string }) {
+function BookingsTab() {
   const [date, setDate] = useState(todayLocal);
   const [bookings, setBookings] = useState<AdminBookingRow[] | null>(null);
   const [revenue, setRevenue] = useState(0);
@@ -152,7 +207,6 @@ function BookingsTab({ passcode }: { passcode: string }) {
     setError(null);
     try {
       const res = await fetch(`/api/admin/bookings?date=${date}`, {
-        headers: { "x-admin-passcode": passcode },
         cache: "no-store",
       });
       const data = await res.json();
@@ -167,7 +221,7 @@ function BookingsTab({ passcode }: { passcode: string }) {
     } finally {
       setBusy(false);
     }
-  }, [date, passcode]);
+  }, [date]);
 
   useEffect(() => {
     load();
@@ -179,7 +233,7 @@ function BookingsTab({ passcode }: { passcode: string }) {
     try {
       const res = await fetch("/api/admin/bookings/cancel", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
       });
       const data = await res.json();
@@ -195,7 +249,7 @@ function BookingsTab({ passcode }: { passcode: string }) {
     try {
       const res = await fetch("/api/admin/payments", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, paid }),
       });
       const data = await res.json();
@@ -212,7 +266,7 @@ function BookingsTab({ passcode }: { passcode: string }) {
     try {
       const res = await fetch("/api/admin/payments", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seriesCode }),
       });
       const data = await res.json();
@@ -377,10 +431,8 @@ function BookingsTab({ passcode }: { passcode: string }) {
 /* ---------------- Court schedule tab ---------------- */
 
 function ScheduleTab({
-  passcode,
   venues,
 }: {
-  passcode: string;
   venues: (Venue & { courts: Court[] })[];
 }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
@@ -393,7 +445,6 @@ function ScheduleTab({
     setError(null);
     try {
       const res = await fetch(`/api/admin/slots?venueId=${venueId}&date=${date}`, {
-        headers: { "x-admin-passcode": passcode },
         cache: "no-store",
       });
       const data = await res.json();
@@ -403,7 +454,7 @@ function ScheduleTab({
       setError(err instanceof Error ? err.message : "Failed to load");
       setCourts(null);
     }
-  }, [venueId, date, passcode]);
+  }, [venueId, date]);
 
   useEffect(() => {
     load();
@@ -415,7 +466,7 @@ function ScheduleTab({
     try {
       const res = await fetch("/api/admin/blocks", {
         method: status === "blocked" ? "DELETE" : "POST",
-        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ courtId, date, hours: [hour], reason: reason || undefined }),
       });
       const data = await res.json();
@@ -531,11 +582,9 @@ function ScheduleTab({
 /* ---------------- Courts & rates tab ---------------- */
 
 function CourtsTab({
-  passcode,
   venues,
   onVenuesChange,
 }: {
-  passcode: string;
   venues: (Venue & { courts: Court[] })[];
   onVenuesChange: (venues: (Venue & { courts: Court[] })[]) => void;
 }) {
@@ -558,7 +607,7 @@ function CourtsTab({
     try {
       const res = await fetch(`/api/admin/courts/${court.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
           offPeakRate: Number(offPeak),
@@ -581,7 +630,7 @@ function CourtsTab({
     try {
       const res = await fetch("/api/admin/courts", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           venueId,
           name: newCourt.name,
@@ -758,10 +807,8 @@ function CourtRow({
 /* ---------------- Occupancy tab ---------------- */
 
 function OccupancyTab({
-  passcode,
   venues,
 }: {
-  passcode: string;
   venues: (Venue & { courts: Court[] })[];
 }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
@@ -772,7 +819,6 @@ function OccupancyTab({
     setError(null);
     try {
       const res = await fetch(`/api/admin/occupancy?venueId=${venueId}&days=7`, {
-        headers: { "x-admin-passcode": passcode },
         cache: "no-store",
       });
       const data = await res.json();
@@ -782,7 +828,7 @@ function OccupancyTab({
       setError(err instanceof Error ? err.message : "Failed to load");
       setReport(null);
     }
-  }, [venueId, passcode]);
+  }, [venueId]);
 
   useEffect(() => {
     load();
@@ -874,6 +920,313 @@ function OccupancyTab({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Venues & staff tab ---------------- */
+
+function VenuesTab({
+  admin,
+  venues,
+  onChange,
+}: {
+  admin: Admin;
+  venues: ManagedVenue[];
+  onChange: () => Promise<Admin | null>;
+}) {
+  const isOwner = admin.venueId === null;
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [admins, setAdmins] = useState<Admin[] | null>(null);
+  const [newVenue, setNewVenue] = useState({ name: "", area: "", address: "", phone: "" });
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: "" });
+
+  const loadAdmins = useCallback(async () => {
+    if (!isOwner) return;
+    const res = await fetch("/api/admin/admins", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setAdmins(data.admins);
+  }, [isOwner]);
+
+  useEffect(() => {
+    loadAdmins();
+  }, [loadAdmins]);
+
+  async function send(
+    url: string,
+    method: string,
+    body: unknown,
+    okMessage: string,
+    after?: () => void
+  ) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      setNotice(okMessage);
+      await onChange();
+      after?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+    }
+  }
+
+  const inputClass =
+    "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <div className="space-y-5">
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <section>
+        <h2 className="text-lg font-bold">{isOwner ? "Venues" : "Venue details"}</h2>
+        <div className="mt-3 space-y-3">
+          {venues.map((venue) => (
+            <VenueRow key={venue.id} venue={venue} onSave={send} />
+          ))}
+          {venues.length === 0 && (
+            <p className="text-sm text-slate-500">No venues yet.</p>
+          )}
+        </div>
+      </section>
+
+      {isOwner && (
+        <>
+          <section>
+            <h3 className="font-semibold text-slate-700">Add a venue</h3>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                send("/api/admin/venues", "POST", newVenue, `Added ${newVenue.name}.`, () =>
+                  setNewVenue({ name: "", area: "", address: "", phone: "" })
+                );
+              }}
+              className="mt-2 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
+            >
+              <input
+                required minLength={2} placeholder="Venue name" value={newVenue.name}
+                onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
+                className={`w-48 ${inputClass}`}
+              />
+              <input
+                required minLength={2} placeholder="Area (e.g. Cheras)" value={newVenue.area}
+                onChange={(e) => setNewVenue({ ...newVenue, area: e.target.value })}
+                className={`w-40 ${inputClass}`}
+              />
+              <input
+                required minLength={2} placeholder="Address" value={newVenue.address}
+                onChange={(e) => setNewVenue({ ...newVenue, address: e.target.value })}
+                className={`w-64 ${inputClass}`}
+              />
+              <input
+                required minLength={2} placeholder="Phone" value={newVenue.phone}
+                onChange={(e) => setNewVenue({ ...newVenue, phone: e.target.value })}
+                className={`w-40 ${inputClass}`}
+              />
+              <button
+                type="submit"
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+              >
+                Add venue
+              </button>
+            </form>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-bold">Staff accounts</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              A venue operator only ever sees their own venue&apos;s bookings, schedule and
+              revenue. Leave the venue blank to create another platform owner.
+            </p>
+            {admins && (
+              <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table className="w-full min-w-[520px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                      {["Name", "Email", "Scope", ""].map((h, i) => (
+                        <th key={i} className="px-3 py-2 font-semibold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {admins.map((a) => (
+                      <tr key={a.id} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-2 font-medium">{a.name}</td>
+                        <td className="px-3 py-2">{a.email}</td>
+                        <td className="px-3 py-2">
+                          {a.venueId === null ? (
+                            <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
+                              platform owner
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700">
+                              {venues.find((v) => v.id === a.venueId)?.name ?? `Venue ${a.venueId}`}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {a.id !== admin.id && (
+                            <button
+                              onClick={() => {
+                                if (!window.confirm(`Remove ${a.email}?`)) return;
+                                send(`/api/admin/admins/${a.id}`, "DELETE", undefined, "Removed.", loadAdmins);
+                              }}
+                              className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                send(
+                  "/api/admin/admins",
+                  "POST",
+                  { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
+                  `Added ${newStaff.email}.`,
+                  () => {
+                    setNewStaff({ name: "", email: "", password: "", venueId: "" });
+                    loadAdmins();
+                  }
+                );
+              }}
+              className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
+            >
+              <input
+                required minLength={2} placeholder="Name" value={newStaff.name}
+                onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
+                className={`w-40 ${inputClass}`}
+              />
+              <input
+                required type="email" placeholder="Email" value={newStaff.email}
+                onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
+                className={`w-52 ${inputClass}`}
+              />
+              <input
+                required type="password" minLength={8} placeholder="Password (8+)"
+                value={newStaff.password}
+                onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
+                className={`w-40 ${inputClass}`}
+              />
+              <select
+                value={newStaff.venueId}
+                onChange={(e) => setNewStaff({ ...newStaff, venueId: e.target.value })}
+                className={inputClass}
+              >
+                <option value="">Platform owner (all venues)</option>
+                {venues.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+              >
+                Add staff
+              </button>
+            </form>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VenueRow({
+  venue,
+  onSave,
+}: {
+  venue: ManagedVenue;
+  onSave: (
+    url: string,
+    method: string,
+    body: unknown,
+    okMessage: string,
+    after?: () => void
+  ) => Promise<void>;
+}) {
+  const [fields, setFields] = useState({
+    name: venue.name,
+    area: venue.area,
+    address: venue.address,
+    phone: venue.phone,
+  });
+  const dirty =
+    fields.name !== venue.name ||
+    fields.area !== venue.area ||
+    fields.address !== venue.address ||
+    fields.phone !== venue.phone;
+
+  const inputClass =
+    "rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Name
+        <input
+          value={fields.name}
+          onChange={(e) => setFields({ ...fields, name: e.target.value })}
+          className={`mt-1 w-52 ${inputClass}`}
+        />
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Area
+        <input
+          value={fields.area}
+          onChange={(e) => setFields({ ...fields, area: e.target.value })}
+          className={`mt-1 w-36 ${inputClass}`}
+        />
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Address
+        <input
+          value={fields.address}
+          onChange={(e) => setFields({ ...fields, address: e.target.value })}
+          className={`mt-1 w-72 ${inputClass}`}
+        />
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Phone
+        <input
+          value={fields.phone}
+          onChange={(e) => setFields({ ...fields, phone: e.target.value })}
+          className={`mt-1 w-36 ${inputClass}`}
+        />
+      </label>
+      <span className="text-xs text-slate-400">{venue.courts.length} courts</span>
+      <button
+        disabled={!dirty}
+        onClick={() => onSave(`/api/admin/venues/${venue.id}`, "PATCH", fields, `Saved ${fields.name}.`)}
+        className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
+      >
+        Save
+      </button>
     </div>
   );
 }

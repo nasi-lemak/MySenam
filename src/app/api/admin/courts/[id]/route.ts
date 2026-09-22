@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
-import { updateCourt } from "@/lib/store";
+import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { getCourt, updateCourt } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -10,13 +10,18 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
   const courtId = Number(id);
   if (!Number.isInteger(courtId) || courtId <= 0)
     return NextResponse.json({ error: "Invalid court id." }, { status: 400 });
+
+  const court = getCourt(courtId);
+  if (!court) return NextResponse.json({ error: "Court not found." }, { status: 404 });
+  const denied = denyVenue(admin, court.venueId);
+  if (denied) return denied;
 
   let body: unknown;
   try {

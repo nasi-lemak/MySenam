@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getAdminSlots, getVenue } from "@/lib/store";
 import { isValidDateString, todayISO } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
 export function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
 
   const params = req.nextUrl.searchParams;
   const venueId = Number(params.get("venueId"));
@@ -17,8 +17,9 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   if (!isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-  if (!getVenue(venueId))
-    return NextResponse.json({ error: "Venue not found." }, { status: 404 });
+  const denied = denyVenue(admin, venueId);
+  if (denied) return denied;
+  if (!getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
   return NextResponse.json({ date, courts: getAdminSlots(venueId, date) });
 }

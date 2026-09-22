@@ -614,6 +614,66 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
   };
 }
 
+export type VenueEditResult = { ok: true; venue: Venue } | { ok: false; error: string };
+
+export function createVenue(input: {
+  name: string;
+  area: string;
+  address: string;
+  phone: string;
+}): VenueEditResult {
+  const db = getDb();
+  const info = db
+    .prepare("INSERT INTO venues (name, area, address, phone) VALUES (?, ?, ?, ?)")
+    .run(input.name.trim(), input.area.trim(), input.address.trim(), input.phone.trim());
+  const venue = db
+    .prepare("SELECT * FROM venues WHERE id = ?")
+    .get(info.lastInsertRowid) as Venue;
+  return { ok: true, venue };
+}
+
+export function updateVenue(
+  venueId: number,
+  changes: { name?: string; area?: string; address?: string; phone?: string }
+): VenueEditResult {
+  const db = getDb();
+  const current = db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as Venue | undefined;
+  if (!current) return { ok: false, error: "Venue not found." };
+
+  db.prepare("UPDATE venues SET name = ?, area = ?, address = ?, phone = ? WHERE id = ?").run(
+    changes.name?.trim() ?? current.name,
+    changes.area?.trim() ?? current.area,
+    changes.address?.trim() ?? current.address,
+    changes.phone?.trim() ?? current.phone,
+    venueId
+  );
+  return { ok: true, venue: db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as Venue };
+}
+
+/** Which venue a booking code belongs to — used to scope admin actions. */
+export function getVenueIdForBookingCode(code: string): number | null {
+  const row = getDb()
+    .prepare(`
+      SELECT c.venue_id AS venue_id FROM bookings b
+      JOIN courts c ON c.id = b.court_id
+      WHERE UPPER(b.code) = UPPER(?)
+    `)
+    .get(code.trim()) as { venue_id: number } | undefined;
+  return row?.venue_id ?? null;
+}
+
+/** Venues touched by a series — a series should never span venues, but check. */
+export function getVenueIdsForSeriesCode(seriesCode: string): number[] {
+  const rows = getDb()
+    .prepare(`
+      SELECT DISTINCT c.venue_id AS venue_id FROM bookings b
+      JOIN courts c ON c.id = b.court_id
+      WHERE UPPER(b.series_code) = UPPER(?)
+    `)
+    .all(seriesCode.trim()) as { venue_id: number }[];
+  return rows.map((r) => r.venue_id);
+}
+
 export interface AdminBookingRow extends Booking {
   courtName: string;
   sport: Sport;
@@ -762,7 +822,7 @@ export function updateCourt(
   return { ok: true, court: getCourt(courtId)! };
 }
 
-export function listBookingsForDate(date: string): AdminBookingRow[] {
+export function listBookingsForDate(date: string, venueId?: number): AdminBookingRow[] {
   const db = getDb();
   const rows = db
     .prepare(`
@@ -770,10 +830,14 @@ export function listBookingsForDate(date: string): AdminBookingRow[] {
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
-      WHERE b.date = ?
+      WHERE b.date = ? AND (? IS NULL OR v.id = ?)
       ORDER BY v.id, c.id, b.start_hour
     `)
-    .all(date) as (BookingRow & { court_name: string; court_sport: Sport; venue_name: string })[];
+    .all(date, venueId ?? null, venueId ?? null) as (BookingRow & {
+    court_name: string;
+    court_sport: Sport;
+    venue_name: string;
+  })[];
   return rows.map((r) => ({
     ...toBooking(r),
     courtName: r.court_name,

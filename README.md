@@ -14,11 +14,13 @@ badminton, tennis, pickleball and futsal.
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
-- **Admin dashboard** (`/admin`) — three tabs behind a passcode:
+- **Per-venue admin accounts** — operators sign in with email + password; a venue admin only ever sees their own venue's bookings, schedule, courts and revenue, while a platform owner manages every venue, creates venues and issues staff accounts
+- **Admin dashboard** (`/admin`) — behind an operator sign-in:
   - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates, add new courts
+  - **Venues & staff**: edit venue details; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
 ## Tech stack
@@ -45,10 +47,25 @@ Open http://localhost:3000. The database is created and seeded with three demo v
 
 ### Admin access
 
-The admin page (`/admin`) is protected by a passcode checked server-side.
+`/admin` is protected by operator accounts (scrypt-hashed passwords, HTTP-only
+session cookies) held in the `admins` table. On a fresh database the first
+platform owner is created automatically:
 
-- Default (development): `mudah-admin`
-- Production: set the `ADMIN_PASSCODE` environment variable.
+- Email: `ADMIN_EMAIL`, default `admin@mudahtempah.my`
+- Password: `ADMIN_PASSWORD`, default `mudah-admin`
+
+**Set both before deploying.** Once signed in, the owner can add venues and
+issue staff accounts from the *Venues & staff* tab.
+
+There are two roles:
+
+| Role | `venue_id` | Can do |
+| ---- | ---------- | ------ |
+| Platform owner | `NULL` | Everything, across every venue; create venues and staff accounts |
+| Venue operator | a venue id | Only that venue: its bookings, payments, schedule, courts, occupancy and venue details |
+
+Every admin endpoint checks the scope server-side, so a venue operator gets a
+403 for another venue's data even by calling the API directly.
 
 ## API
 
@@ -72,10 +89,13 @@ Account endpoints (session cookie):
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 
-Admin endpoints (all require the `x-admin-passcode` header):
+Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
 
 | Method | Path                          | Description                                          |
 | ------ | ----------------------------- | ---------------------------------------------------- |
+| POST   | `/api/admin/auth/login`       | `{email, password}` → admin session                  |
+| POST   | `/api/admin/auth/logout`      | Ends the admin session                               |
+| GET    | `/api/admin/auth/me`          | Current admin + the venues they may manage           |
 | GET    | `/api/admin/bookings`         | `?date=` → bookings + expected/collected/outstanding |
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
@@ -85,6 +105,11 @@ Admin endpoints (all require the `x-admin-passcode` header):
 | GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → booked/blocked counts     |
 | POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate}`      |
 | PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?}`                   |
+| POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
+| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?}`                   |
+| GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
+| POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
+| DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
 
 Prices are always computed server-side; the client's displayed total is informational.
 
@@ -104,11 +129,12 @@ src/
     db.ts             # SQLite schema, migrations + seed data
     store.ts          # All queries & booking/cancel/block logic
     auth.ts           # Accounts: scrypt passwords + session cookies
-    admin-auth.ts     # Passcode check shared by admin routes
+    admin-auth.ts     # Operator accounts, sessions and venue scoping
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
-tests/                # Vitest suite (booking rules, blocks, series, auth)
+tests/                # Vitest suite (booking rules, blocks, series, search,
+                      # payments, customer auth, admin scoping)
 ```
 
 ## Payments
@@ -126,7 +152,6 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
-- Venue CRUD + per-venue admin accounts (today one shared passcode sees every venue)
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Cancellation cutoff window and no-show tracking
 - Member rates, promo codes and bulk discounts
@@ -134,5 +159,5 @@ push and pull request (Node 22, `npm ci`).
 - Per-venue operating hours and public-holiday closures
 - Rate limiting on the login and booking endpoints
 - Automated WhatsApp/email booking confirmations & reminders
-- Session cookies are not marked `Secure`; set that (and a strong
-  `ADMIN_PASSCODE`) before deploying behind HTTPS in production
+- Session cookies are not marked `Secure`; set that (and strong
+  `ADMIN_EMAIL` / `ADMIN_PASSWORD` values) before deploying behind HTTPS

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createCourt } from "@/lib/store";
 import { Sport, SPORTS } from "@/lib/types";
 
@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 const MAX_RATE = 1000;
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
   try {
@@ -21,6 +21,8 @@ export async function POST(req: NextRequest) {
 
   if (!Number.isInteger(venueId) || (venueId as number) <= 0)
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
+  const denied = denyVenue(admin, venueId as number);
+  if (denied) return denied;
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Court name is required." }, { status: 400 });
   if (typeof sport !== "string" || !SPORTS.includes(sport as Sport))

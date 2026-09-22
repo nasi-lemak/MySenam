@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
-import { adminCancelBooking } from "@/lib/store";
+import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { adminCancelBooking, getVenueIdForBookingCode } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
   try {
@@ -17,6 +17,11 @@ export async function POST(req: NextRequest) {
   const { code } = (body ?? {}) as Record<string, unknown>;
   if (typeof code !== "string" || code.trim() === "")
     return NextResponse.json({ error: "code is required." }, { status: 400 });
+
+  const venueId = getVenueIdForBookingCode(code);
+  if (venueId === null) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
+  const denied = denyVenue(admin, venueId);
+  if (denied) return denied;
 
   const result = adminCancelBooking(code);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
