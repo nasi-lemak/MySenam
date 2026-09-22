@@ -6,6 +6,7 @@ import {
   getCourt,
   getVenue,
   payBookingFromWallet,
+  payBookingWithPass,
 } from "@/lib/store";
 import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet } =
+  const { courtId, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass } =
     (body ?? {}) as Record<string, unknown>;
 
   if (!Number.isInteger(courtId) || (courtId as number) <= 0)
@@ -62,13 +63,21 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
-  // Settling from credit is best-effort: an empty wallet leaves the booking
-  // standing as unpaid rather than throwing it away.
-  const walletErrors: string[] = [];
-  if (payFromWallet === true && user) {
+  // Settling is best-effort: an empty wallet or a spent pass leaves the
+  // booking standing as unpaid rather than throwing it away.
+  const payErrors: string[] = [];
+  if (typeof payWithPass === "string" && payWithPass.trim() !== "") {
+    // The pass itself proves entitlement: it must match the booking's phone
+    // number, which payBookingWithPass checks.
+    for (const booking of result.bookings) {
+      const paid = payBookingWithPass(booking.id, payWithPass);
+      if (!paid.ok) payErrors.push(paid.error);
+      else booking.paymentStatus = "paid";
+    }
+  } else if (payFromWallet === true && user) {
     for (const booking of result.bookings) {
       const paid = payBookingFromWallet(booking.id);
-      if (!paid.ok) walletErrors.push(paid.error);
+      if (!paid.ok) payErrors.push(paid.error);
       else booking.paymentStatus = "paid";
     }
   }
@@ -81,7 +90,7 @@ export async function POST(req: NextRequest) {
       bookings: result.bookings,
       skipped: result.skipped,
       seriesCode: result.seriesCode,
-      walletError: walletErrors[0] ?? null,
+      walletError: payErrors[0] ?? null,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
     },

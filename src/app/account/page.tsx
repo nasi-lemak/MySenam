@@ -11,6 +11,7 @@ import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-
 import CheckInQr from "@/components/CheckInQr";
 import Wallet from "@/components/Wallet";
 import MyWaitlist from "@/components/MyWaitlist";
+import MyPasses from "@/components/MyPasses";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -118,6 +119,8 @@ export default function AccountPage() {
       )}
 
       <Wallet />
+
+      <MyPasses />
 
       <MyWaitlist phone={user.phone} />
 

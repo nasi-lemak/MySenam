@@ -13,6 +13,7 @@ import {
   Sport,
   SPORT_ICONS,
   SPORT_LABELS,
+  Pass,
   VenueClosure,
 } from "@/lib/types";
 import { formatHour } from "@/lib/time";
@@ -392,6 +393,8 @@ function BookingForm({
   const [weeks, setWeeks] = useState(1);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
+  const [passCode, setPassCode] = useState("");
+  const [myPasses, setMyPasses] = useState<Pass[]>([]);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -409,9 +412,23 @@ function BookingForm({
       .then((res) => (res && res.ok ? res.json() : null))
       .then((wallet) => {
         if (wallet) setBalance(wallet.balance);
+        return fetch("/api/my/passes", { cache: "no-store" });
+      })
+      .then((res) => (res && res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        // Only passes that could actually pay for this court.
+        setMyPasses(
+          (data.passes as Pass[]).filter(
+            (p) =>
+              !p.unusableReason &&
+              p.venueId === court.venueId &&
+              (p.sport === null || p.sport === court.sport)
+          )
+        );
       })
       .catch(() => {});
-  }, []);
+  }, [court.venueId, court.sport]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -429,7 +446,8 @@ function BookingForm({
           email,
           weeks,
           skipConflicts,
-          payFromWallet,
+          payFromWallet: passCode.trim() === "" && payFromWallet,
+          payWithPass: passCode.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -513,7 +531,7 @@ function BookingForm({
               : `Book · RM${totalPrice}`}
         </button>
       </div>
-      {balance !== null && balance > 0 && (
+      {balance !== null && balance > 0 && passCode.trim() === "" && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
@@ -524,6 +542,38 @@ function BookingForm({
           Pay from my credit balance (RM{balance} available)
         </label>
       )}
+
+      {/* A pass covers one entry per booked hour, so it settles the whole slot. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <span>Using a pass?</span>
+        {myPasses.length > 0 ? (
+          <select
+            value={passCode}
+            onChange={(e) => setPassCode(e.target.value)}
+            className="rounded-md border border-slate-300 px-2 py-1 focus:border-teal-500 focus:outline-none"
+          >
+            <option value="">No — pay at the counter</option>
+            {myPasses.map((p) => (
+              <option key={p.id} value={p.code}>
+                {p.name} · {p.remaining} left
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={passCode}
+            onChange={(e) => setPassCode(e.target.value.toUpperCase())}
+            placeholder="PS-XXXXXX"
+            className="w-36 rounded-md border border-slate-300 px-2 py-1 font-mono focus:border-teal-500 focus:outline-none"
+          />
+        )}
+        {passCode.trim() !== "" && (
+          <span className="text-slate-500">
+            Spends {hours.length} {hours.length === 1 ? "entry" : "entries"}
+            {weeks > 1 ? ` per week (${hours.length * weeks} in total)` : ""}.
+          </span>
+        )}
+      </div>
       {weeks > 1 && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input

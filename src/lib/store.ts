@@ -17,6 +17,13 @@ import {
   LiveOccupancy,
   MAX_CLASS_WEEKS,
   MAX_TOP_UP,
+  MAX_PASS_ENTRIES,
+  MAX_PASS_MONTHS,
+  Pass,
+  PassEntry,
+  PassStatus,
+  SPORTS,
+  SPORT_LABELS,
   WalletEntry,
   WaitlistEntry,
   WaitlistStatus,
@@ -689,7 +696,7 @@ export function cancelSeries(seriesCode: string, phone: string): {
       db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
     }
   })();
-  for (const row of future) refundBookingToWallet(row.id);
+  for (const row of future) refundBooking(row.id);
   return { ok: true, cancelled: future.length };
 }
 
@@ -741,7 +748,7 @@ export function cancelBooking(code: string, phone: string): CancelResult {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
-  refundBookingToWallet(booking.id);
+  refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) offerClassPlace(booking.classId);
   else offerSlotPlace(booking.courtId, booking.date);
@@ -876,7 +883,7 @@ export function adminCancelBooking(code: string): CancelResult {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
-  refundBookingToWallet(booking.id);
+  refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) offerClassPlace(booking.classId);
   else offerSlotPlace(booking.courtId, booking.date);
@@ -1131,7 +1138,7 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
-  refundBookingToWallet(booking.id);
+  refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) offerClassPlace(booking.classId);
   else offerSlotPlace(booking.courtId, booking.date);
@@ -1686,7 +1693,7 @@ export function cancelClassSession(classId: number): {
       db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
     }
   })();
-  for (const row of enrolments) refundBookingToWallet(row.id);
+  for (const row of enrolments) refundBooking(row.id);
   return { ok: true, released: enrolments.length };
 }
 
@@ -1859,6 +1866,340 @@ export function refundBookingToWallet(bookingId: number): WalletResult {
         .get(info.lastInsertRowid) as WalletRow
     ),
   };
+}
+
+/**
+ * Undo whatever a cancelled booking was settled with. A booking is paid from
+ * credit or with a pass, never both, so each call is a no-op for the other.
+ */
+function refundBooking(bookingId: number): void {
+  refundBookingToWallet(bookingId);
+  refundBookingToPass(bookingId);
+}
+
+/* ---------------- Multi-visit passes ---------------- */
+
+interface PassRow {
+  id: number;
+  code: string;
+  venue_id: number;
+  venue_name: string;
+  sport: Sport | null;
+  name: string;
+  entries: number;
+  price: number;
+  holder_name: string;
+  holder_phone: string;
+  expires_on: string;
+  status: PassStatus;
+  created_at: string;
+  spent: number | null;
+}
+
+const PASS_SELECT = `
+  SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.name,
+         p.entries, p.price, p.holder_name, p.holder_phone, p.expires_on,
+         p.status, p.created_at,
+         (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent
+  FROM passes p JOIN venues v ON v.id = p.venue_id
+`;
+
+function toPass(r: PassRow): Pass {
+  const remaining = r.entries + (r.spent ?? 0);
+  const pass: Pass = {
+    id: r.id,
+    code: r.code,
+    venueId: r.venue_id,
+    venueName: r.venue_name,
+    sport: r.sport,
+    name: r.name,
+    entries: r.entries,
+    remaining,
+    price: r.price,
+    holderName: r.holder_name,
+    holderPhone: r.holder_phone,
+    expiresOn: r.expires_on,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+  const reason = passBlockedReason(pass);
+  return reason ? { ...pass, unusableReason: reason } : pass;
+}
+
+/** Why a pass cannot be spent today, or null when it can. */
+function passBlockedReason(pass: Pick<Pass, "status" | "expiresOn" | "remaining">): string | null {
+  if (pass.status === "void") return "This pass was cancelled.";
+  // expires_on is inclusive, so a pass is good for the whole of that day.
+  if (pass.expiresOn < todayISO()) return `This pass expired on ${pass.expiresOn}.`;
+  if (pass.remaining <= 0) return "This pass has no entries left.";
+  return null;
+}
+
+export function getPass(code: string): Pass | null {
+  const row = getDb()
+    .prepare(`${PASS_SELECT} WHERE UPPER(p.code) = UPPER(?)`)
+    .get(code.trim()) as PassRow | undefined;
+  return row ? toPass(row) : null;
+}
+
+/**
+ * Every pass held by a phone number (and account, when signed in), newest
+ * first. Spent and expired passes are kept so the holder can see the history.
+ */
+export function listPassesFor(input: { phone?: string; userId?: number }): Pass[] {
+  const phone = input.phone?.trim() || null;
+  const userId = input.userId ?? null;
+  if (phone === null && userId === null) return [];
+  const rows = getDb()
+    .prepare(`
+      ${PASS_SELECT}
+      WHERE (? IS NOT NULL AND p.holder_phone = ?) OR (? IS NOT NULL AND p.user_id = ?)
+      ORDER BY p.id DESC
+    `)
+    .all(phone, phone, userId, userId) as PassRow[];
+  return rows.map(toPass);
+}
+
+/** Passes issued by one venue, newest first — the counter's list. */
+export function listPassesForVenue(venueId: number, limit = 100): Pass[] {
+  const rows = getDb()
+    .prepare(`${PASS_SELECT} WHERE p.venue_id = ? ORDER BY p.id DESC LIMIT ?`)
+    .all(venueId, Math.min(Math.max(limit, 1), 500)) as PassRow[];
+  return rows.map(toPass);
+}
+
+export function listPassEntries(passId: number, limit = 50): PassEntry[] {
+  const rows = getDb()
+    .prepare(
+      "SELECT id, delta, reason, booking_id, created_at FROM pass_entries WHERE pass_id = ? ORDER BY id DESC LIMIT ?"
+    )
+    .all(passId, Math.min(Math.max(limit, 1), 200)) as {
+    id: number;
+    delta: number;
+    reason: string;
+    booking_id: number | null;
+    created_at: string;
+  }[];
+  return rows.map((r) => ({
+    id: r.id,
+    delta: r.delta,
+    reason: r.reason,
+    bookingId: r.booking_id,
+    createdAt: r.created_at,
+  }));
+}
+
+export type PassResult = { ok: true; pass: Pass } | { ok: false; error: string };
+
+/** Sell a pass at the counter. */
+export function issuePass(input: {
+  venueId: number;
+  sport?: Sport | null;
+  name: string;
+  entries: number;
+  price: number;
+  holderName: string;
+  holderPhone: string;
+  expiresOn: string;
+  adminId: number;
+  userId?: number;
+}): PassResult {
+  const db = getDb();
+  const venue = db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId);
+  if (!venue) return { ok: false, error: "Venue not found." };
+
+  const name = input.name.trim();
+  const holderName = input.holderName.trim();
+  const holderPhone = input.holderPhone.trim();
+  if (name.length < 2) return { ok: false, error: "Give the pass a name." };
+  if (holderName.length < 2 || holderPhone.length < 6)
+    return { ok: false, error: "A holder name and phone number are required." };
+  if (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_ENTRIES)
+    return { ok: false, error: `Entries must be 1–${MAX_PASS_ENTRIES}.` };
+  if (!Number.isInteger(input.price) || input.price < 0)
+    return { ok: false, error: "Price must be a whole number of ringgit." };
+  if (!isValidDateString(input.expiresOn))
+    return { ok: false, error: "Invalid expiry date." };
+  if (input.expiresOn < todayISO())
+    return { ok: false, error: "The expiry date has already passed." };
+  if (input.expiresOn > addDays(todayISO(), MAX_PASS_MONTHS * 31))
+    return { ok: false, error: `A pass may not run more than ${MAX_PASS_MONTHS} months.` };
+  if (input.sport && !SPORTS.includes(input.sport))
+    return { ok: false, error: "Unknown sport." };
+  // A sport-locked pass is pointless if the venue has no such courts.
+  if (input.sport) {
+    const has = db
+      .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
+      .get(input.venueId, input.sport);
+    if (!has) return { ok: false, error: "That venue has no courts for that sport." };
+  }
+
+  const info = db
+    .prepare(`
+      INSERT INTO passes (code, venue_id, sport, name, entries, price, holder_name,
+                          holder_phone, user_id, expires_on, admin_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      randomCode("PS-"),
+      input.venueId,
+      input.sport ?? null,
+      name,
+      input.entries,
+      input.price,
+      holderName,
+      holderPhone,
+      input.userId ?? null,
+      input.expiresOn,
+      input.adminId
+    );
+  return { ok: true, pass: passById(Number(info.lastInsertRowid))! };
+}
+
+export function getPassById(id: number): Pass | null {
+  return passById(id);
+}
+
+function passById(id: number): Pass | null {
+  const row = getDb().prepare(`${PASS_SELECT} WHERE p.id = ?`).get(id) as PassRow | undefined;
+  return row ? toPass(row) : null;
+}
+
+/** Cancel a pass. Entries already spent stay spent; the rest become unusable. */
+export function voidPass(passId: number): PassResult {
+  const db = getDb();
+  const pass = passById(passId);
+  if (!pass) return { ok: false, error: "Pass not found." };
+  if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
+  db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
+  return { ok: true, pass: passById(passId)! };
+}
+
+/**
+ * Can this pass pay for this booking? Checks scope and standing but not the
+ * entry count, which is only safe to read inside the paying transaction.
+ */
+function passScopeError(pass: Pass, booking: Booking): string | null {
+  const court = getCourt(booking.courtId);
+  if (!court) return "Court not found.";
+  if (court.venueId !== pass.venueId) return "That pass is for a different venue.";
+  if (pass.sport && court.sport !== pass.sport)
+    return `That pass only covers ${SPORT_LABELS[pass.sport]}.`;
+  return null;
+}
+
+export type PassPayResult =
+  | { ok: true; pass: Pass; spent: number }
+  | { ok: false; error: string };
+
+/**
+ * Settle a booking with a pass: one entry per booked hour, all or nothing.
+ * The remaining count is re-read inside the transaction so two concurrent
+ * bookings cannot spend the same entry.
+ */
+export function payBookingWithPass(bookingId: number, passCode: string): PassPayResult {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
+    )
+    .get(bookingId) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (booking.paymentStatus === "paid") return { ok: false, error: "This booking is already paid." };
+
+  const pass = getPass(passCode);
+  if (!pass) return { ok: false, error: "Pass not found." };
+  const scope = passScopeError(pass, booking);
+  if (scope) return { ok: false, error: scope };
+
+  // A pass is the holder's to spend, so it has to be their booking.
+  if (normalisePhone(pass.holderPhone) !== normalisePhone(booking.phone))
+    return { ok: false, error: "That pass belongs to a different phone number." };
+
+  const hours = booking.endHour - booking.startHour;
+
+  try {
+    db.transaction(() => {
+      const fresh = passById(pass.id)!;
+      const blocked = passBlockedReason(fresh);
+      if (blocked) throw new Error(`BLOCKED:${blocked}`);
+      if (fresh.remaining < hours)
+        throw new Error(
+          `BLOCKED:This pass has ${fresh.remaining} ${fresh.remaining === 1 ? "entry" : "entries"} left, and this booking needs ${hours}.`
+        );
+      db.prepare(
+        "INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)"
+      ).run(pass.id, -hours, `Booking ${booking.code}`, booking.id);
+      db.prepare(
+        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?"
+      ).run(booking.id);
+    })();
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("BLOCKED:"))
+      return { ok: false, error: err.message.slice("BLOCKED:".length) };
+    throw err;
+  }
+
+  return { ok: true, pass: passById(pass.id)!, spent: hours };
+}
+
+/**
+ * Phone numbers are typed loosely, so compare only the digits — and treat the
+ * international and national forms of a Malaysian number as the same one,
+ * since "+60 12-345 6789" and "012-345 6789" are the same phone. No national
+ * prefix starts 60, so stripping it is unambiguous.
+ */
+function normalisePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.startsWith("60") && digits.length >= 10 ? `0${digits.slice(2)}` : digits;
+}
+
+/**
+ * Give a cancelled booking's entries back. Refunding twice is refused, so a
+ * double cancellation cannot mint entries. An expired pass is still credited —
+ * the ledger stays honest, even if the entries can no longer be spent.
+ */
+export function refundBookingToPass(bookingId: number): PassPayResult {
+  const db = getDb();
+  const charge = db
+    .prepare(
+      "SELECT pass_id, delta FROM pass_entries WHERE booking_id = ? AND delta < 0 ORDER BY id LIMIT 1"
+    )
+    .get(bookingId) as { pass_id: number; delta: number } | undefined;
+  if (!charge) return { ok: false, error: "This booking was not paid with a pass." };
+
+  const refunded = db
+    .prepare("SELECT id FROM pass_entries WHERE booking_id = ? AND delta > 0")
+    .get(bookingId);
+  if (refunded) return { ok: false, error: "This booking has already been refunded." };
+
+  const code = (db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
+    | { code: string }
+    | undefined)?.code;
+  db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
+    .run(charge.pass_id, -charge.delta, `Refund for ${code ?? "booking"}`, bookingId);
+
+  return { ok: true, pass: passById(charge.pass_id)!, spent: charge.delta };
+}
+
+/**
+ * The passes a phone number could spend on a court today — what the booking
+ * form offers. Only passes with entries left and standing to spend them.
+ */
+export function usablePassesFor(phone: string, courtId: number): Pass[] {
+  const court = getCourt(courtId);
+  if (!court) return [];
+  const digits = normalisePhone(phone);
+  if (digits.length < 6) return [];
+  return listPassesFor({ phone: phone.trim() }).filter(
+    (p) =>
+      !p.unusableReason &&
+      p.venueId === court.venueId &&
+      (p.sport === null || p.sport === court.sport) &&
+      normalisePhone(p.holderPhone) === digits
+  );
 }
 
 /** Find a customer by email or phone, for the counter. */

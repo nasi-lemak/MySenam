@@ -10,7 +10,10 @@ import {
   MAX_CLASS_WEEKS,
   MAX_TOP_UP,
   SPORT_ICONS,
+  SPORT_LABELS,
   WalletEntry,
+  MAX_PASS_ENTRIES,
+  Pass,
   Venue,
   VenueClosure,
   OPEN_HOUR,
@@ -160,7 +163,7 @@ export default function AdminPage() {
     ["occupancy", "Occupancy"],
     ["courts", "Courts & rates"],
     ["classes", "Classes"],
-    ["credit", "Credit"],
+    ["credit", "Credit & passes"],
     ["venues", isOwner ? "Venues & staff" : "Venue details"],
   ];
 
@@ -216,7 +219,7 @@ export default function AdminPage() {
           {tab === "occupancy" && <OccupancyTab venues={venues} />}
           {tab === "courts" && <CourtsTab venues={venues} onVenuesChange={refreshVenues} />}
           {tab === "classes" && <ClassesTab venues={venues} />}
-          {tab === "credit" && <CreditTab />}
+          {tab === "credit" && <CreditTab venues={venues} />}
           {tab === "venues" && (
             <VenuesTab admin={admin} venues={venues} onChange={refreshVenues} />
           )}
@@ -1969,7 +1972,7 @@ interface WalletCustomer {
   balance: number;
 }
 
-function CreditTab() {
+function CreditTab({ venues }: { venues: ManagedVenue[] }) {
   const [query, setQuery] = useState("");
   const [customer, setCustomer] = useState<WalletCustomer | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
@@ -2020,7 +2023,8 @@ function CreditTab() {
     "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="space-y-6">
+      <div className="max-w-2xl space-y-4">
       <p className="text-sm text-slate-600">
         Sell credit at the counter. Customers can then pay for bookings and classes from their
         balance instead of cash.
@@ -2112,6 +2116,270 @@ function CreditTab() {
           )}
         </div>
       )}
+      </div>
+
+      <PassesPanel venues={venues} />
     </div>
+  );
+}
+
+/** Sell and manage multi-visit passes at the counter. */
+function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
+  const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
+  const [passes, setPasses] = useState<Pass[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: "10-hour badminton pass",
+    sport: "",
+    entries: "10",
+    price: "120",
+    holderName: "",
+    holderPhone: "",
+    expiresOn: "",
+  });
+
+  const venue = venues.find((v) => v.id === venueId) ?? null;
+  const sports = [...new Set((venue?.courts ?? []).map((c) => c.sport))];
+
+  const load = useCallback(async () => {
+    if (!venueId) return;
+    const res = await fetch(`/api/admin/passes?venueId=${venueId}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setPasses(data.passes);
+  }, [venueId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function issue(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          venueId,
+          name: form.name,
+          sport: form.sport || null,
+          entries: Number(form.entries),
+          price: Number(form.price),
+          holderName: form.holderName,
+          holderPhone: form.holderPhone,
+          expiresOn: form.expiresOn,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not issue the pass");
+      setNotice(`Sold ${data.pass.code} to ${data.pass.holderName}.`);
+      setForm({ ...form, holderName: "", holderPhone: "" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not issue the pass");
+    }
+  }
+
+  async function cancel(pass: Pass) {
+    if (!confirm(`Cancel ${pass.code}? Entries already spent stay spent.`)) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/passes/${pass.id}/void`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not cancel the pass");
+      setNotice(`Cancelled ${pass.code}.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not cancel the pass");
+    }
+  }
+
+  const inputClass =
+    "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <section className="border-t border-slate-200 pt-6">
+      <h2 className="text-lg font-bold">Multi-visit passes</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        Sell a block of entries up front. One entry covers one booked hour, so a 2-hour booking
+        spends two. The holder quotes the pass code when booking.
+      </p>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <form onSubmit={issue} className="mt-4 flex flex-wrap items-end gap-2">
+        {venues.length > 1 && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            Venue
+            <select
+              value={venueId}
+              onChange={(e) => setVenueId(Number(e.target.value))}
+              className={`mt-1 w-52 ${inputClass}`}
+            >
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Pass name
+          <input
+            required
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className={`mt-1 w-56 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Sport
+          <select
+            value={form.sport}
+            onChange={(e) => setForm({ ...form, sport: e.target.value })}
+            className={`mt-1 w-40 ${inputClass}`}
+          >
+            <option value="">Any sport</option>
+            {sports.map((sp) => (
+              <option key={sp} value={sp}>
+                {SPORT_ICONS[sp]} {SPORT_LABELS[sp]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Entries
+          <input
+            type="number"
+            min={1}
+            max={MAX_PASS_ENTRIES}
+            required
+            value={form.entries}
+            onChange={(e) => setForm({ ...form, entries: e.target.value })}
+            className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Price (RM)
+          <input
+            type="number"
+            min={0}
+            required
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
+            className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Holder
+          <input
+            required
+            placeholder="Name"
+            value={form.holderName}
+            onChange={(e) => setForm({ ...form, holderName: e.target.value })}
+            className={`mt-1 w-40 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Phone
+          <input
+            required
+            placeholder="0123456789"
+            value={form.holderPhone}
+            onChange={(e) => setForm({ ...form, holderPhone: e.target.value })}
+            className={`mt-1 w-36 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Expires
+          <input
+            type="date"
+            required
+            min={todayLocal()}
+            value={form.expiresOn}
+            onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <button
+          type="submit"
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          Sell pass
+        </button>
+      </form>
+
+      <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2">Code</th>
+              <th className="px-3 py-2">Pass</th>
+              <th className="px-3 py-2">Holder</th>
+              <th className="px-3 py-2">Left</th>
+              <th className="px-3 py-2">Expires</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {passes.map((pass) => (
+              <tr key={pass.id} className="border-b border-slate-100 last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-xs font-semibold">
+                  {pass.code}
+                </td>
+                <td className="px-3 py-2">
+                  {pass.name}
+                  <span className="ml-1 text-xs text-slate-400">
+                    {pass.sport ? SPORT_ICONS[pass.sport] : "all sports"}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  {pass.holderName}
+                  <span className="block text-xs text-slate-400">{pass.holderPhone}</span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  <span className="font-semibold">{pass.remaining}</span>
+                  <span className="text-slate-400"> / {pass.entries}</span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-600">{pass.expiresOn}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right">
+                  {pass.unusableReason ? (
+                    <span className="text-xs text-slate-400">{pass.unusableReason}</span>
+                  ) : (
+                    <button
+                      onClick={() => cancel(pass)}
+                      className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {passes.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                  No passes sold at this venue yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

@@ -15,6 +15,7 @@ gyms and pools, and instructor-led classes.
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
+- **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Operating hours & closed days** — each venue sets its own opening and closing hour (a pool can open at 7 AM, a club shut at 10 PM); whole days can be closed for a public holiday, a private hire or a refit, which blocks booking, enrolment and waitlist joins for that date and drops the venue out of cross-venue search
@@ -107,6 +108,7 @@ Account endpoints (session cookie):
 | GET    | `/api/auth/me`            | Current user or `null`                          |
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
+| GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
 | GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 
@@ -124,6 +126,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
 | POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
+| GET    | `/api/admin/passes`           | `?venueId=` → passes sold by that venue              |
+| POST   | `/api/admin/passes`           | `{venueId, name, sport?, entries, price, holderName, holderPhone, expiresOn}` |
+| POST   | `/api/admin/passes/:id/void`  | Cancel a pass; entries already spent stay spent      |
 | GET    | `/api/admin/classes`          | `?venueId=` → classes including cancelled ones       |
 | POST   | `/api/admin/classes`          | `{courtId, name, instructor, date, startHour, endHour, capacity, price, weeks?}` |
 | GET    | `/api/admin/classes/:id`      | The class and its roster                             |
@@ -237,6 +242,42 @@ closes their queue entry; the token is then spent.
 If somebody books the slot directly between the offer and the claim, the claim
 fails and the waiter is put **back at the front of the queue** rather than
 losing their turn for someone else's race.
+
+## Multi-visit passes
+
+A pass is a block of entries bought up front — the classic "10 sessions" a
+Malaysian sports centre sells over the counter. **One entry covers one booked
+hour**, so a 2-hour booking spends two. That keeps a pass worth exactly what it
+replaces, rather than making a 4-hour block the same price as a 1-hour one.
+
+Entries are an append-only ledger (`pass_entries`), the same shape as the credit
+wallet: `remaining = entries + SUM(delta)`, spends negative and refunds
+positive. Nothing ever rewrites a running total, so the history is the balance.
+
+A pass pays for a booking only when every one of these holds, and the entry
+count is re-read **inside** the paying transaction so two concurrent bookings
+cannot spend the same entry:
+
+- the pass is active, in date (`expires_on` is inclusive) and has entries left;
+- the booking is at the pass's venue, and for its sport if it names one;
+- the booking's phone number matches the holder's. Malaysian numbers are
+  compared on digits with the country code folded away, so `+60 12-345 6789`
+  and `012-345 6789` are the same person;
+- enough entries remain for the whole booking. A pass pays in full or not at
+  all — there is no part-paying a slot and owing the rest.
+
+Payment is best-effort, like paying from credit: a pass that cannot cover the
+booking leaves it standing as **unpaid** with the reason, rather than throwing
+the booking away. Cancelling a pass-paid booking returns its entries through
+every cancellation path — by code, from an account, a whole series, an admin
+cancellation, and the enrolments released when a class is cancelled — and
+refunding twice is refused, so a double cancellation cannot mint entries. An
+expired pass is still credited: the ledger stays honest even when the entries
+can no longer be spent.
+
+Voiding a pass stops further spending but leaves spent entries spent; it is not
+a refund. Customers see their passes with a used/remaining meter on `/account`,
+and staff sell and cancel them from the *Credit & passes* tab.
 
 ## Stored credit
 
@@ -383,7 +424,6 @@ push and pull request (Node 22, `npm ci`).
 
 - Turnstile or access-gate integration, so entry is physically gated rather
   than trusted
-- Multi-visit passes (10 entries, expiring) — different from a credit balance
 - Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Member rates, promo codes and bulk discounts

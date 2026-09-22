@@ -180,6 +180,38 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- A block of entries bought up front: "10 hours of badminton at PJ".
+    -- One entry covers one booked hour.
+    CREATE TABLE IF NOT EXISTS passes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+      -- NULL means the pass is good for any sport at that venue.
+      sport TEXT,
+      name TEXT NOT NULL,
+      entries INTEGER NOT NULL,
+      price INTEGER NOT NULL,
+      holder_name TEXT NOT NULL,
+      holder_phone TEXT NOT NULL,
+      user_id INTEGER REFERENCES users(id),
+      -- Inclusive: the pass is still good on this date.
+      expires_on TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','void')),
+      admin_id INTEGER REFERENCES admins(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Append-only, like wallet_entries: remaining = entries + SUM(delta).
+    -- A spend is negative, a refund positive.
+    CREATE TABLE IF NOT EXISTS pass_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pass_id INTEGER NOT NULL REFERENCES passes(id) ON DELETE CASCADE,
+      delta INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      booking_id INTEGER REFERENCES bookings(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -212,6 +244,10 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_entries(user_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_booking ON wallet_entries(booking_id);
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id);
+    CREATE INDEX IF NOT EXISTS idx_passes_phone ON passes(holder_phone);
+    CREATE INDEX IF NOT EXISTS idx_passes_user ON passes(user_id);
+    CREATE INDEX IF NOT EXISTS idx_pass_entries_pass ON pass_entries(pass_id);
+    CREATE INDEX IF NOT EXISTS idx_pass_entries_booking ON pass_entries(booking_id);
   `);
 
   migrate(db);

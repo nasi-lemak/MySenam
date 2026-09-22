@@ -143,6 +143,47 @@ export interface WalletEntry {
 
 export const MAX_TOP_UP = 1000;
 
+/**
+ * A block of entries bought up front. One entry covers one booked hour, so a
+ * 2-hour booking spends 2 — which keeps a pass worth exactly what it replaces.
+ */
+export interface Pass {
+  id: number;
+  code: string;
+  venueId: number;
+  venueName: string;
+  /** null means any sport at that venue. */
+  sport: Sport | null;
+  name: string;
+  /** Entries sold, and how many are left after spends and refunds. */
+  entries: number;
+  remaining: number;
+  price: number;
+  holderName: string;
+  holderPhone: string;
+  /** Inclusive — the pass is still good on this date. */
+  expiresOn: string;
+  status: PassStatus;
+  createdAt: string;
+  /** Why the pass cannot be spent right now, if it cannot. */
+  unusableReason?: string;
+}
+
+export type PassStatus = "active" | "void";
+
+/** One movement of entries. Spends are negative, refunds positive. */
+export interface PassEntry {
+  id: number;
+  delta: number;
+  reason: string;
+  bookingId: number | null;
+  createdAt: string;
+}
+
+export const MAX_PASS_ENTRIES = 200;
+/** How far ahead a pass may be set to expire. */
+export const MAX_PASS_MONTHS = 24;
+
 export type WaitlistStatus = "waiting" | "offered" | "claimed" | "expired" | "cancelled";
 
 /** Somebody queuing for a place that is currently full. */
