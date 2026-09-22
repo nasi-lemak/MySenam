@@ -123,6 +123,17 @@ export interface ClassSession {
 
 export const MAX_CLASS_WEEKS = 12;
 
+/** One movement of stored credit. The balance is the sum of these. */
+export interface WalletEntry {
+  id: number;
+  amount: number;
+  reason: string;
+  bookingId: number | null;
+  createdAt: string;
+}
+
+export const MAX_TOP_UP = 1000;
+
 export interface SlotInfo {
   hour: number;
   rate: number;

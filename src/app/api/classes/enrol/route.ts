@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
-import { enrolInClass, getClass } from "@/lib/store";
+import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, name, phone, email } = (body ?? {}) as Record<string, unknown>;
+  const { classId, name, phone, email, payFromWallet } = (body ?? {}) as Record<
+    string,
+    unknown
+  >;
 
   if (!Number.isInteger(classId) || (classId as number) <= 0)
     return NextResponse.json({ error: "classId is required." }, { status: 400 });
@@ -37,8 +40,15 @@ export async function POST(req: NextRequest) {
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
+  let walletError: string | null = null;
+  if (payFromWallet === true && user) {
+    const paid = payBookingFromWallet(result.booking.id);
+    if (paid.ok) result.booking.paymentStatus = "paid";
+    else walletError = paid.error;
+  }
+
   return NextResponse.json(
-    { booking: result.booking, session: getClass(classId as number) },
+    { booking: result.booking, session: getClass(classId as number), walletError },
     { status: 201 }
   );
 }

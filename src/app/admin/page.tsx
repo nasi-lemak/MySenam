@@ -8,14 +8,16 @@ import {
   isShared,
   MAX_CAPACITY,
   MAX_CLASS_WEEKS,
+  MAX_TOP_UP,
   SPORT_ICONS,
+  WalletEntry,
   Venue,
 } from "@/lib/types";
 import type { Booking } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import type { AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
 
-type Tab = "bookings" | "schedule" | "occupancy" | "courts" | "classes" | "venues";
+type Tab = "bookings" | "schedule" | "occupancy" | "courts" | "classes" | "credit" | "venues";
 
 type ManagedVenue = Venue & { courts: Court[] };
 
@@ -149,6 +151,7 @@ export default function AdminPage() {
     ["occupancy", "Occupancy"],
     ["courts", "Courts & rates"],
     ["classes", "Classes"],
+    ["credit", "Credit"],
     ["venues", isOwner ? "Venues & staff" : "Venue details"],
   ];
 
@@ -204,6 +207,7 @@ export default function AdminPage() {
           {tab === "occupancy" && <OccupancyTab venues={venues} />}
           {tab === "courts" && <CourtsTab venues={venues} onVenuesChange={refreshVenues} />}
           {tab === "classes" && <ClassesTab venues={venues} />}
+          {tab === "credit" && <CreditTab />}
           {tab === "venues" && (
             <VenuesTab admin={admin} venues={venues} onChange={refreshVenues} />
           )}
@@ -1742,6 +1746,163 @@ function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
               Close
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Credit tab ---------------- */
+
+interface WalletCustomer {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  balance: number;
+}
+
+function CreditTab() {
+  const [query, setQuery] = useState("");
+  const [customer, setCustomer] = useState<WalletCustomer | null>(null);
+  const [entries, setEntries] = useState<WalletEntry[]>([]);
+  const [amount, setAmount] = useState("50");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function lookup(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/wallet?q=${encodeURIComponent(query)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Lookup failed");
+      setCustomer(data.customer);
+      setEntries(data.entries);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lookup failed");
+      setCustomer(null);
+      setEntries([]);
+    }
+  }
+
+  async function topUp() {
+    if (!customer) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/wallet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: customer.id, amount: Number(amount) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Top-up failed");
+      setNotice(`Added RM${amount}. New balance RM${data.balance}.`);
+      setCustomer({ ...customer, balance: data.balance });
+      setEntries([data.entry, ...entries]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Top-up failed");
+    }
+  }
+
+  const inputClass =
+    "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <p className="text-sm text-slate-600">
+        Sell credit at the counter. Customers can then pay for bookings and classes from their
+        balance instead of cash.
+      </p>
+
+      <form onSubmit={lookup} className="flex flex-wrap items-end gap-2">
+        <input
+          required
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Customer email or phone"
+          className={`w-64 ${inputClass}`}
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          Find
+        </button>
+      </form>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      {customer && (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold">{customer.name}</div>
+              <div className="text-sm text-slate-500">
+                {customer.email} · {customer.phone}
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-teal-700">RM{customer.balance}</div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4">
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              Top up (RM)
+              <input
+                type="number"
+                min={1}
+                max={MAX_TOP_UP}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className={`mt-1 w-28 ${inputClass}`}
+              />
+            </label>
+            {[20, 50, 100].map((preset) => (
+              <button
+                key={preset}
+                onClick={() => setAmount(String(preset))}
+                className="rounded-md border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-teal-500"
+              >
+                RM{preset}
+              </button>
+            ))}
+            <button
+              onClick={topUp}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+            >
+              Add credit
+            </button>
+          </div>
+
+          {entries.length > 0 && (
+            <ul className="mt-4 divide-y divide-slate-100 border-t border-slate-100 pt-2 text-sm">
+              {entries.map((entry) => (
+                <li key={entry.id} className="flex items-center justify-between gap-3 py-1.5">
+                  <span className="text-slate-600">{entry.reason}</span>
+                  <span
+                    className={`font-semibold ${
+                      entry.amount >= 0 ? "text-emerald-700" : "text-slate-700"
+                    }`}
+                  >
+                    {entry.amount >= 0 ? "+" : "−"}RM{Math.abs(entry.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

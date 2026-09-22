@@ -9,6 +9,7 @@ import type { User } from "@/lib/auth";
 import type { UserBookingRow } from "@/lib/store";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
+import Wallet from "@/components/Wallet";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -114,6 +115,8 @@ export default function AccountPage() {
           {error}
         </div>
       )}
+
+      <Wallet />
 
       <section>
         <h2 className="text-lg font-bold">Upcoming bookings</h2>

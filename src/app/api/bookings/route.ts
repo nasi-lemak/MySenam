@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { createBookingSeries, findBooking, getCourt, getVenue } from "@/lib/store";
+import {
+  createBookingSeries,
+  findBooking,
+  getCourt,
+  getVenue,
+  payBookingFromWallet,
+} from "@/lib/store";
 import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS } from "@/lib/types";
@@ -15,8 +21,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, date, hours, name, phone, email, weeks, skipConflicts } = (body ??
-    {}) as Record<string, unknown>;
+  const { courtId, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet } =
+    (body ?? {}) as Record<string, unknown>;
 
   if (!Number.isInteger(courtId) || (courtId as number) <= 0)
     return NextResponse.json({ error: "courtId is required." }, { status: 400 });
@@ -56,6 +62,17 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
+  // Settling from credit is best-effort: an empty wallet leaves the booking
+  // standing as unpaid rather than throwing it away.
+  const walletErrors: string[] = [];
+  if (payFromWallet === true && user) {
+    for (const booking of result.bookings) {
+      const paid = payBookingFromWallet(booking.id);
+      if (!paid.ok) walletErrors.push(paid.error);
+      else booking.paymentStatus = "paid";
+    }
+  }
+
   const court = getCourt(result.bookings[0].courtId)!;
   const venue = getVenue(court.venueId)!;
   return NextResponse.json(
@@ -64,6 +81,7 @@ export async function POST(req: NextRequest) {
       bookings: result.bookings,
       skipped: result.skipped,
       seriesCode: result.seriesCode,
+      walletError: walletErrors[0] ?? null,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
     },

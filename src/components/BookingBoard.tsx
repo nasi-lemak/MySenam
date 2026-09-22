@@ -333,6 +333,8 @@ function BookingForm({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [weeks, setWeeks] = useState(1);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [payFromWallet, setPayFromWallet] = useState(false);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -345,6 +347,11 @@ function BookingForm({
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
+        return fetch("/api/my/wallet", { cache: "no-store" });
+      })
+      .then((res) => (res && res.ok ? res.json() : null))
+      .then((wallet) => {
+        if (wallet) setBalance(wallet.balance);
       })
       .catch(() => {});
   }, []);
@@ -365,6 +372,7 @@ function BookingForm({
           email,
           weeks,
           skipConflicts,
+          payFromWallet,
         }),
       });
       const data = await res.json();
@@ -448,6 +456,17 @@ function BookingForm({
               : `Book · RM${totalPrice}`}
         </button>
       </div>
+      {balance !== null && balance > 0 && (
+        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            checked={payFromWallet}
+            onChange={(e) => setPayFromWallet(e.target.checked)}
+            className="accent-teal-600"
+          />
+          Pay from my credit balance (RM{balance} available)
+        </label>
+      )}
       {weeks > 1 && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input

@@ -14,6 +14,8 @@ import {
   ClassStatus,
   LiveOccupancy,
   MAX_CLASS_WEEKS,
+  MAX_TOP_UP,
+  WalletEntry,
   Sport,
   Venue,
 } from "./types";
@@ -76,6 +78,7 @@ interface BookingRow {
   no_show: number;
   check_in_token: string | null;
   class_id: number | null;
+  user_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
 }
@@ -568,6 +571,7 @@ export function cancelSeries(seriesCode: string, phone: string): {
       db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
     }
   })();
+  for (const row of future) refundBookingToWallet(row.id);
   return { ok: true, cancelled: future.length };
 }
 
@@ -619,6 +623,7 @@ export function cancelBooking(code: string, phone: string): CancelResult {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
+  refundBookingToWallet(booking.id);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -745,6 +750,7 @@ export function adminCancelBooking(code: string): CancelResult {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
+  refundBookingToWallet(booking.id);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -941,6 +947,7 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
+  refundBookingToWallet(booking.id);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -1486,6 +1493,7 @@ export function cancelClassSession(classId: number): {
       db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
     }
   })();
+  for (const row of enrolments) refundBookingToWallet(row.id);
   return { ok: true, released: enrolments.length };
 }
 
@@ -1499,4 +1507,177 @@ export function getClassRoster(classId: number): Booking[] {
     `)
     .all(classId) as BookingRow[];
   return rows.map(toBooking);
+}
+
+/* ---------------- Stored credit ---------------- */
+
+interface WalletRow {
+  id: number;
+  amount: number;
+  reason: string;
+  booking_id: number | null;
+  created_at: string;
+}
+
+function toWalletEntry(r: WalletRow): WalletEntry {
+  return {
+    id: r.id,
+    amount: r.amount,
+    reason: r.reason,
+    bookingId: r.booking_id,
+    createdAt: r.created_at,
+  };
+}
+
+export function getWalletBalance(userId: number): number {
+  const row = getDb()
+    .prepare("SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ?")
+    .get(userId) as { balance: number };
+  return row.balance;
+}
+
+/** Most recent movements first. */
+export function listWalletEntries(userId: number, limit = 50): WalletEntry[] {
+  const rows = getDb()
+    .prepare(
+      "SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE user_id = ? ORDER BY id DESC LIMIT ?"
+    )
+    .all(userId, Math.min(Math.max(limit, 1), 200)) as WalletRow[];
+  return rows.map(toWalletEntry);
+}
+
+export type WalletResult =
+  | { ok: true; balance: number; entry: WalletEntry }
+  | { ok: false; error: string };
+
+/** Record credit bought at the counter. */
+export function topUpWallet(input: {
+  userId: number;
+  amount: number;
+  adminId: number;
+  reason?: string;
+}): WalletResult {
+  if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_TOP_UP)
+    return { ok: false, error: `Top-up must be RM1–${MAX_TOP_UP}.` };
+  const db = getDb();
+  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(input.userId);
+  if (!user) return { ok: false, error: "Customer not found." };
+
+  const info = db
+    .prepare(
+      "INSERT INTO wallet_entries (user_id, amount, reason, admin_id) VALUES (?, ?, ?, ?)"
+    )
+    .run(input.userId, input.amount, input.reason?.trim() || "Counter top-up", input.adminId);
+  return {
+    ok: true,
+    balance: getWalletBalance(input.userId),
+    entry: toWalletEntry(
+      db.prepare("SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE id = ?")
+        .get(info.lastInsertRowid) as WalletRow
+    ),
+  };
+}
+
+/**
+ * Settle a booking from its owner's stored credit. Balance is re-read inside
+ * the transaction so two concurrent payments cannot overdraw it.
+ */
+export function payBookingFromWallet(bookingId: number): WalletResult {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
+    )
+    .get(bookingId) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+
+  if (!row.user_id) return { ok: false, error: "This booking has no account to charge." };
+  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (booking.paymentStatus === "paid") return { ok: false, error: "This booking is already paid." };
+
+  const userId = row.user_id;
+  try {
+    const entryId = db.transaction(() => {
+      const balance = getWalletBalance(userId);
+      if (balance < booking.totalPrice) throw new Error("INSUFFICIENT");
+      const info = db
+        .prepare(
+          "INSERT INTO wallet_entries (user_id, amount, reason, booking_id) VALUES (?, ?, ?, ?)"
+        )
+        .run(userId, -booking.totalPrice, `Booking ${booking.code}`, booking.id);
+      db.prepare(
+        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?"
+      ).run(booking.id);
+      return info.lastInsertRowid;
+    })();
+
+    return {
+      ok: true,
+      balance: getWalletBalance(userId),
+      entry: toWalletEntry(
+        db.prepare("SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE id = ?")
+          .get(entryId) as WalletRow
+      ),
+    };
+  } catch (err) {
+    if (err instanceof Error && err.message === "INSUFFICIENT")
+      return { ok: false, error: "Not enough credit. Top up at the counter or pay there." };
+    throw err;
+  }
+}
+
+/** Was this booking settled from stored credit? */
+function walletChargeFor(bookingId: number): { user_id: number; amount: number } | null {
+  const row = getDb()
+    .prepare(
+      "SELECT user_id, amount FROM wallet_entries WHERE booking_id = ? AND amount < 0 ORDER BY id LIMIT 1"
+    )
+    .get(bookingId) as { user_id: number; amount: number } | undefined;
+  return row ?? null;
+}
+
+/**
+ * Put a wallet-paid booking's money back when it is cancelled. Refunding twice
+ * is refused, so a double cancellation cannot mint credit.
+ */
+export function refundBookingToWallet(bookingId: number): WalletResult {
+  const charge = walletChargeFor(bookingId);
+  if (!charge) return { ok: false, error: "This booking was not paid from credit." };
+
+  const db = getDb();
+  const refunded = db
+    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0")
+    .get(bookingId);
+  if (refunded) return { ok: false, error: "This booking has already been refunded." };
+
+  const code = (db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
+    | { code: string }
+    | undefined)?.code;
+  const info = db
+    .prepare("INSERT INTO wallet_entries (user_id, amount, reason, booking_id) VALUES (?, ?, ?, ?)")
+    .run(charge.user_id, -charge.amount, `Refund for ${code ?? "booking"}`, bookingId);
+
+  return {
+    ok: true,
+    balance: getWalletBalance(charge.user_id),
+    entry: toWalletEntry(
+      db.prepare("SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE id = ?")
+        .get(info.lastInsertRowid) as WalletRow
+    ),
+  };
+}
+
+/** Find a customer by email or phone, for the counter. */
+export function findUserForWallet(
+  query: string
+): { id: number; name: string; email: string; phone: string; balance: number } | null {
+  const trimmed = query.trim();
+  if (trimmed === "") return null;
+  const row = getDb()
+    .prepare("SELECT id, name, email, phone FROM users WHERE email = ? OR phone = ?")
+    .get(trimmed, trimmed) as
+    | { id: number; name: string; email: string; phone: string }
+    | undefined;
+  return row ? { ...row, balance: getWalletBalance(row.id) } : null;
 }

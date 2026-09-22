@@ -13,6 +13,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
+- **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Cancellation policy** — each venue sets how many hours before a slot customers may still cancel (default 2); the window is shown up front on the venue page and in the booking lookup, and staff can always override from the dashboard
 - **Check-in & live crowd levels** — customers scan a QR code on their booking to check themselves in (or the desk does it), and the venue page shows a public *Here right now* panel counting who is actually inside each shared facility, refreshed every 30 seconds
@@ -26,6 +27,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates and capacity, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster, cancel a class (releasing every enrolment)
+  - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
   - **Venues & staff**: edit venue details and the cancellation cutoff; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
@@ -98,6 +100,7 @@ Account endpoints (session cookie):
 | POST   | `/api/auth/logout`        | Ends the session                                |
 | GET    | `/api/auth/me`            | Current user or `null`                          |
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
+| GET    | `/api/my/wallet`          | Credit balance and recent movements             |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 
 Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
@@ -112,6 +115,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
+| GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
+| POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
 | GET    | `/api/admin/classes`          | `?venueId=` → classes including cancelled ones       |
 | POST   | `/api/admin/classes`          | `{courtId, name, instructor, date, startHour, endHour, capacity, price, weeks?}` |
 | GET    | `/api/admin/classes/:id`      | The class and its roster                             |
@@ -196,6 +201,31 @@ series code. Cancelling a class releases every enrolment and returns the hours
 to general booking. Staff see a roster per class with each attendee's check-in
 state.
 
+## Stored credit
+
+Customers buy credit at a venue counter and spend it on bookings and classes by
+ticking *Pay from my credit balance*.
+
+It is held as an **append-only ledger** (`wallet_entries`) rather than a balance
+column: every movement keeps its reason, the booking it relates to and the
+operator who sold it, and the balance is their sum. That makes the money
+auditable and means no code path can quietly overwrite a total.
+
+Three guards matter, and each has a test:
+
+- **The balance is re-read inside the payment transaction**, so two concurrent
+  bookings cannot overdraw it — a short balance is refused and nothing is
+  written to the ledger.
+- **A refund can only be claimed once per booking**, so cancelling twice cannot
+  mint credit.
+- **Paying from credit is best-effort at booking time.** An empty wallet leaves
+  the booking standing as unpaid with a `walletError` explaining why, rather
+  than throwing the booking away.
+
+Cancelling a wallet-paid booking refunds it automatically, through every path:
+by code, from an account, a whole series, an admin cancellation, and the
+enrolments released when a class is cancelled.
+
 ## Check-in and live crowd levels
 
 Places booked and people present are different numbers, so arrivals are tracked
@@ -273,7 +303,8 @@ push and pull request (Node 22, `npm ci`).
 
 - Turnstile or access-gate integration, so entry is physically gated rather
   than trusted
-- Memberships, passes and stored credit
+- Multi-visit passes (10 entries, expiring) — different from a credit balance
+- Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Member rates, promo codes and bulk discounts
 - Waitlist for fully-booked slots

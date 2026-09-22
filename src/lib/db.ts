@@ -125,6 +125,20 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Stored credit, as an append-only ledger: the balance is the sum of the
+    -- entries, so every movement keeps its reason and can be audited. Positive
+    -- credits the wallet (top-up, refund); negative debits it (payment).
+    -- Amounts are whole ringgit, like every other price in the app.
+    CREATE TABLE IF NOT EXISTS wallet_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      booking_id INTEGER REFERENCES bookings(id),
+      admin_id INTEGER REFERENCES admins(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -152,6 +166,8 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_blocks_court_date ON slot_blocks(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_classes_court_date ON classes(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_entries(user_id);
+    CREATE INDEX IF NOT EXISTS idx_wallet_booking ON wallet_entries(booking_id);
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id);
   `);
 
