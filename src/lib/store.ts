@@ -125,6 +125,117 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
   }));
 }
 
+export interface SearchResult {
+  venue: Venue;
+  court: Court;
+  startHour: number;
+  endHour: number;
+  totalPrice: number;
+}
+
+export interface SearchInput {
+  sport: Sport;
+  date: string;
+  fromHour?: number;
+  toHour?: number;
+  duration?: number;
+  area?: string;
+  limit?: number;
+}
+
+/** Distinct venue areas, for the search filter. */
+export function listAreas(): string[] {
+  const rows = getDb()
+    .prepare("SELECT DISTINCT area FROM venues ORDER BY area")
+    .all() as { area: string }[];
+  return rows.map((r) => r.area);
+}
+
+/**
+ * Find every court across all venues with `duration` consecutive free hours
+ * starting inside [fromHour, toHour] on `date`. One result per viable start
+ * time, cheapest-first within the same start hour.
+ */
+export function searchAvailability(input: SearchInput): SearchResult[] {
+  const db = getDb();
+  const duration = Math.min(Math.max(input.duration ?? 1, 1), MAX_HOURS_PER_BOOKING);
+  const fromHour = Math.max(input.fromHour ?? OPEN_HOUR, OPEN_HOUR);
+  // A booking of `duration` hours must finish by CLOSE_HOUR.
+  const lastStart = Math.min(input.toHour ?? CLOSE_HOUR, CLOSE_HOUR - duration);
+  const limit = Math.min(Math.max(input.limit ?? 60, 1), 200);
+  if (fromHour > lastStart) return [];
+
+  const params: (string | number)[] = [input.sport];
+  let sql = `
+    SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
+           v.address AS v_address, v.phone AS v_phone
+    FROM courts c JOIN venues v ON v.id = c.venue_id
+    WHERE c.sport = ?
+  `;
+  if (input.area) {
+    sql += " AND v.area = ?";
+    params.push(input.area);
+  }
+  sql += " ORDER BY v.id, c.id";
+
+  const rows = db.prepare(sql).all(...params) as (CourtRow & {
+    v_id: number;
+    v_name: string;
+    v_area: string;
+    v_address: string;
+    v_phone: string;
+  })[];
+  if (rows.length === 0) return [];
+
+  const courtIds = rows.map((r) => r.id);
+  const idList = courtIds.map(() => "?").join(",");
+  const taken = db
+    .prepare(`SELECT court_id, hour FROM booking_slots WHERE date = ? AND court_id IN (${idList})`)
+    .all(input.date, ...courtIds) as { court_id: number; hour: number }[];
+  const blocked = db
+    .prepare(`SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (${idList})`)
+    .all(input.date, ...courtIds) as { court_id: number; hour: number }[];
+  const unavailable = new Set([
+    ...taken.map((t) => `${t.court_id}:${t.hour}`),
+    ...blocked.map((b) => `${b.court_id}:${b.hour}`),
+  ]);
+
+  const results: SearchResult[] = [];
+  for (const row of rows) {
+    const court = toCourt(row);
+    const venue: Venue = {
+      id: row.v_id,
+      name: row.v_name,
+      area: row.v_area,
+      address: row.v_address,
+      phone: row.v_phone,
+    };
+    for (let start = fromHour; start <= lastStart; start++) {
+      const hours = Array.from({ length: duration }, (_, i) => start + i);
+      const free = hours.every(
+        (h) => !unavailable.has(`${court.id}:${h}`) && !isPastSlot(input.date, h)
+      );
+      if (!free) continue;
+      results.push({
+        venue,
+        court,
+        startHour: start,
+        endHour: start + duration,
+        totalPrice: computePrice(court, input.date, hours),
+      });
+    }
+  }
+
+  results.sort(
+    (a, b) =>
+      a.startHour - b.startHour ||
+      a.totalPrice - b.totalPrice ||
+      a.venue.name.localeCompare(b.venue.name) ||
+      a.court.name.localeCompare(b.court.name)
+  );
+  return results.slice(0, limit);
+}
+
 export function computePrice(court: Court, date: string, hours: number[]): number {
   return hours.reduce(
     (sum, h) => sum + (isPeak(date, h) ? court.peakRate : court.offPeakRate),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Booking,
   Court,
@@ -18,6 +18,8 @@ interface Props {
   venueId: number;
   sports: Sport[];
   dates: string[];
+  /** Slot to pre-select, e.g. when arriving from a search result. */
+  initial?: { sport?: Sport; date?: string; courtId?: number; hours?: number[] };
 }
 
 interface Selection {
@@ -42,9 +44,19 @@ function formatDateLabel(date: string): { day: string; num: string } {
   };
 }
 
-export default function BookingBoard({ venueId, sports, dates }: Props) {
-  const [sport, setSport] = useState<Sport>(sports[0]);
-  const [date, setDate] = useState<string>(dates[0]);
+export default function BookingBoard({ venueId, sports, dates, initial }: Props) {
+  const [sport, setSport] = useState<Sport>(
+    initial?.sport && sports.includes(initial.sport) ? initial.sport : sports[0]
+  );
+  const [date, setDate] = useState<string>(
+    initial?.date && dates.includes(initial.date) ? initial.date : dates[0]
+  );
+  // Applied once, after the first availability load resolves.
+  const pendingInitial = useRef(
+    initial?.courtId && initial.hours?.length
+      ? { courtId: initial.courtId, hours: initial.hours }
+      : null
+  );
   const [availability, setAvailability] = useState<CourtAvailability[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -61,7 +73,18 @@ export default function BookingBoard({ venueId, sports, dates }: Props) {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load availability");
-      setAvailability(data.availability);
+      const slots: CourtAvailability[] = data.availability;
+      setAvailability(slots);
+
+      const pending = pendingInitial.current;
+      if (pending) {
+        pendingInitial.current = null;
+        const courtAvail = slots.find((a) => a.court.id === pending.courtId);
+        const stillFree = pending.hours.every(
+          (h) => courtAvail?.slots.find((s) => s.hour === h)?.available
+        );
+        if (stillFree) setSelection({ courtId: pending.courtId, hours: pending.hours });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load availability");
       setAvailability(null);

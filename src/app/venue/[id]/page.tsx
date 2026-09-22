@@ -1,13 +1,20 @@
 import { notFound } from "next/navigation";
 import { getVenue } from "@/lib/store";
 import { todayISO, addDays } from "@/lib/time";
-import { MAX_ADVANCE_DAYS, Sport } from "@/lib/types";
+import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
 
 export const dynamic = "force-dynamic";
 
-export default async function VenuePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function VenuePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
   const venueId = Number(id);
   const venue = Number.isInteger(venueId) ? getVenue(venueId) : null;
   if (!venue) notFound();
@@ -15,6 +22,8 @@ export default async function VenuePage({ params }: { params: Promise<{ id: stri
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
   const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
+
+  const initial = parseInitialSelection(query, sports, dates);
 
   return (
     <div className="space-y-6">
@@ -25,7 +34,40 @@ export default async function VenuePage({ params }: { params: Promise<{ id: stri
         </p>
         <p className="mt-1 text-sm text-slate-500">Open daily 8:00 AM – 11:00 PM</p>
       </div>
-      <BookingBoard venueId={venue.id} sports={sports} dates={dates} />
+      <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
     </div>
   );
+}
+
+/** Turn ?date=&sport=&court=&hour=&duration= from a search result into a selection. */
+function parseInitialSelection(
+  query: Record<string, string | string[] | undefined>,
+  sports: Sport[],
+  dates: string[]
+) {
+  const one = (key: string) => {
+    const value = query[key];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  const sport = one("sport");
+  const date = one("date");
+  const courtId = Number(one("court"));
+  const hour = Number(one("hour"));
+  const duration = Number(one("duration") ?? 1);
+
+  const validDuration =
+    Number.isInteger(duration) && duration >= 1 && duration <= MAX_HOURS_PER_BOOKING;
+
+  return {
+    sport: sport && SPORTS.includes(sport as Sport) && sports.includes(sport as Sport)
+      ? (sport as Sport)
+      : undefined,
+    date: date && dates.includes(date) ? date : undefined,
+    courtId: Number.isInteger(courtId) && courtId > 0 ? courtId : undefined,
+    hours:
+      Number.isInteger(hour) && validDuration
+        ? Array.from({ length: duration }, (_, i) => hour + i)
+        : undefined,
+  };
 }

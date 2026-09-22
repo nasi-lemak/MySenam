@@ -5,6 +5,7 @@ badminton, tennis, pickleball and futsal.
 
 ## Features
 
+- **Cross-venue search** (`/search`) — pick a sport, day, time window and duration, and see every free court across all venues at once, grouped by venue and cheapest-first; one click deep-links into the venue page with the slot already selected
 - **Live availability grid** — per venue, per sport, per day, with hourly slots (8 AM – 11 PM)
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
@@ -93,6 +94,7 @@ Prices are always computed server-side; the client's displayed total is informat
 src/
   app/                # Pages + API routes (App Router)
     api/              # venues, availability, bookings, admin
+    search/           # Cross-venue "find a court by time"
     venue/[id]/       # Availability grid + booking flow
     my-booking/       # Lookup & cancel by code + phone
     admin/            # Daily bookings & revenue
@@ -124,7 +126,13 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
+- Venue CRUD + per-venue admin accounts (today one shared passcode sees every venue)
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
+- Cancellation cutoff window and no-show tracking
+- Member rates, promo codes and bulk discounts
+- Waitlist for fully-booked slots
+- Per-venue operating hours and public-holiday closures
+- Rate limiting on the login and booking endpoints
 - Automated WhatsApp/email booking confirmations & reminders
 - Session cookies are not marked `Secure`; set that (and a strong
   `ADMIN_PASSCODE`) before deploying behind HTTPS in production

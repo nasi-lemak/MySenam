@@ -12,8 +12,10 @@ import {
   createCourt,
   getAvailability,
   listBookingsForDate,
+  listAreas,
   listVenues,
   paySeries,
+  searchAvailability,
   setPaymentStatus,
   unblockSlots,
   updateCourt,
@@ -270,6 +272,80 @@ describe("recurring series", () => {
     expect(cancelSeries(created.seriesCode!, PHONE)).toMatchObject({ ok: false });
     // slots are free again
     expect(createBooking({ courtId: court.id, date, hours: [21], name: "B", phone: PHONE }).ok).toBe(true);
+  });
+});
+
+describe("cross-venue search", () => {
+  const date = futureDate(12);
+
+  it("lists the distinct venue areas", () => {
+    const areas = listAreas();
+    expect(areas).toContain("Bangsar");
+    expect(areas).toContain("Petaling Jaya");
+    expect([...areas].sort()).toEqual(areas);
+  });
+
+  it("finds free slots for one sport across several venues", () => {
+    const results = searchAvailability({ sport: "tennis", date, fromHour: 9, toHour: 9 });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((r) => r.court.sport === "tennis")).toBe(true);
+    expect(results.every((r) => r.startHour === 9 && r.endHour === 10)).toBe(true);
+    // tennis is offered by more than one venue in the seed data
+    expect(new Set(results.map((r) => r.venue.id)).size).toBeGreaterThan(1);
+  });
+
+  it("honours the time window and returns results in time-then-price order", () => {
+    const results = searchAvailability({ sport: "badminton", date, fromHour: 19, toHour: 21 });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((r) => r.startHour >= 19 && r.startHour <= 21)).toBe(true);
+    for (let i = 1; i < results.length; i++) {
+      const prev = results[i - 1];
+      const cur = results[i];
+      expect(
+        prev.startHour < cur.startHour ||
+          (prev.startHour === cur.startHour && prev.totalPrice <= cur.totalPrice)
+      ).toBe(true);
+    }
+  });
+
+  it("only offers starts with enough consecutive free hours", () => {
+    const court = listVenues()[2].courts[0];
+    createBooking({ courtId: court.id, date, hours: [15], name: "A", phone: PHONE });
+
+    const oneHour = searchAvailability({ sport: court.sport, date, fromHour: 14, toHour: 14 });
+    expect(oneHour.some((r) => r.court.id === court.id)).toBe(true);
+
+    // a 2-hour block starting at 14:00 would run into the booked 15:00
+    const twoHours = searchAvailability({
+      sport: court.sport, date, fromHour: 14, toHour: 14, duration: 2,
+    });
+    expect(twoHours.some((r) => r.court.id === court.id)).toBe(false);
+
+    // the booked hour itself is never offered
+    const booked = searchAvailability({ sport: court.sport, date, fromHour: 15, toHour: 15 });
+    expect(booked.some((r) => r.court.id === court.id)).toBe(false);
+  });
+
+  it("excludes blocked hours and filters by area", () => {
+    const venue = listVenues()[2];
+    const court = venue.courts[1];
+    blockSlots(court.id, date, [11], "maintenance");
+    const blocked = searchAvailability({ sport: court.sport, date, fromHour: 11, toHour: 11 });
+    expect(blocked.some((r) => r.court.id === court.id)).toBe(false);
+    unblockSlots(court.id, date, [11]);
+
+    const inArea = searchAvailability({ sport: court.sport, date, area: venue.area });
+    expect(inArea.length).toBeGreaterThan(0);
+    expect(inArea.every((r) => r.venue.area === venue.area)).toBe(true);
+
+    expect(searchAvailability({ sport: court.sport, date, area: "Nowhere" })).toEqual([]);
+  });
+
+  it("prices each result with the peak rules for its hours", () => {
+    const results = searchAvailability({ sport: "futsal", date, fromHour: 20, toHour: 20, duration: 2 });
+    for (const r of results) {
+      expect(r.totalPrice).toBe(expectedPrice(r.court, date, [r.startHour, r.startHour + 1]));
+    }
   });
 });
 

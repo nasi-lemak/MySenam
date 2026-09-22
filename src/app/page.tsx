@@ -15,6 +15,12 @@ export default function HomePage() {
           Badminton, tennis, pickleball and futsal — see live availability, pick your slots and
           get a booking code instantly. No calls, no waiting. Mudah je!
         </p>
+        <Link
+          href="/search"
+          className="mt-6 inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 font-semibold text-teal-700 shadow transition hover:bg-teal-50"
+        >
+          🔍 Find a court by time
+        </Link>
         <div className="mt-6 flex flex-wrap gap-3">
           {SPORTS.map((sport) => (
             <span
@@ -29,7 +35,13 @@ export default function HomePage() {
 
       <section>
         <h2 className="text-2xl font-bold">Venues</h2>
-        <p className="mt-1 text-slate-600">Choose a venue to see live court availability.</p>
+        <p className="mt-1 text-slate-600">
+          Choose a venue to see live court availability, or{" "}
+          <Link href="/search" className="font-medium text-teal-700 underline">
+            search every venue at once
+          </Link>
+          .
+        </p>
         <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {venues.map((venue) => {
             const sportsHere = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
