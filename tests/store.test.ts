@@ -13,6 +13,8 @@ import {
   getAvailability,
   listBookingsForDate,
   listVenues,
+  paySeries,
+  setPaymentStatus,
   unblockSlots,
   updateCourt,
 } from "../src/lib/store";
@@ -268,6 +270,59 @@ describe("recurring series", () => {
     expect(cancelSeries(created.seriesCode!, PHONE)).toMatchObject({ ok: false });
     // slots are free again
     expect(createBooking({ courtId: court.id, date, hours: [21], name: "B", phone: PHONE }).ok).toBe(true);
+  });
+});
+
+describe("payments", () => {
+  it("starts unpaid, toggles paid/unpaid, and refuses no-op or cancelled bookings", () => {
+    const court = listVenues()[1].courts[2];
+    const date = futureDate(10);
+    const created = createBooking({ courtId: court.id, date, hours: [9], name: "A", phone: PHONE });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.booking.paymentStatus).toBe("unpaid");
+    expect(created.booking.paidAt).toBeNull();
+
+    const paid = setPaymentStatus(created.booking.code, true);
+    expect(paid).toMatchObject({ ok: true, booking: { paymentStatus: "paid" } });
+    expect(paid.ok && paid.booking.paidAt).toBeTruthy();
+
+    // marking paid twice is refused
+    expect(setPaymentStatus(created.booking.code, true)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("already marked paid"),
+    });
+
+    // reverting works and clears the timestamp
+    const reverted = setPaymentStatus(created.booking.code, false);
+    expect(reverted).toMatchObject({ ok: true, booking: { paymentStatus: "unpaid", paidAt: null } });
+
+    expect(setPaymentStatus("MT-NOSUCH", true)).toMatchObject({ ok: false });
+
+    adminCancelBooking(created.booking.code);
+    expect(setPaymentStatus(created.booking.code, true)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("cancelled"),
+    });
+  });
+
+  it("pays a whole series at once and reports it in the day's totals", () => {
+    const court = listVenues()[1].courts[3];
+    const date = futureDate(2);
+    const series = createBookingSeries({
+      courtId: court.id, date, hours: [15], weeks: 3, name: "Liga", phone: PHONE,
+    });
+    expect(series.ok).toBe(true);
+    if (!series.ok) return;
+
+    expect(paySeries(series.seriesCode!)).toMatchObject({ ok: true, paid: 3 });
+    // nothing left unpaid, so a second call is refused
+    expect(paySeries(series.seriesCode!)).toMatchObject({ ok: false });
+    expect(paySeries("SR-NOSUCH")).toMatchObject({ ok: false });
+
+    const firstSession = listBookingsForDate(date).find((b) => b.code === series.bookings[0].code);
+    expect(firstSession?.paymentStatus).toBe("paid");
+    expect(firstSession?.paidAt).toBeTruthy();
   });
 });
 

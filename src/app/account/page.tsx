@@ -234,7 +234,14 @@ function BookingCard({
         <div className="text-slate-600">
           📅 {b.date} · {formatHour(b.startHour)} – {formatHour(b.endHour)}
         </div>
-        <div className="font-medium">RM{b.totalPrice} (pay at counter)</div>
+        <div className="font-medium">
+          RM{b.totalPrice}{" "}
+          {b.paymentStatus === "paid" ? (
+            <span className="text-emerald-700">✓ paid</span>
+          ) : (
+            <span className="text-slate-500">(pay at counter)</span>
+          )}
+        </div>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2 text-xs font-medium">
         <a

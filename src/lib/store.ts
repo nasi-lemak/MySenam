@@ -35,6 +35,8 @@ interface BookingRow {
   status: "confirmed" | "cancelled";
   created_at: string;
   series_code: string | null;
+  payment_status: "unpaid" | "paid";
+  paid_at: string | null;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -63,6 +65,8 @@ function toBooking(r: BookingRow): Booking {
     status: r.status,
     createdAt: r.created_at,
     seriesCode: r.series_code,
+    paymentStatus: r.payment_status,
+    paidAt: r.paid_at,
   };
 }
 
@@ -559,6 +563,57 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   return { ok: true, booking: { ...booking, status: "cancelled" } };
+}
+
+export type PaymentResult = { ok: true; booking: Booking } | { ok: false; error: string };
+
+/** Front-desk payment toggle for a single booking (admin only). */
+export function setPaymentStatus(code: string, paid: boolean): PaymentResult {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?)")
+    .get(code.trim()) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+  if (booking.status === "cancelled")
+    return { ok: false, error: "This booking is cancelled." };
+  if ((booking.paymentStatus === "paid") === paid)
+    return { ok: false, error: `This booking is already marked ${paid ? "paid" : "unpaid"}.` };
+
+  db.prepare(
+    "UPDATE bookings SET payment_status = ?, paid_at = ? WHERE id = ?"
+  ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, booking.id);
+  return {
+    ok: true,
+    booking: {
+      ...booking,
+      paymentStatus: paid ? "paid" : "unpaid",
+      paidAt: paid ? new Date().toISOString() : null,
+    },
+  };
+}
+
+/** Mark every confirmed session in a series paid at once. */
+export function paySeries(seriesCode: string): { ok: boolean; paid: number; error?: string } {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND status = 'confirmed' AND payment_status = 'unpaid'"
+    )
+    .all(seriesCode.trim()) as BookingRow[];
+  if (rows.length === 0)
+    return { ok: false, paid: 0, error: "No unpaid sessions found for that series." };
+
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    for (const row of rows) {
+      db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ? WHERE id = ?").run(
+        now,
+        row.id
+      );
+    }
+  })();
+  return { ok: true, paid: rows.length };
 }
 
 export type CourtEditResult = { ok: true; court: Court } | { ok: false; error: string };

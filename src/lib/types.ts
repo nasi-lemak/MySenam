@@ -34,6 +34,7 @@ export interface Court {
 }
 
 export type BookingStatus = "confirmed" | "cancelled";
+export type PaymentStatus = "unpaid" | "paid";
 
 export interface Booking {
   id: number;
@@ -49,6 +50,8 @@ export interface Booking {
   status: BookingStatus;
   createdAt: string;
   seriesCode: string | null;
+  paymentStatus: PaymentStatus;
+  paidAt: string | null;
 }
 
 export interface SlotInfo {

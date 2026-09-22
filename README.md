@@ -14,7 +14,7 @@ badminton, tennis, pickleball and futsal.
 - **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
 - **Admin dashboard** (`/admin`) — three tabs behind a passcode:
-  - **Bookings**: all bookings and confirmed revenue for any date, with admin cancellation
+  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates, add new courts
@@ -75,8 +75,9 @@ Admin endpoints (all require the `x-admin-passcode` header):
 
 | Method | Path                          | Description                                          |
 | ------ | ----------------------------- | ---------------------------------------------------- |
-| GET    | `/api/admin/bookings`         | `?date=` → all bookings + confirmed revenue that day |
+| GET    | `/api/admin/bookings`         | `?date=` → bookings + expected/collected/outstanding |
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
+| POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | GET    | `/api/admin/slots`            | `?venueId=&date=` → per-slot status grid             |
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
@@ -108,9 +109,22 @@ src/
 tests/                # Vitest suite (booking rules, blocks, series, auth)
 ```
 
+## Payments
+
+Bookings are pay-at-counter: every booking starts `unpaid`, and front-desk staff
+toggle it to `paid` from the admin Bookings tab (a whole recurring series can be
+settled in one click). Customers see the payment state on `/account` and in the
+`/my-booking` lookup. The daily view splits **expected** vs **collected** vs
+**outstanding** revenue so a shift can be reconciled at closing.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs type-check, tests and a production build on every
+push and pull request (Node 22, `npm ci`).
+
 ## Roadmap ideas
 
-- Online payment (FPX / e-wallet) instead of pay-at-counter
+- Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Automated WhatsApp/email booking confirmations & reminders
 - Session cookies are not marked `Secure`; set that (and a strong
   `ADMIN_PASSCODE`) before deploying behind HTTPS in production

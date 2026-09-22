@@ -131,7 +131,10 @@ export default function MyBookingPage() {
               ["Date", b.date],
               ["Time", `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
               ["Booked by", b.name],
-              ["Total", `RM${b.totalPrice}`],
+              [
+                "Total",
+                `RM${b.totalPrice}${b.paymentStatus === "paid" ? " ✓ paid" : " (pay at counter)"}`,
+              ],
             ].map(([label, value]) => (
               <div key={label} className="flex justify-between gap-4">
                 <dt className="shrink-0 text-slate-500">{label}</dt>

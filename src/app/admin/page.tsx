@@ -142,6 +142,8 @@ function BookingsTab({ passcode }: { passcode: string }) {
   const [date, setDate] = useState(todayLocal);
   const [bookings, setBookings] = useState<AdminBookingRow[] | null>(null);
   const [revenue, setRevenue] = useState(0);
+  const [collected, setCollected] = useState(0);
+  const [outstanding, setOutstanding] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -157,6 +159,8 @@ function BookingsTab({ passcode }: { passcode: string }) {
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
       setBookings(data.bookings);
       setRevenue(data.revenue);
+      setCollected(data.collected);
+      setOutstanding(data.outstanding);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
       setBookings(null);
@@ -186,6 +190,39 @@ function BookingsTab({ passcode }: { passcode: string }) {
     }
   }
 
+  async function togglePaid(code: string, paid: boolean) {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        body: JSON.stringify({ code, paid }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Payment update failed");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Payment update failed");
+    }
+  }
+
+  async function paySeries(seriesCode: string) {
+    if (!window.confirm(`Mark all unpaid sessions in series ${seriesCode} as paid?`)) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-passcode": passcode },
+        body: JSON.stringify({ seriesCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Payment update failed");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Payment update failed");
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -202,8 +239,22 @@ function BookingsTab({ passcode }: { passcode: string }) {
               <span className="font-bold">{bookings.length}</span>
             </div>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
-              <span className="text-slate-500">Confirmed revenue:</span>{" "}
+              <span className="text-slate-500">Expected:</span>{" "}
               <span className="font-bold text-teal-700">RM{revenue}</span>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm shadow-sm">
+              <span className="text-emerald-700">Collected:</span>{" "}
+              <span className="font-bold text-emerald-700">RM{collected}</span>
+            </div>
+            <div
+              className={`rounded-lg border px-4 py-1.5 text-sm shadow-sm ${
+                outstanding > 0
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-slate-200 bg-white text-slate-500"
+              }`}
+            >
+              <span>Outstanding:</span>{" "}
+              <span className="font-bold">RM{outstanding}</span>
             </div>
           </>
         )}
@@ -228,19 +279,39 @@ function BookingsTab({ passcode }: { passcode: string }) {
           <table className="w-full min-w-[860px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {["Code", "Venue", "Court", "Time", "Customer", "Phone", "Total", "Status", ""].map(
-                  (h, i) => (
-                    <th key={i} className="px-3 py-2 font-semibold">
-                      {h}
-                    </th>
-                  )
-                )}
+                {[
+                  "Code",
+                  "Venue",
+                  "Court",
+                  "Time",
+                  "Customer",
+                  "Phone",
+                  "Total",
+                  "Status",
+                  "Payment",
+                  "",
+                ].map((h, i) => (
+                  <th key={i} className="px-3 py-2 font-semibold">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {bookings.map((b) => (
                 <tr key={b.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-3 py-2 font-mono font-medium text-teal-700">{b.code}</td>
+                  <td className="px-3 py-2 font-mono font-medium text-teal-700">
+                    {b.code}
+                    {b.seriesCode && (
+                      <button
+                        onClick={() => paySeries(b.seriesCode!)}
+                        title={`Mark all unpaid sessions in ${b.seriesCode} as paid`}
+                        className="ml-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 hover:bg-violet-100"
+                      >
+                        🔁
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{b.venueName}</td>
                   <td className="px-3 py-2">
                     {SPORT_ICONS[b.sport]} {b.courtName}
@@ -261,6 +332,27 @@ function BookingsTab({ passcode }: { passcode: string }) {
                     >
                       {b.status}
                     </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    {b.status === "confirmed" ? (
+                      <button
+                        onClick={() => togglePaid(b.code, b.paymentStatus !== "paid")}
+                        title={
+                          b.paymentStatus === "paid"
+                            ? "Click to mark unpaid"
+                            : "Click to mark paid"
+                        }
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
+                          b.paymentStatus === "paid"
+                            ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                            : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                        }`}
+                      >
+                        {b.paymentStatus === "paid" ? "✓ paid" : "unpaid"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     {b.status === "confirmed" && (

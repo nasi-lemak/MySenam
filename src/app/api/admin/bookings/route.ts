@@ -14,8 +14,16 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
   }
   const bookings = listBookingsForDate(date);
-  const revenue = bookings
-    .filter((b) => b.status === "confirmed")
+  const confirmed = bookings.filter((b) => b.status === "confirmed");
+  const revenue = confirmed.reduce((sum, b) => sum + b.totalPrice, 0);
+  const collected = confirmed
+    .filter((b) => b.paymentStatus === "paid")
     .reduce((sum, b) => sum + b.totalPrice, 0);
-  return NextResponse.json({ date, bookings, revenue });
+  return NextResponse.json({
+    date,
+    bookings,
+    revenue,
+    collected,
+    outstanding: revenue - collected,
+  });
 }

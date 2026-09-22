@@ -112,6 +112,12 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE bookings ADD COLUMN series_code TEXT");
     db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_series ON bookings(series_code)");
   }
+  if (!bookingCols.some((c) => c.name === "payment_status")) {
+    db.exec(
+      "ALTER TABLE bookings ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid','paid'))"
+    );
+    db.exec("ALTER TABLE bookings ADD COLUMN paid_at TEXT");
+  }
 }
 
 function seedIfEmpty(db: Database.Database) {
