@@ -5,6 +5,7 @@ process.env.MUDAHTEMPAH_DB = ":memory:";
 import {
   adminCancelBooking,
   checkIn,
+  checkInByToken,
   checkOut,
   createBooking,
   createCourt,
@@ -13,7 +14,8 @@ import {
   listVenues,
   setNoShow,
 } from "../src/lib/store";
-import { addDays, todayISO } from "../src/lib/time";
+import { todayISO } from "../src/lib/time";
+import { CHECK_IN_OPENS_MINUTES_BEFORE } from "../src/lib/types";
 
 const VENUE = () => listVenues()[0];
 
@@ -190,5 +192,84 @@ describe("live occupancy", () => {
       if (i === 2) expect(level()).toBe("busy"); // 3/4
       if (i === 3) expect(level()).toBe("full"); // 4/4
     }
+  });
+});
+
+describe("self-service check-in by QR token", () => {
+  it("issues a distinct secret token with every booking", () => {
+    const court = gym(5, "Token Gym");
+    const a = bookRunningNow(court.id, "0150000001", 15);
+    const b = bookRunningNow(court.id, "0150000002", 15);
+    if (!a.ok || !b.ok) return;
+
+    expect(a.booking.checkInToken).toMatch(/^[a-f0-9]{32}$/);
+    expect(b.booking.checkInToken).toMatch(/^[a-f0-9]{32}$/);
+    expect(a.booking.checkInToken).not.toBe(b.booking.checkInToken);
+  });
+
+  it("checks the holder in, and rejects an unknown or empty token", () => {
+    const court = gym(5, "Scan Gym");
+    const booking = bookRunningNow(court.id, "0150000101", 16);
+    if (!booking.ok) return;
+
+    const scanned = checkInByToken(booking.booking.checkInToken!);
+    expect(scanned.ok).toBe(true);
+    if (!scanned.ok) return;
+    expect(scanned.booking.code).toBe(booking.booking.code);
+    expect(scanned.booking.checkedInAt).toBeTruthy();
+
+    // scanning twice is refused, as at the desk
+    expect(checkInByToken(booking.booking.checkInToken!)).toMatchObject({
+      ok: false,
+      error: "Already checked in.",
+    });
+    expect(checkInByToken("f".repeat(32))).toMatchObject({
+      ok: false,
+      error: "Booking not found.",
+    });
+    expect(checkInByToken("  ")).toMatchObject({ ok: false, error: "Booking not found." });
+  });
+
+  it("only opens the window shortly before the slot, and closes it at the end", () => {
+    const court = gym(5, "Window Gym");
+    const booking = bookRunningNow(court.id, "0150000201", 18);
+    if (!booking.ok) return;
+    const token = booking.booking.checkInToken!;
+    const date = booking.booking.date;
+
+    // far too early
+    vi.setSystemTime(new Date(`${date}T12:00:00+08:00`));
+    expect(checkInByToken(token)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining(`${CHECK_IN_OPENS_MINUTES_BEFORE} minutes`),
+    });
+
+    // once the window opens, an early arrival is fine
+    vi.setSystemTime(new Date(`${date}T17:30:00+08:00`));
+    expect(checkInByToken(token)).toMatchObject({ ok: true });
+  });
+
+  it("refuses once the booking has ended", () => {
+    const court = gym(5, "Ended Gym");
+    const booking = bookRunningNow(court.id, "0150000301", 8);
+    if (!booking.ok) return;
+
+    vi.setSystemTime(new Date(`${booking.booking.date}T22:00:00+08:00`));
+    expect(checkInByToken(booking.booking.checkInToken!)).toMatchObject({
+      ok: false,
+      error: "This booking has already ended.",
+    });
+  });
+
+  it("applies the same window to staff check-in at the desk", () => {
+    const court = gym(5, "Desk Window Gym");
+    const booking = bookRunningNow(court.id, "0150000401", 19);
+    if (!booking.ok) return;
+
+    vi.setSystemTime(new Date(`${booking.booking.date}T09:00:00+08:00`));
+    expect(checkIn(booking.booking.code)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("Check-in opens"),
+    });
   });
 });

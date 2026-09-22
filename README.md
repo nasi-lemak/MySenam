@@ -14,7 +14,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Cancellation policy** — each venue sets how many hours before a slot customers may still cancel (default 2); the window is shown up front on the venue page and in the booking lookup, and staff can always override from the dashboard
-- **Check-in & live crowd levels** — staff check customers in at the desk, and the venue page shows a public *Here right now* panel counting who is actually inside each shared facility, refreshed every 30 seconds
+- **Check-in & live crowd levels** — customers scan a QR code on their booking to check themselves in (or the desk does it), and the venue page shows a public *Here right now* panel counting who is actually inside each shared facility, refreshed every 30 seconds
 - **No-show tracking** — staff flag a passed booking whose customer never turned up, and the day list warns when that phone number has prior no-shows
 - **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
@@ -78,6 +78,8 @@ Every admin endpoint checks the scope server-side, so a venue operator gets a
 | GET    | `/api/venues`         | All venues with their courts                        |
 | GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → hourly grid    |
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
+| POST   | `/api/checkin`        | `{token}` → self check-in from the booking QR       |
+| GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
 | POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?, weeks?, skipConflicts?}` |
 | GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
@@ -138,6 +140,7 @@ src/
     auth.ts           # Accounts: scrypt passwords + session cookies
     admin-auth.ts     # Operator accounts, sessions and venue scoping
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
+    rate-limit.ts     # Fixed-window limiter for password and code endpoints
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
 tests/                # Vitest suite (booking rules, blocks, series, search,
@@ -184,6 +187,19 @@ Check-in and no-show are mutually exclusive and self-correcting: a customer who
 checked in cannot be flagged a no-show, and checking someone in clears a
 no-show the desk had already recorded when they turn up late.
 
+### Self-service check-in
+
+Every booking carries a random 128-bit `check_in_token`, separate from the short
+booking code (codes are printed on receipts and are far easier to guess). The
+booking confirmation, `/account` and the `/my-booking` lookup each show a QR
+code encoding `/checkin/<token>`; scanning it checks that booking in and shows
+a confirmation, so arrivals do not depend on a staff member pressing a button.
+
+Check-in — by QR or at the desk — is only open from
+`CHECK_IN_OPENS_MINUTES_BEFORE` (60) minutes before the slot until it ends.
+Without that window an early scan would count toward the live headcount for the
+rest of the day.
+
 ## Payments
 
 Bookings are pay-at-counter: every booking starts `unpaid`, and front-desk staff
@@ -229,8 +245,8 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
-- Self-service check-in (a QR code on the booking, or a turnstile) so arrivals
-  do not depend on a staff member pressing a button
+- Turnstile or access-gate integration, so entry is physically gated rather
+  than trusted
 - Instructor-led classes: a shared slot plus an enrolment roster and terms
 - Memberships, passes and stored credit
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle

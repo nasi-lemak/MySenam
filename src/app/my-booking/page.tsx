@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Booking, Court } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
+import CheckInQr from "@/components/CheckInQr";
 
 interface Result {
   booking: Booking;
@@ -149,6 +150,13 @@ export default function MyBookingPage() {
                   Free cancellation until {result.venue.cancelCutoffHours} hour
                   {result.venue.cancelCutoffHours === 1 ? "" : "s"} before your slot starts.
                 </p>
+              )}
+              {b.checkedInAt ? (
+                <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
+                  ✓ Checked in
+                </p>
+              ) : (
+                b.checkInToken && <CheckInQr token={b.checkInToken} />
               )}
               <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
                 {(() => {

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomBytes } from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -58,7 +59,8 @@ export function getDb(): Database.Database {
       email TEXT,
       total_price INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      check_in_token TEXT
     );
 
     -- One row per booked hour per place taken. The seat column is which of the
@@ -195,6 +197,20 @@ function migrate(db: Database.Database) {
         CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
       `);
     });
+  }
+
+  // A per-booking secret so a customer can check themselves in by QR without
+  // the code alone being enough (codes are short and appear on receipts).
+  if (!bookingCols.some((c) => c.name === "check_in_token")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN check_in_token TEXT");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_checkin_token ON bookings(check_in_token)");
+    const rows = db.prepare("SELECT id FROM bookings WHERE check_in_token IS NULL").all() as {
+      id: number;
+    }[];
+    const setToken = db.prepare("UPDATE bookings SET check_in_token = ? WHERE id = ?");
+    db.transaction(() => {
+      for (const row of rows) setToken.run(randomBytes(16).toString("hex"), row.id);
+    })();
   }
 
   if (!bookingCols.some((c) => c.name === "no_show")) {

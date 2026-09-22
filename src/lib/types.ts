@@ -91,6 +91,8 @@ export interface Booking {
   /** When the customer arrived at the desk, if they did. */
   checkedInAt: string | null;
   checkedOutAt: string | null;
+  /** Secret behind the self check-in QR code. Never shown to other customers. */
+  checkInToken: string | null;
 }
 
 export interface SlotInfo {
@@ -144,3 +146,5 @@ export const MAX_ADVANCE_DAYS = 14;
 // Weekly series may extend past the normal advance window; only the first
 // session must fall inside it.
 export const MAX_RECUR_WEEKS = 8;
+/** Customers may check in from this long before their slot until it ends. */
+export const CHECK_IN_OPENS_MINUTES_BEFORE = 60;

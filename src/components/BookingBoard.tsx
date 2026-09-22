@@ -16,6 +16,7 @@ import {
 } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
+import CheckInQr from "@/components/CheckInQr";
 
 interface Props {
   venueId: number;
@@ -537,6 +538,7 @@ function ConfirmationModal({
             </ul>
           </div>
         )}
+        {!isSeries && booking.checkInToken && <CheckInQr token={booking.checkInToken} />}
         <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
           <a
             href={whatsappShareUrl(shareInfo)}

@@ -8,6 +8,7 @@ import { SPORT_ICONS } from "@/lib/types";
 import type { User } from "@/lib/auth";
 import type { UserBookingRow } from "@/lib/store";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
+import CheckInQr from "@/components/CheckInQr";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -243,6 +244,13 @@ function BookingCard({
           )}
         </div>
       </div>
+      {b.checkedInAt ? (
+        <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
+          ✓ Checked in
+        </p>
+      ) : (
+        b.checkInToken && <CheckInQr token={b.checkInToken} />
+      )}
       <div className="mt-4 grid grid-cols-3 gap-2 text-xs font-medium">
         <a
           href={whatsappShareUrl(shareInfo)}

@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { getDb } from "./db";
 import {
   Booking,
@@ -8,6 +9,7 @@ import {
   CLOSE_HOUR,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
+  CHECK_IN_OPENS_MINUTES_BEFORE,
   LiveOccupancy,
   Sport,
   Venue,
@@ -69,6 +71,7 @@ interface BookingRow {
   payment_status: "unpaid" | "paid";
   paid_at: string | null;
   no_show: number;
+  check_in_token: string | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
 }
@@ -105,6 +108,7 @@ function toBooking(r: BookingRow): Booking {
     noShow: r.no_show === 1,
     checkedInAt: r.checked_in_at ?? null,
     checkedOutAt: r.checked_out_at ?? null,
+    checkInToken: r.check_in_token,
   };
 }
 
@@ -395,8 +399,8 @@ export function createBookingSeries(input: {
     `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
   );
   const insertBooking = db.prepare(`
-    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
     "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
@@ -437,7 +441,7 @@ export function createBookingSeries(input: {
         const bookingId = insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
           name, phone, email ?? null, computePrice(court, weekDate, hours),
-          userId ?? null, seriesCode
+          userId ?? null, seriesCode, randomBytes(16).toString("hex")
         ).lastInsertRowid as number;
         hours.forEach((hour, i) => insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!));
         bookings.push(getBookingById(bookingId)!);
@@ -952,12 +956,47 @@ function bookingByCode(code: string): Booking | null {
   return row ? toBooking(row) : null;
 }
 
+/**
+ * Check-in is only open from shortly before the slot until it ends, so an
+ * early arrival cannot inflate the live headcount for the rest of the day.
+ */
+function checkInWindowError(booking: Booking): string | null {
+  const now = Date.now();
+  const opens =
+    slotStartsAt(booking.date, booking.startHour).getTime() -
+    CHECK_IN_OPENS_MINUTES_BEFORE * 60_000;
+  if (now < opens)
+    return `Check-in opens ${CHECK_IN_OPENS_MINUTES_BEFORE} minutes before your slot.`;
+  if (now >= slotStartsAt(booking.date, booking.endHour).getTime())
+    return "This booking has already ended.";
+  return null;
+}
+
 /** Record an arrival at the front desk. */
 export function checkIn(code: string): CheckInResult {
   const booking = bookingByCode(code);
   if (!booking) return { ok: false, error: "Booking not found." };
+  return checkInBooking(booking);
+}
+
+/** Self-service check-in from the QR code on a booking. */
+export function checkInByToken(token: string): CheckInResult {
+  const trimmed = token.trim();
+  if (trimmed === "") return { ok: false, error: "Booking not found." };
+  const row = getDb()
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.check_in_token = ?"
+    )
+    .get(trimmed) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  return checkInBooking(toBooking(row));
+}
+
+function checkInBooking(booking: Booking): CheckInResult {
   if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
   if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
+  const windowError = checkInWindowError(booking);
+  if (windowError) return { ok: false, error: windowError };
 
   const db = getDb();
   db.transaction(() => {
@@ -965,7 +1004,7 @@ export function checkIn(code: string): CheckInResult {
     // Arriving contradicts a no-show, so clear any stale flag.
     if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
   })();
-  return { ok: true, booking: bookingByCode(code)! };
+  return { ok: true, booking: bookingByCode(booking.code)! };
 }
 
 export function checkOut(code: string): CheckInResult {
