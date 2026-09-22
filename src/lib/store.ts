@@ -10,7 +10,10 @@ import {
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
+  ClassSession,
+  ClassStatus,
   LiveOccupancy,
+  MAX_CLASS_WEEKS,
   Sport,
   Venue,
 } from "./types";
@@ -72,6 +75,7 @@ interface BookingRow {
   paid_at: string | null;
   no_show: number;
   check_in_token: string | null;
+  class_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
 }
@@ -109,6 +113,7 @@ function toBooking(r: BookingRow): Booking {
     checkedInAt: r.checked_in_at ?? null,
     checkedOutAt: r.checked_out_at ?? null,
     checkInToken: r.check_in_token,
+    classId: r.class_id,
   };
 }
 
@@ -150,6 +155,7 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
     .prepare("SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
     .all(date, venueId) as { court_id: number; hour: number }[];
   const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
+  const classHours = classHoursOn(date, venueId);
 
   return courts.map((court) => ({
     court,
@@ -157,16 +163,50 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
       const hour = OPEN_HOUR + i;
       const key = `${court.id}:${hour}`;
       const booked = takenCounts.get(key) ?? 0;
+      const session = classHours.get(key);
       return {
         hour,
         rate: isPeak(date, hour) ? court.peakRate : court.offPeakRate,
         booked,
         capacity: court.capacity,
+        // A class owns the hour: enrolling is the only way in.
         available:
-          booked < court.capacity && !blockedSet.has(key) && !isPastSlot(date, hour),
+          booked < court.capacity &&
+          !blockedSet.has(key) &&
+          !session &&
+          !isPastSlot(date, hour),
+        ...(session ? { className: session.name, classId: session.id } : {}),
       };
     }),
   }));
+}
+
+/** `courtId:hour` -> the class holding it, for a date (optionally one venue). */
+function classHoursOn(
+  date: string,
+  venueId?: number
+): Map<string, { id: number; name: string }> {
+  const rows = getDb()
+    .prepare(`
+      SELECT id, court_id, name, start_hour, end_hour FROM classes
+      WHERE date = ? AND status = 'scheduled'
+        AND (? IS NULL OR court_id IN (SELECT id FROM courts WHERE venue_id = ?))
+    `)
+    .all(date, venueId ?? null, venueId ?? null) as {
+    id: number;
+    court_id: number;
+    name: string;
+    start_hour: number;
+    end_hour: number;
+  }[];
+
+  const map = new Map<string, { id: number; name: string }>();
+  for (const row of rows) {
+    for (let hour = row.start_hour; hour < row.end_hour; hour++) {
+      map.set(`${row.court_id}:${hour}`, { id: row.id, name: row.name });
+    }
+  }
+  return map;
 }
 
 /** Places already taken per `courtId:hour` on a date, for one venue or all. */
@@ -262,6 +302,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     .prepare(`SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (${idList})`)
     .all(input.date, ...courtIds) as { court_id: number; hour: number }[];
   const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
+  const classHours = classHoursOn(input.date);
 
   const results: SearchResult[] = [];
   for (const row of rows) {
@@ -281,6 +322,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
         return (
           (takenCounts.get(key) ?? 0) < court.capacity &&
           !blockedSet.has(key) &&
+          !classHours.has(key) &&
           !isPastSlot(input.date, h)
         );
       });
@@ -367,6 +409,8 @@ export function createBookingSeries(input: {
   email?: string;
   userId?: number;
   skipConflicts?: boolean;
+  /** Set when this booking is an enrolment, which may use the class's hours. */
+  classId?: number;
 }, attempt = 0): CreateSeriesResult {
   const { courtId, date, weeks, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
@@ -399,8 +443,8 @@ export function createBookingSeries(input: {
     `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
   );
   const insertBooking = db.prepare(`
-    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token, class_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
     "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
@@ -428,10 +472,13 @@ export function createBookingSeries(input: {
         const seats = hours.map((hour) => freeSeat(weekDate, hour));
 
         let reason: string | null = null;
+        const classes = classHoursOn(weekDate);
         if (seats.some((seat) => seat === null)) {
           reason = court.capacity > 1 ? "fully booked" : "already booked";
         } else if ((blockedCheck.get(courtId, weekDate, ...hours) as { n: number }).n > 0) {
           reason = "closed for maintenance";
+        } else if (!input.classId && hours.some((h) => classes.has(`${courtId}:${h}`))) {
+          reason = "reserved for a class";
         }
         if (reason) {
           if (!skipConflicts) throw new Error(`CONFLICT:${weekDate}:${reason}`);
@@ -441,7 +488,8 @@ export function createBookingSeries(input: {
         const bookingId = insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
           name, phone, email ?? null, computePrice(court, weekDate, hours),
-          userId ?? null, seriesCode, randomBytes(16).toString("hex")
+          userId ?? null, seriesCode, randomBytes(16).toString("hex"),
+          input.classId ?? null
         ).lastInsertRowid as number;
         hours.forEach((hour, i) => insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!));
         bookings.push(getBookingById(bookingId)!);
@@ -463,7 +511,9 @@ export function createBookingSeries(input: {
               ? "One or more of those slots is closed for maintenance. Please pick again."
               : reason === "fully booked"
                 ? "That session filled up while you were booking. Please pick another time."
-                : "One or more of those slots was just booked by someone else. Please pick again.",
+                : reason === "reserved for a class"
+                  ? "That time is reserved for a class. Enrol in the class instead."
+                  : "One or more of those slots was just booked by someone else. Please pick again.",
       };
     }
     if (message === "ALL_CONFLICT") {
@@ -1189,4 +1239,264 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
       priorNoShows: countNoShows(booking.phone) - (booking.noShow ? 1 : 0),
     };
   });
+}
+
+/* ---------------- Instructor-led classes ---------------- */
+
+interface ClassRow {
+  id: number;
+  court_id: number;
+  name: string;
+  instructor: string;
+  date: string;
+  start_hour: number;
+  end_hour: number;
+  capacity: number;
+  price: number;
+  status: ClassStatus;
+  series_code: string | null;
+  court_name: string;
+  sport: Sport;
+  venue_id: number;
+  venue_name: string;
+  venue_area: string;
+  enrolled: number;
+}
+
+const CLASS_SELECT = `
+  SELECT cl.*, c.name AS court_name, c.sport AS sport,
+         v.id AS venue_id, v.name AS venue_name, v.area AS venue_area,
+         (SELECT COUNT(*) FROM bookings b
+            WHERE b.class_id = cl.id AND b.status = 'confirmed') AS enrolled
+  FROM classes cl
+  JOIN courts c ON c.id = cl.court_id
+  JOIN venues v ON v.id = c.venue_id
+`;
+
+function toClass(r: ClassRow): ClassSession {
+  return {
+    id: r.id,
+    courtId: r.court_id,
+    courtName: r.court_name,
+    venueId: r.venue_id,
+    venueName: r.venue_name,
+    venueArea: r.venue_area,
+    sport: r.sport,
+    name: r.name,
+    instructor: r.instructor,
+    date: r.date,
+    startHour: r.start_hour,
+    endHour: r.end_hour,
+    capacity: r.capacity,
+    price: r.price,
+    status: r.status,
+    seriesCode: r.series_code,
+    enrolled: r.enrolled,
+  };
+}
+
+export function getClass(id: number): ClassSession | null {
+  const row = getDb().prepare(`${CLASS_SELECT} WHERE cl.id = ?`).get(id) as ClassRow | undefined;
+  return row ? toClass(row) : null;
+}
+
+/** Upcoming scheduled classes, soonest first. */
+export function listClasses(filter: {
+  venueId?: number;
+  sport?: Sport;
+  from?: string;
+  to?: string;
+  includeCancelled?: boolean;
+} = {}): ClassSession[] {
+  const from = filter.from ?? todayISO();
+  const clauses = ["cl.date >= ?"];
+  const params: (string | number)[] = [from];
+  if (!filter.includeCancelled) clauses.push("cl.status = 'scheduled'");
+  if (filter.venueId) {
+    clauses.push("v.id = ?");
+    params.push(filter.venueId);
+  }
+  if (filter.sport) {
+    clauses.push("c.sport = ?");
+    params.push(filter.sport);
+  }
+  if (filter.to) {
+    clauses.push("cl.date <= ?");
+    params.push(filter.to);
+  }
+
+  const rows = getDb()
+    .prepare(`${CLASS_SELECT} WHERE ${clauses.join(" AND ")} ORDER BY cl.date, cl.start_hour, cl.id`)
+    .all(...params) as ClassRow[];
+  return rows.map(toClass);
+}
+
+export type CreateClassResult =
+  | { ok: true; classes: ClassSession[]; seriesCode: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Schedule a class, optionally repeating weekly for a term. The resource must
+ * be free for those hours — a class cannot be laid over existing bookings.
+ */
+export function createClassSessions(input: {
+  courtId: number;
+  name: string;
+  instructor: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  capacity: number;
+  price: number;
+  weeks?: number;
+}): CreateClassResult {
+  const { courtId, date, startHour, endHour } = input;
+  const weeks = input.weeks ?? 1;
+
+  const court = getCourt(courtId);
+  if (!court) return { ok: false, error: "Court not found." };
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
+    return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
+  if (startHour < OPEN_HOUR || endHour > CLOSE_HOUR || endHour <= startHour)
+    return { ok: false, error: "Class hours are outside operating hours." };
+  if (input.capacity < 1 || input.capacity > court.capacity)
+    return {
+      ok: false,
+      error: `Capacity must be 1–${court.capacity}, the capacity of ${court.name}.`,
+    };
+  if (isPastSlot(date, startHour))
+    return { ok: false, error: "That start time has already passed." };
+
+  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+  const db = getDb();
+  const seriesCode = weeks > 1 ? randomCode("CL-") : null;
+
+  const taken = db.prepare(
+    `SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour IN (${hours
+      .map(() => "?")
+      .join(",")})`
+  );
+  const insert = db.prepare(`
+    INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price, series_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  try {
+    const created = db.transaction(() => {
+      const sessions: ClassSession[] = [];
+      for (let week = 0; week < weeks; week++) {
+        const weekDate = addDays(date, week * 7);
+        if ((taken.get(courtId, weekDate, ...hours) as { n: number }).n > 0)
+          throw new Error(`BOOKED:${weekDate}`);
+        const clashes = classHoursOn(weekDate);
+        if (hours.some((h) => clashes.has(`${courtId}:${h}`)))
+          throw new Error(`CLASH:${weekDate}`);
+
+        const id = insert.run(
+          courtId, input.name.trim(), input.instructor.trim(), weekDate,
+          startHour, endHour, input.capacity, input.price, seriesCode
+        ).lastInsertRowid as number;
+        sessions.push(getClass(id)!);
+      }
+      return sessions;
+    })();
+    return { ok: true, classes: created, seriesCode };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith("BOOKED:"))
+      return {
+        ok: false,
+        error: `${message.slice(7)} already has bookings in those hours. Cancel them first.`,
+      };
+    if (message.startsWith("CLASH:"))
+      return { ok: false, error: `${message.slice(6)} already has a class at that time.` };
+    throw err;
+  }
+}
+
+export type EnrolResult = { ok: true; booking: Booking } | { ok: false; error: string };
+
+/** Take a place in a class. The enrolment is an ordinary booking. */
+export function enrolInClass(input: {
+  classId: number;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+}): EnrolResult {
+  const session = getClass(input.classId);
+  if (!session) return { ok: false, error: "Class not found." };
+  if (session.status === "cancelled") return { ok: false, error: "This class was cancelled." };
+  if (isPastSlot(session.date, session.startHour))
+    return { ok: false, error: "This class has already started." };
+  if (session.enrolled >= session.capacity)
+    return { ok: false, error: "This class is full." };
+
+  const already = getDb()
+    .prepare(
+      "SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'"
+    )
+    .get(session.id, input.phone.trim());
+  if (already) return { ok: false, error: "You are already enrolled in this class." };
+
+  const hours = Array.from(
+    { length: session.endHour - session.startHour },
+    (_, i) => session.startHour + i
+  );
+  const result = createBookingSeries({
+    courtId: session.courtId,
+    date: session.date,
+    hours,
+    weeks: 1,
+    name: input.name,
+    phone: input.phone,
+    email: input.email,
+    userId: input.userId,
+    classId: session.id,
+  });
+  if (!result.ok) return { ok: false, error: result.error };
+
+  // Price the enrolment at the class rate, not the court's hourly rate.
+  getDb()
+    .prepare("UPDATE bookings SET total_price = ? WHERE id = ?")
+    .run(session.price, result.bookings[0].id);
+  return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price } };
+}
+
+/** Cancel a class and release every enrolment in it. */
+export function cancelClassSession(classId: number): {
+  ok: boolean;
+  released: number;
+  error?: string;
+} {
+  const session = getClass(classId);
+  if (!session) return { ok: false, released: 0, error: "Class not found." };
+  if (session.status === "cancelled")
+    return { ok: false, released: 0, error: "This class is already cancelled." };
+
+  const db = getDb();
+  const enrolments = db
+    .prepare("SELECT id FROM bookings WHERE class_id = ? AND status = 'confirmed'")
+    .all(classId) as { id: number }[];
+
+  db.transaction(() => {
+    db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
+    for (const row of enrolments) {
+      db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
+      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+    }
+  })();
+  return { ok: true, released: enrolments.length };
+}
+
+/** Who is coming to a class. */
+export function getClassRoster(classId: number): Booking[] {
+  const rows = getDb()
+    .prepare(`
+      SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b
+      LEFT JOIN check_ins ci ON ci.booking_id = b.id
+      WHERE b.class_id = ? ORDER BY b.status, b.id
+    `)
+    .all(classId) as BookingRow[];
+  return rows.map(toBooking);
 }

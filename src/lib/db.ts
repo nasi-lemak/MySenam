@@ -77,6 +77,24 @@ export function getDb(): Database.Database {
       UNIQUE (court_id, date, hour, seat)
     );
 
+    -- An instructor-led session held on a resource. While it runs the resource
+    -- is reserved: the only way in is to enrol, which creates a normal booking
+    -- carrying this class_id.
+    CREATE TABLE IF NOT EXISTS classes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      court_id INTEGER NOT NULL REFERENCES courts(id),
+      name TEXT NOT NULL,
+      instructor TEXT NOT NULL,
+      date TEXT NOT NULL,
+      start_hour INTEGER NOT NULL,
+      end_hour INTEGER NOT NULL,
+      capacity INTEGER NOT NULL,
+      price INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','cancelled')),
+      series_code TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Hours a court is closed for maintenance/private events; blocked hours
     -- never appear as bookable.
     CREATE TABLE IF NOT EXISTS slot_blocks (
@@ -132,6 +150,7 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
     CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_blocks_court_date ON slot_blocks(court_id, date);
+    CREATE INDEX IF NOT EXISTS idx_classes_court_date ON classes(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id);
   `);
@@ -211,6 +230,12 @@ function migrate(db: Database.Database) {
     db.transaction(() => {
       for (const row of rows) setToken.run(randomBytes(16).toString("hex"), row.id);
     })();
+  }
+
+  // An enrolment is a booking that points at the class it belongs to.
+  if (!bookingCols.some((c) => c.name === "class_id")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN class_id INTEGER REFERENCES classes(id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_bookings_class ON bookings(class_id)");
   }
 
   if (!bookingCols.some((c) => c.name === "no_show")) {

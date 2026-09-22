@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/search" className="hover:text-teal-700">
                 Find a court
               </Link>
+              <Link href="/classes" className="hover:text-teal-700">
+                Classes
+              </Link>
               <Link href="/my-booking" className="hover:text-teal-700">
                 My Booking
               </Link>

@@ -6,6 +6,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 ## Features
 
 - **Cross-venue search** (`/search`) — pick a sport, day, time window and duration, and see every free court across all venues at once, grouped by venue and cheapest-first; one click deep-links into the venue page with the slot already selected
+- **Instructor-led classes** (`/classes`) — schedule a session or a whole weekly term on a shared facility; customers enrol rather than book, the resource is reserved while the class runs, and staff get a live roster showing who has checked in
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
 - **Live availability grid** — per venue, per sport, per day, with hourly slots (8 AM – 11 PM)
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
@@ -23,7 +24,8 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
   - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
-  - **Courts & rates**: rename courts, edit peak/off-peak rates, add new courts
+  - **Courts & rates**: rename courts, edit peak/off-peak rates and capacity, add new courts
+  - **Classes**: schedule one-off or weekly classes, view the roster, cancel a class (releasing every enrolment)
   - **Venues & staff**: edit venue details and the cancellation cutoff; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
@@ -78,6 +80,8 @@ Every admin endpoint checks the scope server-side, so a venue operator gets a
 | GET    | `/api/venues`         | All venues with their courts                        |
 | GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → hourly grid    |
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
+| GET    | `/api/classes`        | `?venueId=&sport=&from=&to=` → upcoming classes     |
+| POST   | `/api/classes/enrol`  | `{classId, name, phone, email?}` → take a place     |
 | POST   | `/api/checkin`        | `{token}` → self check-in from the booking QR       |
 | GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
 | POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?, weeks?, skipConflicts?}` |
@@ -108,6 +112,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
+| GET    | `/api/admin/classes`          | `?venueId=` → classes including cancelled ones       |
+| POST   | `/api/admin/classes`          | `{courtId, name, instructor, date, startHour, endHour, capacity, price, weeks?}` |
+| GET    | `/api/admin/classes/:id`      | The class and its roster                             |
+| DELETE | `/api/admin/classes/:id`      | Cancel a class, releasing every enrolment            |
 | GET    | `/api/admin/slots`            | `?venueId=&date=` → per-slot status grid             |
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
@@ -169,6 +177,24 @@ so shrinking a gym never strands a customer.
 For a customer this is the forward-looking crowd signal: a shared facility shows
 **places left** rather than a price in each cell, shaded from quiet through
 filling to busy, so you can see that Monday 7pm is always packed.
+
+## Classes
+
+A class is an instructor-led session held on a shared facility. While it runs
+the resource is **reserved**: those hours disappear from general booking and
+from cross-venue search, and a walk-in attempt is told to enrol instead. A class
+cannot be laid over existing bookings, or over another class.
+
+An enrolment is deliberately just a booking with a `class_id`, so it inherits
+everything bookings already do — a code, a QR check-in, payment tracking,
+cancellation and no-shows — instead of growing a parallel system. The only
+override is price: an enrolment is charged the class's per-person rate rather
+than the court's hourly one.
+
+Classes can repeat weekly for a term (up to 12 weeks) under a shared `CL-`
+series code. Cancelling a class releases every enrolment and returns the hours
+to general booking. Staff see a roster per class with each attendee's check-in
+state.
 
 ## Check-in and live crowd levels
 
@@ -247,7 +273,6 @@ push and pull request (Node 22, `npm ci`).
 
 - Turnstile or access-gate integration, so entry is physically gated rather
   than trusted
-- Instructor-led classes: a shared slot plus an enrolment roster and terms
 - Memberships, passes and stored credit
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Member rates, promo codes and bulk discounts

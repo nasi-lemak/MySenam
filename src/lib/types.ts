@@ -93,7 +93,35 @@ export interface Booking {
   checkedOutAt: string | null;
   /** Secret behind the self check-in QR code. Never shown to other customers. */
   checkInToken: string | null;
+  /** Set when this booking is an enrolment in an instructor-led class. */
+  classId: number | null;
 }
+
+export type ClassStatus = "scheduled" | "cancelled";
+
+/** An instructor-led session people enrol in, rather than book outright. */
+export interface ClassSession {
+  id: number;
+  courtId: number;
+  courtName: string;
+  venueId: number;
+  venueName: string;
+  venueArea: string;
+  sport: Sport;
+  name: string;
+  instructor: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  capacity: number;
+  /** Per person, for the whole session. */
+  price: number;
+  status: ClassStatus;
+  seriesCode: string | null;
+  enrolled: number;
+}
+
+export const MAX_CLASS_WEEKS = 12;
 
 export interface SlotInfo {
   hour: number;
@@ -102,6 +130,9 @@ export interface SlotInfo {
   /** Places already taken, and the resource's total, for this hour. */
   booked: number;
   capacity: number;
+  /** Set when a class has the resource this hour — enrol instead of booking. */
+  className?: string;
+  classId?: number;
 }
 
 /** How full a shared facility is, for the crowd indicator. */
