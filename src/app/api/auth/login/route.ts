@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticate, createSession, SESSION_COOKIE } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,9 @@ export async function POST(req: NextRequest) {
   const { email, password } = (body ?? {}) as Record<string, unknown>;
   if (typeof email !== "string" || typeof password !== "string")
     return NextResponse.json({ error: "email and password are required." }, { status: 400 });
+
+  const limited = rateLimit(req, "login", email);
+  if (limited) return limited;
 
   const user = authenticate(email, password);
   if (!user)

@@ -145,6 +145,23 @@ settled in one click). Customers see the payment state on `/account` and in the
 `/my-booking` lookup. The daily view splits **expected** vs **collected** vs
 **outstanding** revenue so a shift can be reconciled at closing.
 
+## Rate limiting
+
+Password endpoints and anything addressable by a short code are rate limited
+per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
+
+| Endpoint | Budget |
+| -------- | ------ |
+| Admin & customer sign-in | 10 per 10 min, per IP **and** per email |
+| Registration | 5 per hour |
+| Booking lookup / cancel by code | 20 per 10 min |
+| Booking creation | 20 per hour |
+
+Counters live in process memory, so each instance keeps its own. A horizontally
+scaled deploy should move them to a shared store (Redis) with the same policies.
+Client identity comes from `x-forwarded-for`, which is only trustworthy behind a
+proxy that sets it.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs type-check, tests and a production build on every
@@ -157,7 +174,6 @@ push and pull request (Node 22, `npm ci`).
 - Member rates, promo codes and bulk discounts
 - Waitlist for fully-booked slots
 - Per-venue operating hours and public-holiday closures
-- Rate limiting on the login and booking endpoints
 - Automated WhatsApp/email booking confirmations & reminders
 - Session cookies are not marked `Secure`; set that (and strong
   `ADMIN_EMAIL` / `ADMIN_PASSWORD` values) before deploying behind HTTPS

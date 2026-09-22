@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSession, registerUser, SESSION_COOKIE } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
       { error: "Password must be at least 8 characters." },
       { status: 400 }
     );
+
+  const limited = rateLimit(req, "register");
+  if (limited) return limited;
 
   const result = registerUser({ name, email, phone, password });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });

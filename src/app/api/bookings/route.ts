@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { createBookingSeries, findBooking, getCourt, getVenue } from "@/lib/store";
+import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS } from "@/lib/types";
 
@@ -36,6 +37,9 @@ export async function POST(req: NextRequest) {
       { error: `weeks must be between 1 and ${MAX_RECUR_WEEKS}.` },
       { status: 400 }
     );
+
+  const limited = rateLimit(req, "booking");
+  if (limited) return limited;
 
   const user = getSessionUser(req);
   const result = createBookingSeries({
@@ -73,6 +77,9 @@ export function GET(req: NextRequest) {
   const phone = params.get("phone");
   if (!code || !phone)
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });
+
+  const limited = rateLimit(req, "bookingLookup");
+  if (limited) return limited;
 
   const booking = findBooking(code, phone);
   if (!booking)
