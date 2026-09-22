@@ -48,6 +48,31 @@ const BUSY_STYLES: Record<string, string> = {
   full: "bg-slate-100 text-slate-300",
 };
 
+/**
+ * A taken slot can be queued for; a blocked, class-reserved or past one
+ * cannot, because no cancellation will ever free it.
+ */
+function canQueue(slot: CourtAvailability["slots"][number], date: string): boolean {
+  if (slot.available || slot.blocked || slot.className) return false;
+  return !isPastSlotClient(date, slot.hour);
+}
+
+/** Past-slot check in Malaysia time, for the browser. */
+function isPastSlotClient(date: string, hour: number): boolean {
+  const now = new Date();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(now);
+  if (date < today) return true;
+  if (date > today) return false;
+  const currentHour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kuala_Lumpur",
+      hour: "2-digit",
+      hour12: false,
+    }).format(now)
+  );
+  return hour <= currentHour % 24;
+}
+
 function formatDateLabel(date: string): { day: string; num: string } {
   const d = new Date(`${date}T00:00:00Z`);
   return {
@@ -74,6 +99,10 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [waitlistSlot, setWaitlistSlot] = useState<{
+    court: Court;
+    hour: number;
+  } | null>(null);
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -230,20 +259,28 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     return (
                       <td key={slot.hour} className="p-1 text-center">
                         <button
-                          disabled={!slot.available}
-                          onClick={() => toggleSlot(court.id, slot.hour)}
+                          disabled={!slot.available && !canQueue(slot, date)}
+                          onClick={() =>
+                            slot.available
+                              ? toggleSlot(court.id, slot.hour)
+                              : setWaitlistSlot({ court, hour: slot.hour })
+                          }
                           title={
                             !slot.available
-                              ? shared
-                                ? "Unavailable"
-                                : "Unavailable"
+                              ? canQueue(slot, date)
+                                ? "Taken — click to join the waitlist"
+                                : slot.className
+                                  ? `Reserved for ${slot.className}`
+                                  : "Unavailable"
                               : shared
                                 ? `${formatHour(slot.hour)} · RM${slot.rate} · ${left} of ${slot.capacity} places left (${BUSYNESS_LABELS[level]})`
                                 : `${formatHour(slot.hour)} · RM${slot.rate}`
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
                             !slot.available
-                              ? "cursor-not-allowed bg-slate-100 text-slate-300"
+                              ? canQueue(slot, date)
+                                ? "cursor-pointer bg-slate-100 text-slate-400 hover:bg-amber-100 hover:text-amber-700"
+                                : "cursor-not-allowed bg-slate-100 text-slate-300"
                               : isSelected
                                 ? "bg-teal-600 text-white shadow"
                                 : shared
@@ -251,7 +288,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                                   : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           }`}
                         >
-                          {!slot.available ? "—" : shared ? left : slot.rate}
+                          {!slot.available ? (canQueue(slot, date) ? "+" : "—") : shared ? left : slot.rate}
                         </button>
                       </td>
                     );
@@ -304,6 +341,15 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
             setError(msg);
             loadAvailability();
           }}
+        />
+      )}
+
+      {waitlistSlot && (
+        <SlotWaitlistModal
+          court={waitlistSlot.court}
+          date={date}
+          hour={waitlistSlot.hour}
+          onClose={() => setWaitlistSlot(null)}
         />
       )}
 
@@ -589,6 +635,135 @@ function ConfirmationModal({
         >
           Done
         </button>
+      </div>
+    </div>
+  );
+}
+
+function SlotWaitlistModal({
+  court,
+  date,
+  hour,
+  onClose,
+}: {
+  court: Court;
+  date: string;
+  hour: number;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [position, setPosition] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.user) return;
+        setName((v) => v || data.user.name);
+        setPhone((v) => v || data.user.phone);
+        setEmail((v) => v || data.user.email);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courtId: court.id,
+          date,
+          startHour: hour,
+          endHour: hour + 1,
+          name,
+          phone,
+          email,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not join the waitlist");
+      setPosition(data.position);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not join the waitlist");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const inputClass =
+    "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+        {position !== null ? (
+          <div className="text-center">
+            <div className="text-4xl">⏳</div>
+            <h2 className="mt-2 text-xl font-bold">You&apos;re on the waitlist</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Number {position} for {court.name} at {formatHour(hour)}.
+            </p>
+            <p className="mt-3 text-xs text-slate-500">
+              If it frees up, the slot is offered to whoever has waited longest. Signed-in
+              customers see the offer on their account page.
+            </p>
+            <button
+              onClick={onClose}
+              className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <h2 className="text-lg font-bold">{court.name}</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {date} · {formatHour(hour)} – {formatHour(hour + 1)}
+            </p>
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              This slot is taken. Join the waitlist and we&apos;ll offer it to you if it frees up.
+            </p>
+            <form onSubmit={submit} className="mt-4 space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                Name
+                <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Phone
+                <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="012-345 6789" className={inputClass} />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Email (optional)
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
+              </label>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-600 hover:border-slate-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="flex-1 rounded-lg bg-teal-600 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+                >
+                  {busy ? "Joining…" : "Join waitlist"}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

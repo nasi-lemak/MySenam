@@ -11,11 +11,17 @@ import {
   enrolInClass,
   getClass,
   joinClassWaitlist,
+  joinSlotWaitlist,
   leaveWaitlist,
   listClassWaitlist,
   listVenues,
   listWaitlistFor,
   offerClassPlace,
+  offerSlotPlace,
+  createBooking,
+  cancelBooking,
+  blockSlots,
+  getAvailability,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { WAITLIST_OFFER_MINUTES } from "../src/lib/types";
@@ -224,5 +230,162 @@ describe("leaving a waitlist", () => {
     if (!entry.ok) return;
     expect(leaveWaitlist(entry.entry.id, "0000000000")).toMatchObject({ ok: false });
     expect(leaveWaitlist(99999, "0189990001")).toMatchObject({ ok: false });
+  });
+});
+
+describe("waitlists for ordinary slots", () => {
+  /** A court hour that is already taken. */
+  function takenSlot(offset = 5, hour = 14) {
+    seq++;
+    const court = createCourt({
+      venueId: listVenues()[0].id,
+      name: `Queue Court ${seq}`,
+      sport: "badminton",
+      offPeakRate: 15,
+      peakRate: 25,
+      capacity: 1,
+    });
+    if (!court.ok) throw new Error("court");
+    const date = futureDate(offset);
+    const holder = createBooking({
+      courtId: court.court.id,
+      date,
+      hours: [hour],
+      name: "Holder",
+      phone: `0171${seq}00000`,
+      userId: undefined,
+    });
+    if (!holder.ok) throw new Error("booking");
+    return { court: court.court, date, hour, holder: holder.booking, holderPhone: `0171${seq}00000` };
+  }
+
+  it("queues only for a slot that is actually taken", () => {
+    const { court, date, hour } = takenSlot();
+
+    // the free hour next door is bookable, so queuing is refused
+    expect(
+      joinSlotWaitlist({
+        courtId: court.id, date, startHour: hour + 1, endHour: hour + 2,
+        name: "Eager", phone: "0172220001",
+      })
+    ).toMatchObject({ ok: false, error: expect.stringContaining("book it instead") });
+
+    expect(
+      joinSlotWaitlist({
+        courtId: court.id, date, startHour: hour, endHour: hour + 1,
+        name: "Waiter", phone: "0172220002",
+      })
+    ).toMatchObject({ ok: true, position: 1 });
+  });
+
+  it("validates hours, the window and duplicates", () => {
+    const { court, date, hour } = takenSlot(6, 15);
+    const person = { name: "Waiter", phone: "0173330001" };
+
+    expect(
+      joinSlotWaitlist({ courtId: court.id, date, startHour: 6, endHour: 7, ...person })
+    ).toMatchObject({ ok: false, error: expect.stringContaining("operating hours") });
+    expect(
+      joinSlotWaitlist({ courtId: court.id, date, startHour: 10, endHour: 20, ...person })
+    ).toMatchObject({ ok: false, error: expect.stringContaining("Maximum") });
+    expect(
+      joinSlotWaitlist({
+        courtId: court.id, date: addDays(todayISO(), 60), startHour: hour, endHour: hour + 1, ...person,
+      })
+    ).toMatchObject({ ok: false, error: expect.stringContaining("window") });
+    expect(
+      joinSlotWaitlist({ courtId: 99999, date, startHour: hour, endHour: hour + 1, ...person })
+    ).toMatchObject({ ok: false, error: "Court not found." });
+
+    expect(
+      joinSlotWaitlist({ courtId: court.id, date, startHour: hour, endHour: hour + 1, ...person })
+    ).toMatchObject({ ok: true });
+    expect(
+      joinSlotWaitlist({ courtId: court.id, date, startHour: hour, endHour: hour + 1, ...person })
+    ).toMatchObject({ ok: false, error: expect.stringContaining("already on this waitlist") });
+  });
+
+  it("offers the slot to the longest waiter when the holder cancels", () => {
+    const { court, date, hour, holder, holderPhone } = takenSlot(7, 16);
+    joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "First", phone: "0174440001",
+    });
+    joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "Second", phone: "0174440002",
+    });
+
+    expect(cancelBooking(holder.code, holderPhone)).toMatchObject({ ok: true });
+
+    const offered = listWaitlistFor("0174440001")[0];
+    expect(offered).toMatchObject({ name: "First", status: "offered" });
+    expect(listWaitlistFor("0174440002")[0].status).toBe("waiting");
+  });
+
+  it("claims the slot as a real booking", () => {
+    const { court, date, hour, holder, holderPhone } = takenSlot(8, 17);
+    joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "First", phone: "0175550001",
+    });
+    cancelBooking(holder.code, holderPhone);
+
+    const offer = listWaitlistFor("0175550001")[0];
+    const claimed = claimWaitlistOffer(offer.offerToken!);
+    expect(claimed.ok).toBe(true);
+    if (!claimed.ok) return;
+    expect(claimed.booking.courtId).toBe(court.id);
+    expect(claimed.booking.startHour).toBe(hour);
+    expect(claimed.booking.name).toBe("First");
+
+    // the hour is taken again
+    const slot = getAvailability(court.venueId, date)
+      .find((a) => a.court.id === court.id)!
+      .slots.find((s) => s.hour === hour)!;
+    expect(slot.available).toBe(false);
+    expect(listWaitlistFor("0175550001")).toHaveLength(0);
+  });
+
+  it("keeps a waiter's place if the slot is gone by the time they claim", () => {
+    const { court, date, hour, holder, holderPhone } = takenSlot(9, 18);
+    joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "Slow", phone: "0176660001",
+    });
+    cancelBooking(holder.code, holderPhone);
+    const offer = listWaitlistFor("0176660001")[0];
+    expect(offer.status).toBe("offered");
+
+    // somebody books it directly before the offer is claimed
+    expect(
+      createBooking({
+        courtId: court.id, date, hours: [hour], name: "Quick", phone: "0176660002",
+      }).ok
+    ).toBe(true);
+
+    expect(claimWaitlistOffer(offer.offerToken!)).toMatchObject({ ok: false });
+    // they go back in the queue rather than losing their turn
+    expect(listWaitlistFor("0176660001")[0].status).toBe("waiting");
+  });
+
+  it("does not offer a slot that staff have blocked", () => {
+    const { court, date, hour, holder, holderPhone } = takenSlot(10, 19);
+    joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "Waiter", phone: "0177770001",
+    });
+    cancelBooking(holder.code, holderPhone);
+    // the freed hour is immediately closed for maintenance
+    blockSlots(court.id, date, [hour], "resurfacing");
+
+    // an expired offer cannot be re-offered while the block stands
+    const entry = listWaitlistFor("0177770001")[0];
+    if (entry.status === "offered") leaveWaitlist(entry.id, "0177770001");
+    joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "Waiter2", phone: "0177770002",
+    });
+    expect(offerSlotPlace(court.id, date)).toBeNull();
   });
 });

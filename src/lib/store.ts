@@ -182,6 +182,7 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
           !session &&
           !isPastSlot(date, hour),
         ...(session ? { className: session.name, classId: session.id } : {}),
+        ...(blockedSet.has(key) ? { blocked: true } : {}),
       };
     }),
   }));
@@ -627,8 +628,9 @@ export function cancelBooking(code: string, phone: string): CancelResult {
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   refundBookingToWallet(booking.id);
-  // A freed class place goes to whoever has waited longest.
+  // A freed place goes to whoever has waited longest.
   if (booking.classId) offerClassPlace(booking.classId);
+  else offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -756,8 +758,9 @@ export function adminCancelBooking(code: string): CancelResult {
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   refundBookingToWallet(booking.id);
-  // A freed class place goes to whoever has waited longest.
+  // A freed place goes to whoever has waited longest.
   if (booking.classId) offerClassPlace(booking.classId);
+  else offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -955,8 +958,9 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
     db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
   refundBookingToWallet(booking.id);
-  // A freed class place goes to whoever has waited longest.
+  // A freed place goes to whoever has waited longest.
   if (booking.classId) offerClassPlace(booking.classId);
+  else offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -1856,21 +1860,48 @@ export function claimWaitlistOffer(token: string): ClaimResult {
   if (!row) return { ok: false, error: "This offer is no longer valid." };
   if (row.status !== "offered")
     return { ok: false, error: "This offer has expired or was already claimed." };
-  if (!row.class_id) return { ok: false, error: "This offer is no longer valid." };
 
-  const enrolled = enrolInClass({
-    classId: row.class_id,
-    name: row.name,
-    phone: row.phone,
-    email: row.email ?? undefined,
-    userId: row.user_id ?? undefined,
-  });
-  if (!enrolled.ok) return { ok: false, error: enrolled.error };
+  let booking: Booking;
+  if (row.class_id) {
+    const enrolled = enrolInClass({
+      classId: row.class_id,
+      name: row.name,
+      phone: row.phone,
+      email: row.email ?? undefined,
+      userId: row.user_id ?? undefined,
+    });
+    if (!enrolled.ok) return { ok: false, error: enrolled.error };
+    booking = enrolled.booking;
+  } else if (row.court_id && row.date && row.start_hour !== null && row.end_hour !== null) {
+    const hours = Array.from(
+      { length: row.end_hour - row.start_hour },
+      (_, i) => row.start_hour! + i
+    );
+    const created = createBooking({
+      courtId: row.court_id,
+      date: row.date,
+      hours,
+      name: row.name,
+      phone: row.phone,
+      email: row.email ?? undefined,
+      userId: row.user_id ?? undefined,
+    });
+    if (!created.ok) {
+      // Somebody beat them to it. Keep their place rather than burning it.
+      db.prepare(
+        "UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ?"
+      ).run(row.id);
+      return { ok: false, error: created.error };
+    }
+    booking = created.booking;
+  } else {
+    return { ok: false, error: "This offer is no longer valid." };
+  }
 
   db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
   return {
     ok: true,
-    booking: enrolled.booking,
+    booking,
     entry: toWaitlistEntry(
       db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow
     ),
@@ -1889,6 +1920,7 @@ export function leaveWaitlist(entryId: number, phone: string): { ok: boolean; er
   db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
   // Someone dropping out may free a live offer for the next person.
   if (row.class_id) offerClassPlace(row.class_id);
+  else if (row.court_id && row.date) offerSlotPlace(row.court_id, row.date);
   return { ok: true };
 }
 
@@ -1918,6 +1950,11 @@ export function listWaitlistFor(phone: string): WaitlistEntry[] {
       if (session) {
         entry.label = `${session.name} · ${session.date} ${formatHourLabel(session.startHour)}`;
       }
+    } else if (row.court_id && row.date && row.start_hour !== null) {
+      const court = getCourt(row.court_id);
+      if (court) {
+        entry.label = `${court.name} · ${row.date} ${formatHourLabel(row.start_hour)}`;
+      }
     }
     return entry;
   });
@@ -1927,4 +1964,119 @@ function formatHourLabel(hour: number): string {
   const h = hour % 24;
   const suffix = h >= 12 ? "PM" : "AM";
   return `${h % 12 === 0 ? 12 : h % 12}:00 ${suffix}`;
+}
+
+/* ---------------- Waitlists for ordinary slots ---------------- */
+
+/** Are all these hours free on this resource right now? */
+function slotHoursFree(courtId: number, date: string, hours: number[]): boolean {
+  const court = getCourt(courtId);
+  if (!court) return false;
+  const db = getDb();
+  const classes = classHoursOn(date);
+  for (const hour of hours) {
+    if (classes.has(`${courtId}:${hour}`)) return false;
+    const blocked = db
+      .prepare("SELECT 1 FROM slot_blocks WHERE court_id = ? AND date = ? AND hour = ?")
+      .get(courtId, date, hour);
+    if (blocked) return false;
+    const taken = db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
+      )
+      .get(courtId, date, hour) as { n: number };
+    if (taken.n >= court.capacity) return false;
+  }
+  return true;
+}
+
+/** Queue for a court or facility slot that is currently taken. */
+export function joinSlotWaitlist(input: {
+  courtId: number;
+  date: string;
+  startHour: number;
+  endHour: number;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+}): WaitlistResult {
+  expireStaleOffers();
+  const { courtId, date, startHour, endHour } = input;
+
+  if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
+  if (endHour <= startHour || startHour < OPEN_HOUR || endHour > CLOSE_HOUR)
+    return { ok: false, error: "Those hours are outside operating hours." };
+  if (endHour - startHour > MAX_HOURS_PER_BOOKING)
+    return { ok: false, error: `Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.` };
+  if (!isBookableDate(date)) return { ok: false, error: "Date is outside the booking window." };
+  if (isPastSlot(date, startHour)) return { ok: false, error: "That time has already passed." };
+
+  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+  if (slotHoursFree(courtId, date, hours))
+    return { ok: false, error: "That slot is free — book it instead." };
+
+  const db = getDb();
+  const already = db
+    .prepare(`
+      SELECT id FROM waitlist
+      WHERE court_id = ? AND date = ? AND start_hour = ? AND phone = ?
+        AND status IN ('waiting','offered')
+    `)
+    .get(courtId, date, startHour, input.phone.trim());
+  if (already) return { ok: false, error: "You are already on this waitlist." };
+
+  const info = db
+    .prepare(`
+      INSERT INTO waitlist (court_id, date, start_hour, end_hour, name, phone, email, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      courtId, date, startHour, endHour,
+      input.name.trim(), input.phone.trim(), input.email?.trim() ?? null, input.userId ?? null
+    );
+
+  const entry = toWaitlistEntry(
+    db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
+  );
+  return { ok: true, entry, position: slotQueue(courtId, date).length };
+}
+
+function slotQueue(courtId: number, date: string): WaitlistRow[] {
+  return getDb()
+    .prepare(
+      "SELECT * FROM waitlist WHERE court_id = ? AND date = ? AND status IN ('waiting','offered') ORDER BY id"
+    )
+    .all(courtId, date) as WaitlistRow[];
+}
+
+/**
+ * Hours freed up on a resource: offer them to the longest waiter whose
+ * requested window is now entirely free. One live offer per resource and day,
+ * so overlapping windows cannot be promised to two people at once.
+ */
+export function offerSlotPlace(courtId: number, date: string): WaitlistEntry | null {
+  expireStaleOffers();
+  const queue = slotQueue(courtId, date);
+  if (queue.some((row) => row.status === "offered")) return null;
+
+  for (const row of queue) {
+    if (row.status !== "waiting" || row.start_hour === null || row.end_hour === null) continue;
+    const hours = Array.from(
+      { length: row.end_hour - row.start_hour },
+      (_, i) => row.start_hour! + i
+    );
+    if (isPastSlot(date, row.start_hour)) continue;
+    if (!slotHoursFree(courtId, date, hours)) continue;
+
+    const db = getDb();
+    db.prepare(
+      "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
+    ).run(randomBytes(16).toString("hex"), row.id);
+    return toWaitlistEntry(
+      db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow,
+      true
+    );
+  }
+  return null;
 }

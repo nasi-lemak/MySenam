@@ -170,6 +170,8 @@ export interface SlotInfo {
   /** Set when a class has the resource this hour — enrol instead of booking. */
   className?: string;
   classId?: number;
+  /** Closed by staff, so queuing for it would be pointless. */
+  blocked?: boolean;
 }
 
 /** How full a shared facility is, for the crowd indicator. */
