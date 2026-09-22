@@ -9,13 +9,14 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 - **Waitlists** — when a court hour or class is full, customers queue instead; a cancellation offers it to whoever has waited longest, held for 30 minutes before passing on
 - **Instructor-led classes** (`/classes`) — schedule a session or a whole weekly term on a shared facility; customers enrol rather than book, the resource is reserved while the class runs, and staff get a live roster showing who has checked in
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
-- **Live availability grid** — per venue, per sport, per day, with hourly slots (8 AM – 11 PM)
+- **Live availability grid** — per venue, per sport, per day, with hourly slots inside that venue's own trading hours
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
+- **Operating hours & closed days** — each venue sets its own opening and closing hour (a pool can open at 7 AM, a club shut at 10 PM); whole days can be closed for a public holiday, a private hire or a refit, which blocks booking, enrolment and waitlist joins for that date and drops the venue out of cross-venue search
 - **Cancellation policy** — each venue sets how many hours before a slot customers may still cancel (default 2); the window is shown up front on the venue page and in the booking lookup, and staff can always override from the dashboard
 - **Check-in & live crowd levels** — customers scan a QR code on their booking to check themselves in (or the desk does it), and the venue page shows a public *Here right now* panel counting who is actually inside each shared facility, refreshed every 30 seconds
 - **No-show tracking** — staff flag a passed booking whose customer never turned up, and the day list warns when that phone number has prior no-shows
@@ -29,7 +30,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
   - **Courts & rates**: rename courts, edit peak/off-peak rates and capacity, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
-  - **Venues & staff**: edit venue details and the cancellation cutoff; owners can also add venues and create/remove staff accounts
+  - **Venues & staff**: edit venue details, trading hours and the cancellation cutoff, and schedule or lift whole-day closures; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
 ## Tech stack
@@ -133,7 +134,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate}`      |
 | PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?}`                   |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
-| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?}` |
+| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openHour?, closeHour?}` |
+| GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
+| POST   | `/api/admin/venues/:id/closures` | `{date, reason?}` → close that whole day          |
+| DELETE | `/api/admin/venues/:id/closures?date=` | Re-open a closed day                        |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
 | POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
@@ -309,6 +313,31 @@ After a slot has passed, staff can flag it a no-show from the Bookings tab. The
 flag is reversible, never applies to a cancelled booking, and the day list shows
 a ⚠ badge counting that phone number's previous no-shows.
 
+## Operating hours and closed days
+
+Hours are a property of the venue, not the platform. Every venue carries an
+`open_hour` and a `close_hour` (defaults 8 and 23, bounds 0–24): the first
+bookable hour starts at `open_hour` and the last one ends at `close_hour`. That
+single pair sizes the customer grid, the admin schedule, the occupancy
+denominator, and the hours accepted by booking, class scheduling, slot blocking
+and waitlist joins. Cross-venue search clamps the requested window to each
+venue's own day, so a 7 AM search only ever returns the venues that are open at
+7 AM, and a 2-hour block is only offered if it still finishes by that venue's
+close.
+
+Narrowing a venue's day is refused while bookings exist outside the proposed
+hours — otherwise a customer would hold a slot the venue no longer sells. Staff
+have to cancel or move those first.
+
+A **closure** shuts one venue for one whole date (`venue_closures`, unique on
+venue + date). Closed days read as blocked everywhere: no slot is selectable,
+booking, series, class scheduling, enrolment and waitlist joins are all refused
+with "The venue is closed that day", the venue disappears from search for that
+date, and customers see the reason both as an upcoming-closures banner on the
+venue page and on the grid itself. Staff still see the day in the schedule,
+marked with the closure reason rather than blank, so bookings taken before the
+closure was declared remain visible for them to handle.
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited
@@ -339,8 +368,6 @@ push and pull request (Node 22, `npm ci`).
 - Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Member rates, promo codes and bulk discounts
-- Waitlist for fully-booked slots
-- Per-venue operating hours and public-holiday closures
 - Automated WhatsApp/email booking confirmations & reminders
 - Session cookies are not marked `Secure`; set that (and strong
   `ADMIN_EMAIL` / `ADMIN_PASSWORD` values) before deploying behind HTTPS

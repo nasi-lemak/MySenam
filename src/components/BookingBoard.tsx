@@ -13,6 +13,7 @@ import {
   Sport,
   SPORT_ICONS,
   SPORT_LABELS,
+  VenueClosure,
 } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
@@ -95,6 +96,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       : null
   );
   const [availability, setAvailability] = useState<CourtAvailability[] | null>(null);
+  const [closure, setClosure] = useState<VenueClosure | null>(null);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +118,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       if (!res.ok) throw new Error(data.error ?? "Failed to load availability");
       const slots: CourtAvailability[] = data.availability;
       setAvailability(slots);
+      setClosure(data.closure ?? null);
 
       const pending = pendingInitial.current;
       if (pending) {
@@ -129,6 +132,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load availability");
       setAvailability(null);
+      setClosure(null);
     } finally {
       setLoading(false);
     }
@@ -219,6 +223,13 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {closure && !loading && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>Closed on {closure.date}.</strong> Pick another date.
+          {closure.reason && <div className="mt-0.5 text-amber-700">{closure.reason}</div>}
         </div>
       )}
 

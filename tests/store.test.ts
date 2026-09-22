@@ -398,7 +398,7 @@ describe("cancellation cutoff", () => {
     const series = createBookingSeries({
       courtId: venue.courts[0].id,
       date: futureDate(1), // inside the cutoff
-      hours: [22],
+      hours: [21],
       weeks: 3,
       name: "Liga",
       phone: PHONE,

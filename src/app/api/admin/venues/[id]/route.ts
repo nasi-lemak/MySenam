@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { updateVenue } from "@/lib/store";
-import { MAX_CANCEL_CUTOFF_HOURS } from "@/lib/types";
+import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, OPEN_HOUR } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +35,8 @@ export async function PATCH(
     address?: string;
     phone?: string;
     cancelCutoffHours?: number;
+    openHour?: number;
+    closeHour?: number;
   } = {};
   for (const field of FIELDS) {
     const value = input[field];
@@ -54,10 +56,25 @@ export async function PATCH(
     changes.cancelCutoffHours = cutoff as number;
   }
 
+  for (const field of ["openHour", "closeHour"] as const) {
+    const value = input[field];
+    if (value === undefined) continue;
+    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > CLOSE_HOUR)
+      return NextResponse.json(
+        { error: `Opening hours must be whole hours between ${OPEN_HOUR} and ${CLOSE_HOUR}.` },
+        { status: 400 }
+      );
+    changes[field] = value as number;
+  }
+
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
   const result = updateVenue(venueId, changes);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
+  if (!result.ok)
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.error === "Venue not found." ? 404 : 400 }
+    );
   return NextResponse.json({ venue: result.venue });
 }

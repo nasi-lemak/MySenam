@@ -7,6 +7,8 @@ import {
   CourtAvailability,
   OPEN_HOUR,
   CLOSE_HOUR,
+  DEFAULT_OPEN_HOUR,
+  DEFAULT_CLOSE_HOUR,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
@@ -21,11 +23,13 @@ import {
   WAITLIST_OFFER_MINUTES,
   Sport,
   Venue,
+  VenueClosure,
 } from "./types";
 import {
   addDays,
   isBookableDate,
   isPastSlot,
+  isValidDateString,
   isPeak,
   isWithinCancelWindow,
   slotStartsAt,
@@ -49,6 +53,8 @@ interface VenueRow {
   address: string;
   phone: string;
   cancel_cutoff_hours: number;
+  open_hour: number;
+  close_hour: number;
 }
 
 function toVenue(r: VenueRow): Venue {
@@ -59,7 +65,91 @@ function toVenue(r: VenueRow): Venue {
     address: r.address,
     phone: r.phone,
     cancelCutoffHours: r.cancel_cutoff_hours,
+    openHour: r.open_hour,
+    closeHour: r.close_hour,
   };
+}
+
+/** A venue's trading hours, falling back to the defaults if it has vanished. */
+export function venueHours(venueId: number): { openHour: number; closeHour: number } {
+  const row = getDb()
+    .prepare("SELECT open_hour, close_hour FROM venues WHERE id = ?")
+    .get(venueId) as { open_hour: number; close_hour: number } | undefined;
+  return {
+    openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR,
+    closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR,
+  };
+}
+
+/** The trading hours of the venue a court belongs to. */
+export function courtVenueHours(courtId: number): { openHour: number; closeHour: number } {
+  const row = getDb()
+    .prepare(`
+      SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour
+      FROM courts c JOIN venues v ON v.id = c.venue_id WHERE c.id = ?
+    `)
+    .get(courtId) as { id: number; open_hour: number; close_hour: number } | undefined;
+  return {
+    openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR,
+    closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR,
+  };
+}
+
+/** The closure covering a date, if the venue is shut that whole day. */
+export function getVenueClosure(venueId: number, date: string): VenueClosure | null {
+  const row = getDb()
+    .prepare("SELECT date, reason FROM venue_closures WHERE venue_id = ? AND date = ?")
+    .get(venueId, date) as { date: string; reason: string | null } | undefined;
+  return row ? { date: row.date, reason: row.reason } : null;
+}
+
+/** Every closure a venue has from `from` onwards, soonest first. */
+export function listVenueClosures(venueId: number, from?: string): VenueClosure[] {
+  const rows = getDb()
+    .prepare(`
+      SELECT date, reason FROM venue_closures
+      WHERE venue_id = ? AND (? IS NULL OR date >= ?)
+      ORDER BY date
+    `)
+    .all(venueId, from ?? null, from ?? null) as { date: string; reason: string | null }[];
+  return rows.map((r) => ({ date: r.date, reason: r.reason }));
+}
+
+export type ClosureResult = { ok: true; closure: VenueClosure } | { ok: false; error: string };
+
+/** Shut a venue for a whole day. Existing bookings are left for staff to handle. */
+export function closeVenueDay(venueId: number, date: string, reason?: string): ClosureResult {
+  if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
+  const db = getDb();
+  const venue = db.prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
+  if (!venue) return { ok: false, error: "Venue not found." };
+  const trimmed = reason?.trim();
+  db.prepare(
+    `INSERT INTO venue_closures (venue_id, date, reason) VALUES (?, ?, ?)
+     ON CONFLICT (venue_id, date) DO UPDATE SET reason = excluded.reason`
+  ).run(venueId, date, trimmed && trimmed.length > 0 ? trimmed : null);
+  return { ok: true, closure: { date, reason: trimmed && trimmed.length > 0 ? trimmed : null } };
+}
+
+/** Re-open a closed day. */
+export function reopenVenueDay(venueId: number, date: string): { ok: boolean } {
+  const info = getDb()
+    .prepare("DELETE FROM venue_closures WHERE venue_id = ? AND date = ?")
+    .run(venueId, date);
+  return { ok: info.changes > 0 };
+}
+
+/** Dates a venue is shut inside a range, as a set for bulk checks. */
+function closedDatesIn(venueIds: number[], from: string, to: string): Set<string> {
+  if (venueIds.length === 0) return new Set();
+  const list = venueIds.map(() => "?").join(",");
+  const rows = getDb()
+    .prepare(
+      `SELECT venue_id, date FROM venue_closures
+       WHERE venue_id IN (${list}) AND date >= ? AND date <= ?`
+    )
+    .all(...venueIds, from, to) as { venue_id: number; date: string }[];
+  return new Set(rows.map((r) => `${r.venue_id}:${r.date}`));
 }
 
 interface BookingRow {
@@ -162,11 +252,14 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
     .all(date, venueId) as { court_id: number; hour: number }[];
   const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
   const classHours = classHoursOn(date, venueId);
+  const { openHour, closeHour } = venueHours(venueId);
+  // A closed day reads like every hour is blocked, so nothing can be picked.
+  const closed = getVenueClosure(venueId, date) !== null;
 
   return courts.map((court) => ({
     court,
-    slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
-      const hour = OPEN_HOUR + i;
+    slots: Array.from({ length: closeHour - openHour }, (_, i) => {
+      const hour = openHour + i;
       const key = `${court.id}:${hour}`;
       const booked = takenCounts.get(key) ?? 0;
       const session = classHours.get(key);
@@ -177,12 +270,13 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
         available:
+          !closed &&
           booked < court.capacity &&
           !blockedSet.has(key) &&
           !session &&
           !isPastSlot(date, hour),
         ...(session ? { className: session.name, classId: session.id } : {}),
-        ...(blockedSet.has(key) ? { blocked: true } : {}),
+        ...(closed || blockedSet.has(key) ? { blocked: true } : {}),
       };
     }),
   }));
@@ -266,17 +360,19 @@ export function listAreas(): string[] {
 export function searchAvailability(input: SearchInput): SearchResult[] {
   const db = getDb();
   const duration = Math.min(Math.max(input.duration ?? 1, 1), MAX_HOURS_PER_BOOKING);
-  const fromHour = Math.max(input.fromHour ?? OPEN_HOUR, OPEN_HOUR);
-  // A booking of `duration` hours must finish by CLOSE_HOUR.
-  const lastStart = Math.min(input.toHour ?? CLOSE_HOUR, CLOSE_HOUR - duration);
+  // The window of start hours asked for, clamped per venue below to that
+  // venue's own trading hours.
+  const wantFrom = Math.max(input.fromHour ?? OPEN_HOUR, OPEN_HOUR);
+  const wantTo = Math.min(input.toHour ?? CLOSE_HOUR, CLOSE_HOUR);
   const limit = Math.min(Math.max(input.limit ?? 60, 1), 200);
-  if (fromHour > lastStart) return [];
+  if (wantFrom > wantTo) return [];
 
   const params: (string | number)[] = [input.sport];
   let sql = `
     SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
            v.address AS v_address, v.phone AS v_phone,
-           v.cancel_cutoff_hours AS v_cutoff
+           v.cancel_cutoff_hours AS v_cutoff,
+           v.open_hour AS v_open, v.close_hour AS v_close
     FROM courts c JOIN venues v ON v.id = c.venue_id
     WHERE c.sport = ?
   `;
@@ -293,8 +389,17 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     v_address: string;
     v_phone: string;
     v_cutoff: number;
+    v_open: number;
+    v_close: number;
   })[];
   if (rows.length === 0) return [];
+
+  // A venue shut for the day has nothing to offer, whatever its courts say.
+  const closedVenues = closedDatesIn(
+    [...new Set(rows.map((r) => r.v_id))],
+    input.date,
+    input.date
+  );
 
   const courtIds = rows.map((r) => r.id);
   const idList = courtIds.map(() => "?").join(",");
@@ -313,6 +418,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
 
   const results: SearchResult[] = [];
   for (const row of rows) {
+    if (closedVenues.has(`${row.v_id}:${input.date}`)) continue;
     const court = toCourt(row);
     const venue: Venue = {
       id: row.v_id,
@@ -321,7 +427,12 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
       address: row.v_address,
       phone: row.v_phone,
       cancelCutoffHours: row.v_cutoff,
+      openHour: row.v_open,
+      closeHour: row.v_close,
     };
+    // A booking of `duration` hours must still finish by the venue's close.
+    const fromHour = Math.max(wantFrom, venue.openHour);
+    const lastStart = Math.min(wantTo, venue.closeHour - duration);
     for (let start = fromHour; start <= lastStart; start++) {
       const hours = Array.from({ length: duration }, (_, i) => start + i);
       const free = hours.every((h) => {
@@ -436,10 +547,13 @@ export function createBookingSeries(input: {
     if (hours[i] !== hours[i - 1] + 1)
       return { ok: false, error: "Selected hours must be consecutive." };
   }
-  if (hours[0] < OPEN_HOUR || hours[hours.length - 1] >= CLOSE_HOUR)
+  const { openHour, closeHour } = courtVenueHours(courtId);
+  if (hours[0] < openHour || hours[hours.length - 1] >= closeHour)
     return { ok: false, error: "Selected hours are outside operating hours." };
   if (isPastSlot(date, hours[0]))
     return { ok: false, error: "That time slot has already passed." };
+  if (getVenueClosure(court.venueId, date))
+    return { ok: false, error: "The venue is closed that day." };
 
   const db = getDb();
   const placeholders = hours.map(() => "?").join(",");
@@ -677,13 +791,17 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
     .all(date, venueId) as { court_id: number; hour: number; reason: string | null }[];
   const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b.reason ?? ""]));
 
+  const { openHour, closeHour } = venueHours(venueId);
+  const closure = getVenueClosure(venueId, date);
+
   return courts.map((court) => ({
     court,
-    slots: Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => {
-      const hour = OPEN_HOUR + i;
+    slots: Array.from({ length: closeHour - openHour }, (_, i) => {
+      const hour = openHour + i;
       const key = `${court.id}:${hour}`;
       const count = bookedCounts.get(key) ?? 0;
-      const blockReason = blockMap.get(key);
+      // A whole-day closure reads as a block on every hour that is not sold.
+      const blockReason = blockMap.get(key) ?? (closure ? closure.reason ?? "Closed" : undefined);
       // A shared facility only reads as "booked" once every place is gone.
       const status: AdminSlotStatus =
         count >= court.capacity
@@ -711,7 +829,8 @@ export type BlockResult = { ok: true; changed: number } | { ok: false; error: st
 /** Block hours on a court (maintenance/closure). Skips hours that are booked. */
 export function blockSlots(courtId: number, date: string, hours: number[], reason?: string): BlockResult {
   if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
-  const valid = [...new Set(hours)].filter((h) => h >= OPEN_HOUR && h < CLOSE_HOUR);
+  const { openHour, closeHour } = courtVenueHours(courtId);
+  const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour);
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
 
   const db = getDb();
@@ -806,8 +925,10 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
     blockedRows.filter((r) => courtIds.has(r.court_id)).map((r) => [`${r.court_id}:${r.date}`, r.n])
   );
 
+  const { openHour, closeHour } = venueHours(venueId);
+
   return {
-    totalSlotsPerDay: CLOSE_HOUR - OPEN_HOUR,
+    totalSlotsPerDay: closeHour - openHour,
     courts,
     days: dates.map((date) => ({
       date,
@@ -822,16 +943,45 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
 
 export type VenueEditResult = { ok: true; venue: Venue } | { ok: false; error: string };
 
+/** Validate a venue's trading hours, defaulting anything not given. */
+function normaliseHours(
+  open: number | undefined,
+  close: number | undefined
+): { ok: true; openHour: number; closeHour: number } | { ok: false; error: string } {
+  const openHour = open ?? DEFAULT_OPEN_HOUR;
+  const closeHour = close ?? DEFAULT_CLOSE_HOUR;
+  if (!Number.isInteger(openHour) || !Number.isInteger(closeHour))
+    return { ok: false, error: "Opening hours must be whole hours." };
+  if (openHour < OPEN_HOUR || closeHour > CLOSE_HOUR)
+    return { ok: false, error: `Hours must be between ${OPEN_HOUR}:00 and ${CLOSE_HOUR}:00.` };
+  if (closeHour - openHour < 1)
+    return { ok: false, error: "A venue must be open for at least an hour." };
+  return { ok: true, openHour, closeHour };
+}
+
 export function createVenue(input: {
   name: string;
   area: string;
   address: string;
   phone: string;
+  openHour?: number;
+  closeHour?: number;
 }): VenueEditResult {
+  const hours = normaliseHours(input.openHour, input.closeHour);
+  if (!hours.ok) return hours;
   const db = getDb();
   const info = db
-    .prepare("INSERT INTO venues (name, area, address, phone) VALUES (?, ?, ?, ?)")
-    .run(input.name.trim(), input.area.trim(), input.address.trim(), input.phone.trim());
+    .prepare(
+      "INSERT INTO venues (name, area, address, phone, open_hour, close_hour) VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .run(
+      input.name.trim(),
+      input.area.trim(),
+      input.address.trim(),
+      input.phone.trim(),
+      hours.openHour,
+      hours.closeHour
+    );
   const venue = toVenue(
     db.prepare("SELECT * FROM venues WHERE id = ?").get(info.lastInsertRowid) as VenueRow
   );
@@ -846,6 +996,8 @@ export function updateVenue(
     address?: string;
     phone?: string;
     cancelCutoffHours?: number;
+    openHour?: number;
+    closeHour?: number;
   }
 ): VenueEditResult {
   const db = getDb();
@@ -853,14 +1005,36 @@ export function updateVenue(
   if (!row) return { ok: false, error: "Venue not found." };
   const current = toVenue(row);
 
+  const hours = normaliseHours(
+    changes.openHour ?? current.openHour,
+    changes.closeHour ?? current.closeHour
+  );
+  if (!hours.ok) return hours;
+  // Narrowing the day would strand anything already sold outside the new hours.
+  const stranded = db
+    .prepare(`
+      SELECT COUNT(*) AS n FROM booking_slots s
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
+        AND s.date >= ? AND (s.hour < ? OR s.hour >= ?)
+    `)
+    .get(venueId, todayISO(), hours.openHour, hours.closeHour) as { n: number };
+  if (stranded.n > 0)
+    return {
+      ok: false,
+      error: "Bookings already exist outside those hours. Cancel or move them first.",
+    };
+
   db.prepare(
-    "UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ? WHERE id = ?"
+    `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
+                       open_hour = ?, close_hour = ? WHERE id = ?`
   ).run(
     changes.name?.trim() ?? current.name,
     changes.area?.trim() ?? current.area,
     changes.address?.trim() ?? current.address,
     changes.phone?.trim() ?? current.phone,
     changes.cancelCutoffHours ?? current.cancelCutoffHours,
+    hours.openHour,
+    hours.closeHour,
     venueId
   );
   return {
@@ -1377,8 +1551,11 @@ export function createClassSessions(input: {
   if (!court) return { ok: false, error: "Court not found." };
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
     return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
-  if (startHour < OPEN_HOUR || endHour > CLOSE_HOUR || endHour <= startHour)
+  const { openHour, closeHour } = courtVenueHours(courtId);
+  if (startHour < openHour || endHour > closeHour || endHour <= startHour)
     return { ok: false, error: "Class hours are outside operating hours." };
+  if (getVenueClosure(court.venueId, date))
+    return { ok: false, error: "The venue is closed that day." };
   if (input.capacity < 1 || input.capacity > court.capacity)
     return {
       ok: false,
@@ -1451,6 +1628,9 @@ export function enrolInClass(input: {
     return { ok: false, error: "This class has already started." };
   if (session.enrolled >= session.capacity)
     return { ok: false, error: "This class is full." };
+  // The day may have been closed after the class was put in the diary.
+  if (getVenueClosure(session.venueId, session.date))
+    return { ok: false, error: "The venue is closed that day." };
 
   const already = getDb()
     .prepare(
@@ -2004,9 +2184,13 @@ export function joinSlotWaitlist(input: {
   expireStaleOffers();
   const { courtId, date, startHour, endHour } = input;
 
-  if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
-  if (endHour <= startHour || startHour < OPEN_HOUR || endHour > CLOSE_HOUR)
+  const waitCourt = getCourt(courtId);
+  if (!waitCourt) return { ok: false, error: "Court not found." };
+  const { openHour, closeHour } = courtVenueHours(courtId);
+  if (endHour <= startHour || startHour < openHour || endHour > closeHour)
     return { ok: false, error: "Those hours are outside operating hours." };
+  if (getVenueClosure(waitCourt.venueId, date))
+    return { ok: false, error: "The venue is closed that day." };
   if (endHour - startHour > MAX_HOURS_PER_BOOKING)
     return { ok: false, error: `Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.` };
   if (!isBookableDate(date)) return { ok: false, error: "Date is outside the booking window." };

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
-import { getVenue } from "@/lib/store";
-import { todayISO, addDays } from "@/lib/time";
+import { getVenue, listVenueClosures } from "@/lib/store";
+import { todayISO, addDays, formatHour } from "@/lib/time";
 import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
@@ -25,6 +25,8 @@ export default async function VenuePage({
   const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
 
   const initial = parseInitialSelection(query, sports, dates);
+  // Only closures inside the booking window are worth warning about.
+  const closures = listVenueClosures(venue.id, today).filter((c) => dates.includes(c.date));
 
   return (
     <div className="space-y-6">
@@ -34,12 +36,20 @@ export default async function VenuePage({
           📍 {venue.address} · ☎ {venue.phone}
         </p>
         <p className="mt-1 text-sm text-slate-500">
-          Open daily 8:00 AM – 11:00 PM ·{" "}
+          Open daily {formatHour(venue.openHour)} – {formatHour(venue.closeHour)} ·{" "}
           {venue.cancelCutoffHours > 0
             ? `free cancellation until ${venue.cancelCutoffHours} hour${venue.cancelCutoffHours === 1 ? "" : "s"} before your slot`
             : "cancel any time before your slot starts"}
         </p>
       </div>
+      {closures.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">Upcoming closures:</span>{" "}
+          {closures
+            .map((c) => (c.reason ? `${c.date} (${c.reason})` : c.date))
+            .join(" · ")}
+        </div>
+      )}
       <LiveOccupancy venueId={venue.id} />
       <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
     </div>

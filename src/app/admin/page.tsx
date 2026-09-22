@@ -12,6 +12,9 @@ import {
   SPORT_ICONS,
   WalletEntry,
   Venue,
+  VenueClosure,
+  OPEN_HOUR,
+  CLOSE_HOUR,
 } from "@/lib/types";
 import type { Booking } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
@@ -31,6 +34,12 @@ function localTime(iso: string): string {
       timeZone: "Asia/Kuala_Lumpur",
     });
 }
+
+/** Every hour a venue may open or close on. */
+const HOUR_CHOICES = Array.from(
+  { length: CLOSE_HOUR - OPEN_HOUR + 1 },
+  (_, i) => OPEN_HOUR + i
+);
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
@@ -1179,6 +1188,19 @@ function VenuesTab({
         </div>
       </section>
 
+      <section>
+        <h2 className="text-lg font-bold">Closed days</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Shut a venue for a whole day — a public holiday, a private hire, a refit.
+          Nobody can book or join a waitlist for that date.
+        </p>
+        <div className="mt-3 space-y-3">
+          {venues.map((venue) => (
+            <ClosuresRow key={venue.id} venue={venue} onError={setError} onNotice={setNotice} />
+          ))}
+        </div>
+      </section>
+
       {isOwner && (
         <>
           <section>
@@ -1329,6 +1351,122 @@ function VenuesTab({
   );
 }
 
+/** Whole-day closures for one venue: list, add, remove. */
+function ClosuresRow({
+  venue,
+  onError,
+  onNotice,
+}: {
+  venue: ManagedVenue;
+  onError: (msg: string | null) => void;
+  onNotice: (msg: string | null) => void;
+}) {
+  const [closures, setClosures] = useState<VenueClosure[]>([]);
+  const [date, setDate] = useState("");
+  const [reason, setReason] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/admin/venues/${venue.id}/closures`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setClosures(data.closures);
+  }, [venue.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function send(url: string, method: string, body?: unknown, okMessage?: string) {
+    onError(null);
+    onNotice(null);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (okMessage) onNotice(okMessage);
+      await load();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Request failed");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-sm font-semibold">{venue.name}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {closures.length === 0 && (
+          <span className="text-xs text-slate-400">No closures scheduled.</span>
+        )}
+        {closures.map((c) => (
+          <span
+            key={c.date}
+            className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs text-amber-800"
+          >
+            {c.date}
+            {c.reason ? ` · ${c.reason}` : ""}
+            <button
+              onClick={() =>
+                send(
+                  `/api/admin/venues/${venue.id}/closures?date=${c.date}`,
+                  "DELETE",
+                  undefined,
+                  `Re-opened ${c.date}.`
+                )
+              }
+              title="Re-open this day"
+              className="font-bold text-amber-700 hover:text-amber-900"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Date
+          <input
+            type="date"
+            min={todayLocal()}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="mt-1 rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Reason (optional)
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Hari Raya"
+            className="mt-1 w-56 rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+          />
+        </label>
+        <button
+          disabled={!date}
+          onClick={() =>
+            send(
+              `/api/admin/venues/${venue.id}/closures`,
+              "POST",
+              { date, reason },
+              `Closed ${date}.`
+            ).then(() => {
+              setDate("");
+              setReason("");
+            })
+          }
+          className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-30"
+        >
+          Close day
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function VenueRow({
   venue,
   onSave,
@@ -1348,13 +1486,17 @@ function VenueRow({
     address: venue.address,
     phone: venue.phone,
     cancelCutoffHours: venue.cancelCutoffHours,
+    openHour: venue.openHour,
+    closeHour: venue.closeHour,
   });
   const dirty =
     fields.name !== venue.name ||
     fields.area !== venue.area ||
     fields.address !== venue.address ||
     fields.phone !== venue.phone ||
-    fields.cancelCutoffHours !== venue.cancelCutoffHours;
+    fields.cancelCutoffHours !== venue.cancelCutoffHours ||
+    fields.openHour !== venue.openHour ||
+    fields.closeHour !== venue.closeHour;
 
   const inputClass =
     "rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none";
@@ -1392,6 +1534,34 @@ function VenueRow({
           onChange={(e) => setFields({ ...fields, phone: e.target.value })}
           className={`mt-1 w-36 ${inputClass}`}
         />
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Opens
+        <select
+          value={fields.openHour}
+          onChange={(e) => setFields({ ...fields, openHour: Number(e.target.value) })}
+          className={`mt-1 w-24 ${inputClass}`}
+        >
+          {HOUR_CHOICES.filter((h) => h < CLOSE_HOUR).map((h) => (
+            <option key={h} value={h}>
+              {formatHour(h)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        Closes
+        <select
+          value={fields.closeHour}
+          onChange={(e) => setFields({ ...fields, closeHour: Number(e.target.value) })}
+          className={`mt-1 w-24 ${inputClass}`}
+        >
+          {HOUR_CHOICES.filter((h) => h > fields.openHour).map((h) => (
+            <option key={h} value={h}>
+              {formatHour(h)}
+            </option>
+          ))}
+        </select>
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
         Cancel cutoff (hrs)

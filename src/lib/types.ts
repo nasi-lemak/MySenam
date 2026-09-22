@@ -41,6 +41,15 @@ export interface Venue {
   phone: string;
   /** Customers may cancel until this many hours before the booking starts. */
   cancelCutoffHours: number;
+  /** Trading hours: the first bookable hour, and when the last one ends. */
+  openHour: number;
+  closeHour: number;
+}
+
+/** A whole day a venue is shut. */
+export interface VenueClosure {
+  date: string;
+  reason: string | null;
 }
 
 export const DEFAULT_CANCEL_CUTOFF_HOURS = 2;
@@ -207,10 +216,13 @@ export interface CourtAvailability {
   slots: SlotInfo[];
 }
 
-// Operating hours: first bookable slot starts at OPEN_HOUR,
-// last bookable slot starts at CLOSE_HOUR - 1.
-export const OPEN_HOUR = 8;
-export const CLOSE_HOUR = 23;
+// The outer bounds any venue may trade within. Each venue sets its own
+// open_hour/close_hour inside this range; these are the defaults and the
+// limits the UI offers.
+export const OPEN_HOUR = 0;
+export const CLOSE_HOUR = 24;
+export const DEFAULT_OPEN_HOUR = 8;
+export const DEFAULT_CLOSE_HOUR = 23;
 export const MAX_HOURS_PER_BOOKING = 4;
 export const MAX_ADVANCE_DAYS = 14;
 // Weekly series may extend past the normal advance window; only the first

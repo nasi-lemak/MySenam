@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAvailability, getVenue } from "@/lib/store";
+import { getAvailability, getVenue, getVenueClosure } from "@/lib/store";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
 
@@ -28,5 +28,9 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "Venue not found." }, { status: 404 });
   }
 
-  return NextResponse.json({ date, availability: getAvailability(venueId, date, sport) });
+  return NextResponse.json({
+    date,
+    availability: getAvailability(venueId, date, sport),
+    closure: getVenueClosure(venueId, date),
+  });
 }

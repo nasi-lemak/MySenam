@@ -15,7 +15,9 @@ import {
 } from "@/lib/types";
 import type { SearchResult } from "@/lib/store";
 
-const HOURS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR + 1 }, (_, i) => OPEN_HOUR + i);
+// Every hour a booking could start at, across all venues. Each venue's own
+// trading hours narrow this further when the search runs.
+const HOURS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
 
 function dateLabel(date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
@@ -69,7 +71,7 @@ export default function SearchPage() {
   const [sport, setSport] = useState<Sport>("badminton");
   const [date, setDate] = useState(today);
   const [fromHour, setFromHour] = useState(OPEN_HOUR);
-  const [toHour, setToHour] = useState(CLOSE_HOUR);
+  const [toHour, setToHour] = useState(CLOSE_HOUR - 1);
   const [duration, setDuration] = useState(1);
   const [area, setArea] = useState("");
   const [areas, setAreas] = useState<string[]>([]);

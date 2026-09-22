@@ -28,7 +28,20 @@ export function getDb(): Database.Database {
       address TEXT NOT NULL,
       phone TEXT NOT NULL,
       -- Customers may cancel until this many hours before start.
-      cancel_cutoff_hours INTEGER NOT NULL DEFAULT 2
+      cancel_cutoff_hours INTEGER NOT NULL DEFAULT 2,
+      -- Trading hours: first bookable hour starts at open_hour, the last one
+      -- ends at close_hour.
+      open_hour INTEGER NOT NULL DEFAULT 8,
+      close_hour INTEGER NOT NULL DEFAULT 23
+    );
+
+    -- Whole days a venue is shut: a public holiday, a private hire, a refit.
+    CREATE TABLE IF NOT EXISTS venue_closures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      reason TEXT,
+      UNIQUE (venue_id, date)
     );
 
     -- A bookable resource. Despite the table name this is not always a court:
@@ -282,6 +295,10 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE bookings ADD COLUMN no_show INTEGER NOT NULL DEFAULT 0");
   }
   const venueCols = db.prepare("PRAGMA table_info(venues)").all() as { name: string }[];
+  if (!venueCols.some((c) => c.name === "open_hour")) {
+    db.exec("ALTER TABLE venues ADD COLUMN open_hour INTEGER NOT NULL DEFAULT 8");
+    db.exec("ALTER TABLE venues ADD COLUMN close_hour INTEGER NOT NULL DEFAULT 23");
+  }
   if (!venueCols.some((c) => c.name === "cancel_cutoff_hours")) {
     db.exec(
       "ALTER TABLE venues ADD COLUMN cancel_cutoff_hours INTEGER NOT NULL DEFAULT 2"
@@ -314,7 +331,7 @@ function seedIfEmpty(db: Database.Database) {
   if (count.n > 0) return;
 
   const insertVenue = db.prepare(
-    "INSERT INTO venues (name, area, address, phone) VALUES (?, ?, ?, ?)"
+    "INSERT INTO venues (name, area, address, phone, open_hour, close_hour) VALUES (?, ?, ?, ?, ?, ?)"
   );
   const insertCourt = db.prepare(
     "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity) VALUES (?, ?, ?, ?, ?, ?)"
@@ -325,7 +342,9 @@ function seedIfEmpty(db: Database.Database) {
       "Arena MudahTempah @ Petaling Jaya",
       "Petaling Jaya",
       "12 Jalan SS2/61, 47300 Petaling Jaya, Selangor",
-      "+60 3-1234 5678"
+      "+60 3-1234 5678",
+      8,
+      23
     ).lastInsertRowid as number;
 
     for (let i = 1; i <= 4; i++) insertCourt.run(arena, `Badminton Court ${i}`, "badminton", 15, 25, 1);
@@ -338,7 +357,10 @@ function seedIfEmpty(db: Database.Database) {
       "SmashPoint Sports Centre",
       "Subang Jaya",
       "8 Persiaran Kewajipan, USJ 1, 47600 Subang Jaya, Selangor",
-      "+60 3-8765 4321"
+      "+60 3-8765 4321",
+      // The lap pool opens for the before-work swim.
+      7,
+      22
     ).lastInsertRowid as number;
 
     for (let i = 1; i <= 6; i++) insertCourt.run(sunway, `Badminton Court ${i}`, "badminton", 12, 22, 1);
@@ -349,7 +371,9 @@ function seedIfEmpty(db: Database.Database) {
       "Bangsar Racquet Club",
       "Bangsar",
       "3 Jalan Maarof, Bangsar, 59000 Kuala Lumpur",
-      "+60 3-2222 3333"
+      "+60 3-2222 3333",
+      9,
+      22
     ).lastInsertRowid as number;
 
     for (let i = 1; i <= 3; i++) insertCourt.run(bangsar, `Tennis Court ${i}`, "tennis", 30, 45, 1);
