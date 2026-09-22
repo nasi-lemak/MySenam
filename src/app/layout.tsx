@@ -4,9 +4,9 @@ import AuthNav from "@/components/AuthNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MudahTempah — Book Sports Courts Online",
+  title: "MySenam — Book Courts, Gyms & Classes Online",
   description:
-    "Book badminton, tennis, pickleball and futsal courts across the Klang Valley in seconds.",
+    "Book badminton, tennis, pickleball and futsal courts, gym sessions and classes across the Klang Valley in seconds.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">
               <span aria-hidden>🏸</span>
               <span>
-                Mudah<span className="text-slate-900">Tempah</span>
+                My<span className="text-slate-900">Senam</span>
               </span>
             </Link>
             <nav className="flex items-center gap-4 text-sm font-medium text-slate-600">
@@ -46,8 +46,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </header>
         <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
         <footer className="border-t border-slate-200 py-6 text-center text-sm text-slate-500">
-          MudahTempah — tempah gelanggang dengan mudah. Built for badminton, tennis, pickleball
-          &amp; futsal.
+          MySenam — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis,
+          pickleball, futsal, gym &amp; swimming.
         </footer>
       </body>
     </html>

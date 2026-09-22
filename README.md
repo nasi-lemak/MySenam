@@ -1,7 +1,8 @@
-# MudahTempah 🏸
+# MySenam 🏸
 
-**Tempah gelanggang dengan mudah** — an online booking platform for sports courts:
-badminton, tennis, pickleball, futsal — and shared facilities like gyms and pools.
+**Gelanggang, gim dan kelas — satu tempahan.** An online booking platform for
+sports courts (badminton, tennis, pickleball, futsal), shared facilities like
+gyms and pools, and instructor-led classes.
 
 ## Features
 
@@ -11,7 +12,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
 - **Live availability grid** — per venue, per sport, per day, with hourly slots inside that venue's own trading hours
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
-- **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MT-8F3K2A`); pay at the counter
+- **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
@@ -37,7 +38,7 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 
 - [Next.js 15](https://nextjs.org/) (App Router) + React 19 + TypeScript
 - [Tailwind CSS 4](https://tailwindcss.com/)
-- SQLite via [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — zero-config, auto-created and seeded at `data/mudahtempah.db` on first run
+- SQLite via [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — zero-config, auto-created and seeded at `data/mysenam.db` on first run
 
 ## Getting started
 
@@ -61,8 +62,8 @@ Open http://localhost:3000. The database is created and seeded with three demo v
 session cookies) held in the `admins` table. On a fresh database the first
 platform owner is created automatically:
 
-- Email: `ADMIN_EMAIL`, default `admin@mudahtempah.my`
-- Password: `ADMIN_PASSWORD`, default `mudah-admin`
+- Email: `ADMIN_EMAIL`, default `admin@mysenam.my`
+- Password: `ADMIN_PASSWORD`, default `mysenam-admin`
 
 **Set both before deploying.** Once signed in, the owner can add venues and
 issue staff accounts from the *Venues & staff* tab.
@@ -354,6 +355,24 @@ Counters live in process memory, so each instance keeps its own. A horizontally
 scaled deploy should move them to a shared store (Redis) with the same policies.
 Client identity comes from `x-forwarded-for`, which is only trustworthy behind a
 proxy that sets it.
+
+## Renamed from MudahTempah
+
+The project was renamed to **MySenam**. Everything user-facing moved with it —
+the wordmark, page titles, calendar invites, WhatsApp share text and the
+booking-code prefix (new codes read `MS-…`). Three notes for an existing
+install:
+
+- Booking codes already issued keep their `MT-` prefix and still resolve; lookup
+  matches the whole code, never the prefix.
+- The database file is now `data/mysenam.db`, and the override variable is
+  `MYSENAM_DB`. A database still sitting at `data/mudahtempah.db` is opened as
+  before, and `MUDAHTEMPAH_DB` is still honoured, so nothing has to be moved.
+- Session cookies are now `ms_session` and `ms_admin`, so everyone signed in
+  under the old names has to sign in once more.
+- The bootstrap owner's default email is now `admin@mysenam.my`. That default
+  only applies to a *fresh* database — an install created before the rename
+  keeps the account it already has at `admin@mudahtempah.my`.
 
 ## Continuous integration
 

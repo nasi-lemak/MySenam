@@ -93,7 +93,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
           href="/"
           className="mt-5 inline-block text-sm font-medium text-teal-700 underline"
         >
-          Back to MudahTempah
+          Back to MySenam
         </Link>
       </div>
     </div>

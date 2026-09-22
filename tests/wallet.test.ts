@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-process.env.MUDAHTEMPAH_DB = ":memory:";
+process.env.MYSENAM_DB = ":memory:";
 
 import { registerUser } from "../src/lib/auth";
 import { authenticateAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
@@ -28,7 +28,7 @@ let seq = 0;
 
 // Top-ups record which operator sold the credit, so a real admin must exist.
 ensureBootstrapAdmin();
-const ADMIN_ID = authenticateAdmin("admin@mudahtempah.my", "mudah-admin")!.id;
+const ADMIN_ID = authenticateAdmin("admin@mysenam.my", "mysenam-admin")!.id;
 
 function customer(balance = 0) {
   seq++;

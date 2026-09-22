@@ -8,14 +8,20 @@ let db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (db) return db;
 
-  // MUDAHTEMPAH_DB overrides the location (tests use ":memory:").
-  const dbPath = process.env.MUDAHTEMPAH_DB;
+  // MYSENAM_DB overrides the location (tests use ":memory:"). MUDAHTEMPAH_DB
+  // is the name this variable had before the rename, still honoured so an
+  // existing deployment does not silently start on an empty database.
+  const dbPath = process.env.MYSENAM_DB ?? process.env.MUDAHTEMPAH_DB;
   if (dbPath) {
     db = new Database(dbPath);
   } else {
     const dataDir = path.join(process.cwd(), "data");
     fs.mkdirSync(dataDir, { recursive: true });
-    db = new Database(path.join(dataDir, "mudahtempah.db"));
+    const file = path.join(dataDir, "mysenam.db");
+    // Pick up a database written under the old name rather than seeding a
+    // fresh one beside it.
+    const legacy = path.join(dataDir, "mudahtempah.db");
+    db = new Database(fs.existsSync(file) || !fs.existsSync(legacy) ? file : legacy);
   }
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -339,7 +345,7 @@ function seedIfEmpty(db: Database.Database) {
 
   const seed = db.transaction(() => {
     const arena = insertVenue.run(
-      "Arena MudahTempah @ Petaling Jaya",
+      "Arena MySenam @ Petaling Jaya",
       "Petaling Jaya",
       "12 Jalan SS2/61, 47300 Petaling Jaya, Selangor",
       "+60 3-1234 5678",

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-process.env.MUDAHTEMPAH_DB = ":memory:";
+process.env.MYSENAM_DB = ":memory:";
 
 import {
   blockSlots,

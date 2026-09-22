@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-process.env.MUDAHTEMPAH_DB = ":memory:";
+process.env.MYSENAM_DB = ":memory:";
 
 import {
   adminCancelBooking,
@@ -9,6 +9,7 @@ import {
   cancelSeries,
   createBooking,
   createBookingSeries,
+  findBooking,
   createCourt,
   getAvailability,
   listBookingsForDate,
@@ -24,6 +25,7 @@ import {
   unblockSlots,
   updateCourt,
 } from "../src/lib/store";
+import { getDb } from "../src/lib/db";
 import { addDays, isPeak, todayISO } from "../src/lib/time";
 import { MAX_HOURS_PER_BOOKING } from "../src/lib/types";
 
@@ -65,7 +67,7 @@ describe("createBooking", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.booking.code).toMatch(/^MT-[A-Z2-9]{6}$/);
+    expect(result.booking.code).toMatch(/^MS-[A-Z2-9]{6}$/);
     expect(result.booking.startHour).toBe(10);
     expect(result.booking.endHour).toBe(12);
     expect(result.booking.totalPrice).toBe(expectedPrice(court, date, [10, 11]));
@@ -431,7 +433,7 @@ describe("no-show tracking", () => {
       ok: false,
       error: expect.stringContaining("not started"),
     });
-    expect(setNoShow("MT-NOSUCH", true)).toMatchObject({ ok: false });
+    expect(setNoShow("MS-NOSUCH", true)).toMatchObject({ ok: false });
   });
 
   it("flags a passed booking, is reversible, and counts repeats per phone", () => {
@@ -522,7 +524,7 @@ describe("payments", () => {
     const reverted = setPaymentStatus(created.booking.code, false);
     expect(reverted).toMatchObject({ ok: true, booking: { paymentStatus: "unpaid", paidAt: null } });
 
-    expect(setPaymentStatus("MT-NOSUCH", true)).toMatchObject({ ok: false });
+    expect(setPaymentStatus("MS-NOSUCH", true)).toMatchObject({ ok: false });
 
     adminCancelBooking(created.booking.code);
     expect(setPaymentStatus(created.booking.code, true)).toMatchObject({
@@ -581,5 +583,41 @@ describe("court management", () => {
       court: { offPeakRate: 35, peakRate: 44, name: "Renamed Court" },
     });
     expect(updateCourt(99999, { peakRate: 10 })).toMatchObject({ ok: false });
+  });
+});
+
+describe("the rename from MudahTempah", () => {
+  it("still resolves a booking code issued under the old MT- prefix", () => {
+    const court = listVenues()[0].courts[0];
+    const made = createBooking({
+      courtId: court.id,
+      date: futureDate(9),
+      hours: [10],
+      name: "Legacy",
+      phone: PHONE,
+    });
+    expect(made.ok).toBe(true);
+    if (!made.ok) return;
+
+    // Rewrite it to the prefix codes carried before the rename.
+    const legacy = "MT-LEGACY";
+    getDb().prepare("UPDATE bookings SET code = ? WHERE id = ?").run(legacy, made.booking.id);
+
+    // Lookup matches the whole code, never the prefix, so it still resolves.
+    expect(findBooking(legacy, PHONE)?.id).toBe(made.booking.id);
+    expect(findBooking(legacy.toLowerCase(), PHONE)?.id).toBe(made.booking.id);
+  });
+
+  it("issues new codes under the MS- prefix", () => {
+    const court = listVenues()[0].courts[0];
+    const made = createBooking({
+      courtId: court.id,
+      date: futureDate(9),
+      hours: [11],
+      name: "Fresh",
+      phone: PHONE,
+    });
+    expect(made.ok).toBe(true);
+    if (made.ok) expect(made.booking.code).toMatch(/^MS-[A-Z2-9]{6}$/);
   });
 });

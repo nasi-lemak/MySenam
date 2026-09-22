@@ -479,7 +479,7 @@ function randomCode(prefix: string): string {
   return code;
 }
 
-const generateCode = () => randomCode("MT-");
+const generateCode = () => randomCode("MS-");
 const generateSeriesCode = () => randomCode("SR-");
 
 export type CreateBookingResult =

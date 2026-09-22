@@ -21,18 +21,18 @@ function toUtcStamp(date: string, hourMYT: number): string {
 }
 
 export function icsContent(b: BookingShareInfo): string {
-  const uid = `${b.code}@mudahtempah`;
+  const uid = `${b.code}@mysenam`;
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//MudahTempah//Booking//EN",
+    "PRODID:-//MySenam//Booking//EN",
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${toUtcStamp(b.date, b.startHour)}`,
     `DTSTART:${toUtcStamp(b.date, b.startHour)}`,
     `DTEND:${toUtcStamp(b.date, b.endHour)}`,
     `SUMMARY:${b.courtName} @ ${b.venueName}`,
-    `DESCRIPTION:MudahTempah booking ${b.code}. Total RM${b.totalPrice}\\, pay at counter.`,
+    `DESCRIPTION:MySenam booking ${b.code}. Total RM${b.totalPrice}\\, pay at counter.`,
     ...(b.venueAddress ? [`LOCATION:${b.venueAddress.replace(/,/g, "\\,")}`] : []),
     "END:VEVENT",
     "END:VCALENDAR",
@@ -45,7 +45,7 @@ export function downloadIcs(b: BookingShareInfo) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `mudahtempah-${b.code}.ics`;
+  a.download = `mysenam-${b.code}.ics`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -55,7 +55,7 @@ export function googleCalendarUrl(b: BookingShareInfo): string {
     action: "TEMPLATE",
     text: `${b.courtName} @ ${b.venueName}`,
     dates: `${toUtcStamp(b.date, b.startHour)}/${toUtcStamp(b.date, b.endHour)}`,
-    details: `MudahTempah booking ${b.code}. Total RM${b.totalPrice}, pay at counter.`,
+    details: `MySenam booking ${b.code}. Total RM${b.totalPrice}, pay at counter.`,
     ...(b.venueAddress ? { location: b.venueAddress } : {}),
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -70,7 +70,7 @@ function formatHour12(hour: number): string {
 
 export function whatsappShareUrl(b: BookingShareInfo): string {
   const text =
-    `🏸 Court booked on MudahTempah!\n\n` +
+    `🏸 Court booked on MySenam!\n\n` +
     `${b.courtName} @ ${b.venueName}\n` +
     `📅 ${b.date}, ${formatHour12(b.startHour)} – ${formatHour12(b.endHour)}\n` +
     `💰 RM${b.totalPrice} (pay at counter)\n` +

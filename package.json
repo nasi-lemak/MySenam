@@ -1,8 +1,8 @@
 {
-  "name": "mudahtempah",
+  "name": "mysenam",
   "version": "0.1.0",
   "private": true,
-  "description": "MudahTempah - easy online booking for badminton, tennis, pickleball and futsal courts",
+  "description": "MySenam - online booking for badminton, tennis, pickleball and futsal courts, gyms, pools and classes",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

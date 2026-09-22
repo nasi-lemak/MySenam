@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-process.env.MUDAHTEMPAH_DB = ":memory:";
+process.env.MYSENAM_DB = ":memory:";
 
 import {
   adminCancelBooking,
@@ -67,7 +67,7 @@ describe("check-in", () => {
       ok: false,
       error: "Already checked in.",
     });
-    expect(checkIn("MT-NOSUCH")).toMatchObject({ ok: false, error: "Booking not found." });
+    expect(checkIn("MS-NOSUCH")).toMatchObject({ ok: false, error: "Booking not found." });
 
     const other = bookRunningNow(court.id, "0140000002", 13);
     if (!other.ok) return;

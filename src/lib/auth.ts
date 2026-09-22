@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { getDb } from "./db";
 
-export const SESSION_COOKIE = "mt_session";
+export const SESSION_COOKIE = "ms_session";
 const SESSION_DAYS = 30;
 
 export interface User {

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "./db";
 import { hashPassword, verifyPassword } from "./auth";
 
-export const ADMIN_SESSION_COOKIE = "mt_admin";
+export const ADMIN_SESSION_COOKIE = "ms_admin";
 const SESSION_DAYS = 7;
 
 export interface Admin {
@@ -36,8 +36,8 @@ export function ensureBootstrapAdmin(): void {
     "INSERT INTO admins (name, email, password_hash, venue_id) VALUES (?, ?, ?, NULL)"
   ).run(
     "Platform Owner",
-    process.env.ADMIN_EMAIL || "admin@mudahtempah.my",
-    hashPassword(process.env.ADMIN_PASSWORD || "mudah-admin")
+    process.env.ADMIN_EMAIL || "admin@mysenam.my",
+    hashPassword(process.env.ADMIN_PASSWORD || "mysenam-admin")
   );
 }
 

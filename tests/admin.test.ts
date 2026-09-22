@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-process.env.MUDAHTEMPAH_DB = ":memory:";
+process.env.MYSENAM_DB = ":memory:";
 
 import {
   authenticateAdmin,
@@ -37,17 +37,17 @@ describe("bootstrap owner", () => {
     expect(owners).toHaveLength(1);
     expect(owners[0].venueId).toBeNull();
 
-    expect(authenticateAdmin("admin@mudahtempah.my", "mudah-admin")).toMatchObject({
+    expect(authenticateAdmin("admin@mysenam.my", "mysenam-admin")).toMatchObject({
       venueId: null,
     });
-    expect(authenticateAdmin("admin@mudahtempah.my", "wrong")).toBeNull();
-    expect(authenticateAdmin("nobody@example.com", "mudah-admin")).toBeNull();
+    expect(authenticateAdmin("admin@mysenam.my", "wrong")).toBeNull();
+    expect(authenticateAdmin("nobody@example.com", "mysenam-admin")).toBeNull();
   });
 });
 
 describe("admin sessions", () => {
   it("round-trips a token and destroys it", () => {
-    const owner = authenticateAdmin("admin@mudahtempah.my", "mudah-admin")!;
+    const owner = authenticateAdmin("admin@mysenam.my", "mysenam-admin")!;
     const { token } = createAdminSession(owner.id);
     expect(getAdminByToken(token)).toMatchObject({ id: owner.id });
     expect(getAdminByToken("nope")).toBeNull();
@@ -68,7 +68,7 @@ describe("venue scoping", () => {
     expect(venueAdmin.ok).toBe(true);
     if (!venueAdmin.ok) return;
 
-    const owner = authenticateAdmin("admin@mudahtempah.my", "mudah-admin")!;
+    const owner = authenticateAdmin("admin@mysenam.my", "mysenam-admin")!;
 
     expect(isOwner(owner)).toBe(true);
     expect(isOwner(venueAdmin.admin)).toBe(false);
@@ -114,7 +114,7 @@ describe("venue scoping", () => {
     expect(booking.ok).toBe(true);
     if (!booking.ok) return;
     expect(getVenueIdForBookingCode(booking.booking.code)).toBe(venue.id);
-    expect(getVenueIdForBookingCode("MT-NOSUCH")).toBeNull();
+    expect(getVenueIdForBookingCode("MS-NOSUCH")).toBeNull();
 
     const series = createBookingSeries({
       courtId: venue.courts[1].id, date, hours: [12], weeks: 2, name: "L", phone: PHONE,
@@ -173,7 +173,7 @@ describe("admin removal", () => {
 
     // a second owner makes removal safe again
     const extra = createAdmin({
-      name: "Co-owner", email: "co@mudahtempah.my", password: "password1", venueId: null,
+      name: "Co-owner", email: "co@mysenam.my", password: "password1", venueId: null,
     });
     expect(extra.ok).toBe(true);
     expect(deleteAdmin(owners[0].id)).toMatchObject({ ok: true });

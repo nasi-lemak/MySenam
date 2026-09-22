@@ -81,7 +81,7 @@ export default function MyBookingPage() {
             required
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="MT-XXXXXX"
+            placeholder="MS-XXXXXX"
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono tracking-wider focus:border-teal-500 focus:outline-none"
           />
         </label>
