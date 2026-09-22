@@ -86,6 +86,16 @@ export function getDb(): Database.Database {
       UNIQUE (court_id, date, hour)
     );
 
+    -- Arrival at the front desk. One per booking; checked_out_at is optional
+    -- because most people just leave, so a booking is also treated as departed
+    -- once its last hour ends.
+    CREATE TABLE IF NOT EXISTS check_ins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id INTEGER NOT NULL UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
+      checked_in_at TEXT NOT NULL DEFAULT (datetime('now')),
+      checked_out_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

@@ -1,12 +1,14 @@
 import { getDb } from "./db";
 import {
   Booking,
+  busyness,
   Court,
   CourtAvailability,
   OPEN_HOUR,
   CLOSE_HOUR,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
+  LiveOccupancy,
   Sport,
   Venue,
 } from "./types";
@@ -16,6 +18,8 @@ import {
   isPastSlot,
   isPeak,
   isWithinCancelWindow,
+  slotStartsAt,
+  todayISO,
 } from "./time";
 
 interface CourtRow {
@@ -65,6 +69,8 @@ interface BookingRow {
   payment_status: "unpaid" | "paid";
   paid_at: string | null;
   no_show: number;
+  checked_in_at?: string | null;
+  checked_out_at?: string | null;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -97,6 +103,8 @@ function toBooking(r: BookingRow): Booking {
     paymentStatus: r.payment_status,
     paidAt: r.paid_at,
     noShow: r.no_show === 1,
+    checkedInAt: r.checked_in_at ?? null,
+    checkedOutAt: r.checked_out_at ?? null,
   };
 }
 
@@ -511,14 +519,14 @@ export function cancelSeries(seriesCode: string, phone: string): {
 
 function getBookingById(id: number): Booking | null {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM bookings WHERE id = ?").get(id) as BookingRow | undefined;
+  const row = db.prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?").get(id) as BookingRow | undefined;
   return row ? toBooking(row) : null;
 }
 
 export function findBooking(code: string, phone: string): Booking | null {
   const db = getDb();
   const row = db
-    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?) AND phone = ?")
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?) AND b.phone = ?")
     .get(code.trim(), phone.trim()) as BookingRow | undefined;
   return row ? toBooking(row) : null;
 }
@@ -673,7 +681,7 @@ export function unblockSlots(courtId: number, date: string, hours: number[]): Bl
 export function adminCancelBooking(code: string): CancelResult {
   const db = getDb();
   const row = db
-    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?)")
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
@@ -836,10 +844,12 @@ export function listUserBookings(userId: number): UserBookingRow[] {
   const rows = db
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport,
-             v.name AS venue_name, v.area AS venue_area, v.address AS venue_address
+             v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
+             ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
+      LEFT JOIN check_ins ci ON ci.booking_id = b.id
       WHERE b.user_id = ?
       ORDER BY b.date DESC, b.start_hour DESC
     `)
@@ -864,7 +874,7 @@ export function listUserBookings(userId: number): UserBookingRow[] {
 export function cancelUserBooking(userId: number, bookingId: number): CancelResult {
   const db = getDb();
   const row = db
-    .prepare("SELECT * FROM bookings WHERE id = ? AND user_id = ?")
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ? AND b.user_id = ?")
     .get(bookingId, userId) as BookingRow | undefined;
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
@@ -886,7 +896,7 @@ export type PaymentResult = { ok: true; booking: Booking } | { ok: false; error:
 export function setPaymentStatus(code: string, paid: boolean): PaymentResult {
   const db = getDb();
   const row = db
-    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?)")
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
@@ -931,13 +941,96 @@ export function paySeries(seriesCode: string): { ok: boolean; paid: number; erro
   return { ok: true, paid: rows.length };
 }
 
+export type CheckInResult = { ok: true; booking: Booking } | { ok: false; error: string };
+
+function bookingByCode(code: string): Booking | null {
+  const row = getDb()
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)"
+    )
+    .get(code.trim()) as BookingRow | undefined;
+  return row ? toBooking(row) : null;
+}
+
+/** Record an arrival at the front desk. */
+export function checkIn(code: string): CheckInResult {
+  const booking = bookingByCode(code);
+  if (!booking) return { ok: false, error: "Booking not found." };
+  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
+
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+    // Arriving contradicts a no-show, so clear any stale flag.
+    if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+  })();
+  return { ok: true, booking: bookingByCode(code)! };
+}
+
+export function checkOut(code: string): CheckInResult {
+  const booking = bookingByCode(code);
+  if (!booking) return { ok: false, error: "Booking not found." };
+  if (!booking.checkedInAt) return { ok: false, error: "This booking has not checked in." };
+  if (booking.checkedOutAt) return { ok: false, error: "Already checked out." };
+
+  getDb()
+    .prepare("UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ?")
+    .run(booking.id);
+  return { ok: true, booking: bookingByCode(code)! };
+}
+
+/**
+ * Who is inside each resource right now, from door check-ins.
+ *
+ * Someone counts as present when they have checked in, have not checked out,
+ * and their booking has not ended yet — most people leave without telling the
+ * desk, so the booking's end time is the backstop.
+ */
+export function getLiveOccupancy(venueId: number): LiveOccupancy[] {
+  const db = getDb();
+  const courts = (
+    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+  ).map(toCourt);
+  if (courts.length === 0) return [];
+
+  const rows = db
+    .prepare(`
+      SELECT b.court_id, b.date, b.end_hour FROM check_ins ci
+      JOIN bookings b ON b.id = ci.booking_id
+      JOIN courts c ON c.id = b.court_id
+      WHERE c.venue_id = ? AND ci.checked_out_at IS NULL
+        AND b.status = 'confirmed' AND b.date = ?
+    `)
+    .all(venueId, todayISO()) as { court_id: number; date: string; end_hour: number }[];
+
+  const now = Date.now();
+  const present = new Map<number, number>();
+  for (const row of rows) {
+    if (slotStartsAt(row.date, row.end_hour).getTime() <= now) continue;
+    present.set(row.court_id, (present.get(row.court_id) ?? 0) + 1);
+  }
+
+  return courts.map((court) => {
+    const count = present.get(court.id) ?? 0;
+    return {
+      courtId: court.id,
+      courtName: court.name,
+      sport: court.sport,
+      capacity: court.capacity,
+      present: count,
+      level: busyness(count, court.capacity),
+    };
+  });
+}
+
 export type NoShowResult = { ok: true; booking: Booking } | { ok: false; error: string };
 
 /** Flag a passed booking whose customer never turned up (staff only). */
 export function setNoShow(code: string, noShow: boolean): NoShowResult {
   const db = getDb();
   const row = db
-    .prepare("SELECT * FROM bookings WHERE UPPER(code) = UPPER(?)")
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
@@ -946,6 +1039,8 @@ export function setNoShow(code: string, noShow: boolean): NoShowResult {
     return { ok: false, error: "This booking was cancelled." };
   if (noShow && !isPastSlot(booking.date, booking.startHour))
     return { ok: false, error: "This booking has not started yet." };
+  if (noShow && booking.checkedInAt)
+    return { ok: false, error: "This customer checked in, so they were not a no-show." };
   if (booking.noShow === noShow)
     return { ok: false, error: `Already marked ${noShow ? "a no-show" : "attended"}.` };
 
@@ -1030,10 +1125,12 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
   const db = getDb();
   const rows = db
     .prepare(`
-      SELECT b.*, c.name AS court_name, c.sport AS court_sport, v.name AS venue_name
+      SELECT b.*, c.name AS court_name, c.sport AS court_sport, v.name AS venue_name,
+             ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
+      LEFT JOIN check_ins ci ON ci.booking_id = b.id
       WHERE b.date = ? AND (? IS NULL OR v.id = ?)
       ORDER BY v.id, c.id, b.start_hour
     `)

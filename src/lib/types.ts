@@ -88,6 +88,9 @@ export interface Booking {
   paidAt: string | null;
   /** Set by staff after the slot passes and nobody turned up. */
   noShow: boolean;
+  /** When the customer arrived at the desk, if they did. */
+  checkedInAt: string | null;
+  checkedOutAt: string | null;
 }
 
 export interface SlotInfo {
@@ -116,6 +119,16 @@ export const BUSYNESS_LABELS: Record<Busyness, string> = {
   busy: "Busy",
   full: "Full",
 };
+
+/** How many people are inside a resource right now, from door check-ins. */
+export interface LiveOccupancy {
+  courtId: number;
+  courtName: string;
+  sport: Sport;
+  capacity: number;
+  present: number;
+  level: Busyness;
+}
 
 export interface CourtAvailability {
   court: Court;

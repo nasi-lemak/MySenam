@@ -3,6 +3,7 @@ import { getVenue } from "@/lib/store";
 import { todayISO, addDays } from "@/lib/time";
 import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
+import LiveOccupancy from "@/components/LiveOccupancy";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export default async function VenuePage({
             : "cancel any time before your slot starts"}
         </p>
       </div>
+      <LiveOccupancy venueId={venue.id} />
       <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
     </div>
   );

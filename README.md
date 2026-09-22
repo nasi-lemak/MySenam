@@ -14,12 +14,13 @@ badminton, tennis, pickleball, futsal — and shared facilities like gyms and po
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Cancellation policy** — each venue sets how many hours before a slot customers may still cancel (default 2); the window is shown up front on the venue page and in the booking lookup, and staff can always override from the dashboard
+- **Check-in & live crowd levels** — staff check customers in at the desk, and the venue page shows a public *Here right now* panel counting who is actually inside each shared facility, refreshed every 30 seconds
 - **No-show tracking** — staff flag a passed booking whose customer never turned up, and the day list warns when that phone number has prior no-shows
 - **Self-service management** — no account needed: look up or cancel any booking with the code + phone number (`/my-booking`)
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
 - **Per-venue admin accounts** — operators sign in with email + password; a venue admin only ever sees their own venue's bookings, schedule, courts and revenue, while a platform owner manages every venue, creates venues and issues staff accounts
 - **Admin dashboard** (`/admin`) — behind an operator sign-in:
-  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), plus admin cancellation
+  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates, add new courts
@@ -76,6 +77,7 @@ Every admin endpoint checks the scope server-side, so a venue operator gets a
 | ------ | --------------------- | -------------------------------------------------- |
 | GET    | `/api/venues`         | All venues with their courts                        |
 | GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → hourly grid    |
+| GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
 | POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?, weeks?, skipConflicts?}` |
 | GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
@@ -103,6 +105,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
+| POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
 | GET    | `/api/admin/slots`            | `?venueId=&date=` → per-slot status grid             |
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
@@ -160,10 +163,26 @@ winner's state (bounded), and a genuinely full resource is refused outright.
 Capacity cannot be reduced below the places already booked in an upcoming hour,
 so shrinking a gym never strands a customer.
 
-For a customer this is the crowd signal: a shared facility shows **places left**
-rather than a price in each cell, shaded from quiet through filling to busy.
-Note this reflects *bookings*, not people physically present — a live headcount
-of the kind ActiveSG shows would need check-in at the door (see roadmap).
+For a customer this is the forward-looking crowd signal: a shared facility shows
+**places left** rather than a price in each cell, shaded from quiet through
+filling to busy, so you can see that Monday 7pm is always packed.
+
+## Check-in and live crowd levels
+
+Places booked and people present are different numbers, so arrivals are tracked
+separately. Staff check a customer in from the Bookings tab (the Attendance
+column), and optionally out again.
+
+`GET /api/venues/:id/live` — public, no session — answers *how busy is it right
+now*: someone counts as present once they have checked in, have not checked
+out, and their booking has not ended. Most people leave without telling the
+desk, so the booking's end time is the backstop that keeps the number honest.
+The venue page renders this as a **Here right now** panel that refreshes every
+30 seconds.
+
+Check-in and no-show are mutually exclusive and self-correcting: a customer who
+checked in cannot be flagged a no-show, and checking someone in clears a
+no-show the desk had already recorded when they turn up late.
 
 ## Payments
 
@@ -210,8 +229,8 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
-- Check-in at the door (QR/turnstile) — the prerequisite for a live headcount
-  rather than a bookings-derived one, and for real attendance data
+- Self-service check-in (a QR code on the booking, or a turnstile) so arrivals
+  do not depend on a staff member pressing a button
 - Instructor-led classes: a shared slot plus an enrolment roster and terms
 - Memberships, passes and stored credit
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle

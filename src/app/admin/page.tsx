@@ -10,6 +10,17 @@ type Tab = "bookings" | "schedule" | "occupancy" | "courts" | "venues";
 
 type ManagedVenue = Venue & { courts: Court[] };
 
+/** A UTC timestamp as Malaysia-time HH:MM. */
+function localTime(iso: string): string {
+  return new Date(iso.includes("Z") || iso.includes("+") ? iso : `${iso.replace(" ", "T")}Z`)
+    .toLocaleTimeString("en-MY", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Kuala_Lumpur",
+    });
+}
+
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
 }
@@ -260,6 +271,22 @@ function BookingsTab() {
     }
   }
 
+  async function toggleCheckIn(code: string, out: boolean) {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, out }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Check-in failed");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Check-in failed");
+    }
+  }
+
   async function toggleNoShow(code: string, noShow: boolean) {
     setError(null);
     try {
@@ -436,22 +463,47 @@ function BookingsTab() {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    {b.status === "confirmed" ? (
+                    {b.status !== "confirmed" ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : b.checkedInAt ? (
                       <button
-                        onClick={() => toggleNoShow(b.code, !b.noShow)}
+                        onClick={() => toggleCheckIn(b.code, !b.checkedOutAt)}
                         title={
-                          b.noShow ? "Click to clear the no-show" : "Mark the customer as a no-show"
+                          b.checkedOutAt
+                            ? `Left at ${localTime(b.checkedOutAt)}`
+                            : `Arrived ${localTime(b.checkedInAt)} — click to check out`
                         }
                         className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
-                          b.noShow
-                            ? "bg-red-100 text-red-700 hover:bg-red-200"
-                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          b.checkedOutAt
+                            ? "bg-slate-100 text-slate-500"
+                            : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
                         }`}
                       >
-                        {b.noShow ? "no-show" : "mark no-show"}
+                        {b.checkedOutAt ? `left ${localTime(b.checkedOutAt)}` : `in ${localTime(b.checkedInAt)}`}
                       </button>
                     ) : (
-                      <span className="text-xs text-slate-400">—</span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => toggleCheckIn(b.code, false)}
+                          title="Check the customer in at the desk"
+                          className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-100"
+                        >
+                          check in
+                        </button>
+                        <button
+                          onClick={() => toggleNoShow(b.code, !b.noShow)}
+                          title={
+                            b.noShow ? "Click to clear the no-show" : "Mark the customer as a no-show"
+                          }
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
+                            b.noShow
+                              ? "bg-red-100 text-red-700 hover:bg-red-200"
+                              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          }`}
+                        >
+                          {b.noShow ? "no-show" : "no-show?"}
+                        </button>
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-2">
