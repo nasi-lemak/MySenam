@@ -13,6 +13,10 @@ import {
   SPORT_LABELS,
   WalletEntry,
   MAX_PASS_ENTRIES,
+  MAX_PROMO_AMOUNT,
+  MAX_PROMO_PERCENT,
+  MAX_HOURS_PER_BOOKING,
+  PromoCode,
   Pass,
   Venue,
   VenueClosure,
@@ -2205,6 +2209,8 @@ function CreditTab({ venues }: { venues: ManagedVenue[] }) {
       </div>
 
       <PassesPanel venues={venues} />
+
+      <PromosPanel venues={venues} />
     </div>
   );
 }
@@ -2460,6 +2466,296 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
               <tr>
                 <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
                   No passes sold at this venue yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** Create and withdraw the venue's promo codes. */
+function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
+  const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
+  const [promos, setPromos] = useState<PromoCode[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    code: "",
+    description: "",
+    kind: "percent",
+    value: "20",
+    sport: "",
+    minHours: "1",
+    validFrom: todayLocal(),
+    validTo: "",
+    maxUses: "",
+  });
+
+  const venue = venues.find((v) => v.id === venueId) ?? null;
+  const sports = [...new Set((venue?.courts ?? []).map((c) => c.sport))];
+
+  const load = useCallback(async () => {
+    if (!venueId) return;
+    const res = await fetch(`/api/admin/promos?venueId=${venueId}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setPromos(data.promos);
+  }, [venueId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/promos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          venueId,
+          code: form.code,
+          description: form.description,
+          kind: form.kind,
+          value: Number(form.value),
+          sport: form.sport || null,
+          minHours: Number(form.minHours),
+          validFrom: form.validFrom,
+          validTo: form.validTo,
+          maxUses: form.maxUses === "" ? null : Number(form.maxUses),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not create the code");
+      setNotice(`${data.promo.code} is live.`);
+      setForm({ ...form, code: "", description: "" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create the code");
+    }
+  }
+
+  async function withdraw(promo: PromoCode) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/promos/${promo.id}/void`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not withdraw the code");
+      setNotice(`${promo.code} withdrawn. Discounts already given stand.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not withdraw the code");
+    }
+  }
+
+  const inputClass =
+    "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <section className="border-t border-slate-200 pt-6">
+      <h2 className="text-lg font-bold">Promo codes</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        A discount customers claim by typing the code when they book. It comes off the booking
+        total, so credit and passes then pay the discounted figure.
+      </p>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <form onSubmit={create} className="mt-4 flex flex-wrap items-end gap-2">
+        {venues.length > 1 && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            Venue
+            <select
+              value={venueId}
+              onChange={(e) => setVenueId(Number(e.target.value))}
+              className={`mt-1 w-52 ${inputClass}`}
+            >
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Code
+          <input
+            required
+            value={form.code}
+            onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+            placeholder="RAYA20"
+            className={`mt-1 w-32 font-mono ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          What it is for
+          <input
+            required
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder="20% off for Raya"
+            className={`mt-1 w-56 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Type
+          <select
+            value={form.kind}
+            onChange={(e) => setForm({ ...form, kind: e.target.value })}
+            className={`mt-1 w-28 ${inputClass}`}
+          >
+            <option value="percent">% off</option>
+            <option value="amount">RM off</option>
+          </select>
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {form.kind === "percent" ? "Percent" : "Ringgit"}
+          <input
+            type="number"
+            min={1}
+            max={form.kind === "percent" ? MAX_PROMO_PERCENT : MAX_PROMO_AMOUNT}
+            required
+            value={form.value}
+            onChange={(e) => setForm({ ...form, value: e.target.value })}
+            className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Sport
+          <select
+            value={form.sport}
+            onChange={(e) => setForm({ ...form, sport: e.target.value })}
+            className={`mt-1 w-36 ${inputClass}`}
+          >
+            <option value="">Any sport</option>
+            {sports.map((sp) => (
+              <option key={sp} value={sp}>
+                {SPORT_ICONS[sp]} {SPORT_LABELS[sp]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Min hours
+          <input
+            type="number"
+            min={1}
+            max={MAX_HOURS_PER_BOOKING}
+            value={form.minHours}
+            onChange={(e) => setForm({ ...form, minHours: e.target.value })}
+            className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          From
+          <input
+            type="date"
+            required
+            value={form.validFrom}
+            onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Until
+          <input
+            type="date"
+            required
+            min={form.validFrom}
+            value={form.validTo}
+            onChange={(e) => setForm({ ...form, validTo: e.target.value })}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Limit
+          <input
+            type="number"
+            min={1}
+            value={form.maxUses}
+            onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
+            placeholder="∞"
+            title="Leave blank for unlimited"
+            className={`mt-1 w-20 ${inputClass}`}
+          />
+        </label>
+        <button
+          type="submit"
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          Create code
+        </button>
+      </form>
+
+      <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[720px] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2">Code</th>
+              <th className="px-3 py-2">What it is for</th>
+              <th className="px-3 py-2">Takes off</th>
+              <th className="px-3 py-2">Used</th>
+              <th className="px-3 py-2">Runs</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {promos.map((p) => (
+              <tr key={p.id} className="border-b border-slate-100 last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-xs font-semibold">
+                  {p.code}
+                </td>
+                <td className="px-3 py-2">
+                  {p.description}
+                  <span className="ml-1 text-xs text-slate-400">
+                    {p.sport ? SPORT_ICONS[p.sport] : "all sports"}
+                    {p.minHours > 1 ? ` · ${p.minHours}h+` : ""}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 font-semibold">
+                  {p.kind === "percent" ? `${p.value}%` : `RM${p.value}`}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  {p.used}
+                  <span className="text-slate-400"> / {p.maxUses ?? "∞"}</span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+                  {p.validFrom} → {p.validTo}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right">
+                  {p.unusableReason ? (
+                    <span className="text-xs text-slate-400">{p.unusableReason}</span>
+                  ) : (
+                    <button
+                      onClick={() => withdraw(p)}
+                      className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Withdraw
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {promos.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                  No promo codes at this venue yet.
                 </td>
               </tr>
             )}

@@ -18,6 +18,11 @@ import {
   MAX_CLASS_WEEKS,
   MAX_TOP_UP,
   MAX_PASS_ENTRIES,
+  MAX_PROMO_AMOUNT,
+  MAX_PROMO_PERCENT,
+  PromoCode,
+  PromoKind,
+  PromoStatus,
   MAX_PASS_MONTHS,
   Pass,
   PassEntry,
@@ -2149,6 +2154,295 @@ export function refundBookingToWallet(bookingId: number): WalletResult {
 function refundBooking(bookingId: number): void {
   refundBookingToWallet(bookingId);
   refundBookingToPass(bookingId);
+  // The customer never had the benefit, so a limited code is not poorer for it.
+  releasePromoUse(bookingId);
+}
+
+/* ---------------- Promo codes ---------------- */
+
+interface PromoRow {
+  id: number;
+  code: string;
+  venue_id: number;
+  venue_name: string;
+  sport: Sport | null;
+  description: string;
+  kind: PromoKind;
+  value: number;
+  min_hours: number;
+  valid_from: string;
+  valid_to: string;
+  max_uses: number | null;
+  status: PromoStatus;
+  used: number;
+}
+
+const PROMO_SELECT = `
+  SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.description,
+         p.kind, p.value, p.min_hours, p.valid_from, p.valid_to, p.max_uses, p.status,
+         (SELECT COUNT(*) FROM promo_uses u WHERE u.promo_id = p.id) AS used
+  FROM promo_codes p JOIN venues v ON v.id = p.venue_id
+`;
+
+function toPromo(r: PromoRow): PromoCode {
+  const promo: PromoCode = {
+    id: r.id,
+    code: r.code,
+    venueId: r.venue_id,
+    venueName: r.venue_name,
+    sport: r.sport,
+    description: r.description,
+    kind: r.kind,
+    value: r.value,
+    minHours: r.min_hours,
+    validFrom: r.valid_from,
+    validTo: r.valid_to,
+    maxUses: r.max_uses,
+    used: r.used,
+    status: r.status,
+  };
+  const reason = promoBlockedReason(promo);
+  return reason ? { ...promo, unusableReason: reason } : promo;
+}
+
+/** Why a code is dead regardless of which booking it is put against. */
+function promoBlockedReason(p: PromoCode): string | null {
+  if (p.status === "void") return "This code was withdrawn.";
+  if (p.maxUses !== null && p.used >= p.maxUses) return "This code has been fully claimed.";
+  if (p.validTo < todayISO()) return `This code ran out on ${p.validTo}.`;
+  return null;
+}
+
+/** What a code takes off a price. Never more than the price itself. */
+function promoDiscount(p: Pick<PromoCode, "kind" | "value">, price: number): number {
+  const off = p.kind === "percent" ? Math.floor((price * p.value) / 100) : p.value;
+  return Math.max(0, Math.min(off, price));
+}
+
+export function getPromoCode(venueId: number, code: string): PromoCode | null {
+  const row = getDb()
+    .prepare(`${PROMO_SELECT} WHERE p.venue_id = ? AND UPPER(p.code) = UPPER(?)`)
+    .get(venueId, code.trim()) as PromoRow | undefined;
+  return row ? toPromo(row) : null;
+}
+
+export function listPromoCodes(venueId: number): PromoCode[] {
+  const rows = getDb()
+    .prepare(`${PROMO_SELECT} WHERE p.venue_id = ? ORDER BY p.id DESC`)
+    .all(venueId) as PromoRow[];
+  return rows.map(toPromo);
+}
+
+export type PromoEditResult = { ok: true; promo: PromoCode } | { ok: false; error: string };
+
+export function createPromoCode(input: {
+  venueId: number;
+  code: string;
+  description: string;
+  kind: PromoKind;
+  value: number;
+  sport?: Sport | null;
+  minHours?: number;
+  validFrom: string;
+  validTo: string;
+  maxUses?: number | null;
+  adminId: number;
+}): PromoEditResult {
+  const db = getDb();
+  if (!db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
+    return { ok: false, error: "Venue not found." };
+
+  const code = input.code.trim().toUpperCase();
+  if (!/^[A-Z0-9-]{3,20}$/.test(code))
+    return { ok: false, error: "A code is 3–20 letters, digits or dashes." };
+  if (input.description.trim().length < 3)
+    return { ok: false, error: "Describe what the code is for." };
+  if (input.kind !== "percent" && input.kind !== "amount")
+    return { ok: false, error: "Unknown discount type." };
+  if (!Number.isInteger(input.value) || input.value < 1)
+    return { ok: false, error: "The discount must be a whole number above zero." };
+  if (input.kind === "percent" && input.value > MAX_PROMO_PERCENT)
+    return { ok: false, error: `A percentage cannot exceed ${MAX_PROMO_PERCENT}.` };
+  if (input.kind === "amount" && input.value > MAX_PROMO_AMOUNT)
+    return { ok: false, error: `A fixed discount cannot exceed RM${MAX_PROMO_AMOUNT}.` };
+
+  const minHours = input.minHours ?? 1;
+  if (!Number.isInteger(minHours) || minHours < 1 || minHours > MAX_HOURS_PER_BOOKING)
+    return { ok: false, error: `Minimum hours must be 1–${MAX_HOURS_PER_BOOKING}.` };
+  if (!isValidDateString(input.validFrom) || !isValidDateString(input.validTo))
+    return { ok: false, error: "Invalid dates." };
+  if (input.validTo < input.validFrom)
+    return { ok: false, error: "The end date is before the start date." };
+  if (input.maxUses !== undefined && input.maxUses !== null &&
+      (!Number.isInteger(input.maxUses) || input.maxUses < 1))
+    return { ok: false, error: "A usage limit must be a whole number above zero." };
+  if (input.sport && !SPORTS.includes(input.sport))
+    return { ok: false, error: "Unknown sport." };
+  if (input.sport) {
+    const has = db
+      .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
+      .get(input.venueId, input.sport);
+    if (!has) return { ok: false, error: "That venue has no courts for that sport." };
+  }
+  if (getPromoCode(input.venueId, code))
+    return { ok: false, error: `${code} already exists at this venue.` };
+
+  const info = db
+    .prepare(`
+      INSERT INTO promo_codes (code, venue_id, sport, description, kind, value,
+                               min_hours, valid_from, valid_to, max_uses, admin_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      code, input.venueId, input.sport ?? null, input.description.trim(), input.kind,
+      input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.adminId
+    );
+  return { ok: true, promo: promoById(Number(info.lastInsertRowid))! };
+}
+
+export function promoById(id: number): PromoCode | null {
+  const row = getDb().prepare(`${PROMO_SELECT} WHERE p.id = ?`).get(id) as PromoRow | undefined;
+  return row ? toPromo(row) : null;
+}
+
+/** Withdraw a code. Discounts already given stand. */
+export function voidPromoCode(id: number): PromoEditResult {
+  const promo = promoById(id);
+  if (!promo) return { ok: false, error: "Code not found." };
+  if (promo.status === "void") return { ok: false, error: "This code is already withdrawn." };
+  getDb().prepare("UPDATE promo_codes SET status = 'void' WHERE id = ?").run(id);
+  return { ok: true, promo: promoById(id)! };
+}
+
+export type PromoQuote =
+  | { ok: true; promo: PromoCode; discount: number }
+  | { ok: false; error: string };
+
+/**
+ * What a code would take off this particular booking, without claiming it.
+ * The quote is advisory: the use count is only binding inside applyPromo().
+ */
+export function quotePromo(input: {
+  venueId: number;
+  code: string;
+  sport: Sport;
+  date: string;
+  hours: number;
+  price: number;
+}): PromoQuote {
+  const promo = getPromoCode(input.venueId, input.code);
+  if (!promo) return { ok: false, error: "That code is not valid at this venue." };
+
+  const blocked = promoBlockedReason(promo);
+  if (blocked) return { ok: false, error: blocked };
+
+  if (input.date < promo.validFrom)
+    return { ok: false, error: `This code starts on ${promo.validFrom}.` };
+  if (input.date > promo.validTo)
+    return { ok: false, error: `This code ran out on ${promo.validTo}.` };
+  if (promo.sport && promo.sport !== input.sport)
+    return { ok: false, error: `This code only covers ${SPORT_LABELS[promo.sport]}.` };
+  if (input.hours < promo.minHours)
+    return {
+      ok: false,
+      error: `This code needs a booking of at least ${promo.minHours} hour${promo.minHours === 1 ? "" : "s"}.`,
+    };
+
+  const discount = promoDiscount(promo, input.price);
+  if (discount <= 0) return { ok: false, error: "This code takes nothing off that price." };
+  return { ok: true, promo, discount };
+}
+
+export type PromoApplyResult =
+  | { ok: true; discount: number; newTotal: number; promo: PromoCode }
+  | { ok: false; error: string };
+
+/**
+ * Claim a code against a booking: record the use and reduce what is owed.
+ *
+ * The use count is re-counted inside the transaction, so two customers
+ * cannot both take the last use of a limited code. The booking's own
+ * total_price is what changes, so everything downstream — paying from credit
+ * or a pass, and the day's takings — sees the discounted figure without
+ * knowing promo codes exist.
+ */
+export function applyPromo(bookingId: number, code: string): PromoApplyResult {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
+    )
+    .get(bookingId) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (booking.paymentStatus === "paid")
+    return { ok: false, error: "This booking is already paid; a code cannot be added now." };
+
+  const court = getCourt(booking.courtId);
+  if (!court) return { ok: false, error: "Court not found." };
+
+  const quote = quotePromo({
+    venueId: court.venueId,
+    code,
+    sport: court.sport,
+    date: booking.date,
+    hours: booking.endHour - booking.startHour,
+    price: booking.totalPrice,
+  });
+  if (!quote.ok) return quote;
+
+  try {
+    db.transaction(() => {
+      const fresh = promoById(quote.promo.id)!;
+      const blocked = promoBlockedReason(fresh);
+      if (blocked) throw new Error(`BLOCKED:${blocked}`);
+      // Re-derive against the live price, not the quoted one.
+      const discount = promoDiscount(fresh, booking.totalPrice);
+      if (discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
+      db.prepare(
+        "INSERT INTO promo_uses (promo_id, booking_id, discount) VALUES (?, ?, ?)"
+      ).run(fresh.id, booking.id, discount);
+      db.prepare("UPDATE bookings SET total_price = total_price - ? WHERE id = ?")
+        .run(discount, booking.id);
+    })();
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("BLOCKED:"))
+      return { ok: false, error: err.message.slice("BLOCKED:".length) };
+    if (err instanceof Error && /UNIQUE constraint failed: promo_uses/.test(err.message))
+      return { ok: false, error: "A code has already been used on this booking." };
+    throw err;
+  }
+
+  const use = db
+    .prepare("SELECT discount FROM promo_uses WHERE booking_id = ?")
+    .get(booking.id) as { discount: number };
+  return {
+    ok: true,
+    discount: use.discount,
+    newTotal: booking.totalPrice - use.discount,
+    promo: promoById(quote.promo.id)!,
+  };
+}
+
+/**
+ * Give a cancelled booking's use of a code back. The customer never had the
+ * benefit, so a limited code should not be poorer for it.
+ */
+function releasePromoUse(bookingId: number): void {
+  getDb().prepare("DELETE FROM promo_uses WHERE booking_id = ?").run(bookingId);
+}
+
+/** The code used on a booking, for showing it back to staff and customers. */
+export function promoUseFor(bookingId: number): { code: string; discount: number } | null {
+  const row = getDb()
+    .prepare(`
+      SELECT p.code AS code, u.discount AS discount
+      FROM promo_uses u JOIN promo_codes p ON p.id = u.promo_id
+      WHERE u.booking_id = ?
+    `)
+    .get(bookingId) as { code: string; discount: number } | undefined;
+  return row ?? null;
 }
 
 /* ---------------- Multi-visit passes ---------------- */

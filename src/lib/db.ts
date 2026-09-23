@@ -180,6 +180,43 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- A discount a venue advertises: "RAYA20" for 20% off, "NEWBIE5" for RM5.
+    CREATE TABLE IF NOT EXISTS promo_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL,
+      venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+      -- NULL means it works on any sport at that venue.
+      sport TEXT,
+      description TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('percent','amount')),
+      -- Percent 1-100, or whole ringgit off.
+      value INTEGER NOT NULL,
+      -- Smallest booking it applies to, so "3 hours or more" is expressible.
+      min_hours INTEGER NOT NULL DEFAULT 1,
+      -- Inclusive dates the booking itself must fall within.
+      valid_from TEXT NOT NULL,
+      valid_to TEXT NOT NULL,
+      -- NULL means unlimited.
+      max_uses INTEGER,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','void')),
+      admin_id INTEGER REFERENCES admins(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      -- One code per venue, matched case-insensitively.
+      UNIQUE (venue_id, code)
+    );
+
+    -- One row per booking that used a code. The use count is COUNT(*) of
+    -- these, so a cancelled booking gives its use back by deletion and the
+    -- count can never drift from the bookings that justify it.
+    CREATE TABLE IF NOT EXISTS promo_uses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      promo_id INTEGER NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+      booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+      discount INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (booking_id)
+    );
+
     -- A block of entries bought up front: "10 hours of badminton at PJ".
     -- One entry covers one booked hour.
     CREATE TABLE IF NOT EXISTS passes (
@@ -244,6 +281,8 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_entries(user_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_booking ON wallet_entries(booking_id);
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id);
+    CREATE INDEX IF NOT EXISTS idx_promo_venue ON promo_codes(venue_id);
+    CREATE INDEX IF NOT EXISTS idx_promo_uses_promo ON promo_uses(promo_id);
     CREATE INDEX IF NOT EXISTS idx_passes_phone ON passes(holder_phone);
     CREATE INDEX IF NOT EXISTS idx_passes_user ON passes(user_id);
     CREATE INDEX IF NOT EXISTS idx_pass_entries_pass ON pass_entries(pass_id);

@@ -16,6 +16,7 @@ gyms and pools, and instructor-led classes.
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
+- **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
@@ -129,6 +130,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
 | POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
+| GET    | `/api/admin/promos`           | `?venueId=` → that venue's promo codes               |
+| POST   | `/api/admin/promos`           | `{venueId, code, description, kind, value, sport?, minHours?, validFrom, validTo, maxUses?}` |
+| POST   | `/api/admin/promos/:id/void`  | Withdraw a code; discounts already given stand       |
 | GET    | `/api/admin/passes`           | `?venueId=` → passes sold by that venue              |
 | POST   | `/api/admin/passes`           | `{venueId, name, sport?, entries, price, holderName, holderPhone, expiresOn}` |
 | POST   | `/api/admin/passes/:id/void`  | Cancel a pass; entries already spent stay spent      |
@@ -245,6 +249,33 @@ closes their queue entry; the token is then spent.
 If somebody books the slot directly between the offer and the claim, the claim
 fails and the waiter is put **back at the front of the queue** rather than
 losing their turn for someone else's race.
+
+## Promo codes
+
+A venue advertises a code — `RAYA20` for 20% off, `NEWBIE5` for RM5 — and a
+customer types it when booking. A code is scoped to one venue, optionally to
+one sport, to bookings of at least N hours (which is how a bulk discount is
+expressed), to a date range the **booking** must fall in, and to a number of
+uses.
+
+The discount comes off `bookings.total_price` itself, inside the transaction
+that records the use. That ordering is the point: paying from credit or with a
+pass happens afterwards and reads the discounted figure, and the day's takings
+are right without any of that code knowing promo codes exist. Claiming a code
+is best-effort in the same way as paying — a code that ran out between the
+customer typing it and pressing Book leaves the booking standing at full price
+with the reason, rather than losing the booking.
+
+Uses are counted as rows in `promo_uses`, one per booking, re-counted **inside**
+the claiming transaction so two customers cannot both take the last use of a
+limited code. A `UNIQUE (booking_id)` stops two codes stacking on one booking.
+Cancelling gives the use back — the customer never had the benefit, so a limited
+code should not be poorer for it — through the same `refundBooking()` helper
+that returns credit and pass entries, so every cancellation path is covered.
+
+Withdrawing a code stops further claims; discounts already given stand. A
+percentage is rounded **down** and no discount ever exceeds the price, so a
+total cannot go negative.
 
 ## Multi-visit passes
 

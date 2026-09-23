@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import {
+  applyPromo,
   createBookingOnAnyCourt,
   createBookingSeries,
   findBooking,
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -83,6 +84,23 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
+  // A code is claimed before anything is settled, so paying from credit or a
+  // pass charges the discounted figure. Like paying, it is best-effort: a code
+  // that has run out leaves the booking standing at full price with the reason.
+  let promoError: string | null = null;
+  let discount = 0;
+  if (typeof promoCode === "string" && promoCode.trim() !== "") {
+    for (const booking of result.bookings) {
+      const applied = applyPromo(booking.id, promoCode);
+      if (!applied.ok) {
+        if (!promoError) promoError = applied.error;
+      } else {
+        booking.totalPrice = applied.newTotal;
+        discount += applied.discount;
+      }
+    }
+  }
+
   // Settling is best-effort: an empty wallet or a spent pass leaves the
   // booking standing as unpaid rather than throwing it away.
   const payErrors: string[] = [];
@@ -111,6 +129,8 @@ export async function POST(req: NextRequest) {
       skipped: result.skipped,
       seriesCode: result.seriesCode,
       walletError: payErrors[0] ?? null,
+      promoError,
+      discount,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
     },

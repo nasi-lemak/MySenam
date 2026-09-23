@@ -43,6 +43,9 @@ interface Confirmation {
   seriesCode: string | null;
   court: Court;
   venue: { name: string; area: string };
+  /** Total taken off by a promo code, and why one did not apply. */
+  discount?: number;
+  promoError?: string | null;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -474,6 +477,7 @@ function BookingForm({
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
   const [passCode, setPassCode] = useState("");
+  const [promoCode, setPromoCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -531,6 +535,7 @@ function BookingForm({
           skipConflicts,
           payFromWallet: passCode.trim() === "" && payFromWallet,
           payWithPass: passCode.trim() || undefined,
+          promoCode: promoCode.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -626,6 +631,20 @@ function BookingForm({
         </label>
       )}
 
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <label htmlFor="promo-code">Promo code?</label>
+        <input
+          id="promo-code"
+          value={promoCode}
+          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+          placeholder="RAYA20"
+          className="w-32 rounded-md border border-slate-300 px-2 py-1 font-mono focus:border-teal-500 focus:outline-none"
+        />
+        {promoCode.trim() !== "" && (
+          <span className="text-slate-500">Checked when you book; the total updates then.</span>
+        )}
+      </div>
+
       {/* A pass covers one entry per booked hour, so it settles the whole slot. */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
         <span>Using a pass?</span>
@@ -715,6 +734,9 @@ function ConfirmationModal({
               ? ([] as [string, string][])
               : ([["Date", booking.date]] as [string, string][])),
             ["Time", `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
+            ...(confirmation.discount
+              ? ([["Promo discount", `− RM${confirmation.discount}`]] as [string, string][])
+              : ([] as [string, string][])),
             [
               "Total",
               `RM${isSeries ? seriesTotal : booking.totalPrice} (pay at counter)`,
@@ -726,6 +748,11 @@ function ConfirmationModal({
             </div>
           ))}
         </dl>
+        {confirmation.promoError && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Your promo code was not applied: {confirmation.promoError}
+          </p>
+        )}
         {isSeries && (
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
             <div className="font-semibold text-slate-700">Sessions</div>

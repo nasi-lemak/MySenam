@@ -180,6 +180,37 @@ export interface PassEntry {
   createdAt: string;
 }
 
+/** A discount a venue advertises, redeemed by typing its code. */
+export interface PromoCode {
+  id: number;
+  code: string;
+  venueId: number;
+  venueName: string;
+  /** null means any sport at that venue. */
+  sport: Sport | null;
+  description: string;
+  kind: PromoKind;
+  /** Percent 1–100, or whole ringgit off. */
+  value: number;
+  /** The smallest booking it applies to. */
+  minHours: number;
+  /** Inclusive dates the booking itself must fall within. */
+  validFrom: string;
+  validTo: string;
+  /** null means unlimited. */
+  maxUses: number | null;
+  used: number;
+  status: PromoStatus;
+  /** Why it cannot be used today, if it cannot. */
+  unusableReason?: string;
+}
+
+export type PromoKind = "percent" | "amount";
+export type PromoStatus = "active" | "void";
+
+export const MAX_PROMO_PERCENT = 100;
+export const MAX_PROMO_AMOUNT = 500;
+
 export const MAX_PASS_ENTRIES = 200;
 /** How far ahead a pass may be set to expire. */
 export const MAX_PASS_MONTHS = 24;
