@@ -17,7 +17,10 @@ import {
   LiveOccupancy,
   MAX_CLASS_WEEKS,
   MAX_TOP_UP,
+  MAX_MEMBERSHIP_MONTHS,
   MAX_PASS_ENTRIES,
+  Membership,
+  MembershipStatus,
   MAX_PROMO_AMOUNT,
   MAX_PROMO_PERCENT,
   PromoCode,
@@ -56,6 +59,8 @@ interface CourtRow {
   sport: Sport;
   off_peak_rate: number;
   peak_rate: number;
+  member_off_peak_rate: number | null;
+  member_peak_rate: number | null;
   capacity: number;
 }
 
@@ -197,6 +202,8 @@ function toCourt(r: CourtRow): Court {
     sport: r.sport,
     offPeakRate: r.off_peak_rate,
     peakRate: r.peak_rate,
+    memberOffPeakRate: r.member_off_peak_rate,
+    memberPeakRate: r.member_peak_rate,
     capacity: r.capacity,
   };
 }
@@ -373,7 +380,13 @@ export function createBookingOnAnyCourt(input: {
 }
 
 /** Availability grid for every court of a venue (optionally one sport) on a date. */
-export function getAvailability(venueId: number, date: string, sport?: Sport): CourtAvailability[] {
+export function getAvailability(
+  venueId: number,
+  date: string,
+  sport?: Sport,
+  /** Price the grid at member rates, for a caller known to be a member. */
+  member = false
+): CourtAvailability[] {
   const db = getDb();
   let courts = (
     db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
@@ -400,7 +413,7 @@ export function getAvailability(venueId: number, date: string, sport?: Sport): C
       const session = classHours.get(key);
       return {
         hour,
-        rate: isPeak(date, hour) ? court.peakRate : court.offPeakRate,
+        rate: computePrice(court, date, [hour], member),
         booked,
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
@@ -600,11 +613,30 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
   return results.slice(0, limit);
 }
 
-export function computePrice(court: Court, date: string, hours: number[]): number {
-  return hours.reduce(
-    (sum, h) => sum + (isPeak(date, h) ? court.peakRate : court.offPeakRate),
-    0
-  );
+/**
+ * What a booking costs. A member pays the court's member rate where it has
+ * one; where it does not, they pay the public rate, so a venue can discount
+ * only some of its courts.
+ */
+export function computePrice(
+  court: Court,
+  date: string,
+  hours: number[],
+  member = false
+): number {
+  return hours.reduce((sum, h) => {
+    const peak = isPeak(date, h);
+    if (member) {
+      const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
+      if (rate !== null) return sum + rate;
+    }
+    return sum + (peak ? court.peakRate : court.offPeakRate);
+  }, 0);
+}
+
+/** Does this court charge members less, at any hour? */
+export function hasMemberRate(court: Court): boolean {
+  return court.memberOffPeakRate !== null || court.memberPeakRate !== null;
 }
 
 function randomCode(prefix: string): string {
@@ -719,6 +751,12 @@ export function createBookingSeries(input: {
 
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
 
+  // Member rates are decided per session, against the date that session falls
+  // on: a membership that lapses part-way through a weekly series discounts
+  // the weeks it covers and no more.
+  const memberOn = (weekDate: string) =>
+    activeMembership(court.venueId, phone, weekDate) !== null;
+
   try {
     const result = db.transaction(() => {
       const bookings: Booking[] = [];
@@ -743,7 +781,7 @@ export function createBookingSeries(input: {
         }
         const bookingId = insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
-          name, phone, email ?? null, computePrice(court, weekDate, hours),
+          name, phone, email ?? null, computePrice(court, weekDate, hours, memberOn(weekDate)),
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
           input.classId ?? null
         ).lastInsertRowid as number;
@@ -1654,7 +1692,15 @@ export function createCourt(input: {
 
 export function updateCourt(
   courtId: number,
-  changes: { name?: string; offPeakRate?: number; peakRate?: number; capacity?: number }
+  changes: {
+    name?: string;
+    offPeakRate?: number;
+    peakRate?: number;
+    /** null clears it, so members pay the public rate on this court again. */
+    memberOffPeakRate?: number | null;
+    memberPeakRate?: number | null;
+    capacity?: number;
+  }
 ): CourtEditResult {
   const db = getDb();
   const court = getCourt(courtId);
@@ -1678,12 +1724,31 @@ export function updateCourt(
     }
   }
 
-  db.prepare(
-    "UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?, capacity = ? WHERE id = ?"
-  ).run(
+  const memberOffPeak =
+    changes.memberOffPeakRate !== undefined ? changes.memberOffPeakRate : court.memberOffPeakRate;
+  const memberPeak =
+    changes.memberPeakRate !== undefined ? changes.memberPeakRate : court.memberPeakRate;
+  const offPeak = changes.offPeakRate ?? court.offPeakRate;
+  const peak = changes.peakRate ?? court.peakRate;
+
+  // A member rate above the public one is not a member rate.
+  if (memberOffPeak !== null && memberOffPeak > offPeak)
+    return { ok: false, error: "The off-peak member rate is higher than the public one." };
+  if (memberPeak !== null && memberPeak > peak)
+    return { ok: false, error: "The peak member rate is higher than the public one." };
+  if ((memberOffPeak !== null && memberOffPeak < 0) || (memberPeak !== null && memberPeak < 0))
+    return { ok: false, error: "A member rate cannot be negative." };
+
+  db.prepare(`
+    UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
+                      member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?
+    WHERE id = ?
+  `).run(
     changes.name?.trim() ?? court.name,
-    changes.offPeakRate ?? court.offPeakRate,
-    changes.peakRate ?? court.peakRate,
+    offPeak,
+    peak,
+    memberOffPeak,
+    memberPeak,
     changes.capacity ?? court.capacity,
     courtId
   );
@@ -2156,6 +2221,185 @@ function refundBooking(bookingId: number): void {
   refundBookingToPass(bookingId);
   // The customer never had the benefit, so a limited code is not poorer for it.
   releasePromoUse(bookingId);
+}
+
+/* ---------------- Memberships ---------------- */
+
+interface MembershipRow {
+  id: number;
+  code: string;
+  venue_id: number;
+  venue_name: string;
+  holder_name: string;
+  holder_phone: string;
+  starts_on: string;
+  expires_on: string;
+  price: number;
+  status: MembershipStatus;
+}
+
+const MEMBERSHIP_SELECT = `
+  SELECT m.id, m.code, m.venue_id, v.name AS venue_name, m.holder_name, m.holder_phone,
+         m.starts_on, m.expires_on, m.price, m.status
+  FROM memberships m JOIN venues v ON v.id = m.venue_id
+`;
+
+function toMembership(r: MembershipRow): Membership {
+  const m: Membership = {
+    id: r.id,
+    code: r.code,
+    venueId: r.venue_id,
+    venueName: r.venue_name,
+    holderName: r.holder_name,
+    holderPhone: r.holder_phone,
+    startsOn: r.starts_on,
+    expiresOn: r.expires_on,
+    price: r.price,
+    status: r.status,
+  };
+  const reason = membershipBlockedReason(m);
+  return reason ? { ...m, unusableReason: reason } : m;
+}
+
+/** Why a membership is not giving member rates today. */
+function membershipBlockedReason(m: Membership): string | null {
+  if (m.status === "void") return "This membership was cancelled.";
+  const today = todayISO();
+  if (today < m.startsOn) return `This membership starts on ${m.startsOn}.`;
+  if (today > m.expiresOn) return `This membership expired on ${m.expiresOn}.`;
+  return null;
+}
+
+/**
+ * Is this phone number a live member of this venue on this date?
+ *
+ * Membership is held against the phone number, not an account, so someone who
+ * booked as a guest still gets their rate. The date checked is the booking's,
+ * not today's: a membership that lapses before the session does not discount it.
+ */
+export function activeMembership(
+  venueId: number,
+  phone: string,
+  onDate?: string
+): Membership | null {
+  const digits = normalisePhone(phone);
+  if (digits.length < 6) return null;
+  const date = onDate ?? todayISO();
+  const rows = getDb()
+    .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
+    .all(venueId) as MembershipRow[];
+  const match = rows.find(
+    (r) =>
+      normalisePhone(r.holder_phone) === digits &&
+      r.starts_on <= date &&
+      r.expires_on >= date
+  );
+  return match ? toMembership(match) : null;
+}
+
+/** Every membership a phone number holds, newest first. */
+export function listMembershipsFor(input: { phone?: string; userId?: number }): Membership[] {
+  const phone = input.phone?.trim() || null;
+  const userId = input.userId ?? null;
+  if (phone === null && userId === null) return [];
+  const rows = getDb()
+    .prepare(`
+      ${MEMBERSHIP_SELECT}
+      WHERE (? IS NOT NULL AND m.holder_phone = ?) OR (? IS NOT NULL AND m.user_id = ?)
+      ORDER BY m.id DESC
+    `)
+    .all(phone, phone, userId, userId) as MembershipRow[];
+  return rows.map(toMembership);
+}
+
+export function listMembershipsForVenue(venueId: number, limit = 200): Membership[] {
+  const rows = getDb()
+    .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? ORDER BY m.id DESC LIMIT ?`)
+    .all(venueId, Math.min(Math.max(limit, 1), 500)) as MembershipRow[];
+  return rows.map(toMembership);
+}
+
+export function membershipById(id: number): Membership | null {
+  const row = getDb().prepare(`${MEMBERSHIP_SELECT} WHERE m.id = ?`).get(id) as
+    | MembershipRow
+    | undefined;
+  return row ? toMembership(row) : null;
+}
+
+export type MembershipResult =
+  | { ok: true; membership: Membership }
+  | { ok: false; error: string };
+
+/** Sell a membership at the counter. */
+export function sellMembership(input: {
+  venueId: number;
+  holderName: string;
+  holderPhone: string;
+  startsOn: string;
+  expiresOn: string;
+  price: number;
+  adminId: number;
+  userId?: number;
+}): MembershipResult {
+  const db = getDb();
+  if (!db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
+    return { ok: false, error: "Venue not found." };
+
+  const holderName = input.holderName.trim();
+  const holderPhone = input.holderPhone.trim();
+  if (holderName.length < 2 || holderPhone.length < 6)
+    return { ok: false, error: "A holder name and phone number are required." };
+  if (!Number.isInteger(input.price) || input.price < 0)
+    return { ok: false, error: "Price must be a whole number of ringgit." };
+  if (!isValidDateString(input.startsOn) || !isValidDateString(input.expiresOn))
+    return { ok: false, error: "Invalid dates." };
+  if (input.expiresOn < input.startsOn)
+    return { ok: false, error: "The end date is before the start date." };
+  if (input.expiresOn < todayISO())
+    return { ok: false, error: "That membership would already have expired." };
+  if (input.expiresOn > addDays(todayISO(), MAX_MEMBERSHIP_MONTHS * 31))
+    return {
+      ok: false,
+      error: `A membership may not run more than ${MAX_MEMBERSHIP_MONTHS} months.`,
+    };
+
+  // Overlapping memberships at one venue would make "which rate?" ambiguous.
+  const clash = (
+    db
+      .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
+      .all(input.venueId) as MembershipRow[]
+  ).find(
+    (r) =>
+      normalisePhone(r.holder_phone) === normalisePhone(holderPhone) &&
+      r.starts_on <= input.expiresOn &&
+      r.expires_on >= input.startsOn
+  );
+  if (clash)
+    return {
+      ok: false,
+      error: `That number already has a membership here until ${clash.expires_on}.`,
+    };
+
+  const info = db
+    .prepare(`
+      INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
+                               starts_on, expires_on, price, admin_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
+      input.startsOn, input.expiresOn, input.price, input.adminId
+    );
+  return { ok: true, membership: membershipById(Number(info.lastInsertRowid))! };
+}
+
+/** Cancel a membership. Bookings already made keep the price they were given. */
+export function voidMembership(id: number): MembershipResult {
+  const m = membershipById(id);
+  if (!m) return { ok: false, error: "Membership not found." };
+  if (m.status === "void") return { ok: false, error: "This membership is already cancelled." };
+  getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
+  return { ok: true, membership: membershipById(id)! };
 }
 
 /* ---------------- Promo codes ---------------- */

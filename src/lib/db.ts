@@ -63,6 +63,10 @@ export function getDb(): Database.Database {
       sport TEXT NOT NULL,
       off_peak_rate INTEGER NOT NULL,
       peak_rate INTEGER NOT NULL,
+      -- What a member pays instead. NULL means members pay the public rate on
+      -- this court, so a venue can discount only some of them.
+      member_off_peak_rate INTEGER,
+      member_peak_rate INTEGER,
       capacity INTEGER NOT NULL DEFAULT 1
     );
 
@@ -180,6 +184,24 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Membership of one venue, held against a phone number so a member who
+    -- books as a guest still gets their rate.
+    CREATE TABLE IF NOT EXISTS memberships (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+      holder_name TEXT NOT NULL,
+      holder_phone TEXT NOT NULL,
+      user_id INTEGER REFERENCES users(id),
+      -- Inclusive: the membership is live on both of these dates.
+      starts_on TEXT NOT NULL,
+      expires_on TEXT NOT NULL,
+      price INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','void')),
+      admin_id INTEGER REFERENCES admins(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- A discount a venue advertises: "RAYA20" for 20% off, "NEWBIE5" for RM5.
     CREATE TABLE IF NOT EXISTS promo_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -281,6 +303,8 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_entries(user_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_booking ON wallet_entries(booking_id);
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id);
+    CREATE INDEX IF NOT EXISTS idx_memberships_phone ON memberships(holder_phone);
+    CREATE INDEX IF NOT EXISTS idx_memberships_venue ON memberships(venue_id);
     CREATE INDEX IF NOT EXISTS idx_promo_venue ON promo_codes(venue_id);
     CREATE INDEX IF NOT EXISTS idx_promo_uses_promo ON promo_uses(promo_id);
     CREATE INDEX IF NOT EXISTS idx_passes_phone ON passes(holder_phone);
@@ -327,6 +351,14 @@ function migrate(db: Database.Database) {
         ALTER TABLE courts_new RENAME TO courts;
       `);
     });
+  }
+
+  // Member rates. Added after the rebuild above, which recreates the table
+  // from a fixed column list and would drop them.
+  const ratedCols = db.prepare("PRAGMA table_info(courts)").all() as { name: string }[];
+  if (ratedCols.length > 0 && !ratedCols.some((c) => c.name === "member_off_peak_rate")) {
+    db.exec("ALTER TABLE courts ADD COLUMN member_off_peak_rate INTEGER");
+    db.exec("ALTER TABLE courts ADD COLUMN member_peak_rate INTEGER");
   }
 
   // booking_slots: add seat and widen the UNIQUE constraint to include it.

@@ -104,6 +104,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
   );
   const [availability, setAvailability] = useState<CourtAvailability[] | null>(null);
   const [closure, setClosure] = useState<VenueClosure | null>(null);
+  const [memberRates, setMemberRates] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +127,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       const slots: CourtAvailability[] = data.availability;
       setAvailability(slots);
       setClosure(data.closure ?? null);
+      setMemberRates(data.memberRates === true);
 
       const pending = pendingInitial.current;
       if (pending) {
@@ -140,6 +142,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       setError(e instanceof Error ? e.message : "Failed to load availability");
       setAvailability(null);
       setClosure(null);
+      setMemberRates(false);
     } finally {
       setLoading(false);
     }
@@ -278,6 +281,12 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <strong>Closed on {closure.date}.</strong> Pick another date.
           {closure.reason && <div className="mt-0.5 text-amber-700">{closure.reason}</div>}
+        </div>
+      )}
+
+      {memberRates && !loading && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-2.5 text-sm text-teal-800">
+          <strong>Member prices.</strong> You are a member here, so the rates below are yours.
         </div>
       )}
 

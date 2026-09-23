@@ -16,6 +16,7 @@ gyms and pools, and instructor-led classes.
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
+- **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
@@ -111,6 +112,7 @@ Account endpoints (session cookie):
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
+| GET    | `/api/my/membership`      | The signed-in customer's memberships            |
 | GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 
@@ -130,6 +132,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
 | POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
+| GET    | `/api/admin/memberships`      | `?venueId=` → that venue's members                   |
+| POST   | `/api/admin/memberships`      | `{venueId, holderName, holderPhone, startsOn, expiresOn, price}` |
+| POST   | `/api/admin/memberships/:id/void` | Cancel a membership                              |
 | GET    | `/api/admin/promos`           | `?venueId=` → that venue's promo codes               |
 | POST   | `/api/admin/promos`           | `{venueId, code, description, kind, value, sport?, minHours?, validFrom, validTo, maxUses?}` |
 | POST   | `/api/admin/promos/:id/void`  | Withdraw a code; discounts already given stand       |
@@ -249,6 +254,36 @@ closes their queue entry; the token is then spent.
 If somebody books the slot directly between the offer and the claim, the claim
 fails and the waiter is put **back at the front of the queue** rather than
 losing their turn for someone else's race.
+
+## Memberships and member rates
+
+Every court carries an optional **member rate** beside its public one, per
+band: `member_off_peak_rate` and `member_peak_rate`. `NULL` means members pay
+the public price on that court, so a venue can discount its quiet courts and
+not its premium one. A member rate above the public rate is refused — that is
+not a member rate.
+
+A **membership** belongs to one venue and is held against a **phone number**,
+not an account. That is the point: a member who books as a guest, without
+signing in, still gets their price. Terms may not overlap at one venue, since
+two live memberships would make "which rate?" ambiguous.
+
+Price is decided per session against **that session's date**, not today's, so a
+weekly series is discounted for the weeks the membership covers and charged
+publicly for the rest. A membership that has not started yet, has expired, or
+was cancelled gives nothing.
+
+A signed-in member sees **their own rates on the availability grid**, with a
+banner saying so, rather than a public price they will not pay. Guests see
+public rates and still get the member rate applied at booking when their number
+matches.
+
+Member rates and promo codes compose: the member rate sets the price, and a
+promo code discounts that. A member on a RM10/hr member rate booking two hours
+with a 20% code pays RM16.
+
+Cancelling a membership stops future discounts; bookings already made keep the
+price they were given.
 
 ## Promo codes
 

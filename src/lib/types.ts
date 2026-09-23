@@ -67,6 +67,9 @@ export interface Court {
   sport: Sport;
   offPeakRate: number;
   peakRate: number;
+  /** What a member pays instead. null means members pay the public rate here. */
+  memberOffPeakRate: number | null;
+  memberPeakRate: number | null;
   capacity: number;
 }
 
@@ -207,6 +210,28 @@ export interface PromoCode {
 
 export type PromoKind = "percent" | "amount";
 export type PromoStatus = "active" | "void";
+
+/** Membership of one venue, entitling the holder to that venue's member rates. */
+export interface Membership {
+  id: number;
+  code: string;
+  venueId: number;
+  venueName: string;
+  holderName: string;
+  holderPhone: string;
+  /** Inclusive on both ends. */
+  startsOn: string;
+  expiresOn: string;
+  price: number;
+  status: MembershipStatus;
+  /** Why it is not giving member rates today, if it is not. */
+  unusableReason?: string;
+}
+
+export type MembershipStatus = "active" | "void";
+
+/** How far ahead a membership may be sold. */
+export const MAX_MEMBERSHIP_MONTHS = 24;
 
 export const MAX_PROMO_PERCENT = 100;
 export const MAX_PROMO_AMOUNT = 500;

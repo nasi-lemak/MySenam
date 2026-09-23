@@ -13,6 +13,7 @@ import {
   SPORT_LABELS,
   WalletEntry,
   MAX_PASS_ENTRIES,
+  Membership,
   MAX_PROMO_AMOUNT,
   MAX_PROMO_PERCENT,
   MAX_HOURS_PER_BOOKING,
@@ -836,7 +837,9 @@ function CourtsTab({
     name: string,
     offPeak: string,
     peak: string,
-    capacity: string
+    capacity: string,
+    memberOffPeak: string,
+    memberPeak: string
   ) {
     setError(null);
     setNotice(null);
@@ -849,6 +852,9 @@ function CourtsTab({
           offPeakRate: Number(offPeak),
           peakRate: Number(peak),
           capacity: Number(capacity),
+          // Blank means "no member discount on this court".
+          memberOffPeakRate: memberOffPeak.trim() === "" ? null : Number(memberOffPeak),
+          memberPeakRate: memberPeak.trim() === "" ? null : Number(memberPeak),
         }),
       });
       const data = await res.json();
@@ -917,7 +923,10 @@ function CourtsTab({
           <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {["Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)", "Capacity", ""].map((h, i) => (
+                {[
+                  "Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)",
+                  "Member off-peak", "Member peak", "Capacity", "",
+                ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
                     {h}
                   </th>
@@ -1007,18 +1016,29 @@ function CourtRow({
     name: string,
     offPeak: string,
     peak: string,
-    capacity: string
+    capacity: string,
+    memberOffPeak: string,
+    memberPeak: string
   ) => void;
 }) {
   const [name, setName] = useState(court.name);
   const [offPeak, setOffPeak] = useState(String(court.offPeakRate));
   const [peak, setPeak] = useState(String(court.peakRate));
   const [capacity, setCapacity] = useState(String(court.capacity));
+  const [memberOffPeak, setMemberOffPeak] = useState(
+    court.memberOffPeakRate === null ? "" : String(court.memberOffPeakRate)
+  );
+  const [memberPeak, setMemberPeak] = useState(
+    court.memberPeakRate === null ? "" : String(court.memberPeakRate)
+  );
+  const asText = (v: number | null) => (v === null ? "" : String(v));
   const dirty =
     name !== court.name ||
     offPeak !== String(court.offPeakRate) ||
     peak !== String(court.peakRate) ||
-    capacity !== String(court.capacity);
+    capacity !== String(court.capacity) ||
+    memberOffPeak !== asText(court.memberOffPeakRate) ||
+    memberPeak !== asText(court.memberPeakRate);
 
   return (
     <tr className="border-b border-slate-100 last:border-0">
@@ -1053,6 +1073,28 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
+          min={0}
+          value={memberOffPeak}
+          onChange={(e) => setMemberOffPeak(e.target.value)}
+          placeholder="—"
+          title="What a member pays off-peak. Leave blank for no member discount."
+          className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="number"
+          min={0}
+          value={memberPeak}
+          onChange={(e) => setMemberPeak(e.target.value)}
+          placeholder="—"
+          title="What a member pays at peak. Leave blank for no member discount."
+          className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="number"
           min={1}
           max={MAX_CAPACITY}
           value={capacity}
@@ -1064,7 +1106,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <button
           disabled={!dirty}
-          onClick={() => onSave(court, name, offPeak, peak, capacity)}
+          onClick={() => onSave(court, name, offPeak, peak, capacity, memberOffPeak, memberPeak)}
           className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
         >
           Save
@@ -2210,6 +2252,8 @@ function CreditTab({ venues }: { venues: ManagedVenue[] }) {
 
       <PassesPanel venues={venues} />
 
+      <MembershipsPanel venues={venues} />
+
       <PromosPanel venues={venues} />
     </div>
   );
@@ -2756,6 +2800,226 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
               <tr>
                 <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
                   No promo codes at this venue yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** Sell and cancel memberships at the counter. */
+function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
+  const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
+  const [members, setMembers] = useState<Membership[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    holderName: "",
+    holderPhone: "",
+    startsOn: todayLocal(),
+    expiresOn: "",
+    price: "300",
+  });
+
+  const load = useCallback(async () => {
+    if (!venueId) return;
+    const res = await fetch(`/api/admin/memberships?venueId=${venueId}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setMembers(data.memberships);
+  }, [venueId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function sell(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/memberships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          venueId,
+          holderName: form.holderName,
+          holderPhone: form.holderPhone,
+          startsOn: form.startsOn,
+          expiresOn: form.expiresOn,
+          price: Number(form.price),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not sell the membership");
+      setNotice(`${data.membership.code} sold to ${data.membership.holderName}.`);
+      setForm({ ...form, holderName: "", holderPhone: "" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sell the membership");
+    }
+  }
+
+  async function cancel(m: Membership) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/memberships/${m.id}/void`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not cancel the membership");
+      setNotice(`${m.code} cancelled. Bookings already made keep the price they were given.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not cancel the membership");
+    }
+  }
+
+  const inputClass =
+    "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+  return (
+    <section className="border-t border-slate-200 pt-6">
+      <h2 className="text-lg font-bold">Memberships</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        A member pays your member rates, set per court under <strong>Courts &amp; rates</strong>.
+        Membership is held against the phone number, so a member who books as a guest still gets
+        their price.
+      </p>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <form onSubmit={sell} className="mt-4 flex flex-wrap items-end gap-2">
+        {venues.length > 1 && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            Venue
+            <select
+              value={venueId}
+              onChange={(e) => setVenueId(Number(e.target.value))}
+              className={`mt-1 w-52 ${inputClass}`}
+            >
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Member
+          <input
+            required
+            placeholder="Name"
+            value={form.holderName}
+            onChange={(e) => setForm({ ...form, holderName: e.target.value })}
+            className={`mt-1 w-44 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Phone
+          <input
+            required
+            placeholder="0123456789"
+            value={form.holderPhone}
+            onChange={(e) => setForm({ ...form, holderPhone: e.target.value })}
+            className={`mt-1 w-36 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          From
+          <input
+            type="date"
+            required
+            value={form.startsOn}
+            onChange={(e) => setForm({ ...form, startsOn: e.target.value })}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Until
+          <input
+            type="date"
+            required
+            min={form.startsOn}
+            value={form.expiresOn}
+            onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Fee (RM)
+          <input
+            type="number"
+            min={0}
+            required
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
+            className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <button
+          type="submit"
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          Sell membership
+        </button>
+      </form>
+
+      <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[700px] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2">Code</th>
+              <th className="px-3 py-2">Member</th>
+              <th className="px-3 py-2">Runs</th>
+              <th className="px-3 py-2">Fee</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((m) => (
+              <tr key={m.id} className="border-b border-slate-100 last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-xs font-semibold">
+                  {m.code}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  {m.holderName}
+                  <span className="block text-xs text-slate-400">{m.holderPhone}</span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+                  {m.startsOn} → {m.expiresOn}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 font-semibold">RM{m.price}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right">
+                  {m.unusableReason ? (
+                    <span className="text-xs text-slate-400">{m.unusableReason}</span>
+                  ) : (
+                    <button
+                      onClick={() => cancel(m)}
+                      className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {members.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                  No members at this venue yet.
                 </td>
               </tr>
             )}

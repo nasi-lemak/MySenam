@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAvailability, getVenue, getVenueClosure } from "@/lib/store";
+import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/lib/store";
+import { getSessionUser } from "@/lib/auth";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
 
@@ -28,9 +29,16 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "Venue not found." }, { status: 404 });
   }
 
+  // A signed-in member sees their own rates, so the grid is not a bait price.
+  // Guests see the public rate and still get the member rate at booking if
+  // their phone number matches, which the confirmation then shows.
+  const user = getSessionUser(req);
+  const membership = user ? activeMembership(venueId, user.phone, date) : null;
+
   return NextResponse.json({
     date,
-    availability: getAvailability(venueId, date, sport),
+    availability: getAvailability(venueId, date, sport, membership !== null),
     closure: getVenueClosure(venueId, date),
+    memberRates: membership !== null,
   });
 }

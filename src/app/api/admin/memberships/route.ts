@@ -1,0 +1,56 @@
+import { NextRequest, NextResponse } from "next/server";
+import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { listMembershipsForVenue, sellMembership } from "@/lib/store";
+
+export const dynamic = "force-dynamic";
+
+export function GET(req: NextRequest) {
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
+
+  const venueId = Number(req.nextUrl.searchParams.get("venueId"));
+  if (!Number.isInteger(venueId) || venueId <= 0)
+    return NextResponse.json({ error: "venueId is required." }, { status: 400 });
+  const denied = denyVenue(admin, venueId);
+  if (denied) return denied;
+
+  return NextResponse.json({ memberships: listMembershipsForVenue(venueId) });
+}
+
+export async function POST(req: NextRequest) {
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  const input = (body ?? {}) as Record<string, unknown>;
+
+  const venueId = input.venueId;
+  if (!Number.isInteger(venueId) || (venueId as number) <= 0)
+    return NextResponse.json({ error: "venueId is required." }, { status: 400 });
+  const denied = denyVenue(admin, venueId as number);
+  if (denied) return denied;
+
+  for (const field of ["holderName", "holderPhone", "startsOn", "expiresOn"] as const) {
+    if (typeof input[field] !== "string" || (input[field] as string).trim() === "")
+      return NextResponse.json({ error: `A valid ${field} is required.` }, { status: 400 });
+  }
+  if (!Number.isInteger(input.price) || (input.price as number) < 0)
+    return NextResponse.json({ error: "Price must be a whole number of ringgit." }, { status: 400 });
+
+  const result = sellMembership({
+    venueId: venueId as number,
+    holderName: input.holderName as string,
+    holderPhone: input.holderPhone as string,
+    startsOn: input.startsOn as string,
+    expiresOn: input.expiresOn as string,
+    price: input.price as number,
+    adminId: admin.id,
+  });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  return NextResponse.json({ membership: result.membership }, { status: 201 });
+}

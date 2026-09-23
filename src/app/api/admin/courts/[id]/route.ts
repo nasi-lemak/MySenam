@@ -30,12 +30,15 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, offPeakRate, peakRate, capacity } = (body ?? {}) as Record<string, unknown>;
+  const { name, offPeakRate, peakRate, capacity, memberOffPeakRate, memberPeakRate } =
+    (body ?? {}) as Record<string, unknown>;
 
   const changes: {
     name?: string;
     offPeakRate?: number;
     peakRate?: number;
+    memberOffPeakRate?: number | null;
+    memberPeakRate?: number | null;
     capacity?: number;
   } = {};
   if (name !== undefined) {
@@ -50,6 +53,21 @@ export async function PATCH(
       changes[key] = rate as number;
     }
   }
+  // null clears a member rate, putting members back on the public price.
+  for (const [key, rate] of [
+    ["memberOffPeakRate", memberOffPeakRate],
+    ["memberPeakRate", memberPeakRate],
+  ] as const) {
+    if (rate === undefined) continue;
+    if (rate === null) {
+      changes[key] = null;
+      continue;
+    }
+    if (!Number.isInteger(rate) || (rate as number) < 0 || (rate as number) > MAX_RATE)
+      return NextResponse.json({ error: `${key} must be RM0–${MAX_RATE}, or blank.` }, { status: 400 });
+    changes[key] = rate as number;
+  }
+
   if (capacity !== undefined) {
     if (!Number.isInteger(capacity) || (capacity as number) < 1 || (capacity as number) > MAX_CAPACITY)
       return NextResponse.json(
