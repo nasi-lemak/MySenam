@@ -28,6 +28,9 @@ interface Props {
   initial?: { sport?: Sport; date?: string; courtId?: number; hours?: number[] };
 }
 
+/** A selection on the "Any court" row, rather than on a named court. */
+const ANY_COURT = -1;
+
 interface Selection {
   courtId: number;
   hours: number[];
@@ -149,20 +152,61 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
     [availability]
   );
 
-  const selectedCourt = useMemo(
-    () => availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null,
-    [availability, selection]
-  );
+  /**
+   * A synthetic row standing for "whichever court, pick the cheapest". Worth
+   * offering only when there is more than one court to choose between.
+   */
+  const anyRow = useMemo(() => {
+    if (!availability || availability.length < 2) return null;
+    const slots = availability[0].slots.map((_, i) => {
+      const hour = availability[0].slots[i].hour;
+      const free = availability
+        .map((a) => a.slots[i])
+        .filter((s) => s && s.hour === hour && s.available);
+      return {
+        hour,
+        available: free.length > 0,
+        rate: free.length > 0 ? Math.min(...free.map((s) => s.rate)) : 0,
+        courts: free.length,
+      };
+    });
+    return slots;
+  }, [availability]);
+
+  const selectedCourt = useMemo(() => {
+    if (selection?.courtId === ANY_COURT) {
+      // A stand-in so the form below can stay unchanged; the submit path
+      // sends venue + sport instead of this id.
+      const first = availability?.[0]?.court;
+      if (!first) return null;
+      return {
+        id: ANY_COURT,
+        venueId: first.venueId,
+        name: "Any court",
+        sport: first.sport,
+        offPeakRate: 0,
+        peakRate: 0,
+        capacity: 1,
+      } as Court;
+    }
+    return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
+  }, [availability, selection]);
 
   const totalPrice = useMemo(() => {
     if (!selection || !availability) return 0;
+    if (selection.courtId === ANY_COURT) {
+      return selection.hours.reduce(
+        (sum, h) => sum + (anyRow?.find((s) => s.hour === h)?.rate ?? 0),
+        0
+      );
+    }
     const courtAvail = availability.find((a) => a.court.id === selection.courtId);
     if (!courtAvail) return 0;
     return selection.hours.reduce(
       (sum, h) => sum + (courtAvail.slots.find((s) => s.hour === h)?.rate ?? 0),
       0
     );
-  }, [selection, availability]);
+  }, [selection, availability, anyRow]);
 
   function toggleSlot(courtId: number, hour: number) {
     setError(null);
@@ -253,6 +297,42 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
               </tr>
             </thead>
             <tbody>
+              {anyRow && (
+                <tr className="border-b border-slate-200 bg-teal-50/40">
+                  <td className="sticky left-0 z-10 whitespace-nowrap bg-teal-50/40 px-3 py-2 font-medium">
+                    Any court
+                    <span className="block text-xs font-normal text-slate-500">
+                      cheapest free one
+                    </span>
+                  </td>
+                  {anyRow.map((slot) => {
+                    const isSelected =
+                      selection?.courtId === ANY_COURT && selection.hours.includes(slot.hour);
+                    return (
+                      <td key={slot.hour} className="p-1 text-center">
+                        <button
+                          disabled={!slot.available}
+                          onClick={() => toggleSlot(ANY_COURT, slot.hour)}
+                          title={
+                            slot.available
+                              ? `${formatHour(slot.hour)} · from RM${slot.rate} · ${slot.courts} court${slot.courts === 1 ? "" : "s"} free`
+                              : "No court free this hour"
+                          }
+                          className={`h-9 w-11 rounded-md text-xs font-medium transition ${
+                            !slot.available
+                              ? "cursor-not-allowed bg-slate-100 text-slate-300"
+                              : isSelected
+                                ? "bg-teal-600 text-white shadow"
+                                : "bg-teal-100 text-teal-800 hover:bg-teal-200"
+                          }`}
+                        >
+                          {slot.available ? slot.rate : "—"}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              )}
               {availability.map(({ court, slots }) => (
                 <tr key={court.id} className="border-b border-slate-100 last:border-0">
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 font-medium">
@@ -438,7 +518,10 @@ function BookingForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courtId: court.id,
+          // ANY_COURT means "you pick": send the venue and sport instead.
+          ...(court.id === ANY_COURT
+            ? { venueId: court.venueId, sport: court.sport }
+            : { courtId: court.id }),
           date,
           hours,
           name,

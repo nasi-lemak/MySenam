@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import {
+  createBookingOnAnyCourt,
   createBookingSeries,
   findBooking,
   getCourt,
@@ -10,7 +11,7 @@ import {
 } from "@/lib/store";
 import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
-import { MAX_RECUR_WEEKS } from "@/lib/types";
+import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +23,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass } =
     (body ?? {}) as Record<string, unknown>;
 
-  if (!Number.isInteger(courtId) || (courtId as number) <= 0)
+  // Either name a court, or name a venue and sport and let us pick the
+  // cheapest one that is free.
+  const anyCourt = courtId === undefined || courtId === null;
+  if (anyCourt) {
+    if (!Number.isInteger(venueId) || (venueId as number) <= 0)
+      return NextResponse.json(
+        { error: "Give a courtId, or a venueId and sport to pick one for you." },
+        { status: 400 }
+      );
+    if (typeof sport !== "string" || !SPORTS.includes(sport as Sport))
+      return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
+  } else if (!Number.isInteger(courtId) || (courtId as number) <= 0) {
     return NextResponse.json({ error: "courtId is required." }, { status: 400 });
+  }
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
   if (!Array.isArray(hours) || hours.some((h) => !Number.isInteger(h)))
@@ -49,8 +62,7 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const user = getSessionUser(req);
-  const result = createBookingSeries({
-    courtId: courtId as number,
+  const common = {
     date,
     hours: hours as number[],
     weeks: (weeks as number) ?? 1,
@@ -59,7 +71,15 @@ export async function POST(req: NextRequest) {
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
     skipConflicts: skipConflicts === true,
-  });
+  };
+
+  const result = anyCourt
+    ? createBookingOnAnyCourt({
+        ...common,
+        venueId: venueId as number,
+        sport: sport as Sport,
+      })
+    : createBookingSeries({ ...common, courtId: courtId as number });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 

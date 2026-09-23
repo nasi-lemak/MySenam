@@ -245,6 +245,128 @@ export function getCourt(id: number): Court | null {
   return row ? toCourt(row) : null;
 }
 
+/**
+ * Courts at a venue that could take this whole booking, cheapest first.
+ * Price is peak-aware, so the order can differ between a morning and an
+ * evening slot on the same courts.
+ */
+/** Errors that mean "that court went", rather than something structural. */
+const TAKEN_ERROR = /just booked|filling up very quickly|filled up|already taken/i;
+
+export function courtsForAnyBooking(input: {
+  venueId: number;
+  sport: Sport;
+  date: string;
+  hours: number[];
+}): Court[] {
+  const { venueId, sport, date } = input;
+  const hours = [...new Set(input.hours)].sort((a, b) => a - b);
+  if (hours.length === 0) return [];
+
+  const db = getDb();
+  const courts = (
+    db
+      .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id")
+      .all(venueId, sport) as CourtRow[]
+  ).map(toCourt);
+  if (courts.length === 0) return [];
+
+  const classHours = classHoursOn(date, venueId);
+  const taken = countTakenPlaces(date, venueId);
+  const blocked = new Set(
+    (
+      db
+        .prepare(
+          "SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)"
+        )
+        .all(date, venueId) as { court_id: number; hour: number }[]
+    ).map((b) => `${b.court_id}:${b.hour}`)
+  );
+
+  const free = courts.filter((court) =>
+    hours.every((hour) => {
+      const key = `${court.id}:${hour}`;
+      return (
+        (taken.get(key) ?? 0) < court.capacity &&
+        !blocked.has(key) &&
+        !classHours.has(key) &&
+        !isPastSlot(date, hour)
+      );
+    })
+  );
+
+  return free.sort((a, b) => {
+    const diff = computePrice(a, date, hours) - computePrice(b, date, hours);
+    return diff !== 0 ? diff : a.id - b.id;
+  });
+}
+
+/**
+ * Book without naming a court: take the cheapest one free for the whole slot.
+ *
+ * The candidate list is re-read rather than trusted from the client, and if
+ * the cheapest is taken in the moment between choosing and inserting, the next
+ * one is tried. That is the point of not naming a court — the customer said
+ * they do not mind, so a race should cost them a different court, not the
+ * booking.
+ */
+export function createBookingOnAnyCourt(input: {
+  venueId: number;
+  sport: Sport;
+  date: string;
+  hours: number[];
+  weeks?: number;
+  skipConflicts?: boolean;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+}): CreateSeriesResult {
+  const { venueId, sport, date, hours, ...rest } = input;
+
+  const venue = getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
+  if (!venue) return { ok: false, error: "Venue not found." };
+  if (!SPORTS.includes(sport)) return { ok: false, error: "Unknown sport." };
+
+  const candidates = courtsForAnyBooking({ venueId, sport, date, hours });
+  if (candidates.length === 0) {
+    // Fall through to the single-court path on any court of that sport, so the
+    // customer gets the real reason (closed day, outside hours, past slot)
+    // rather than a flat "nothing free".
+    const anyCourt = (
+      getDb()
+        .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id LIMIT 1")
+        .all(venueId, sport) as CourtRow[]
+    ).map(toCourt)[0];
+    if (!anyCourt)
+      return { ok: false, error: `That venue has no ${SPORT_LABELS[sport]} courts.` };
+    const probe = createBookingSeries({ ...rest, courtId: anyCourt.id, date, hours, weeks: input.weeks ?? 1 });
+    if (probe.ok) return probe; // it came free between the two reads
+    // A "someone took it" error from the probe is about that one court, and
+    // the customer never chose it. Say what is actually true of all of them.
+    if (TAKEN_ERROR.test(probe.error))
+      return { ok: false, error: "No court is free for that whole time. Please pick another time." };
+    return probe;
+  }
+
+  let lastError = "No court is free for that whole time. Please pick another time.";
+  for (const court of candidates) {
+    const result = createBookingSeries({
+      ...rest,
+      courtId: court.id,
+      date,
+      hours,
+      weeks: input.weeks ?? 1,
+    });
+    if (result.ok) return result;
+    lastError = result.error;
+    // Anything that is not "someone took it" applies to every court equally,
+    // so there is no point walking the rest of the list.
+    if (!TAKEN_ERROR.test(result.error)) return result;
+  }
+  return { ok: false, error: lastError };
+}
+
 /** Availability grid for every court of a venue (optionally one sport) on a date. */
 export function getAvailability(venueId: number, date: string, sport?: Sport): CourtAvailability[] {
   const db = getDb();

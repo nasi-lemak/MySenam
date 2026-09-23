@@ -12,6 +12,7 @@ gyms and pools, and instructor-led classes.
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
 - **Live availability grid** — per venue, per sport, per day, with hourly slots inside that venue's own trading hours
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
+- **"Any court"** — a row above the grid for customers who do not mind which court; it shows the cheapest free rate each hour and books the cheapest court free for the whole slot
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
@@ -343,6 +344,33 @@ toggle it to `paid` from the admin Bookings tab (a whole recurring series can be
 settled in one click). Customers see the payment state on `/account` and in the
 `/my-booking` lookup. The daily view splits **expected** vs **collected** vs
 **outstanding** revenue so a shift can be reconciled at closing.
+
+## Booking without naming a court
+
+Courts are chosen cinema-seat style: the grid is a row per court, and tapping a
+cell books that court. Courts genuinely differ — a premium court costs more, and
+regulars have preferences — so auto-assigning by default would take a real
+choice away and make the price column meaningless.
+
+For customers who *don't* mind, an **Any court** row sits above the grid. Each
+hour shows the cheapest rate among the courts free that hour (so it reads RM18
+in an hour when only the premium court is left), and booking it takes the
+cheapest court free for the **whole** slot, not hour by hour — nobody is moved
+mid-session.
+
+`createBookingOnAnyCourt()` re-reads the candidate list server-side rather than
+trusting the client, orders it by what that slot actually costs (peak-aware, so
+the order can differ morning to evening), and walks it: if the cheapest is
+taken between choosing and inserting, the next is tried. That is the point of
+not naming a court — a race should cost the customer a different court, not the
+booking. It stops walking as soon as an error applies to every court equally.
+
+Each attempt goes through the ordinary `createBookingSeries()` path, so the
+uniqueness guarantee, seat allocation, trading hours, closures and series
+handling are the same code as a named-court booking. When nothing is free the
+error says so, rather than reporting the last court's "someone just took it";
+structural reasons — venue closed, outside trading hours, no courts of that
+sport — are surfaced as themselves.
 
 ## Moving a booking
 
