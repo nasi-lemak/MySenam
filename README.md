@@ -439,6 +439,19 @@ venue page and on the grid itself. Staff still see the day in the schedule,
 marked with the closure reason rather than blank, so bookings taken before the
 closure was declared remain visible for them to handle.
 
+## Session cookies
+
+Both session cookies (`ms_session`, `ms_admin`) are `HttpOnly`, `SameSite=Lax`,
+site-wide, and `Secure` — but only when the request is actually on HTTPS.
+Marking `Secure` on a plain-HTTP deployment would stop the browser sending the
+cookie at all, so the flag follows the connection rather than a build-time
+guess: the request's own protocol, or `x-forwarded-proto` behind a proxy.
+`SECURE_COOKIES=1` forces it on for a proxy that sets no such header.
+
+All three places that issue a session cookie go through one
+`sessionCookieOptions()` helper, so a fourth cannot quietly ship without the
+flags.
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited
@@ -487,5 +500,4 @@ push and pull request (Node 22, `npm ci`).
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Member rates, promo codes and bulk discounts
 - Automated WhatsApp/email booking confirmations & reminders
-- Session cookies are not marked `Secure`; set that (and strong
-  `ADMIN_EMAIL` / `ADMIN_PASSWORD` values) before deploying behind HTTPS
+- Set strong `ADMIN_EMAIL` / `ADMIN_PASSWORD` values before deploying

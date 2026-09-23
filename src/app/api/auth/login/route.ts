@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticate, createSession, SESSION_COOKIE } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { sessionCookieOptions } from "@/lib/session-cookie";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +25,6 @@ export async function POST(req: NextRequest) {
 
   const session = createSession(user.id);
   const res = NextResponse.json({ user });
-  res.cookies.set(SESSION_COOKIE, session.token, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    expires: session.expiresAt,
-  });
+  res.cookies.set(SESSION_COOKIE, session.token, sessionCookieOptions(req, session.expiresAt));
   return res;
 }

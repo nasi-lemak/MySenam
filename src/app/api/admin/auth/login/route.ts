@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession } from "@/lib/admin-auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { sessionCookieOptions } from "@/lib/session-cookie";
 
 export const dynamic = "force-dynamic";
 
@@ -23,11 +24,6 @@ export async function POST(req: NextRequest) {
 
   const session = createAdminSession(admin.id);
   const res = NextResponse.json({ admin });
-  res.cookies.set(ADMIN_SESSION_COOKIE, session.token, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    expires: session.expiresAt,
-  });
+  res.cookies.set(ADMIN_SESSION_COOKIE, session.token, sessionCookieOptions(req, session.expiresAt));
   return res;
 }
