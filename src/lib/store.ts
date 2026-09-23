@@ -34,6 +34,7 @@ import {
 } from "./types";
 import {
   addDays,
+  formatHour,
   isBookableDate,
   isPastSlot,
   isValidDateString,
@@ -888,6 +889,157 @@ export function adminCancelBooking(code: string): CancelResult {
   if (booking.classId) offerClassPlace(booking.classId);
   else offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
+}
+
+export type MoveResult =
+  | { ok: true; booking: Booking; fromCourt: Court; toCourt: Court }
+  | { ok: false; error: string };
+
+/**
+ * Move a confirmed booking to another court, keeping everything that makes it
+ * the same booking: its code, what was paid and how, and any check-in. The
+ * alternative staff have without this is cancel-and-rebook, which issues a new
+ * code, drops the payment record and un-checks-in anyone already inside.
+ *
+ * The price does not change. A move is the venue's convenience, not the
+ * customer's, so it never costs them more — nor do they gain from being put on
+ * a cheaper court.
+ */
+export function moveBooking(code: string, toCourtId: number): MoveResult {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)"
+    )
+    .get(code.trim()) as BookingRow | undefined;
+  if (!row) return { ok: false, error: "Booking not found." };
+  const booking = toBooking(row);
+
+  if (booking.status === "cancelled")
+    return { ok: false, error: "This booking was cancelled." };
+  if (booking.classId !== null)
+    return { ok: false, error: "A class enrolment moves with its class, not on its own." };
+
+  const fromCourt = getCourt(booking.courtId);
+  const toCourt = getCourt(toCourtId);
+  if (!fromCourt || !toCourt) return { ok: false, error: "Court not found." };
+  if (fromCourt.id === toCourt.id)
+    return { ok: false, error: "That booking is already on that court." };
+  if (fromCourt.venueId !== toCourt.venueId)
+    return { ok: false, error: "A booking can only move within the same venue." };
+  if (fromCourt.sport !== toCourt.sport)
+    return {
+      ok: false,
+      error: `${toCourt.name} is for ${SPORT_LABELS[toCourt.sport]}, not ${SPORT_LABELS[fromCourt.sport]}.`,
+    };
+
+  const hours = Array.from(
+    { length: booking.endHour - booking.startHour },
+    (_, i) => booking.startHour + i
+  );
+  // A booking that is wholly in the past is history; there is nothing to move.
+  if (isPastSlot(booking.date, hours[hours.length - 1]))
+    return { ok: false, error: "That booking has already finished." };
+
+  const placeholders = hours.map(() => "?").join(",");
+  const blocked = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
+    )
+    .get(toCourtId, booking.date, ...hours) as { n: number };
+  if (blocked.n > 0)
+    return { ok: false, error: `${toCourt.name} is blocked off for part of that time.` };
+
+  const classHours = classHoursOn(booking.date, toCourt.venueId);
+  for (const hour of hours) {
+    const session = classHours.get(`${toCourtId}:${hour}`);
+    if (session)
+      return { ok: false, error: `${toCourt.name} is running ${session.name} at that time.` };
+  }
+
+  const seatsTaken = db.prepare(
+    "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
+  );
+
+  try {
+    db.transaction(() => {
+      // Free the old places first, so a court can be swapped with itself in a
+      // shared facility and so the target sees a true picture.
+      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+
+      const insert = db.prepare(
+        "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
+      );
+      for (const hour of hours) {
+        const used = new Set(
+          (seatsTaken.all(toCourtId, booking.date, hour) as { seat: number }[]).map((r) => r.seat)
+        );
+        let seat: number | null = null;
+        for (let s = 0; s < toCourt.capacity; s++) {
+          if (!used.has(s)) { seat = s; break; }
+        }
+        if (seat === null) throw new Error(`FULL:${hour}`);
+        // The unique index is the real guard; a racing insert fails here.
+        insert.run(booking.id, toCourtId, booking.date, hour, seat);
+      }
+      db.prepare("UPDATE bookings SET court_id = ? WHERE id = ?").run(toCourtId, booking.id);
+    })();
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("FULL:")) {
+      const hour = err.message.slice(5);
+      return { ok: false, error: `${toCourt.name} is already taken at ${formatHour(Number(hour))}.` };
+    }
+    if (err instanceof Error && /UNIQUE constraint failed/.test(err.message))
+      return { ok: false, error: `${toCourt.name} was taken while you were moving it. Try again.` };
+    throw err;
+  }
+
+  // The court it left may now be free for somebody waiting on it.
+  offerSlotPlace(fromCourt.id, booking.date);
+
+  return {
+    ok: true,
+    booking: { ...booking, courtId: toCourtId },
+    fromCourt,
+    toCourt,
+  };
+}
+
+/** Courts a booking could move to right now, for the staff picker. */
+export function moveTargetsFor(code: string): Court[] {
+  const booking = bookingByCode(code);
+  if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
+  const court = getCourt(booking.courtId);
+  if (!court) return [];
+  const hours = Array.from(
+    { length: booking.endHour - booking.startHour },
+    (_, i) => booking.startHour + i
+  );
+  const db = getDb();
+  const candidates = (
+    db
+      .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
+      .all(court.venueId, court.sport, court.id) as CourtRow[]
+  ).map(toCourt);
+
+  const classHours = classHoursOn(booking.date, court.venueId);
+  return candidates.filter((c) => {
+    for (const hour of hours) {
+      const key = `${c.id}:${hour}`;
+      if (classHours.has(key)) return false;
+      const blocked = db
+        .prepare("SELECT 1 FROM slot_blocks WHERE court_id = ? AND date = ? AND hour = ?")
+        .get(c.id, booking.date, hour);
+      if (blocked) return false;
+      const taken = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
+        )
+        .get(c.id, booking.date, hour) as { n: number };
+      if (taken.n >= c.capacity) return false;
+    }
+    return true;
+  });
 }
 
 export interface OccupancyDay {

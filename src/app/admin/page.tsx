@@ -234,6 +234,9 @@ export default function AdminPage() {
 function BookingsTab() {
   const [date, setDate] = useState(todayLocal);
   const [bookings, setBookings] = useState<AdminBookingRow[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // The booking being moved, and the courts it could go to.
+  const [moving, setMoving] = useState<{ code: string; courts: Court[] } | null>(null);
   const [revenue, setRevenue] = useState(0);
   const [collected, setCollected] = useState(0);
   const [outstanding, setOutstanding] = useState(0);
@@ -264,6 +267,45 @@ function BookingsTab() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** Ask which courts this booking could move to, then show the picker. */
+  async function openMove(code: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/bookings/move?code=${encodeURIComponent(code)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not load courts");
+      if (data.courts.length === 0) {
+        setError(`No other court of the same sport is free for the whole of ${code}.`);
+        return;
+      }
+      setMoving({ code, courts: data.courts });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load courts");
+    }
+  }
+
+  async function moveTo(code: string, courtId: number) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/bookings/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, courtId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Move failed");
+      setNotice(`${code} moved from ${data.from} to ${data.to}. Same code, same price.`);
+      setMoving(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Move failed");
+    }
+  }
 
   async function cancelBooking(code: string) {
     if (!window.confirm(`Cancel booking ${code}? Its slots will be released.`)) return;
@@ -383,6 +425,41 @@ function BookingsTab() {
           </>
         )}
       </div>
+
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      {moving && (
+        <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3">
+          <p className="text-sm font-semibold">
+            Move {moving.code} to which court?
+          </p>
+          <p className="mt-0.5 text-xs text-slate-600">
+            The code, the price and any payment or check-in stay exactly as they are. Only courts
+            free for the whole booking are listed.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {moving.courts.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => moveTo(moving.code, c.id)}
+                className="rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100"
+              >
+                {c.name}
+              </button>
+            ))}
+            <button
+              onClick={() => setMoving(null)}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -535,12 +612,21 @@ function BookingsTab() {
                   </td>
                   <td className="px-3 py-2">
                     {b.status === "confirmed" && (
-                      <button
-                        onClick={() => cancelBooking(b.code)}
-                        className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                      >
-                        Cancel
-                      </button>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <button
+                          onClick={() => openMove(b.code)}
+                          title="Put this booking on another court, keeping its code and payment"
+                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+                        >
+                          Move
+                        </button>
+                        <button
+                          onClick={() => cancelBooking(b.code)}
+                          className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>

@@ -26,7 +26,7 @@ gyms and pools, and instructor-led classes.
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
 - **Per-venue admin accounts** — operators sign in with email + password; a venue admin only ever sees their own venue's bookings, schedule, courts and revenue, while a platform owner manages every venue, creates venues and issues staff accounts
 - **Admin dashboard** (`/admin`) — behind an operator sign-in:
-  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, plus admin cancellation
+  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, moving a booking to another court, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **Courts & rates**: rename courts, edit peak/off-peak rates and capacity, add new courts
@@ -121,6 +121,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/auth/me`          | Current admin + the venues they may manage           |
 | GET    | `/api/admin/bookings`         | `?date=` → bookings + expected/collected/outstanding |
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
+| GET    | `/api/admin/bookings/move`    | `?code=` → courts this booking could move to         |
+| POST   | `/api/admin/bookings/move`    | `{code, courtId}` → move it, keeping code and payment |
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
@@ -341,6 +343,35 @@ toggle it to `paid` from the admin Bookings tab (a whole recurring series can be
 settled in one click). Customers see the payment state on `/account` and in the
 `/my-booking` lookup. The daily view splits **expected** vs **collected** vs
 **outstanding** revenue so a shift can be reconciled at closing.
+
+## Moving a booking
+
+A net breaks, a court floods, a league wants to be side by side — the booking
+has to change court without changing anything else. Without this the only
+option is cancel-and-rebook, which issues a new code the customer does not
+have, drops the payment record, and un-checks-in anyone already inside.
+
+`moveBooking(code, courtId)` re-points the booking and rewrites its
+`booking_slots` rows in one transaction, so a move either happens completely or
+not at all — a target that is free for three of four hours leaves the booking
+exactly where it was. Seats are re-allocated on the target, so a move onto a
+shared facility takes the lowest free place; the unique index is still the real
+guard, and a racing insert fails rather than double-selling.
+
+A move is refused across venues, across sports, onto the court it is already
+on, onto a blocked hour or one a class owns, and for a booking that is
+cancelled or already finished. A class enrolment cannot be moved on its own —
+it belongs to the class.
+
+**The price does not change.** A move is the venue's convenience, not the
+customer's, so it never costs them more — and they do not gain from being put
+on a cheaper court either. The code, payment status, pass or credit charge, and
+any check-in all survive untouched, and the court they left is immediately
+offered to anyone waiting on it.
+
+Staff pick from a list of courts that are genuinely free for the whole booking
+(`moveTargetsFor`), so the refusals above are mostly unreachable from the UI —
+they exist because the API is reachable without it.
 
 ## Cancellation and no-shows
 
