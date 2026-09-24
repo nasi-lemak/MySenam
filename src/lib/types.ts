@@ -80,6 +80,11 @@ export interface Court {
    * the normal case: a court cannot be carried off.
    */
   deposit: number;
+  /**
+   * Nobody is at the door: the customer lets themselves in with a code. The
+   * code itself is never part of this object, which is served publicly.
+   */
+  unmanned: boolean;
 }
 
 export const MAX_CAPACITY = 500;
@@ -89,6 +94,23 @@ export const MAX_DEPOSIT = 500;
 export function isHire(court: Pick<Court, "deposit">): boolean {
   return court.deposit > 0;
 }
+
+/** The longest a door code should go unchanged before staff are nagged. */
+export const ACCESS_CODE_STALE_DAYS = 30;
+
+export const MIN_ACCESS_CODE = 4;
+export const MAX_ACCESS_CODE = 12;
+
+/**
+ * Why a door code is being withheld. Each one is a thing the customer can
+ * act on, so the reason travels with the refusal rather than a bare no.
+ */
+export type AccessDenial = "not-unmanned" | "cancelled" | "unpaid" | "too-early" | "over";
+
+/** What a customer gets back when asking to be let in. */
+export type AccessResult =
+  | { ok: true; accessCode: string; courtName: string; venueName: string; until: string }
+  | { ok: false; reason: AccessDenial; message: string };
 
 export function isShared(court: Pick<Court, "capacity">): boolean {
   return court.capacity > 1;

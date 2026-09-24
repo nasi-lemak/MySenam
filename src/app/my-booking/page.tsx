@@ -18,6 +18,9 @@ export default function MyBookingPage() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The door code for an unmanned court, once asked for.
+  const [door, setDoor] = useState<{ accessCode: string; until: string } | null>(null);
+  const [doorError, setDoorError] = useState<string | null>(null);
 
   async function lookup(e: React.FormEvent) {
     e.preventDefault();
@@ -32,8 +35,33 @@ export default function MyBookingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Lookup failed");
       setResult(data);
+      setDoor(null);
+      setDoorError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lookup failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Ask to be let in. This is a POST because it is not a read: the venue
+   * writes down that the code was given out, and it counts as arriving.
+   */
+  async function getDoorCode() {
+    setDoorError(null);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not get the code");
+      setDoor({ accessCode: data.accessCode, until: data.until });
+    } catch (err) {
+      setDoorError(err instanceof Error ? err.message : "Could not get the code");
     } finally {
       setBusy(false);
     }
@@ -151,7 +179,37 @@ export default function MyBookingPage() {
                   {result.venue.cancelCutoffHours === 1 ? "" : "s"} before your slot starts.
                 </p>
               )}
-              {b.checkedInAt ? (
+              {result.court.unmanned ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                  <p className="text-sm font-semibold text-amber-900">
+                    Nobody is on the door at {result.court.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-800">
+                    Let yourself in with the code below. It appears an hour before your slot.
+                  </p>
+                  {door ? (
+                    <div className="mt-3 rounded-lg bg-white px-4 py-3 text-center">
+                      <div className="font-mono text-3xl font-bold tracking-[0.3em] text-teal-700">
+                        {door.accessCode}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Yours until {door.until}. Please do not pass it on.
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={getDoorCode}
+                      disabled={busy}
+                      className="mt-3 w-full rounded-lg bg-amber-600 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {busy ? "Please wait…" : "Show me the door code"}
+                    </button>
+                  )}
+                  {doorError && (
+                    <p className="mt-2 text-xs font-medium text-red-700">{doorError}</p>
+                  )}
+                </div>
+              ) : b.checkedInAt ? (
                 <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
                   ✓ Checked in
                 </p>

@@ -25,6 +25,12 @@ export const POLICIES = {
   bookingLookup: { limit: 20, windowMs: 10 * MINUTE },
   /** Stops a script filling a venue's day with junk bookings. */
   booking: { limit: 20, windowMs: 60 * MINUTE },
+  /**
+   * A door code plus a booking code is the door, so this is tighter than an
+   * ordinary lookup: enough for a customer who reopens the page a few times,
+   * not enough to walk the code space.
+   */
+  accessCode: { limit: 10, windowMs: 10 * MINUTE },
 } satisfies Record<string, Policy>;
 
 export type PolicyName = keyof typeof POLICIES;

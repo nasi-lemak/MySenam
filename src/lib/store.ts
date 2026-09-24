@@ -16,6 +16,10 @@ import {
   ClassStatus,
   LiveOccupancy,
   MAX_CLASS_WEEKS,
+  AccessResult,
+  ACCESS_CODE_STALE_DAYS,
+  MAX_ACCESS_CODE,
+  MIN_ACCESS_CODE,
   MAX_DEPOSIT,
   MAX_HIRE_NOTE,
   HIRE_CONDITIONS,
@@ -68,6 +72,9 @@ interface CourtRow {
   member_peak_rate: number | null;
   capacity: number;
   deposit: number;
+  unmanned: number;
+  access_code: string | null;
+  access_code_changed_at: string | null;
 }
 
 interface VenueRow {
@@ -212,6 +219,7 @@ function toCourt(r: CourtRow): Court {
     memberPeakRate: r.member_peak_rate,
     capacity: r.capacity,
     deposit: r.deposit,
+    unmanned: r.unmanned === 1,
   };
 }
 
@@ -1708,6 +1716,149 @@ export function checkOut(code: string): CheckInResult {
 }
 
 // ---------------------------------------------------------------------------
+// Unmanned resources
+//
+// A badminton court at 11 PM does not need anybody standing next to it. A
+// kayak does, which is why this is a property of the resource rather than the
+// venue: a centre can put its courts behind a keypad overnight and still keep
+// someone at the counter where the hulls are.
+//
+// MySenam does not open the door. It relays a code that staff have programmed
+// into the lock, to people who have earned the right to see it, and writes
+// down every time it did so. Generating or rotating the code here would be
+// worse than useless: the lock would not know, and the court would be
+// unopenable by the one person entitled to be in it.
+// ---------------------------------------------------------------------------
+
+export interface CourtAccess {
+  code: string | null;
+  changedAt: string | null;
+  /** True once the code has gone unchanged long enough to be worth nagging. */
+  stale: boolean;
+}
+
+/** The door code for a resource. Admin-only: never goes near a public route. */
+export function courtAccess(courtId: number): CourtAccess {
+  const row = getDb()
+    .prepare("SELECT access_code, access_code_changed_at FROM courts WHERE id = ?")
+    .get(courtId) as { access_code: string | null; access_code_changed_at: string | null } | undefined;
+  if (!row) return { code: null, changedAt: null, stale: false };
+
+  const changedAt = row.access_code_changed_at;
+  const stale =
+    row.access_code !== null &&
+    (changedAt === null ||
+      Date.now() - Date.parse(`${changedAt.replace(" ", "T")}Z`) >
+        ACCESS_CODE_STALE_DAYS * 86_400_000);
+  return { code: row.access_code, changedAt, stale };
+}
+
+/**
+ * Give the customer the code for their booking, and write down that we did.
+ *
+ * Every refusal here is a thing the customer can act on, so each carries its
+ * own reason rather than a flat no. The window is the check-in window, because
+ * they are the same event: on an unmanned court, opening the door *is*
+ * arriving, so this also checks them in and the live headcount stays honest
+ * without anybody at a desk to press a button.
+ */
+export function accessCodeFor(code: string, phone: string): AccessResult | null {
+  const db = getDb();
+  const booking = findBooking(code, phone);
+  if (!booking) return null;
+
+  const court = getCourt(booking.courtId);
+  if (!court) return null;
+  const access = courtAccess(court.id);
+
+  if (!court.unmanned || access.code === null)
+    return {
+      ok: false,
+      reason: "not-unmanned",
+      message: `Someone will let you in at ${court.name}. There is no door code for it.`,
+    };
+  if (booking.status === "cancelled")
+    return { ok: false, reason: "cancelled", message: "This booking was cancelled." };
+  // Nobody is at the door to take the money, so the door is the till.
+  if (booking.paymentStatus !== "paid")
+    return {
+      ok: false,
+      reason: "unpaid",
+      message:
+        "This booking is not paid yet. Nobody is on site to take payment, so the code appears once it is.",
+    };
+
+  const now = Date.now();
+  const opens =
+    slotStartsAt(booking.date, booking.startHour).getTime() -
+    CHECK_IN_OPENS_MINUTES_BEFORE * 60_000;
+  const ends = slotStartsAt(booking.date, booking.endHour).getTime();
+  if (now < opens)
+    return {
+      ok: false,
+      reason: "too-early",
+      message: `Your code appears ${CHECK_IN_OPENS_MINUTES_BEFORE} minutes before your slot.`,
+    };
+  if (now >= ends)
+    return { ok: false, reason: "over", message: "This booking has already ended." };
+
+  const venue = getVenue(court.venueId);
+
+  db.transaction(() => {
+    db.prepare("INSERT INTO access_reveals (booking_id) VALUES (?)").run(booking.id);
+    // Opening the door is the arrival, so there is nothing else to press.
+    if (!booking.checkedInAt) {
+      db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+      if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+    }
+  })();
+
+  return {
+    ok: true,
+    accessCode: access.code,
+    courtName: court.name,
+    venueName: venue?.name ?? "",
+    until: formatHour(booking.endHour),
+  };
+}
+
+export interface AccessReveal {
+  bookingCode: string;
+  name: string;
+  phone: string;
+  courtName: string;
+  revealedAt: string;
+}
+
+/** Who has been given a code at this venue, most recent first. */
+export function listAccessReveals(venueId: number, limit = 50): AccessReveal[] {
+  const rows = getDb()
+    .prepare(`
+      SELECT b.code, b.name, b.phone, c.name AS court_name, r.revealed_at
+      FROM access_reveals r
+      JOIN bookings b ON b.id = r.booking_id
+      JOIN courts c ON c.id = b.court_id
+      WHERE c.venue_id = ?
+      ORDER BY r.revealed_at DESC, r.id DESC
+      LIMIT ?
+    `)
+    .all(venueId, limit) as {
+    code: string;
+    name: string;
+    phone: string;
+    court_name: string;
+    revealed_at: string;
+  }[];
+  return rows.map((r) => ({
+    bookingCode: r.code,
+    name: r.name,
+    phone: r.phone,
+    courtName: r.court_name,
+    revealedAt: r.revealed_at,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Equipment hire
 //
 // Some resources leave the building. A kayak goes on the water, a racquet goes
@@ -2026,6 +2177,9 @@ export function updateCourt(
     memberPeakRate?: number | null;
     capacity?: number;
     deposit?: number;
+    unmanned?: boolean;
+    /** null clears the stored code, which also switches unmanned off. */
+    accessCode?: string | null;
   }
 ): CourtEditResult {
   const db = getDb();
@@ -2074,21 +2228,67 @@ export function updateCourt(
   if (deposit === 0 && court.deposit > 0 && openHireCountForCourt(courtId) > 0)
     return { ok: false, error: "Some kit is still out on hire. Take it back in first." };
 
-  db.prepare(`
-    UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
-                      member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
-                      deposit = ?
-    WHERE id = ?
-  `).run(
-    changes.name?.trim() ?? court.name,
-    offPeak,
-    peak,
-    memberOffPeak,
-    memberPeak,
-    changes.capacity ?? court.capacity,
-    deposit,
-    courtId
-  );
+  const stored = courtAccess(courtId);
+  const codeGiven = changes.accessCode !== undefined;
+  const newCode =
+    changes.accessCode === undefined
+      ? stored.code
+      : changes.accessCode === null || changes.accessCode.trim() === ""
+        ? null
+        : changes.accessCode.trim();
+  let unmanned = changes.unmanned ?? court.unmanned;
+  // Clearing the code takes the door with it: an unmanned resource with
+  // nothing to hand out is one nobody can get into. Asking for both in the
+  // same call is a contradiction, and is refused below rather than resolved.
+  if (newCode === null && changes.accessCode !== undefined && changes.unmanned === undefined)
+    unmanned = false;
+
+  if (newCode !== null) {
+    if (newCode.length < MIN_ACCESS_CODE || newCode.length > MAX_ACCESS_CODE)
+      return {
+        ok: false,
+        error: `A door code must be ${MIN_ACCESS_CODE}–${MAX_ACCESS_CODE} characters.`,
+      };
+    if (!/^[A-Za-z0-9#*-]+$/.test(newCode))
+      return { ok: false, error: "A door code can only use letters, digits, #, * and -." };
+  }
+  if (unmanned && newCode === null)
+    return { ok: false, error: "An unmanned resource needs a door code. Set one first." };
+  // A deposit is a person looking at a hull. There is nobody to hand the
+  // kayak to, nobody to look it over, and nobody to hold the money.
+  if (unmanned && deposit > 0)
+    return {
+      ok: false,
+      error: "Something hired out against a deposit needs someone at the counter, so it cannot be unmanned.",
+    };
+
+  const codeChanged = codeGiven && newCode !== stored.code;
+
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
+                        member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
+                        deposit = ?, unmanned = ?, access_code = ?
+      WHERE id = ?
+    `).run(
+      changes.name?.trim() ?? court.name,
+      offPeak,
+      peak,
+      memberOffPeak,
+      memberPeak,
+      changes.capacity ?? court.capacity,
+      deposit,
+      unmanned ? 1 : 0,
+      newCode,
+      courtId
+    );
+    // Only a genuine change restarts the clock, so re-saving the same code
+    // cannot be used to make a stale door look fresh.
+    if (codeChanged)
+      db.prepare("UPDATE courts SET access_code_changed_at = datetime('now') WHERE id = ?").run(
+        courtId
+      );
+  })();
   return { ok: true, court: getCourt(courtId)! };
 }
 

@@ -8,6 +8,8 @@ import {
   isShared,
   MAX_CAPACITY,
   MAX_CLASS_WEEKS,
+  ACCESS_CODE_STALE_DAYS,
+  MAX_ACCESS_CODE,
   MAX_DEPOSIT,
   MAX_HIRE_NOTE,
   HIRE_CONDITION_LABELS,
@@ -30,7 +32,7 @@ import {
 } from "@/lib/types";
 import type { Booking } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
-import type { AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
+import type { AccessReveal, AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
 
 /** What one row of the courts table can change in a save. */
 interface CourtEdits {
@@ -1058,6 +1060,16 @@ function CourtsTab({
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The door being looked at. The code is fetched only when staff ask for it,
+  // so it is not sitting on a counter screen all shift.
+  const [door, setDoor] = useState<{
+    court: Court;
+    code: string;
+    changedAt: string | null;
+    stale: boolean;
+    unmanned: boolean;
+  } | null>(null);
+  const [reveals, setReveals] = useState<AccessReveal[] | null>(null);
   const [newCourt, setNewCourt] = useState({
     name: "",
     sport: "badminton",
@@ -1100,6 +1112,74 @@ function CourtsTab({
       refreshVenues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  /** Open the door panel for a court, fetching its current code. */
+  async function openDoor(court: Court) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/courts/${court.id}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not load the door");
+      setDoor({
+        court,
+        code: data.access.code ?? "",
+        changedAt: data.access.changedAt,
+        stale: data.access.stale,
+        unmanned: data.court.unmanned,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the door");
+    }
+  }
+
+  /**
+   * Save what staff have programmed into the lock. MySenam only relays the
+   * code, so this never invents one: a code the lock has not been told about
+   * would shut out the one person entitled to be there.
+   */
+  async function saveDoor(changes: { unmanned?: boolean; accessCode?: string | null }) {
+    if (!door) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/courts/${door.court.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not save the door");
+      setDoor({
+        court: data.court,
+        code: data.access.code ?? "",
+        changedAt: data.access.changedAt,
+        stale: data.access.stale,
+        unmanned: data.court.unmanned,
+      });
+      setNotice(
+        data.court.unmanned
+          ? `${data.court.name} is unmanned — customers with a paid booking see the code an hour before their slot.`
+          : `${data.court.name} is staffed. No code is given out for it.`
+      );
+      refreshVenues();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the door");
+    }
+  }
+
+  /** Who has been let in, on demand rather than on every page load. */
+  async function loadReveals() {
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/access?venueId=${venueId}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not load the door log");
+      setReveals(data.reveals);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the door log");
     }
   }
 
@@ -1170,7 +1250,7 @@ function CourtsTab({
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 {[
                   "Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)",
-                  "Member off-peak", "Member peak", "Capacity", "Deposit (RM)", "",
+                  "Member off-peak", "Member peak", "Capacity", "Deposit (RM)", "Door", "",
                 ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
                     {h}
@@ -1180,12 +1260,135 @@ function CourtsTab({
             </thead>
             <tbody>
               {venue.courts.map((court) => (
-                <CourtRow key={court.id} court={court} onSave={saveCourt} />
+                <CourtRow
+                  key={court.id}
+                  court={court}
+                  onSave={saveCourt}
+                  onDoor={() => openDoor(court)}
+                />
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {door && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-sm font-semibold">The door on {door.court.name}</p>
+            <button
+              onClick={() => setDoor(null)}
+              className="text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              Close
+            </button>
+          </div>
+          <p className="mt-0.5 text-xs text-slate-600">
+            Type in the code you have programmed into the lock. MySenam only passes it on — it
+            never changes the lock, so a code invented here would shut everybody out.
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Code on the lock</label>
+              <input
+                value={door.code}
+                onChange={(e) => setDoor({ ...door, code: e.target.value })}
+                maxLength={MAX_ACCESS_CODE}
+                placeholder="4821"
+                className="mt-1 w-32 rounded-md border border-slate-300 px-2 py-1 font-mono text-sm tracking-widest focus:border-teal-500 focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={() => saveDoor({ accessCode: door.code })}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              Save code
+            </button>
+            <button
+              onClick={() => saveDoor({ unmanned: !door.unmanned })}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                door.unmanned
+                  ? "border border-slate-300 text-slate-600 hover:bg-slate-50"
+                  : "bg-teal-600 text-white hover:bg-teal-700"
+              }`}
+            >
+              {door.unmanned ? "Put someone on this door" : "Leave this one unmanned"}
+            </button>
+            {door.code !== "" && (
+              <button
+                onClick={() => saveDoor({ accessCode: null })}
+                title="Forget the code. The resource stops being unmanned."
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <p className="mt-2 text-xs text-slate-600">
+            {door.unmanned
+              ? "Unmanned. A customer with a paid booking sees this code an hour before their slot, and that counts as their arrival."
+              : "Staffed. Nobody is given a code for this one."}
+            {door.changedAt && ` Code last changed ${localTime(door.changedAt)}.`}
+          </p>
+          {door.stale && (
+            <p className="mt-1 text-xs font-medium text-red-700">
+              This code has not changed in over {ACCESS_CODE_STALE_DAYS} days. Change it on the
+              lock, then type the new one in here.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">Who has been let in</p>
+            <p className="text-xs text-slate-500">
+              Every time a door code was shown, newest first. This is the list you want when a
+              court is found in a state.
+            </p>
+          </div>
+          <button
+            onClick={() => (reveals === null ? loadReveals() : setReveals(null))}
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+          >
+            {reveals === null ? "Show log" : "Hide"}
+          </button>
+        </div>
+        {reveals !== null &&
+          (reveals.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">
+              Nobody has been given a code at this venue yet.
+            </p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[460px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                    {["When", "Code", "Court", "Customer", "Phone"].map((h) => (
+                      <th key={h} className="px-3 py-2 font-semibold">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reveals.map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100 last:border-0">
+                      <td className="whitespace-nowrap px-3 py-2">{localTime(r.revealedAt)}</td>
+                      <td className="px-3 py-2 font-mono text-teal-700">{r.bookingCode}</td>
+                      <td className="px-3 py-2">{r.courtName}</td>
+                      <td className="px-3 py-2">{r.name}</td>
+                      <td className="whitespace-nowrap px-3 py-2">{r.phone}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+      </div>
 
       <form
         onSubmit={addCourt}
@@ -1264,9 +1467,11 @@ function CourtsTab({
 function CourtRow({
   court,
   onSave,
+  onDoor,
 }: {
   court: Court;
   onSave: (court: Court, edits: CourtEdits) => void;
+  onDoor: () => void;
 }) {
   const [name, setName] = useState(court.name);
   const [offPeak, setOffPeak] = useState(String(court.offPeakRate));
@@ -1362,6 +1567,19 @@ function CourtRow({
           title="Held at the desk while the kit is out. 0 for anything that stays put, like a court."
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
         />
+      </td>
+      <td className="px-3 py-2">
+        <button
+          onClick={onDoor}
+          title="The code on this door, and who has been given it"
+          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
+            court.unmanned
+              ? "bg-amber-100 text-amber-800 hover:bg-amber-200"
+              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+          }`}
+        >
+          {court.unmanned ? "unmanned" : "staffed"}
+        </button>
       </td>
       <td className="px-3 py-2">
         <button

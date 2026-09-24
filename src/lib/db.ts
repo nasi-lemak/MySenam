@@ -70,7 +70,16 @@ export function getDb(): Database.Database {
       capacity INTEGER NOT NULL DEFAULT 1,
       -- What the desk holds while the kit is out, in ringgit. 0 means this
       -- resource is not handed over at all: a court stays where it is.
-      deposit INTEGER NOT NULL DEFAULT 0
+      deposit INTEGER NOT NULL DEFAULT 0,
+      -- Nobody is at the door for this resource: the customer lets themselves
+      -- in with a code. Per resource rather than per venue, because a centre
+      -- can leave its courts on a keypad overnight while the kayak counter,
+      -- which cannot run itself, keeps someone standing at it.
+      unmanned INTEGER NOT NULL DEFAULT 0,
+      -- What is currently set on that door. MySenam only relays it; the lock
+      -- is the source of truth, so staff type in what they programmed.
+      access_code TEXT,
+      access_code_changed_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS bookings (
@@ -167,6 +176,16 @@ export function getDb(): Database.Database {
       checked_in_at TEXT NOT NULL DEFAULT (datetime('now')),
       checked_out_at TEXT
     );
+
+    -- Every time a door code was shown to a customer. Append-only, one row
+    -- per look, because when a court is found trashed on Tuesday night the
+    -- only useful question is who had the code.
+    CREATE TABLE IF NOT EXISTS access_reveals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+      revealed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_access_reveals_booking ON access_reveals(booking_id);
 
     -- Kit handed over the counter: a kayak, a paddle set, a racquet. One per
     -- booking. The deposit is cash or a card imprint held at the desk rather
@@ -389,6 +408,14 @@ function migrate(db: Database.Database) {
   const depositCols = db.prepare("PRAGMA table_info(courts)").all() as { name: string }[];
   if (depositCols.length > 0 && !depositCols.some((c) => c.name === "deposit")) {
     db.exec("ALTER TABLE courts ADD COLUMN deposit INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // Unmanned access. Same ordering rule again.
+  const doorCols = db.prepare("PRAGMA table_info(courts)").all() as { name: string }[];
+  if (doorCols.length > 0 && !doorCols.some((c) => c.name === "unmanned")) {
+    db.exec("ALTER TABLE courts ADD COLUMN unmanned INTEGER NOT NULL DEFAULT 0");
+    db.exec("ALTER TABLE courts ADD COLUMN access_code TEXT");
+    db.exec("ALTER TABLE courts ADD COLUMN access_code_changed_at TEXT");
   }
 
   const blockCols = db.prepare("PRAGMA table_info(slot_blocks)").all() as { name: string }[];

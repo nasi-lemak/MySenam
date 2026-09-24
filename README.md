@@ -19,6 +19,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
+- **Unmanned resources** — a resource can be left on a keypad with nobody at the door; customers with a *paid* booking are shown the code an hour before their slot, every reveal is logged against the booking, and opening the door counts as checking in. Set per resource, not per venue, so a centre can run its courts unattended overnight while the kayak counter keeps someone on it
 - **Equipment hire** — a resource that leaves the building (a kayak, a paddle set) carries a deposit; the desk hands the kit over against it, and the return records condition, any damage note and anything kept back, with the rest given straight back
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
@@ -33,7 +34,7 @@ equipment hire such as kayaks, and instructor-led classes.
   - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, handing hire kit out and taking it back in, moving a booking to another court, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
-  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, add new courts
+  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, read the door log, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
   - **Venues & staff**: edit venue details, trading hours and the cancellation cutoff, and schedule or lift whole-day closures; owners can also add venues and create/remove staff accounts
@@ -96,6 +97,7 @@ Every admin endpoint checks the scope server-side, so a venue operator gets a
 | DELETE | `/api/waitlist`       | `{entryId, phone}` → leave the queue                |
 | POST   | `/api/waitlist/claim` | `{token}` → take up an offered place                |
 | POST   | `/api/checkin`        | `{token}` → self check-in from the booking QR       |
+| POST   | `/api/access`         | `{code, phone}` → the door code for an unmanned resource |
 | GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
 | POST   | `/api/bookings`       | `{courtId, date, hours[], name, phone, email?, weeks?, skipConflicts?}` |
 | GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
@@ -131,6 +133,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
+| GET    | `/api/admin/access`           | `?venueId=` → who has been given a door code         |
 | GET    | `/api/admin/hire`             | `?venueId=` → kit that is still out                  |
 | POST   | `/api/admin/hire`             | `{code, action:"take", deposit?}` or `{code, action:"return", condition, withheld?, note?}` |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
@@ -153,7 +156,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
 | GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → booked/blocked counts     |
 | POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate, capacity?, deposit?}` |
-| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?}` |
+| GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
+| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?}` |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
 | PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openHour?, closeHour?}` |
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
@@ -187,7 +191,8 @@ src/
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
 tests/                # Vitest suite (booking rules, blocks, series, search,
-                      # payments, customer auth, admin scoping, equipment hire)
+                      # payments, customer auth, admin scoping, equipment hire,
+                      # unmanned access)
 ```
 
 ## Taking some of a shared facility out of service
@@ -213,6 +218,55 @@ Staff cannot take out more places than are free, since that would strand a
 booking; the refusal names how many remain. Re-blocking an hour revises it
 rather than duplicating it. The occupancy report counts only full blocks, since
 a partial one does not remove an hour from the day.
+
+## Resources nobody is standing next to
+
+A badminton court at 11 PM does not need anyone beside it; a kayak does. So
+`unmanned` is a property of the **resource**, not the venue — a centre can put
+its courts behind a keypad overnight and still keep someone at the counter
+where the hulls are. The two are mutually exclusive in both directions: a
+resource with a deposit cannot be set unmanned, and an unmanned one cannot be
+given a deposit.
+
+**MySenam does not open the door.** It relays a code that staff have programmed
+into the lock, and the lock stays the source of truth. Generating or rotating a
+code here would be worse than useless: the lock would not know about it, and
+the court would be unopenable by the one person entitled to be inside. Staff
+type in what they set; MySenam stamps when it changed and nags after
+`ACCESS_CODE_STALE_DAYS`.
+
+Who gets the code, and when:
+
+| Condition | Why |
+| --------- | --- |
+| The resource is unmanned and has a code | Otherwise there is nothing to give, and the customer is told someone will let them in |
+| The booking is not cancelled | — |
+| **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
+| Inside the check-in window | The same hour before the slot that check-in already uses |
+| Before the slot ends | — |
+
+Each refusal carries its own `reason`, so the customer is told what to do about
+it rather than getting a flat no.
+
+Three consequences worth stating plainly:
+
+- **Every reveal is written down**, one row per look, with the booking, name and
+  phone behind it. When a court is found in a state on Tuesday night, "who had
+  the code" is the whole investigation — so the log is append-only and the
+  venue's staff can read it from the Courts tab.
+- **Opening the door is the arrival.** The reveal checks the customer in, so
+  *Here right now* stays honest and no-shows stay meaningful with nobody at a
+  desk to press a button.
+- **The code never travels with the court.** `Court` is served by the public
+  `/api/venues` and availability routes, so it carries `unmanned` but never the
+  code itself; the code is only ever read through an admin route or handed to
+  one authenticated customer, with `Cache-Control: no-store`. Asking for it is
+  a `POST` for the same reason — it writes a log line, and has no business in a
+  browser history or a proxy log.
+
+The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
+than an ordinary booking lookup, because a booking code plus a phone number is
+now a door.
 
 ## Equipment hire and deposits
 
@@ -623,6 +677,10 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
+- Per-booking door PINs through a smart-lock vendor (TTLock, Igloohome — whose
+  offline algoPIN would suit a door with no wifi), so an unmanned resource can
+  issue one code per customer instead of one code per lock. Blocked on vendor
+  credentials; the customer-facing screen is already the right shape for it
 - Turnstile or access-gate integration, so entry is physically gated rather
   than trusted
 - Online top-ups, so credit can be bought without visiting a counter

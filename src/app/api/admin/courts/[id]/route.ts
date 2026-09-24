@@ -1,11 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { getCourt, updateCourt } from "@/lib/store";
-import { MAX_CAPACITY, MAX_DEPOSIT } from "@/lib/types";
+import { courtAccess, getCourt, updateCourt } from "@/lib/store";
+import { MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, MIN_ACCESS_CODE } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const MAX_RATE = 1000;
+
+/** One court, with the door code staff are allowed to see for it. */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const admin = requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
+
+  const { id } = await params;
+  const courtId = Number(id);
+  if (!Number.isInteger(courtId) || courtId <= 0)
+    return NextResponse.json({ error: "Invalid court id." }, { status: 400 });
+
+  const court = getCourt(courtId);
+  if (!court) return NextResponse.json({ error: "Court not found." }, { status: 404 });
+  const denied = denyVenue(admin, court.venueId);
+  if (denied) return denied;
+
+  return NextResponse.json(
+    { court, access: courtAccess(courtId) },
+    { headers: { "Cache-Control": "no-store" } }
+  );
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -30,8 +54,17 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, offPeakRate, peakRate, capacity, memberOffPeakRate, memberPeakRate, deposit } =
-    (body ?? {}) as Record<string, unknown>;
+  const {
+    name,
+    offPeakRate,
+    peakRate,
+    capacity,
+    memberOffPeakRate,
+    memberPeakRate,
+    deposit,
+    unmanned,
+    accessCode,
+  } = (body ?? {}) as Record<string, unknown>;
 
   const changes: {
     name?: string;
@@ -41,6 +74,8 @@ export async function PATCH(
     memberPeakRate?: number | null;
     capacity?: number;
     deposit?: number;
+    unmanned?: boolean;
+    accessCode?: string | null;
   } = {};
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length < 2)
@@ -84,6 +119,27 @@ export async function PATCH(
     changes.deposit = deposit as number;
   }
 
+  if (unmanned !== undefined) {
+    if (typeof unmanned !== "boolean")
+      return NextResponse.json({ error: "unmanned must be true or false." }, { status: 400 });
+    changes.unmanned = unmanned;
+  }
+
+  // null clears the code, which also closes the door on unmanned use.
+  if (accessCode !== undefined) {
+    if (accessCode !== null && typeof accessCode !== "string")
+      return NextResponse.json({ error: "accessCode must be text, or null." }, { status: 400 });
+    if (typeof accessCode === "string" && accessCode.trim() !== "") {
+      const trimmed = accessCode.trim();
+      if (trimmed.length < MIN_ACCESS_CODE || trimmed.length > MAX_ACCESS_CODE)
+        return NextResponse.json(
+          { error: `A door code must be ${MIN_ACCESS_CODE}–${MAX_ACCESS_CODE} characters.` },
+          { status: 400 }
+        );
+    }
+    changes.accessCode = accessCode as string | null;
+  }
+
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
@@ -93,5 +149,8 @@ export async function PATCH(
       { error: result.error },
       { status: result.error === "Court not found." ? 404 : 409 }
     );
-  return NextResponse.json({ court: result.court });
+  return NextResponse.json(
+    { court: result.court, access: courtAccess(courtId) },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
