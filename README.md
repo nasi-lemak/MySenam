@@ -1,8 +1,8 @@
 # MySenam 🏸
 
 **Gelanggang, gim dan kelas — satu tempahan.** An online booking platform for
-sports courts (badminton, tennis, pickleball, futsal), shared facilities like
-gyms and pools, and instructor-led classes.
+sports courts (badminton, tennis, pickleball, futsal), shared facilities like gyms and pools,
+equipment hire such as kayaks, and instructor-led classes.
 
 ## Features
 
@@ -186,6 +186,30 @@ src/
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping)
 ```
+
+## Taking some of a shared facility out of service
+
+A court is blocked whole — blocking it *is* taking the unit out, because a
+court is capacity 1. Equipment is where that breaks down: one kayak of six
+with a cracked hull should not cost you the other five, and dropping `capacity`
+to 5 would apply to every date rather than just the week it is being repaired.
+
+`slot_blocks` therefore carries a `places` column. `NULL` is the whole
+resource, which is the only thing a court can mean and exactly what every
+pre-existing row already meant. A number takes that many places out and leaves
+the rest bookable, so the hour reads `1/5` rather than closed.
+
+Everything that consults a block resolves it the same way — `COALESCE(places,
+capacity)` — so availability, cross-venue search, "any court", booking, moving
+a booking, the waitlist and the staff schedule all compare `booked + out`
+against capacity instead of asking whether a block exists. A partial block
+therefore only closes an hour once it has taken the last place, and only then
+does queuing become possible.
+
+Staff cannot take out more places than are free, since that would strand a
+booking; the refusal names how many remain. Re-blocking an hour revises it
+rather than duplicating it. The occupancy report counts only full blocks, since
+a partial one does not remove an hour from the day.
 
 ## Exclusive courts vs shared facilities
 

@@ -148,6 +148,10 @@ export function getDb(): Database.Database {
       date TEXT NOT NULL,
       hour INTEGER NOT NULL,
       reason TEXT,
+      -- How many places are out of service. NULL is the whole resource, which
+      -- is the only thing a capacity-1 court can mean. A number takes that
+      -- many places off a shared one: two kayaks in for repair, not the fleet.
+      places INTEGER,
       UNIQUE (court_id, date, hour)
     );
 
@@ -359,6 +363,12 @@ function migrate(db: Database.Database) {
   if (ratedCols.length > 0 && !ratedCols.some((c) => c.name === "member_off_peak_rate")) {
     db.exec("ALTER TABLE courts ADD COLUMN member_off_peak_rate INTEGER");
     db.exec("ALTER TABLE courts ADD COLUMN member_peak_rate INTEGER");
+  }
+
+  const blockCols = db.prepare("PRAGMA table_info(slot_blocks)").all() as { name: string }[];
+  if (blockCols.length > 0 && !blockCols.some((c) => c.name === "places")) {
+    // NULL on every existing row, which is exactly the old meaning.
+    db.exec("ALTER TABLE slot_blocks ADD COLUMN places INTEGER");
   }
 
   // booking_slots: add seat and widen the UNIQUE constraint to include it.

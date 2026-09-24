@@ -285,22 +285,13 @@ export function courtsForAnyBooking(input: {
 
   const classHours = classHoursOn(date, venueId);
   const taken = countTakenPlaces(date, venueId);
-  const blocked = new Set(
-    (
-      db
-        .prepare(
-          "SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)"
-        )
-        .all(date, venueId) as { court_id: number; hour: number }[]
-    ).map((b) => `${b.court_id}:${b.hour}`)
-  );
+  const blocked = blockedPlacesOn(date, venueId);
 
   const free = courts.filter((court) =>
     hours.every((hour) => {
       const key = `${court.id}:${hour}`;
       return (
-        (taken.get(key) ?? 0) < court.capacity &&
-        !blocked.has(key) &&
+        (taken.get(key) ?? 0) + (blocked.get(key) ?? 0) < court.capacity &&
         !classHours.has(key) &&
         !isPastSlot(date, hour)
       );
@@ -379,6 +370,44 @@ export function createBookingOnAnyCourt(input: {
   return { ok: false, error: lastError };
 }
 
+/**
+ * `courtId:hour` -> how many places are out of service on a date.
+ *
+ * A NULL `places` means the whole resource, so it resolves to that court's
+ * capacity here. That keeps a capacity-1 court behaving exactly as before: one
+ * place blocked out of one is the court closed.
+ */
+function blockedPlacesOn(date: string, venueId?: number): Map<string, number> {
+  const rows = getDb()
+    .prepare(`
+      SELECT b.court_id AS court_id, b.hour AS hour,
+             COALESCE(b.places, c.capacity) AS places
+      FROM slot_blocks b JOIN courts c ON c.id = b.court_id
+      WHERE b.date = ?
+        AND (? IS NULL OR c.venue_id = ?)
+    `)
+    .all(date, venueId ?? null, venueId ?? null) as {
+    court_id: number;
+    hour: number;
+    places: number;
+  }[];
+  return new Map(rows.map((r) => [`${r.court_id}:${r.hour}`, r.places]));
+}
+
+/** Places out of service on one court-hour. */
+function blockedPlacesFor(courtId: number, date: string, hours: number[]): Map<number, number> {
+  if (hours.length === 0) return new Map();
+  const list = hours.map(() => "?").join(",");
+  const rows = getDb()
+    .prepare(`
+      SELECT b.hour AS hour, COALESCE(b.places, c.capacity) AS places
+      FROM slot_blocks b JOIN courts c ON c.id = b.court_id
+      WHERE b.court_id = ? AND b.date = ? AND b.hour IN (${list})
+    `)
+    .all(courtId, date, ...hours) as { hour: number; places: number }[];
+  return new Map(rows.map((r) => [r.hour, r.places]));
+}
+
 /** Availability grid for every court of a venue (optionally one sport) on a date. */
 export function getAvailability(
   venueId: number,
@@ -395,10 +424,7 @@ export function getAvailability(
 
   const takenCounts = countTakenPlaces(date, venueId);
 
-  const blocked = db
-    .prepare("SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
-    .all(date, venueId) as { court_id: number; hour: number }[];
-  const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
+  const blockedPlaces = blockedPlacesOn(date, venueId);
   const classHours = classHoursOn(date, venueId);
   const { openHour, closeHour } = venueHours(venueId);
   // A closed day reads like every hour is blocked, so nothing can be picked.
@@ -410,21 +436,22 @@ export function getAvailability(
       const hour = openHour + i;
       const key = `${court.id}:${hour}`;
       const booked = takenCounts.get(key) ?? 0;
+      const out = blockedPlaces.get(key) ?? 0;
       const session = classHours.get(key);
+      // A partial block shrinks the resource rather than closing it, so the
+      // hour stays bookable until the remaining places are gone.
+      const shut = closed || booked + out >= court.capacity;
       return {
         hour,
         rate: computePrice(court, date, [hour], member),
         booked,
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
-        available:
-          !closed &&
-          booked < court.capacity &&
-          !blockedSet.has(key) &&
-          !session &&
-          !isPastSlot(date, hour),
+        available: !shut && !session && !isPastSlot(date, hour),
         ...(session ? { className: session.name, classId: session.id } : {}),
-        ...(closed || blockedSet.has(key) ? { blocked: true } : {}),
+        // Only meaningful while places remain; `blocked` covers the rest.
+        ...(out > 0 && !shut ? { blockedPlaces: out } : {}),
+        ...(closed || (out > 0 && shut) ? { blocked: true } : {}),
       };
     }),
   }));
@@ -558,10 +585,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     `)
     .all(input.date, ...courtIds) as { court_id: number; hour: number; n: number }[];
   const takenCounts = new Map(taken.map((t) => [`${t.court_id}:${t.hour}`, t.n]));
-  const blocked = db
-    .prepare(`SELECT court_id, hour FROM slot_blocks WHERE date = ? AND court_id IN (${idList})`)
-    .all(input.date, ...courtIds) as { court_id: number; hour: number }[];
-  const blockedSet = new Set(blocked.map((b) => `${b.court_id}:${b.hour}`));
+  const blockedPlaces = blockedPlacesOn(input.date);
   const classHours = classHoursOn(input.date);
 
   const results: SearchResult[] = [];
@@ -586,8 +610,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
       const free = hours.every((h) => {
         const key = `${court.id}:${h}`;
         return (
-          (takenCounts.get(key) ?? 0) < court.capacity &&
-          !blockedSet.has(key) &&
+          (takenCounts.get(key) ?? 0) + (blockedPlaces.get(key) ?? 0) < court.capacity &&
           !classHours.has(key) &&
           !isPastSlot(input.date, h)
         );
@@ -727,9 +750,23 @@ export function createBookingSeries(input: {
   const seatsTaken = db.prepare(
     "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
   );
-  const blockedCheck = db.prepare(
-    `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
-  );
+  /**
+   * Does a block leave room for one more? A partial block shrinks the
+   * resource, so it only closes the hour once the places left run out.
+   */
+  const blockedOut = (weekDate: string): boolean => {
+    const blocked = blockedPlacesFor(courtId, weekDate, hours);
+    if (blocked.size === 0) return false;
+    const takenHere = db.prepare(
+      "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
+    );
+    return hours.some((hour) => {
+      const out = blocked.get(hour) ?? 0;
+      if (out === 0) return false;
+      const taken = (takenHere.get(courtId, weekDate, hour) as { n: number }).n;
+      return taken + out >= court.capacity;
+    });
+  };
   const insertBooking = db.prepare(`
     INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token, class_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -769,7 +806,7 @@ export function createBookingSeries(input: {
         const classes = classHoursOn(weekDate);
         if (seats.some((seat) => seat === null)) {
           reason = court.capacity > 1 ? "fully booked" : "already booked";
-        } else if ((blockedCheck.get(courtId, weekDate, ...hours) as { n: number }).n > 0) {
+        } else if (blockedOut(weekDate)) {
           reason = "closed for maintenance";
         } else if (!input.classId && hours.some((h) => classes.has(`${courtId}:${h}`))) {
           reason = "reserved for a class";
@@ -932,6 +969,8 @@ export interface AdminCourtSlots {
     booked: number;
     /** Only meaningful for an exclusive court. */
     bookingCode?: string;
+    /** Places out of service this hour, while some remain bookable. */
+    blockedPlaces?: number;
     blockReason?: string;
   }[];
 }
@@ -960,9 +999,15 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
   }
 
   const blocks = db
-    .prepare("SELECT court_id, hour, reason FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
-    .all(date, venueId) as { court_id: number; hour: number; reason: string | null }[];
-  const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b.reason ?? ""]));
+    .prepare("SELECT court_id, hour, reason, places FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
+    .all(date, venueId) as {
+    court_id: number;
+    hour: number;
+    reason: string | null;
+    places: number | null;
+  }[];
+  const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b]));
+  const blockedPlaces = blockedPlacesOn(date, venueId);
 
   const { openHour, closeHour } = venueHours(venueId);
   const closure = getVenueClosure(venueId, date);
@@ -973,13 +1018,24 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
       const hour = openHour + i;
       const key = `${court.id}:${hour}`;
       const count = bookedCounts.get(key) ?? 0;
+      const block = blockMap.get(key);
+      const out = blockedPlaces.get(key) ?? 0;
       // A whole-day closure reads as a block on every hour that is not sold.
-      const blockReason = blockMap.get(key) ?? (closure ? closure.reason ?? "Closed" : undefined);
-      // A shared facility only reads as "booked" once every place is gone.
+      const blockReason =
+        block !== undefined
+          ? block.reason ?? ""
+          : closure
+            ? closure.reason ?? "Closed"
+            : undefined;
+      // A shared facility only reads as "booked" once every place is gone, and
+      // a partial block only reads as "blocked" once it has taken the last one.
+      // A whole-day closure is not a partial anything: it shuts the hour flat.
+      const shutByBlock =
+        closure !== null || (block !== undefined && count + out >= court.capacity);
       const status: AdminSlotStatus =
         count >= court.capacity
           ? "booked"
-          : blockReason !== undefined
+          : shutByBlock
             ? "blocked"
             : isPastSlot(date, hour)
               ? "past"
@@ -992,6 +1048,7 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
           ? { bookingCode: bookedMap.get(key) }
           : {}),
         ...(blockReason !== undefined ? { blockReason } : {}),
+        ...(out > 0 && !shutByBlock ? { blockedPlaces: out } : {}),
       };
     }),
   }));
@@ -1000,27 +1057,63 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
 export type BlockResult = { ok: true; changed: number } | { ok: false; error: string };
 
 /** Block hours on a court (maintenance/closure). Skips hours that are booked. */
-export function blockSlots(courtId: number, date: string, hours: number[], reason?: string): BlockResult {
-  if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
+export function blockSlots(
+  courtId: number,
+  date: string,
+  hours: number[],
+  reason?: string,
+  /**
+   * How many places to take out. Omitted means the whole resource, which is
+   * the only thing a court can mean. On a shared facility a number takes that
+   * many places out and leaves the rest bookable.
+   */
+  places?: number
+): BlockResult {
+  const court = getCourt(courtId);
+  if (!court) return { ok: false, error: "Court not found." };
   const { openHour, closeHour } = courtVenueHours(courtId);
   const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour);
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
+
+  const partial = places !== undefined && places !== null;
+  if (partial) {
+    if (!Number.isInteger(places) || places! < 1 || places! > court.capacity)
+      return { ok: false, error: `Places out must be 1–${court.capacity}.` };
+    if (court.capacity === 1)
+      return { ok: false, error: "An exclusive court is blocked whole, not in parts." };
+  }
 
   const db = getDb();
   const isBooked = db.prepare(
     "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
   );
-  const insert = db.prepare(
-    "INSERT OR IGNORE INTO slot_blocks (court_id, date, hour, reason) VALUES (?, ?, ?, ?)"
-  );
+  // One block row per court-hour, so re-blocking an hour revises it.
+  const insert = db.prepare(`
+    INSERT INTO slot_blocks (court_id, date, hour, reason, places) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (court_id, date, hour)
+    DO UPDATE SET reason = excluded.reason, places = excluded.places
+  `);
+
   let changed = 0;
+  let strandedAt: number | null = null;
   db.transaction(() => {
     for (const hour of valid) {
-      const booked = isBooked.get(courtId, date, hour) as { n: number };
-      if (booked.n > 0) continue; // never block over an existing booking
-      changed += insert.run(courtId, date, hour, reason ?? null).changes;
+      const booked = (isBooked.get(courtId, date, hour) as { n: number }).n;
+      // Taking out more places than are free would strand a booking.
+      const wanted = partial ? places! : court.capacity;
+      if (booked + wanted > court.capacity) {
+        if (partial && strandedAt === null) strandedAt = hour;
+        continue;
+      }
+      changed += insert.run(courtId, date, hour, reason ?? null, partial ? places! : null).changes;
     }
   })();
+
+  if (changed === 0 && strandedAt !== null)
+    return {
+      ok: false,
+      error: `Only ${court.capacity - (isBooked.get(courtId, date, strandedAt) as { n: number }).n} place(s) are free at ${formatHour(strandedAt)}.`,
+    };
   return { ok: true, changed };
 }
 
@@ -1106,14 +1199,17 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
   if (isPastSlot(booking.date, hours[hours.length - 1]))
     return { ok: false, error: "That booking has already finished." };
 
-  const placeholders = hours.map(() => "?").join(",");
-  const blocked = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${placeholders})`
-    )
-    .get(toCourtId, booking.date, ...hours) as { n: number };
-  if (blocked.n > 0)
-    return { ok: false, error: `${toCourt.name} is blocked off for part of that time.` };
+  const blockedThere = blockedPlacesFor(toCourtId, booking.date, hours);
+  const takenThere = db.prepare(
+    "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
+  );
+  for (const hour of hours) {
+    const out = blockedThere.get(hour) ?? 0;
+    if (out === 0) continue;
+    const taken = (takenThere.get(toCourtId, booking.date, hour) as { n: number }).n;
+    if (taken + out >= toCourt.capacity)
+      return { ok: false, error: `${toCourt.name} is blocked off for part of that time.` };
+  }
 
   const classHours = classHoursOn(booking.date, toCourt.venueId);
   for (const hour of hours) {
@@ -1189,19 +1285,15 @@ export function moveTargetsFor(code: string): Court[] {
 
   const classHours = classHoursOn(booking.date, court.venueId);
   return candidates.filter((c) => {
+    const blocked = blockedPlacesFor(c.id, booking.date, hours);
     for (const hour of hours) {
-      const key = `${c.id}:${hour}`;
-      if (classHours.has(key)) return false;
-      const blocked = db
-        .prepare("SELECT 1 FROM slot_blocks WHERE court_id = ? AND date = ? AND hour = ?")
-        .get(c.id, booking.date, hour);
-      if (blocked) return false;
+      if (classHours.has(`${c.id}:${hour}`)) return false;
       const taken = db
         .prepare(
           "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
         )
         .get(c.id, booking.date, hour) as { n: number };
-      if (taken.n >= c.capacity) return false;
+      if (taken.n + (blocked.get(hour) ?? 0) >= c.capacity) return false;
     }
     return true;
   });
@@ -1235,10 +1327,15 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
       WHERE date >= ? AND date <= ? GROUP BY court_id, date
     `)
     .all(start, end) as { court_id: number; date: string; n: number }[];
+  // A partial block does not remove an hour from the day, so only count the
+  // blocks that take the whole resource.
   const blockedRows = db
     .prepare(`
-      SELECT court_id, date, COUNT(*) AS n FROM slot_blocks
-      WHERE date >= ? AND date <= ? GROUP BY court_id, date
+      SELECT b.court_id AS court_id, b.date AS date, COUNT(*) AS n
+      FROM slot_blocks b JOIN courts c ON c.id = b.court_id
+      WHERE b.date >= ? AND b.date <= ?
+        AND COALESCE(b.places, c.capacity) >= c.capacity
+      GROUP BY b.court_id, b.date
     `)
     .all(start, end) as { court_id: number; date: string; n: number }[];
 
@@ -3307,18 +3404,15 @@ function slotHoursFree(courtId: number, date: string, hours: number[]): boolean 
   if (!court) return false;
   const db = getDb();
   const classes = classHoursOn(date);
+  const blocked = blockedPlacesFor(courtId, date, hours);
   for (const hour of hours) {
     if (classes.has(`${courtId}:${hour}`)) return false;
-    const blocked = db
-      .prepare("SELECT 1 FROM slot_blocks WHERE court_id = ? AND date = ? AND hour = ?")
-      .get(courtId, date, hour);
-    if (blocked) return false;
     const taken = db
       .prepare(
         "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
       )
       .get(courtId, date, hour) as { n: number };
-    if (taken.n >= court.capacity) return false;
+    if (taken.n + (blocked.get(hour) ?? 0) >= court.capacity) return false;
   }
   return true;
 }

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 async function parseBody(req: NextRequest) {
   try {
     const body = (await req.json()) as Record<string, unknown>;
-    const { courtId, date, hours, reason } = body ?? {};
+    const { courtId, date, hours, reason, places } = body ?? {};
     if (!Number.isInteger(courtId) || (courtId as number) <= 0) return null;
     if (typeof date !== "string" || !isValidDateString(date)) return null;
     if (!Array.isArray(hours) || hours.length === 0 || hours.some((h) => !Number.isInteger(h)))
@@ -18,6 +18,8 @@ async function parseBody(req: NextRequest) {
       date,
       hours: hours as number[],
       reason: typeof reason === "string" && reason.trim() !== "" ? reason.trim() : undefined,
+      // Absent means the whole resource; a number takes that many places out.
+      places: Number.isInteger(places) ? (places as number) : undefined,
     };
   } catch {
     return null;
@@ -50,7 +52,7 @@ async function resolve(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { error, input } = await resolve(req);
   if (error) return error;
-  const result = blockSlots(input.courtId, input.date, input.hours, input.reason);
+  const result = blockSlots(input.courtId, input.date, input.hours, input.reason, input.places);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ changed: result.changed });
 }

@@ -654,6 +654,8 @@ function ScheduleTab({
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [date, setDate] = useState(todayLocal);
   const [reason, setReason] = useState("");
+  // Blank takes the whole resource out; a number takes that many places.
+  const [placesOut, setPlacesOut] = useState("");
   const [courts, setCourts] = useState<AdminCourtSlots[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -679,11 +681,15 @@ function ScheduleTab({
   async function toggle(courtId: number, hour: number, status: string) {
     if (status !== "free" && status !== "blocked" && status !== "past") return;
     setError(null);
+    const court = courts?.find((c) => c.court.id === courtId)?.court;
+    // Places only mean anything on a shared facility.
+    const places =
+      placesOut.trim() !== "" && court && court.capacity > 1 ? Number(placesOut) : undefined;
     try {
       const res = await fetch("/api/admin/blocks", {
         method: status === "blocked" ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courtId, date, hours: [hour], reason: reason || undefined }),
+        body: JSON.stringify({ courtId, date, hours: [hour], reason: reason || undefined, places }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Update failed");
@@ -719,11 +725,22 @@ function ScheduleTab({
           placeholder="Block reason (optional)"
           className="w-52 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
+        <input
+          type="number"
+          min={1}
+          value={placesOut}
+          onChange={(e) => setPlacesOut(e.target.value)}
+          placeholder="Places out"
+          title="Shared facilities only: how many places to take out. Blank takes the whole thing."
+          className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
       </div>
       <p className="text-sm text-slate-500">
         Click a <span className="font-medium text-emerald-700">free</span> slot to block it for
         maintenance; click a <span className="font-medium text-amber-700">blocked</span> slot to
-        release it. Booked slots show the booking code.
+        release it. Booked slots show the booking code. On a shared facility — a gym floor, a
+        kayak fleet — set <strong>places out</strong> to take only some out of service and leave
+        the rest bookable.
       </p>
 
       {error && (
@@ -763,7 +780,12 @@ function ScheduleTab({
                         disabled={slot.status === "booked"}
                         title={
                           isShared(court)
-                            ? `${slot.booked} of ${court.capacity} places taken`
+                            ? `${slot.booked} of ${court.capacity} places taken` +
+                              (slot.blockedPlaces
+                                ? ` · ${slot.blockedPlaces} out of service${slot.blockReason ? ` (${slot.blockReason})` : ""}`
+                                : slot.status === "blocked"
+                                  ? ` · all out${slot.blockReason ? ` (${slot.blockReason})` : ""} — click to release`
+                                  : "")
                             : slot.status === "booked"
                               ? `Booked: ${slot.bookingCode}`
                               : slot.status === "blocked"
@@ -777,13 +799,17 @@ function ScheduleTab({
                             ? "cursor-default bg-slate-200 text-slate-600"
                             : slot.status === "blocked"
                               ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                              : slot.status === "past"
+                              : slot.blockedPlaces
+                                ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                : slot.status === "past"
                                 ? "bg-slate-50 text-slate-300 hover:bg-slate-100"
                                 : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                         }`}
                       >
                         {isShared(court) && slot.status !== "blocked"
-                          ? `${slot.booked}/${court.capacity}`
+                          ? slot.blockedPlaces
+                            ? `${slot.booked}/${court.capacity - slot.blockedPlaces}`
+                            : `${slot.booked}/${court.capacity}`
                           : slot.status === "booked"
                             ? slot.bookingCode?.slice(3)
                             : slot.status === "blocked"

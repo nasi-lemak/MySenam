@@ -4,7 +4,8 @@ export type Sport =
   | "pickleball"
   | "futsal"
   | "gym"
-  | "swimming";
+  | "swimming"
+  | "kayak";
 
 export const SPORTS: Sport[] = [
   "badminton",
@@ -13,6 +14,7 @@ export const SPORTS: Sport[] = [
   "futsal",
   "gym",
   "swimming",
+  "kayak",
 ];
 
 export const SPORT_LABELS: Record<Sport, string> = {
@@ -22,6 +24,7 @@ export const SPORT_LABELS: Record<Sport, string> = {
   futsal: "Futsal",
   gym: "Gym",
   swimming: "Swimming",
+  kayak: "Kayak hire",
 };
 
 export const SPORT_ICONS: Record<Sport, string> = {
@@ -31,6 +34,7 @@ export const SPORT_ICONS: Record<Sport, string> = {
   futsal: "⚽",
   gym: "🏋️",
   swimming: "🏊",
+  kayak: "🛶",
 };
 
 export interface Venue {
@@ -278,6 +282,11 @@ export interface SlotInfo {
   classId?: number;
   /** Closed by staff, so queuing for it would be pointless. */
   blocked?: boolean;
+  /**
+   * Places out of service while others remain bookable — two kayaks of six in
+   * for repair. Absent when the hour is fully blocked, which `blocked` says.
+   */
+  blockedPlaces?: number;
 }
 
 /** How full a shared facility is, for the crowd indicator. */
