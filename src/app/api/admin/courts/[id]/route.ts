@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getCourt, updateCourt } from "@/lib/store";
-import { MAX_CAPACITY } from "@/lib/types";
+import { MAX_CAPACITY, MAX_DEPOSIT } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, offPeakRate, peakRate, capacity, memberOffPeakRate, memberPeakRate } =
+  const { name, offPeakRate, peakRate, capacity, memberOffPeakRate, memberPeakRate, deposit } =
     (body ?? {}) as Record<string, unknown>;
 
   const changes: {
@@ -40,6 +40,7 @@ export async function PATCH(
     memberOffPeakRate?: number | null;
     memberPeakRate?: number | null;
     capacity?: number;
+    deposit?: number;
   } = {};
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length < 2)
@@ -75,6 +76,12 @@ export async function PATCH(
         { status: 400 }
       );
     changes.capacity = capacity as number;
+  }
+
+  if (deposit !== undefined) {
+    if (!Number.isInteger(deposit) || (deposit as number) < 0 || (deposit as number) > MAX_DEPOSIT)
+      return NextResponse.json({ error: `A deposit must be RM0–${MAX_DEPOSIT}.` }, { status: 400 });
+    changes.deposit = deposit as number;
   }
 
   if (Object.keys(changes).length === 0)

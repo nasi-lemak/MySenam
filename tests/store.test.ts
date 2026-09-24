@@ -47,10 +47,18 @@ function expectedPrice(
 }
 
 describe("seed data", () => {
-  it("creates three venues with courts", () => {
+  it("creates venues that all have something bookable", () => {
     const venues = listVenues();
-    expect(venues).toHaveLength(3);
+    expect(venues.length).toBeGreaterThanOrEqual(3);
     for (const venue of venues) expect(venue.courts.length).toBeGreaterThan(0);
+  });
+
+  it("includes a shared resource and one that goes out on a deposit", () => {
+    const courts = listVenues().flatMap((v) => v.courts);
+    expect(courts.some((c) => c.capacity > 1)).toBe(true);
+    expect(courts.some((c) => c.deposit > 0)).toBe(true);
+    // A court stays put, so nothing exclusive should carry a deposit.
+    expect(courts.filter((c) => c.deposit > 0).every((c) => c.sport === "kayak")).toBe(true);
   });
 });
 

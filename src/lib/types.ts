@@ -75,9 +75,20 @@ export interface Court {
   memberOffPeakRate: number | null;
   memberPeakRate: number | null;
   capacity: number;
+  /**
+   * What the desk holds while this resource is out on hire, in ringgit. 0 is
+   * the normal case: a court cannot be carried off.
+   */
+  deposit: number;
 }
 
 export const MAX_CAPACITY = 500;
+/** The largest deposit a venue may set, so a typo cannot ask for thousands. */
+export const MAX_DEPOSIT = 500;
+
+export function isHire(court: Pick<Court, "deposit">): boolean {
+  return court.deposit > 0;
+}
 
 export function isShared(court: Pick<Court, "capacity">): boolean {
   return court.capacity > 1;
@@ -239,6 +250,44 @@ export const MAX_MEMBERSHIP_MONTHS = 24;
 
 export const MAX_PROMO_PERCENT = 100;
 export const MAX_PROMO_AMOUNT = 500;
+
+/** What the kit looked like when it came back. */
+export type HireCondition = "ok" | "damaged" | "lost";
+
+export const HIRE_CONDITIONS: HireCondition[] = ["ok", "damaged", "lost"];
+
+export const HIRE_CONDITION_LABELS: Record<HireCondition, string> = {
+  ok: "Returned fine",
+  damaged: "Damaged",
+  lost: "Not returned",
+};
+
+/**
+ * Kit handed over the counter against a deposit. The deposit is held at the
+ * desk, not taken from the wallet, so these fields record the state of the
+ * hold rather than a payment.
+ */
+export interface HireRecord {
+  id: number;
+  bookingId: number;
+  bookingCode: string;
+  courtId: number;
+  courtName: string;
+  venueId: number;
+  /** What the customer's name was on the booking, for the open-hires list. */
+  name: string;
+  phone: string;
+  deposit: number;
+  takenAt: string;
+  returnedAt: string | null;
+  /** Kept back out of the deposit. null until the kit comes back. */
+  withheld: number | null;
+  condition: HireCondition | null;
+  note: string | null;
+}
+
+/** The longest damage note staff may leave, so the column stays readable. */
+export const MAX_HIRE_NOTE = 500;
 
 export const MAX_PASS_ENTRIES = 200;
 /** How far ahead a pass may be set to expire. */

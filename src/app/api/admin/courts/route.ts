@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createCourt } from "@/lib/store";
-import { MAX_CAPACITY, Sport, SPORTS } from "@/lib/types";
+import { MAX_CAPACITY, MAX_DEPOSIT, Sport, SPORTS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { venueId, name, sport, offPeakRate, peakRate, capacity } = (body ?? {}) as Record<
+  const { venueId, name, sport, offPeakRate, peakRate, capacity, deposit } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -42,6 +42,10 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
+  if (deposit !== undefined &&
+      (!Number.isInteger(deposit) || (deposit as number) < 0 || (deposit as number) > MAX_DEPOSIT))
+    return NextResponse.json({ error: `A deposit must be RM0–${MAX_DEPOSIT}.` }, { status: 400 });
+
   const result = createCourt({
     venueId: venueId as number,
     name: name.trim(),
@@ -49,6 +53,7 @@ export async function POST(req: NextRequest) {
     offPeakRate: offPeakRate as number,
     peakRate: peakRate as number,
     capacity: (capacity as number) ?? 1,
+    deposit: (deposit as number) ?? 0,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ court: result.court }, { status: 201 });

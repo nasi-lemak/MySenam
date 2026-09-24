@@ -19,6 +19,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
+- **Equipment hire** — a resource that leaves the building (a kayak, a paddle set) carries a deposit; the desk hands the kit over against it, and the return records condition, any damage note and anything kept back, with the rest given straight back
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Operating hours & closed days** — each venue sets its own opening and closing hour (a pool can open at 7 AM, a club shut at 10 PM); whole days can be closed for a public holiday, a private hire or a refit, which blocks booking, enrolment and waitlist joins for that date and drops the venue out of cross-venue search
@@ -29,10 +30,10 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Share & export** — WhatsApp share, Google Calendar link and `.ics` download for every confirmed booking
 - **Per-venue admin accounts** — operators sign in with email + password; a venue admin only ever sees their own venue's bookings, schedule, courts and revenue, while a platform owner manages every venue, creates venues and issues staff accounts
 - **Admin dashboard** (`/admin`) — behind an operator sign-in:
-  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, moving a booking to another court, plus admin cancellation
+  - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, handing hire kit out and taking it back in, moving a booking to another court, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
-  - **Courts & rates**: rename courts, edit peak/off-peak rates and capacity, add new courts
+  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
   - **Venues & staff**: edit venue details, trading hours and the cancellation cutoff, and schedule or lift whole-day closures; owners can also add venues and create/remove staff accounts
@@ -130,6 +131,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
+| GET    | `/api/admin/hire`             | `?venueId=` → kit that is still out                  |
+| POST   | `/api/admin/hire`             | `{code, action:"take", deposit?}` or `{code, action:"return", condition, withheld?, note?}` |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
 | POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
 | GET    | `/api/admin/memberships`      | `?venueId=` → that venue's members                   |
@@ -149,8 +152,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
 | GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → booked/blocked counts     |
-| POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate}`      |
-| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?}`                   |
+| POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate, capacity?, deposit?}` |
+| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?}` |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
 | PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openHour?, closeHour?}` |
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
@@ -184,7 +187,7 @@ src/
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
 tests/                # Vitest suite (booking rules, blocks, series, search,
-                      # payments, customer auth, admin scoping)
+                      # payments, customer auth, admin scoping, equipment hire)
 ```
 
 ## Taking some of a shared facility out of service
@@ -210,6 +213,42 @@ Staff cannot take out more places than are free, since that would strand a
 booking; the refusal names how many remain. Re-blocking an hour revises it
 rather than duplicating it. The occupancy report counts only full blocks, since
 a partial one does not remove an hour from the day.
+
+## Equipment hire and deposits
+
+Most resources stay where they are: you cannot walk off with a badminton court.
+A kayak is different. It goes out on the water, it can come back damaged, and
+the venue holds something against that — usually cash or a card imprint at the
+desk, handed straight back when the hull is.
+
+A court carries a `deposit`. `0`, the default and the only sensible value for
+anything fixed, means the resource is not handed over at all and no hire
+appears anywhere in the flow. Above zero turns on the counter workflow:
+
+- **Handing over** records the deposit held against that booking and checks the
+  customer in, since those are one action at the desk. The check-in window
+  applies unchanged, so kit cannot leave an hour before the slot it belongs to.
+  Staff may override the amount, including waiving it — the record is worth
+  keeping either way, because the kayak is out.
+- **Taking it back** records the condition (fine, damaged, not returned),
+  anything kept back out of the hold, and a note. Nothing can be kept back that
+  was not held, and anything short of a clean return needs a note: the customer
+  is about to be told why they are not getting all of their money, and
+  "damaged" on its own is not a reason that stands up a week later.
+- **While kit is out** the booking cannot be cancelled or moved, by staff or by
+  the customer, and the venue cannot switch the deposit off on that resource.
+  All three would quietly destroy the only record of what is out and what is
+  being held against it.
+
+The deposit is deliberately *not* a wallet movement. Stored credit is money the
+venue owes the customer against future bookings; a deposit is a hold at the
+counter that mostly ends up handed back untouched. Modelling it as credit would
+put both in the same balance and make a refund look like a top-up. `hire_records`
+therefore tracks the state of the hold — taken, returned, how much was kept and
+why — and leaves the ledger alone.
+
+Customers see the deposit before they commit: on the grid row, on the booking
+panel and on the confirmation, phrased as what it is rather than as a charge.
 
 ## Exclusive courts vs shared facilities
 
@@ -588,6 +627,5 @@ push and pull request (Node 22, `npm ci`).
   than trusted
 - Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
-- Member rates, promo codes and bulk discounts
 - Automated WhatsApp/email booking confirmations & reminders
 - Set strong `ADMIN_EMAIL` / `ADMIN_PASSWORD` values before deploying

@@ -16,6 +16,11 @@ import {
   ClassStatus,
   LiveOccupancy,
   MAX_CLASS_WEEKS,
+  MAX_DEPOSIT,
+  MAX_HIRE_NOTE,
+  HIRE_CONDITIONS,
+  HireCondition,
+  HireRecord,
   MAX_TOP_UP,
   MAX_MEMBERSHIP_MONTHS,
   MAX_PASS_ENTRIES,
@@ -62,6 +67,7 @@ interface CourtRow {
   member_off_peak_rate: number | null;
   member_peak_rate: number | null;
   capacity: number;
+  deposit: number;
 }
 
 interface VenueRow {
@@ -205,6 +211,7 @@ function toCourt(r: CourtRow): Court {
     memberOffPeakRate: r.member_off_peak_rate,
     memberPeakRate: r.member_peak_rate,
     capacity: r.capacity,
+    deposit: r.deposit,
   };
 }
 
@@ -942,6 +949,8 @@ export function cancelBooking(code: string, phone: string): CancelResult {
   const booking = findBooking(code, phone);
   if (!booking) return { ok: false, error: "Booking not found. Check the code and phone number." };
   if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (hasOpenHire(booking.id))
+    return { ok: false, error: "The kit for this booking is still out. Bring it back to the desk first." };
   const cutoff = cancelCutoffForBooking(booking.id);
   if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
     return { ok: false, error: cutoffMessage(cutoff) };
@@ -1137,6 +1146,10 @@ export function adminCancelBooking(code: string): CancelResult {
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
   if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  // Cancelling would drop the only record of what is out and what is held
+  // against it, so settle the hire first even from the admin side.
+  if (hasOpenHire(booking.id))
+    return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
 
   db.transaction(() => {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
@@ -1177,6 +1190,10 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
     return { ok: false, error: "This booking was cancelled." };
   if (booking.classId !== null)
     return { ok: false, error: "A class enrolment moves with its class, not on its own." };
+  // The kit came off this resource; moving the booking would file it against
+  // another one.
+  if (hasOpenHire(booking.id))
+    return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
 
   const fromCourt = getCourt(booking.courtId);
   const toCourt = getCourt(toCourtId);
@@ -1494,6 +1511,10 @@ export interface AdminBookingRow extends Booking {
   venueName: string;
   /** Prior no-shows by this phone number, so the desk can spot repeats. */
   priorNoShows: number;
+  /** What this resource is hired out against, 0 when it stays put. */
+  courtDeposit: number;
+  /** The hire against this booking, open or settled. */
+  hire: HireRecord | null;
 }
 
 export interface UserBookingRow extends Booking {
@@ -1544,6 +1565,8 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
   if (!row) return { ok: false, error: "Booking not found." };
   const booking = toBooking(row);
   if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (hasOpenHire(booking.id))
+    return { ok: false, error: "The kit for this booking is still out. Bring it back to the desk first." };
   const cutoff = cancelCutoffForBooking(booking.id);
   if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
     return { ok: false, error: cutoffMessage(cutoff) };
@@ -1684,6 +1707,209 @@ export function checkOut(code: string): CheckInResult {
   return { ok: true, booking: bookingByCode(code)! };
 }
 
+// ---------------------------------------------------------------------------
+// Equipment hire
+//
+// Some resources leave the building. A kayak goes on the water, a racquet goes
+// home in a bag. Against that the desk holds a deposit — cash or a card
+// imprint, not account credit — and hands it back when the kit returns. What
+// the system owes that process is a record of what is out, what is being held
+// against it, and what came back in what state; the money itself never moves
+// through the wallet, so nothing here writes a ledger entry.
+// ---------------------------------------------------------------------------
+
+interface HireRow {
+  id: number;
+  booking_id: number;
+  deposit: number;
+  taken_at: string;
+  returned_at: string | null;
+  withheld: number | null;
+  condition: HireCondition | null;
+  note: string | null;
+  code: string;
+  court_id: number;
+  court_name: string;
+  venue_id: number;
+  name: string;
+  phone: string;
+}
+
+const HIRE_SELECT = `
+  SELECT h.*, b.code, b.court_id, b.name, b.phone, c.name AS court_name, c.venue_id
+  FROM hire_records h
+  JOIN bookings b ON b.id = h.booking_id
+  JOIN courts c ON c.id = b.court_id
+`;
+
+function toHire(r: HireRow): HireRecord {
+  return {
+    id: r.id,
+    bookingId: r.booking_id,
+    bookingCode: r.code,
+    courtId: r.court_id,
+    courtName: r.court_name,
+    venueId: r.venue_id,
+    name: r.name,
+    phone: r.phone,
+    deposit: r.deposit,
+    takenAt: r.taken_at,
+    returnedAt: r.returned_at,
+    withheld: r.withheld,
+    condition: r.condition,
+    note: r.note,
+  };
+}
+
+/** The hire against a booking, open or settled. */
+export function hireFor(bookingId: number): HireRecord | null {
+  const row = getDb()
+    .prepare(`${HIRE_SELECT} WHERE h.booking_id = ?`)
+    .get(bookingId) as HireRow | undefined;
+  return row ? toHire(row) : null;
+}
+
+/** True while kit against this booking is physically out. */
+export function hasOpenHire(bookingId: number): boolean {
+  const row = getDb()
+    .prepare("SELECT 1 AS n FROM hire_records WHERE booking_id = ? AND returned_at IS NULL")
+    .get(bookingId) as { n: number } | undefined;
+  return row !== undefined;
+}
+
+function openHireCountForCourt(courtId: number): number {
+  const row = getDb()
+    .prepare(`
+      SELECT COUNT(*) AS n FROM hire_records h
+      JOIN bookings b ON b.id = h.booking_id
+      WHERE b.court_id = ? AND h.returned_at IS NULL
+    `)
+    .get(courtId) as { n: number };
+  return row.n;
+}
+
+/** Everything still out at a venue, oldest first — the desk's chase list. */
+export function listOpenHires(venueId: number): HireRecord[] {
+  const rows = getDb()
+    .prepare(`${HIRE_SELECT} WHERE c.venue_id = ? AND h.returned_at IS NULL ORDER BY h.taken_at`)
+    .all(venueId) as HireRow[];
+  return rows.map(toHire);
+}
+
+export type HireResult =
+  | { ok: true; hire: HireRecord; booking: Booking }
+  | { ok: false; error: string };
+
+/**
+ * Hand the kit over and record the deposit held against it.
+ *
+ * The deposit defaults to the court's own figure; staff may override it,
+ * including down to nothing, because a waiver still needs the rest of the
+ * record — the kayak is out either way. Handing over also checks the customer
+ * in, so the desk does one thing instead of two, and the check-in window
+ * applies unchanged: kit does not leave before the slot it belongs to.
+ */
+export function takeHire(code: string, deposit?: number): HireResult {
+  const db = getDb();
+  const booking = bookingByCode(code);
+  if (!booking) return { ok: false, error: "Booking not found." };
+  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+
+  const court = getCourt(booking.courtId);
+  if (!court) return { ok: false, error: "Court not found." };
+  if (court.deposit <= 0)
+    return { ok: false, error: `${court.name} is not hired out. Set a deposit on it first.` };
+
+  const existing = hireFor(booking.id);
+  if (existing)
+    return {
+      ok: false,
+      error: existing.returnedAt
+        ? "This booking's kit has already been taken back."
+        : "A deposit is already held on this booking.",
+    };
+
+  const held = deposit ?? court.deposit;
+  if (!Number.isInteger(held) || held < 0)
+    return { ok: false, error: "A deposit must be a whole number of ringgit." };
+  if (held > MAX_DEPOSIT)
+    return { ok: false, error: `A deposit cannot be more than RM${MAX_DEPOSIT}.` };
+
+  if (!booking.checkedInAt) {
+    const windowError = checkInWindowError(booking);
+    if (windowError) return { ok: false, error: windowError };
+  }
+  if (booking.checkedOutAt)
+    return { ok: false, error: "This booking has already checked out." };
+
+  db.transaction(() => {
+    if (!booking.checkedInAt) {
+      db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+      if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+    }
+    db.prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, ?)").run(
+      booking.id,
+      held
+    );
+  })();
+
+  return { ok: true, hire: hireFor(booking.id)!, booking: bookingByCode(booking.code)! };
+}
+
+/**
+ * Take the kit back in, settling the deposit.
+ *
+ * `withheld` is what the venue keeps out of the hold — never more than it took,
+ * so a damaged hull cannot turn into a bill through this screen. Anything kept
+ * back, and any condition short of fine, needs a note: the customer is about to
+ * be told why they are not getting all of their money, and "damaged" alone is
+ * not a reason anyone can stand behind later.
+ */
+export function returnHire(
+  code: string,
+  input: { condition: HireCondition; withheld?: number; note?: string }
+): HireResult {
+  const db = getDb();
+  const booking = bookingByCode(code);
+  if (!booking) return { ok: false, error: "Booking not found." };
+
+  const hire = hireFor(booking.id);
+  if (!hire) return { ok: false, error: "No deposit is held on this booking." };
+  if (hire.returnedAt) return { ok: false, error: "This kit has already been taken back." };
+
+  if (!HIRE_CONDITIONS.includes(input.condition))
+    return { ok: false, error: "Unknown condition." };
+
+  const withheld = input.withheld ?? 0;
+  if (!Number.isInteger(withheld) || withheld < 0)
+    return { ok: false, error: "An amount withheld must be a whole number of ringgit." };
+  if (withheld > hire.deposit)
+    return {
+      ok: false,
+      error: `Only RM${hire.deposit} is held on this booking, so RM${withheld} cannot be kept back.`,
+    };
+
+  const note = (input.note ?? "").trim();
+  if (note.length > MAX_HIRE_NOTE)
+    return { ok: false, error: `A note cannot be longer than ${MAX_HIRE_NOTE} characters.` };
+  if ((input.condition !== "ok" || withheld > 0) && note === "")
+    return { ok: false, error: "Say what happened — a note is required when the kit is not returned fine." };
+
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE hire_records
+      SET returned_at = datetime('now'), withheld = ?, condition = ?, note = ?
+      WHERE booking_id = ?
+    `).run(withheld, input.condition, note === "" ? null : note, booking.id);
+    // The kit is back, so whoever brought it has left the desk.
+    db.prepare(
+      "UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ? AND checked_out_at IS NULL"
+    ).run(booking.id);
+  })();
+
+  return { ok: true, hire: hireFor(booking.id)!, booking: bookingByCode(booking.code)! };
+}
+
 /**
  * Who is inside each resource right now, from door check-ins.
  *
@@ -1769,12 +1995,13 @@ export function createCourt(input: {
   offPeakRate: number;
   peakRate: number;
   capacity?: number;
+  deposit?: number;
 }): CourtEditResult {
   const db = getDb();
   if (!getVenue(input.venueId)) return { ok: false, error: "Venue not found." };
   const info = db
     .prepare(
-      "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity, deposit) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       input.venueId,
@@ -1782,7 +2009,8 @@ export function createCourt(input: {
       input.sport,
       input.offPeakRate,
       input.peakRate,
-      input.capacity ?? 1
+      input.capacity ?? 1,
+      input.deposit ?? 0
     );
   return { ok: true, court: getCourt(info.lastInsertRowid as number)! };
 }
@@ -1797,6 +2025,7 @@ export function updateCourt(
     memberOffPeakRate?: number | null;
     memberPeakRate?: number | null;
     capacity?: number;
+    deposit?: number;
   }
 ): CourtEditResult {
   const db = getDb();
@@ -1836,9 +2065,19 @@ export function updateCourt(
   if ((memberOffPeak !== null && memberOffPeak < 0) || (memberPeak !== null && memberPeak < 0))
     return { ok: false, error: "A member rate cannot be negative." };
 
+  const deposit = changes.deposit ?? court.deposit;
+  if (deposit < 0) return { ok: false, error: "A deposit cannot be negative." };
+  if (deposit > MAX_DEPOSIT)
+    return { ok: false, error: `A deposit cannot be more than RM${MAX_DEPOSIT}.` };
+  // Dropping the deposit to nothing while kit is out would leave those holds
+  // unsettleable, so let them come back first.
+  if (deposit === 0 && court.deposit > 0 && openHireCountForCourt(courtId) > 0)
+    return { ok: false, error: "Some kit is still out on hire. Take it back in first." };
+
   db.prepare(`
     UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
-                      member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?
+                      member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
+                      deposit = ?
     WHERE id = ?
   `).run(
     changes.name?.trim() ?? court.name,
@@ -1847,6 +2086,7 @@ export function updateCourt(
     memberOffPeak,
     memberPeak,
     changes.capacity ?? court.capacity,
+    deposit,
     courtId
   );
   return { ok: true, court: getCourt(courtId)! };
@@ -1856,8 +2096,8 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
   const db = getDb();
   const rows = db
     .prepare(`
-      SELECT b.*, c.name AS court_name, c.sport AS court_sport, v.name AS venue_name,
-             ci.checked_in_at, ci.checked_out_at
+      SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
+             v.name AS venue_name, ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
@@ -1868,8 +2108,18 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
     .all(date, venueId ?? null, venueId ?? null) as (BookingRow & {
     court_name: string;
     court_sport: Sport;
+    court_deposit: number;
     venue_name: string;
   })[];
+  // One pass for the whole day rather than a lookup per row.
+  const hires = new Map<number, HireRecord>();
+  if (rows.length > 0) {
+    const held = db
+      .prepare(`${HIRE_SELECT} WHERE h.booking_id IN (${rows.map(() => "?").join(",")})`)
+      .all(...rows.map((r) => r.id)) as HireRow[];
+    for (const row of held) hires.set(row.booking_id, toHire(row));
+  }
+
   return rows.map((r) => {
     const booking = toBooking(r);
     return {
@@ -1879,6 +2129,8 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
       venueName: r.venue_name,
       // Exclude this booking so the count reads as history, not self-reference.
       priorNoShows: countNoShows(booking.phone) - (booking.noShow ? 1 : 0),
+      courtDeposit: r.court_deposit,
+      hire: hires.get(booking.id) ?? null,
     };
   });
 }

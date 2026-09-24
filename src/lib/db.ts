@@ -67,7 +67,10 @@ export function getDb(): Database.Database {
       -- this court, so a venue can discount only some of them.
       member_off_peak_rate INTEGER,
       member_peak_rate INTEGER,
-      capacity INTEGER NOT NULL DEFAULT 1
+      capacity INTEGER NOT NULL DEFAULT 1,
+      -- What the desk holds while the kit is out, in ringgit. 0 means this
+      -- resource is not handed over at all: a court stays where it is.
+      deposit INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS bookings (
@@ -163,6 +166,23 @@ export function getDb(): Database.Database {
       booking_id INTEGER NOT NULL UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
       checked_in_at TEXT NOT NULL DEFAULT (datetime('now')),
       checked_out_at TEXT
+    );
+
+    -- Kit handed over the counter: a kayak, a paddle set, a racquet. One per
+    -- booking. The deposit is cash or a card imprint held at the desk rather
+    -- than account credit, so this table records the state of the hold, not a
+    -- movement of money. A row with returned_at still NULL is kit that is
+    -- physically out.
+    CREATE TABLE IF NOT EXISTS hire_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id INTEGER NOT NULL UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
+      deposit INTEGER NOT NULL CHECK (deposit >= 0),
+      taken_at TEXT NOT NULL DEFAULT (datetime('now')),
+      returned_at TEXT,
+      -- Kept back out of the deposit. NULL until the kit comes back.
+      withheld INTEGER CHECK (withheld IS NULL OR withheld >= 0),
+      condition TEXT CHECK (condition IS NULL OR condition IN ('ok','damaged','lost')),
+      note TEXT
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -365,6 +385,12 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE courts ADD COLUMN member_peak_rate INTEGER");
   }
 
+  // Hire deposits. Same ordering rule as the member rates above.
+  const depositCols = db.prepare("PRAGMA table_info(courts)").all() as { name: string }[];
+  if (depositCols.length > 0 && !depositCols.some((c) => c.name === "deposit")) {
+    db.exec("ALTER TABLE courts ADD COLUMN deposit INTEGER NOT NULL DEFAULT 0");
+  }
+
   const blockCols = db.prepare("PRAGMA table_info(slot_blocks)").all() as { name: string }[];
   if (blockCols.length > 0 && !blockCols.some((c) => c.name === "places")) {
     // NULL on every existing row, which is exactly the old meaning.
@@ -457,8 +483,17 @@ function seedIfEmpty(db: Database.Database) {
     "INSERT INTO venues (name, area, address, phone, open_hour, close_hour) VALUES (?, ?, ?, ?, ?, ?)"
   );
   const insertCourt = db.prepare(
-    "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity, deposit) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
+  const court = (
+    venueId: number,
+    name: string,
+    sport: string,
+    offPeak: number,
+    peak: number,
+    capacity = 1,
+    deposit = 0
+  ) => insertCourt.run(venueId, name, sport, offPeak, peak, capacity, deposit);
 
   const seed = db.transaction(() => {
     const arena = insertVenue.run(
@@ -470,11 +505,11 @@ function seedIfEmpty(db: Database.Database) {
       23
     ).lastInsertRowid as number;
 
-    for (let i = 1; i <= 4; i++) insertCourt.run(arena, `Badminton Court ${i}`, "badminton", 15, 25, 1);
-    for (let i = 1; i <= 2; i++) insertCourt.run(arena, `Pickleball Court ${i}`, "pickleball", 20, 30, 1);
-    insertCourt.run(arena, "Futsal Pitch A", "futsal", 80, 120, 1);
+    for (let i = 1; i <= 4; i++) court(arena, `Badminton Court ${i}`, "badminton", 15, 25, 1);
+    for (let i = 1; i <= 2; i++) court(arena, `Pickleball Court ${i}`, "pickleball", 20, 30, 1);
+    court(arena, "Futsal Pitch A", "futsal", 80, 120, 1);
     // Shared-capacity facilities: many people hold the same hour.
-    insertCourt.run(arena, "Gym Floor", "gym", 5, 8, 40);
+    court(arena, "Gym Floor", "gym", 5, 8, 40);
 
     const sunway = insertVenue.run(
       "SmashPoint Sports Centre",
@@ -486,9 +521,9 @@ function seedIfEmpty(db: Database.Database) {
       22
     ).lastInsertRowid as number;
 
-    for (let i = 1; i <= 6; i++) insertCourt.run(sunway, `Badminton Court ${i}`, "badminton", 12, 22, 1);
-    for (let i = 1; i <= 2; i++) insertCourt.run(sunway, `Tennis Court ${i}`, "tennis", 25, 40, 1);
-    insertCourt.run(sunway, "Lap Pool", "swimming", 4, 6, 25);
+    for (let i = 1; i <= 6; i++) court(sunway, `Badminton Court ${i}`, "badminton", 12, 22, 1);
+    for (let i = 1; i <= 2; i++) court(sunway, `Tennis Court ${i}`, "tennis", 25, 40, 1);
+    court(sunway, "Lap Pool", "swimming", 4, 6, 25);
 
     const bangsar = insertVenue.run(
       "Bangsar Racquet Club",
@@ -499,8 +534,22 @@ function seedIfEmpty(db: Database.Database) {
       22
     ).lastInsertRowid as number;
 
-    for (let i = 1; i <= 3; i++) insertCourt.run(bangsar, `Tennis Court ${i}`, "tennis", 30, 45, 1);
-    for (let i = 1; i <= 4; i++) insertCourt.run(bangsar, `Pickleball Court ${i}`, "pickleball", 18, 28, 1);
+    for (let i = 1; i <= 3; i++) court(bangsar, `Tennis Court ${i}`, "tennis", 30, 45, 1);
+    for (let i = 1; i <= 4; i++) court(bangsar, `Pickleball Court ${i}`, "pickleball", 18, 28, 1);
+
+    const lakeside = insertVenue.run(
+      "Putrajaya Lakeside Watersports",
+      "Putrajaya",
+      "Presint 5, Persiaran Perdana, 62000 Putrajaya",
+      "+60 3-8888 1234",
+      // Off the water before the afternoon storms.
+      8,
+      19
+    ).lastInsertRowid as number;
+
+    // A fleet, not a court: eight hulls share the hour, and each one goes out
+    // of the building, so the desk holds a deposit against it.
+    court(lakeside, "Kayak Fleet", "kayak", 15, 20, 8, 50);
   });
 
   seed();

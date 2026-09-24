@@ -7,6 +7,7 @@ import {
   busyness,
   Court,
   CourtAvailability,
+  isHire,
   isShared,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
@@ -352,6 +353,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     <div className="text-xs font-normal text-slate-400">
                       RM{court.offPeakRate}–{court.peakRate}/hr
                       {isShared(court) && ` · ${court.capacity} places`}
+                      {isHire(court) && ` · RM${court.deposit} deposit`}
                     </div>
                   </td>
                   {slots.map((slot) => {
@@ -569,6 +571,11 @@ function BookingForm({
             {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + 1)} ·{" "}
             <span className="font-semibold text-slate-900">RM{totalPrice}</span>
           </div>
+          {isHire(court) && (
+            <div className="text-xs text-amber-700">
+              Plus an RM{court.deposit} deposit at the counter, back in your hand when the kit is.
+            </div>
+          )}
         </div>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           Name
@@ -750,6 +757,11 @@ function ConfirmationModal({
               "Total",
               `RM${isSeries ? seriesTotal : booking.totalPrice} (pay at counter)`,
             ],
+            ...(isHire(court)
+              ? ([
+                  ["Deposit", `RM${court.deposit}, returned with the kit`],
+                ] as [string, string][])
+              : ([] as [string, string][])),
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between gap-4">
               <dt className="text-slate-500">{label}</dt>

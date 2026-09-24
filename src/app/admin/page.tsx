@@ -8,6 +8,10 @@ import {
   isShared,
   MAX_CAPACITY,
   MAX_CLASS_WEEKS,
+  MAX_DEPOSIT,
+  MAX_HIRE_NOTE,
+  HIRE_CONDITION_LABELS,
+  HireCondition,
   MAX_TOP_UP,
   SPORT_ICONS,
   SPORT_LABELS,
@@ -27,6 +31,17 @@ import {
 import type { Booking } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import type { AdminBookingRow, AdminCourtSlots, OccupancyReport } from "@/lib/store";
+
+/** What one row of the courts table can change in a save. */
+interface CourtEdits {
+  name: string;
+  offPeak: string;
+  peak: string;
+  capacity: string;
+  memberOffPeak: string;
+  memberPeak: string;
+  deposit: string;
+}
 
 type Tab = "bookings" | "schedule" | "occupancy" | "courts" | "classes" | "credit" | "venues";
 
@@ -242,6 +257,17 @@ function BookingsTab() {
   const [notice, setNotice] = useState<string | null>(null);
   // The booking being moved, and the courts it could go to.
   const [moving, setMoving] = useState<{ code: string; courts: Court[] } | null>(null);
+  // The hire being handed over or taken back at the desk.
+  const [kit, setKit] = useState<{
+    code: string;
+    mode: "take" | "return";
+    deposit: number;
+    courtName: string;
+  } | null>(null);
+  const [deposit, setDeposit] = useState("0");
+  const [condition, setCondition] = useState<HireCondition>("ok");
+  const [withheld, setWithheld] = useState("0");
+  const [note, setNote] = useState("");
   const [revenue, setRevenue] = useState(0);
   const [collected, setCollected] = useState(0);
   const [outstanding, setOutstanding] = useState(0);
@@ -309,6 +335,58 @@ function BookingsTab() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Move failed");
+    }
+  }
+
+  function openKit(b: AdminBookingRow, mode: "take" | "return") {
+    setError(null);
+    setNotice(null);
+    setKit({
+      code: b.code,
+      mode,
+      deposit: mode === "take" ? b.courtDeposit : (b.hire?.deposit ?? 0),
+      courtName: b.courtName,
+    });
+    setDeposit(String(b.courtDeposit));
+    setCondition("ok");
+    setWithheld("0");
+    setNote("");
+  }
+
+  /** Hand the kit over, or take it back and settle the deposit. */
+  async function submitKit() {
+    if (!kit) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/hire", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          kit.mode === "take"
+            ? { code: kit.code, action: "take", deposit: Number(deposit) }
+            : {
+                code: kit.code,
+                action: "return",
+                condition,
+                withheld: Number(withheld),
+                note,
+              }
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not update the hire");
+      setNotice(
+        kit.mode === "take"
+          ? `${kit.courtName} out on ${kit.code}, RM${data.hire.deposit} held.`
+          : data.hire.withheld > 0
+            ? `${kit.code} settled — RM${data.hire.withheld} kept back, RM${data.hire.deposit - data.hire.withheld} returned.`
+            : `${kit.code} settled — RM${data.hire.deposit} returned in full.`
+      );
+      setKit(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the hire");
     }
   }
 
@@ -466,6 +544,104 @@ function BookingsTab() {
         </div>
       )}
 
+      {kit && kit.mode === "take" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
+          <p className="text-sm font-semibold">
+            Hand {kit.courtName} over on {kit.code}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-600">
+            Take the deposit at the desk and hold it until the kit comes back. This also checks the
+            customer in.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="text-xs font-medium text-slate-600">Deposit held (RM)</label>
+            <input
+              type="number"
+              min={0}
+              max={MAX_DEPOSIT}
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+              className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+            />
+            <button
+              onClick={submitKit}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              Hand over
+            </button>
+            <button
+              onClick={() => setKit(null)}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {kit && kit.mode === "return" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
+          <p className="text-sm font-semibold">
+            Take {kit.courtName} back in on {kit.code}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-600">
+            RM{kit.deposit} is held. Anything kept back needs a note saying why — the customer is
+            about to be told.
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Condition</label>
+              <select
+                value={condition}
+                onChange={(e) => setCondition(e.target.value as HireCondition)}
+                className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+              >
+                {Object.entries(HIRE_CONDITION_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Kept back (RM)</label>
+              <input
+                type="number"
+                min={0}
+                max={kit.deposit}
+                value={withheld}
+                onChange={(e) => setWithheld(e.target.value)}
+                className="mt-1 w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+              />
+            </div>
+            <div className="min-w-[16rem] flex-1">
+              <label className="block text-xs font-medium text-slate-600">
+                What happened{condition === "ok" && withheld === "0" ? " (optional)" : ""}
+              </label>
+              <input
+                value={note}
+                maxLength={MAX_HIRE_NOTE}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Cracked hull near the bow seat"
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={submitKit}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              Take back
+            </button>
+            <button
+              onClick={() => setKit(null)}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -496,6 +672,7 @@ function BookingsTab() {
                   "Status",
                   "Payment",
                   "Attendance",
+                  "Kit",
                   "",
                 ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
@@ -613,6 +790,45 @@ function BookingsTab() {
                           {b.noShow ? "no-show" : "no-show?"}
                         </button>
                       </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {b.hire === null && (b.courtDeposit === 0 || b.status !== "confirmed") ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : b.hire === null ? (
+                      <button
+                        onClick={() => openKit(b, "take")}
+                        title={`Hand ${b.courtName} over against an RM${b.courtDeposit} deposit`}
+                        className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
+                      >
+                        hand out
+                      </button>
+                    ) : b.hire.returnedAt === null ? (
+                      <button
+                        onClick={() => openKit(b, "return")}
+                        title={`Out since ${localTime(b.hire.takenAt)}, RM${b.hire.deposit} held — click to take it back`}
+                        className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-200"
+                      >
+                        out · RM{b.hire.deposit}
+                      </button>
+                    ) : (
+                      <span
+                        title={
+                          (b.hire.note ?? "No note.") +
+                          (b.hire.withheld ? ` RM${b.hire.withheld} kept back.` : "")
+                        }
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                          b.hire.condition === "ok"
+                            ? "bg-slate-100 text-slate-500"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {b.hire.condition === "ok"
+                          ? "back"
+                          : `${HIRE_CONDITION_LABELS[b.hire.condition!].toLowerCase()}${
+                              b.hire.withheld ? ` · RM${b.hire.withheld}` : ""
+                            }`}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2">
@@ -848,6 +1064,7 @@ function CourtsTab({
     offPeak: "",
     peak: "",
     capacity: "1",
+    deposit: "0",
   });
 
   const venue = venues.find((v) => v.id === venueId);
@@ -858,15 +1075,8 @@ function CourtsTab({
     onVenuesChange(data.venues);
   }
 
-  async function saveCourt(
-    court: Court,
-    name: string,
-    offPeak: string,
-    peak: string,
-    capacity: string,
-    memberOffPeak: string,
-    memberPeak: string
-  ) {
+  async function saveCourt(court: Court, edits: CourtEdits) {
+    const { name, offPeak, peak, capacity, memberOffPeak, memberPeak, deposit } = edits;
     setError(null);
     setNotice(null);
     try {
@@ -881,6 +1091,7 @@ function CourtsTab({
           // Blank means "no member discount on this court".
           memberOffPeakRate: memberOffPeak.trim() === "" ? null : Number(memberOffPeak),
           memberPeakRate: memberPeak.trim() === "" ? null : Number(memberPeak),
+          deposit: Number(deposit),
         }),
       });
       const data = await res.json();
@@ -907,12 +1118,20 @@ function CourtsTab({
           offPeakRate: Number(newCourt.offPeak),
           peakRate: Number(newCourt.peak),
           capacity: Number(newCourt.capacity),
+          deposit: Number(newCourt.deposit),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not add court");
       setNotice(`Added ${data.court.name}.`);
-      setNewCourt({ name: "", sport: newCourt.sport, offPeak: "", peak: "", capacity: "1" });
+      setNewCourt({
+        name: "",
+        sport: newCourt.sport,
+        offPeak: "",
+        peak: "",
+        capacity: "1",
+        deposit: "0",
+      });
       refreshVenues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add court");
@@ -951,7 +1170,7 @@ function CourtsTab({
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 {[
                   "Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)",
-                  "Member off-peak", "Member peak", "Capacity", "",
+                  "Member off-peak", "Member peak", "Capacity", "Deposit (RM)", "",
                 ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
                     {h}
@@ -1021,6 +1240,16 @@ function CourtsTab({
           placeholder="Capacity"
           className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
+        <input
+          type="number"
+          min={0}
+          max={MAX_DEPOSIT}
+          value={newCourt.deposit}
+          onChange={(e) => setNewCourt({ ...newCourt, deposit: e.target.value })}
+          title="Deposit held while the kit is out. 0 for anything that stays on site."
+          placeholder="Deposit"
+          className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -1037,15 +1266,7 @@ function CourtRow({
   onSave,
 }: {
   court: Court;
-  onSave: (
-    court: Court,
-    name: string,
-    offPeak: string,
-    peak: string,
-    capacity: string,
-    memberOffPeak: string,
-    memberPeak: string
-  ) => void;
+  onSave: (court: Court, edits: CourtEdits) => void;
 }) {
   const [name, setName] = useState(court.name);
   const [offPeak, setOffPeak] = useState(String(court.offPeakRate));
@@ -1057,6 +1278,7 @@ function CourtRow({
   const [memberPeak, setMemberPeak] = useState(
     court.memberPeakRate === null ? "" : String(court.memberPeakRate)
   );
+  const [deposit, setDeposit] = useState(String(court.deposit));
   const asText = (v: number | null) => (v === null ? "" : String(v));
   const dirty =
     name !== court.name ||
@@ -1064,7 +1286,8 @@ function CourtRow({
     peak !== String(court.peakRate) ||
     capacity !== String(court.capacity) ||
     memberOffPeak !== asText(court.memberOffPeakRate) ||
-    memberPeak !== asText(court.memberPeakRate);
+    memberPeak !== asText(court.memberPeakRate) ||
+    deposit !== String(court.deposit);
 
   return (
     <tr className="border-b border-slate-100 last:border-0">
@@ -1130,9 +1353,22 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
+        <input
+          type="number"
+          min={0}
+          max={MAX_DEPOSIT}
+          value={deposit}
+          onChange={(e) => setDeposit(e.target.value)}
+          title="Held at the desk while the kit is out. 0 for anything that stays put, like a court."
+          className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-3 py-2">
         <button
           disabled={!dirty}
-          onClick={() => onSave(court, name, offPeak, peak, capacity, memberOffPeak, memberPeak)}
+          onClick={() =>
+            onSave(court, { name, offPeak, peak, capacity, memberOffPeak, memberPeak, deposit })
+          }
           className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
         >
           Save
