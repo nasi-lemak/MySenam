@@ -18,6 +18,9 @@ import {
   MAX_CLASS_WEEKS,
   AccessResult,
   ACCESS_CODE_STALE_DAYS,
+  Induction,
+  isUnstaffedHour,
+  NEVER_UNMANNED,
   MAX_ACCESS_CODE,
   MIN_ACCESS_CODE,
   MAX_DEPOSIT,
@@ -86,6 +89,10 @@ interface VenueRow {
   cancel_cutoff_hours: number;
   open_hour: number;
   close_hour: number;
+  staffed_from: number | null;
+  staffed_to: number | null;
+  emergency_phone: string | null;
+  emergency_info: string | null;
 }
 
 function toVenue(r: VenueRow): Venue {
@@ -98,6 +105,10 @@ function toVenue(r: VenueRow): Venue {
     cancelCutoffHours: r.cancel_cutoff_hours,
     openHour: r.open_hour,
     closeHour: r.close_hour,
+    staffedFrom: r.staffed_from,
+    staffedTo: r.staffed_to,
+    emergencyPhone: r.emergency_phone,
+    emergencyInfo: r.emergency_info,
   };
 }
 
@@ -562,7 +573,9 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
            v.address AS v_address, v.phone AS v_phone,
            v.cancel_cutoff_hours AS v_cutoff,
-           v.open_hour AS v_open, v.close_hour AS v_close
+           v.open_hour AS v_open, v.close_hour AS v_close,
+           v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
+           v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info
     FROM courts c JOIN venues v ON v.id = c.venue_id
     WHERE c.sport = ?
   `;
@@ -581,6 +594,10 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
     v_cutoff: number;
     v_open: number;
     v_close: number;
+    v_staffed_from: number | null;
+    v_staffed_to: number | null;
+    v_emergency_phone: string | null;
+    v_emergency_info: string | null;
   })[];
   if (rows.length === 0) return [];
 
@@ -616,6 +633,10 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
       cancelCutoffHours: row.v_cutoff,
       openHour: row.v_open,
       closeHour: row.v_close,
+      staffedFrom: row.v_staffed_from,
+      staffedTo: row.v_staffed_to,
+      emergencyPhone: row.v_emergency_phone,
+      emergencyInfo: row.v_emergency_info,
     };
     // A booking of `duration` hours must still finish by the venue's close.
     const fromHour = Math.max(wantFrom, venue.openHour);
@@ -1444,6 +1465,11 @@ export function updateVenue(
     cancelCutoffHours?: number;
     openHour?: number;
     closeHour?: number;
+    /** null for both means always staffed; equal values mean never staffed. */
+    staffedFrom?: number | null;
+    staffedTo?: number | null;
+    emergencyPhone?: string | null;
+    emergencyInfo?: string | null;
   }
 ): VenueEditResult {
   const db = getDb();
@@ -1470,9 +1496,28 @@ export function updateVenue(
       error: "Bookings already exist outside those hours. Cancel or move them first.",
     };
 
+  const staffedFrom =
+    changes.staffedFrom !== undefined ? changes.staffedFrom : current.staffedFrom;
+  const staffedTo = changes.staffedTo !== undefined ? changes.staffedTo : current.staffedTo;
+  if ((staffedFrom === null) !== (staffedTo === null))
+    return { ok: false, error: "Give both ends of the staffed window, or neither." };
+  for (const hour of [staffedFrom, staffedTo]) {
+    if (hour !== null && (!Number.isInteger(hour) || hour < 0 || hour > 24))
+      return { ok: false, error: "A staffed hour must be between 0 and 24." };
+  }
+  // Unstaffed hours only mean anything where a resource can be let into, and
+  // taking the counter away from kit that is on loan is the one combination
+  // that cannot work at all.
+  if (staffedFrom !== null && listOpenHires(venueId).length > 0 && staffedFrom === staffedTo)
+    return {
+      ok: false,
+      error: "Kit is out on hire at this venue. Somebody has to be here to take it back.",
+    };
+
   db.prepare(
     `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
-                       open_hour = ?, close_hour = ? WHERE id = ?`
+                       open_hour = ?, close_hour = ?, staffed_from = ?, staffed_to = ?,
+                       emergency_phone = ?, emergency_info = ? WHERE id = ?`
   ).run(
     changes.name?.trim() ?? current.name,
     changes.area?.trim() ?? current.area,
@@ -1481,6 +1526,14 @@ export function updateVenue(
     changes.cancelCutoffHours ?? current.cancelCutoffHours,
     hours.openHour,
     hours.closeHour,
+    staffedFrom,
+    staffedTo,
+    changes.emergencyPhone !== undefined
+      ? nullIfBlank(changes.emergencyPhone)
+      : current.emergencyPhone,
+    changes.emergencyInfo !== undefined
+      ? nullIfBlank(changes.emergencyInfo)
+      : current.emergencyInfo,
     venueId
   );
   return {
@@ -1716,6 +1769,151 @@ export function checkOut(code: string): CheckInResult {
 }
 
 // ---------------------------------------------------------------------------
+// Inductions
+//
+// The 24-hour chains do not hand overnight access to a stranger who signed up
+// on a phone. Somebody is shown round in person first: where the emergency
+// button is, what not to do on a rack with nobody watching, and their identity
+// and age are checked while they stand there. That visit is what turns an
+// unstaffed gym from reckless into insurable, so it is recorded by an operator
+// and can never be self-declared.
+// ---------------------------------------------------------------------------
+
+interface InductionRow {
+  id: number;
+  venue_id: number;
+  phone: string;
+  name: string;
+  admin_id: number | null;
+  note: string | null;
+  created_at: string;
+  revoked_at: string | null;
+  admin_name: string | null;
+}
+
+function toInduction(r: InductionRow): Induction {
+  return {
+    id: r.id,
+    venueId: r.venue_id,
+    phone: r.phone,
+    name: r.name,
+    adminName: r.admin_name,
+    note: r.note,
+    createdAt: r.created_at,
+    revokedAt: r.revoked_at,
+  };
+}
+
+const INDUCTION_SELECT = `
+  SELECT i.*, a.name AS admin_name
+  FROM inductions i
+  LEFT JOIN admins a ON a.id = i.admin_id
+`;
+
+/** Has this person been shown round, and not since been withdrawn? */
+export function isInducted(venueId: number, phone: string): boolean {
+  const row = getDb()
+    .prepare(
+      "SELECT 1 AS n FROM inductions WHERE venue_id = ? AND phone = ? AND revoked_at IS NULL"
+    )
+    .get(venueId, normalisePhone(phone)) as { n: number } | undefined;
+  return row !== undefined;
+}
+
+export type InductionResult =
+  | { ok: true; induction: Induction }
+  | { ok: false; error: string };
+
+/**
+ * Record that an operator has shown somebody round.
+ *
+ * Re-inducting a person who was withdrawn revives the same row rather than
+ * adding a second one, so the venue keeps one line per person and the history
+ * of it stays on that line.
+ */
+export function recordInduction(input: {
+  venueId: number;
+  phone: string;
+  name: string;
+  adminId?: number;
+  note?: string;
+}): InductionResult {
+  const db = getDb();
+  if (!getVenue(input.venueId)) return { ok: false, error: "Venue not found." };
+  const phone = normalisePhone(input.phone);
+  if (phone.length < 7) return { ok: false, error: "Please give a valid phone number." };
+  const name = input.name.trim();
+  if (name.length < 2) return { ok: false, error: "Please give the person's name." };
+  const note = nullIfBlank(input.note ?? null);
+
+  const existing = db
+    .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone = ?")
+    .get(input.venueId, phone) as { id: number; revoked_at: string | null } | undefined;
+
+  if (existing && existing.revoked_at === null)
+    return { ok: false, error: `${name} has already been inducted here.` };
+
+  if (existing) {
+    db.prepare(`
+      UPDATE inductions
+      SET name = ?, admin_id = ?, note = ?, created_at = datetime('now'), revoked_at = NULL
+      WHERE id = ?
+    `).run(name, input.adminId ?? null, note, existing.id);
+    return { ok: true, induction: inductionById(existing.id)! };
+  }
+
+  const info = db
+    .prepare(
+      "INSERT INTO inductions (venue_id, phone, name, admin_id, note) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(input.venueId, phone, name, input.adminId ?? null, note);
+  return { ok: true, induction: inductionById(info.lastInsertRowid as number)! };
+}
+
+/** Withdraw someone's out-of-hours access without losing the record of it. */
+export function revokeInduction(id: number): InductionResult {
+  const db = getDb();
+  const induction = inductionById(id);
+  if (!induction) return { ok: false, error: "Induction not found." };
+  if (induction.revokedAt) return { ok: false, error: "That access is already withdrawn." };
+  db.prepare("UPDATE inductions SET revoked_at = datetime('now') WHERE id = ?").run(id);
+  return { ok: true, induction: inductionById(id)! };
+}
+
+export function inductionById(id: number): Induction | null {
+  const row = getDb().prepare(`${INDUCTION_SELECT} WHERE i.id = ?`).get(id) as
+    | InductionRow
+    | undefined;
+  return row ? toInduction(row) : null;
+}
+
+/** Everyone cleared for out-of-hours use at a venue, newest first. */
+export function listInductions(venueId: number): Induction[] {
+  const rows = getDb()
+    .prepare(`${INDUCTION_SELECT} WHERE i.venue_id = ? ORDER BY i.revoked_at IS NOT NULL, i.created_at DESC`)
+    .all(venueId) as InductionRow[];
+  return rows.map(toInduction);
+}
+
+/**
+ * How many people are inside this venue right now, from door codes and desk
+ * check-ins alike. The honest answer to "will I be on my own in there?".
+ */
+export function presentAtVenue(venueId: number): number {
+  const rows = getDb()
+    .prepare(`
+      SELECT b.date, b.end_hour FROM check_ins ci
+      JOIN bookings b ON b.id = ci.booking_id
+      JOIN courts c ON c.id = b.court_id
+      WHERE c.venue_id = ? AND ci.checked_out_at IS NULL
+        AND b.status = 'confirmed' AND b.date = ?
+    `)
+    .all(venueId, todayISO()) as { date: string; end_hour: number }[];
+  const now = Date.now();
+  return rows.filter((r) => slotStartsAt(r.date, r.end_hour).getTime() > now).length;
+}
+
+// ---------------------------------------------------------------------------
 // Unmanned resources
 //
 // A badminton court at 11 PM does not need anybody standing next to it. A
@@ -1779,7 +1977,30 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
     };
   if (booking.status === "cancelled")
     return { ok: false, reason: "cancelled", message: "This booking was cancelled." };
-  // Nobody is at the door to take the money, so the door is the till.
+
+  const venue = getVenue(court.venueId);
+  if (!venue) return null;
+
+  // During staffed hours the counter does this, and a code handed out then is
+  // a code in circulation for no reason.
+  if (!isUnstaffedHour(venue, booking.startHour))
+    return {
+      ok: false,
+      reason: "staffed-now",
+      message: `Someone is on the desk at that hour. Ask at the counter and they will let you in.`,
+    };
+
+  // Nobody is here to show a stranger where the emergency button is, so that
+  // has to have happened already, in person, while somebody could check it.
+  if (!isInducted(venue.id, booking.phone))
+    return {
+      ok: false,
+      reason: "no-induction",
+      message:
+        "Before using this outside staffed hours you need a one-off run-through at the desk. Drop in while the counter is open and it takes a few minutes.",
+    };
+
+  // Nobody is on site to take the money, so the door is the till.
   if (booking.paymentStatus !== "paid")
     return {
       ok: false,
@@ -1802,8 +2023,6 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
   if (now >= ends)
     return { ok: false, reason: "over", message: "This booking has already ended." };
 
-  const venue = getVenue(court.venueId);
-
   db.transaction(() => {
     db.prepare("INSERT INTO access_reveals (booking_id) VALUES (?)").run(booking.id);
     // Opening the door is the arrival, so there is nothing else to press.
@@ -1817,8 +2036,12 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
     ok: true,
     accessCode: access.code,
     courtName: court.name,
-    venueName: venue?.name ?? "",
+    venueName: venue.name,
     until: formatHour(booking.endHour),
+    emergencyPhone: venue.emergencyPhone,
+    emergencyInfo: venue.emergencyInfo,
+    // Counted after the check-in above, so it includes them.
+    presentNow: presentAtVenue(venue.id),
   };
 }
 
@@ -2254,6 +2477,13 @@ export function updateCourt(
   }
   if (unmanned && newCode === null)
     return { ok: false, error: "An unmanned resource needs a door code. Set one first." };
+  // Drowning is silent and fast. This is the one refusal a venue cannot talk
+  // its way past, however good the rest of its arrangements are.
+  if (unmanned && NEVER_UNMANNED.includes(court.sport))
+    return {
+      ok: false,
+      error: `${SPORT_LABELS[court.sport]} cannot be left unmanned — someone has to be watching the water.`,
+    };
   // A deposit is a person looking at a hull. There is nobody to hand the
   // kayak to, nobody to look it over, and nobody to hold the money.
   if (unmanned && deposit > 0)
@@ -3512,6 +3742,12 @@ export function payBookingWithPass(bookingId: number, passCode: string): PassPay
  * since "+60 12-345 6789" and "012-345 6789" are the same phone. No national
  * prefix starts 60, so stripping it is unambiguous.
  */
+/** Empty is the same as unset for optional text a venue types in. */
+function nullIfBlank(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
 function normalisePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return digits.startsWith("60") && digits.length >= 10 ? `0${digits.slice(2)}` : digits;

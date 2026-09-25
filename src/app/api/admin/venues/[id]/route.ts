@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { updateVenue } from "@/lib/store";
-import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, OPEN_HOUR } from "@/lib/types";
+import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,10 @@ export async function PATCH(
     cancelCutoffHours?: number;
     openHour?: number;
     closeHour?: number;
+    staffedFrom?: number | null;
+    staffedTo?: number | null;
+    emergencyPhone?: string | null;
+    emergencyInfo?: string | null;
   } = {};
   for (const field of FIELDS) {
     const value = input[field];
@@ -65,6 +69,35 @@ export async function PATCH(
         { status: 400 }
       );
     changes[field] = value as number;
+  }
+
+  // null on both ends means "always staffed", which is every venue by default.
+  for (const field of ["staffedFrom", "staffedTo"] as const) {
+    const value = input[field];
+    if (value === undefined) continue;
+    if (value === null) {
+      changes[field] = null;
+      continue;
+    }
+    if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 24)
+      return NextResponse.json(
+        { error: "A staffed hour must be a whole hour between 0 and 24." },
+        { status: 400 }
+      );
+    changes[field] = value as number;
+  }
+
+  for (const field of ["emergencyPhone", "emergencyInfo"] as const) {
+    const value = input[field];
+    if (value === undefined) continue;
+    if (value !== null && typeof value !== "string")
+      return NextResponse.json({ error: `${field} must be text, or null.` }, { status: 400 });
+    if (typeof value === "string" && value.length > MAX_EMERGENCY_INFO)
+      return NextResponse.json(
+        { error: `That is too long — keep it under ${MAX_EMERGENCY_INFO} characters.` },
+        { status: 400 }
+      );
+    changes[field] = value as string | null;
   }
 
   if (Object.keys(changes).length === 0)

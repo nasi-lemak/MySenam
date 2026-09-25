@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -8,13 +8,18 @@ import {
   courtAccess,
   createBooking,
   createCourt,
+  isInducted,
   listAccessReveals,
+  listInductions,
   listVenues,
+  recordInduction,
+  revokeInduction,
   setPaymentStatus,
   updateCourt,
+  updateVenue,
 } from "../src/lib/store";
 import { todayISO } from "../src/lib/time";
-import { ACCESS_CODE_STALE_DAYS } from "../src/lib/types";
+import { ACCESS_CODE_STALE_DAYS, isUnstaffedHour } from "../src/lib/types";
 
 const VENUE = () => listVenues()[0];
 
@@ -40,6 +45,20 @@ function unmannedCourt(code = "4821") {
   const opened = updateCourt(made.id, { unmanned: true, accessCode: code });
   if (!opened.ok) throw new Error(opened.error);
   return opened.court;
+}
+
+/** Take the counter away entirely, which is the simplest unstaffed venue. */
+function neverStaffed() {
+  const done = updateVenue(VENUE().id, { staffedFrom: 0, staffedTo: 0 });
+  if (!done.ok) throw new Error(done.error);
+  return done.venue;
+}
+
+/** Somebody staff have shown round, which out-of-hours use depends on. */
+function induct(phone: string, name = "Player") {
+  const done = recordInduction({ venueId: VENUE().id, phone, name });
+  if (!done.ok) throw new Error(done.error);
+  return done.induction;
 }
 
 function bookRunningNow(courtId: number, phone: string, hour = 12) {
@@ -130,9 +149,15 @@ describe("setting a resource unmanned", () => {
 });
 
 describe("being let in", () => {
+  // The whole venue runs without a counter, which is the plainest case.
+  beforeEach(() => {
+    neverStaffed();
+  });
+
   it("gives a paid customer the code inside their hour, and checks them in", () => {
     const open = unmannedCourt("7788");
     const booking = bookRunningNow(open.id, "0160000001");
+    induct("0160000001");
     setPaymentStatus(booking.code, true);
 
     const got = accessCodeFor(booking.code, "0160000001");
@@ -151,6 +176,7 @@ describe("being let in", () => {
   it("withholds it until the booking is paid", () => {
     const open = unmannedCourt();
     const booking = bookRunningNow(open.id, "0160000002");
+    induct("0160000002");
 
     const before = accessCodeFor(booking.code, "0160000002")!;
     expect(before.ok).toBe(false);
@@ -167,6 +193,7 @@ describe("being let in", () => {
     vi.useRealTimers();
     const open = unmannedCourt();
     const booking = bookRunningNow(open.id, "0160000003", 14);
+    induct("0160000003");
     setPaymentStatus(booking.code, true);
     const date = booking.date;
 
@@ -184,6 +211,7 @@ describe("being let in", () => {
   it("withholds it from a cancelled booking", () => {
     const open = unmannedCourt();
     const booking = bookRunningNow(open.id, "0160000004");
+    induct("0160000004");
     setPaymentStatus(booking.code, true);
     adminCancelBooking(booking.code);
 
@@ -195,6 +223,7 @@ describe("being let in", () => {
   it("says plainly that a staffed court has no code", () => {
     const staffed = court();
     const booking = bookRunningNow(staffed.id, "0160000005");
+    induct("0160000005");
     setPaymentStatus(booking.code, true);
 
     const got = accessCodeFor(booking.code, "0160000005")!;
@@ -208,6 +237,7 @@ describe("being let in", () => {
   it("needs the right phone number, and nothing else", () => {
     const open = unmannedCourt();
     const booking = bookRunningNow(open.id, "0160000006");
+    induct("0160000006");
     setPaymentStatus(booking.code, true);
 
     expect(accessCodeFor(booking.code, "0169999999")).toBeNull();
@@ -219,6 +249,7 @@ describe("being let in", () => {
   it("logs every look, not just the first", () => {
     const open = unmannedCourt();
     const booking = bookRunningNow(open.id, "0160000007");
+    induct("0160000007");
     setPaymentStatus(booking.code, true);
 
     accessCodeFor(booking.code, "0160000007");
@@ -232,7 +263,173 @@ describe("being let in", () => {
   it("logs nothing when the code is withheld", () => {
     const open = unmannedCourt();
     const booking = bookRunningNow(open.id, "0160000008");
+    induct("0160000008");
     accessCodeFor(booking.code, "0160000008");
     expect(listAccessReveals(VENUE().id).filter((r) => r.bookingCode === booking.code)).toHaveLength(0);
+  });
+});
+
+describe("staffed hours", () => {
+  it("reads a plain window, a wrapping one, always and never", () => {
+    const always = { staffedFrom: null, staffedTo: null };
+    expect(isUnstaffedHour(always, 3)).toBe(false);
+    expect(isUnstaffedHour(always, 14)).toBe(false);
+
+    const never = { staffedFrom: 9, staffedTo: 9 };
+    expect(isUnstaffedHour(never, 9)).toBe(true);
+    expect(isUnstaffedHour(never, 22)).toBe(true);
+
+    // Counter open 9am to 6pm.
+    const daytime = { staffedFrom: 9, staffedTo: 18 };
+    expect(isUnstaffedHour(daytime, 8)).toBe(true);
+    expect(isUnstaffedHour(daytime, 9)).toBe(false);
+    expect(isUnstaffedHour(daytime, 17)).toBe(false);
+    expect(isUnstaffedHour(daytime, 18)).toBe(true);
+
+    // A counter that opens in the evening and closes after midnight.
+    const overnight = { staffedFrom: 22, staffedTo: 6 };
+    expect(isUnstaffedHour(overnight, 23)).toBe(false);
+    expect(isUnstaffedHour(overnight, 2)).toBe(false);
+    expect(isUnstaffedHour(overnight, 12)).toBe(true);
+  });
+
+  it("sends the customer to the counter during staffed hours", () => {
+    const open = unmannedCourt();
+    const booking = bookRunningNow(open.id, "0161000001", 12);
+    induct("0161000001");
+    setPaymentStatus(booking.code, true);
+
+    // Staffed right across the booked hour.
+    const staffed = updateVenue(VENUE().id, { staffedFrom: 8, staffedTo: 20 });
+    expect(staffed.ok).toBe(true);
+    const denied = accessCodeFor(booking.code, "0161000001")!;
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.reason).toBe("staffed-now");
+      expect(denied.message).toContain("counter");
+    }
+
+    // The same booking, once the counter has shut for the evening.
+    updateVenue(VENUE().id, { staffedFrom: 8, staffedTo: 11 });
+    expect(accessCodeFor(booking.code, "0161000001")!.ok).toBe(true);
+  });
+
+  it("wants both ends of the window or neither", () => {
+    // From a venue with no window set, half a window is not a window.
+    updateVenue(VENUE().id, { staffedFrom: null, staffedTo: null });
+    const half = updateVenue(VENUE().id, { staffedFrom: 9 });
+    expect(half.ok).toBe(false);
+    if (!half.ok) expect(half.error).toContain("both ends");
+    expect(updateVenue(VENUE().id, { staffedFrom: 9, staffedTo: 18 }).ok).toBe(true);
+    expect(updateVenue(VENUE().id, { staffedFrom: null, staffedTo: null }).ok).toBe(true);
+  });
+});
+
+describe("inductions", () => {
+  beforeEach(() => {
+    neverStaffed();
+  });
+
+  it("refuses the code to somebody staff have never met", () => {
+    const open = unmannedCourt();
+    const booking = bookRunningNow(open.id, "0162000001");
+    setPaymentStatus(booking.code, true);
+
+    const denied = accessCodeFor(booking.code, "0162000001")!;
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.reason).toBe("no-induction");
+      expect(denied.message).toContain("run-through at the desk");
+    }
+
+    induct("0162000001");
+    expect(accessCodeFor(booking.code, "0162000001")!.ok).toBe(true);
+  });
+
+  it("matches the person however they wrote their number", () => {
+    induct("012-345 6789", "Aminah");
+    expect(isInducted(VENUE().id, "+60 12-345 6789")).toBe(true);
+    expect(isInducted(VENUE().id, "0123456789")).toBe(true);
+    expect(isInducted(VENUE().id, "0129999999")).toBe(false);
+  });
+
+  it("keeps one line per person, and revives it rather than duplicating", () => {
+    const first = induct("0162000002", "Ravi");
+    expect(recordInduction({ venueId: VENUE().id, phone: "0162000002", name: "Ravi" }).ok).toBe(
+      false
+    );
+
+    expect(revokeInduction(first.id).ok).toBe(true);
+    expect(isInducted(VENUE().id, "0162000002")).toBe(false);
+    expect(revokeInduction(first.id).ok).toBe(false);
+
+    const again = induct("0162000002", "Ravi");
+    expect(again.id).toBe(first.id);
+    expect(again.revokedAt).toBeNull();
+    expect(
+      listInductions(VENUE().id).filter((i) => i.phone === "0162000002")
+    ).toHaveLength(1);
+  });
+
+  it("shuts the door again the moment access is withdrawn", () => {
+    const open = unmannedCourt();
+    const booking = bookRunningNow(open.id, "0162000003");
+    const record = induct("0162000003");
+    setPaymentStatus(booking.code, true);
+    expect(accessCodeFor(booking.code, "0162000003")!.ok).toBe(true);
+
+    revokeInduction(record.id);
+    const denied = accessCodeFor(booking.code, "0162000003")!;
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.reason).toBe("no-induction");
+  });
+
+  it("is per venue, not per platform", () => {
+    induct("0162000004", "Chong");
+    const other = listVenues().find((v) => v.id !== VENUE().id)!;
+    expect(isInducted(other.id, "0162000004")).toBe(false);
+  });
+});
+
+describe("what the door screen carries", () => {
+  beforeEach(() => {
+    neverStaffed();
+  });
+
+  it("hands over the emergency details and says who else is inside", () => {
+    updateVenue(VENUE().id, {
+      emergencyPhone: "+60 12-999 0000",
+      emergencyInfo: "AED on the wall by the main door.",
+    });
+    const open = unmannedCourt();
+    const booking = bookRunningNow(open.id, "0163000001");
+    induct("0163000001");
+    setPaymentStatus(booking.code, true);
+
+    const got = accessCodeFor(booking.code, "0163000001")!;
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.emergencyPhone).toBe("+60 12-999 0000");
+    expect(got.emergencyInfo).toContain("AED");
+    // They are counted, so being on your own reads as one rather than none.
+    expect(got.presentNow).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("what can never run itself", () => {
+  it("refuses to leave a pool unmanned", () => {
+    const pool = createCourt({
+      venueId: VENUE().id,
+      name: "Lap Pool (test)",
+      sport: "swimming",
+      offPeakRate: 4,
+      peakRate: 6,
+      capacity: 10,
+    });
+    if (!pool.ok) throw new Error(pool.error);
+
+    const bad = updateCourt(pool.court.id, { unmanned: true, accessCode: "1234" });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toContain("watching the water");
   });
 });

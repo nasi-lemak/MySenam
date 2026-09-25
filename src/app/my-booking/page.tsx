@@ -19,7 +19,13 @@ export default function MyBookingPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The door code for an unmanned court, once asked for.
-  const [door, setDoor] = useState<{ accessCode: string; until: string } | null>(null);
+  const [door, setDoor] = useState<{
+    accessCode: string;
+    until: string;
+    emergencyPhone: string | null;
+    emergencyInfo: string | null;
+    presentNow: number;
+  } | null>(null);
   const [doorError, setDoorError] = useState<string | null>(null);
 
   async function lookup(e: React.FormEvent) {
@@ -59,7 +65,13 @@ export default function MyBookingPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not get the code");
-      setDoor({ accessCode: data.accessCode, until: data.until });
+      setDoor({
+        accessCode: data.accessCode,
+        until: data.until,
+        emergencyPhone: data.emergencyPhone,
+        emergencyInfo: data.emergencyInfo,
+        presentNow: data.presentNow,
+      });
     } catch (err) {
       setDoorError(err instanceof Error ? err.message : "Could not get the code");
     } finally {
@@ -196,7 +208,34 @@ export default function MyBookingPage() {
                         Yours until {door.until}. Please do not pass it on.
                       </p>
                     </div>
-                  ) : (
+                  ) : null}
+                  {door && (
+                    <div className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2.5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                        If something goes wrong
+                      </p>
+                      <p className="mt-1 text-xs text-slate-700">
+                        Emergency services: <strong>999</strong>
+                        {door.emergencyPhone && (
+                          <>
+                            {" · "}Venue:{" "}
+                            <a href={`tel:${door.emergencyPhone}`} className="font-semibold underline">
+                              {door.emergencyPhone}
+                            </a>
+                          </>
+                        )}
+                      </p>
+                      {door.emergencyInfo && (
+                        <p className="mt-1 text-xs text-slate-600">{door.emergencyInfo}</p>
+                      )}
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        {door.presentNow <= 1
+                          ? "You are the only person checked in right now. Tell someone where you are."
+                          : `${door.presentNow} people are checked in right now, including you.`}
+                      </p>
+                    </div>
+                  )}
+                  {!door && (
                     <button
                       onClick={getDoorCode}
                       disabled={busy}

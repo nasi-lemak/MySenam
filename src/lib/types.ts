@@ -48,6 +48,30 @@ export interface Venue {
   /** Trading hours: the first bookable hour, and when the last one ends. */
   openHour: number;
   closeHour: number;
+  /**
+   * When somebody is behind the counter. null for both means always staffed;
+   * equal values mean never staffed. Outside the window is an unstaffed hour,
+   * which is when self-entry applies.
+   */
+  staffedFrom: number | null;
+  staffedTo: number | null;
+  /** Shown to anyone letting themselves in. */
+  emergencyPhone: string | null;
+  emergencyInfo: string | null;
+}
+
+/** True when nobody is behind the counter at this hour. */
+export function isUnstaffedHour(
+  venue: Pick<Venue, "staffedFrom" | "staffedTo">,
+  hour: number
+): boolean {
+  const { staffedFrom: from, staffedTo: to } = venue;
+  if (from === null || to === null) return false; // always staffed
+  if (from === to) return true; // never staffed
+  return from < to
+    ? hour < from || hour >= to
+    : // A window that wraps past midnight, such as 22:00–06:00.
+      hour < from && hour >= to;
 }
 
 /** A whole day a venue is shut. */
@@ -95,6 +119,9 @@ export function isHire(court: Pick<Court, "deposit">): boolean {
   return court.deposit > 0;
 }
 
+/** Keeps the emergency note to something readable on a phone at midnight. */
+export const MAX_EMERGENCY_INFO = 300;
+
 /** The longest a door code should go unchanged before staff are nagged. */
 export const ACCESS_CODE_STALE_DAYS = 30;
 
@@ -105,12 +132,55 @@ export const MAX_ACCESS_CODE = 12;
  * Why a door code is being withheld. Each one is a thing the customer can
  * act on, so the reason travels with the refusal rather than a bare no.
  */
-export type AccessDenial = "not-unmanned" | "cancelled" | "unpaid" | "too-early" | "over";
+export type AccessDenial =
+  | "not-unmanned"
+  | "staffed-now"
+  | "no-induction"
+  | "cancelled"
+  | "unpaid"
+  | "too-early"
+  | "over";
+
+/**
+ * Sports that may never be left to run themselves, whatever a venue asks for.
+ *
+ * Drowning is silent and fast, which is why the 24-hour chains sell gym floors
+ * and not lap pools. A gym is a different matter: unstaffed gyms are a proven
+ * model worldwide, and what makes them work is the induction, the emergency
+ * button and the equipment, not a member of staff watching.
+ */
+export const NEVER_UNMANNED: Sport[] = ["swimming"];
 
 /** What a customer gets back when asking to be let in. */
 export type AccessResult =
-  | { ok: true; accessCode: string; courtName: string; venueName: string; until: string }
+  | {
+      ok: true;
+      accessCode: string;
+      courtName: string;
+      venueName: string;
+      until: string;
+      /** What to do, and who to ring, while standing inside an empty building. */
+      emergencyPhone: string | null;
+      emergencyInfo: string | null;
+      /**
+       * How many people are checked in at this venue right now, this one
+       * included. 1 means they are alone in the building.
+       */
+      presentNow: number;
+    }
   | { ok: false; reason: AccessDenial; message: string };
+
+/** One person cleared by staff to use a venue outside staffed hours. */
+export interface Induction {
+  id: number;
+  venueId: number;
+  phone: string;
+  name: string;
+  adminName: string | null;
+  note: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+}
 
 export function isShared(court: Pick<Court, "capacity">): boolean {
   return court.capacity > 1;

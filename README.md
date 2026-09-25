@@ -19,7 +19,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
-- **Unmanned resources** — a resource can be left on a keypad with nobody at the door; customers with a *paid* booking are shown the code an hour before their slot, every reveal is logged against the booking, and opening the door counts as checking in. Set per resource, not per venue, so a centre can run its courts unattended overnight while the kayak counter keeps someone on it
+- **Unstaffed hours** — a venue says when somebody is behind the counter, and a resource says whether it may be used outside that window. Out of hours, a customer who is *inducted* and *paid* is shown the door code an hour before their slot; every reveal is logged against the booking, opening the door counts as checking in, and the entry screen carries the venue's emergency number and who else is inside. Pools can never be left unmanned, and neither can anything hired out against a deposit
 - **Equipment hire** — a resource that leaves the building (a kayak, a paddle set) carries a deposit; the desk hands the kit over against it, and the return records condition, any damage note and anything kept back, with the rest given straight back
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
@@ -34,10 +34,10 @@ equipment hire such as kayaks, and instructor-led classes.
   - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, handing hire kit out and taking it back in, moving a booking to another court, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
-  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, read the door log, add new courts
+  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, induct people for unstaffed hours or withdraw them, read the door log, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
-  - **Venues & staff**: edit venue details, trading hours and the cancellation cutoff, and schedule or lift whole-day closures; owners can also add venues and create/remove staff accounts
+  - **Venues & staff**: edit venue details, trading hours, the staffed window, the emergency details shown to anyone letting themselves in, and the cancellation cutoff, and schedule or lift whole-day closures; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
 ## Tech stack
@@ -134,6 +134,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
 | GET    | `/api/admin/access`           | `?venueId=` → who has been given a door code         |
+| GET    | `/api/admin/inductions`       | `?venueId=` → who may use the venue out of hours     |
+| POST   | `/api/admin/inductions`       | `{venueId, phone, name, note?}` → record an induction |
+| DELETE | `/api/admin/inductions/:id`   | Withdraw someone's out-of-hours access               |
 | GET    | `/api/admin/hire`             | `?venueId=` → kit that is still out                  |
 | POST   | `/api/admin/hire`             | `{code, action:"take", deposit?}` or `{code, action:"return", condition, withheld?, note?}` |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
@@ -159,7 +162,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
 | PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?}` |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
-| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openHour?, closeHour?}` |
+| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openHour?, closeHour?, staffedFrom?, staffedTo?, emergencyPhone?, emergencyInfo?}` |
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
 | POST   | `/api/admin/venues/:id/closures` | `{date, reason?}` → close that whole day          |
 | DELETE | `/api/admin/venues/:id/closures?date=` | Re-open a closed day                        |
@@ -192,7 +195,7 @@ src/
     types.ts          # Shared types & constants
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping, equipment hire,
-                      # unmanned access)
+                      # unstaffed hours and inductions)
 ```
 
 ## Taking some of a shared facility out of service
@@ -221,12 +224,33 @@ a partial one does not remove an hour from the day.
 
 ## Resources nobody is standing next to
 
-A badminton court at 11 PM does not need anyone beside it; a kayak does. So
-`unmanned` is a property of the **resource**, not the venue — a centre can put
-its courts behind a keypad overnight and still keep someone at the counter
-where the hulls are. The two are mutually exclusive in both directions: a
-resource with a deposit cannot be set unmanned, and an unmanned one cannot be
-given a deposit.
+Unstaffed gyms are a proven model — Anytime Fitness, Snap, Jetts, chocoZAP —
+and what makes them work is not an absence of staff but a specific stack:
+staffed hours daily, an induction in person before out-of-hours access, a
+credential tied to one identity, cameras, a duress button, and equipment chosen
+for use with nobody watching. MySenam models the parts of that stack that are
+software.
+
+**Two dials, not one.** A **venue** says when somebody is behind the counter
+(`staffed_from`/`staffed_to`; both `NULL` means always, equal values mean
+never). A **resource** says whether it may be used outside that window
+(`unmanned`). The same gym floor is staffed at 10 AM and unstaffed at midnight,
+which is how these places really run, and a centre can leave its courts
+unattended overnight while the kayak counter keeps someone on it.
+
+Two combinations are refused outright, whatever a venue asks for:
+
+- **Swimming** (`NEVER_UNMANNED`). Drowning is silent and fast, which is why
+  the 24-hour chains sell gym floors and not lap pools.
+- **Anything hired out against a deposit.** There is nobody to hold the money
+  and nobody to look at the hull when it comes back.
+
+**MySenam does not open the door.** It relays a code that staff have programmed
+into the lock, and the lock stays the source of truth. Generating or rotating a
+code here would be worse than useless: the lock would not know about it, and
+the court would be unopenable by the one person entitled to be inside. Staff
+type in what they set; MySenam stamps when it changed and nags after
+`ACCESS_CODE_STALE_DAYS`.
 
 **MySenam does not open the door.** It relays a code that staff have programmed
 into the lock, and the lock stays the source of truth. Generating or rotating a
@@ -240,6 +264,8 @@ Who gets the code, and when:
 | Condition | Why |
 | --------- | --- |
 | The resource is unmanned and has a code | Otherwise there is nothing to give, and the customer is told someone will let them in |
+| The booked hour is **unstaffed** | During staffed hours the counter does this, and a code handed out then is a code in circulation for no reason |
+| The customer has been **inducted** at that venue | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person |
 | The booking is not cancelled | — |
 | **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
 | Inside the check-in window | The same hour before the slot that check-in already uses |
@@ -248,7 +274,15 @@ Who gets the code, and when:
 Each refusal carries its own `reason`, so the customer is told what to do about
 it rather than getting a flat no.
 
-Three consequences worth stating plainly:
+**Inductions** are the part that turns unstaffed hours from reckless into
+insurable, so they are recorded by a named operator and can never be
+self-declared: `POST /api/admin/inductions` takes the admin from the session,
+not the body. One row per person per venue, revived rather than duplicated if
+access is withdrawn and later restored, matched on a normalised phone number so
+`+60 12-345 6789` and `012-345 6789` are the same person. Withdrawing access
+shuts the door on the next request.
+
+Four consequences worth stating plainly:
 
 - **Every reveal is written down**, one row per look, with the booking, name and
   phone behind it. When a court is found in a state on Tuesday night, "who had
@@ -257,6 +291,11 @@ Three consequences worth stating plainly:
 - **Opening the door is the arrival.** The reveal checks the customer in, so
   *Here right now* stays honest and no-shows stay meaningful with nobody at a
   desk to press a button.
+- **The entry screen carries the emergency details.** The venue's out-of-hours
+  number and whatever it wants people to know — where the AED is, the nearest
+  clinic — plus how many people are checked in right now, so somebody letting
+  themselves into an empty building at 2 AM knows they are on their own. It is
+  the one screen you know they are looking at while standing inside.
 - **The code never travels with the court.** `Court` is served by the public
   `/api/venues` and availability routes, so it carries `unmanned` but never the
   code itself; the code is only ever read through an admin route or handed to
@@ -677,10 +716,15 @@ push and pull request (Node 22, `npm ci`).
 
 ## Roadmap ideas
 
-- Per-booking door PINs through a smart-lock vendor (TTLock, Igloohome — whose
+- Per-member credentials through a smart-lock vendor (TTLock, Igloohome — whose
   offline algoPIN would suit a door with no wifi), so an unmanned resource can
-  issue one code per customer instead of one code per lock. Blocked on vendor
-  credentials; the customer-facing screen is already the right shape for it
+  issue one credential per person instead of one code per lock. This is what
+  the 24-hour chains use instead of a shared code, and it is the single biggest
+  remaining gap. Blocked on vendor credentials; the induction record and the
+  customer-facing screen are already the right shape for it
+- A turnstile rather than a door, which is the only real answer to tailgating:
+  one credential, one body. Software can attribute an entry; it cannot stop
+  five people walking in behind one of them
 - Turnstile or access-gate integration, so entry is physically gated rather
   than trusted
 - Online top-ups, so credit can be bought without visiting a counter

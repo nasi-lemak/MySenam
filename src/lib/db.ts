@@ -38,7 +38,18 @@ export function getDb(): Database.Database {
       -- Trading hours: first bookable hour starts at open_hour, the last one
       -- ends at close_hour.
       open_hour INTEGER NOT NULL DEFAULT 8,
-      close_hour INTEGER NOT NULL DEFAULT 23
+      close_hour INTEGER NOT NULL DEFAULT 23,
+      -- When somebody is actually behind the counter. NULL for both means
+      -- always staffed, which is every venue until it says otherwise. Equal
+      -- values mean never staffed. Anything outside the window is an
+      -- unstaffed hour: the same gym floor is staffed at 10am and not at
+      -- midnight, which is how these places really run.
+      staffed_from INTEGER,
+      staffed_to INTEGER,
+      -- Shown to anyone letting themselves in, on the screen they are already
+      -- looking at while standing inside the building.
+      emergency_phone TEXT,
+      emergency_info TEXT
     );
 
     -- Whole days a venue is shut: a public holiday, a private hire, a refit.
@@ -175,6 +186,24 @@ export function getDb(): Database.Database {
       booking_id INTEGER NOT NULL UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
       checked_in_at TEXT NOT NULL DEFAULT (datetime('now')),
       checked_out_at TEXT
+    );
+
+    -- A person has been shown round this venue by staff, in person: rules,
+    -- the emergency button, what not to do on a rack with nobody watching.
+    -- Identity and age are checked at the same time, which is why this is
+    -- recorded by an operator and never self-declared.
+    CREATE TABLE IF NOT EXISTS inductions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+      -- Stored normalised, so the country code cannot split one person in two.
+      phone TEXT NOT NULL,
+      name TEXT NOT NULL,
+      -- Which operator saw them, so a waved-through induction has a name on it.
+      admin_id INTEGER REFERENCES admins(id),
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      revoked_at TEXT,
+      UNIQUE (venue_id, phone)
     );
 
     -- Every time a door code was shown to a customer. Append-only, one row
@@ -408,6 +437,15 @@ function migrate(db: Database.Database) {
   const depositCols = db.prepare("PRAGMA table_info(courts)").all() as { name: string }[];
   if (depositCols.length > 0 && !depositCols.some((c) => c.name === "deposit")) {
     db.exec("ALTER TABLE courts ADD COLUMN deposit INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const staffCols = db.prepare("PRAGMA table_info(venues)").all() as { name: string }[];
+  if (staffCols.length > 0 && !staffCols.some((c) => c.name === "staffed_from")) {
+    // NULL on every existing row: every venue is staffed until it says so.
+    db.exec("ALTER TABLE venues ADD COLUMN staffed_from INTEGER");
+    db.exec("ALTER TABLE venues ADD COLUMN staffed_to INTEGER");
+    db.exec("ALTER TABLE venues ADD COLUMN emergency_phone TEXT");
+    db.exec("ALTER TABLE venues ADD COLUMN emergency_info TEXT");
   }
 
   // Unmanned access. Same ordering rule again.

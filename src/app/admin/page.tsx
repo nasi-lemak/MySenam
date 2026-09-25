@@ -10,6 +10,7 @@ import {
   MAX_CLASS_WEEKS,
   ACCESS_CODE_STALE_DAYS,
   MAX_ACCESS_CODE,
+  MAX_EMERGENCY_INFO,
   MAX_DEPOSIT,
   MAX_HIRE_NOTE,
   HIRE_CONDITION_LABELS,
@@ -19,6 +20,7 @@ import {
   SPORT_LABELS,
   WalletEntry,
   MAX_PASS_ENTRIES,
+  Induction,
   Membership,
   MAX_PROMO_AMOUNT,
   MAX_PROMO_PERCENT,
@@ -1390,6 +1392,8 @@ function CourtsTab({
           ))}
       </div>
 
+      <InductionsPanel venueId={venueId} />
+
       <form
         onSubmit={addCourt}
         className="flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-4"
@@ -2103,6 +2107,10 @@ function VenueRow({
     cancelCutoffHours: venue.cancelCutoffHours,
     openHour: venue.openHour,
     closeHour: venue.closeHour,
+    staffedFrom: venue.staffedFrom,
+    staffedTo: venue.staffedTo,
+    emergencyPhone: venue.emergencyPhone ?? "",
+    emergencyInfo: venue.emergencyInfo ?? "",
   });
   const dirty =
     fields.name !== venue.name ||
@@ -2111,7 +2119,15 @@ function VenueRow({
     fields.phone !== venue.phone ||
     fields.cancelCutoffHours !== venue.cancelCutoffHours ||
     fields.openHour !== venue.openHour ||
-    fields.closeHour !== venue.closeHour;
+    fields.closeHour !== venue.closeHour ||
+    fields.staffedFrom !== venue.staffedFrom ||
+    fields.staffedTo !== venue.staffedTo ||
+    fields.emergencyPhone !== (venue.emergencyPhone ?? "") ||
+    fields.emergencyInfo !== (venue.emergencyInfo ?? "");
+
+  // null on both ends is the default and means somebody is always here.
+  const alwaysStaffed = fields.staffedFrom === null || fields.staffedTo === null;
+  const neverStaffed = !alwaysStaffed && fields.staffedFrom === fields.staffedTo;
 
   const inputClass =
     "rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none";
@@ -2192,6 +2208,92 @@ function VenueRow({
           className={`mt-1 w-24 ${inputClass}`}
         />
       </label>
+      <div className="w-full border-t border-slate-100 pt-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <p className="text-xs font-semibold text-slate-700">Somebody on the counter</p>
+            <p className="text-xs text-slate-500">
+              Outside these hours the venue runs itself: only resources you have marked unmanned
+              can be used, and only by people you have inducted.
+            </p>
+          </div>
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            From
+            <select
+              value={fields.staffedFrom ?? ""}
+              onChange={(e) =>
+                setFields({
+                  ...fields,
+                  staffedFrom: e.target.value === "" ? null : Number(e.target.value),
+                  staffedTo: e.target.value === "" ? null : (fields.staffedTo ?? fields.closeHour),
+                })
+              }
+              className={`mt-1 w-28 ${inputClass}`}
+            >
+              <option value="">Always</option>
+              {HOUR_CHOICES.map((h) => (
+                <option key={h} value={h}>
+                  {formatHour(h)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            To
+            <select
+              value={fields.staffedTo ?? ""}
+              disabled={fields.staffedFrom === null}
+              onChange={(e) =>
+                setFields({
+                  ...fields,
+                  staffedTo: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              className={`mt-1 w-28 ${inputClass} disabled:bg-slate-50`}
+            >
+              <option value="">Always</option>
+              {HOUR_CHOICES.map((h) => (
+                <option key={h} value={h}>
+                  {formatHour(h)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="pb-1.5 text-xs font-medium text-slate-500">
+            {alwaysStaffed
+              ? "Somebody is here whenever you are open."
+              : neverStaffed
+                ? "Nobody is ever on the counter here."
+                : `Unstaffed outside ${formatHour(fields.staffedFrom!)}–${formatHour(fields.staffedTo!)}.`}
+          </span>
+        </div>
+
+        {!alwaysStaffed && (
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              Emergency number
+              <input
+                value={fields.emergencyPhone}
+                onChange={(e) => setFields({ ...fields, emergencyPhone: e.target.value })}
+                placeholder="+60 12-345 6789"
+                title="Shown to anybody letting themselves in. A number that is answered at 2 AM."
+                className={`mt-1 w-40 ${inputClass}`}
+              />
+            </label>
+            <label className="flex flex-1 flex-col text-xs font-medium text-slate-500">
+              What to tell them
+              <input
+                value={fields.emergencyInfo}
+                maxLength={MAX_EMERGENCY_INFO}
+                onChange={(e) => setFields({ ...fields, emergencyInfo: e.target.value })}
+                placeholder="AED on the wall by the main door. Nearest clinic: Klinik Kesihatan SS2, 5 min."
+                className={`mt-1 w-full min-w-[16rem] ${inputClass}`}
+              />
+            </label>
+          </div>
+        )}
+      </div>
+
       <span className="text-xs text-slate-400">{venue.courts.length} courts</span>
       <button
         disabled={!dirty}
@@ -3507,5 +3609,173 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Who may use this venue when nobody is on the counter.
+ *
+ * The induction is the thing that makes unstaffed hours defensible rather than
+ * reckless: somebody was shown the emergency button, the rules and the way out,
+ * in person, by a named member of staff. So it is recorded here and never by
+ * the customer.
+ */
+function InductionsPanel({ venueId }: { venueId: number }) {
+  const [inductions, setInductions] = useState<Induction[] | null>(null);
+  const [form, setForm] = useState({ phone: "", name: "", note: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/inductions?venueId=${venueId}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not load inductions");
+      setInductions(data.inductions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load inductions");
+      setInductions(null);
+    }
+  }, [venueId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/inductions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, ...form }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not record the induction");
+      setNotice(`${data.induction.name} can now use this venue out of hours.`);
+      setForm({ phone: "", name: "", note: "" });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not record the induction");
+    }
+  }
+
+  async function revoke(induction: Induction) {
+    if (!window.confirm(`Withdraw out-of-hours access for ${induction.name}?`)) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/inductions/${induction.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not withdraw access");
+      setNotice(`${induction.name} can no longer get in out of hours.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not withdraw access");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <p className="text-sm font-semibold">Cleared for unstaffed hours</p>
+      <p className="text-xs text-slate-500">
+        Record this after you have walked somebody round in person: the emergency button, the
+        rules, and their IC. Nobody gets a door code out of hours without it.
+      </p>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2">
+        <input
+          required
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="Name"
+          className="w-40 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <input
+          required
+          value={form.phone}
+          onChange={(e) => setForm({ ...form, phone: e.target.value })}
+          placeholder="012-345 6789"
+          className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <input
+          value={form.note}
+          onChange={(e) => setForm({ ...form, note: e.target.value })}
+          placeholder="IC checked, shown the alarm"
+          className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
+        >
+          Record induction
+        </button>
+      </form>
+
+      {inductions !== null &&
+        (inductions.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            Nobody is cleared for unstaffed hours here yet.
+          </p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                  {["Name", "Phone", "Inducted", "By", "Note", ""].map((h, i) => (
+                    <th key={i} className="px-3 py-2 font-semibold">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {inductions.map((i) => (
+                  <tr
+                    key={i.id}
+                    className={`border-b border-slate-100 last:border-0 ${
+                      i.revokedAt ? "text-slate-400" : ""
+                    }`}
+                  >
+                    <td className="px-3 py-2 font-medium">{i.name}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{i.phone}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{localTime(i.createdAt)}</td>
+                    <td className="px-3 py-2">{i.adminName ?? "—"}</td>
+                    <td className="px-3 py-2 text-slate-500">{i.note ?? "—"}</td>
+                    <td className="px-3 py-2 text-right">
+                      {i.revokedAt ? (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold">
+                          withdrawn
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => revoke(i)}
+                          className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        >
+                          Withdraw
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+    </div>
   );
 }
