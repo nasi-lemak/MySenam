@@ -5,24 +5,31 @@ import path from "path";
 
 let db: Database.Database | null = null;
 
+/**
+ * Where the database lives, without opening it.
+ *
+ * MYSENAM_DB overrides the location (tests use ":memory:"). MUDAHTEMPAH_DB is
+ * the name this variable had before the rename, still honoured so an existing
+ * deployment does not silently start on an empty database.
+ */
+export function databaseFile(): string {
+  const configured = process.env.MYSENAM_DB ?? process.env.MUDAHTEMPAH_DB;
+  if (configured) return configured;
+
+  const dataDir = path.join(process.cwd(), "data");
+  const file = path.join(dataDir, "mysenam.db");
+  // Pick up a database written under the old name rather than seeding a fresh
+  // one beside it.
+  const legacy = path.join(dataDir, "mudahtempah.db");
+  return fs.existsSync(file) || !fs.existsSync(legacy) ? file : legacy;
+}
+
 export function getDb(): Database.Database {
   if (db) return db;
 
-  // MYSENAM_DB overrides the location (tests use ":memory:"). MUDAHTEMPAH_DB
-  // is the name this variable had before the rename, still honoured so an
-  // existing deployment does not silently start on an empty database.
-  const dbPath = process.env.MYSENAM_DB ?? process.env.MUDAHTEMPAH_DB;
-  if (dbPath) {
-    db = new Database(dbPath);
-  } else {
-    const dataDir = path.join(process.cwd(), "data");
-    fs.mkdirSync(dataDir, { recursive: true });
-    const file = path.join(dataDir, "mysenam.db");
-    // Pick up a database written under the old name rather than seeding a
-    // fresh one beside it.
-    const legacy = path.join(dataDir, "mudahtempah.db");
-    db = new Database(fs.existsSync(file) || !fs.existsSync(legacy) ? file : legacy);
-  }
+  const dbPath = databaseFile();
+  if (dbPath !== ":memory:") fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 

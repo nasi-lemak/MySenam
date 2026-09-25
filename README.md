@@ -37,6 +37,7 @@ equipment hire such as kayaks, and instructor-led classes.
   - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, induct people for unstaffed hours or withdraw them, read the door log, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
+  - **Backups** (owner): every snapshot with its age and size, a warning when the newest is over two days old, and a button to take one before a risky change
   - **Venues & staff**: edit venue details, trading hours, the staffed window, the emergency details shown to anyone letting themselves in, and the cancellation cutoff, and schedule or lift whole-day closures; owners can also add venues and create/remove staff accounts
 - **14-day booking window**, Malaysia timezone-aware (past slots on today's date are blocked)
 
@@ -84,10 +85,113 @@ There are two roles:
 Every admin endpoint checks the scope server-side, so a venue operator gets a
 403 for another venue's data even by calling the API directly.
 
+## Deploying
+
+```bash
+npm ci
+npm run build
+npm start          # listens on 3000; put a TLS-terminating proxy in front
+```
+
+### Configuration
+
+Everything is an environment variable; there is nothing else to configure.
+
+| Variable | Default | What it does |
+| -------- | ------- | ------------ |
+| `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
+| `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
+| `MYSENAM_DB` | `data/mysenam.db` | Where the database lives. Put it on a disk that survives a redeploy |
+| `MYSENAM_BACKUP_DIR` | `backups/` beside the database | Where snapshots are written |
+| `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
+| `MUDAHTEMPAH_DB` | — | The old name for `MYSENAM_DB`, still honoured |
+
+On a production start the server warns about a default `ADMIN_PASSWORD` and an
+unset backup directory. It warns rather than refuses, because a venue in the
+middle of a Saturday does not want its booking system declining to boot.
+
+### Behind a proxy
+
+Two things depend on the proxy being configured properly:
+
+- **Session cookies** are marked `Secure` when the request arrived over HTTPS,
+  which is read from the request rather than from a build flag. The proxy must
+  set `X-Forwarded-Proto`, or cookies will not carry the flag.
+- **Rate limits** identify a client by `X-Forwarded-For`. If the proxy does not
+  set it, every request looks like one client and the limits apply to the whole
+  internet at once.
+
+`GET /api/health` answers `{"ok":true}` while the database is readable, and
+`503` when it is not. It deliberately says nothing else — anything reachable by
+the load balancer is reachable by everyone else too.
+
+### Backups
+
+The whole system is one SQLite file. Losing it loses every booking, the credit
+ledger, and the record of who opened which door.
+
+```bash
+npm run backup                       # one snapshot, verified, oldest retired
+npm run backup -- --keep 30          # keep more
+npm run backup -- --dir /mnt/backups # somewhere else
+```
+
+Schedule it, at a quiet hour:
+
+```cron
+0 3 * * *  cd /srv/mysenam && /usr/bin/npm run backup >> /var/log/mysenam-backup.log 2>&1
+```
+
+Each run takes a consistent snapshot with SQLite's own `VACUUM INTO` — safe
+while the app is serving, unlike copying the file, which would catch the WAL
+mid-write. It then **opens the snapshot and checks it**: `PRAGMA
+integrity_check` plus a row count. A snapshot that does not verify is deleted
+rather than kept, and the script exits non-zero so a failing backup shows up as
+a failing cron job instead of a quiet no-op. It writes to a `.tmp` name and
+renames on success, so an interrupted run never leaves a half-file that looks
+real.
+
+A platform owner can see the same list under *Venues & staff → Backups*, take
+one by hand before a risky change, and is told in red when the newest snapshot
+is more than two days old. Venue operators cannot: a backup is every venue's
+data, not one venue's.
+
+**Copy them off the machine.** Snapshots beside the database survive a bad
+deploy and a mistyped `DELETE`; they do not survive the disk. `rsync` the
+backup directory somewhere else on the same schedule.
+
+### Restoring
+
+```bash
+# Stop the app first — swapping the file under a running process ends badly.
+node scripts/restore.mjs data/backups/mysenam-2026-09-26-030000.db --force
+```
+
+The script refuses a file that will not open as a MySenam database, prints what
+it is about to replace and how many bookings are in it, and does nothing at all
+without `--force`. The database it replaces is moved aside rather than deleted,
+because the worst restore is the one that turns out to have used the wrong
+file.
+
+### Upgrading
+
+Migrations are additive and run when the database is opened, so a deploy is
+build, restart, done. **Take a backup first** — `npm run backup` — because a
+migration that rebuilds a table cannot be undone from inside the app.
+
+### What one box gives you
+
+One SQLite file means one writer. WAL mode keeps reads concurrent and a single
+venue will not notice, but scaling out means Postgres, at which point the
+uniqueness constraint that prevents double-booking ports directly. Rate-limit
+counters live in process memory, so several instances each keep their own; that
+wants Redis with the same policies.
+
 ## API
 
 | Method | Path                  | Description                                        |
 | ------ | --------------------- | -------------------------------------------------- |
+| GET    | `/api/health`         | `{ok}` while the database answers, `503` when it does not |
 | GET    | `/api/venues`         | All venues with their courts                        |
 | GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → hourly grid    |
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
@@ -166,6 +270,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
 | POST   | `/api/admin/venues/:id/closures` | `{date, reason?}` → close that whole day          |
 | DELETE | `/api/admin/venues/:id/closures?date=` | Re-open a closed day                        |
+| GET    | `/api/admin/backup`           | Snapshots, and how stale the newest is — **owner only** |
+| POST   | `/api/admin/backup`           | Take one now — **owner only**                        |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
 | POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
@@ -190,12 +296,14 @@ src/
     auth.ts           # Accounts: scrypt passwords + session cookies
     admin-auth.ts     # Operator accounts, sessions and venue scoping
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
+    backup.ts         # Verified SQLite snapshots, retention and staleness
     rate-limit.ts     # Fixed-window limiter for password and code endpoints
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
+scripts/              # backup.mjs and restore.mjs, for cron and for a human
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping, equipment hire,
-                      # unstaffed hours and inductions)
+                      # unstaffed hours, inductions, backups)
 ```
 
 ## Taking some of a shared facility out of service
@@ -725,8 +833,6 @@ push and pull request (Node 22, `npm ci`).
 - A turnstile rather than a door, which is the only real answer to tailgating:
   one credential, one body. Software can attribute an entry; it cannot stop
   five people walking in behind one of them
-- Turnstile or access-gate integration, so entry is physically gated rather
-  than trusted
 - Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
 - Automated WhatsApp/email booking confirmations & reminders

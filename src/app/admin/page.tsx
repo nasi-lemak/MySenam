@@ -1820,6 +1820,8 @@ function VenuesTab({
         </div>
       </section>
 
+      {isOwner && <BackupsPanel />}
+
       {isOwner && (
         <>
           <section>
@@ -3777,5 +3779,148 @@ function InductionsPanel({ venueId }: { venueId: number }) {
           </div>
         ))}
     </div>
+  );
+}
+
+/**
+ * Backups, where the person responsible can see them.
+ *
+ * The schedule does the work; this exists so that "are we backed up?" has an
+ * answer that is not "ssh in and look", and so somebody can take one by hand
+ * before doing something they are not sure about.
+ */
+function BackupsPanel() {
+  const [state, setState] = useState<{
+    backups: { name: string; bytes: number; takenAt: string }[];
+    directory: string;
+    database: string;
+    hoursSinceLast: number | null;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/backup", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not read the backups");
+      setState(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read the backups");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function takeOne() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/backup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Backup failed");
+      setNotice(
+        `${data.file.name} — ${Math.round(data.file.bytes / 1024)} KB, ${data.bookings} bookings.` +
+          (data.pruned.length > 0 ? ` Retired ${data.pruned.length} older.` : "")
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Backup failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stale = state !== null && (state.hoursSinceLast === null || state.hoursSinceLast > 48);
+
+  return (
+    <section>
+      <h2 className="text-lg font-bold">Backups</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Everything every venue has is one file. These are the copies of it.
+      </p>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm">
+            {state === null ? (
+              <span className="text-slate-500">Loading…</span>
+            ) : state.hoursSinceLast === null ? (
+              <span className="font-semibold text-red-700">
+                No backup has ever been taken.
+              </span>
+            ) : (
+              <span className={stale ? "font-semibold text-red-700" : "text-slate-700"}>
+                Newest backup {Math.round(state.hoursSinceLast)} hours old
+                {stale && " — check the schedule is running"}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={takeOne}
+            disabled={busy}
+            className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {busy ? "Taking…" : "Back up now"}
+          </button>
+        </div>
+
+        {state !== null && (
+          <>
+            <p className="mt-2 text-xs text-slate-500">
+              <span className="font-mono">{state.database}</span> →{" "}
+              <span className="font-mono">{state.directory}</span>
+            </p>
+            {state.backups.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">
+                Nothing here yet. Schedule <span className="font-mono">npm run backup</span> daily,
+                and keep a copy somewhere that is not this machine.
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[420px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                      {["Taken", "File", "Size"].map((h) => (
+                        <th key={h} className="px-3 py-2 font-semibold">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.backups.map((b) => (
+                      <tr key={b.name} className="border-b border-slate-100 last:border-0">
+                        <td className="whitespace-nowrap px-3 py-2">{b.takenAt}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{b.name}</td>
+                        <td className="whitespace-nowrap px-3 py-2">
+                          {Math.round(b.bytes / 1024)} KB
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
