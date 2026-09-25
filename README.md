@@ -34,6 +34,7 @@ equipment hire such as kayaks, and instructor-led classes.
   - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, handing hire kit out and taking it back in, moving a booking to another court, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
+  - **Reports**: any period up to 400 days — collected, still owed, how full, cancellations and no-shows; revenue by month, by sport and by court; hours sold by time of day; and what the venue still owes in unspent pass entries and live memberships
   - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, induct people for unstaffed hours or withdraw them, read the door log, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
@@ -262,6 +263,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/blocks`           | `{courtId, date, hours[], reason?}` → block slots    |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, hours[]}` → release blocked slots   |
 | GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → booked/blocked counts     |
+| GET    | `/api/admin/reports`          | `?venueId=&from=&to=` → the period report            |
 | POST   | `/api/admin/courts`           | `{venueId, name, sport, offPeakRate, peakRate, capacity?, deposit?}` |
 | GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
 | PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?}` |
@@ -297,13 +299,14 @@ src/
     admin-auth.ts     # Operator accounts, sessions and venue scoping
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
     backup.ts         # Verified SQLite snapshots, retention and staleness
+    reports.ts        # Period reporting: revenue, utilisation, liabilities
     rate-limit.ts     # Fixed-window limiter for password and code endpoints
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
 scripts/              # backup.mjs and restore.mjs, for cron and for a human
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping, equipment hire,
-                      # unstaffed hours, inductions, backups)
+                      # unstaffed hours, inductions, backups, reporting)
 ```
 
 ## Taking some of a shared facility out of service
@@ -414,6 +417,37 @@ Four consequences worth stating plainly:
 The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
 than an ordinary booking lookup, because a booking code plus a phone number is
 now a door.
+
+## Reporting
+
+The daily dashboard answers *what is happening today*. A venue owner asks a
+different set of questions once a month, and before this they could only be
+answered by exporting the database.
+
+Everything is keyed on the date the slot was **played**, not the date the
+booking was taken, because that is how an operator thinks about a month.
+
+- **Revenue** is split into *booked* and *collected*, so the gap between them is
+  the number a venue chases. Cancellations are counted as their own figure
+  rather than folded into revenue: a thin month should read as either "we sold
+  less" or "they cancelled", never an ambiguous total.
+- **Utilisation** measures against hours that could *actually* have been sold —
+  the trading day times capacity, less whole-day closures and any places staff
+  took out of service. Marking a court out for maintenance should not make the
+  venue look idle.
+- **Hours sold by time of day** is the one chart that changes a decision:
+  it shows where peak really is, which is a question about the peak rate.
+- **What you still owe** is the part a spreadsheet usually misses. Unspent pass
+  entries are hours already paid for that somebody can still walk in and take,
+  and lapsing memberships are next month's renewals. Stored credit is shown to
+  the platform owner only, because credit is bought at one counter and
+  spendable at any — the platform owes it, not the venue that sold it.
+
+Two colours carry the whole tab and mean one thing each: teal is money in hand,
+amber is money still owed. The pair is checked for colour-vision separation and
+contrast rather than chosen by eye, both are direct-labelled and legended, and
+every figure is also available as a number, so nothing is readable by colour
+alone.
 
 ## Equipment hire and deposits
 
