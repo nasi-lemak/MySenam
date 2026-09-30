@@ -101,6 +101,18 @@ There are two roles:
 Every admin endpoint checks the scope server-side, so a venue operator gets a
 403 for another venue's data even by calling the API directly.
 
+That is enforced by a test rather than by care. `tests/routes.test.ts` globs
+**every** route under `/api/admin` and `/api/my`, calls each exported method
+with no cookie, and fails on anything that does not answer `401` — so an
+endpoint added without `requireAdmin` fails CI without anybody remembering to
+write a test for it. On top of that sweep, the venue boundary and the
+owner-only routes are checked with real sessions: its own venue `200`, another
+venue `403`, a venue operator on a platform-wide route `403`.
+
+Both halves were confirmed to fail when they should: removing one
+`denyVenue` call, and adding a new admin route with no auth at all, each turn
+the suite red.
+
 ## Deploying
 
 ```bash
@@ -329,10 +341,11 @@ src/
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
 scripts/              # backup.mjs and restore.mjs, for cron and for a human
+vitest.config.mts     # Resolves the @/ alias, so tests can call route handlers
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping, equipment hire,
                       # unstaffed hours, inductions, backups, reporting,
-                      # export, erasure and retention)
+                      # export, erasure, retention, route authorisation)
 ```
 
 ## Taking some of a shared facility out of service
