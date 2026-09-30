@@ -6,6 +6,7 @@ import { CLOSE_HOUR, MAX_EMERGENCY_INFO } from "@/lib/types";
 import type { Venue, VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
+import { MessagesPanel } from "./MessagesPanel";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -103,6 +104,8 @@ export function VenuesTab({
           ))}
         </div>
       </section>
+
+      <MessagesPanel venues={venues} />
 
       {isOwner && <BackupsPanel />}
 

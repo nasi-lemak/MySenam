@@ -161,6 +161,7 @@ describe("a venue operator cannot reach another venue", () => {
     ["promos", () => import("../src/app/api/admin/promos/route")],
     ["memberships", () => import("../src/app/api/admin/memberships/route")],
     ["classes", () => import("../src/app/api/admin/classes/route")],
+    ["messages", () => import("../src/app/api/admin/messages/route")],
   ];
 
   for (const [name, load] of venueScoped) {
@@ -180,6 +181,29 @@ describe("a venue operator cannot reach another venue", () => {
       expect((await GET(req(query(otherVenue), { cookie: asOwner() }))).status).toBe(200);
     });
   }
+});
+
+describe("a venue operator cannot resend another venue's message", () => {
+  it("refuses a message id belonging to the other venue", async () => {
+    const { enqueue } = await import("../src/lib/outbox");
+    const theirs = enqueue({
+      venueId: otherVenue,
+      kind: "booking_confirmed",
+      channel: "whatsapp",
+      recipient: "0123456789",
+      body: "msg.confirmed",
+      vars: {},
+    });
+    const mod = await import("../src/app/api/admin/messages/route");
+    const res = await mod.POST(
+      req("/api/admin/messages", {
+        method: "POST",
+        cookie: asDesk(),
+        body: { id: theirs.id },
+      })
+    );
+    expect(res.status, "a venue operator resent another venue's message").toBe(403);
+  });
 });
 
 /* ---------------- Owner-only ---------------- */

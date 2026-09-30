@@ -401,6 +401,8 @@ export interface WaitlistEntry {
   offeredAt: string | null;
   /** Only ever sent to the person holding the offer. */
   offerToken: string | null;
+  /** The language they were reading when they joined. */
+  locale: string;
   createdAt: string;
   /** Filled in for display. */
   label?: string;

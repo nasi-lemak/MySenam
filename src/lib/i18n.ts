@@ -465,6 +465,24 @@ const EN = {
   "qr.hide": "Hide check-in code",
   "qr.alt": "Scan this code at the venue to check in",
   "qr.note": "Scan at the venue to check yourself in. Opens an hour before your slot.",
+
+  // Messages sent to the customer. These are plain text: they go out over
+  // WhatsApp or email, not into a page, so no markup and no abbreviations.
+  "msg.confirmedSubject": "Booking {code} confirmed — {venue}",
+  "msg.confirmed":
+    "Hi {name}, your booking is confirmed.\n\nCode: {code}\n{court} at {venue}\n{date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk. To see or cancel it: {link}",
+  "msg.seriesSubject": "{weeks} weekly sessions booked — {venue}",
+  "msg.series":
+    "Hi {name}, your weekly sessions are booked.\n\nSeries code: {code}\n{court} at {venue}\n{weeks} weeks from {date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk. To see or cancel: {link}",
+  "msg.cancelledSubject": "Booking {code} cancelled — {venue}",
+  "msg.cancelled":
+    "Hi {name}, booking {code} has been cancelled.\n\n{court} at {venue}\n{date}, {from} to {to}\n\nThe slot is free again. Nothing is owed for it.",
+  "msg.offerSubject": "A place has opened up — {venue}",
+  "msg.offer":
+    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for a short while, and then goes to the next person waiting. Claim it here: {link}",
+  "msg.enrolledSubject": "Enrolled in {what} — {venue}",
+  "msg.enrolled":
+    "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -899,6 +917,24 @@ const MS: Record<Phrase, string> = {
   "qr.alt": "Imbas kod ini di pusat untuk daftar masuk",
   "qr.note":
     "Imbas di pusat untuk daftar masuk sendiri. Dibuka sejam sebelum waktu anda.",
+
+  // Mesej kepada pelanggan. Teks biasa: ia dihantar melalui WhatsApp atau
+  // e-mel, bukan ke dalam halaman, jadi tiada markup dan tiada singkatan.
+  "msg.confirmedSubject": "Tempahan {code} disahkan — {venue}",
+  "msg.confirmed":
+    "Hai {name}, tempahan anda telah disahkan.\n\nKod: {code}\n{court} di {venue}\n{date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan. Untuk melihat atau membatalkannya: {link}",
+  "msg.seriesSubject": "{weeks} sesi mingguan ditempah — {venue}",
+  "msg.series":
+    "Hai {name}, sesi mingguan anda telah ditempah.\n\nKod siri: {code}\n{court} di {venue}\n{weeks} minggu bermula {date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan. Untuk melihat atau membatalkan: {link}",
+  "msg.cancelledSubject": "Tempahan {code} dibatalkan — {venue}",
+  "msg.cancelled":
+    "Hai {name}, tempahan {code} telah dibatalkan.\n\n{court} di {venue}\n{date}, {from} hingga {to}\n\nWaktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.",
+  "msg.offerSubject": "Ada tempat kosong — {venue}",
+  "msg.offer":
+    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di sini: {link}",
+  "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
+  "msg.enrolled":
+    "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

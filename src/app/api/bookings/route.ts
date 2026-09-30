@@ -13,6 +13,8 @@ import {
 import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
+import { currentLocale } from "@/lib/locale";
+import { notifyBookingConfirmed, tickOutbox } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +121,11 @@ export async function POST(req: NextRequest) {
       else booking.paymentStatus = "paid";
     }
   }
+
+  // Queued after the money has settled, so the total in the message is the
+  // total the customer will actually be asked for at the counter.
+  notifyBookingConfirmed(result.bookings, await currentLocale(), result.seriesCode);
+  await tickOutbox();
 
   const court = getCourt(result.bookings[0].courtId)!;
   const venue = getVenue(court.venueId)!;

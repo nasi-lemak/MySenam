@@ -171,6 +171,10 @@ export function getDb(): Database.Database {
         CHECK (status IN ('waiting','offered','claimed','expired','cancelled')),
       offered_at TEXT,
       offer_token TEXT UNIQUE,
+      -- The language this person was reading when they joined, so the offer
+      -- reaches them in it. Somebody else's cancellation is what writes the
+      -- offer, so it cannot be taken from the request that triggers it.
+      locale TEXT NOT NULL DEFAULT 'en',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -246,6 +250,41 @@ export function getDb(): Database.Database {
 
     -- Small facts about the installation itself, not about anybody: when
     -- housekeeping last ran, and anything else that is one row by nature.
+    -- Messages waiting to go out to a customer: a booking confirmation, a
+    -- cancellation, a waitlist offer. Queued here rather than sent inline so
+    -- that a booking is never lost to a mail server being down, and so that
+    -- staff can see whether the customer actually heard from us.
+    --
+    -- A message holds its own finished text rather than a template and some
+    -- ids, because it was written in the language the customer was reading at
+    -- the time, and a later edit to the wording must not rewrite what somebody
+    -- was already sent.
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id INTEGER REFERENCES bookings(id) ON DELETE SET NULL,
+      venue_id INTEGER NOT NULL REFERENCES venues(id),
+      kind TEXT NOT NULL,
+      channel TEXT NOT NULL CHECK (channel IN ('whatsapp','email')),
+      recipient TEXT NOT NULL,
+      locale TEXT NOT NULL DEFAULT 'en',
+      subject TEXT,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued','sent','failed','abandoned')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+      sent_at TEXT,
+      -- What this message is about, when saying it twice would be wrong: a
+      -- waitlist offer token, a booking code. The unique index is what makes
+      -- queuing idempotent, so a sweep can run as often as it likes.
+      dedupe_key TEXT UNIQUE
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_due ON messages(status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_messages_venue ON messages(venue_id, id);
+    CREATE INDEX IF NOT EXISTS idx_messages_booking ON messages(booking_id);
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -474,6 +513,14 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE courts ADD COLUMN access_code_changed_at TEXT");
   }
 
+  // Which language somebody joined a waitlist in. The offer is written when
+  // somebody else cancels, so the request that triggers it belongs to a
+  // different person — the language has to have been recorded up front.
+  const waitCols = db.prepare("PRAGMA table_info(waitlist)").all() as { name: string }[];
+  if (waitCols.length > 0 && !waitCols.some((c) => c.name === "locale")) {
+    db.exec("ALTER TABLE waitlist ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'");
+  }
+
   const blockCols = db.prepare("PRAGMA table_info(slot_blocks)").all() as { name: string }[];
   if (blockCols.length > 0 && !blockCols.some((c) => c.name === "places")) {
     // NULL on every existing row, which is exactly the old meaning.
@@ -548,6 +595,12 @@ function migrate(db: Database.Database) {
   // the right answer for every existing row.
   if (!bookingCols.some((c) => c.name === "demo")) {
     db.exec("ALTER TABLE bookings ADD COLUMN demo INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const messageCols = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+  if (messageCols.length > 0 && !messageCols.some((c) => c.name === "dedupe_key")) {
+    db.exec("ALTER TABLE messages ADD COLUMN dedupe_key TEXT");
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedupe ON messages(dedupe_key)");
   }
 }
 

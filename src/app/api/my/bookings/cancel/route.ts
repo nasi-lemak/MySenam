@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { cancelUserBooking } from "@/lib/store";
+import { currentLocale } from "@/lib/locale";
+import { notifyBookingCancelled, tickOutbox } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -20,5 +22,10 @@ export async function POST(req: NextRequest) {
 
   const result = cancelUserBooking(user.id, bookingId as number);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+
+  notifyBookingCancelled(result.booking, await currentLocale());
+  // A cancellation is what frees a place, so it is also what makes an
+  // offer worth telling somebody about.
+  await tickOutbox();
   return NextResponse.json({ booking: result.booking });
 }

@@ -3829,6 +3829,7 @@ interface WaitlistRow {
   status: WaitlistStatus;
   offered_at: string | null;
   offer_token: string | null;
+  locale: string;
   created_at: string;
 }
 
@@ -3845,6 +3846,7 @@ function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
     status: r.status,
     offeredAt: r.offered_at,
     offerToken: includeToken ? r.offer_token : null,
+    locale: r.locale,
     createdAt: r.created_at,
   };
   if (r.status === "offered" && r.offered_at) {
@@ -3889,6 +3891,8 @@ export function joinClassWaitlist(input: {
   classId: number;
   name: string;
   phone: string;
+  /** The language to make the offer in, when one comes. */
+  locale?: string;
   email?: string;
   userId?: number;
 }): WaitlistResult {
@@ -3915,14 +3919,15 @@ export function joinClassWaitlist(input: {
 
   const info = db
     .prepare(
-      "INSERT INTO waitlist (class_id, name, phone, email, user_id) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO waitlist (class_id, name, phone, email, user_id, locale) VALUES (?, ?, ?, ?, ?, ?)"
     )
     .run(
       input.classId,
       input.name.trim(),
       input.phone.trim(),
       input.email?.trim() ?? null,
-      input.userId ?? null
+      input.userId ?? null,
+      input.locale ?? "en"
     );
   const entry = toWaitlistEntry(
     db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
@@ -4109,6 +4114,8 @@ function slotHoursFree(courtId: number, date: string, hours: number[]): boolean 
 export function joinSlotWaitlist(input: {
   courtId: number;
   date: string;
+  /** The language to make the offer in, when one comes. */
+  locale?: string;
   startHour: number;
   endHour: number;
   name: string;
@@ -4147,12 +4154,13 @@ export function joinSlotWaitlist(input: {
 
   const info = db
     .prepare(`
-      INSERT INTO waitlist (court_id, date, start_hour, end_hour, name, phone, email, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO waitlist (court_id, date, start_hour, end_hour, name, phone, email, user_id, locale)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       courtId, date, startHour, endHour,
-      input.name.trim(), input.phone.trim(), input.email?.trim() ?? null, input.userId ?? null
+      input.name.trim(), input.phone.trim(), input.email?.trim() ?? null,
+      input.userId ?? null, input.locale ?? "en"
     );
 
   const entry = toWaitlistEntry(

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
+import { currentLocale } from "@/lib/locale";
+import { notifyClassEnrolled, tickOutbox } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +49,10 @@ export async function POST(req: NextRequest) {
     else walletError = paid.error;
   }
 
-  return NextResponse.json(
-    { booking: result.booking, session: getClass(classId as number), walletError },
-    { status: 201 }
-  );
+  const session = getClass(classId as number);
+  if (session)
+    notifyClassEnrolled(result.booking, await currentLocale(), session);
+  await tickOutbox();
+
+  return NextResponse.json({ booking: result.booking, session, walletError }, { status: 201 });
 }

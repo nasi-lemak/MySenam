@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
+import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,9 @@ export async function POST(req: NextRequest) {
     phone: phone.trim(),
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
+    // The offer arrives when somebody else cancels, so the language has to be
+    // remembered now rather than read off that request.
+    locale: await currentLocale(),
   };
 
   const result = forClass
