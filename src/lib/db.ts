@@ -113,7 +113,11 @@ export function getDb(): Database.Database {
       total_price INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      check_in_token TEXT
+      check_in_token TEXT,
+      -- 1 if the demo seeder invented this booking. It is what lets the demo
+      -- be reloaded onto today's date, and what stops that ever happening once
+      -- a real customer has booked.
+      demo INTEGER NOT NULL DEFAULT 0
     );
 
     -- One row per booked hour per place taken. The seat column is which of the
@@ -537,6 +541,13 @@ function migrate(db: Database.Database) {
       "ALTER TABLE bookings ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid','paid'))"
     );
     db.exec("ALTER TABLE bookings ADD COLUMN paid_at TEXT");
+  }
+
+  // Which bookings the demo seeder invented. Everything already in a database
+  // that predates this column is real by definition, so the default of 0 is
+  // the right answer for every existing row.
+  if (!bookingCols.some((c) => c.name === "demo")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN demo INTEGER NOT NULL DEFAULT 0");
   }
 }
 

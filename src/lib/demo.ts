@@ -123,6 +123,108 @@ export function hasTradingHistory(): boolean {
   return row.n > 0;
 }
 
+/** True once a booking nobody invented exists. After this the demo is over. */
+export function hasRealBookings(): boolean {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE demo = 0")
+    .get() as { n: number };
+  return row.n > 0;
+}
+
+export interface DemoState {
+  /** Whether demo data is sitting in this install right now. */
+  seeded: boolean;
+  /** Whether this install has never been sold anything for real. */
+  empty: boolean;
+  /** The day the demo was last written, and the last day it has bookings for. */
+  seededOn: string | null;
+  runsTo: string | null;
+  /** True once the demo's forward window has run out. */
+  stale: boolean;
+  /** Whether reloading it is still allowed. */
+  refreshable: boolean;
+}
+
+function setting(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+/**
+ * Where the demo stands.
+ *
+ * The demo is written against the day it was loaded, so ten days later its
+ * forward window has run out and the day list — the first screen anybody opens
+ * — is empty again. That is what `stale` is for. Reloading it is offered only
+ * while every booking in the install is still one the seeder invented: the
+ * first real customer ends the demo permanently, because a reload clears the
+ * trading tables and there would be no way to tell what was safe to drop.
+ */
+export function demoState(): DemoState {
+  const seededOn = setting("demo_seeded_on");
+  const runsTo = setting("demo_runs_to");
+  const real = hasRealBookings();
+  const seeded = seededOn !== null && hasTradingHistory();
+  return {
+    seeded,
+    empty: !hasTradingHistory(),
+    seededOn,
+    runsTo,
+    stale: seeded && runsTo !== null && todayISO() > runsTo,
+    refreshable: seeded && !real,
+  };
+}
+
+/**
+ * Move the demo onto today.
+ *
+ * Clears everything transactional and writes the demo again, so the day list
+ * opens on a day that has something in it. Venues, courts and staff accounts
+ * are what the operator set up rather than what the seeder invented, so they
+ * are left exactly as they are.
+ */
+export function refreshDemoData(opts: { adminId: number }): SeedResult {
+  if (hasRealBookings())
+    return {
+      ok: false,
+      error:
+        "This install has taken a real booking, so the demo can no longer be reloaded — clearing it would take that booking with it.",
+    };
+  if (!hasTradingHistory())
+    return { ok: false, error: "There is no demo here to reload." };
+
+  const db = getDb();
+  db.transaction(() => {
+    // Children before parents: foreign keys are on, and not every one of these
+    // cascades. Venues, courts, admins and settings are deliberately absent.
+    for (const table of [
+      "access_reveals",
+      "hire_records",
+      "check_ins",
+      "booking_slots",
+      "waitlist",
+      "promo_uses",
+      "pass_entries",
+      "wallet_entries",
+      "sessions",
+      "bookings",
+      "classes",
+      "slot_blocks",
+      "inductions",
+      "memberships",
+      "passes",
+      "promo_codes",
+      "venue_closures",
+      "users",
+    ])
+      db.prepare(`DELETE FROM ${table}`).run();
+  })();
+
+  return seedDemoData({ force: true, adminId: opts.adminId });
+}
+
 /**
  * Write a demo fortnight: ten days behind, ten ahead.
  *
@@ -363,6 +465,16 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
     note: "IC checked, shown the alarm and the AED",
   });
   if (inducted.ok) extras.push("one customer inducted for unstaffed hours");
+
+  // Everything here was invented by this function — the guard above means no
+  // real booking can have existed when it started — so marking the lot is
+  // both correct and the only thing that makes a reload safe later.
+  db.prepare("UPDATE bookings SET demo = 1").run();
+  const record = db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  );
+  record.run("demo_seeded_on", today);
+  record.run("demo_runs_to", addDays(today, FUTURE_DAYS));
 
   return { ok: true, bookings, cancelled, noShows, customers, classes, extras };
 }

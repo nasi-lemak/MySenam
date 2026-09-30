@@ -2,10 +2,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
-import { hasTradingHistory, seedDemoData } from "../src/lib/demo";
+import {
+  demoState,
+  hasRealBookings,
+  hasTradingHistory,
+  refreshDemoData,
+  seedDemoData,
+} from "../src/lib/demo";
 import { ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
-import { listVenues } from "../src/lib/store";
+import { createBooking, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 
 let adminId: number;
@@ -100,5 +106,65 @@ describe("filling an empty install", () => {
     const again = seedDemoData({ adminId });
     expect(again.ok).toBe(false);
     if (!again.ok) expect(again.error).toContain("already taken bookings");
+  });
+});
+
+describe("moving an aged demo onto today", () => {
+  it("knows the demo is here and when it runs out", () => {
+    const state = demoState();
+    expect(state.seeded).toBe(true);
+    expect(state.empty).toBe(false);
+    expect(state.seededOn).toBe(todayISO());
+    expect(state.runsTo).toBe(addDays(todayISO(), 10));
+    // Written today, so it has not aged out yet.
+    expect(state.stale).toBe(false);
+    expect(state.refreshable).toBe(true);
+  });
+
+  it("marks everything it invented, and nothing else", () => {
+    expect(count("SELECT COUNT(*) AS n FROM bookings WHERE demo = 0")).toBe(0);
+    expect(hasRealBookings()).toBe(false);
+  });
+
+  it("rewrites the fortnight without touching the venues or the staff", () => {
+    const bookingsBefore = count("SELECT COUNT(*) AS n FROM bookings");
+    const venuesBefore = listVenues().length;
+    const courtsBefore = count("SELECT COUNT(*) AS n FROM courts");
+    const adminsBefore = count("SELECT COUNT(*) AS n FROM admins");
+
+    const again = refreshDemoData({ adminId });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.bookings).toBeGreaterThan(40);
+
+    expect(listVenues().length).toBe(venuesBefore);
+    expect(count("SELECT COUNT(*) AS n FROM courts")).toBe(courtsBefore);
+    expect(count("SELECT COUNT(*) AS n FROM admins")).toBe(adminsBefore);
+    // One fortnight, not two piled on each other. The seed is deterministic
+    // for a given day, so the same day rewritten is the same size exactly.
+    expect(count("SELECT COUNT(*) AS n FROM bookings")).toBe(bookingsBefore);
+    expect(count("SELECT COUNT(*) AS n FROM bookings WHERE demo = 0")).toBe(0);
+  });
+
+  it("is withdrawn for good once a real customer books", () => {
+    const court = listVenues()[0].courts[0];
+    // Past the demo's forward window, but inside what the venue will sell.
+    const made = createBooking({
+      courtId: court.id,
+      date: addDays(todayISO(), 12),
+      hours: [11],
+      name: "Real Customer",
+      phone: "0123456789",
+    });
+    expect(made.ok).toBe(true);
+
+    expect(hasRealBookings()).toBe(true);
+    expect(demoState().refreshable).toBe(false);
+
+    const refused = refreshDemoData({ adminId });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error).toContain("real booking");
+    // And the real booking is still there.
+    expect(count("SELECT COUNT(*) AS n FROM bookings WHERE demo = 0")).toBe(1);
   });
 });
