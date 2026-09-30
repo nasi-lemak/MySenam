@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { beforeAll, describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
@@ -25,6 +26,8 @@ import { todayISO } from "../src/lib/time";
  */
 
 type Handler = (req: NextRequest, ctx?: unknown) => Response | Promise<Response>;
+type RouteModule = () => Promise<unknown>;
+type Routish = Record<string, unknown>;
 
 let ownerToken: string;
 let deskToken: string;
@@ -104,18 +107,18 @@ describe("every admin route refuses a stranger", () => {
     expect(Object.keys(adminRoutes).length).toBeGreaterThan(20);
   });
 
-  for (const [file, load] of Object.entries(adminRoutes)) {
+  for (const [file, load] of Object.entries(adminRoutes) as [string, RouteModule][]) {
     // Signing in is the one admin route that must answer an unauthenticated
     // caller; it has its own rate-limit and password checks.
     if (file.includes("/auth/")) continue;
 
     it(`${file.replace("../src/app/api", "")} is closed to nobody in particular`, async () => {
-      const mod = (await load()) as Record<string, Handler>;
+      const mod = (await load()) as Routish;
       const methods = ["GET", "POST", "PATCH", "DELETE"].filter((m) => typeof mod[m] === "function");
       expect(methods.length).toBeGreaterThan(0);
 
       for (const method of methods) {
-        const res = await mod[method](req(urlFor(file), { method, body: {} }), {
+        const res = await (mod[method] as Handler)(req(urlFor(file), { method, body: {} }), {
           params: Promise.resolve({ id: "1" }),
         });
         // Never a 2xx, and never a redirect to somewhere useful either.
@@ -130,12 +133,12 @@ describe("every admin route refuses a stranger", () => {
 });
 
 describe("every my/ route refuses a stranger", () => {
-  for (const [file, load] of Object.entries(customerRoutes)) {
+  for (const [file, load] of Object.entries(customerRoutes) as [string, RouteModule][]) {
     it(`${file.replace("../src/app/api", "")} needs a session`, async () => {
-      const mod = (await load()) as Record<string, Handler>;
+      const mod = (await load()) as Routish;
       for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
         if (typeof mod[method] !== "function") continue;
-        const res = await mod[method](req(urlFor(file), { method, body: {} }), {
+        const res = await (mod[method] as Handler)(req(urlFor(file), { method, body: {} }), {
           params: Promise.resolve({ id: "1" }),
         });
         expect(res.status, `${method} ${file}`).toBe(401);
@@ -147,7 +150,7 @@ describe("every my/ route refuses a stranger", () => {
 /* ---------------- The venue boundary ---------------- */
 
 describe("a venue operator cannot reach another venue", () => {
-  const venueScoped: [string, () => Promise<Record<string, Handler>>][] = [
+  const venueScoped: [string, () => Promise<Routish>][] = [
     ["reports", () => import("../src/app/api/admin/reports/route")],
     ["occupancy", () => import("../src/app/api/admin/occupancy/route")],
     ["slots", () => import("../src/app/api/admin/slots/route")],
@@ -166,14 +169,15 @@ describe("a venue operator cannot reach another venue", () => {
       const query = (venueId: number) =>
         `/api/admin/${name}?venueId=${venueId}&date=${todayISO()}&from=${todayISO()}&to=${todayISO()}&start=${todayISO()}`;
 
-      const mine = await mod.GET(req(query(ownVenue), { cookie: asDesk() }));
+      const GET = mod.GET as Handler;
+      const mine = await GET(req(query(ownVenue), { cookie: asDesk() }));
       expect(mine.status, `${name} refused its own venue`).toBe(200);
 
-      const theirs = await mod.GET(req(query(otherVenue), { cookie: asDesk() }));
+      const theirs = await GET(req(query(otherVenue), { cookie: asDesk() }));
       expect(theirs.status, `${name} leaked another venue`).toBe(403);
 
       // The platform owner sees both.
-      expect((await mod.GET(req(query(otherVenue), { cookie: asOwner() }))).status).toBe(200);
+      expect((await GET(req(query(otherVenue), { cookie: asOwner() }))).status).toBe(200);
     });
   }
 });
@@ -181,7 +185,7 @@ describe("a venue operator cannot reach another venue", () => {
 /* ---------------- Owner-only ---------------- */
 
 describe("whole-platform routes are the owner's alone", () => {
-  const ownerOnly: [string, () => Promise<Record<string, Handler>>][] = [
+  const ownerOnly: [string, () => Promise<Routish>][] = [
     ["backup", () => import("../src/app/api/admin/backup/route")],
     ["retention", () => import("../src/app/api/admin/retention/route")],
     ["demo", () => import("../src/app/api/admin/demo/route")],
@@ -191,9 +195,10 @@ describe("whole-platform routes are the owner's alone", () => {
   for (const [name, load] of ownerOnly) {
     it(`${name} is refused to a venue operator`, async () => {
       const mod = await load();
-      const denied = await mod.GET(req(`/api/admin/${name}`, { cookie: asDesk() }));
+      const GET = mod.GET as Handler;
+      const denied = await GET(req(`/api/admin/${name}`, { cookie: asDesk() }));
       expect(denied.status, `${name} let a venue operator in`).toBe(403);
-      expect((await mod.GET(req(`/api/admin/${name}`, { cookie: asOwner() }))).status).toBe(200);
+      expect((await GET(req(`/api/admin/${name}`, { cookie: asOwner() }))).status).toBe(200);
     });
   }
 
