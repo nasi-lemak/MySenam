@@ -19,6 +19,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
+- **Personal data you can see and remove** — a signed-in customer downloads everything held against their account as one file, or closes the account: upcoming bookings are cancelled and their name comes off past ones, while the hour and the price stay as the venue's accounting record. Old records age out on a published retention schedule that applies itself daily, and a privacy notice at `/privacy` says all of it in plain terms
 - **Unstaffed hours** — a venue says when somebody is behind the counter, and a resource says whether it may be used outside that window. Out of hours, a customer who is *inducted* and *paid* is shown the door code an hour before their slot; every reveal is logged against the booking, opening the door counts as checking in, and the entry screen carries the venue's emergency number and who else is inside. Pools can never be left unmanned, and neither can anything hired out against a deposit
 - **Equipment hire** — a resource that leaves the building (a kayak, a paddle set) carries a deposit; the desk hands the kit over against it, and the return records condition, any damage note and anything kept back, with the rest given straight back
 - **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
@@ -222,6 +223,8 @@ Account endpoints (session cookie):
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
 | GET    | `/api/my/membership`      | The signed-in customer's memberships            |
 | GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
+| GET    | `/api/my/data`            | Everything held against this account, as a file |
+| POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account        |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 
 Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
@@ -272,6 +275,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
 | POST   | `/api/admin/venues/:id/closures` | `{date, reason?}` → close that whole day          |
 | DELETE | `/api/admin/venues/:id/closures?date=` | Re-open a closed day                        |
+| GET    | `/api/admin/retention`        | The retention policy, what is due, and when it last ran — **owner only** |
+| POST   | `/api/admin/retention`        | Apply the retention policy now — **owner only**      |
 | GET    | `/api/admin/backup`           | Snapshots, and how stale the newest is — **owner only** |
 | POST   | `/api/admin/backup`           | Take one now — **owner only**                        |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
@@ -300,13 +305,15 @@ src/
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
     backup.ts         # Verified SQLite snapshots, retention and staleness
     reports.ts        # Period reporting: revenue, utilisation, liabilities
+    privacy.ts        # Export, erasure and the retention schedule
     rate-limit.ts     # Fixed-window limiter for password and code endpoints
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
 scripts/              # backup.mjs and restore.mjs, for cron and for a human
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping, equipment hire,
-                      # unstaffed hours, inductions, backups, reporting)
+                      # unstaffed hours, inductions, backups, reporting,
+                      # export, erasure and retention)
 ```
 
 ## Taking some of a shared facility out of service
@@ -417,6 +424,69 @@ Four consequences worth stating plainly:
 The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
 than an ordinary booking lookup, because a booking code plus a phone number is
 now a door.
+
+## Personal data
+
+Malaysia's PDPA gives a person the right to see what is held about them and to
+have it removed, and expects data to be kept no longer than its purpose needs.
+Three obligations, three functions in `lib/privacy.ts`: **export**, **erasure**,
+**retention**.
+
+### A phone number is not identity
+
+This is the constraint everything else follows from. Nothing in MySenam
+verifies a phone number, so anybody can register an account claiming any
+number. Keying "your data" on the phone number would therefore mean:
+
+- **registering with a stranger's number dumps their booking history**, and
+- **closing that account cancels the stranger's upcoming courts.**
+
+Both were live in the first cut of this feature and were caught by testing it
+against real data, where a demo number turned out to be shared by three
+walk-ins. Export and erasure now follow `user_id` and nothing else. Anything
+sold across a counter to a phone number — a pass, a membership, an induction —
+is reachable through the venue, which checks who it is talking to in person,
+and the export says so rather than pretending to be complete.
+
+### Erasure keeps the books
+
+A booking is also the venue's accounting record, so "forget me" cannot mean
+"make the takings disappear". Closing an account:
+
+- cancels upcoming bookings made from it, releasing the courts;
+- replaces the name, phone and email on every booking it owns with `(removed)`,
+  **keeping the hour and the price**;
+- strips the holder from spent passes and lapsed memberships;
+- deletes the account and its sessions.
+
+It refuses while the customer is owed something — stored credit, a live pass, a
+running membership — because `wallet_entries` cascades from `users`, so erasing
+the account would destroy the only record of whose money the venue is holding.
+
+### Retention
+
+| What | Kept | Then |
+| ---- | ---- | ---- |
+| Door codes shown | 180 days | deleted |
+| Arrivals at the desk | 365 days | deleted |
+| Settled waiting-list entries | 90 days | deleted |
+| Names and numbers on bookings | 730 days | anonymised, money kept |
+| Withdrawn out-of-hours access | 365 days | deleted |
+| Expired sessions | — | deleted |
+
+Door logs go first and shortest: they tie a named person to a time and a
+building, which is the most sensitive thing here and the least useful once an
+incident window has passed.
+
+There is no scheduler in this system, so the policy applies itself the first
+time anyone opens the dashboard each day — a venue nobody opens is a venue
+accumulating nothing either. An owner can see what is due, when it last ran, and
+run it early, under *Venues & staff → Keeping nothing too long*.
+
+**`/privacy` is not legal advice.** It describes what the software actually
+does, which is the hard part, but PDPA expects the notice in Bahasa Malaysia as
+well as English and expects a named person to write to. Add both, and have a
+lawyer read it, before taking a real customer's booking.
 
 ## Reporting
 

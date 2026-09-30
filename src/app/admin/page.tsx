@@ -2237,6 +2237,8 @@ function VenuesTab({
 
       {isOwner && <BackupsPanel />}
 
+      {isOwner && <RetentionPanel />}
+
       {isOwner && (
         <>
           <section>
@@ -4335,6 +4337,140 @@ function BackupsPanel() {
             )}
           </>
         )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Housekeeping, where the person answerable for it can see it.
+ *
+ * Keeping a customer's phone number for ever is a decision, whether or not
+ * anybody made it on purpose. This shows what the policy is, what it is about
+ * to remove, and when it last ran.
+ */
+function RetentionPanel() {
+  const [state, setState] = useState<{
+    due: { what: string; days: number; action: string; affected: number }[];
+    lastRun: string | null;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/retention", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not read the retention policy");
+      setState(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read the retention policy");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function runNow() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/retention", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Housekeeping failed");
+      setNotice(
+        data.total === 0
+          ? "Nothing was old enough to remove."
+          : `${data.total} records removed or anonymised.`
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Housekeeping failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const due = state?.due.reduce((n, l) => n + l.affected, 0) ?? 0;
+
+  return (
+    <section>
+      <h2 className="text-lg font-bold">Keeping nothing too long</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Personal details are removed once they stop being useful. This runs by itself the first
+        time anyone opens the dashboard each day.
+      </p>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate-700">
+            {state === null
+              ? "Loading…"
+              : due === 0
+                ? "Nothing is currently past its date."
+                : `${due} records are past their date.`}
+            {state?.lastRun && (
+              <span className="text-slate-500"> Last run {localTime(state.lastRun)}.</span>
+            )}
+          </div>
+          <button
+            onClick={runNow}
+            disabled={busy}
+            className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {busy ? "Running…" : "Run now"}
+          </button>
+        </div>
+
+        {state !== null && (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[440px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                  {["What", "Kept for", "Then", "Due"].map((h) => (
+                    <th key={h} className="px-3 py-2 font-semibold">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {state.due.map((line) => (
+                  <tr key={line.what} className="border-b border-slate-100 last:border-0">
+                    <td className="px-3 py-2">{line.what}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+                      {line.days === 0 ? "until they expire" : `${line.days} days`}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{line.action}</td>
+                    <td className="px-3 py-2 font-medium tabular-nums">
+                      {line.affected === 0 ? "—" : line.affected}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="mt-3 text-xs text-slate-500">
+          A booking is never deleted — its hour and its price are your accounting record. It stops
+          naming anybody instead.
+        </p>
       </div>
     </section>
   );

@@ -240,6 +240,13 @@ export function getDb(): Database.Database {
       note TEXT
     );
 
+    -- Small facts about the installation itself, not about anybody: when
+    -- housekeeping last ran, and anything else that is one row by nature.
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

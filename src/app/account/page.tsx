@@ -193,7 +193,120 @@ export default function AccountPage() {
           </div>
         </section>
       )}
+
+      <YourData />
     </div>
+  );
+}
+
+/**
+ * The two things a person is entitled to do with their own data: take a copy,
+ * and be forgotten.
+ */
+function YourData() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState("");
+
+  async function close() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/my/erase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: typed }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not close the account");
+      window.location.href = "/";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not close the account");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="text-lg font-bold">Your data</h2>
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-sm text-slate-600">
+          Everything MySenam holds about you is yours to take a copy of, and yours to have
+          removed. What we keep and for how long is set out in the{" "}
+          <a href="/privacy" className="font-medium text-teal-700 underline">
+            privacy notice
+          </a>
+          .
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <a
+            href="/api/my/data"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-teal-600 hover:text-teal-700"
+          >
+            Download a copy
+          </a>
+          {!confirming && (
+            <button
+              onClick={() => setConfirming(true)}
+              className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+            >
+              Close my account
+            </button>
+          )}
+        </div>
+
+        {confirming && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
+            <p className="text-sm font-semibold text-red-800">This cannot be undone.</p>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm text-red-700">
+              <li>Any booking you have coming up is cancelled and the court released.</li>
+              <li>Your name and number come off every booking made from this account.</li>
+              <li>
+                Bookings you made as a guest, without signing in, are not linked to this account —
+                ask the venue to remove those.
+              </li>
+              <li>
+                Venues keep what each booking cost them to run — that is their accounting record,
+                and it will no longer say who you are.
+              </li>
+            </ul>
+            <p className="mt-2 text-sm text-red-700">
+              If you hold credit, a pass or a membership, spend it or ask the venue to refund it
+              first — we will not let you close the account while a venue still owes you
+              something.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="Type DELETE"
+                className="w-40 rounded-md border border-red-300 px-3 py-1.5 text-sm focus:border-red-500 focus:outline-none"
+              />
+              <button
+                onClick={close}
+                disabled={busy || typed !== "DELETE"}
+                className="rounded-lg bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {busy ? "Closing…" : "Close my account"}
+              </button>
+              <button
+                onClick={() => {
+                  setConfirming(false);
+                  setTyped("");
+                }}
+                className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-800"
+              >
+                Keep it
+              </button>
+            </div>
+            {error && <p className="mt-2 text-sm font-medium text-red-800">{error}</p>}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

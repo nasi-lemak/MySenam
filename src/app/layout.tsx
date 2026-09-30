@@ -47,8 +47,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </header>
         <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
         <footer className="border-t border-slate-200 py-6 text-center text-sm text-slate-500">
-          MySenam — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis,
-          pickleball, futsal, gym &amp; swimming.
+          <p>
+            MySenam — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis,
+            pickleball, futsal, gym &amp; swimming.
+          </p>
+          <p className="mt-1.5">
+            <Link href="/privacy" className="hover:text-teal-700 hover:underline">
+              Privacy notice
+            </Link>
+          </p>
         </footer>
       </body>
     </html>
