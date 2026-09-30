@@ -11,17 +11,20 @@ import {
   Sport,
   SPORTS,
   SPORT_ICONS,
-  SPORT_LABELS,
 } from "@/lib/types";
 import type { SearchResult } from "@/lib/store";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
+import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import type { T } from "@/lib/i18n";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
 const HOURS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
 
-function dateLabel(date: string): string {
+function dateLabel(t: T, date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
-  return d.toLocaleDateString("en-MY", {
+  return d.toLocaleDateString(INTL_TAGS[t.locale], {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -65,6 +68,7 @@ function groupResults(results: SearchResult[]): ResultGroup[] {
 }
 
 export default function SearchPage() {
+  const t = useT();
   const today = todayISO();
   const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
 
@@ -93,16 +97,16 @@ export default function SearchPage() {
       if (area) params.set("area", area);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Search failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("search.failed")));
       setResults(data.results);
       setAreas(data.areas);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
+      setError(err instanceof Error ? err.message : t("search.failed"));
       setResults(null);
     } finally {
       setLoading(false);
     }
-  }, [sport, date, fromHour, toHour, duration, area]);
+  }, [sport, date, fromHour, toHour, duration, area, t]);
 
   useEffect(() => {
     search();
@@ -114,9 +118,9 @@ export default function SearchPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Find a court</h1>
+        <h1 className="text-2xl font-bold">{t("search.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Search every venue at once — pick a sport and a time, and see what&apos;s free.
+          {t("search.intro")}
         </p>
       </div>
 
@@ -132,7 +136,7 @@ export default function SearchPage() {
                   : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
               }`}
             >
-              {SPORT_ICONS[s]} {SPORT_LABELS[s]}
+              {SPORT_ICONS[s]} {sportLabel(t, s)}
             </button>
           ))}
         </div>
@@ -148,14 +152,14 @@ export default function SearchPage() {
                   : "border-slate-200 bg-white text-slate-700 hover:border-teal-400"
               }`}
             >
-              {d === today ? "Today" : dateLabel(d)}
+              {d === today ? t("search.today") : dateLabel(t, d)}
             </button>
           ))}
         </div>
 
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            From
+            {t("search.from")}
             <select
               value={fromHour}
               onChange={(e) => {
@@ -173,7 +177,7 @@ export default function SearchPage() {
             </select>
           </label>
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Until
+            {t("search.until")}
             <select
               value={toHour}
               onChange={(e) => setToHour(Number(e.target.value))}
@@ -187,7 +191,7 @@ export default function SearchPage() {
             </select>
           </label>
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            For
+            {t("search.for")}
             <select
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
@@ -195,15 +199,15 @@ export default function SearchPage() {
             >
               {Array.from({ length: MAX_HOURS_PER_BOOKING }, (_, i) => i + 1).map((d) => (
                 <option key={d} value={d}>
-                  {d} hour{d > 1 ? "s" : ""}
+                  {t.plural("search.hours", d)}
                 </option>
               ))}
             </select>
           </label>
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Area
+            {t("search.area")}
             <select value={area} onChange={(e) => setArea(e.target.value)} className={selectClass}>
-              <option value="">Anywhere</option>
+              <option value="">{t("search.anywhere")}</option>
               {areas.map((a) => (
                 <option key={a} value={a}>
                   {a}
@@ -222,7 +226,7 @@ export default function SearchPage() {
 
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          Searching…
+          {t("search.working")}
         </div>
       ) : results && results.length > 0 ? (
         (() => {
@@ -230,9 +234,9 @@ export default function SearchPage() {
           return (
             <div>
               <p className="mb-3 text-sm text-slate-600">
-                {groups.length} venue slot{groups.length > 1 ? "s" : ""} for{" "}
-                <span className="font-medium">{SPORT_LABELS[sport].toLowerCase()}</span> on{" "}
-                <span className="font-medium">{dateLabel(date)}</span>
+                {t.plural("search.count", groups.length)}{" "}
+                <span className="font-medium">{sportLabel(t, sport).toLowerCase()}</span>{" "}
+                {t("search.on")} <span className="font-medium">{dateLabel(t, date)}</span>
               </p>
               <ul className="space-y-2">
                 {groups.map((g) => {
@@ -246,7 +250,7 @@ export default function SearchPage() {
                       <div className="w-32 shrink-0 font-semibold text-teal-700">
                         {formatHour(g.startHour)}
                         <div className="text-xs font-normal text-slate-400">
-                          to {formatHour(g.endHour)}
+                          {t("search.to", { time: formatHour(g.endHour) })}
                         </div>
                       </div>
                       <div className="min-w-[12rem] flex-1">
@@ -256,7 +260,7 @@ export default function SearchPage() {
                           {others > 0 && (
                             <span className="text-slate-400">
                               {" "}
-                              +{others} more court{others > 1 ? "s" : ""} free
+                              {t.plural("search.moreCourts", others)}
                             </span>
                           )}
                         </div>
@@ -264,14 +268,14 @@ export default function SearchPage() {
                       <div className="text-right">
                         <div className="font-bold">RM{cheapest.totalPrice}</div>
                         {others > 0 && cheapest.totalPrice !== g.courts[g.courts.length - 1].totalPrice && (
-                          <div className="text-xs text-slate-400">from</div>
+                          <div className="text-xs text-slate-400">{t("search.fromPrice")}</div>
                         )}
                       </div>
                       <Link
                         href={`/venue/${g.venueId}?date=${date}&sport=${cheapest.court.sport}&court=${cheapest.court.id}&hour=${g.startHour}&duration=${g.endHour - g.startHour}`}
                         className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
                       >
-                        Book
+                        {t("search.book")}
                       </Link>
                     </li>
                   );
@@ -282,8 +286,7 @@ export default function SearchPage() {
         })()
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          No {SPORT_LABELS[sport].toLowerCase()} courts free in that window. Try a wider time range,
-          another day, or a different area.
+          {t("search.none", { sport: sportLabel(t, sport).toLowerCase() })}
         </div>
       )}
     </div>

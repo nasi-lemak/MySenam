@@ -5,6 +5,8 @@ import { Booking, Court } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
 
 interface Result {
   booking: Booking;
@@ -13,6 +15,7 @@ interface Result {
 }
 
 export default function MyBookingPage() {
+  const t = useT();
   const [code, setCode] = useState("");
   const [phone, setPhone] = useState("");
   const [result, setResult] = useState<Result | null>(null);
@@ -39,12 +42,12 @@ export default function MyBookingPage() {
         { cache: "no-store" }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Lookup failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.lookupFailed")));
       setResult(data);
       setDoor(null);
       setDoorError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Lookup failed");
+      setError(err instanceof Error ? err.message : t("mine.lookupFailed"));
     } finally {
       setBusy(false);
     }
@@ -64,7 +67,7 @@ export default function MyBookingPage() {
         body: JSON.stringify({ code, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not get the code");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("door.failed")));
       setDoor({
         accessCode: data.accessCode,
         until: data.until,
@@ -73,7 +76,7 @@ export default function MyBookingPage() {
         presentNow: data.presentNow,
       });
     } catch (err) {
-      setDoorError(err instanceof Error ? err.message : "Could not get the code");
+      setDoorError(err instanceof Error ? err.message : t("door.failed"));
     } finally {
       setBusy(false);
     }
@@ -81,7 +84,7 @@ export default function MyBookingPage() {
 
   async function cancel() {
     if (!result) return;
-    if (!window.confirm("Cancel this booking? The slots will be released.")) return;
+    if (!window.confirm(t("mine.cancelConfirm"))) return;
     setBusy(true);
     setError(null);
     try {
@@ -91,10 +94,10 @@ export default function MyBookingPage() {
         body: JSON.stringify({ code, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.cancelFailed")));
       setResult({ ...result, booking: data.booking });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancellation failed");
+      setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
     } finally {
       setBusy(false);
     }
@@ -105,9 +108,9 @@ export default function MyBookingPage() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">My Booking</h1>
+        <h1 className="text-2xl font-bold">{t("mine.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Enter your booking code and the phone number you booked with.
+          {t("mine.intro")}
         </p>
       </div>
 
@@ -116,7 +119,7 @@ export default function MyBookingPage() {
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
       >
         <label className="block text-sm font-medium text-slate-700">
-          Booking code
+          {t("mine.code")}
           <input
             required
             value={code}
@@ -126,12 +129,12 @@ export default function MyBookingPage() {
           />
         </label>
         <label className="block text-sm font-medium text-slate-700">
-          Phone number
+          {t("mine.phone")}
           <input
             required
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="012-345 6789"
+            placeholder={t("auth.phonePlaceholder")}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none"
           />
         </label>
@@ -140,7 +143,7 @@ export default function MyBookingPage() {
           disabled={busy}
           className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
         >
-          {busy ? "Please wait…" : "Find my booking"}
+          {busy ? t("auth.working") : t("mine.find")}
         </button>
       </form>
 
@@ -161,20 +164,22 @@ export default function MyBookingPage() {
                   : "bg-slate-100 text-slate-500"
               }`}
             >
-              {b.status === "confirmed" ? "Confirmed" : "Cancelled"}
+              {b.status === "confirmed" ? t("mine.confirmed") : t("mine.cancelled")}
             </span>
           </div>
           <dl className="mt-4 space-y-1.5 text-sm">
             {[
-              ["Venue", `${result.venue.name} (${result.venue.area})`],
-              ["Address", result.venue.address],
-              ["Court", result.court.name],
-              ["Date", b.date],
-              ["Time", `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
-              ["Booked by", b.name],
+              [t("mine.venue"), `${result.venue.name} (${result.venue.area})`],
+              [t("mine.address"), result.venue.address],
+              [t("mine.court"), result.court.name],
+              [t("mine.date"), b.date],
+              [t("mine.time"), `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
+              [t("mine.bookedBy"), b.name],
               [
-                "Total",
-                `RM${b.totalPrice}${b.paymentStatus === "paid" ? " ✓ paid" : " (pay at counter)"}`,
+                t("mine.total"),
+                b.paymentStatus === "paid"
+                  ? t("mine.paid", { amount: b.totalPrice })
+                  : t("mine.unpaid", { amount: b.totalPrice }),
               ],
             ].map(([label, value]) => (
               <div key={label} className="flex justify-between gap-4">
@@ -187,17 +192,16 @@ export default function MyBookingPage() {
             <>
               {result.venue.cancelCutoffHours > 0 && (
                 <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                  Free cancellation until {result.venue.cancelCutoffHours} hour
-                  {result.venue.cancelCutoffHours === 1 ? "" : "s"} before your slot starts.
+                  {t.plural("mine.freeCancel", result.venue.cancelCutoffHours)}
                 </p>
               )}
               {result.court.unmanned ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
                   <p className="text-sm font-semibold text-amber-900">
-                    Nobody is on the door at {result.court.name}
+                    {t("door.nobodyOn", { court: result.court.name })}
                   </p>
                   <p className="mt-0.5 text-xs text-amber-800">
-                    Let yourself in with the code below. It appears an hour before your slot.
+                    {t("door.hint")}
                   </p>
                   {door ? (
                     <div className="mt-3 rounded-lg bg-white px-4 py-3 text-center">
@@ -205,20 +209,21 @@ export default function MyBookingPage() {
                         {door.accessCode}
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
-                        Yours until {door.until}. Please do not pass it on.
+                        {t("door.yoursUntil", { time: door.until })}
                       </p>
                     </div>
                   ) : null}
                   {door && (
                     <div className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2.5">
                       <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        If something goes wrong
+                        {t("door.emergencyTitle")}
                       </p>
                       <p className="mt-1 text-xs text-slate-700">
-                        Emergency services: <strong>999</strong>
+                        {t("door.emergencyServices")} <strong>999</strong>
                         {door.emergencyPhone && (
                           <>
-                            {" · "}Venue:{" "}
+                            {" · "}
+                            {t("door.venuePhone")}{" "}
                             <a href={`tel:${door.emergencyPhone}`} className="font-semibold underline">
                               {door.emergencyPhone}
                             </a>
@@ -230,8 +235,8 @@ export default function MyBookingPage() {
                       )}
                       <p className="mt-1.5 text-xs text-slate-500">
                         {door.presentNow <= 1
-                          ? "You are the only person checked in right now. Tell someone where you are."
-                          : `${door.presentNow} people are checked in right now, including you.`}
+                          ? t("door.alone")
+                          : t("door.withOthers", { n: door.presentNow })}
                       </p>
                     </div>
                   )}
@@ -241,7 +246,7 @@ export default function MyBookingPage() {
                       disabled={busy}
                       className="mt-3 w-full rounded-lg bg-amber-600 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
                     >
-                      {busy ? "Please wait…" : "Show me the door code"}
+                      {busy ? t("auth.working") : t("door.show")}
                     </button>
                   )}
                   {doorError && (
@@ -250,7 +255,7 @@ export default function MyBookingPage() {
                 </div>
               ) : b.checkedInAt ? (
                 <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
-                  ✓ Checked in
+                  {t("mine.checkedIn")}
                 </p>
               ) : (
                 b.checkInToken && <CheckInQr token={b.checkInToken} />
@@ -290,7 +295,7 @@ export default function MyBookingPage() {
                         onClick={() => downloadIcs(shareInfo)}
                         className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
                       >
-                        ⬇️ .ics file
+                        ⬇️ {t("done.icsFile")}
                       </button>
                     </>
                   );
@@ -301,7 +306,7 @@ export default function MyBookingPage() {
                 disabled={busy}
                 className="mt-3 w-full rounded-lg border border-red-300 py-2.5 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
-                Cancel booking
+                {t("mine.cancelBooking")}
               </button>
             </>
           )}

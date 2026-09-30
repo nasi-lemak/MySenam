@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@/lib/auth";
+import { useT } from "@/components/Language";
 
 export default function AuthNav() {
   const pathname = usePathname();
+  const t = useT();
   const [user, setUser] = useState<User | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -27,7 +29,7 @@ export default function AuthNav() {
         href="/login"
         className="rounded-full bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"
       >
-        Sign in
+        {t("nav.signIn")}
       </Link>
     );
   }

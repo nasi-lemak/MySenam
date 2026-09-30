@@ -12,9 +12,13 @@ import CheckInQr from "@/components/CheckInQr";
 import Wallet from "@/components/Wallet";
 import MyWaitlist from "@/components/MyWaitlist";
 import MyPasses from "@/components/MyPasses";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
+import type { T } from "@/lib/i18n";
 
 export default function AccountPage() {
   const router = useRouter();
+  const t = useT();
   const [user, setUser] = useState<User | null>(null);
   const [bookings, setBookings] = useState<UserBookingRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,14 +35,14 @@ export default function AccountPage() {
       setUser(me.user);
       const res = await fetch("/api/my/bookings", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load bookings");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("acct.loadFailed")));
       setBookings(data.bookings);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(err instanceof Error ? err.message : t("acct.loadFailed"));
     } finally {
       setLoaded(true);
     }
-  }, [router]);
+  }, [router, t]);
 
   useEffect(() => {
     load();
@@ -50,7 +54,7 @@ export default function AccountPage() {
   }
 
   async function cancelSeries(seriesCode: string, phone: string) {
-    if (!window.confirm(`Cancel ALL upcoming sessions in series ${seriesCode}?`)) return;
+    if (!window.confirm(t("acct.cancelSeriesConfirm", { code: seriesCode }))) return;
     setError(null);
     try {
       const res = await fetch("/api/bookings/cancel-series", {
@@ -59,15 +63,15 @@ export default function AccountPage() {
         body: JSON.stringify({ seriesCode, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.cancelFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancellation failed");
+      setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
     }
   }
 
   async function cancel(bookingId: number) {
-    if (!window.confirm("Cancel this booking? The slots will be released.")) return;
+    if (!window.confirm(t("mine.cancelConfirm"))) return;
     setError(null);
     try {
       const res = await fetch("/api/my/bookings/cancel", {
@@ -76,17 +80,17 @@ export default function AccountPage() {
         body: JSON.stringify({ bookingId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.cancelFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancellation failed");
+      setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
     }
   }
 
   if (!loaded || !user) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-        Loading…
+        {t("classes.loading")}
       </div>
     );
   }
@@ -99,7 +103,7 @@ export default function AccountPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Hi, {user.name} 👋</h1>
+          <h1 className="text-2xl font-bold">{t("acct.greeting", { name: user.name })}</h1>
           <p className="mt-1 text-sm text-slate-600">
             {user.email} · {user.phone}
           </p>
@@ -108,7 +112,7 @@ export default function AccountPage() {
           onClick={logout}
           className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:border-teal-600 hover:text-teal-700"
         >
-          Sign out
+          {t("acct.signOut")}
         </button>
       </div>
 
@@ -125,12 +129,12 @@ export default function AccountPage() {
       <MyWaitlist phone={user.phone} />
 
       <section>
-        <h2 className="text-lg font-bold">Upcoming bookings</h2>
+        <h2 className="text-lg font-bold">{t("acct.upcoming")}</h2>
         {upcoming.length === 0 ? (
           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
-            No upcoming bookings.{" "}
+            {t("acct.noneUpcoming")}{" "}
             <Link href="/" className="font-medium text-teal-700 underline">
-              Book a court
+              {t("acct.bookOne")}
             </Link>
           </div>
         ) : (
@@ -138,6 +142,7 @@ export default function AccountPage() {
             {upcoming.map((b) => (
               <BookingCard
                 key={b.id}
+                t={t}
                 booking={b}
                 onCancel={() => cancel(b.id)}
                 onCancelSeries={
@@ -151,14 +156,23 @@ export default function AccountPage() {
 
       {past.length > 0 && (
         <section>
-          <h2 className="text-lg font-bold">Past &amp; cancelled</h2>
+          <h2 className="text-lg font-bold">{t("acct.pastTitle")}</h2>
           <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  {["Code", "Court", "Date", "Time", "Total", "Status"].map((h) => (
+                  {(
+                    [
+                      "acct.colCode",
+                      "acct.colCourt",
+                      "acct.colDate",
+                      "acct.colTime",
+                      "acct.colTotal",
+                      "acct.colStatus",
+                    ] as const
+                  ).map((h) => (
                     <th key={h} className="px-3 py-2 font-semibold">
-                      {h}
+                      {t(h)}
                     </th>
                   ))}
                 </tr>
@@ -183,7 +197,9 @@ export default function AccountPage() {
                             : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {b.status === "confirmed" ? "played" : "cancelled"}
+                        {b.status === "confirmed"
+                          ? t("acct.played")
+                          : t("acct.cancelledLower")}
                       </span>
                     </td>
                   </tr>
@@ -194,7 +210,7 @@ export default function AccountPage() {
         </section>
       )}
 
-      <YourData />
+      <YourData t={t} />
     </div>
   );
 }
@@ -203,7 +219,7 @@ export default function AccountPage() {
  * The two things a person is entitled to do with their own data: take a copy,
  * and be forgotten.
  */
-function YourData() {
+function YourData({ t }: { t: T }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -219,10 +235,10 @@ function YourData() {
         body: JSON.stringify({ confirm: typed }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not close the account");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("data.closeFailed")));
       window.location.href = "/";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not close the account");
+      setError(err instanceof Error ? err.message : t("data.closeFailed"));
     } finally {
       setBusy(false);
     }
@@ -230,13 +246,12 @@ function YourData() {
 
   return (
     <section>
-      <h2 className="text-lg font-bold">Your data</h2>
+      <h2 className="text-lg font-bold">{t("data.title")}</h2>
       <div className="mt-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-sm text-slate-600">
-          Everything MySenam holds about you is yours to take a copy of, and yours to have
-          removed. What we keep and for how long is set out in the{" "}
+          {t("data.intro1")}{" "}
           <a href="/privacy" className="font-medium text-teal-700 underline">
-            privacy notice
+            {t("data.privacyLink")}
           </a>
           .
         </p>
@@ -246,43 +261,35 @@ function YourData() {
             href="/api/my/data"
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-teal-600 hover:text-teal-700"
           >
-            Download a copy
+            {t("data.download")}
           </a>
           {!confirming && (
             <button
               onClick={() => setConfirming(true)}
               className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
             >
-              Close my account
+              {t("data.close")}
             </button>
           )}
         </div>
 
         {confirming && (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
-            <p className="text-sm font-semibold text-red-800">This cannot be undone.</p>
+            <p className="text-sm font-semibold text-red-800">{t("data.irreversible")}</p>
             <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm text-red-700">
-              <li>Any booking you have coming up is cancelled and the court released.</li>
-              <li>Your name and number come off every booking made from this account.</li>
-              <li>
-                Bookings you made as a guest, without signing in, are not linked to this account —
-                ask the venue to remove those.
-              </li>
-              <li>
-                Venues keep what each booking cost them to run — that is their accounting record,
-                and it will no longer say who you are.
-              </li>
+              <li>{t("data.point1")}</li>
+              <li>{t("data.point2")}</li>
+              <li>{t("data.point3")}</li>
+              <li>{t("data.point4")}</li>
             </ul>
             <p className="mt-2 text-sm text-red-700">
-              If you hold credit, a pass or a membership, spend it or ask the venue to refund it
-              first — we will not let you close the account while a venue still owes you
-              something.
+              {t("data.owedFirst")}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <input
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
-                placeholder="Type DELETE"
+                placeholder={t("data.typeDelete")}
                 className="w-40 rounded-md border border-red-300 px-3 py-1.5 text-sm focus:border-red-500 focus:outline-none"
               />
               <button
@@ -290,7 +297,7 @@ function YourData() {
                 disabled={busy || typed !== "DELETE"}
                 className="rounded-lg bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40"
               >
-                {busy ? "Closing…" : "Close my account"}
+                {busy ? t("data.closing") : t("data.close")}
               </button>
               <button
                 onClick={() => {
@@ -299,7 +306,7 @@ function YourData() {
                 }}
                 className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-800"
               >
-                Keep it
+                {t("data.keep")}
               </button>
             </div>
             {error && <p className="mt-2 text-sm font-medium text-red-800">{error}</p>}
@@ -311,10 +318,12 @@ function YourData() {
 }
 
 function BookingCard({
+  t,
   booking: b,
   onCancel,
   onCancelSeries,
 }: {
+  t: T;
   booking: UserBookingRow;
   onCancel: () => void;
   onCancelSeries?: () => void;
@@ -337,13 +346,13 @@ function BookingCard({
           {b.seriesCode && (
             <span
               className="rounded-full bg-violet-50 px-2.5 py-1 font-mono text-xs font-semibold text-violet-700"
-              title="Part of a weekly series"
+              title={t("acct.seriesTitle")}
             >
               🔁 {b.seriesCode}
             </span>
           )}
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            Confirmed
+            {t("mine.confirmed")}
           </span>
         </div>
       </div>
@@ -360,15 +369,15 @@ function BookingCard({
         <div className="font-medium">
           RM{b.totalPrice}{" "}
           {b.paymentStatus === "paid" ? (
-            <span className="text-emerald-700">✓ paid</span>
+            <span className="text-emerald-700">{t("acct.paid")}</span>
           ) : (
-            <span className="text-slate-500">(pay at counter)</span>
+            <span className="text-slate-500">{t("acct.payAtCounter")}</span>
           )}
         </div>
       </div>
       {b.checkedInAt ? (
         <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
-          ✓ Checked in
+          {t("mine.checkedIn")}
         </p>
       ) : (
         b.checkInToken && <CheckInQr token={b.checkInToken} />
@@ -380,7 +389,7 @@ function BookingCard({
           rel="noopener noreferrer"
           className="rounded-lg border border-slate-300 py-1.5 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
         >
-          💬 Share
+          💬 {t("acct.share")}
         </a>
         <a
           href={googleCalendarUrl(shareInfo)}
@@ -388,7 +397,7 @@ function BookingCard({
           rel="noopener noreferrer"
           className="rounded-lg border border-slate-300 py-1.5 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
         >
-          📅 Calendar
+          📅 {t("acct.calendar")}
         </a>
         <button
           type="button"
@@ -403,14 +412,14 @@ function BookingCard({
           onClick={onCancel}
           className="w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
         >
-          Cancel booking
+          {t("mine.cancelBooking")}
         </button>
         {onCancelSeries && (
           <button
             onClick={onCancelSeries}
             className="w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
           >
-            Cancel whole series
+            {t("acct.cancelWholeSeries")}
           </button>
         )}
       </div>

@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { WalletEntry } from "@/lib/types";
+import { useT } from "@/components/Language";
 
 /** The customer's stored credit and recent movements. */
 export default function Wallet() {
+  const t = useT();
   const [balance, setBalance] = useState<number | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
   const [open, setOpen] = useState(false);
@@ -31,9 +33,9 @@ export default function Wallet() {
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="font-semibold">Credit balance</h2>
+          <h2 className="font-semibold">{t("wallet.title")}</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Top up at any venue counter, then pay for bookings without cash.
+            {t("wallet.intro")}
           </p>
         </div>
         <div className="text-2xl font-bold text-teal-700">RM{balance}</div>
@@ -45,7 +47,7 @@ export default function Wallet() {
             onClick={() => setOpen((v) => !v)}
             className="mt-3 text-xs font-semibold text-teal-700 hover:underline"
           >
-            {open ? "Hide history" : "Show history"}
+            {open ? t("wallet.hideHistory") : t("wallet.showHistory")}
           </button>
           {open && (
             <ul className="mt-2 divide-y divide-slate-100 text-sm">

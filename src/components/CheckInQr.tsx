@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/components/Language";
 
 /** The scannable self check-in code for a booking. */
 export default function CheckInQr({ token }: { token: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -12,18 +14,18 @@ export default function CheckInQr({ token }: { token: string }) {
         onClick={() => setOpen((v) => !v)}
         className="text-xs font-semibold text-teal-700 hover:underline"
       >
-        {open ? "Hide check-in code" : "📱 Show check-in code"}
+        {open ? t("qr.hide") : `📱 ${t("qr.show")}`}
       </button>
       {open && (
         <div className="mt-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={`/api/checkin/qr?token=${token}`}
-            alt="Scan this code at the venue to check in"
+            alt={t("qr.alt")}
             className="mx-auto h-40 w-40"
           />
           <p className="mt-2 text-xs text-slate-500">
-            Scan at the venue to check yourself in. Opens an hour before your slot.
+            {t("qr.note")}
           </p>
         </div>
       )}

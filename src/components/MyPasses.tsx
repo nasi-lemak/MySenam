@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pass, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import { Pass, SPORT_ICONS } from "@/lib/types";
+import { useT } from "@/components/Language";
+import { sportLabel } from "@/lib/i18n";
 
 /** The signed-in customer's multi-visit passes. */
 export default function MyPasses() {
+  const t = useT();
   const [passes, setPasses] = useState<Pass[] | null>(null);
 
   useEffect(() => {
@@ -18,10 +21,9 @@ export default function MyPasses() {
 
   return (
     <section>
-      <h2 className="text-lg font-bold">My passes</h2>
+      <h2 className="text-lg font-bold">{t("passes.title")}</h2>
       <p className="mt-1 text-sm text-slate-500">
-        One entry covers one booked hour. Pick a pass on the booking form, or quote its code at
-        the counter.
+        {t("passes.intro")}
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {passes.map((pass) => {
@@ -42,8 +44,8 @@ export default function MyPasses() {
                   <div className="text-xs text-slate-500">
                     {pass.venueName} ·{" "}
                     {pass.sport
-                      ? `${SPORT_ICONS[pass.sport]} ${SPORT_LABELS[pass.sport]}`
-                      : "any sport"}
+                      ? `${SPORT_ICONS[pass.sport]} ${sportLabel(t, pass.sport)}`
+                      : t("passes.anySport")}
                   </div>
                 </div>
                 <span className="whitespace-nowrap font-mono text-xs font-semibold text-slate-500">
@@ -55,9 +57,9 @@ export default function MyPasses() {
                 <div className="flex items-baseline justify-between text-sm">
                   <span>
                     <span className="text-2xl font-bold text-teal-700">{pass.remaining}</span>
-                    <span className="text-slate-500"> of {pass.entries} left</span>
+                    <span className="text-slate-500">{t("passes.ofLeft", { n: pass.entries })}</span>
                   </span>
-                  <span className="text-xs text-slate-400">{used} used</span>
+                  <span className="text-xs text-slate-400">{t("passes.used", { n: used })}</span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
                   <div
@@ -68,7 +70,7 @@ export default function MyPasses() {
               </div>
 
               <p className="mt-3 text-xs text-slate-500">
-                {pass.unusableReason ?? `Valid until ${pass.expiresOn}`}
+                {pass.unusableReason ?? t("passes.validUntil", { date: pass.expiresOn })}
               </p>
             </div>
           );

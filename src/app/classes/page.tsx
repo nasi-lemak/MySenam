@@ -2,10 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { ClassSession, Sport, SPORTS, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
+import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import type { T } from "@/lib/i18n";
 
-function dateLabel(date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-MY", {
+function dateLabel(t: T, date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(INTL_TAGS[t.locale], {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -14,6 +18,7 @@ function dateLabel(date: string): string {
 }
 
 export default function ClassesPage() {
+  const t = useT();
   const [sport, setSport] = useState<Sport | "">("");
   const [classes, setClasses] = useState<ClassSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,13 +31,13 @@ export default function ClassesPage() {
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load classes");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("classes.loadFailed")));
       setClasses(data.classes);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load classes");
+      setError(err instanceof Error ? err.message : t("classes.loadFailed"));
       setClasses(null);
     }
-  }, [sport]);
+  }, [sport, t]);
 
   useEffect(() => {
     load();
@@ -47,9 +52,9 @@ export default function ClassesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Classes</h1>
+        <h1 className="text-2xl font-bold">{t("classes.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Instructor-led sessions you join rather than book a court for.
+          {t("classes.intro")}
         </p>
       </div>
 
@@ -62,7 +67,7 @@ export default function ClassesPage() {
               : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
           }`}
         >
-          All
+          {t("classes.all")}
         </button>
         {SPORTS.map((s) => (
           <button
@@ -74,7 +79,7 @@ export default function ClassesPage() {
                 : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
             }`}
           >
-            {SPORT_ICONS[s]} {SPORT_LABELS[s]}
+            {SPORT_ICONS[s]} {sportLabel(t, s)}
           </button>
         ))}
       </div>
@@ -87,18 +92,20 @@ export default function ClassesPage() {
 
       {classes === null ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          Loading…
+          {t("classes.loading")}
         </div>
       ) : classes.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          No upcoming classes{sport ? ` for ${SPORT_LABELS[sport].toLowerCase()}` : ""}.
+          {sport
+            ? t("classes.noneFor", { sport: sportLabel(t, sport).toLowerCase() })
+            : t("classes.none")}
         </div>
       ) : (
         <div className="space-y-6">
           {[...byDate.entries()].map(([date, sessions]) => (
             <section key={date}>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                {dateLabel(date)}
+                {dateLabel(t, date)}
               </h2>
               <ul className="mt-2 space-y-2">
                 {sessions.map((session) => {
@@ -111,7 +118,7 @@ export default function ClassesPage() {
                       <div className="w-28 shrink-0 font-semibold text-teal-700">
                         {formatHour(session.startHour)}
                         <div className="text-xs font-normal text-slate-400">
-                          to {formatHour(session.endHour)}
+                          {t("classes.to", { time: formatHour(session.endHour) })}
                         </div>
                       </div>
                       <div className="min-w-[12rem] flex-1">
@@ -119,13 +126,19 @@ export default function ClassesPage() {
                           {SPORT_ICONS[session.sport]} {session.name}
                         </div>
                         <div className="text-sm text-slate-500">
-                          with {session.instructor} · {session.venueName} ({session.venueArea})
+                          {t("classes.with", {
+                            instructor: session.instructor,
+                            venue: session.venueName,
+                            area: session.venueArea,
+                          })}
                         </div>
                       </div>
                       <div className="text-right text-sm">
                         <div className="font-bold">RM{session.price}</div>
                         <div className={left === 0 ? "text-xs text-red-600" : "text-xs text-slate-400"}>
-                          {left === 0 ? "Full" : `${left} of ${session.capacity} left`}
+                          {left === 0
+                            ? t("classes.full")
+                            : t("classes.left", { left, capacity: session.capacity })}
                         </div>
                       </div>
                       <button
@@ -136,7 +149,7 @@ export default function ClassesPage() {
                             : "bg-teal-600 text-white hover:bg-teal-700"
                         }`}
                       >
-                        {left === 0 ? "Join waitlist" : "Enrol"}
+                        {left === 0 ? t("classes.joinWaitlist") : t("classes.enrol")}
                       </button>
                     </li>
                   );
@@ -149,6 +162,7 @@ export default function ClassesPage() {
 
       {enrolling && (
         <EnrolModal
+          t={t}
           session={enrolling}
           onClose={() => setEnrolling(null)}
           onDone={() => {
@@ -162,10 +176,12 @@ export default function ClassesPage() {
 }
 
 function EnrolModal({
+  t,
   session,
   onClose,
   onDone,
 }: {
+  t: T;
   session: ClassSession;
   onClose: () => void;
   onDone: () => void;
@@ -202,11 +218,17 @@ function EnrolModal({
         body: JSON.stringify({ classId: session.id, name, phone, email }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? (isFull ? "Could not join" : "Enrolment failed"));
+      if (!res.ok)
+        throw new Error(
+          translateError(
+            t,
+            data.error ?? (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
+          )
+        );
       if (isFull) setQueued(data.position);
       else setCode(data.booking.code);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : t("auth.failed"));
     } finally {
       setBusy(false);
     }
@@ -221,65 +243,70 @@ function EnrolModal({
         {queued !== null ? (
           <div className="text-center">
             <div className="text-4xl">⏳</div>
-            <h2 className="mt-2 text-xl font-bold">You&apos;re on the waitlist</h2>
+            <h2 className="mt-2 text-xl font-bold">{t("classes.queuedTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Number {queued} in the queue for {session.name}.
+              {t("classes.queuedBody", { position: queued, name: session.name })}
             </p>
             <p className="mt-3 text-xs text-slate-500">
-              If someone cancels, the place is offered to whoever has waited longest. Signed-in
-              customers see the offer on their account page.
+              {t("classes.queuedNote")}
             </p>
             <button
               onClick={onDone}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
             >
-              Done
+              {t("done.close")}
             </button>
           </div>
         ) : code ? (
           <div className="text-center">
             <div className="text-4xl">✅</div>
-            <h2 className="mt-2 text-xl font-bold">You&apos;re enrolled</h2>
+            <h2 className="mt-2 text-xl font-bold">{t("classes.enrolledTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {session.name} with {session.instructor}
+              {t("classes.enrolledWith", {
+                name: session.name,
+                instructor: session.instructor,
+              })}
             </p>
             <div className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">
               {code}
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              Show this at the desk, or check in with the QR code on your booking.
+              {t("classes.enrolledNote")}
             </p>
             <button
               onClick={onDone}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
             >
-              Done
+              {t("done.close")}
             </button>
           </div>
         ) : (
           <>
             <h2 className="text-lg font-bold">{session.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {formatHour(session.startHour)} – {formatHour(session.endHour)} with{" "}
-              {session.instructor} · RM{session.price}
+              {t("classes.summary", {
+                from: formatHour(session.startHour),
+                to: formatHour(session.endHour),
+                instructor: session.instructor,
+                price: session.price,
+              })}
             </p>
             {isFull && (
               <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                This class is full. Join the waitlist and we&apos;ll offer you the first place
-                that frees up.
+                {t("classes.fullNote")}
               </p>
             )}
             <form onSubmit={submit} className="mt-4 space-y-3">
               <label className="block text-sm font-medium text-slate-700">
-                Name
+                {t("form.name")}
                 <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
               </label>
               <label className="block text-sm font-medium text-slate-700">
-                Phone
-                <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="012-345 6789" className={inputClass} />
+                {t("form.phone")}
+                <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("auth.phonePlaceholder")} className={inputClass} />
               </label>
               <label className="block text-sm font-medium text-slate-700">
-                Email (optional)
+                {t("form.emailOptional")}
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
               </label>
               {error && <p className="text-sm text-red-600">{error}</p>}
@@ -289,7 +316,7 @@ function EnrolModal({
                   onClick={onClose}
                   className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-600 hover:border-slate-400"
                 >
-                  Cancel
+                  {t("queue.cancel")}
                 </button>
                 <button
                   type="submit"
@@ -298,11 +325,11 @@ function EnrolModal({
                 >
                   {busy
                     ? isFull
-                      ? "Joining…"
-                      : "Enrolling…"
+                      ? t("classes.joining")
+                      : t("classes.enrolling")
                     : isFull
-                      ? "Join waitlist"
-                      : `Enrol · RM${session.price}`}
+                      ? t("classes.joinWaitlist")
+                      : t("classes.enrolPrice", { price: session.price })}
                 </button>
               </div>
             </form>

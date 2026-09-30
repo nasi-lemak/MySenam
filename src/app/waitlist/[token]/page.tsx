@@ -4,9 +4,12 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { Booking, ClassSession } from "@/lib/types";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
 
 export default function ClaimPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
+  const t = useT();
   const [result, setResult] = useState<{ booking: Booking; session: ClassSession | null } | null>(
     null
   );
@@ -23,14 +26,14 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
         body: JSON.stringify({ token }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not claim the place");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("claim.failed")));
       setResult(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not claim the place");
+      setError(err instanceof Error ? err.message : t("claim.failed"));
     } finally {
       setBusy(false);
     }
-  }, [token]);
+  }, [token, t]);
 
   // Unlike check-in, claiming costs money, so it waits for a deliberate tap.
   useEffect(() => {
@@ -43,10 +46,13 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
         {result ? (
           <>
             <div className="text-5xl">🎉</div>
-            <h1 className="mt-3 text-xl font-bold">The place is yours</h1>
+            <h1 className="mt-3 text-xl font-bold">{t("claim.yoursTitle")}</h1>
             {result.session && (
               <p className="mt-1 text-sm text-slate-600">
-                {result.session.name} with {result.session.instructor}
+                {t("claim.with", {
+                  name: result.session.name,
+                  instructor: result.session.instructor,
+                })}
                 <br />
                 {result.session.date} · {formatHour(result.session.startHour)} –{" "}
                 {formatHour(result.session.endHour)}
@@ -56,37 +62,36 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
               {result.booking.code}
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              RM{result.booking.totalPrice}, payable at the counter.
+              {t("claim.payable", { amount: result.booking.totalPrice })}
             </p>
           </>
         ) : error ? (
           <>
             <div className="text-5xl">⌛</div>
-            <h1 className="mt-3 text-xl font-bold">Offer unavailable</h1>
+            <h1 className="mt-3 text-xl font-bold">{t("claim.goneTitle")}</h1>
             <p className="mt-2 text-sm text-red-600">{error}</p>
             <p className="mt-3 text-xs text-slate-500">
-              Places are offered in turn and held for a short while. If yours ran out, you can
-              join the waitlist again.
+              {t("claim.goneBody")}
             </p>
           </>
         ) : (
           <>
             <div className="text-5xl">🎟️</div>
-            <h1 className="mt-3 text-xl font-bold">A place opened up</h1>
+            <h1 className="mt-3 text-xl font-bold">{t("claim.openTitle")}</h1>
             <p className="mt-2 text-sm text-slate-600">
-              Someone cancelled and you are next in the queue. Claim it before the hold runs out.
+              {t("claim.openBody")}
             </p>
             <button
               onClick={claim}
               disabled={busy}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
             >
-              {busy ? "Claiming…" : "Claim my place"}
+              {busy ? t("claim.working") : t("claim.button")}
             </button>
           </>
         )}
         <Link href="/classes" className="mt-5 inline-block text-sm font-medium text-teal-700 underline">
-          Back to classes
+          {t("claim.back")}
         </Link>
       </div>
     </div>

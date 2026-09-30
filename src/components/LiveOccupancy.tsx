@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  BUSYNESS_LABELS,
-  Busyness,
-  LiveOccupancy as Live,
-  SPORT_ICONS,
-} from "@/lib/types";
+import { Busyness, LiveOccupancy as Live, SPORT_ICONS } from "@/lib/types";
+import { useT } from "@/components/Language";
+import { INTL_TAGS } from "@/lib/i18n";
+import type { Phrase } from "@/lib/i18n";
 
 const REFRESH_MS = 30_000;
 
@@ -26,6 +24,7 @@ const TEXT_STYLES: Record<Busyness, string> = {
 
 /** Live "how busy is it right now", from door check-ins. */
 export default function LiveOccupancy({ venueId }: { venueId: number }) {
+  const t = useT();
   const [occupancy, setOccupancy] = useState<Live[] | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
 
@@ -54,14 +53,15 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-semibold">Here right now</h2>
+        <h2 className="font-semibold">{t("live.title")}</h2>
         {asOf && (
           <span className="text-xs text-slate-400">
-            live · updated{" "}
-            {new Date(asOf).toLocaleTimeString("en-MY", {
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "Asia/Kuala_Lumpur",
+            {t("live.updated", {
+              time: new Date(asOf).toLocaleTimeString(INTL_TAGS[t.locale], {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "Asia/Kuala_Lumpur",
+              }),
             })}
           </span>
         )}
@@ -74,9 +74,9 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
                 {SPORT_ICONS[o.sport]} {o.courtName}
               </span>
               <span className={`font-semibold ${TEXT_STYLES[o.level]}`}>
-                {BUSYNESS_LABELS[o.level]}
+                {t(`busy.${o.level}` as Phrase)}
                 <span className="ml-2 font-normal text-slate-500">
-                  {o.present}/{o.capacity} in
+                  {t("live.inside", { present: o.present, capacity: o.capacity })}
                 </span>
               </span>
             </div>
@@ -89,9 +89,7 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-xs text-slate-400">
-        Counted from check-ins at the front desk.
-      </p>
+      <p className="mt-3 text-xs text-slate-400">{t("live.source")}</p>
     </section>
   );
 }

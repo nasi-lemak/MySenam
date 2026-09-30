@@ -4,6 +4,8 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { Booking, SPORT_ICONS, Sport } from "@/lib/types";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
 
 interface Success {
   booking: Booking;
@@ -13,6 +15,7 @@ interface Success {
 
 export default function CheckInPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
+  const t = useT();
   const [result, setResult] = useState<Success | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -27,14 +30,14 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
         body: JSON.stringify({ token }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Check-in failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("checkin.failed")));
       setResult(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Check-in failed");
+      setError(err instanceof Error ? err.message : t("checkin.failed"));
     } finally {
       setBusy(false);
     }
-  }, [token]);
+  }, [token, t]);
 
   // Scanning the code is the intent, so check in on arrival.
   useEffect(() => {
@@ -45,26 +48,26 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
     <div className="mx-auto max-w-sm">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
         {busy ? (
-          <p className="py-8 text-slate-500">Checking you in…</p>
+          <p className="py-8 text-slate-500">{t("checkin.working")}</p>
         ) : result ? (
           <>
             <div className="text-5xl">✅</div>
-            <h1 className="mt-3 text-xl font-bold">You&apos;re checked in</h1>
+            <h1 className="mt-3 text-xl font-bold">{t("checkin.doneTitle")}</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Enjoy your session, {result.booking.name.split(" ")[0]}.
+              {t("checkin.doneBody", { name: result.booking.name.split(" ")[0] })}
             </p>
             <dl className="mt-5 space-y-1.5 text-left text-sm">
               {[
-                ["Venue", `${result.venue.name} (${result.venue.area})`],
+                [t("checkin.venue"), `${result.venue.name} (${result.venue.area})`],
                 [
-                  "Facility",
+                  t("checkin.facility"),
                   `${SPORT_ICONS[result.court.sport]} ${result.court.name}`,
                 ],
                 [
-                  "Time",
+                  t("checkin.time"),
                   `${formatHour(result.booking.startHour)} – ${formatHour(result.booking.endHour)}`,
                 ],
-                ["Code", result.booking.code],
+                [t("checkin.code"), result.booking.code],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between gap-4">
                   <dt className="text-slate-500">{label}</dt>
@@ -76,16 +79,16 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
         ) : (
           <>
             <div className="text-5xl">⚠️</div>
-            <h1 className="mt-3 text-xl font-bold">Couldn&apos;t check you in</h1>
+            <h1 className="mt-3 text-xl font-bold">{t("checkin.failedTitle")}</h1>
             <p className="mt-2 text-sm text-red-600">{error}</p>
             <button
               onClick={submit}
               className="mt-5 w-full rounded-lg border border-slate-300 py-2 text-sm font-semibold text-slate-700 hover:border-teal-500 hover:text-teal-700"
             >
-              Try again
+              {t("checkin.tryAgain")}
             </button>
             <p className="mt-3 text-xs text-slate-500">
-              Still stuck? The front desk can check you in manually.
+              {t("checkin.stuck")}
             </p>
           </>
         )}
@@ -93,7 +96,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
           href="/"
           className="mt-5 inline-block text-sm font-medium text-teal-700 underline"
         >
-          Back to MySenam
+          {t("checkin.back")}
         </Link>
       </div>
     </div>

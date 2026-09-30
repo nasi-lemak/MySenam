@@ -1,0 +1,79 @@
+"use client";
+
+import { createContext, useContext, useMemo } from "react";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, LOCALES, Locale, translator, T } from "@/lib/i18n";
+
+const LanguageContext = createContext<Locale>(DEFAULT_LOCALE);
+
+/**
+ * The lookup itself, memoised.
+ *
+ * `translator()` builds a fresh object each call, and an unstable `t` in a
+ * hook's dependency list re-creates every callback that mentions it on every
+ * render. One of those callbacks checks a customer in, so this has to be the
+ * same object until the language actually changes.
+ */
+const TContext = createContext<T>(translator(DEFAULT_LOCALE));
+
+/**
+ * The language, handed down from the server render.
+ *
+ * The cookie is read once, by the root layout, so every client component below
+ * agrees with the server about which language the page is in. Switching sets
+ * the cookie and asks Next to re-render, which flows a new value through here.
+ */
+export function LanguageProvider({
+  locale,
+  children,
+}: {
+  locale: Locale;
+  children: React.ReactNode;
+}) {
+  const t = useMemo(() => translator(locale), [locale]);
+  return (
+    <LanguageContext.Provider value={locale}>
+      <TContext.Provider value={t}>{children}</TContext.Provider>
+    </LanguageContext.Provider>
+  );
+}
+
+/** The lookup for this page, for a client component. */
+export function useT(): T {
+  return useContext(TContext);
+}
+
+/** Switch language. Sets the cookie, then reloads so the server agrees. */
+export function LanguageToggle() {
+  const locale = useContext(LanguageContext);
+  const t = translator(locale);
+
+  function choose(next: Locale) {
+    if (next === locale) return;
+    // A year, site-wide, and Lax so it survives arriving from a venue's link.
+    document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
+    // A full reload rather than router.refresh(): the <html lang> and the
+    // metadata are server-rendered too, and this is a once-in-a-while click.
+    window.location.reload();
+  }
+
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label={t("lang.label")}>
+      {LOCALES.map((code) => (
+        <button
+          key={code}
+          type="button"
+          onClick={() => choose(code)}
+          aria-current={code === locale ? "true" : undefined}
+          title={LOCALE_NAMES[code]}
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase transition ${
+            code === locale
+              ? "bg-slate-900 text-white"
+              : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          }`}
+        >
+          {code}
+        </button>
+      ))}
+    </div>
+  );
+}

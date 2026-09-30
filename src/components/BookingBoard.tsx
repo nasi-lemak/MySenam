@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Booking,
-  BUSYNESS_LABELS,
   busyness,
   Court,
   CourtAvailability,
@@ -13,11 +12,14 @@ import {
   MAX_RECUR_WEEKS,
   Sport,
   SPORT_ICONS,
-  SPORT_LABELS,
   Pass,
   VenueClosure,
 } from "@/lib/types";
 import { formatHour } from "@/lib/time";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
+import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 
@@ -82,15 +84,17 @@ function isPastSlotClient(date: string, hour: number): boolean {
   return hour <= currentHour % 24;
 }
 
-function formatDateLabel(date: string): { day: string; num: string } {
+function formatDateLabel(t: T, date: string): { day: string; num: string } {
   const d = new Date(`${date}T00:00:00Z`);
+  const tag = INTL_TAGS[t.locale];
   return {
-    day: d.toLocaleDateString("en-MY", { weekday: "short", timeZone: "UTC" }),
-    num: d.toLocaleDateString("en-MY", { day: "numeric", month: "short", timeZone: "UTC" }),
+    day: d.toLocaleDateString(tag, { weekday: "short", timeZone: "UTC" }),
+    num: d.toLocaleDateString(tag, { day: "numeric", month: "short", timeZone: "UTC" }),
   };
 }
 
 export default function BookingBoard({ venueId, sports, dates, initial }: Props) {
+  const t = useT();
   const [sport, setSport] = useState<Sport>(
     initial?.sport && sports.includes(initial.sport) ? initial.sport : sports[0]
   );
@@ -124,7 +128,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
         { cache: "no-store" }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load availability");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("board.loadFailed")));
       const slots: CourtAvailability[] = data.availability;
       setAvailability(slots);
       setClosure(data.closure ?? null);
@@ -140,14 +144,14 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
         if (stillFree) setSelection({ courtId: pending.courtId, hours: pending.hours });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load availability");
+      setError(e instanceof Error ? e.message : t("board.loadFailed"));
       setAvailability(null);
       setClosure(null);
       setMemberRates(false);
     } finally {
       setLoading(false);
     }
-  }, [venueId, date, sport]);
+  }, [venueId, date, sport, t]);
 
   useEffect(() => {
     setSelection(null);
@@ -189,7 +193,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       return {
         id: ANY_COURT,
         venueId: first.venueId,
-        name: "Any court",
+        name: t("board.anyCourt"),
         sport: first.sport,
         offPeakRate: 0,
         peakRate: 0,
@@ -197,7 +201,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       } as Court;
     }
     return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
-  }, [availability, selection]);
+  }, [availability, selection, t]);
 
   const totalPrice = useMemo(() => {
     if (!selection || !availability) return 0;
@@ -246,7 +250,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                 : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
             }`}
           >
-            {SPORT_ICONS[s]} {SPORT_LABELS[s]}
+            {SPORT_ICONS[s]} {sportLabel(t, s)}
           </button>
         ))}
       </div>
@@ -254,7 +258,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       {/* Date strip */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {dates.map((d) => {
-          const { day, num } = formatDateLabel(d);
+          const { day, num } = formatDateLabel(t, d);
           return (
             <button
               key={d}
@@ -280,28 +284,31 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
 
       {closure && !loading && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>Closed on {closure.date}.</strong> Pick another date.
+          <strong>{t("board.closed", { date: closure.date })}</strong>{" "}
+          {t("board.pickAnother")}
           {closure.reason && <div className="mt-0.5 text-amber-700">{closure.reason}</div>}
         </div>
       )}
 
       {memberRates && !loading && (
         <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-2.5 text-sm text-teal-800">
-          <strong>Member prices.</strong> You are a member here, so the rates below are yours.
+          <strong>{t("board.memberTitle")}</strong> {t("board.memberBody")}
         </div>
       )}
 
       {/* Availability grid */}
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          Loading availability…
+          {t("board.loading")}
         </div>
       ) : availability && availability.length > 0 ? (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[900px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-semibold">Court</th>
+                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-semibold">
+                  {t("board.court")}
+                </th>
                 {availability[0].slots.map((slot) => (
                   <th key={slot.hour} className="px-1 py-2 text-center font-medium text-slate-500">
                     {formatHour(slot.hour).replace(":00 ", "")}
@@ -313,9 +320,9 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
               {anyRow && (
                 <tr className="border-b border-slate-200 bg-teal-50/40">
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-teal-50/40 px-3 py-2 font-medium">
-                    Any court
+                    {t("board.anyCourt")}
                     <span className="block text-xs font-normal text-slate-500">
-                      cheapest free one
+                      {t("board.anyCourtHint")}
                     </span>
                   </td>
                   {anyRow.map((slot) => {
@@ -328,8 +335,11 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                           onClick={() => toggleSlot(ANY_COURT, slot.hour)}
                           title={
                             slot.available
-                              ? `${formatHour(slot.hour)} · from RM${slot.rate} · ${slot.courts} court${slot.courts === 1 ? "" : "s"} free`
-                              : "No court free this hour"
+                              ? t.plural("board.anyFree", slot.courts, {
+                                  time: formatHour(slot.hour),
+                                  rate: slot.rate,
+                                })
+                              : t("board.anyNone")
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
                             !slot.available
@@ -352,8 +362,8 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     {court.name}
                     <div className="text-xs font-normal text-slate-400">
                       RM{court.offPeakRate}–{court.peakRate}/hr
-                      {isShared(court) && ` · ${court.capacity} places`}
-                      {isHire(court) && ` · RM${court.deposit} deposit`}
+                      {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
+                      {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
                   </td>
                   {slots.map((slot) => {
@@ -374,13 +384,22 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                           title={
                             !slot.available
                               ? canQueue(slot, date)
-                                ? "Taken — click to join the waitlist"
+                                ? t("board.queueHint")
                                 : slot.className
-                                  ? `Reserved for ${slot.className}`
-                                  : "Unavailable"
+                                  ? t("board.reservedFor", { name: slot.className })
+                                  : t("board.unavailable")
                               : shared
-                                ? `${formatHour(slot.hour)} · RM${slot.rate} · ${left} of ${slot.capacity} places left (${BUSYNESS_LABELS[level]})`
-                                : `${formatHour(slot.hour)} · RM${slot.rate}`
+                                ? t("board.sharedSlot", {
+                                    time: formatHour(slot.hour),
+                                    rate: slot.rate,
+                                    left,
+                                    capacity: slot.capacity,
+                                    level: t(`busy.${level}` as Phrase),
+                                  })
+                                : t("board.plainSlot", {
+                                    time: formatHour(slot.hour),
+                                    rate: slot.rate,
+                                  })
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
                             !slot.available
@@ -406,34 +425,37 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
           <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
             <span>
               <span className="mr-1 inline-block h-3 w-3 rounded bg-emerald-100 align-middle" />
-              Available (number = RM/hr)
+              {t("board.legendFree")}
             </span>
             {hasShared && (
               <span>
                 <span className="mr-1 inline-block h-3 w-3 rounded bg-amber-100 align-middle" />
-                Shared facility (number = places left)
+                {t("board.legendShared")}
               </span>
             )}
             <span>
               <span className="mr-1 inline-block h-3 w-3 rounded bg-teal-600 align-middle" />
-              Selected
+              {t("board.legendSelected")}
             </span>
             <span>
               <span className="mr-1 inline-block h-3 w-3 rounded bg-slate-100 align-middle" />
-              Booked / past
+              {t("board.legendTaken")}
             </span>
-            <span className="ml-auto">Max {MAX_HOURS_PER_BOOKING} consecutive hours per booking</span>
+            <span className="ml-auto">
+              {t("board.maxHours", { n: MAX_HOURS_PER_BOOKING })}
+            </span>
           </div>
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          No {SPORT_LABELS[sport].toLowerCase()} courts at this venue.
+          {t("board.noCourts", { sport: sportLabel(t, sport).toLowerCase() })}
         </div>
       )}
 
       {/* Booking bar */}
       {selection && selectedCourt && (
         <BookingForm
+          t={t}
           court={selectedCourt}
           date={date}
           hours={selection.hours}
@@ -452,6 +474,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
 
       {waitlistSlot && (
         <SlotWaitlistModal
+          t={t}
           court={waitlistSlot.court}
           date={date}
           hour={waitlistSlot.hour}
@@ -460,13 +483,14 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       )}
 
       {confirmation && (
-        <ConfirmationModal confirmation={confirmation} onClose={() => setConfirmation(null)} />
+        <ConfirmationModal t={t} confirmation={confirmation} onClose={() => setConfirmation(null)} />
       )}
     </div>
   );
 }
 
 function BookingForm({
+  t,
   court,
   date,
   hours,
@@ -474,6 +498,7 @@ function BookingForm({
   onBooked,
   onError,
 }: {
+  t: T;
   court: Court;
   date: string;
   hours: number[];
@@ -550,10 +575,10 @@ function BookingForm({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Booking failed");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("form.failed")));
       onBooked(data);
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Booking failed");
+      onError(err instanceof Error ? err.message : t("form.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -573,52 +598,52 @@ function BookingForm({
           </div>
           {isHire(court) && (
             <div className="text-xs text-amber-700">
-              Plus an RM{court.deposit} deposit at the counter, back in your hand when the kit is.
+              {t("form.depositNote", { amount: court.deposit })}
             </div>
           )}
         </div>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Name
+          {t("form.name")}
           <input
             required
             minLength={2}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ali bin Abu"
+            placeholder={t("auth.namePlaceholder")}
             className="mt-1 w-40 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Phone
+          {t("form.phone")}
           <input
             required
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="012-345 6789"
+            placeholder={t("auth.phonePlaceholder")}
             className="mt-1 w-36 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Email (optional)
+          {t("form.emailOptional")}
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            placeholder={t("auth.emailPlaceholder")}
             className="mt-1 w-44 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Repeat
+          {t("form.repeat")}
           <select
             value={weeks}
             onChange={(e) => setWeeks(Number(e.target.value))}
             className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           >
-            <option value={1}>Just once</option>
+            <option value={1}>{t("form.justOnce")}</option>
             {Array.from({ length: MAX_RECUR_WEEKS - 1 }, (_, i) => i + 2).map((w) => (
               <option key={w} value={w}>
-                Weekly × {w}
+                {t("form.weekly", { n: w })}
               </option>
             ))}
           </select>
@@ -629,10 +654,10 @@ function BookingForm({
           className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50"
         >
           {submitting
-            ? "Booking…"
+            ? t("form.booking")
             : weeks > 1
-              ? `Book ${weeks} weeks · RM${totalPrice}/wk`
-              : `Book · RM${totalPrice}`}
+              ? t("form.bookWeeks", { weeks, amount: totalPrice })
+              : t("form.book", { amount: totalPrice })}
         </button>
       </div>
       {balance !== null && balance > 0 && passCode.trim() === "" && (
@@ -643,12 +668,12 @@ function BookingForm({
             onChange={(e) => setPayFromWallet(e.target.checked)}
             className="accent-teal-600"
           />
-          Pay from my credit balance (RM{balance} available)
+          {t("form.payFromCredit", { amount: balance })}
         </label>
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-        <label htmlFor="promo-code">Promo code?</label>
+        <label htmlFor="promo-code">{t("form.promoLabel")}</label>
         <input
           id="promo-code"
           value={promoCode}
@@ -657,23 +682,23 @@ function BookingForm({
           className="w-32 rounded-md border border-slate-300 px-2 py-1 font-mono focus:border-teal-500 focus:outline-none"
         />
         {promoCode.trim() !== "" && (
-          <span className="text-slate-500">Checked when you book; the total updates then.</span>
+          <span className="text-slate-500">{t("form.promoChecked")}</span>
         )}
       </div>
 
       {/* A pass covers one entry per booked hour, so it settles the whole slot. */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-        <span>Using a pass?</span>
+        <span>{t("form.passLabel")}</span>
         {myPasses.length > 0 ? (
           <select
             value={passCode}
             onChange={(e) => setPassCode(e.target.value)}
             className="rounded-md border border-slate-300 px-2 py-1 focus:border-teal-500 focus:outline-none"
           >
-            <option value="">No — pay at the counter</option>
+            <option value="">{t("form.passNone")}</option>
             {myPasses.map((p) => (
               <option key={p.id} value={p.code}>
-                {p.name} · {p.remaining} left
+                {t("form.passOption", { name: p.name, n: p.remaining })}
               </option>
             ))}
           </select>
@@ -687,8 +712,12 @@ function BookingForm({
         )}
         {passCode.trim() !== "" && (
           <span className="text-slate-500">
-            Spends {hours.length} {hours.length === 1 ? "entry" : "entries"}
-            {weeks > 1 ? ` per week (${hours.length * weeks} in total)` : ""}.
+            {t.plural("form.passSpend", hours.length, {
+              per:
+                weeks > 1
+                  ? t("form.passPerWeek", { total: hours.length * weeks })
+                  : "",
+            })}
           </span>
         )}
       </div>
@@ -700,7 +729,7 @@ function BookingForm({
             onChange={(e) => setSkipConflicts(e.target.checked)}
             className="accent-teal-600"
           />
-          Skip weeks that are already taken (otherwise the whole series is rejected on any clash)
+          {t("form.skipTaken")}
         </label>
       )}
     </form>
@@ -708,9 +737,11 @@ function BookingForm({
 }
 
 function ConfirmationModal({
+  t,
   confirmation,
   onClose,
 }: {
+  t: T;
   confirmation: Confirmation;
   onClose: () => void;
 }) {
@@ -732,11 +763,12 @@ function ConfirmationModal({
         <div className="text-center">
           <div className="text-4xl">✅</div>
           <h2 className="mt-2 text-xl font-bold">
-            {isSeries ? `${bookings.length} weekly sessions booked!` : "Booking confirmed!"}
+            {isSeries ? t("done.seriesTitle", { n: bookings.length }) : t("done.title")}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Show this code at the counter. Save it — you&apos;ll need it (with your phone number)
-            to view or cancel {isSeries ? "the series" : "the booking"}.
+            {t("done.body", {
+              what: isSeries ? t("done.theSeries") : t("done.theBooking"),
+            })}
           </p>
           <div className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
             {seriesCode ?? booking.code}
@@ -744,22 +776,22 @@ function ConfirmationModal({
         </div>
         <dl className="mt-5 space-y-1.5 text-sm">
           {[
-            ["Venue", `${venue.name} (${venue.area})`],
-            ["Court", court.name],
+            [t("done.venue"), `${venue.name} (${venue.area})`],
+            [t("done.court"), court.name],
             ...(isSeries
               ? ([] as [string, string][])
-              : ([["Date", booking.date]] as [string, string][])),
-            ["Time", `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
+              : ([[t("done.date"), booking.date]] as [string, string][])),
+            [t("done.time"), `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
             ...(confirmation.discount
-              ? ([["Promo discount", `− RM${confirmation.discount}`]] as [string, string][])
+              ? ([[t("done.promoDiscount"), `− RM${confirmation.discount}`]] as [string, string][])
               : ([] as [string, string][])),
             [
-              "Total",
-              `RM${isSeries ? seriesTotal : booking.totalPrice} (pay at counter)`,
+              t("done.total"),
+              t("done.totalValue", { amount: isSeries ? seriesTotal : booking.totalPrice }),
             ],
             ...(isHire(court)
               ? ([
-                  ["Deposit", `RM${court.deposit}, returned with the kit`],
+                  [t("done.deposit"), t("done.depositValue", { amount: court.deposit })],
                 ] as [string, string][])
               : ([] as [string, string][])),
           ].map(([label, value]) => (
@@ -771,12 +803,12 @@ function ConfirmationModal({
         </dl>
         {confirmation.promoError && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Your promo code was not applied: {confirmation.promoError}
+            {t("done.promoRejected", { reason: confirmation.promoError })}
           </p>
         )}
         {isSeries && (
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-            <div className="font-semibold text-slate-700">Sessions</div>
+            <div className="font-semibold text-slate-700">{t("done.sessions")}</div>
             <ul className="mt-1 space-y-0.5">
               {bookings.map((b) => (
                 <li key={b.id} className="flex justify-between">
@@ -789,7 +821,7 @@ function ConfirmationModal({
               {skipped.map((s) => (
                 <li key={s.date} className="flex justify-between text-slate-400">
                   <span>📅 {s.date}</span>
-                  <span className="text-xs">skipped — {s.reason}</span>
+                  <span className="text-xs">{t("done.skipped", { reason: s.reason })}</span>
                 </li>
               ))}
             </ul>
@@ -818,14 +850,14 @@ function ConfirmationModal({
             onClick={() => downloadIcs(shareInfo)}
             className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
           >
-            ⬇️ .ics file
+            ⬇️ {t("done.icsFile")}
           </button>
         </div>
         <button
           onClick={onClose}
           className="mt-3 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
         >
-          Done
+          {t("done.close")}
         </button>
       </div>
     </div>
@@ -833,11 +865,13 @@ function ConfirmationModal({
 }
 
 function SlotWaitlistModal({
+  t,
   court,
   date,
   hour,
   onClose,
 }: {
+  t: T;
   court: Court;
   date: string;
   hour: number;
@@ -881,10 +915,10 @@ function SlotWaitlistModal({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not join the waitlist");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("queue.failed")));
       setPosition(data.position);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not join the waitlist");
+      setError(err instanceof Error ? err.message : t("queue.failed"));
     } finally {
       setBusy(false);
     }
@@ -899,19 +933,22 @@ function SlotWaitlistModal({
         {position !== null ? (
           <div className="text-center">
             <div className="text-4xl">⏳</div>
-            <h2 className="mt-2 text-xl font-bold">You&apos;re on the waitlist</h2>
+            <h2 className="mt-2 text-xl font-bold">{t("queue.onTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Number {position} for {court.name} at {formatHour(hour)}.
+              {t("queue.onBody", {
+                position,
+                court: court.name,
+                time: formatHour(hour),
+              })}
             </p>
             <p className="mt-3 text-xs text-slate-500">
-              If it frees up, the slot is offered to whoever has waited longest. Signed-in
-              customers see the offer on their account page.
+              {t("queue.onNote")}
             </p>
             <button
               onClick={onClose}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
             >
-              Done
+              {t("done.close")}
             </button>
           </div>
         ) : (
@@ -921,19 +958,19 @@ function SlotWaitlistModal({
               {date} · {formatHour(hour)} – {formatHour(hour + 1)}
             </p>
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              This slot is taken. Join the waitlist and we&apos;ll offer it to you if it frees up.
+              {t("queue.taken")}
             </p>
             <form onSubmit={submit} className="mt-4 space-y-3">
               <label className="block text-sm font-medium text-slate-700">
-                Name
+                {t("form.name")}
                 <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
               </label>
               <label className="block text-sm font-medium text-slate-700">
-                Phone
-                <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="012-345 6789" className={inputClass} />
+                {t("form.phone")}
+                <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("auth.phonePlaceholder")} className={inputClass} />
               </label>
               <label className="block text-sm font-medium text-slate-700">
-                Email (optional)
+                {t("form.emailOptional")}
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
               </label>
               {error && <p className="text-sm text-red-600">{error}</p>}
@@ -943,14 +980,14 @@ function SlotWaitlistModal({
                   onClick={onClose}
                   className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-600 hover:border-slate-400"
                 >
-                  Cancel
+                  {t("queue.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={busy}
                   className="flex-1 rounded-lg bg-teal-600 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                 >
-                  {busy ? "Joining…" : "Join waitlist"}
+                  {busy ? t("queue.joining") : t("queue.join")}
                 </button>
               </div>
             </form>

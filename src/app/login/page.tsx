@@ -2,9 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
 
 export default function LoginPage() {
   const router = useRouter();
+  const t = useT();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -26,11 +29,11 @@ export default function LoginPage() {
         ),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Something went wrong");
+      if (!res.ok) throw new Error(translateError(t, data.error ?? t("auth.failed")));
       router.push("/account");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : t("auth.failed"));
       setBusy(false);
     }
   }
@@ -42,12 +45,12 @@ export default function LoginPage() {
     <div className="mx-auto max-w-sm space-y-6">
       <div>
         <h1 className="text-2xl font-bold">
-          {mode === "login" ? "Welcome back" : "Create an account"}
+          {mode === "login" ? t("auth.welcomeBack") : t("auth.createAccount")}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
           {mode === "login"
-            ? "Sign in to see and manage your bookings."
-            : "Register to keep all your bookings in one place."}
+            ? t("auth.signInIntro")
+            : t("auth.registerIntro")}
         </p>
       </div>
 
@@ -63,7 +66,7 @@ export default function LoginPage() {
               mode === m ? "bg-white text-teal-700 shadow" : "text-slate-500"
             }`}
           >
-            {m === "login" ? "Sign in" : "Register"}
+            {m === "login" ? t("auth.signIn") : t("auth.register")}
           </button>
         ))}
       </div>
@@ -75,29 +78,29 @@ export default function LoginPage() {
         {mode === "register" && (
           <>
             <label className="block text-sm font-medium text-slate-700">
-              Name
-              <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ali bin Abu" className={inputClass} />
+              {t("auth.name")}
+              <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("auth.namePlaceholder")} className={inputClass} />
             </label>
             <label className="block text-sm font-medium text-slate-700">
-              Phone
-              <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="012-345 6789" className={inputClass} />
+              {t("auth.phone")}
+              <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("auth.phonePlaceholder")} className={inputClass} />
             </label>
           </>
         )}
         <label className="block text-sm font-medium text-slate-700">
-          Email
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={inputClass} />
+          {t("auth.email")}
+          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.emailPlaceholder")} className={inputClass} />
         </label>
         <label className="block text-sm font-medium text-slate-700">
-          Password
-          <input type="password" required minLength={mode === "register" ? 8 : 1} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "register" ? "At least 8 characters" : "Password"} className={inputClass} />
+          {t("auth.password")}
+          <input type="password" required minLength={mode === "register" ? 8 : 1} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "register" ? t("auth.passwordHint") : t("auth.password")} className={inputClass} />
         </label>
         <button
           type="submit"
           disabled={busy}
           className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
         >
-          {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
+          {busy ? t("auth.working") : mode === "login" ? t("auth.signIn") : t("auth.creating")}
         </button>
         {error && <p className="text-sm text-red-600">{error}</p>}
       </form>

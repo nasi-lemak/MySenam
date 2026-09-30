@@ -1,25 +1,25 @@
 import Link from "next/link";
 import { listVenues } from "@/lib/store";
-import { Sport, SPORT_ICONS, SPORT_LABELS, SPORTS } from "@/lib/types";
+import { serverT } from "@/lib/locale";
+import { Sport, SPORT_ICONS, SPORTS } from "@/lib/types";
+import { sportLabel } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
-export default function HomePage() {
+export default async function HomePage() {
   const venues = listVenues();
+  const t = await serverT();
 
   return (
     <div className="space-y-10">
       <section className="rounded-2xl bg-gradient-to-br from-teal-600 to-emerald-500 px-6 py-12 text-white shadow-lg">
-        <h1 className="text-3xl font-bold sm:text-4xl">Book a court in seconds.</h1>
-        <p className="mt-3 max-w-xl text-teal-50">
-          Badminton, tennis, pickleball and futsal — see live availability, pick your slots and
-          get a booking code instantly. No calls, no waiting. Mudah je!
-        </p>
+        <h1 className="text-3xl font-bold sm:text-4xl">{t("home.heroTitle")}</h1>
+        <p className="mt-3 max-w-xl text-teal-50">{t("home.heroBody")}</p>
         <Link
           href="/search"
           className="mt-6 inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 font-semibold text-teal-700 shadow transition hover:bg-teal-50"
         >
-          🔍 Find a court by time
+          🔍 {t("home.heroCta")}
         </Link>
         <div className="mt-6 flex flex-wrap gap-3">
           {SPORTS.map((sport) => (
@@ -27,18 +27,18 @@ export default function HomePage() {
               key={sport}
               className="rounded-full bg-white/15 px-4 py-1.5 text-sm font-medium backdrop-blur"
             >
-              {SPORT_ICONS[sport]} {SPORT_LABELS[sport]}
+              {SPORT_ICONS[sport]} {sportLabel(t, sport)}
             </span>
           ))}
         </div>
       </section>
 
       <section>
-        <h2 className="text-2xl font-bold">Venues</h2>
+        <h2 className="text-2xl font-bold">{t("home.venuesTitle")}</h2>
         <p className="mt-1 text-slate-600">
-          Choose a venue to see live court availability, or{" "}
+          {t("home.venuesIntro")}{" "}
           <Link href="/search" className="font-medium text-teal-700 underline">
-            search every venue at once
+            {t("home.venuesSearchLink")}
           </Link>
           .
         </p>
@@ -60,15 +60,17 @@ export default function HomePage() {
                       key={sport}
                       className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-700"
                     >
-                      {SPORT_ICONS[sport]} {SPORT_LABELS[sport]}
+                      {SPORT_ICONS[sport]} {sportLabel(t, sport)}
                     </span>
                   ))}
                 </div>
                 <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
                   <span className="text-slate-500">
-                    {venue.courts.length} court{venue.courts.length > 1 ? "s" : ""}
+                    {t.plural("home.courts", venue.courts.length)}
                   </span>
-                  <span className="font-semibold text-teal-700">from RM{minRate}/hr</span>
+                  <span className="font-semibold text-teal-700">
+                    {t("home.fromRate", { rate: minRate })}
+                  </span>
                 </div>
               </Link>
             );
@@ -77,14 +79,10 @@ export default function HomePage() {
       </section>
 
       <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-6 sm:grid-cols-3">
-        {[
-          ["1. Pick a slot", "Choose venue, date and court — availability is live."],
-          ["2. Confirm", "Enter your name and phone. Pay at the counter when you arrive."],
-          ["3. Play", "You get a booking code instantly. Show it at the front desk."],
-        ].map(([title, body]) => (
-          <div key={title}>
-            <div className="font-semibold text-teal-700">{title}</div>
-            <p className="mt-1 text-sm text-slate-600">{body}</p>
+        {(["home.step1", "home.step2", "home.step3"] as const).map((step) => (
+          <div key={step}>
+            <div className="font-semibold text-teal-700">{t(`${step}Title`)}</div>
+            <p className="mt-1 text-sm text-slate-600">{t(`${step}Body`)}</p>
           </div>
         ))}
       </section>
