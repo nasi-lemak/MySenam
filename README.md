@@ -35,6 +35,7 @@ equipment hire such as kayaks, and instructor-led classes.
   - **Bookings**: all bookings for any date with expected/collected/outstanding revenue, one-click paid/unpaid toggle (and pay-a-whole-series), check-in/check-out, no-show flagging, handing hire kit out and taking it back in, moving a booking to another court, plus admin cancellation
   - **Court schedule**: per-court hourly grid; click to block slots for maintenance (with a reason) or release them — booked hours can never be blocked
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
+  - **First run**: while nothing has been sold, an owner is offered a demo fortnight in one click, beside a three-step checklist for setting up a real venue. It disappears the moment a real booking exists
   - **Reports**: any period up to 400 days — collected, still owed, how full, cancellations and no-shows; revenue by month, by sport and by court; hours sold by time of day; and what the venue still owes in unspent pass entries and live memberships
   - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, induct people for unstaffed hours or withdraw them, read the door log, add new courts
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
@@ -53,6 +54,7 @@ equipment hire such as kayaks, and instructor-led classes.
 
 ```bash
 npm install
+cp .env.example .env.local   # optional: every value has a working default
 npm run dev
 ```
 
@@ -62,8 +64,20 @@ Run the test suite (Vitest against an in-memory database) with:
 npm test
 ```
 
-Open http://localhost:3000. The database is created and seeded with three demo venues
-(Petaling Jaya, Subang Jaya, Bangsar) on first request.
+Open http://localhost:3000. The database is created and seeded with four demo venues
+(Petaling Jaya, Subang Jaya, Bangsar, Putrajaya) on first request. Node 22 is what
+this is developed against; `.nvmrc` pins it.
+
+Nothing has been *booked* at those venues, though, so every admin tab opens
+empty. Sign in at `/admin` and the dashboard offers to fix that: **Load demo
+data** writes a plausible fortnight either side of today — bookings across every
+sport, a class with a roster, passes, a membership, a promo code, arrivals, a
+no-show, a maintenance block and a public holiday. It is deterministic, so the
+same install always produces the same fortnight.
+
+The offer appears only while nothing has been sold, and the endpoint behind it
+refuses once anything has, so invented customers can never turn up in a working
+venue's day list.
 
 ### Admin access
 
@@ -107,6 +121,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_BACKUP_DIR` | `backups/` beside the database | Where snapshots are written |
 | `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
 | `MUDAHTEMPAH_DB` | — | The old name for `MYSENAM_DB`, still honoured |
+
+`.env.example` lists all of them with comments; copy it to `.env.local`.
 
 On a production start the server warns about a default `ADMIN_PASSWORD` and an
 unset backup directory. It warns rather than refuses, because a venue in the
@@ -275,6 +291,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
 | POST   | `/api/admin/venues/:id/closures` | `{date, reason?}` → close that whole day          |
 | DELETE | `/api/admin/venues/:id/closures?date=` | Re-open a closed day                        |
+| GET    | `/api/admin/demo`             | Whether this install is empty — **owner only**       |
+| POST   | `/api/admin/demo`             | Fill an empty install with a demo fortnight — **owner only** |
 | GET    | `/api/admin/retention`        | The retention policy, what is due, and when it last ran — **owner only** |
 | POST   | `/api/admin/retention`        | Apply the retention policy now — **owner only**      |
 | GET    | `/api/admin/backup`           | Snapshots, and how stale the newest is — **owner only** |
@@ -306,6 +324,7 @@ src/
     backup.ts         # Verified SQLite snapshots, retention and staleness
     reports.ts        # Period reporting: revenue, utilisation, liabilities
     privacy.ts        # Export, erasure and the retention schedule
+    demo.ts           # A deterministic demo fortnight for an empty install
     rate-limit.ts     # Fixed-window limiter for password and code endpoints
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
@@ -507,6 +526,12 @@ booking was taken, because that is how an operator thinks about a month.
   venue look idle.
 - **Hours sold by time of day** is the one chart that changes a decision:
   it shows where peak really is, which is a question about the peak rate.
+- **Utilisation is reported twice**, for exclusive courts and for shared floors
+  and pools, never blended. A forty-place gym offers more place-hours in a
+  fortnight than every court in the building put together, so one combined
+  figure lets the gym decide the headline and teaches an owner nothing about
+  either. The demo data is what made that obvious: courts read 13% while the
+  building read 2%.
 - **What you still owe** is the part a spreadsheet usually misses. Unspent pass
   entries are hours already paid for that somebody can still walk in and take,
   and lapsing memberships are next month's renewals. Stored credit is shown to

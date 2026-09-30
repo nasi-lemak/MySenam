@@ -134,9 +134,12 @@ describe("how full the place was", () => {
     const gym = report.byCourt.find((c) => c.courtId === gymId)!;
     expect(gym.sellableHours).toBe(trading * 4 * days);
 
-    expect(report.utilisation.sellableHours).toBe(court.sellableHours + gym.sellableHours);
-    expect(report.utilisation.percent).toBeCloseTo(
-      report.utilisation.soldHours / report.utilisation.sellableHours,
+    // Reported apart, because a four-place floor and a one-court hour are not
+    // the same unit and blending them lets the bigger one decide the number.
+    expect(report.utilisation.courts.sellableHours).toBe(court.sellableHours);
+    expect(report.utilisation.shared.sellableHours).toBe(gym.sellableHours);
+    expect(report.utilisation.courts.percent).toBeCloseTo(
+      report.utilisation.courts.soldHours / report.utilisation.courts.sellableHours,
       6
     );
   });
@@ -152,11 +155,11 @@ describe("how full the place was", () => {
     expect(after.closedDays).toBe(1);
     // The closed day takes a day off every court; the block takes three
     // place-hours off one of them.
+    const sellable = (r: typeof after) =>
+      r.utilisation.courts.sellableHours + r.utilisation.shared.sellableHours;
     const lostToClosure = 10 * 1 + 10 * 4;
-    expect(after.utilisation.sellableHours).toBe(
-      before.utilisation.sellableHours - lostToClosure - 3
-    );
-    expect(after.utilisation.percent).toBeGreaterThan(before.utilisation.percent);
+    expect(sellable(after)).toBe(sellable(before) - lostToClosure - 3);
+    expect(after.utilisation.courts.percent).toBeGreaterThan(before.utilisation.courts.percent);
   });
 });
 
@@ -296,7 +299,8 @@ describe("edges", () => {
     expect(report.bookings.confirmed).toBe(0);
     expect(report.revenue.expected).toBe(0);
     // No courts at all means nothing was sellable, and no division by zero.
-    expect(report.utilisation.percent).toBe(0);
+    expect(report.utilisation.courts.percent).toBe(0);
+    expect(report.utilisation.shared.percent).toBe(0);
     expect(report.byCourt).toHaveLength(0);
   });
 });

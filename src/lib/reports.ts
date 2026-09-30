@@ -65,7 +65,16 @@ export interface VenueReport {
   closedDays: number;
   bookings: { confirmed: number; cancelled: number; noShows: number; hours: number };
   revenue: RevenueLine;
-  utilisation: { soldHours: number; sellableHours: number; percent: number };
+  /**
+   * Split, because one number across both would be meaningless. A forty-place
+   * gym floor offers more place-hours in a fortnight than every court in the
+   * building put together, so blending them lets the gym decide the headline
+   * and an owner learns nothing about either.
+   */
+  utilisation: {
+    courts: { soldHours: number; sellableHours: number; percent: number };
+    shared: { soldHours: number; sellableHours: number; percent: number };
+  };
   bySport: SportLine[];
   byCourt: CourtLine[];
   byMonth: MonthLine[];
@@ -318,7 +327,12 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
     membershipsExpiringSoon: number;
   };
 
-  const sellableHours = byCourt.reduce((sum, c) => sum + c.sellableHours, 0);
+  const split = (rows: CourtLine[]) => {
+    const sold = rows.reduce((n, c) => n + c.hours, 0);
+    const sellable = rows.reduce((n, c) => n + c.sellableHours, 0);
+    return { soldHours: sold, sellableHours: sellable, percent: sellable === 0 ? 0 : sold / sellable };
+  };
+  const exclusive = courts.filter((c) => c.capacity === 1).map((c) => c.id);
 
   return {
     venueId,
@@ -335,9 +349,8 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
     },
     revenue: { expected, collected, outstanding: expected - collected },
     utilisation: {
-      soldHours,
-      sellableHours,
-      percent: sellableHours === 0 ? 0 : soldHours / sellableHours,
+      courts: split(byCourt.filter((c) => exclusive.includes(c.courtId))),
+      shared: split(byCourt.filter((c) => !exclusive.includes(c.courtId))),
     },
     bySport,
     byCourt,

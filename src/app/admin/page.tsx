@@ -222,6 +222,8 @@ export default function AdminPage() {
         </button>
       </div>
 
+      {isOwner && <FirstRun onSeeded={refreshVenues} />}
+
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (
           <button
@@ -884,10 +886,23 @@ function monthStart(back: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Today, less `back` days, as YYYY-MM-DD. */
+function daysAgo(back: number): string {
+  const d = new Date(`${todayLocal()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The first range is the default, and it is 30 days rather than a calendar
+ * quarter on purpose: a quarter that is two-thirds empty averages a good month
+ * down to nothing, which reads as "this venue is dead" on the first screen
+ * anybody opens.
+ */
 const RANGES: [string, () => { from: string; to: string }][] = [
+  ["Last 30 days", () => ({ from: daysAgo(29), to: todayLocal() })],
   ["This month", () => ({ from: monthStart(0), to: todayLocal() })],
   ["Last 3 months", () => ({ from: monthStart(2), to: todayLocal() })],
-  ["Last 6 months", () => ({ from: monthStart(5), to: todayLocal() })],
 ];
 
 const ringgit = (n: number) => `RM${n.toLocaleString("en-MY")}`;
@@ -912,7 +927,7 @@ function percent(fraction: number): string {
  */
 function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
-  const [range, setRange] = useState(() => RANGES[1][1]());
+  const [range, setRange] = useState(() => RANGES[0][1]());
   const [data, setData] = useState<{
     report: VenueReport;
     wallet: { customers: number; balance: number } | null;
@@ -1033,12 +1048,21 @@ function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 How full
               </div>
               <div className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
-                {percent(report.utilisation.percent)}
+                {percent(report.utilisation.courts.percent)}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                {report.utilisation.soldHours.toLocaleString("en-MY")} of{" "}
-                {report.utilisation.sellableHours.toLocaleString("en-MY")} sellable hours
+                courts —{" "}
+                {report.utilisation.courts.soldHours.toLocaleString("en-MY")} of{" "}
+                {report.utilisation.courts.sellableHours.toLocaleString("en-MY")} hours
               </div>
+              {report.utilisation.shared.sellableHours > 0 && (
+                <div className="mt-1 text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">
+                    {percent(report.utilisation.shared.percent)}
+                  </span>{" "}
+                  of the shared floors and pools
+                </div>
+              )}
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -4473,5 +4497,118 @@ function RetentionPanel() {
         </p>
       </div>
     </section>
+  );
+}
+
+/* ---------------- First run ---------------- */
+
+/**
+ * What an empty install says for itself.
+ *
+ * A fresh MySenam has venues and courts and nothing else, so every tab opens
+ * blank and a newcomer has no idea which of the eight to start with. This
+ * appears only while nothing has been sold — the moment a real booking exists
+ * it is gone for good, which is also what stops demo customers ever appearing
+ * in a working venue's day list.
+ */
+function FirstRun({ onSeeded }: { onSeeded: () => void }) {
+  const [empty, setEmpty] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ bookings: number; extras: string[] } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/demo", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { empty: false }))
+      .then((d) => setEmpty(d.empty === true))
+      .catch(() => setEmpty(false));
+  }, []);
+
+  async function loadDemo() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/demo", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not load the demo data");
+      setDone({ bookings: data.bookings, extras: data.extras });
+      setEmpty(false);
+      onSeeded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the demo data");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done)
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        <p className="text-sm font-semibold text-emerald-900">
+          {done.bookings} bookings written across the last two weeks and the next two.
+        </p>
+        <p className="mt-1 text-sm text-emerald-800">
+          Plus {done.extras.join(", ")}. Every tab has something in it now — start with{" "}
+          <strong>Reports</strong> to see a month, or <strong>Bookings</strong> for today&apos;s desk.
+        </p>
+      </div>
+    );
+
+  if (empty !== true) return null;
+
+  return (
+    <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-4">
+      <h2 className="text-base font-bold text-teal-900">Nothing has been booked here yet</h2>
+      <p className="mt-1 max-w-2xl text-sm text-teal-900/80">
+        Every tab will look empty until somebody books something. Two ways forward, depending on
+        why you are here.
+      </p>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="rounded-lg border border-teal-200 bg-white p-3.5">
+          <p className="text-sm font-semibold">Just looking?</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Fill this install with a plausible fortnight — bookings across every sport, a class
+            with a roster, passes, a membership, a promo code, arrivals and a no-show. Enough to
+            see what each screen is for.
+          </p>
+          <button
+            onClick={loadDemo}
+            disabled={busy}
+            className="mt-3 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {busy ? "Writing…" : "Load demo data"}
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Offered only while this install is empty. Once a real booking exists it is refused, so
+            invented customers cannot appear in a working day list.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-3.5">
+          <p className="text-sm font-semibold">Setting up a real venue?</p>
+          <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+            <li>
+              <strong>Venues &amp; staff</strong> — add your venue, its opening hours and its
+              cancellation cutoff.
+            </li>
+            <li>
+              <strong>Courts &amp; rates</strong> — add each court with its peak and off-peak
+              price. A gym floor or pool takes a capacity above 1.
+            </li>
+            <li>
+              <strong>Venues &amp; staff</strong> again — create a login for whoever works the
+              counter, and change the password you signed in with.
+            </li>
+          </ol>
+          <p className="mt-2 text-xs text-slate-500">
+            The four demo venues that ship with MySenam can stay or go — they are only there so the
+            first screen is not blank.
+          </p>
+        </div>
+      </div>
+
+      {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
+    </div>
   );
 }
