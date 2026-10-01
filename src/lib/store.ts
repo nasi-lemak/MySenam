@@ -1,8 +1,11 @@
 import { randomBytes } from "crypto";
 import { getDb } from "./db";
+import { errorText, translator } from "./i18n";
+import type { ErrorCode } from "./i18n";
 import {
   Booking,
   busyness,
+  Refusal,
   Court,
   CourtAvailability,
   OPEN_HOUR,
@@ -157,14 +160,33 @@ export function listVenueClosures(venueId: number, from?: string): VenueClosure[
   return rows.map((r) => ({ date: r.date, reason: r.reason }));
 }
 
-export type ClosureResult = { ok: true; closure: VenueClosure } | { ok: false; error: string };
+/**
+ * Refuse something, by name.
+ *
+ * The English sentence comes out of the same dictionary the Bahasa Malaysia one
+ * does, so the two cannot drift apart and the store does not carry a second
+ * copy of its own wording. `code` travels to the browser, which says it in
+ * whichever language the reader is actually in.
+ */
+function refuse(code: ErrorCode, vars?: Record<string, string | number>): Refusal {
+  const refusal: Refusal = { ok: false, error: errorText(ENGLISH, code, vars), code };
+  // Left off entirely when there are none, so the shape on the wire stays the
+  // shape it was for every refusal that quotes nothing.
+  if (vars) refusal.vars = vars;
+  return refusal;
+}
+
+/** The store speaks English; the page translates. */
+const ENGLISH = translator("en");
+
+export type ClosureResult = { ok: true; closure: VenueClosure } | Refusal;
 
 /** Shut a venue for a whole day. Existing bookings are left for staff to handle. */
 export function closeVenueDay(venueId: number, date: string, reason?: string): ClosureResult {
   if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
   const db = getDb();
   const venue = db.prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
-  if (!venue) return { ok: false, error: "Venue not found." };
+  if (!venue) return refuse("VENUE_NOT_FOUND");
   const trimmed = reason?.trim();
   db.prepare(
     `INSERT INTO venue_closures (venue_id, date, reason) VALUES (?, ?, ?)
@@ -354,8 +376,8 @@ export function createBookingOnAnyCourt(input: {
   const { venueId, sport, date, hours, ...rest } = input;
 
   const venue = getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
-  if (!venue) return { ok: false, error: "Venue not found." };
-  if (!SPORTS.includes(sport)) return { ok: false, error: "Unknown sport." };
+  if (!venue) return refuse("VENUE_NOT_FOUND");
+  if (!SPORTS.includes(sport)) return refuse("UNKNOWN_SPORT");
 
   const candidates = courtsForAnyBooking({ venueId, sport, date, hours });
   if (candidates.length === 0) {
@@ -368,13 +390,13 @@ export function createBookingOnAnyCourt(input: {
         .all(venueId, sport) as CourtRow[]
     ).map(toCourt)[0];
     if (!anyCourt)
-      return { ok: false, error: `That venue has no ${SPORT_LABELS[sport]} courts.` };
+      return refuse("NO_SPORT_AT_VENUE", { sport: SPORT_LABELS[sport] });
     const probe = createBookingSeries({ ...rest, courtId: anyCourt.id, date, hours, weeks: input.weeks ?? 1 });
     if (probe.ok) return probe; // it came free between the two reads
     // A "someone took it" error from the probe is about that one court, and
     // the customer never chose it. Say what is actually true of all of them.
     if (TAKEN_ERROR.test(probe.error))
-      return { ok: false, error: "No court is free for that whole time. Please pick another time." };
+      return refuse("NO_COURT_FREE");
     return probe;
   }
 
@@ -710,7 +732,7 @@ const generateSeriesCode = () => randomCode("SR-");
 
 export type CreateBookingResult =
   | { ok: true; booking: Booking }
-  | { ok: false; error: string };
+  | Refusal;
 
 /** Bounded retries when two requests race for the same place. */
 const MAX_SEAT_RETRIES = 5;
@@ -722,7 +744,7 @@ export interface SeriesSkip {
 
 export type CreateSeriesResult =
   | { ok: true; bookings: Booking[]; skipped: SeriesSkip[]; seriesCode: string | null }
-  | { ok: false; error: string };
+  | Refusal;
 
 export function createBooking(input: {
   courtId: number;
@@ -761,25 +783,25 @@ export function createBookingSeries(input: {
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
 
   const court = getCourt(courtId);
-  if (!court) return { ok: false, error: "Court not found." };
+  if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_RECUR_WEEKS)
-    return { ok: false, error: `Weeks must be between 1 and ${MAX_RECUR_WEEKS}.` };
+    return refuse("WEEKS_RANGE", { max: MAX_RECUR_WEEKS });
   if (!isBookableDate(date))
-    return { ok: false, error: "The first date is outside the booking window." };
-  if (hours.length === 0) return { ok: false, error: "Select at least one hour." };
+    return refuse("DATE_OUT_OF_WINDOW_FIRST");
+  if (hours.length === 0) return refuse("NO_HOURS");
   if (hours.length > MAX_HOURS_PER_BOOKING)
-    return { ok: false, error: `Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.` };
+    return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
   for (let i = 1; i < hours.length; i++) {
     if (hours[i] !== hours[i - 1] + 1)
-      return { ok: false, error: "Selected hours must be consecutive." };
+      return refuse("HOURS_NOT_CONSECUTIVE");
   }
   const { openHour, closeHour } = courtVenueHours(courtId);
   if (hours[0] < openHour || hours[hours.length - 1] >= closeHour)
-    return { ok: false, error: "Selected hours are outside operating hours." };
+    return refuse("HOURS_OUTSIDE_OPENING");
   if (isPastSlot(date, hours[0]))
-    return { ok: false, error: "That time slot has already passed." };
+    return refuse("SLOT_PAST");
   if (getVenueClosure(court.venueId, date))
-    return { ok: false, error: "The venue is closed that day." };
+    return refuse("VENUE_CLOSED");
 
   const db = getDb();
   const placeholders = hours.map(() => "?").join(",");
@@ -884,17 +906,14 @@ export function createBookingSeries(input: {
       };
     }
     if (message === "ALL_CONFLICT") {
-      return { ok: false, error: "Every week in that series is already taken. Please pick another slot." };
+      return refuse("SERIES_ALL_TAKEN");
     }
     if (message.includes("UNIQUE constraint failed: booking_slots")) {
       // Two requests picked the same place at once; the loser retries against
       // the winner's state. A genuinely full resource fails the seat check
       // above instead, so this cannot spin, but bound it regardless.
       if (attempt < MAX_SEAT_RETRIES) return createBookingSeries(input, attempt + 1);
-      return {
-        ok: false,
-        error: "That session is filling up very quickly. Please try again.",
-      };
+      return refuse("FILLING_FAST");
     }
     if (message.includes("UNIQUE constraint failed: bookings.code")) {
       // Astronomically rare code collision — one retry is plenty.
@@ -906,11 +925,10 @@ export function createBookingSeries(input: {
 }
 
 /** Cancel all future confirmed bookings in a series (verified by phone). */
-export function cancelSeries(seriesCode: string, phone: string): {
-  ok: boolean;
-  cancelled: number;
-  error?: string;
-} {
+export function cancelSeries(
+  seriesCode: string,
+  phone: string
+): { ok: true; cancelled: number } | (Refusal & { cancelled: number }) {
   const db = getDb();
   const rows = db
     .prepare(
@@ -918,16 +936,12 @@ export function cancelSeries(seriesCode: string, phone: string): {
     )
     .all(seriesCode.trim(), phone.trim()) as BookingRow[];
   if (rows.length === 0)
-    return { ok: false, cancelled: 0, error: "Series not found. Check the series code and phone number." };
+    return { ...refuse("SERIES_NOT_FOUND"), cancelled: 0 };
 
   const cutoff = cancelCutoffForBooking(rows[0].id);
   const future = rows.filter((r) => isWithinCancelWindow(r.date, r.start_hour, cutoff));
   if (future.length === 0)
-    return {
-      ok: false,
-      cancelled: 0,
-      error: `No sessions left to cancel — the rest start within ${cutoff} hour${cutoff === 1 ? "" : "s"}.`,
-    };
+    return { ...refuse("SERIES_NONE_LEFT", { n: cutoff }), cancelled: 0 };
 
   db.transaction(() => {
     for (const row of future) {
@@ -953,7 +967,7 @@ export function findBooking(code: string, phone: string): Booking | null {
   return row ? toBooking(row) : null;
 }
 
-export type CancelResult = { ok: true; booking: Booking } | { ok: false; error: string };
+export type CancelResult = { ok: true; booking: Booking } | Refusal;
 
 /** The cancellation cutoff of the venue a booking belongs to. */
 function cancelCutoffForBooking(bookingId: number): number {
@@ -976,10 +990,10 @@ function cutoffMessage(hours: number): string {
 
 export function cancelBooking(code: string, phone: string): CancelResult {
   const booking = findBooking(code, phone);
-  if (!booking) return { ok: false, error: "Booking not found. Check the code and phone number." };
-  if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (!booking) return refuse("BOOKING_NOT_FOUND_CODE");
+  if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
   if (hasOpenHire(booking.id))
-    return { ok: false, error: "The kit for this booking is still out. Bring it back to the desk first." };
+    return refuse("KIT_STILL_OUT");
   const cutoff = cancelCutoffForBooking(booking.id);
   if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
     return { ok: false, error: cutoffMessage(cutoff) };
@@ -1092,7 +1106,7 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
   }));
 }
 
-export type BlockResult = { ok: true; changed: number } | { ok: false; error: string };
+export type BlockResult = { ok: true; changed: number } | Refusal;
 
 /** Block hours on a court (maintenance/closure). Skips hours that are booked. */
 export function blockSlots(
@@ -1108,7 +1122,7 @@ export function blockSlots(
   places?: number
 ): BlockResult {
   const court = getCourt(courtId);
-  if (!court) return { ok: false, error: "Court not found." };
+  if (!court) return refuse("COURT_NOT_FOUND");
   const { openHour, closeHour } = courtVenueHours(courtId);
   const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour);
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
@@ -1156,7 +1170,7 @@ export function blockSlots(
 }
 
 export function unblockSlots(courtId: number, date: string, hours: number[]): BlockResult {
-  if (!getCourt(courtId)) return { ok: false, error: "Court not found." };
+  if (!getCourt(courtId)) return refuse("COURT_NOT_FOUND");
   const valid = [...new Set(hours)];
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
   const db = getDb();
@@ -1172,9 +1186,9 @@ export function adminCancelBooking(code: string): CancelResult {
   const row = db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
-  if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
   // Cancelling would drop the only record of what is out and what is held
   // against it, so settle the hire first even from the admin side.
   if (hasOpenHire(booking.id))
@@ -1193,7 +1207,7 @@ export function adminCancelBooking(code: string): CancelResult {
 
 export type MoveResult =
   | { ok: true; booking: Booking; fromCourt: Court; toCourt: Court }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * Move a confirmed booking to another court, keeping everything that makes it
@@ -1212,11 +1226,11 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)"
     )
     .get(code.trim()) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
 
   if (booking.status === "cancelled")
-    return { ok: false, error: "This booking was cancelled." };
+    return refuse("BOOKING_WAS_CANCELLED");
   if (booking.classId !== null)
     return { ok: false, error: "A class enrolment moves with its class, not on its own." };
   // The kit came off this resource; moving the booking would file it against
@@ -1226,7 +1240,7 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
 
   const fromCourt = getCourt(booking.courtId);
   const toCourt = getCourt(toCourtId);
-  if (!fromCourt || !toCourt) return { ok: false, error: "Court not found." };
+  if (!fromCourt || !toCourt) return refuse("COURT_NOT_FOUND");
   if (fromCourt.id === toCourt.id)
     return { ok: false, error: "That booking is already on that court." };
   if (fromCourt.venueId !== toCourt.venueId)
@@ -1408,13 +1422,13 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
   };
 }
 
-export type VenueEditResult = { ok: true; venue: Venue } | { ok: false; error: string };
+export type VenueEditResult = { ok: true; venue: Venue } | Refusal;
 
 /** Validate a venue's trading hours, defaulting anything not given. */
 function normaliseHours(
   open: number | undefined,
   close: number | undefined
-): { ok: true; openHour: number; closeHour: number } | { ok: false; error: string } {
+): { ok: true; openHour: number; closeHour: number } | Refusal {
   const openHour = open ?? DEFAULT_OPEN_HOUR;
   const closeHour = close ?? DEFAULT_CLOSE_HOUR;
   if (!Number.isInteger(openHour) || !Number.isInteger(closeHour))
@@ -1474,7 +1488,7 @@ export function updateVenue(
 ): VenueEditResult {
   const db = getDb();
   const row = db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow | undefined;
-  if (!row) return { ok: false, error: "Venue not found." };
+  if (!row) return refuse("VENUE_NOT_FOUND");
   const current = toVenue(row);
 
   const hours = normaliseHours(
@@ -1623,11 +1637,11 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
   const row = db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ? AND b.user_id = ?")
     .get(bookingId, userId) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
-  if (booking.status === "cancelled") return { ok: false, error: "This booking is already cancelled." };
+  if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
   if (hasOpenHire(booking.id))
-    return { ok: false, error: "The kit for this booking is still out. Bring it back to the desk first." };
+    return refuse("KIT_STILL_OUT");
   const cutoff = cancelCutoffForBooking(booking.id);
   if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
     return { ok: false, error: cutoffMessage(cutoff) };
@@ -1643,7 +1657,7 @@ export function cancelUserBooking(userId: number, bookingId: number): CancelResu
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
-export type PaymentResult = { ok: true; booking: Booking } | { ok: false; error: string };
+export type PaymentResult = { ok: true; booking: Booking } | Refusal;
 
 /** Front-desk payment toggle for a single booking (admin only). */
 export function setPaymentStatus(code: string, paid: boolean): PaymentResult {
@@ -1651,7 +1665,7 @@ export function setPaymentStatus(code: string, paid: boolean): PaymentResult {
   const row = db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
   if (booking.status === "cancelled")
     return { ok: false, error: "This booking is cancelled." };
@@ -1694,7 +1708,7 @@ export function paySeries(seriesCode: string): { ok: boolean; paid: number; erro
   return { ok: true, paid: rows.length };
 }
 
-export type CheckInResult = { ok: true; booking: Booking } | { ok: false; error: string };
+export type CheckInResult = { ok: true; booking: Booking } | Refusal;
 
 function bookingByCode(code: string): Booking | null {
   const row = getDb()
@@ -1724,25 +1738,25 @@ function checkInWindowError(booking: Booking): string | null {
 /** Record an arrival at the front desk. */
 export function checkIn(code: string): CheckInResult {
   const booking = bookingByCode(code);
-  if (!booking) return { ok: false, error: "Booking not found." };
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
   return checkInBooking(booking);
 }
 
 /** Self-service check-in from the QR code on a booking. */
 export function checkInByToken(token: string): CheckInResult {
   const trimmed = token.trim();
-  if (trimmed === "") return { ok: false, error: "Booking not found." };
+  if (trimmed === "") return refuse("BOOKING_NOT_FOUND");
   const row = getDb()
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.check_in_token = ?"
     )
     .get(trimmed) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   return checkInBooking(toBooking(row));
 }
 
 function checkInBooking(booking: Booking): CheckInResult {
-  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
   const windowError = checkInWindowError(booking);
   if (windowError) return { ok: false, error: windowError };
@@ -1758,7 +1772,7 @@ function checkInBooking(booking: Booking): CheckInResult {
 
 export function checkOut(code: string): CheckInResult {
   const booking = bookingByCode(code);
-  if (!booking) return { ok: false, error: "Booking not found." };
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
   if (!booking.checkedInAt) return { ok: false, error: "This booking has not checked in." };
   if (booking.checkedOutAt) return { ok: false, error: "Already checked out." };
 
@@ -1822,7 +1836,7 @@ export function isInducted(venueId: number, phone: string): boolean {
 
 export type InductionResult =
   | { ok: true; induction: Induction }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * Record that an operator has shown somebody round.
@@ -1839,7 +1853,7 @@ export function recordInduction(input: {
   note?: string;
 }): InductionResult {
   const db = getDb();
-  if (!getVenue(input.venueId)) return { ok: false, error: "Venue not found." };
+  if (!getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
   const phone = normalisePhone(input.phone);
   if (phone.length < 7) return { ok: false, error: "Please give a valid phone number." };
   const name = input.name.trim();
@@ -2172,7 +2186,7 @@ export function listOpenHires(venueId: number): HireRecord[] {
 
 export type HireResult =
   | { ok: true; hire: HireRecord; booking: Booking }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * Hand the kit over and record the deposit held against it.
@@ -2186,11 +2200,11 @@ export type HireResult =
 export function takeHire(code: string, deposit?: number): HireResult {
   const db = getDb();
   const booking = bookingByCode(code);
-  if (!booking) return { ok: false, error: "Booking not found." };
-  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
 
   const court = getCourt(booking.courtId);
-  if (!court) return { ok: false, error: "Court not found." };
+  if (!court) return refuse("COURT_NOT_FOUND");
   if (court.deposit <= 0)
     return { ok: false, error: `${court.name} is not hired out. Set a deposit on it first.` };
 
@@ -2245,7 +2259,7 @@ export function returnHire(
 ): HireResult {
   const db = getDb();
   const booking = bookingByCode(code);
-  if (!booking) return { ok: false, error: "Booking not found." };
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
 
   const hire = hireFor(booking.id);
   if (!hire) return { ok: false, error: "No deposit is held on this booking." };
@@ -2328,7 +2342,7 @@ export function getLiveOccupancy(venueId: number): LiveOccupancy[] {
   });
 }
 
-export type NoShowResult = { ok: true; booking: Booking } | { ok: false; error: string };
+export type NoShowResult = { ok: true; booking: Booking } | Refusal;
 
 /** Flag a passed booking whose customer never turned up (staff only). */
 export function setNoShow(code: string, noShow: boolean): NoShowResult {
@@ -2336,11 +2350,11 @@ export function setNoShow(code: string, noShow: boolean): NoShowResult {
   const row = db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
 
   if (booking.status === "cancelled")
-    return { ok: false, error: "This booking was cancelled." };
+    return refuse("BOOKING_WAS_CANCELLED");
   if (noShow && !isPastSlot(booking.date, booking.startHour))
     return { ok: false, error: "This booking has not started yet." };
   if (noShow && booking.checkedInAt)
@@ -2360,7 +2374,7 @@ export function countNoShows(phone: string): number {
   return row.n;
 }
 
-export type CourtEditResult = { ok: true; court: Court } | { ok: false; error: string };
+export type CourtEditResult = { ok: true; court: Court } | Refusal;
 
 export function createCourt(input: {
   venueId: number;
@@ -2372,7 +2386,7 @@ export function createCourt(input: {
   deposit?: number;
 }): CourtEditResult {
   const db = getDb();
-  if (!getVenue(input.venueId)) return { ok: false, error: "Venue not found." };
+  if (!getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
   const info = db
     .prepare(
       "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity, deposit) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -2407,7 +2421,7 @@ export function updateCourt(
 ): CourtEditResult {
   const db = getDb();
   const court = getCourt(courtId);
-  if (!court) return { ok: false, error: "Court not found." };
+  if (!court) return refuse("COURT_NOT_FOUND");
 
   // Shrinking capacity below what is already booked would strand those
   // bookings, so refuse rather than silently overbook.
@@ -2657,7 +2671,7 @@ export function listClasses(filter: {
 
 export type CreateClassResult =
   | { ok: true; classes: ClassSession[]; seriesCode: string | null }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * Schedule a class, optionally repeating weekly for a term. The resource must
@@ -2678,14 +2692,14 @@ export function createClassSessions(input: {
   const weeks = input.weeks ?? 1;
 
   const court = getCourt(courtId);
-  if (!court) return { ok: false, error: "Court not found." };
+  if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
     return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
   const { openHour, closeHour } = courtVenueHours(courtId);
   if (startHour < openHour || endHour > closeHour || endHour <= startHour)
     return { ok: false, error: "Class hours are outside operating hours." };
   if (getVenueClosure(court.venueId, date))
-    return { ok: false, error: "The venue is closed that day." };
+    return refuse("VENUE_CLOSED");
   if (input.capacity < 1 || input.capacity > court.capacity)
     return {
       ok: false,
@@ -2741,7 +2755,7 @@ export function createClassSessions(input: {
   }
 }
 
-export type EnrolResult = { ok: true; booking: Booking } | { ok: false; error: string };
+export type EnrolResult = { ok: true; booking: Booking } | Refusal;
 
 /** Take a place in a class. The enrolment is an ordinary booking. */
 export function enrolInClass(input: {
@@ -2752,22 +2766,22 @@ export function enrolInClass(input: {
   userId?: number;
 }): EnrolResult {
   const session = getClass(input.classId);
-  if (!session) return { ok: false, error: "Class not found." };
-  if (session.status === "cancelled") return { ok: false, error: "This class was cancelled." };
+  if (!session) return refuse("CLASS_NOT_FOUND");
+  if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
   if (isPastSlot(session.date, session.startHour))
-    return { ok: false, error: "This class has already started." };
+    return refuse("CLASS_STARTED");
   if (session.enrolled >= session.capacity)
-    return { ok: false, error: "This class is full." };
+    return refuse("CLASS_FULL");
   // The day may have been closed after the class was put in the diary.
   if (getVenueClosure(session.venueId, session.date))
-    return { ok: false, error: "The venue is closed that day." };
+    return refuse("VENUE_CLOSED");
 
   const already = getDb()
     .prepare(
       "SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'"
     )
     .get(session.id, input.phone.trim());
-  if (already) return { ok: false, error: "You are already enrolled in this class." };
+  if (already) return refuse("ALREADY_ENROLLED");
 
   const hours = Array.from(
     { length: session.endHour - session.startHour },
@@ -2871,7 +2885,7 @@ export function listWalletEntries(userId: number, limit = 50): WalletEntry[] {
 
 export type WalletResult =
   | { ok: true; balance: number; entry: WalletEntry }
-  | { ok: false; error: string };
+  | Refusal;
 
 /** Record credit bought at the counter. */
 export function topUpWallet(input: {
@@ -2912,12 +2926,12 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
     )
     .get(bookingId) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
 
-  if (!row.user_id) return { ok: false, error: "This booking has no account to charge." };
-  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
-  if (booking.paymentStatus === "paid") return { ok: false, error: "This booking is already paid." };
+  if (!row.user_id) return refuse("NO_ACCOUNT_TO_CHARGE");
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  if (booking.paymentStatus === "paid") return refuse("ALREADY_PAID");
 
   const userId = row.user_id;
   try {
@@ -2945,7 +2959,7 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
     };
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT")
-      return { ok: false, error: "Not enough credit. Top up at the counter or pay there." };
+      return refuse("NOT_ENOUGH_CREDIT");
     throw err;
   }
 }
@@ -3107,7 +3121,7 @@ export function membershipById(id: number): Membership | null {
 
 export type MembershipResult =
   | { ok: true; membership: Membership }
-  | { ok: false; error: string };
+  | Refusal;
 
 /** Sell a membership at the counter. */
 export function sellMembership(input: {
@@ -3122,7 +3136,7 @@ export function sellMembership(input: {
 }): MembershipResult {
   const db = getDb();
   if (!db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
-    return { ok: false, error: "Venue not found." };
+    return refuse("VENUE_NOT_FOUND");
 
   const holderName = input.holderName.trim();
   const holderPhone = input.holderPhone.trim();
@@ -3256,7 +3270,7 @@ export function listPromoCodes(venueId: number): PromoCode[] {
   return rows.map(toPromo);
 }
 
-export type PromoEditResult = { ok: true; promo: PromoCode } | { ok: false; error: string };
+export type PromoEditResult = { ok: true; promo: PromoCode } | Refusal;
 
 export function createPromoCode(input: {
   venueId: number;
@@ -3273,7 +3287,7 @@ export function createPromoCode(input: {
 }): PromoEditResult {
   const db = getDb();
   if (!db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
-    return { ok: false, error: "Venue not found." };
+    return refuse("VENUE_NOT_FOUND");
 
   const code = input.code.trim().toUpperCase();
   if (!/^[A-Z0-9-]{3,20}$/.test(code))
@@ -3300,7 +3314,7 @@ export function createPromoCode(input: {
       (!Number.isInteger(input.maxUses) || input.maxUses < 1))
     return { ok: false, error: "A usage limit must be a whole number above zero." };
   if (input.sport && !SPORTS.includes(input.sport))
-    return { ok: false, error: "Unknown sport." };
+    return refuse("UNKNOWN_SPORT");
   if (input.sport) {
     const has = db
       .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
@@ -3339,7 +3353,7 @@ export function voidPromoCode(id: number): PromoEditResult {
 
 export type PromoQuote =
   | { ok: true; promo: PromoCode; discount: number }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * What a code would take off this particular booking, without claiming it.
@@ -3378,7 +3392,7 @@ export function quotePromo(input: {
 
 export type PromoApplyResult =
   | { ok: true; discount: number; newTotal: number; promo: PromoCode }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * Claim a code against a booking: record the use and reduce what is owed.
@@ -3396,14 +3410,14 @@ export function applyPromo(bookingId: number, code: string): PromoApplyResult {
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
     )
     .get(bookingId) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
-  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.paymentStatus === "paid")
-    return { ok: false, error: "This booking is already paid; a code cannot be added now." };
+    return refuse("PROMO_TOO_LATE");
 
   const court = getCourt(booking.courtId);
-  if (!court) return { ok: false, error: "Court not found." };
+  if (!court) return refuse("COURT_NOT_FOUND");
 
   const quote = quotePromo({
     venueId: court.venueId,
@@ -3433,7 +3447,7 @@ export function applyPromo(bookingId: number, code: string): PromoApplyResult {
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))
       return { ok: false, error: err.message.slice("BLOCKED:".length) };
     if (err instanceof Error && /UNIQUE constraint failed: promo_uses/.test(err.message))
-      return { ok: false, error: "A code has already been used on this booking." };
+      return refuse("PROMO_ALREADY_USED");
     throw err;
   }
 
@@ -3580,7 +3594,7 @@ export function listPassEntries(passId: number, limit = 50): PassEntry[] {
   }));
 }
 
-export type PassResult = { ok: true; pass: Pass } | { ok: false; error: string };
+export type PassResult = { ok: true; pass: Pass } | Refusal;
 
 /** Sell a pass at the counter. */
 export function issuePass(input: {
@@ -3597,7 +3611,7 @@ export function issuePass(input: {
 }): PassResult {
   const db = getDb();
   const venue = db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId);
-  if (!venue) return { ok: false, error: "Venue not found." };
+  if (!venue) return refuse("VENUE_NOT_FOUND");
 
   const name = input.name.trim();
   const holderName = input.holderName.trim();
@@ -3616,7 +3630,7 @@ export function issuePass(input: {
   if (input.expiresOn > addDays(todayISO(), MAX_PASS_MONTHS * 31))
     return { ok: false, error: `A pass may not run more than ${MAX_PASS_MONTHS} months.` };
   if (input.sport && !SPORTS.includes(input.sport))
-    return { ok: false, error: "Unknown sport." };
+    return refuse("UNKNOWN_SPORT");
   // A sport-locked pass is pointless if the venue has no such courts.
   if (input.sport) {
     const has = db
@@ -3660,7 +3674,7 @@ function passById(id: number): Pass | null {
 export function voidPass(passId: number): PassResult {
   const db = getDb();
   const pass = passById(passId);
-  if (!pass) return { ok: false, error: "Pass not found." };
+  if (!pass) return refuse("PASS_NOT_FOUND");
   if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
   db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
   return { ok: true, pass: passById(passId)! };
@@ -3681,7 +3695,7 @@ function passScopeError(pass: Pass, booking: Booking): string | null {
 
 export type PassPayResult =
   | { ok: true; pass: Pass; spent: number }
-  | { ok: false; error: string };
+  | Refusal;
 
 /**
  * Settle a booking with a pass: one entry per booked hour, all or nothing.
@@ -3695,19 +3709,19 @@ export function payBookingWithPass(bookingId: number, passCode: string): PassPay
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
     )
     .get(bookingId) as BookingRow | undefined;
-  if (!row) return { ok: false, error: "Booking not found." };
+  if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
-  if (booking.status === "cancelled") return { ok: false, error: "This booking was cancelled." };
-  if (booking.paymentStatus === "paid") return { ok: false, error: "This booking is already paid." };
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  if (booking.paymentStatus === "paid") return refuse("ALREADY_PAID");
 
   const pass = getPass(passCode);
-  if (!pass) return { ok: false, error: "Pass not found." };
+  if (!pass) return refuse("PASS_NOT_FOUND");
   const scope = passScopeError(pass, booking);
   if (scope) return { ok: false, error: scope };
 
   // A pass is the holder's to spend, so it has to be their booking.
   if (normalisePhone(pass.holderPhone) !== normalisePhone(booking.phone))
-    return { ok: false, error: "That pass belongs to a different phone number." };
+    return refuse("PASS_WRONG_PHONE");
 
   const hours = booking.endHour - booking.startHour;
 
@@ -3884,7 +3898,7 @@ function expireStaleOffers(): void {
 
 export type WaitlistResult =
   | { ok: true; entry: WaitlistEntry; position: number }
-  | { ok: false; error: string };
+  | Refusal;
 
 /** Queue for a class place. Only possible while the class is actually full. */
 export function joinClassWaitlist(input: {
@@ -3898,12 +3912,12 @@ export function joinClassWaitlist(input: {
 }): WaitlistResult {
   expireStaleOffers();
   const session = getClass(input.classId);
-  if (!session) return { ok: false, error: "Class not found." };
-  if (session.status === "cancelled") return { ok: false, error: "This class was cancelled." };
+  if (!session) return refuse("CLASS_NOT_FOUND");
+  if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
   if (isPastSlot(session.date, session.startHour))
-    return { ok: false, error: "This class has already started." };
+    return refuse("CLASS_STARTED");
   if (session.enrolled < session.capacity)
-    return { ok: false, error: "This class still has places — enrol instead." };
+    return refuse("CLASS_HAS_PLACES");
 
   const db = getDb();
   const already = db
@@ -3911,11 +3925,11 @@ export function joinClassWaitlist(input: {
       "SELECT id FROM waitlist WHERE class_id = ? AND phone = ? AND status IN ('waiting','offered')"
     )
     .get(input.classId, input.phone.trim());
-  if (already) return { ok: false, error: "You are already on this waitlist." };
+  if (already) return refuse("ALREADY_WAITING");
   const enrolled = db
     .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'")
     .get(input.classId, input.phone.trim());
-  if (enrolled) return { ok: false, error: "You are already enrolled in this class." };
+  if (enrolled) return refuse("ALREADY_ENROLLED");
 
   const info = db
     .prepare(
@@ -3971,7 +3985,7 @@ export function offerClassPlace(classId: number): WaitlistEntry | null {
 
 export type ClaimResult =
   | { ok: true; booking: Booking; entry: WaitlistEntry }
-  | { ok: false; error: string };
+  | Refusal;
 
 /** Take up an offered place. The offer token is the only way in. */
 export function claimWaitlistOffer(token: string): ClaimResult {
@@ -3980,9 +3994,9 @@ export function claimWaitlistOffer(token: string): ClaimResult {
   const row = db
     .prepare("SELECT * FROM waitlist WHERE offer_token = ?")
     .get(token.trim()) as WaitlistRow | undefined;
-  if (!row) return { ok: false, error: "This offer is no longer valid." };
+  if (!row) return refuse("OFFER_INVALID");
   if (row.status !== "offered")
-    return { ok: false, error: "This offer has expired or was already claimed." };
+    return refuse("OFFER_EXPIRED");
 
   let booking: Booking;
   if (row.class_id) {
@@ -4018,7 +4032,7 @@ export function claimWaitlistOffer(token: string): ClaimResult {
     }
     booking = created.booking;
   } else {
-    return { ok: false, error: "This offer is no longer valid." };
+    return refuse("OFFER_INVALID");
   }
 
   db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
@@ -4032,13 +4046,13 @@ export function claimWaitlistOffer(token: string): ClaimResult {
 }
 
 /** Give up a place in the queue. */
-export function leaveWaitlist(entryId: number, phone: string): { ok: boolean; error?: string } {
+export function leaveWaitlist(entryId: number, phone: string): { ok: true } | Refusal {
   const db = getDb();
   const row = db
     .prepare("SELECT * FROM waitlist WHERE id = ? AND phone = ?")
     .get(entryId, phone.trim()) as WaitlistRow | undefined;
-  if (!row) return { ok: false, error: "Waitlist entry not found." };
-  if (row.status === "claimed") return { ok: false, error: "This place was already claimed." };
+  if (!row) return refuse("WAITLIST_NOT_FOUND");
+  if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
 
   db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
   // Someone dropping out may free a live offer for the next person.
@@ -4127,20 +4141,20 @@ export function joinSlotWaitlist(input: {
   const { courtId, date, startHour, endHour } = input;
 
   const waitCourt = getCourt(courtId);
-  if (!waitCourt) return { ok: false, error: "Court not found." };
+  if (!waitCourt) return refuse("COURT_NOT_FOUND");
   const { openHour, closeHour } = courtVenueHours(courtId);
   if (endHour <= startHour || startHour < openHour || endHour > closeHour)
-    return { ok: false, error: "Those hours are outside operating hours." };
+    return refuse("THOSE_HOURS_OUTSIDE_OPENING");
   if (getVenueClosure(waitCourt.venueId, date))
-    return { ok: false, error: "The venue is closed that day." };
+    return refuse("VENUE_CLOSED");
   if (endHour - startHour > MAX_HOURS_PER_BOOKING)
-    return { ok: false, error: `Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.` };
-  if (!isBookableDate(date)) return { ok: false, error: "Date is outside the booking window." };
-  if (isPastSlot(date, startHour)) return { ok: false, error: "That time has already passed." };
+    return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
+  if (!isBookableDate(date)) return refuse("DATE_OUT_OF_WINDOW");
+  if (isPastSlot(date, startHour)) return refuse("TIME_PAST");
 
   const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
   if (slotHoursFree(courtId, date, hours))
-    return { ok: false, error: "That slot is free — book it instead." };
+    return refuse("SLOT_FREE_BOOK_IT");
 
   const db = getDb();
   const already = db
@@ -4150,7 +4164,7 @@ export function joinSlotWaitlist(input: {
         AND status IN ('waiting','offered')
     `)
     .get(courtId, date, startHour, input.phone.trim());
-  if (already) return { ok: false, error: "You are already on this waitlist." };
+  if (already) return refuse("ALREADY_WAITING");
 
   const info = db
     .prepare(`

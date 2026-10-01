@@ -75,3 +75,54 @@ describe("the lookup", () => {
     for (const locale of LOCALES) expect(translator(locale).locale).toBe(locale);
   });
 });
+
+describe("refusals", () => {
+  it("gives every code something to say in both languages", async () => {
+    const codes = keys.filter((k) => k.startsWith("err."));
+    expect(codes.length).toBeGreaterThan(40);
+    for (const key of codes) {
+      expect(MS[key], `${key} is missing from Bahasa Malaysia`).toBeTruthy();
+      expect(EN[key]).not.toBe(MS[key]);
+    }
+  });
+
+  it("says a refusal in Malay, including the bit it quotes", async () => {
+    const { translateError } = await import("../src/lib/i18n");
+    const t = translator("ms");
+    expect(translateError(t, { error: "Maximum 3 hours per booking.", code: "MAX_HOURS", vars: { max: 3 } }))
+      .toBe("Maksimum 3 jam bagi setiap tempahan.");
+    expect(translateError(t, { error: "That venue has no Gym courts.", code: "NO_SPORT_AT_VENUE", vars: { sport: "Gim" } }))
+      .toBe("Pusat itu tiada gelanggang Gim.");
+  });
+
+  it("counts, where the sentence counts", async () => {
+    const { translateError } = await import("../src/lib/i18n");
+    const t = translator("en");
+    expect(translateError(t, { error: "x", code: "SERIES_NONE_LEFT", vars: { n: 1 } })).toBe("x");
+    const ms = translator("ms");
+    expect(translateError(ms, { code: "SERIES_NONE_LEFT", vars: { n: 2 } })).toContain("2 jam");
+  });
+
+  it("leaves English alone", async () => {
+    const { translateError } = await import("../src/lib/i18n");
+    const t = translator("en");
+    expect(translateError(t, { error: "Booking not found.", code: "BOOKING_NOT_FOUND" }))
+      .toBe("Booking not found.");
+  });
+
+  it("falls back to the exact English when there is no code", async () => {
+    const { translateError } = await import("../src/lib/i18n");
+    const t = translator("ms");
+    expect(translateError(t, { error: "Wrong email or password." }))
+      .toBe("E-mel atau kata laluan salah.");
+  });
+
+  it("shows an unknown refusal rather than nothing", async () => {
+    const { translateError } = await import("../src/lib/i18n");
+    const t = translator("ms");
+    expect(translateError(t, { error: "Something nobody has translated." }))
+      .toBe("Something nobody has translated.");
+    expect(translateError(t, { error: "Still shown.", code: "NOT_A_REAL_CODE" }))
+      .toBe("Still shown.");
+  });
+});

@@ -29,7 +29,7 @@ export default function LoginPage() {
         ),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("auth.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("auth.failed"));
       router.push("/account");
       router.refresh();
     } catch (err) {

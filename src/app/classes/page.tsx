@@ -31,7 +31,7 @@ export default function ClassesPage() {
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("classes.loadFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("classes.loadFailed"));
       setClasses(data.classes);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("classes.loadFailed"));
@@ -220,10 +220,7 @@ function EnrolModal({
       const data = await res.json();
       if (!res.ok)
         throw new Error(
-          translateError(
-            t,
-            data.error ?? (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
-          )
+          translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
         );
       if (isFull) setQueued(data.position);
       else setCode(data.booking.code);

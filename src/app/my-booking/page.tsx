@@ -42,7 +42,7 @@ export default function MyBookingPage() {
         { cache: "no-store" }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.lookupFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("mine.lookupFailed"));
       setResult(data);
       setDoor(null);
       setDoorError(null);
@@ -67,7 +67,7 @@ export default function MyBookingPage() {
         body: JSON.stringify({ code, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("door.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("door.failed"));
       setDoor({
         accessCode: data.accessCode,
         until: data.until,
@@ -94,7 +94,7 @@ export default function MyBookingPage() {
         body: JSON.stringify({ code, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.cancelFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       setResult({ ...result, booking: data.booking });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));

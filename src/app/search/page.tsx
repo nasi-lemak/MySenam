@@ -97,7 +97,7 @@ export default function SearchPage() {
       if (area) params.set("area", area);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("search.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
       setResults(data.results);
       setAreas(data.areas);
     } catch (err) {

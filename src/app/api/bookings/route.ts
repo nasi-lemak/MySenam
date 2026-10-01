@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import {
   applyPromo,
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
       })
     : createBookingSeries({ ...common, courtId: courtId as number });
 
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
 
   // A code is claimed before anything is settled, so paying from credit or a
   // pass charges the discounted figure. Like paying, it is best-effort: a code

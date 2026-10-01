@@ -30,7 +30,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
         body: JSON.stringify({ token }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("checkin.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("checkin.failed"));
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("checkin.failed"));

@@ -13,7 +13,8 @@ import {
 } from "../src/lib/admin-auth";
 import { SESSION_COOKIE, createSession, registerUser } from "../src/lib/auth";
 import { createVenue, listVenues } from "../src/lib/store";
-import { todayISO } from "../src/lib/time";
+import { addDays, todayISO } from "../src/lib/time";
+import { MAX_HOURS_PER_BOOKING } from "../src/lib/types";
 
 /**
  * The authorisation surface, exercised rather than trusted.
@@ -277,5 +278,47 @@ describe("the public door-code route", () => {
     );
     expect(guess.status).toBe(404);
     expect((await guess.json()).error).not.toContain("phone number is");
+  });
+});
+
+/* ---------------- Refusals carry their name ---------------- */
+
+describe("a refused request says which refusal it was", () => {
+  it("names the refusal and what it quotes, so the page can say it in Malay", async () => {
+    const mod = await import("../src/app/api/bookings/route");
+    const court = listVenues()[0].courts.find((c) => c.capacity === 1)!;
+    const res = await mod.POST(
+      req("/api/bookings", {
+        method: "POST",
+        body: {
+          courtId: court.id,
+          date: addDays(todayISO(), 2),
+          // More hours than any booking may hold.
+          hours: [9, 10, 11, 12, 13, 14, 15],
+          name: "Nurul Hana",
+          phone: "0161234567",
+        },
+      })
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("MAX_HOURS");
+    expect(body.vars).toEqual({ max: MAX_HOURS_PER_BOOKING });
+    // The English sentence still goes out, so anything reading it keeps working.
+    expect(body.error).toBe(`Maximum ${MAX_HOURS_PER_BOOKING} hours per booking.`);
+  });
+
+  it("names a refusal that quotes nothing, and sends no empty vars", async () => {
+    const mod = await import("../src/app/api/bookings/cancel/route");
+    const res = await mod.POST(
+      req("/api/bookings/cancel", {
+        method: "POST",
+        body: { code: "MS-NOPE00", phone: "0123456789" },
+      })
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("BOOKING_NOT_FOUND_CODE");
+    expect(body.vars).toBeUndefined();
   });
 });

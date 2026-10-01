@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { cancelUserBooking } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bookingId is required." }, { status: 400 });
 
   const result = cancelUserBooking(user.id, bookingId as number);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
 
   notifyBookingCancelled(result.booking, await currentLocale());
   // A cancellation is what frees a place, so it is also what makes an

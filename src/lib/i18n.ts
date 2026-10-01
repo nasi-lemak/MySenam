@@ -483,6 +483,56 @@ const EN = {
   "msg.enrolledSubject": "Enrolled in {what} — {venue}",
   "msg.enrolled":
     "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk.",
+
+  // Refusals a customer can be shown. The English here is the text the store
+  // used to carry inline, so a code and its sentence cannot drift apart.
+  "err.COURT_NOT_FOUND": "Court not found.",
+  "err.VENUE_NOT_FOUND": "Venue not found.",
+  "err.UNKNOWN_SPORT": "Unknown sport.",
+  "err.NO_SPORT_AT_VENUE": "That venue has no {sport} courts.",
+  "err.NO_COURT_FREE": "No court is free for that whole time. Please pick another time.",
+  "err.WEEKS_RANGE": "Weeks must be between 1 and {max}.",
+  "err.DATE_OUT_OF_WINDOW_FIRST": "The first date is outside the booking window.",
+  "err.DATE_OUT_OF_WINDOW": "Date is outside the booking window.",
+  "err.NO_HOURS": "Select at least one hour.",
+  "err.MAX_HOURS": "Maximum {max} hours per booking.",
+  "err.HOURS_NOT_CONSECUTIVE": "Selected hours must be consecutive.",
+  "err.HOURS_OUTSIDE_OPENING": "Selected hours are outside operating hours.",
+  "err.THOSE_HOURS_OUTSIDE_OPENING": "Those hours are outside operating hours.",
+  "err.SLOT_PAST": "That time slot has already passed.",
+  "err.TIME_PAST": "That time has already passed.",
+  "err.VENUE_CLOSED": "The venue is closed that day.",
+  "err.SERIES_ALL_TAKEN":
+    "Every week in that series is already taken. Please pick another slot.",
+  "err.FILLING_FAST": "That session is filling up very quickly. Please try again.",
+  "err.BOOKING_NOT_FOUND": "Booking not found.",
+  "err.BOOKING_NOT_FOUND_CODE": "Booking not found. Check the code and phone number.",
+  "err.ALREADY_CANCELLED": "This booking is already cancelled.",
+  "err.BOOKING_WAS_CANCELLED": "This booking was cancelled.",
+  "err.KIT_STILL_OUT":
+    "The kit for this booking is still out. Bring it back to the desk first.",
+  "err.SERIES_NOT_FOUND": "Series not found. Check the series code and phone number.",
+  "err.SERIES_NONE_LEFT_one": "No sessions left to cancel — the rest start within {n} hour.",
+  "err.SERIES_NONE_LEFT_other": "No sessions left to cancel — the rest start within {n} hours.",
+  "err.CLASS_NOT_FOUND": "Class not found.",
+  "err.CLASS_FULL": "This class is full.",
+  "err.CLASS_STARTED": "This class has already started.",
+  "err.CLASS_CANCELLED": "This class was cancelled.",
+  "err.ALREADY_ENROLLED": "You are already enrolled in this class.",
+  "err.CLASS_HAS_PLACES": "This class still has places — enrol instead.",
+  "err.ALREADY_WAITING": "You are already on this waitlist.",
+  "err.SLOT_FREE_BOOK_IT": "That slot is free — book it instead.",
+  "err.OFFER_EXPIRED": "This offer has expired or was already claimed.",
+  "err.OFFER_INVALID": "This offer is no longer valid.",
+  "err.PLACE_ALREADY_CLAIMED": "This place was already claimed.",
+  "err.WAITLIST_NOT_FOUND": "Waitlist entry not found.",
+  "err.NOT_ENOUGH_CREDIT": "Not enough credit. Top up at the counter or pay there.",
+  "err.NO_ACCOUNT_TO_CHARGE": "This booking has no account to charge.",
+  "err.ALREADY_PAID": "This booking is already paid.",
+  "err.PASS_NOT_FOUND": "Pass not found.",
+  "err.PASS_WRONG_PHONE": "That pass belongs to a different phone number.",
+  "err.PROMO_ALREADY_USED": "A code has already been used on this booking.",
+  "err.PROMO_TOO_LATE": "This booking is already paid; a code cannot be added now.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -935,6 +985,58 @@ const MS: Record<Phrase, string> = {
   "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
   "msg.enrolled":
     "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan.",
+
+  // Penolakan yang boleh dilihat pelanggan.
+  "err.COURT_NOT_FOUND": "Gelanggang tidak dijumpai.",
+  "err.VENUE_NOT_FOUND": "Pusat tidak dijumpai.",
+  "err.UNKNOWN_SPORT": "Sukan tidak dikenali.",
+  "err.NO_SPORT_AT_VENUE": "Pusat itu tiada gelanggang {sport}.",
+  "err.NO_COURT_FREE":
+    "Tiada gelanggang kosong untuk sepanjang waktu itu. Sila pilih waktu lain.",
+  "err.WEEKS_RANGE": "Bilangan minggu mesti antara 1 dan {max}.",
+  "err.DATE_OUT_OF_WINDOW_FIRST": "Tarikh pertama itu di luar tempoh tempahan yang dibenarkan.",
+  "err.DATE_OUT_OF_WINDOW": "Tarikh itu di luar tempoh tempahan yang dibenarkan.",
+  "err.NO_HOURS": "Pilih sekurang-kurangnya satu jam.",
+  "err.MAX_HOURS": "Maksimum {max} jam bagi setiap tempahan.",
+  "err.HOURS_NOT_CONSECUTIVE": "Jam yang dipilih mesti berturut-turut.",
+  "err.HOURS_OUTSIDE_OPENING": "Jam yang dipilih di luar waktu operasi.",
+  "err.THOSE_HOURS_OUTSIDE_OPENING": "Jam tersebut di luar waktu operasi.",
+  "err.SLOT_PAST": "Waktu itu sudah berlalu.",
+  "err.TIME_PAST": "Waktu tersebut sudah berlalu.",
+  "err.VENUE_CLOSED": "Pusat itu tutup pada hari tersebut.",
+  "err.SERIES_ALL_TAKEN":
+    "Setiap minggu dalam siri itu sudah ditempah. Sila pilih waktu lain.",
+  "err.FILLING_FAST": "Sesi itu sedang penuh dengan cepat. Sila cuba lagi.",
+  "err.BOOKING_NOT_FOUND": "Tempahan tidak dijumpai.",
+  "err.BOOKING_NOT_FOUND_CODE": "Tempahan tidak dijumpai. Semak kod dan nombor telefon.",
+  "err.ALREADY_CANCELLED": "Tempahan ini sudah dibatalkan.",
+  "err.BOOKING_WAS_CANCELLED": "Tempahan ini telah dibatalkan.",
+  "err.KIT_STILL_OUT":
+    "Peralatan bagi tempahan ini masih belum dipulangkan. Pulangkan ke kaunter dahulu.",
+  "err.SERIES_NOT_FOUND": "Siri tidak dijumpai. Semak kod siri dan nombor telefon.",
+  "err.SERIES_NONE_LEFT_one":
+    "Tiada sesi lagi yang boleh dibatalkan — selebihnya bermula dalam masa {n} jam.",
+  "err.SERIES_NONE_LEFT_other":
+    "Tiada sesi lagi yang boleh dibatalkan — selebihnya bermula dalam masa {n} jam.",
+  "err.CLASS_NOT_FOUND": "Kelas tidak dijumpai.",
+  "err.CLASS_FULL": "Kelas ini penuh.",
+  "err.CLASS_STARTED": "Kelas ini sudah bermula.",
+  "err.CLASS_CANCELLED": "Kelas ini telah dibatalkan.",
+  "err.ALREADY_ENROLLED": "Anda sudah berdaftar dalam kelas ini.",
+  "err.CLASS_HAS_PLACES": "Kelas ini masih ada tempat — daftar terus sahaja.",
+  "err.ALREADY_WAITING": "Anda sudah berada dalam senarai menunggu ini.",
+  "err.SLOT_FREE_BOOK_IT": "Waktu itu kosong — tempah terus sahaja.",
+  "err.OFFER_EXPIRED": "Tawaran ini telah luput atau sudah dituntut.",
+  "err.OFFER_INVALID": "Tawaran ini tidak lagi sah.",
+  "err.PLACE_ALREADY_CLAIMED": "Tempat ini sudah dituntut.",
+  "err.WAITLIST_NOT_FOUND": "Penyertaan senarai menunggu tidak dijumpai.",
+  "err.NOT_ENOUGH_CREDIT": "Kredit tidak mencukupi. Tambah nilai di kaunter atau bayar di sana.",
+  "err.NO_ACCOUNT_TO_CHARGE": "Tempahan ini tiada akaun untuk dicaj.",
+  "err.ALREADY_PAID": "Tempahan ini sudah dibayar.",
+  "err.PASS_NOT_FOUND": "Pas tidak dijumpai.",
+  "err.PASS_WRONG_PHONE": "Pas itu milik nombor telefon yang lain.",
+  "err.PROMO_ALREADY_USED": "Satu kod sudah digunakan pada tempahan ini.",
+  "err.PROMO_TOO_LATE": "Tempahan ini sudah dibayar; kod tidak boleh ditambah sekarang.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
@@ -956,6 +1058,23 @@ export interface T {
   locale: Locale;
 }
 
+/**
+ * The name of a refusal the customer can be shown.
+ *
+ * Derived from the dictionary rather than written out again: a code exists
+ * exactly when there is something to say for it, in both languages, and
+ * misspelling one in the store is a compile error rather than an English
+ * sentence leaking into a Malay page.
+ */
+type ErrPhrase<P> = P extends `err.${infer C}` ? C : never;
+type Stem<C> = C extends `${infer S}_one` ? S : C extends `${infer S}_other` ? S : C;
+export type ErrorCode = Stem<ErrPhrase<Phrase>>;
+
+/** Whether the dictionary has this phrase at all. */
+export function hasPhrase(key: string): key is Phrase {
+  return key in DICTIONARIES.en;
+}
+
 /** The lookup for one language. */
 export function translator(locale: Locale): T {
   const dict = DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
@@ -972,18 +1091,14 @@ export function sportLabel(t: T, sport: string): string {
 }
 
 /**
- * Errors a customer can actually be shown, in Bahasa Malaysia.
+ * Errors still keyed on their exact English.
  *
- * The server produces these as English sentences rather than codes, and giving
- * every one of the several hundred in the store a code is a change of its own.
- * So this maps the ones a customer can reach through the public pages, keyed on
- * the exact English, and anything unmapped is shown as it came. An error nobody
- * translated reads oddly; an error nobody shows reads as a blank screen, and the
- * first is much the better failure.
- *
- * Only messages with no interpolated value can live here. The ones that quote a
- * court name, a price or a limit still arrive in English — those need the store
- * to name its errors rather than write them, which is the next step.
+ * Everything the store refuses now travels as a code, which `translateError`
+ * prefers. What is left here is the handful of refusals written in the route
+ * handlers themselves — malformed requests and sign-in failures — which have no
+ * code yet. Anything matching neither is shown as it came: an error nobody
+ * translated reads oddly, an error nobody shows reads as a blank screen, and
+ * the first is much the better failure.
  */
 const CUSTOMER_ERRORS_MS: Record<string, string> = {
   // Booking
@@ -1067,13 +1182,39 @@ const CUSTOMER_ERRORS_MS: Record<string, string> = {
   "code and phone are required.": "Kod dan nombor telefon diperlukan.",
 };
 
+/** What a refused request sends back: the sentence, and the name of the refusal. */
+export interface RefusalBody {
+  error?: string;
+  code?: string;
+  vars?: Vars;
+}
+
 /**
- * An error message in this language.
+ * A refused request, in this language.
  *
- * Anything not in the table comes back untouched, so a new server error shows
- * in English rather than vanishing.
+ * The code is the good path: the store names the refusal and the dictionary
+ * says it, with whatever it quotes filled in — so "Maximum 3 hours per booking"
+ * reads as "Maksimum 3 jam bagi setiap tempahan" rather than staying English
+ * because it happened to have a number in it. A refusal with no code falls back
+ * to matching its exact English, and one matching neither is shown as it came.
  */
-export function translateError(t: T, message: string): string {
-  if (t.locale !== "ms") return message;
-  return CUSTOMER_ERRORS_MS[message] ?? message;
+export function translateError(t: T, body: string | RefusalBody | null | undefined): string {
+  const sentence = typeof body === "string" ? body : (body?.error ?? "");
+  const code = typeof body === "string" ? undefined : body?.code;
+  if (t.locale !== "ms") return sentence;
+  if (code && (hasPhrase(`err.${code}`) || hasPhrase(`err.${code}_one`)))
+    return errorText(t, code as ErrorCode, typeof body === "string" ? undefined : body?.vars);
+  return CUSTOMER_ERRORS_MS[sentence] ?? sentence;
+}
+
+/**
+ * The sentence for a refusal, in this language.
+ *
+ * A code whose phrase counts something (`_one` / `_other`) is looked up through
+ * `plural` using `vars.n`, so the caller does not have to know which kind it is.
+ */
+export function errorText(t: T, code: ErrorCode, vars?: Vars): string {
+  const key = `err.${code}`;
+  if (hasPhrase(key)) return t(key, vars);
+  return t.plural(key, Number(vars?.n ?? 0), vars);
 }

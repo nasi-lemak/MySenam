@@ -35,7 +35,7 @@ export default function AccountPage() {
       setUser(me.user);
       const res = await fetch("/api/my/bookings", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("acct.loadFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("acct.loadFailed"));
       setBookings(data.bookings);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("acct.loadFailed"));
@@ -63,7 +63,7 @@ export default function AccountPage() {
         body: JSON.stringify({ seriesCode, phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.cancelFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
@@ -80,7 +80,7 @@ export default function AccountPage() {
         body: JSON.stringify({ bookingId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("mine.cancelFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
@@ -235,7 +235,7 @@ function YourData({ t }: { t: T }) {
         body: JSON.stringify({ confirm: typed }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("data.closeFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("data.closeFailed"));
       window.location.href = "/";
     } catch (err) {
       setError(err instanceof Error ? err.message : t("data.closeFailed"));

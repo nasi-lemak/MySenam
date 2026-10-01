@@ -125,7 +125,11 @@ describe("taking kit out", () => {
     const booking = bookRunningNow(court.id, "0150000010");
     expect(adminCancelBooking(booking.code).ok).toBe(true);
     const gone = takeHire(booking.code);
-    expect(gone).toEqual({ ok: false, error: "This booking was cancelled." });
+    expect(gone).toEqual({
+      ok: false,
+      error: "This booking was cancelled.",
+      code: "BOOKING_WAS_CANCELLED",
+    });
   });
 });
 

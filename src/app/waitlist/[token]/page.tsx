@@ -26,7 +26,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
         body: JSON.stringify({ token }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("claim.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("claim.failed"));
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("claim.failed"));

@@ -128,7 +128,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
         { cache: "no-store" }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("board.loadFailed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("board.loadFailed"));
       const slots: CourtAvailability[] = data.availability;
       setAvailability(slots);
       setClosure(data.closure ?? null);
@@ -575,7 +575,7 @@ function BookingForm({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("form.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
       onBooked(data);
     } catch (err) {
       onError(err instanceof Error ? err.message : t("form.failed"));
@@ -915,7 +915,7 @@ function SlotWaitlistModal({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data.error ?? t("queue.failed")));
+      if (!res.ok) throw new Error(translateError(t, data) || t("queue.failed"));
       setPosition(data.position);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("queue.failed"));

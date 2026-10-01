@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
   });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
 
   let walletError: string | null = null;
   if (payFromWallet === true && user) {

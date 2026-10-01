@@ -1,3 +1,4 @@
+import type { ErrorCode } from "./i18n";
 export type Sport =
   | "badminton"
   | "tennis"
@@ -479,3 +480,19 @@ export const MAX_ADVANCE_DAYS = 14;
 export const MAX_RECUR_WEEKS = 8;
 /** Customers may check in from this long before their slot until it ends. */
 export const CHECK_IN_OPENS_MINUTES_BEFORE = 60;
+
+/**
+ * A refusal, in a shape a customer can be told about.
+ *
+ * `error` is the English sentence and is always there, so nothing that reads
+ * it today breaks. `code` is the same refusal named rather than written, which
+ * is what lets the page say it in the reader's language; `vars` fills whatever
+ * the sentence quotes. A refusal with no code is one nothing has needed to
+ * translate yet — it still shows, in English.
+ */
+export interface Refusal {
+  ok: false;
+  error: string;
+  code?: ErrorCode;
+  vars?: Record<string, string | number>;
+}

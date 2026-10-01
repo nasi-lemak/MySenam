@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refusal } from "@/lib/api";
 import { rateLimit } from "@/lib/rate-limit";
 import { cancelSeries } from "@/lib/store";
 
@@ -19,6 +20,6 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const result = cancelSeries(seriesCode, phone);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
   return NextResponse.json({ cancelled: result.cancelled });
 }

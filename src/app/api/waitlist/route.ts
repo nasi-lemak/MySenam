@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
         endHour: endHour as number,
         ...person,
       });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
 
   return NextResponse.json(
     {
@@ -89,6 +90,6 @@ export async function DELETE(req: NextRequest) {
   if (limited) return limited;
 
   const result = leaveWaitlist(entryId as number, phone);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
   return NextResponse.json({ ok: true });
 }
