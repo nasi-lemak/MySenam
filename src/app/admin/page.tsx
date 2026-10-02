@@ -159,7 +159,10 @@ export default function AdminPage() {
             )}
           </p>
         </div>
-        <button onClick={signOut} className="text-sm text-slate-500 underline hover:text-teal-700">
+        <button
+          onClick={signOut}
+          className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-slate-500 underline hover:text-teal-700"
+        >
           Sign out
         </button>
       </div>

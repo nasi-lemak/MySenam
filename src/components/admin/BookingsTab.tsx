@@ -9,6 +9,21 @@ import { localTime, todayLocal } from "./shared";
 
 /* ---------------- Bookings tab ---------------- */
 
+const COLUMNS = [
+  "Code",
+  "Venue",
+  "Court",
+  "Time",
+  "Customer",
+  "Phone",
+  "Total",
+  "Status",
+  "Payment",
+  "Attendance",
+  "Kit",
+  "",
+];
+
 export function BookingsTab() {
   const [date, setDate] = useState(todayLocal);
   const [bookings, setBookings] = useState<AdminBookingRow[] | null>(null);
@@ -230,15 +245,29 @@ export function BookingsTab() {
     }
   }
 
+  const act: Act = {
+    togglePaid,
+    toggleCheckIn,
+    toggleNoShow,
+    openKit,
+    openMove,
+    cancelBooking,
+    paySeries,
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        />
+        <label className="text-sm font-medium text-slate-600">
+          <span className="sr-only">Day to show</span>
+          <input
+            type="date"
+            aria-label="Day to show"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          />
+        </label>
         {bookings && (
           <>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
@@ -415,205 +444,286 @@ export function BookingsTab() {
           No bookings on {date}.
         </div>
       ) : bookings ? (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full min-w-[860px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {[
-                  "Code",
-                  "Venue",
-                  "Court",
-                  "Time",
-                  "Customer",
-                  "Phone",
-                  "Total",
-                  "Status",
-                  "Payment",
-                  "Attendance",
-                  "Kit",
-                  "",
-                ].map((h, i) => (
-                  <th key={i} className="px-3 py-2 font-semibold">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {bookings.map((b) => (
-                <tr key={b.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-3 py-2 font-mono font-medium text-teal-700">
-                    {b.code}
-                    {b.seriesCode && (
-                      <button
-                        onClick={() => paySeries(b.seriesCode!)}
-                        title={`Mark all unpaid sessions in ${b.seriesCode} as paid`}
-                        className="ml-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 hover:bg-violet-100"
-                      >
-                        🔁
-                      </button>
+        <>
+          {/* A counter runs on a phone as often as a screen. Below `lg` the
+              same bookings are a list of cards, because a twelve-column table
+              on a 390px screen means scrolling sideways to find the button you
+              press the most. */}
+          <ul className="space-y-3 lg:hidden">
+            {bookings.map((b) => (
+              <li
+                key={b.id}
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <span className="font-mono font-semibold text-teal-700">{b.code}</span>
+                    <SeriesChip b={b} act={act} />
+                    <div className="mt-0.5 text-sm font-medium">
+                      {SPORT_ICONS[b.sport]} {b.courtName}
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      {formatHour(b.startHour)} – {formatHour(b.endHour)} · {b.venueName}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold">RM{b.totalPrice}</div>
+                    {b.status !== "confirmed" && (
+                      <span className="text-xs font-semibold text-slate-400">{b.status}</span>
                     )}
-                  </td>
-                  <td className="px-3 py-2">{b.venueName}</td>
-                  <td className="px-3 py-2">
-                    {SPORT_ICONS[b.sport]} {b.courtName}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2">
-                    {formatHour(b.startHour)} – {formatHour(b.endHour)}
-                  </td>
-                  <td className="px-3 py-2">
-                    {b.name}
-                    {b.priorNoShows > 0 && (
-                      <span
-                        title={`${b.priorNoShows} previous no-show${b.priorNoShows > 1 ? "s" : ""}`}
-                        className="ml-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600"
-                      >
-                        ⚠ {b.priorNoShows}
-                      </span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2">{b.phone}</td>
-                  <td className="px-3 py-2 font-medium">RM{b.totalPrice}</td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        b.status === "confirmed"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {b.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    {b.status === "confirmed" ? (
-                      <button
-                        onClick={() => togglePaid(b.code, b.paymentStatus !== "paid")}
-                        title={
-                          b.paymentStatus === "paid"
-                            ? "Click to mark unpaid"
-                            : "Click to mark paid"
-                        }
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
-                          b.paymentStatus === "paid"
-                            ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                            : "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                        }`}
-                      >
-                        {b.paymentStatus === "paid" ? "✓ paid" : "unpaid"}
-                      </button>
-                    ) : (
-                      <span className="text-xs text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {b.status !== "confirmed" ? (
-                      <span className="text-xs text-slate-400">—</span>
-                    ) : b.checkedInAt ? (
-                      <button
-                        onClick={() => toggleCheckIn(b.code, !b.checkedOutAt)}
-                        title={
-                          b.checkedOutAt
-                            ? `Left at ${localTime(b.checkedOutAt)}`
-                            : `Arrived ${localTime(b.checkedInAt)} — click to check out`
-                        }
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
-                          b.checkedOutAt
-                            ? "bg-slate-100 text-slate-500"
-                            : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                        }`}
-                      >
-                        {b.checkedOutAt ? `left ${localTime(b.checkedOutAt)}` : `in ${localTime(b.checkedInAt)}`}
-                      </button>
-                    ) : (
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => toggleCheckIn(b.code, false)}
-                          title="Check the customer in at the desk"
-                          className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-100"
-                        >
-                          check in
-                        </button>
-                        <button
-                          onClick={() => toggleNoShow(b.code, !b.noShow)}
-                          title={
-                            b.noShow ? "Click to clear the no-show" : "Mark the customer as a no-show"
-                          }
-                          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
-                            b.noShow
-                              ? "bg-red-100 text-red-700 hover:bg-red-200"
-                              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                          }`}
-                        >
-                          {b.noShow ? "no-show" : "no-show?"}
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {b.hire === null && (b.courtDeposit === 0 || b.status !== "confirmed") ? (
-                      <span className="text-xs text-slate-400">—</span>
-                    ) : b.hire === null ? (
-                      <button
-                        onClick={() => openKit(b, "take")}
-                        title={`Hand ${b.courtName} over against an RM${b.courtDeposit} deposit`}
-                        className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
-                      >
-                        hand out
-                      </button>
-                    ) : b.hire.returnedAt === null ? (
-                      <button
-                        onClick={() => openKit(b, "return")}
-                        title={`Out since ${localTime(b.hire.takenAt)}, RM${b.hire.deposit} held — click to take it back`}
-                        className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-200"
-                      >
-                        out · RM{b.hire.deposit}
-                      </button>
-                    ) : (
-                      <span
-                        title={
-                          (b.hire.note ?? "No note.") +
-                          (b.hire.withheld ? ` RM${b.hire.withheld} kept back.` : "")
-                        }
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          b.hire.condition === "ok"
-                            ? "bg-slate-100 text-slate-500"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {b.hire.condition === "ok"
-                          ? "back"
-                          : `${HIRE_CONDITION_LABELS[b.hire.condition!].toLowerCase()}${
-                              b.hire.withheld ? ` · RM${b.hire.withheld}` : ""
-                            }`}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {b.status === "confirmed" && (
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        <button
-                          onClick={() => openMove(b.code)}
-                          title="Put this booking on another court, keeping its code and payment"
-                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
-                        >
-                          Move
-                        </button>
-                        <button
-                          onClick={() => cancelBooking(b.code)}
-                          className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
-                  </td>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-sm">
+                  {b.name}
+                  <NoShowBadge b={b} />
+                  <a href={`tel:${b.phone}`} className="ml-2 text-slate-500 underline">
+                    {b.phone}
+                  </a>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <PaymentChip b={b} act={act} />
+                  <AttendanceChip b={b} act={act} />
+                  <KitChip b={b} act={act} />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <RowActions b={b} act={act} />
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm lg:block">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  {COLUMNS.map((label, i) => (
+                    <th key={i} className="px-3 py-2 font-semibold">
+                      {label}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {bookings.map((b) => (
+                  <tr key={b.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-3 py-2 font-mono font-medium text-teal-700">
+                      {b.code}
+                      <SeriesChip b={b} act={act} />
+                    </td>
+                    <td className="px-3 py-2">{b.venueName}</td>
+                    <td className="px-3 py-2">
+                      {SPORT_ICONS[b.sport]} {b.courtName}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {formatHour(b.startHour)} – {formatHour(b.endHour)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {b.name}
+                      <NoShowBadge b={b} />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">{b.phone}</td>
+                    <td className="px-3 py-2 font-medium">RM{b.totalPrice}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                          b.status === "confirmed"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {b.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <PaymentChip b={b} act={act} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <AttendanceChip b={b} act={act} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <KitChip b={b} act={act} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <RowActions b={b} act={act} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The controls on one booking, written once.
+ *
+ * A booking appears twice — as a table row on a wide screen and as a card on a
+ * narrow one — and the two must never drift. Only the layout differs; every
+ * button below is the same button.
+ */
+interface Act {
+  togglePaid: (code: string, paid: boolean) => void;
+  toggleCheckIn: (code: string, out: boolean) => void;
+  toggleNoShow: (code: string, noShow: boolean) => void;
+  openKit: (b: AdminBookingRow, mode: "take" | "return") => void;
+  openMove: (code: string) => void;
+  cancelBooking: (code: string) => void;
+  paySeries: (seriesCode: string) => void;
+}
+
+const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
+
+function SeriesChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (!b.seriesCode) return null;
+  return (
+    <button
+      onClick={() => act.paySeries(b.seriesCode!)}
+      title={`Mark all unpaid sessions in ${b.seriesCode} as paid`}
+      className="ml-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-violet-50 text-[10px] font-semibold text-violet-700 hover:bg-violet-100"
+    >
+      🔁
+    </button>
+  );
+}
+
+function NoShowBadge({ b }: { b: AdminBookingRow }) {
+  if (b.priorNoShows === 0) return null;
+  return (
+    <span
+      title={`${b.priorNoShows} previous no-show${b.priorNoShows > 1 ? "s" : ""}`}
+      className="ml-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600"
+    >
+      ⚠ {b.priorNoShows}
+    </span>
+  );
+}
+
+function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
+  const paid = b.paymentStatus === "paid";
+  return (
+    <button
+      onClick={() => act.togglePaid(b.code, !paid)}
+      title={paid ? "Click to mark unpaid" : "Click to mark paid"}
+      className={`${CHIP} ${
+        paid
+          ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+          : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+      }`}
+    >
+      {paid ? "✓ paid" : "unpaid"}
+    </button>
+  );
+}
+
+function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
+  if (b.checkedInAt)
+    return (
+      <button
+        onClick={() => act.toggleCheckIn(b.code, !b.checkedOutAt)}
+        title={
+          b.checkedOutAt
+            ? `Left at ${localTime(b.checkedOutAt)}`
+            : `Arrived ${localTime(b.checkedInAt)} — click to check out`
+        }
+        className={`${CHIP} ${
+          b.checkedOutAt
+            ? "bg-slate-100 text-slate-500"
+            : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+        }`}
+      >
+        {b.checkedOutAt ? `left ${localTime(b.checkedOutAt)}` : `in ${localTime(b.checkedInAt)}`}
+      </button>
+    );
+  return (
+    <span className="inline-flex gap-1">
+      <button
+        onClick={() => act.toggleCheckIn(b.code, false)}
+        title="Check the customer in at the desk"
+        className={`${CHIP} bg-teal-50 text-teal-700 hover:bg-teal-100`}
+      >
+        check in
+      </button>
+      <button
+        onClick={() => act.toggleNoShow(b.code, !b.noShow)}
+        title={b.noShow ? "Click to clear the no-show" : "Mark the customer as a no-show"}
+        className={`${CHIP} ${
+          b.noShow
+            ? "bg-red-100 text-red-700 hover:bg-red-200"
+            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+        }`}
+      >
+        {b.noShow ? "no-show" : "no-show?"}
+      </button>
+    </span>
+  );
+}
+
+function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (b.hire === null && (b.courtDeposit === 0 || b.status !== "confirmed")) return null;
+  if (b.hire === null)
+    return (
+      <button
+        onClick={() => act.openKit(b, "take")}
+        title={`Hand ${b.courtName} over against an RM${b.courtDeposit} deposit`}
+        className={`${CHIP} bg-amber-50 text-amber-700 hover:bg-amber-100`}
+      >
+        hand out
+      </button>
+    );
+  if (b.hire.returnedAt === null)
+    return (
+      <button
+        onClick={() => act.openKit(b, "return")}
+        title={`Out since ${localTime(b.hire.takenAt)}, RM${b.hire.deposit} held — click to take it back`}
+        className={`${CHIP} bg-amber-100 text-amber-800 hover:bg-amber-200`}
+      >
+        out · RM{b.hire.deposit}
+      </button>
+    );
+  return (
+    <span
+      title={
+        (b.hire.note ?? "No note.") + (b.hire.withheld ? ` RM${b.hire.withheld} kept back.` : "")
+      }
+      className={`${CHIP} ${
+        b.hire.condition === "ok" ? "bg-slate-100 text-slate-500" : "bg-red-100 text-red-700"
+      }`}
+    >
+      {b.hire.condition === "ok"
+        ? "back"
+        : `${HIRE_CONDITION_LABELS[b.hire.condition!].toLowerCase()}${
+            b.hire.withheld ? ` · RM${b.hire.withheld}` : ""
+          }`}
+    </span>
+  );
+}
+
+function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (b.status !== "confirmed") return null;
+  return (
+    <>
+      <button
+        onClick={() => act.openMove(b.code)}
+        title="Put this booking on another court, keeping its code and payment"
+        className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+      >
+        Move
+      </button>
+      <button
+        onClick={() => act.cancelBooking(b.code)}
+        className="inline-flex min-h-7 items-center rounded-md border border-red-300 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"
+      >
+        Cancel
+      </button>
+    </>
   );
 }

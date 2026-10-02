@@ -21,13 +21,13 @@ export default function AuthNav() {
       .finally(() => setLoaded(true));
   }, [pathname]);
 
-  if (!loaded) return <span className="w-16" />;
+  if (!loaded) return <span className="inline-block min-h-9 w-16" />;
 
   if (!user) {
     return (
       <Link
         href="/login"
-        className="rounded-full bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"
+        className="inline-flex min-h-9 items-center rounded-full bg-teal-600 px-3 text-white transition hover:bg-teal-700"
       >
         {t("nav.signIn")}
       </Link>
@@ -37,7 +37,7 @@ export default function AuthNav() {
   return (
     <Link
       href="/account"
-      className="rounded-full bg-teal-50 px-3 py-1 font-semibold text-teal-700 hover:bg-teal-100"
+      className="inline-flex min-h-9 items-center rounded-full bg-teal-50 px-3 font-semibold text-teal-700 transition hover:bg-teal-100"
     >
       👤 {user.name.split(" ")[0]}
     </Link>

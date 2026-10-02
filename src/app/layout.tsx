@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import AuthNav from "@/components/AuthNav";
-import { LanguageProvider, LanguageToggle } from "@/components/Language";
+import SiteNav from "@/components/SiteNav";
+import { LanguageProvider } from "@/components/Language";
 import { currentLocale, serverT } from "@/lib/locale";
 import "./globals.css";
 
@@ -27,35 +27,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 </span>
               </Link>
               {/* Wraps to a second line on a phone rather than pushing the page sideways. */}
-              <nav className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm font-medium text-slate-600">
-                <Link href="/" className="hover:text-teal-700">
-                  {t("nav.venues")}
-                </Link>
-                <Link href="/search" className="hover:text-teal-700">
-                  {t("nav.find")}
-                </Link>
-                <Link href="/classes" className="hover:text-teal-700">
-                  {t("nav.classes")}
-                </Link>
-                <Link href="/my-booking" className="hover:text-teal-700">
-                  {t("nav.myBooking")}
-                </Link>
-                <Link
-                  href="/admin"
-                  className="rounded-full border border-slate-300 px-3 py-1 hover:border-teal-600 hover:text-teal-700"
-                >
-                  {t("nav.admin")}
-                </Link>
-                <AuthNav />
-                <LanguageToggle />
-              </nav>
+              <SiteNav />
             </div>
           </header>
           <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
           <footer className="border-t border-slate-200 py-6 text-center text-sm text-slate-500">
             <p>{t("footer.tagline")}</p>
             <p className="mt-1.5">
-              <Link href="/privacy" className="hover:text-teal-700 hover:underline">
+              <Link
+                href="/privacy"
+                className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
+              >
                 {t("footer.privacy")}
               </Link>
             </p>

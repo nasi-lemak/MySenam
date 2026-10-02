@@ -65,7 +65,8 @@ export function LanguageToggle() {
           onClick={() => choose(code)}
           aria-current={code === locale ? "true" : undefined}
           title={LOCALE_NAMES[code]}
-          className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase transition ${
+          // Comfortably over the 24×24 minimum a tap target needs.
+          className={`inline-flex min-h-7 min-w-10 items-center justify-center rounded-full px-2 text-xs font-semibold uppercase transition ${
             code === locale
               ? "bg-slate-900 text-white"
               : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
