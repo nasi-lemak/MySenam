@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { issuePass, listPassesForVenue } from "@/lib/store";
+import { findAccountByEmail, issuePass, listPassesForVenue } from "@/lib/store";
 import { MAX_PASS_ENTRIES, Sport, SPORTS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +53,21 @@ export async function POST(req: NextRequest) {
     sport = input.sport as Sport;
   }
 
+
+  // Optionally tie the sale to an account, so it shows on that customer's own
+  // page. Staff key it on an email the person just gave them, standing there —
+  // a phone number would let whoever registered it first claim the pass.
+  let userId: number | undefined;
+  if (typeof input.accountEmail === "string" && input.accountEmail.trim() !== "") {
+    const account = findAccountByEmail(input.accountEmail);
+    if (!account)
+      return NextResponse.json(
+        { error: "No account has that email address. Leave it blank to sell without one." },
+        { status: 400 }
+      );
+    userId = account.id;
+  }
+
   const result = issuePass({
     venueId: venueId as number,
     sport,
@@ -63,6 +78,7 @@ export async function POST(req: NextRequest) {
     holderPhone: input.holderPhone as string,
     expiresOn: input.expiresOn as string,
     adminId: admin.id,
+    userId,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ pass: result.pass }, { status: 201 });

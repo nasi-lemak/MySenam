@@ -14,11 +14,11 @@ import {
   listVenues,
   payBookingWithPass,
   refundBookingToPass,
-  usablePassesFor,
   voidPass,
 } from "../src/lib/store";
 import { authenticateAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
+import { registerUser } from "../src/lib/auth";
 import { addDays, todayISO } from "../src/lib/time";
 import { MAX_PASS_ENTRIES } from "../src/lib/types";
 
@@ -276,39 +276,25 @@ describe("finding a customer's passes", () => {
     // Nothing to reset: each test sells its own passes.
   });
 
-  it("lists by phone, newest first, and keeps spent ones visible", () => {
+  it("lists an account's passes, newest first, and keeps spent ones visible", () => {
     const phone = "0175550000";
-    const first = sell({ holderPhone: phone, name: "Old pass" });
-    const second = sell({ holderPhone: phone, name: "New pass" });
-    const mine = listPassesFor({ phone });
+    const holder = registerUser({
+      name: "Pass Holder",
+      email: "pass-holder@example.com",
+      phone,
+      password: "a-password",
+    });
+    if (!holder.ok) throw new Error(holder.error);
+    const first = sell({ holderPhone: phone, name: "Old pass", userId: holder.user.id });
+    const second = sell({ holderPhone: phone, name: "New pass", userId: holder.user.id });
+    // Sold against the same number but never linked to the account.
+    const unlinked = sell({ holderPhone: phone, name: "Counter pass" });
+
+    const mine = listPassesFor(holder.user.id);
     expect(mine.map((p) => p.id)).toEqual([second.id, first.id]);
+    expect(mine.map((p) => p.id)).not.toContain(unlinked.id);
   });
 
-  it("only offers passes that can actually pay for this court", () => {
-    const phone = "0175551111";
-    const venue = listVenues()[0];
-    const badmintonCourt = venue.courts.find((c) => c.sport === "badminton")!;
-    const gymCourt = venue.courts.find((c) => c.sport === "gym")!;
-
-    const anySport = sell({ holderPhone: phone, sport: null, name: "Any sport" });
-    const badmintonOnly = sell({ holderPhone: phone, sport: "badminton", name: "Badminton only" });
-    const otherVenue = sell({ holderPhone: phone, venueId: listVenues()[1].id, sport: null });
-    const cancelled = sell({ holderPhone: phone, sport: null });
-    voidPass(cancelled.id);
-
-    const forBadminton = usablePassesFor(phone, badmintonCourt.id).map((p) => p.id);
-    expect(forBadminton).toContain(anySport.id);
-    expect(forBadminton).toContain(badmintonOnly.id);
-    expect(forBadminton).not.toContain(otherVenue.id);
-    expect(forBadminton).not.toContain(cancelled.id);
-
-    const forGym = usablePassesFor(phone, gymCourt.id).map((p) => p.id);
-    expect(forGym).toContain(anySport.id);
-    expect(forGym).not.toContain(badmintonOnly.id);
-
-    expect(usablePassesFor("123", badmintonCourt.id)).toEqual([]);
-    expect(usablePassesFor(phone, 99999)).toEqual([]);
-  });
 
   it("lists a venue's own passes for the counter", () => {
     const venue = listVenues()[2];

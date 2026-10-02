@@ -475,10 +475,29 @@ number. Keying "your data" on the phone number would therefore mean:
 
 Both were live in the first cut of this feature and were caught by testing it
 against real data, where a demo number turned out to be shared by three
-walk-ins. Export and erasure now follow `user_id` and nothing else. Anything
-sold across a counter to a phone number — a pass, a membership, an induction —
-is reachable through the venue, which checks who it is talking to in person,
-and the export says so rather than pretending to be complete.
+walk-ins. Export and erasure now follow `user_id` and nothing else.
+
+The same rule was later found still broken on the account page, which listed
+passes and memberships by matching the phone number on the account against the
+one a pass was sold to. Registering with somebody else's number showed you
+their pass codes, and a pass code is bearer money — paying with one asks for
+the code and a booking in that name, both of which the stranger would then
+have. Those lists are keyed on the account now.
+
+That leaves a real question the counter has to answer: a pass sold across a
+desk has no account on it. Staff can add one at the point of sale — there is an
+"account email (optional)" field on both forms — and email is the right key
+because an account is identified by it, exactly one account can hold it, and
+the person is standing there to say it. A pass with no account on it simply
+does not appear on anybody's page, and the page says so rather than implying
+nothing was sold.
+
+Memberships are different on purpose. A membership is held against the phone
+number so that a member who books as a guest, without signing in, still gets
+their price — which also means anybody who types that number gets the member
+rate. That is a discount the venue chose to make easy to claim, not a hole; it
+costs the difference between two rates, and it is pinned by a test so that
+changing it is a decision rather than an accident.
 
 ### Erasure keeps the books
 

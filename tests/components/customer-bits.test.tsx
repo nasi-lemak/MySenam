@@ -168,11 +168,16 @@ describe("passes", () => {
     unusableReason: null,
   };
 
-  it("says nothing when there are none", async () => {
+  /**
+   * Silence would read as "the venue never sold it". A pass bought at a
+   * counter and not linked to an account is invisible here by design, so the
+   * page has to say how to get it linked.
+   */
+  it("explains an empty list rather than showing nothing", async () => {
     fetchMock.mockImplementation(async () => json({ passes: [] }));
-    const { container } = show(<MyPasses />);
+    show(<MyPasses />);
     await act(async () => {});
-    expect(container.textContent).toBe("");
+    expect(screen.getByText(/Ask the venue to put your account email on it/)).toBeTruthy();
   });
 
   it("shows what is left, what is spent and when it runs out", async () => {

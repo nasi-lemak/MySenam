@@ -9,6 +9,6 @@ export function GET(req: NextRequest) {
   const user = getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   return NextResponse.json({
-    memberships: listMembershipsFor({ phone: user.phone, userId: user.id }),
+    memberships: listMembershipsFor(user.id),
   });
 }

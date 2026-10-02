@@ -18,6 +18,8 @@ import {
   listVenues,
   payBookingFromWallet,
   refundBookingToWallet,
+  claimPayment,
+  setPaymentStatus,
   topUpWallet,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -239,5 +241,79 @@ describe("refunds", () => {
 
     expect(cancelClassSession(classId)).toMatchObject({ ok: true, released: 1 });
     expect(getWalletBalance(user.id)).toBe(100);
+  });
+});
+
+describe("a booking can only be paid for once", () => {
+  it("refuses a second settlement, so nothing is charged twice", () => {
+    const user = customer(500);
+    const made = book(user.id, user.phone, 3, 9);
+    expect(made.ok).toBe(true);
+    if (!made.ok) return;
+
+    expect(payBookingFromWallet(made.booking.id).ok).toBe(true);
+    const afterOne = getWalletBalance(user.id);
+
+    // Whatever route the second attempt comes in by, the booking is spoken for.
+    const second = payBookingFromWallet(made.booking.id);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.code).toBe("ALREADY_PAID");
+    expect(getWalletBalance(user.id)).toBe(afterOne);
+  });
+
+  it("takes nothing when the counter settles it first", () => {
+    const user = customer(500);
+    const made = book(user.id, user.phone, 3, 11);
+    if (!made.ok) return;
+
+    setPaymentStatus(made.booking.code, true);
+    const before = getWalletBalance(user.id);
+    const entries = () => listWalletEntries(user.id).filter((e) => e.bookingId === made.booking.id);
+    const had = entries().length;
+
+    const paid = payBookingFromWallet(made.booking.id);
+    expect(paid.ok).toBe(false);
+    if (!paid.ok) expect(paid.code).toBe("ALREADY_PAID");
+    expect(getWalletBalance(user.id)).toBe(before);
+    expect(entries().length).toBe(had);
+  });
+});
+
+/**
+ * The guard underneath the guard.
+ *
+ * Every payment path checks "already paid?" before opening its transaction,
+ * and on one SQLite file with one writer that is enough — nothing can
+ * interleave between the check and the write. `claimPayment` is what keeps it
+ * true without that assumption, so it is tested on its own: through the public
+ * functions the outer check always gets there first, and a test that went that
+ * way would pass with the guard removed.
+ */
+describe("claiming a payment", () => {
+  it("succeeds exactly once, however many times it is called", () => {
+    const user = customer(500);
+    const made = book(user.id, user.phone, 4, 14);
+    if (!made.ok) return;
+
+    expect(claimPayment(made.booking.id)).toBe(true);
+    expect(claimPayment(made.booking.id)).toBe(false);
+    expect(claimPayment(made.booking.id)).toBe(false);
+  });
+
+  it("will not claim a booking somebody already settled", () => {
+    const user = customer(500);
+    const made = book(user.id, user.phone, 4, 15);
+    if (!made.ok) return;
+    setPaymentStatus(made.booking.code, true);
+    expect(claimPayment(made.booking.id)).toBe(false);
+  });
+
+  it("claims again once a refund puts it back to unpaid", () => {
+    const user = customer(500);
+    const made = book(user.id, user.phone, 4, 16);
+    if (!made.ok) return;
+    expect(claimPayment(made.booking.id)).toBe(true);
+    setPaymentStatus(made.booking.code, false);
+    expect(claimPayment(made.booking.id)).toBe(true);
   });
 });

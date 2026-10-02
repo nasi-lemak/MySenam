@@ -533,6 +533,8 @@ const EN = {
   "err.PASS_WRONG_PHONE": "That pass belongs to a different phone number.",
   "err.PROMO_ALREADY_USED": "A code has already been used on this booking.",
   "err.PROMO_TOO_LATE": "This booking is already paid; a code cannot be added now.",
+  "passes.counterNote":
+    "Bought a pass or membership at the counter? Ask the venue to put your account email on it and it will appear here. They check who you are in person, which this page cannot.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -1037,6 +1039,8 @@ const MS: Record<Phrase, string> = {
   "err.PASS_WRONG_PHONE": "Pas itu milik nombor telefon yang lain.",
   "err.PROMO_ALREADY_USED": "Satu kod sudah digunakan pada tempahan ini.",
   "err.PROMO_TOO_LATE": "Tempahan ini sudah dibayar; kod tidak boleh ditambah sekarang.",
+  "passes.counterNote":
+    "Beli pas atau keahlian di kaunter? Minta pusat berkenaan letakkan e-mel akaun anda padanya dan ia akan muncul di sini. Mereka mengesahkan siapa anda secara bersemuka, sesuatu yang halaman ini tidak mampu buat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

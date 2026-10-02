@@ -17,7 +17,17 @@ export default function MyPasses() {
       .catch(() => setPasses([]));
   }, []);
 
-  if (passes === null || passes.length === 0) return null;
+  if (passes === null) return null;
+
+  // Shown even with nothing to list: a pass bought at the counter and never
+  // linked is invisible here, and silence would read as "it was not sold".
+  if (passes.length === 0)
+    return (
+      <section>
+        <h2 className="text-lg font-bold">{t("passes.title")}</h2>
+        <p className="mt-1 text-sm text-slate-500">{t("passes.counterNote")}</p>
+      </section>
+    );
 
   return (
     <section>

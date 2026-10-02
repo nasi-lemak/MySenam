@@ -15,6 +15,7 @@ import {
   updateCourt,
   voidMembership,
 } from "../src/lib/store";
+import { registerUser } from "../src/lib/auth";
 import { authenticateAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
 import { addDays, isPeak, todayISO } from "../src/lib/time";
@@ -196,11 +197,22 @@ describe("member rates", () => {
     updateCourt(court.id, { memberOffPeakRate: null, memberPeakRate: null });
   });
 
-  it("lists a holder's memberships and a venue's own", () => {
+  it("lists an account's memberships and a venue's own", () => {
     const phone = "0197770000";
-    const m = sell({ holderPhone: phone, holderName: "Lister" });
-    expect(listMembershipsFor({ phone }).map((x) => x.id)).toContain(m.id);
-    expect(listMembershipsFor({})).toEqual([]);
+    const holder = registerUser({
+      name: "Lister",
+      email: "lister@example.com",
+      phone,
+      password: "a-password",
+    });
+    if (!holder.ok) throw new Error(holder.error);
+    const m = sell({ holderPhone: phone, holderName: "Lister", userId: holder.user.id });
+
+    expect(listMembershipsFor(holder.user.id).map((x) => x.id)).toContain(m.id);
+    // A membership sold to somebody else is not this account's, whatever
+    // number it was sold against.
+    const theirs = sell({ holderPhone: "0197779999", holderName: "Somebody Else" });
+    expect(listMembershipsFor(holder.user.id).map((x) => x.id)).not.toContain(theirs.id);
     const venueList = listMembershipsForVenue(venue().id);
     expect(venueList.every((x) => x.venueId === venue().id)).toBe(true);
     expect(venueList[0].id).toBeGreaterThanOrEqual(m.id);

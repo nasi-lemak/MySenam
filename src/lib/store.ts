@@ -2919,6 +2919,35 @@ export function topUpWallet(input: {
  * Settle a booking from its owner's stored credit. Balance is re-read inside
  * the transaction so two concurrent payments cannot overdraw it.
  */
+/**
+ * Mark a booking paid, and say whether this call is the one that did it.
+ *
+ * Every payment path checks "is it already paid?" before opening its
+ * transaction. In one process that is sound — better-sqlite3 is synchronous,
+ * so nothing interleaves between the check and the write. Across two it is
+ * not: a venue running more than one worker against the same file could have
+ * both read "unpaid", and the customer is charged twice for one hour, once
+ * from a wallet and once from a pass.
+ *
+ * This is not reachable on the deployment this ships with — one SQLite file,
+ * one writer, and better-sqlite3 synchronous throughout — so it is hardening
+ * rather than a fix. It is here because "safe as long as there is exactly one
+ * process" is an assumption nothing states at the call sites, and the README's
+ * own scaling answer is Postgres, where it stops holding. The database decides
+ * instead: exactly one UPDATE can move a booking out of 'unpaid', everybody
+ * else gets no rows and throws, rolling their own ledger entry back with them.
+ * The same shape promo codes already get from their UNIQUE constraint.
+ */
+export function claimPayment(bookingId: number): boolean {
+  return (
+    getDb()
+      .prepare(
+        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ? AND payment_status = 'unpaid'"
+      )
+      .run(bookingId).changes === 1
+  );
+}
+
 export function payBookingFromWallet(bookingId: number): WalletResult {
   const db = getDb();
   const row = db
@@ -2943,9 +2972,7 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
           "INSERT INTO wallet_entries (user_id, amount, reason, booking_id) VALUES (?, ?, ?, ?)"
         )
         .run(userId, -booking.totalPrice, `Booking ${booking.code}`, booking.id);
-      db.prepare(
-        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?"
-      ).run(booking.id);
+      if (!claimPayment(booking.id)) throw new Error("RACED");
       return info.lastInsertRowid;
     })();
 
@@ -2960,6 +2987,7 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT")
       return refuse("NOT_ENOUGH_CREDIT");
+    if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");
     throw err;
   }
 }
@@ -3091,17 +3119,11 @@ export function activeMembership(
 }
 
 /** Every membership a phone number holds, newest first. */
-export function listMembershipsFor(input: { phone?: string; userId?: number }): Membership[] {
-  const phone = input.phone?.trim() || null;
-  const userId = input.userId ?? null;
-  if (phone === null && userId === null) return [];
+/** What this account holds. Keyed on the account, for the reason above. */
+export function listMembershipsFor(userId: number): Membership[] {
   const rows = getDb()
-    .prepare(`
-      ${MEMBERSHIP_SELECT}
-      WHERE (? IS NOT NULL AND m.holder_phone = ?) OR (? IS NOT NULL AND m.user_id = ?)
-      ORDER BY m.id DESC
-    `)
-    .all(phone, phone, userId, userId) as MembershipRow[];
+    .prepare(`${MEMBERSHIP_SELECT} WHERE m.user_id = ? ORDER BY m.id DESC`)
+    .all(userId) as MembershipRow[];
   return rows.map(toMembership);
 }
 
@@ -3551,17 +3573,20 @@ export function getPass(code: string): Pass | null {
  * Every pass held by a phone number (and account, when signed in), newest
  * first. Spent and expired passes are kept so the holder can see the history.
  */
-export function listPassesFor(input: { phone?: string; userId?: number }): Pass[] {
-  const phone = input.phone?.trim() || null;
-  const userId = input.userId ?? null;
-  if (phone === null && userId === null) return [];
+/**
+ * What this account holds.
+ *
+ * Keyed on the account and nothing else. A phone number looks like a handle
+ * for this — it is what a pass is sold against at a counter — but nothing
+ * verifies the number somebody types when they register, so matching on it
+ * hands whoever typed it first everything bought against it, and a pass code
+ * is bearer money. The counter links a pass to an account by choosing it in
+ * front of the customer, which is the only place anybody checks who they are.
+ */
+export function listPassesFor(userId: number): Pass[] {
   const rows = getDb()
-    .prepare(`
-      ${PASS_SELECT}
-      WHERE (? IS NOT NULL AND p.holder_phone = ?) OR (? IS NOT NULL AND p.user_id = ?)
-      ORDER BY p.id DESC
-    `)
-    .all(phone, phone, userId, userId) as PassRow[];
+    .prepare(`${PASS_SELECT} WHERE p.user_id = ? ORDER BY p.id DESC`)
+    .all(userId) as PassRow[];
   return rows.map(toPass);
 }
 
@@ -3737,11 +3762,10 @@ export function payBookingWithPass(bookingId: number, passCode: string): PassPay
       db.prepare(
         "INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)"
       ).run(pass.id, -hours, `Booking ${booking.code}`, booking.id);
-      db.prepare(
-        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?"
-      ).run(booking.id);
+      if (!claimPayment(booking.id)) throw new Error("RACED");
     })();
   } catch (err) {
+    if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))
       return { ok: false, error: err.message.slice("BLOCKED:".length) };
     throw err;
@@ -3795,24 +3819,6 @@ export function refundBookingToPass(bookingId: number): PassPayResult {
   return { ok: true, pass: passById(charge.pass_id)!, spent: charge.delta };
 }
 
-/**
- * The passes a phone number could spend on a court today — what the booking
- * form offers. Only passes with entries left and standing to spend them.
- */
-export function usablePassesFor(phone: string, courtId: number): Pass[] {
-  const court = getCourt(courtId);
-  if (!court) return [];
-  const digits = normalisePhone(phone);
-  if (digits.length < 6) return [];
-  return listPassesFor({ phone: phone.trim() }).filter(
-    (p) =>
-      !p.unusableReason &&
-      p.venueId === court.venueId &&
-      (p.sport === null || p.sport === court.sport) &&
-      normalisePhone(p.holderPhone) === digits
-  );
-}
-
 /** Find a customer by email or phone, for the counter. */
 export function findUserForWallet(
   query: string
@@ -3825,6 +3831,25 @@ export function findUserForWallet(
     | { id: number; name: string; email: string; phone: string }
     | undefined;
   return row ? { ...row, balance: getWalletBalance(row.id) } : null;
+}
+
+/**
+ * The account behind an email address, for the counter to link a sale to.
+ *
+ * Email rather than phone: an account is keyed on it, exactly one account can
+ * hold it, and staff are looking at the person who just said it. A phone
+ * number is none of those things — see `listPassesFor`.
+ */
+export function findAccountByEmail(
+  email: string
+): { id: number; name: string; email: string } | null {
+  const trimmed = email.trim();
+  if (trimmed === "") return null;
+  return (
+    (getDb()
+      .prepare("SELECT id, name, email FROM users WHERE email = ? COLLATE NOCASE")
+      .get(trimmed) as { id: number; name: string; email: string } | undefined) ?? null
+  );
 }
 
 /* ---------------- Waitlists ---------------- */

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { listMembershipsForVenue, sellMembership } from "@/lib/store";
+import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +42,21 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(input.price) || (input.price as number) < 0)
     return NextResponse.json({ error: "Price must be a whole number of ringgit." }, { status: 400 });
 
+
+  // Optionally tie the sale to an account, so it shows on that customer's own
+  // page. Staff key it on an email the person just gave them, standing there —
+  // a phone number would let whoever registered it first claim the pass.
+  let userId: number | undefined;
+  if (typeof input.accountEmail === "string" && input.accountEmail.trim() !== "") {
+    const account = findAccountByEmail(input.accountEmail);
+    if (!account)
+      return NextResponse.json(
+        { error: "No account has that email address. Leave it blank to sell without one." },
+        { status: 400 }
+      );
+    userId = account.id;
+  }
+
   const result = sellMembership({
     venueId: venueId as number,
     holderName: input.holderName as string,
@@ -50,6 +65,7 @@ export async function POST(req: NextRequest) {
     expiresOn: input.expiresOn as string,
     price: input.price as number,
     adminId: admin.id,
+    userId,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ membership: result.membership }, { status: 201 });

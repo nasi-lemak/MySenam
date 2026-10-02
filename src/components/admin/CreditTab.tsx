@@ -184,6 +184,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     price: "120",
     holderName: "",
     holderPhone: "",
+    accountEmail: "",
     expiresOn: "",
   });
 
@@ -218,13 +219,14 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           price: Number(form.price),
           holderName: form.holderName,
           holderPhone: form.holderPhone,
+          accountEmail: form.accountEmail.trim() || undefined,
           expiresOn: form.expiresOn,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not issue the pass");
       setNotice(`Sold ${data.pass.code} to ${data.pass.holderName}.`);
-      setForm({ ...form, holderName: "", holderPhone: "" });
+      setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not issue the pass");
@@ -361,6 +363,16 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             value={form.expiresOn}
             onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
             className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Account email (optional)
+          <input
+            type="email"
+            placeholder="they@example.com"
+            value={form.accountEmail}
+            onChange={(e) => setForm({ ...form, accountEmail: e.target.value })}
+            className={`mt-1 w-48 ${inputClass}`}
           />
         </label>
         <button
@@ -731,6 +743,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [form, setForm] = useState({
     holderName: "",
     holderPhone: "",
+    accountEmail: "",
     startsOn: todayLocal(),
     expiresOn: "",
     price: "300",
@@ -760,6 +773,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           venueId,
           holderName: form.holderName,
           holderPhone: form.holderPhone,
+          accountEmail: form.accountEmail.trim() || undefined,
           startsOn: form.startsOn,
           expiresOn: form.expiresOn,
           price: Number(form.price),
@@ -768,7 +782,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not sell the membership");
       setNotice(`${data.membership.code} sold to ${data.membership.holderName}.`);
-      setForm({ ...form, holderName: "", holderPhone: "" });
+      setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sell the membership");
@@ -796,7 +810,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     <section className="border-t border-slate-200 pt-6">
       <h2 className="text-lg font-bold">Memberships</h2>
       <p className="mt-1 text-sm text-slate-600">
-        A member pays your member rates, set per court under <strong>Courts &amp; rates</strong>.
+        Add their account email and the membership appears on their own page. A member pays your member rates, set per court under <strong>Courts &amp; rates</strong>.
         Membership is held against the phone number, so a member who books as a guest still gets
         their price.
       </p>
@@ -879,6 +893,16 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })}
             className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Account email (optional)
+          <input
+            type="email"
+            placeholder="they@example.com"
+            value={form.accountEmail}
+            onChange={(e) => setForm({ ...form, accountEmail: e.target.value })}
+            className={`mt-1 w-48 ${inputClass}`}
           />
         </label>
         <button

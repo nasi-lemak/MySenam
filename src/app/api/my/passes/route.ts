@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export function GET(req: NextRequest) {
   const user = getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  return NextResponse.json({ passes: listPassesFor({ phone: user.phone, userId: user.id }) });
+  return NextResponse.json({ passes: listPassesFor(user.id) });
 }
