@@ -327,6 +327,27 @@ export function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_online_payments_venue ON online_payments(venue_id, id);
 
+    -- Venues asking to join a marketplace. The password their first operator
+    -- chose is held hashed until the application is decided, and dropped if it
+    -- is turned down.
+    CREATE TABLE IF NOT EXISTS venue_applications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_name TEXT NOT NULL,
+      area TEXT NOT NULL,
+      address TEXT NOT NULL,
+      venue_phone TEXT NOT NULL,
+      contact_name TEXT NOT NULL,
+      email TEXT NOT NULL COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      message TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      reason TEXT,
+      venue_id INTEGER REFERENCES venues(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      decided_at TEXT,
+      decided_by INTEGER REFERENCES admins(id)
+    );
+
     CREATE TABLE IF NOT EXISTS online_payment_bookings (
       payment_id INTEGER NOT NULL REFERENCES online_payments(id) ON DELETE CASCADE,
       booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,

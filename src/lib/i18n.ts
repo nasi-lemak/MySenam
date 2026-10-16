@@ -64,6 +64,28 @@ const EN = {
   "footer.tagline":
     "{site} — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis, pickleball, futsal, gym & swimming.",
   "footer.privacy": "Privacy notice",
+  "footer.terms": "Terms",
+  "footer.listVenue": "List your venue",
+
+  // A venue applying to join the marketplace
+  "apply.title": "List your venue on {site}",
+  "apply.intro": "Courts, gyms, pools and classes: take bookings online, get paid by FPX straight into your own account, and fill the quiet hours. Tell us about your venue and we will be in touch.",
+  "apply.business": "Venue name",
+  "apply.area": "Area",
+  "apply.address": "Address",
+  "apply.venuePhone": "Venue phone",
+  "apply.contactName": "Your name",
+  "apply.email": "Your email",
+  "apply.password": "Choose a password",
+  "apply.passwordHint": "At least 10 characters. You will sign in with it once approved.",
+  "apply.message": "Anything we should know? Courts, sports, opening hours.",
+  "apply.agree": "By applying you agree to the",
+  "apply.termsLink": "terms for venues",
+  "apply.submit": "Apply",
+  "apply.sending": "Sending…",
+  "apply.failed": "The application could not be sent.",
+  "apply.doneTitle": "Thank you, we have your application",
+  "apply.doneBody": "We will email {email} once it has been looked at.",
   "lang.label": "Language",
 
   // Home
@@ -578,6 +600,28 @@ const MS: Record<Phrase, string> = {
   "footer.tagline":
     "{site} — gelanggang, gim dan kelas, satu tempahan. Untuk badminton, tenis, pickleball, futsal, gim & renang.",
   "footer.privacy": "Notis privasi",
+  "footer.terms": "Terma",
+  "footer.listVenue": "Senaraikan pusat anda",
+
+  // Pusat memohon untuk menyertai pasaran
+  "apply.title": "Senaraikan pusat anda di {site}",
+  "apply.intro": "Gelanggang, gim, kolam dan kelas: terima tempahan dalam talian, terima bayaran FPX terus ke akaun anda sendiri, dan isi waktu lengang. Ceritakan tentang pusat anda dan kami akan menghubungi anda.",
+  "apply.business": "Nama pusat",
+  "apply.area": "Kawasan",
+  "apply.address": "Alamat",
+  "apply.venuePhone": "Telefon pusat",
+  "apply.contactName": "Nama anda",
+  "apply.email": "E-mel anda",
+  "apply.password": "Pilih kata laluan",
+  "apply.passwordHint": "Sekurang-kurangnya 10 aksara. Anda akan log masuk dengannya setelah diluluskan.",
+  "apply.message": "Apa-apa yang perlu kami tahu? Gelanggang, sukan, waktu operasi.",
+  "apply.agree": "Dengan memohon, anda bersetuju dengan",
+  "apply.termsLink": "terma untuk pusat",
+  "apply.submit": "Mohon",
+  "apply.sending": "Menghantar…",
+  "apply.failed": "Permohonan tidak dapat dihantar.",
+  "apply.doneTitle": "Terima kasih, permohonan anda telah diterima",
+  "apply.doneBody": "Kami akan e-mel {email} setelah ia disemak.",
   "lang.label": "Bahasa",
 
   // Home

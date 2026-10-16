@@ -129,6 +129,7 @@ Everything is an environment variable; there is nothing else to configure.
 | -------- | ------- | ------------ |
 | `MYSENAM_MARKETPLACE` | — | `on` for the shared marketplace: venues apply to join, are invoiced monthly, and stored credit is per venue |
 | `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
+| `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
@@ -255,6 +256,25 @@ file.
 Migrations are additive and run when the database is opened, so a deploy is
 build, restart, done. **Take a backup first** — `npm run backup` — because a
 migration that rebuilds a table cannot be undone from inside the app.
+
+### Running the marketplace
+
+With `MYSENAM_MARKETPLACE=on`, the install is the shared MySenam marketplace:
+independent venues, players booking across them.
+
+- **Venues apply** at `/list-your-venue` (linked from the footer): their
+  details, and a password for their first operator account, held hashed. The
+  platform owner approves or turns them down under *Venues & staff → Venue
+  applications*. Approving makes the venue and the operator's account in one
+  step; nobody sends anybody a password. With email set up, the applicant is
+  told either way; without it, the panel says who to tell.
+- **Stored credit is per venue** — see *Whose credit it is*.
+- **Terms** live at `/terms`, for players and, on a marketplace, for venues.
+  They are a starting draft written to match what the software does — who
+  holds the money, who refunds it, whose credit is whose — and **not legal
+  advice: have a Malaysian lawyer review them before relying on them.** Set
+  `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS` and `OPERATOR_EMAIL`;
+  until `OPERATOR_NAME` is set the page says it has not been completed.
 
 ### A venue business's own copy
 

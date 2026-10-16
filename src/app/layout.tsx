@@ -4,6 +4,7 @@ import SiteNav from "@/components/SiteNav";
 import { LanguageProvider } from "@/components/Language";
 import { currentLocale, serverT } from "@/lib/locale";
 import { DEFAULT_SITE_NAME, siteName } from "@/lib/site";
+import { isMarketplace } from "@/lib/mode";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -46,6 +47,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               >
                 {t("footer.privacy")}
               </Link>
+              <Link
+                href="/terms"
+                className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
+              >
+                {t("footer.terms")}
+              </Link>
+              {isMarketplace() && (
+                <Link
+                  href="/list-your-venue"
+                  className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
+                >
+                  {t("footer.listVenue")}
+                </Link>
+              )}
             </p>
           </footer>
         </LanguageProvider>

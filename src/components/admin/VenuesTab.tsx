@@ -8,6 +8,7 @@ import type { Admin } from "@/lib/admin-auth";
 import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { MessagesPanel } from "./MessagesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
+import { ApplicationsPanel } from "./ApplicationsPanel";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -80,6 +81,8 @@ export function VenuesTab({
           {notice}
         </div>
       )}
+
+      {isOwner && <ApplicationsPanel onChange={() => void onChange()} />}
 
       <section>
         <h2 className="text-lg font-bold">{isOwner ? "Venues" : "Venue details"}</h2>
