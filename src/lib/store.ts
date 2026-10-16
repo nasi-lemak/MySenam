@@ -419,6 +419,20 @@ export function createBookingOnAnyCourt(input: {
 }
 
 /**
+ * ` AND <column> IN (this venue's courts)`, or nothing for every venue.
+ *
+ * Spelled out rather than written as `(? IS NULL OR ...)`, because SQLite
+ * cannot use an index through that OR: asking for one venue read every
+ * venue's rows for the date, so the venue page slowed down with each venue
+ * added to the platform.
+ */
+function venueCourts(column: string, venueId?: number | null): { sql: string; params: number[] } {
+  return venueId == null
+    ? { sql: "", params: [] }
+    : { sql: ` AND ${column} IN (SELECT id FROM courts WHERE venue_id = ?)`, params: [venueId] };
+}
+
+/**
  * `courtId:hour` -> how many places are out of service on a date.
  *
  * A NULL `places` means the whole resource, so it resolves to that court's
@@ -426,15 +440,15 @@ export function createBookingOnAnyCourt(input: {
  * place blocked out of one is the court closed.
  */
 function blockedPlacesOn(date: string, venueId?: number): Map<string, number> {
+  const venue = venueCourts("b.court_id", venueId);
   const rows = getDb()
     .prepare(`
       SELECT b.court_id AS court_id, b.hour AS hour,
              COALESCE(b.places, c.capacity) AS places
       FROM slot_blocks b JOIN courts c ON c.id = b.court_id
-      WHERE b.date = ?
-        AND (? IS NULL OR c.venue_id = ?)
+      WHERE b.date = ?${venue.sql}
     `)
-    .all(date, venueId ?? null, venueId ?? null) as {
+    .all(date, ...venue.params) as {
     court_id: number;
     hour: number;
     places: number;
@@ -510,13 +524,13 @@ function classHoursOn(
   date: string,
   venueId?: number
 ): Map<string, { id: number; name: string }> {
+  const venue = venueCourts("court_id", venueId);
   const rows = getDb()
     .prepare(`
       SELECT id, court_id, name, start_hour, end_hour FROM classes
-      WHERE date = ? AND status = 'scheduled'
-        AND (? IS NULL OR court_id IN (SELECT id FROM courts WHERE venue_id = ?))
+      WHERE date = ? AND status = 'scheduled'${venue.sql}
     `)
-    .all(date, venueId ?? null, venueId ?? null) as {
+    .all(date, ...venue.params) as {
     id: number;
     court_id: number;
     name: string;
@@ -535,13 +549,14 @@ function classHoursOn(
 
 /** Places already taken per `courtId:hour` on a date, for one venue or all. */
 function countTakenPlaces(date: string, venueId?: number): Map<string, number> {
+  const venue = venueCourts("court_id", venueId);
   const rows = getDb()
     .prepare(`
       SELECT court_id, hour, COUNT(*) AS n FROM booking_slots
-      WHERE date = ? AND (? IS NULL OR court_id IN (SELECT id FROM courts WHERE venue_id = ?))
+      WHERE date = ?${venue.sql}
       GROUP BY court_id, hour
     `)
-    .all(date, venueId ?? null, venueId ?? null) as {
+    .all(date, ...venue.params) as {
     court_id: number;
     hour: number;
     n: number;
@@ -2538,6 +2553,7 @@ export function updateCourt(
 
 export function listBookingsForDate(date: string, venueId?: number): AdminBookingRow[] {
   const db = getDb();
+  const venue = venueCourts("b.court_id", venueId);
   const rows = db
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
@@ -2546,10 +2562,10 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
-      WHERE b.date = ? AND (? IS NULL OR v.id = ?)
+      WHERE b.date = ?${venue.sql}
       ORDER BY v.id, c.id, b.start_hour
     `)
-    .all(date, venueId ?? null, venueId ?? null) as (BookingRow & {
+    .all(date, ...venue.params) as (BookingRow & {
     court_name: string;
     court_sport: Sport;
     court_deposit: number;

@@ -131,6 +131,12 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
     )
     .get(venueId, from, to) as { closedDays: number };
 
+  // Every query below picks the venue's rows by their own court_id rather than
+  // by joining to courts and filtering there: the index on (court_id, date)
+  // can then go straight to this venue's period. Filtering on the join reads
+  // every venue's bookings for the period, so a report slowed down with each
+  // venue added to the platform rather than with this venue's own trade.
+
   // --- bookings and money, one row per booking -----------------------------
   const counts = db
     .prepare(`
@@ -142,7 +148,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
         SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ?
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
     `)
     .get(venueId, from, to) as {
     confirmed: number | null;
@@ -161,7 +167,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       SELECT COUNT(*) AS soldHours FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
     `)
     .get(venueId, from, to) as { soldHours: number };
 
@@ -176,7 +182,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       SELECT b.court_id AS courtId, SUM(COALESCE(b.places, c.capacity)) AS blocked
       FROM slot_blocks b
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ?
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
       GROUP BY b.court_id
     `)
     .all(venueId, from, to) as { courtId: number; blocked: number }[])
@@ -193,7 +199,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
       GROUP BY b.court_id
     `)
     .all(venueId, from, to) as { courtId: number; hours: number }[])
@@ -204,7 +210,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       SELECT b.court_id AS courtId, SUM(b.total_price) AS expected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
       GROUP BY b.court_id
     `)
     .all(venueId, from, to) as { courtId: number; expected: number }[]) {
@@ -236,7 +242,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
                SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
         FROM bookings b
         JOIN courts c ON c.id = b.court_id
-        WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
         GROUP BY c.sport
         ORDER BY expected DESC
       `)
@@ -261,7 +267,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
              SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
       GROUP BY month
     `)
     .all(venueId, from, to) as { month: string; expected: number; collected: number }[];
@@ -271,7 +277,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
       GROUP BY month
     `)
     .all(venueId, from, to) as { month: string; hours: number }[];
@@ -290,7 +296,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE c.venue_id = ? AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
       GROUP BY s.hour
     `)
     .all(venueId, from, to) as { hour: number; hours: number }[];

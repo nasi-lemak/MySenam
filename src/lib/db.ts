@@ -423,6 +423,12 @@ export function getDb(): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
+    -- One venue's bookings over a period, without reading every venue's.
+    CREATE INDEX IF NOT EXISTS idx_bookings_court_date ON bookings(court_id, date);
+    -- The no-show count the day list shows against every booking.
+    CREATE INDEX IF NOT EXISTS idx_bookings_phone ON bookings(phone);
+    -- Joining an hour back to its booking, and the cascade when one is deleted.
+    CREATE INDEX IF NOT EXISTS idx_slots_booking ON booking_slots(booking_id);
     CREATE INDEX IF NOT EXISTS idx_slots_court_date ON booking_slots(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_blocks_court_date ON slot_blocks(court_id, date);
     CREATE INDEX IF NOT EXISTS idx_classes_court_date ON classes(court_id, date);

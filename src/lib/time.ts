@@ -2,19 +2,24 @@ import { MAX_ADVANCE_DAYS } from "./types";
 
 const TZ = "Asia/Kuala_Lumpur";
 
+// Built once. Constructing a formatter costs far more than using one, and
+// isPastSlot asks for the date and hour once per court per hour — a search
+// across every venue builds tens of thousands of them otherwise.
+const DATE_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: TZ });
+const HOUR_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TZ,
+  hour: "2-digit",
+  hour12: false,
+});
+
 /** Today's date (YYYY-MM-DD) in Malaysia time. */
 export function todayISO(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
+  return DATE_FORMAT.format(new Date());
 }
 
 /** Current hour (0-23) in Malaysia time. */
 export function currentHour(): number {
-  const h = new Intl.DateTimeFormat("en-GB", {
-    timeZone: TZ,
-    hour: "2-digit",
-    hour12: false,
-  }).format(new Date());
-  return parseInt(h, 10) % 24;
+  return parseInt(HOUR_FORMAT.format(new Date()), 10) % 24;
 }
 
 export function isValidDateString(date: string): boolean {
