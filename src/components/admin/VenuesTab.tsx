@@ -613,6 +613,13 @@ function BackupsPanel() {
     directory: string;
     database: string;
     hoursSinceLast: number | null;
+    offsite: {
+      configured: boolean;
+      destination: string | null;
+      lastCopied: { name: string; at: string } | null;
+      lastError: { at: string; error: string } | null;
+    };
+    schedule: { hour: number } | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -644,7 +651,8 @@ function BackupsPanel() {
       if (!res.ok) throw new Error(data.error ?? "Backup failed");
       setNotice(
         `${data.file.name} — ${Math.round(data.file.bytes / 1024)} KB, ${data.bookings} bookings.` +
-          (data.pruned.length > 0 ? ` Retired ${data.pruned.length} older.` : "")
+          (data.pruned.length > 0 ? ` Retired ${data.pruned.length} older.` : "") +
+          (data.offsite ? (data.offsite.ok ? " Copied off-site." : " The off-site copy failed — see below.") : "")
       );
       load();
     } catch (err) {
@@ -704,7 +712,46 @@ function BackupsPanel() {
             <p className="mt-2 text-xs text-slate-500">
               <span className="font-mono">{state.database}</span> →{" "}
               <span className="font-mono">{state.directory}</span>
+              {state.schedule
+                ? ` · taken automatically every night at ${String(state.schedule.hour).padStart(2, "0")}:00`
+                : " · the built-in schedule is off: run npm run backup from cron"}
             </p>
+            <div
+              className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+                !state.offsite.configured
+                  ? "bg-amber-50 text-amber-900"
+                  : state.offsite.lastError &&
+                      (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at)
+                    ? "bg-red-50 text-red-700"
+                    : "bg-slate-50 text-slate-700"
+              }`}
+            >
+              {!state.offsite.configured ? (
+                <>
+                  <strong>No off-site copies.</strong> Every backup is on the same disk as the
+                  database. Set the <span className="font-mono">OFFSITE_S3_*</span> settings to send
+                  each one to Cloudflare R2, Backblaze B2 or Amazon S3.
+                </>
+              ) : (
+                <>
+                  Off-site to <span className="font-mono text-xs">{state.offsite.destination}</span>
+                  {state.offsite.lastCopied ? (
+                    <>
+                      {" "}— last copy <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
+                      at {state.offsite.lastCopied.at.slice(0, 10)} {localTime(state.offsite.lastCopied.at)}
+                    </>
+                  ) : (
+                    " — nothing copied yet"
+                  )}
+                  {state.offsite.lastError &&
+                    (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at) && (
+                      <div className="mt-1 font-semibold">
+                        The last copy failed: {state.offsite.lastError.error}
+                      </div>
+                    )}
+                </>
+              )}
+            </div>
             {state.backups.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">
                 Nothing here yet. Schedule <span className="font-mono">npm run backup</span> daily,

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { backupDir, createBackup, hoursSinceLastBackup, listBackups } from "@/lib/backup";
 import { databaseFile } from "@/lib/db";
+import { copyOffsite, offsiteStatus } from "@/lib/offsite";
+import { backupHour, schedulerEnabled } from "@/lib/scheduler";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,8 @@ export function GET(req: NextRequest) {
       directory: backupDir(),
       database: databaseFile(),
       hoursSinceLast: hoursSinceLastBackup(),
+      offsite: offsiteStatus(),
+      schedule: schedulerEnabled() ? { hour: backupHour() } : null,
     },
     { headers: { "Cache-Control": "no-store" } }
   );
@@ -36,9 +40,11 @@ export async function POST(req: NextRequest) {
 
   const result = createBackup();
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 });
+  const offsite = await copyOffsite(result.file);
   return NextResponse.json({
     file: result.file,
     bookings: result.bookings,
     pruned: result.pruned,
+    offsite,
   });
 }

@@ -132,6 +132,9 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_DB` | `data/mysenam.db` | Where the database lives. Put it on a disk that survives a redeploy |
 | `MYSENAM_BACKUP_DIR` | `backups/` beside the database | Where snapshots are written |
 | `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
+| `MYSENAM_BACKUP_HOUR` | `3` | The hour, Malaysia time, of the nightly backup |
+| `MYSENAM_SCHEDULER` | on in production | `off` to leave nightly backups and message sending to your own cron |
+| `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
 | `MUDAHTEMPAH_DB` | — | The old name for `MYSENAM_DB`, still honoured |
 | `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |
 | `MYSENAM_SEND` | — | `log` writes customer messages to the server log instead of sending them |
@@ -176,7 +179,13 @@ npm run backup -- --keep 30          # keep more
 npm run backup -- --dir /mnt/backups # somewhere else
 ```
 
-Schedule it, at a quiet hour:
+**The server takes one every night by itself**, at 03:00 Malaysia time
+(`MYSENAM_BACKUP_HOUR`), and catches up as soon as it is back if it was down at
+the hour. Hosts like Render cannot point a cron job at a web service's disk, so
+the schedule lives in the app: `next start` ticks once a minute and does what is
+due, which also sends any customer messages waiting to go. Set
+`MYSENAM_SCHEDULER=off` to run `npm run backup` from your own cron instead —
+and do, if more than one server shares the database:
 
 ```cron
 0 3 * * *  cd /srv/mysenam && /usr/bin/npm run backup >> /var/log/mysenam-backup.log 2>&1
@@ -196,9 +205,34 @@ one by hand before a risky change, and is told in red when the newest snapshot
 is more than two days old. Venue operators cannot: a backup is every venue's
 data, not one venue's.
 
-**Copy them off the machine.** Snapshots beside the database survive a bad
-deploy and a mistyped `DELETE`; they do not survive the disk. `rsync` the
-backup directory somewhere else on the same schedule.
+### Off-site copies
+
+Snapshots beside the database survive a bad deploy and a mistyped `DELETE`; they
+do not survive the disk. So each one — the nightly one and every *Back up now* —
+is also uploaded to object storage that speaks the S3 API: Cloudflare R2,
+Backblaze B2, Amazon S3, Wasabi.
+
+| Variable | Example |
+| -------- | ------- |
+| `OFFSITE_S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com`, `https://s3.us-west-004.backblazeb2.com` |
+| `OFFSITE_S3_BUCKET` | `venue-backups` |
+| `OFFSITE_S3_REGION` | `auto` for R2 (the default); the bucket's region for B2 and S3 |
+| `OFFSITE_S3_ACCESS_KEY_ID` / `OFFSITE_S3_SECRET_ACCESS_KEY` | A key for that bucket |
+| `OFFSITE_S3_PREFIX` | `mysenam/` (the default) — one bucket can hold several installs |
+
+The upload is streamed from disk and signed over the file's SHA-256, so the
+storage service itself rejects a copy that arrived damaged. The Backups panel
+shows the last copy, and in red the last failure, so an upload that has been
+failing quietly is visible long before the day it is needed.
+
+**Nothing off-site is ever deleted by the app.** Set a lifecycle rule on the
+bucket to expire old copies (30 days is plenty), and give the app a key that
+may only *write* to the bucket. Then somebody who takes over the server cannot
+reach back and delete the copies that would undo the damage.
+
+The backups hold customers' names and phone numbers: keep the bucket private.
+Venues' payment keys inside are encrypted, and the key that unlocks them
+(`secret.key`, or `MYSENAM_SECRET`) is deliberately not in the backup.
 
 ### Restoring
 
