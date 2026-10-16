@@ -22,6 +22,7 @@ import { INTL_TAGS, sportLabel } from "@/lib/i18n";
 import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
+import PayOnline from "@/components/PayOnline";
 
 interface Props {
   venueId: number;
@@ -49,6 +50,8 @@ interface Confirmation {
   /** Total taken off by a promo code, and why one did not apply. */
   discount?: number;
   promoError?: string | null;
+  /** The venue takes payment online, so the unpaid part can be paid now. */
+  payOnline?: boolean;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -748,6 +751,8 @@ function ConfirmationModal({
   const { booking, bookings, skipped, seriesCode, court, venue } = confirmation;
   const isSeries = bookings.length > 1 || seriesCode !== null;
   const seriesTotal = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
+  const unpaid = bookings.filter((b) => b.paymentStatus === "unpaid");
+  const unpaidTotal = unpaid.reduce((sum, b) => sum + b.totalPrice, 0);
   const shareInfo = {
     code: seriesCode ?? booking.code,
     date: booking.date,
@@ -826,6 +831,9 @@ function ConfirmationModal({
               ))}
             </ul>
           </div>
+        )}
+        {confirmation.payOnline && unpaid.length > 0 && unpaidTotal > 0 && (
+          <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} />
         )}
         {!isSeries && booking.checkInToken && <CheckInQr token={booking.checkInToken} />}
         <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">

@@ -232,6 +232,7 @@ interface BookingRow {
   series_code: string | null;
   payment_status: "unpaid" | "paid";
   paid_at: string | null;
+  paid_via?: string | null;
   no_show: number;
   check_in_token: string | null;
   class_id: number | null;
@@ -273,6 +274,7 @@ function toBooking(r: BookingRow): Booking {
     seriesCode: r.series_code,
     paymentStatus: r.payment_status,
     paidAt: r.paid_at,
+    paidOnline: r.paid_via === "online",
     noShow: r.no_show === 1,
     checkedInAt: r.checked_in_at ?? null,
     checkedOutAt: r.checked_out_at ?? null,
@@ -1687,8 +1689,9 @@ export function setPaymentStatus(code: string, paid: boolean): PaymentResult {
   if ((booking.paymentStatus === "paid") === paid)
     return { ok: false, error: `This booking is already marked ${paid ? "paid" : "unpaid"}.` };
 
+  // Marked by hand, so whatever it was paid with, it was not the gateway.
   db.prepare(
-    "UPDATE bookings SET payment_status = ?, paid_at = ? WHERE id = ?"
+    "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = NULL WHERE id = ?"
   ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, booking.id);
   return {
     ok: true,
@@ -3056,8 +3059,27 @@ export function refundBookingToWallet(bookingId: number): WalletResult {
 function refundBooking(bookingId: number): void {
   refundBookingToWallet(bookingId);
   refundBookingToPass(bookingId);
+  noteOnlineRefundDue(bookingId);
   // The customer never had the benefit, so a limited code is not poorer for it.
   releasePromoUse(bookingId);
+}
+
+/**
+ * A booking paid online and then cancelled has money sitting in the venue's
+ * gateway account that is not the venue's to keep. Nothing here can send it
+ * back — a refund is made in the gateway — so the amount is written against
+ * the payment, and the venue is shown what it owes until staff say it is done.
+ */
+function noteOnlineRefundDue(bookingId: number): void {
+  getDb()
+    .prepare(`
+      UPDATE online_payments
+         SET refund_due = refund_due + (SELECT total_price FROM bookings WHERE id = ?)
+       WHERE status = 'paid'
+         AND id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
+         AND EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
+    `)
+    .run(bookingId, bookingId, bookingId);
 }
 
 /* ---------------- Memberships ---------------- */

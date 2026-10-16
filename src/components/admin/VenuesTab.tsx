@@ -7,6 +7,7 @@ import type { Venue, VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { MessagesPanel } from "./MessagesPanel";
+import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -106,6 +107,8 @@ export function VenuesTab({
       </section>
 
       <MessagesPanel venues={venues} />
+
+      <OnlinePaymentsPanel venues={venues} />
 
       {isOwner && <BackupsPanel />}
 

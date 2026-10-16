@@ -3,6 +3,7 @@ import { getCourt, getVenue } from "./store";
 import { Booking } from "./types";
 import { isLocale, Locale, translator } from "./i18n";
 import { addressFor, baseUrl, drainOutbox, enqueue, hourRange } from "./outbox";
+import { takesPaymentOnline } from "./payments";
 import type { DrainResult, OutboxMessage } from "./outbox";
 
 /**
@@ -52,7 +53,7 @@ export function notifyBookingConfirmed(
       venue: venue.name,
       weeks: bookings.length,
       ...slot(locale, court.name, venue.name, first),
-      total: totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid")),
+      total: totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
       link: `${baseUrl()}/my-booking`,
     },
   });
@@ -113,7 +114,7 @@ export function notifyClassEnrolled(
       code: booking.code,
       venue: venue.name,
       ...slot(locale, court.name, venue.name, booking),
-      total: totalLine(locale, booking.totalPrice, booking.paymentStatus === "paid"),
+      total: totalLine(locale, booking.totalPrice, booking.paymentStatus === "paid", venue.id),
     },
   });
 }
@@ -262,10 +263,15 @@ function slot(
   };
 }
 
-/** The total and how it is settled: paid, or still to pay. */
-function totalLine(locale: Locale, amount: number, paid: boolean): string {
+/** The total and how it is settled: paid, or still to pay — online too, where the venue takes it. */
+function totalLine(locale: Locale, amount: number, paid: boolean, venueId: number): string {
   const t = translator(locale);
-  return t("msg.total", { amount, payment: t(paid ? "msg.paid" : "msg.payAtCounter") });
+  const payment = paid
+    ? "msg.paid"
+    : takesPaymentOnline(venueId)
+      ? "msg.payAtCounterOrOnline"
+      : "msg.payAtCounter";
+  return t("msg.total", { amount, payment: t(payment) });
 }
 
 /** "Nurul Hana" → "Nurul". A message is not a form. */

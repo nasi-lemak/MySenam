@@ -5,6 +5,7 @@ import { Booking, Court } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
+import PayOnline from "@/components/PayOnline";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 
@@ -12,6 +13,7 @@ interface Result {
   booking: Booking;
   court: Court;
   venue: { name: string; area: string; address: string; cancelCutoffHours: number };
+  payOnline?: boolean;
 }
 
 export default function MyBookingPage() {
@@ -178,7 +180,9 @@ export default function MyBookingPage() {
               [
                 t("mine.total"),
                 b.paymentStatus === "paid"
-                  ? t("mine.paid", { amount: b.totalPrice })
+                  ? b.paidOnline
+                    ? `${t("mine.paid", { amount: b.totalPrice })} · ${t("pay.paidOnline")}`
+                    : t("mine.paid", { amount: b.totalPrice })
                   : t("mine.unpaid", { amount: b.totalPrice }),
               ],
             ].map(([label, value]) => (
@@ -190,6 +194,9 @@ export default function MyBookingPage() {
           </dl>
           {b.status === "confirmed" && (
             <>
+              {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && (
+                <PayOnline codes={[b.code]} phone={phone} amount={b.totalPrice} />
+              )}
               {result.venue.cancelCutoffHours > 0 && (
                 <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   {t.plural("mine.freeCancel", result.venue.cancelCutoffHours)}

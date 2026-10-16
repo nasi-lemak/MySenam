@@ -206,6 +206,8 @@ export interface Booking {
   seriesCode: string | null;
   paymentStatus: PaymentStatus;
   paidAt: string | null;
+  /** Paid through the venue's online gateway: the money is there, not in the till. */
+  paidOnline?: boolean;
   /** Set by staff after the slot passes and nobody turned up. */
   noShow: boolean;
   /** When the customer arrived at the desk, if they did. */

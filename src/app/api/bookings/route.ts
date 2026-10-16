@@ -16,6 +16,7 @@ import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, tickOutbox } from "@/lib/notify";
+import { takesPaymentOnline } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +142,7 @@ export async function POST(req: NextRequest) {
       discount,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
+      payOnline: takesPaymentOnline(venue.id),
     },
     { status: 201 }
   );
@@ -175,5 +177,6 @@ export function GET(req: NextRequest) {
       address: venue.address,
       cancelCutoffHours: venue.cancelCutoffHours,
     },
+    payOnline: takesPaymentOnline(venue.id),
   });
 }

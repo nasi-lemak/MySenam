@@ -293,6 +293,47 @@ export function getDb(): Database.Database {
       value TEXT NOT NULL
     );
 
+    -- A venue's own payment gateway account, so a customer's money goes
+    -- straight to the venue and never through the platform. The two keys are
+    -- sealed (lib/secrets.ts): this file is what gets backed up and copied.
+    CREATE TABLE IF NOT EXISTS venue_payment_accounts (
+      venue_id INTEGER PRIMARY KEY REFERENCES venues(id),
+      provider TEXT NOT NULL DEFAULT 'billplz' CHECK (provider IN ('billplz')),
+      api_key TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      x_signature_key TEXT NOT NULL,
+      sandbox INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- One bill a customer was sent to pay, and what it settles.
+    CREATE TABLE IF NOT EXISTS online_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      bill_id TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      venue_id INTEGER REFERENCES venues(id),
+      amount REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid')),
+      payer_name TEXT,
+      payer_phone TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      paid_at TEXT,
+      -- Owed back for bookings cancelled after paying, and what staff have
+      -- since refunded in the gateway.
+      refund_due REAL NOT NULL DEFAULT 0,
+      refunded REAL NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_online_payments_venue ON online_payments(venue_id, id);
+
+    CREATE TABLE IF NOT EXISTS online_payment_bookings (
+      payment_id INTEGER NOT NULL REFERENCES online_payments(id) ON DELETE CASCADE,
+      booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+      PRIMARY KEY (payment_id, booking_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_online_payment_bookings_booking ON online_payment_bookings(booking_id);
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -604,6 +645,13 @@ function migrate(db: Database.Database) {
   // the right answer for every existing row.
   if (!bookingCols.some((c) => c.name === "demo")) {
     db.exec("ALTER TABLE bookings ADD COLUMN demo INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // How a paid booking was paid, where that is not the counter: 'online' for
+  // the venue's gateway. NULL for everything already paid, which was paid by
+  // hand, from credit or with a pass.
+  if (!bookingCols.some((c) => c.name === "paid_via")) {
+    db.exec("ALTER TABLE bookings ADD COLUMN paid_via TEXT");
   }
 
   const messageCols = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];

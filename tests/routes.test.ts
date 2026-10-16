@@ -115,7 +115,7 @@ describe("every admin route refuses a stranger", () => {
 
     it(`${file.replace("../src/app/api", "")} is closed to nobody in particular`, async () => {
       const mod = (await load()) as Routish;
-      const methods = ["GET", "POST", "PATCH", "DELETE"].filter((m) => typeof mod[m] === "function");
+      const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"].filter((m) => typeof mod[m] === "function");
       expect(methods.length).toBeGreaterThan(0);
 
       for (const method of methods) {
@@ -137,7 +137,7 @@ describe("every my/ route refuses a stranger", () => {
   for (const [file, load] of Object.entries(customerRoutes) as [string, RouteModule][]) {
     it(`${file.replace("../src/app/api", "")} needs a session`, async () => {
       const mod = (await load()) as Routish;
-      for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+      for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
         if (typeof mod[method] !== "function") continue;
         const res = await (mod[method] as Handler)(req(urlFor(file), { method, body: {} }), {
           params: Promise.resolve({ id: "1" }),
@@ -163,6 +163,7 @@ describe("a venue operator cannot reach another venue", () => {
     ["memberships", () => import("../src/app/api/admin/memberships/route")],
     ["classes", () => import("../src/app/api/admin/classes/route")],
     ["messages", () => import("../src/app/api/admin/messages/route")],
+    ["online-payments", () => import("../src/app/api/admin/online-payments/route")],
   ];
 
   for (const [name, load] of venueScoped) {

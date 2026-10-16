@@ -31,6 +31,11 @@ export const POLICIES = {
    * not enough to walk the code space.
    */
   accessCode: { limit: 10, windowMs: 10 * MINUTE },
+  /**
+   * Opening a payment page checks a code and a phone number like a lookup, and
+   * makes a bill at the gateway, which limits us in turn.
+   */
+  payment: { limit: 10, windowMs: 10 * MINUTE },
 } satisfies Record<string, Policy>;
 
 export type PolicyName = keyof typeof POLICIES;

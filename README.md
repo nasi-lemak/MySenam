@@ -142,6 +142,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `WHATSAPP_API_VERSION` | `v23.0` | Graph API version |
 | `SMTP_URL` | — | `smtp://user:pass@host:587` (or `smtps://…:465`). With `MAIL_FROM`, sends email |
 | `MAIL_FROM` | — | The sender, e.g. `Arena Bookings <bookings@arena.my>` |
+| `MYSENAM_SECRET` | `secret.key` beside the database | Encrypts stored payment keys. Keep it out of the backups |
 
 `.env.example` lists all of them with comments; copy it to `.env.local`.
 
@@ -1005,11 +1006,43 @@ Tunjukkan kod ini di kaunter hadapan.
 
 ## Payments
 
-Bookings are pay-at-counter: every booking starts `unpaid`, and front-desk staff
-toggle it to `paid` from the admin Bookings tab (a whole recurring series can be
-settled in one click). Customers see the payment state on `/account` and in the
-`/my-booking` lookup. The daily view splits **expected** vs **collected** vs
-**outstanding** revenue so a shift can be reconciled at closing.
+Every booking starts `unpaid` and stands whether or not it is ever paid
+online. Front-desk staff toggle it to `paid` from the admin Bookings tab (a
+whole recurring series can be settled in one click). Customers see the payment
+state on `/account` and in the `/my-booking` lookup. The daily view splits
+**expected** vs **collected** vs **outstanding** revenue so a shift can be
+reconciled at closing.
+
+### Paying online
+
+A venue can let customers pay by FPX online banking or card through
+[Billplz](https://www.billplz.com), **into the venue's own Billplz account**.
+The platform never holds a customer's money, which is the difference between
+running booking software and running a payments business.
+
+- **Set up** under *Venues & staff → Online payment*: the venue's Billplz
+  collection ID, API secret key and X Signature key, and whether it is a
+  sandbox account. Nothing needs configuring on the Billplz side — each bill
+  says where to report back, which is why `MYSENAM_URL` must be the install's
+  public `https://` address.
+- **Paying** — a *Pay online* button appears on the booking confirmation, on
+  `/my-booking`, and the confirmation message says the booking can be paid
+  online. A weekly series is paid in one bill; weeks already settled are left
+  out. Pressing the button twice sends the customer to the same bill.
+- **Marked paid** only when Billplz says so, in a callback or the customer's
+  redirect back, and only after its signature checks out under that venue's
+  key. Either can arrive first; both are safe to repeat. The Bookings tab shows
+  these as `✓ online`, which cannot be toggled off by mistake: that money is in
+  Billplz, not the till.
+- **Refunds** — a booking paid online and then cancelled, or paid at the counter
+  as well, is listed under *Refunds owed* with who to pay back. Refund it in
+  Billplz, then mark it done.
+
+The keys are encrypted in the database, which is the file that gets backed up
+and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
+when that is unset, one generated into `secret.key` beside the database —
+never inside it. A backup restored onto another machine without that key asks
+for the venue's payment keys to be entered again instead of handing them over.
 
 ## Booking without naming a court
 
@@ -1170,6 +1203,6 @@ push and pull request (Node 22, `npm ci`).
   one credential, one body. Software can attribute an entry; it cannot stop
   five people walking in behind one of them
 - Online top-ups, so credit can be bought without visiting a counter
-- Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
+- Requiring payment online to hold a booking, with unpaid holds released after a few minutes
 - Reminders the day before a booking, on the same outbox and templates
 - Set strong `ADMIN_EMAIL` / `ADMIN_PASSWORD` values before deploying

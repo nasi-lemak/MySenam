@@ -608,6 +608,17 @@ function NoShowBadge({ b }: { b: AdminBookingRow }) {
 function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
   const paid = b.paymentStatus === "paid";
+  // The money is in the venue's gateway account, not the till: undoing it is
+  // a refund there, not a click here.
+  if (paid && b.paidOnline)
+    return (
+      <span
+        title="Paid online, into the venue's payment account. Refund it there if it has to go back."
+        className={`${CHIP} bg-emerald-100 text-emerald-700`}
+      >
+        ✓ online
+      </span>
+    );
   return (
     <button
       onClick={() => act.togglePaid(b.code, !paid)}
