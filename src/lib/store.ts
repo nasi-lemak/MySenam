@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { getDb } from "./db";
+import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import {
@@ -47,6 +48,7 @@ import {
   PassStatus,
   SPORTS,
   SPORT_LABELS,
+  WalletBalance,
   WalletEntry,
   WaitlistEntry,
   WaitlistStatus,
@@ -2873,7 +2875,14 @@ interface WalletRow {
   reason: string;
   booking_id: number | null;
   created_at: string;
+  venue_id?: number | null;
+  venue_name?: string | null;
 }
+
+const WALLET_SELECT = `
+  SELECT w.id, w.amount, w.reason, w.booking_id, w.created_at, w.venue_id, v.name AS venue_name
+  FROM wallet_entries w LEFT JOIN venues v ON v.id = w.venue_id
+`;
 
 function toWalletEntry(r: WalletRow): WalletEntry {
   return {
@@ -2882,22 +2891,61 @@ function toWalletEntry(r: WalletRow): WalletEntry {
     reason: r.reason,
     bookingId: r.booking_id,
     createdAt: r.created_at,
+    venueId: r.venue_id ?? null,
+    venueName: r.venue_name ?? null,
   };
 }
 
-export function getWalletBalance(userId: number): number {
+function walletEntryById(id: number | bigint): WalletEntry {
+  return toWalletEntry(getDb().prepare(`${WALLET_SELECT} WHERE w.id = ?`).get(id) as WalletRow);
+}
+
+/** Credit in one pot: a venue's, or (null) the one spendable anywhere. */
+function potBalance(userId: number, venueId: number | null): number {
+  const row = getDb()
+    .prepare(
+      venueId === null
+        ? "SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ? AND venue_id IS NULL"
+        : "SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ? AND venue_id = ?"
+    )
+    .get(...(venueId === null ? [userId] : [userId, venueId])) as { balance: number };
+  return row.balance;
+}
+
+/**
+ * What a customer can spend. Where credit is per venue and a venue is named,
+ * that is the venue's own credit plus any spendable anywhere; otherwise all
+ * of it.
+ */
+export function getWalletBalance(userId: number, venueId?: number): number {
+  if (creditScope() === "venue" && venueId !== undefined)
+    return potBalance(userId, venueId) + potBalance(userId, null);
   const row = getDb()
     .prepare("SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ?")
     .get(userId) as { balance: number };
   return row.balance;
 }
 
+/** A customer's credit, pot by pot — one line per venue it can be spent at. */
+export function walletBalances(userId: number): WalletBalance[] {
+  return (
+    getDb()
+      .prepare(`
+        SELECT w.venue_id AS venueId, v.name AS venueName, SUM(w.amount) AS balance
+          FROM wallet_entries w LEFT JOIN venues v ON v.id = w.venue_id
+         WHERE w.user_id = ?
+         GROUP BY w.venue_id
+        HAVING balance <> 0
+         ORDER BY w.venue_id IS NOT NULL, v.name
+      `)
+      .all(userId) as WalletBalance[]
+  );
+}
+
 /** Most recent movements first. */
 export function listWalletEntries(userId: number, limit = 50): WalletEntry[] {
   const rows = getDb()
-    .prepare(
-      "SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE user_id = ? ORDER BY id DESC LIMIT ?"
-    )
+    .prepare(`${WALLET_SELECT} WHERE w.user_id = ? ORDER BY w.id DESC LIMIT ?`)
     .all(userId, Math.min(Math.max(limit, 1), 200)) as WalletRow[];
   return rows.map(toWalletEntry);
 }
@@ -2906,31 +2954,41 @@ export type WalletResult =
   | { ok: true; balance: number; entry: WalletEntry }
   | Refusal;
 
-/** Record credit bought at the counter. */
+/**
+ * Record credit bought at the counter. Where credit is per venue, it is the
+ * credit of the venue that sold it, and `venueId` says which.
+ */
 export function topUpWallet(input: {
   userId: number;
   amount: number;
   adminId: number;
   reason?: string;
+  venueId?: number;
 }): WalletResult {
   if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_TOP_UP)
     return { ok: false, error: `Top-up must be RM1–${MAX_TOP_UP}.` };
   const db = getDb();
   const user = db.prepare("SELECT id FROM users WHERE id = ?").get(input.userId);
   if (!user) return { ok: false, error: "Customer not found." };
+  const perVenue = creditScope() === "venue";
+  if (perVenue && (input.venueId === undefined || !getVenue(input.venueId)))
+    return { ok: false, error: "Credit belongs to a venue here: say which one sold it." };
 
   const info = db
     .prepare(
-      "INSERT INTO wallet_entries (user_id, amount, reason, admin_id) VALUES (?, ?, ?, ?)"
+      "INSERT INTO wallet_entries (user_id, amount, reason, admin_id, venue_id) VALUES (?, ?, ?, ?, ?)"
     )
-    .run(input.userId, input.amount, input.reason?.trim() || "Counter top-up", input.adminId);
+    .run(
+      input.userId,
+      input.amount,
+      input.reason?.trim() || "Counter top-up",
+      input.adminId,
+      perVenue ? input.venueId! : null
+    );
   return {
     ok: true,
-    balance: getWalletBalance(input.userId),
-    entry: toWalletEntry(
-      db.prepare("SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE id = ?")
-        .get(info.lastInsertRowid) as WalletRow
-    ),
+    balance: getWalletBalance(input.userId, perVenue ? input.venueId : undefined),
+    entry: walletEntryById(info.lastInsertRowid),
   };
 }
 
@@ -2982,26 +3040,38 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
   if (booking.paymentStatus === "paid") return refuse("ALREADY_PAID");
 
   const userId = row.user_id;
+  // Where credit is per venue, a booking is paid from this venue's credit
+  // first and then from any spendable anywhere — a line for each, so a refund
+  // puts each part back where it came from.
+  const venueId = creditScope() === "venue" ? getCourt(booking.courtId)?.venueId : undefined;
   try {
     const entryId = db.transaction(() => {
-      const balance = getWalletBalance(userId);
-      if (balance < booking.totalPrice) throw new Error("INSUFFICIENT");
-      const info = db
-        .prepare(
-          "INSERT INTO wallet_entries (user_id, amount, reason, booking_id) VALUES (?, ?, ?, ?)"
-        )
-        .run(userId, -booking.totalPrice, `Booking ${booking.code}`, booking.id);
+      const price = booking.totalPrice;
+      if (getWalletBalance(userId, venueId) < price) throw new Error("INSUFFICIENT");
+      const charge = db.prepare(
+        "INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)"
+      );
+      const reason = `Booking ${booking.code}`;
+      let first: number | bigint | null = null;
+      if (venueId === undefined) {
+        first = charge.run(userId, -price, reason, booking.id, null).lastInsertRowid;
+      } else {
+        const fromVenue = Math.min(Math.max(potBalance(userId, venueId), 0), price);
+        if (fromVenue > 0)
+          first = charge.run(userId, -fromVenue, reason, booking.id, venueId).lastInsertRowid;
+        if (price - fromVenue > 0) {
+          const id = charge.run(userId, -(price - fromVenue), reason, booking.id, null).lastInsertRowid;
+          first ??= id;
+        }
+      }
       if (!claimPayment(booking.id)) throw new Error("RACED");
-      return info.lastInsertRowid;
+      return first!;
     })();
 
     return {
       ok: true,
-      balance: getWalletBalance(userId),
-      entry: toWalletEntry(
-        db.prepare("SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE id = ?")
-          .get(entryId) as WalletRow
-      ),
+      balance: getWalletBalance(userId, venueId),
+      entry: walletEntryById(entryId),
     };
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT")
@@ -3011,14 +3081,15 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
   }
 }
 
-/** Was this booking settled from stored credit? */
-function walletChargeFor(bookingId: number): { user_id: number; amount: number } | null {
-  const row = getDb()
+/** What this booking took from stored credit, line by line — one per pot. */
+function walletChargesFor(
+  bookingId: number
+): { user_id: number; amount: number; venue_id: number | null }[] {
+  return getDb()
     .prepare(
-      "SELECT user_id, amount FROM wallet_entries WHERE booking_id = ? AND amount < 0 ORDER BY id LIMIT 1"
+      "SELECT user_id, amount, venue_id FROM wallet_entries WHERE booking_id = ? AND amount < 0 ORDER BY id"
     )
-    .get(bookingId) as { user_id: number; amount: number } | undefined;
-  return row ?? null;
+    .all(bookingId) as { user_id: number; amount: number; venue_id: number | null }[];
 }
 
 /**
@@ -3026,8 +3097,8 @@ function walletChargeFor(bookingId: number): { user_id: number; amount: number }
  * is refused, so a double cancellation cannot mint credit.
  */
 export function refundBookingToWallet(bookingId: number): WalletResult {
-  const charge = walletChargeFor(bookingId);
-  if (!charge) return { ok: false, error: "This booking was not paid from credit." };
+  const charges = walletChargesFor(bookingId);
+  if (charges.length === 0) return { ok: false, error: "This booking was not paid from credit." };
 
   const db = getDb();
   const refunded = db
@@ -3038,17 +3109,20 @@ export function refundBookingToWallet(bookingId: number): WalletResult {
   const code = (db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
     | { code: string }
     | undefined)?.code;
-  const info = db
-    .prepare("INSERT INTO wallet_entries (user_id, amount, reason, booking_id) VALUES (?, ?, ?, ?)")
-    .run(charge.user_id, -charge.amount, `Refund for ${code ?? "booking"}`, bookingId);
+  const put = db.prepare(
+    "INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)"
+  );
+  const ids = db.transaction(() =>
+    charges.map(
+      (c) => put.run(c.user_id, -c.amount, `Refund for ${code ?? "booking"}`, bookingId, c.venue_id).lastInsertRowid
+    )
+  )();
 
+  const venueId = charges.find((c) => c.venue_id !== null)?.venue_id ?? undefined;
   return {
     ok: true,
-    balance: getWalletBalance(charge.user_id),
-    entry: toWalletEntry(
-      db.prepare("SELECT id, amount, reason, booking_id, created_at FROM wallet_entries WHERE id = ?")
-        .get(info.lastInsertRowid) as WalletRow
-    ),
+    balance: getWalletBalance(charges[0].user_id, venueId),
+    entry: walletEntryById(ids[0]),
   };
 }
 
@@ -3859,7 +3933,8 @@ export function refundBookingToPass(bookingId: number): PassPayResult {
 
 /** Find a customer by email or phone, for the counter. */
 export function findUserForWallet(
-  query: string
+  query: string,
+  venueId?: number
 ): { id: number; name: string; email: string; phone: string; balance: number } | null {
   const trimmed = query.trim();
   if (trimmed === "") return null;
@@ -3868,7 +3943,7 @@ export function findUserForWallet(
     .get(trimmed, trimmed) as
     | { id: number; name: string; email: string; phone: string }
     | undefined;
-  return row ? { ...row, balance: getWalletBalance(row.id) } : null;
+  return row ? { ...row, balance: getWalletBalance(row.id, venueId) } : null;
 }
 
 /**

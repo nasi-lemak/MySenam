@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { WalletEntry } from "@/lib/types";
+import { WalletBalance, WalletEntry } from "@/lib/types";
 import { useT } from "@/components/Language";
 
 /** The customer's stored credit and recent movements. */
@@ -9,6 +9,8 @@ export default function Wallet() {
   const t = useT();
   const [balance, setBalance] = useState<number | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
+  const [balances, setBalances] = useState<WalletBalance[]>([]);
+  const [perVenue, setPerVenue] = useState(false);
   const [open, setOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -18,6 +20,8 @@ export default function Wallet() {
       const data = await res.json();
       setBalance(data.balance);
       setEntries(data.entries);
+      setBalances(data.balances ?? []);
+      setPerVenue(data.scope === "venue");
     } catch {
       // Leave the last reading on screen.
     }
@@ -35,11 +39,22 @@ export default function Wallet() {
         <div>
           <h2 className="font-semibold">{t("wallet.title")}</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            {t("wallet.intro")}
+            {perVenue ? t("wallet.introVenue") : t("wallet.intro")}
           </p>
         </div>
         <div className="text-2xl font-bold text-teal-700">RM{balance}</div>
       </div>
+
+      {perVenue && balances.length > 0 && (
+        <ul className="mt-3 space-y-1 text-sm">
+          {balances.map((b) => (
+            <li key={b.venueId ?? "any"} className="flex justify-between gap-3">
+              <span className="text-slate-600">{b.venueName ?? t("wallet.anyVenue")}</span>
+              <span className="font-semibold">RM{b.balance}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {entries.length > 0 && (
         <>

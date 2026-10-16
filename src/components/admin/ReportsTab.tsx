@@ -50,6 +50,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
   const [data, setData] = useState<{
     report: VenueReport;
     wallet: { customers: number; balance: number } | null;
+    venueCredit?: { customers: number; balance: number } | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -309,10 +310,19 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                     `${report.liabilities.membershipsActive}`,
                     `${report.liabilities.membershipsExpiringSoon} lapse within a month`,
                   ],
+                  ...(data?.venueCredit
+                    ? ([
+                        [
+                          "Stored credit sold here",
+                          ringgit(data.venueCredit.balance),
+                          `held by ${data.venueCredit.customers} customers, spendable only here`,
+                        ],
+                      ] as [string, string, string][])
+                    : ([] as [string, string, string][])),
                   ...(data?.wallet
                     ? ([
                         [
-                          "Stored credit (all venues)",
+                          data.venueCredit ? "Stored credit (any venue, owed by the platform)" : "Stored credit (all venues)",
                           ringgit(data.wallet.balance),
                           `held by ${data.wallet.customers} customers`,
                         ],

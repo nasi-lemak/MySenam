@@ -127,6 +127,8 @@ Everything is an environment variable; there is nothing else to configure.
 
 | Variable | Default | What it does |
 | -------- | ------- | ------------ |
+| `MYSENAM_MARKETPLACE` | — | `on` for the shared marketplace: venues apply to join, are invoiced monthly, and stored credit is per venue |
+| `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
@@ -868,6 +870,26 @@ Three guards matter, and each has a test:
 Cancelling a wallet-paid booking refunds it automatically, through every path:
 by code, from an account, a whole series, an admin cancellation, and the
 enrolments released when a class is cancelled.
+
+### Whose credit it is
+
+`MYSENAM_CREDIT_SCOPE` decides who owes the money customers have put on
+account:
+
+- **`platform`** (the default for a single business's own copy) — bought at any
+  counter, spendable at any venue. The install owes it, which is right when
+  every venue is one business's branch.
+- **`venue`** (the default with `MYSENAM_MARKETPLACE=on`) — bought at a venue,
+  spendable only there, owed by that venue and shown on its own report. A
+  platform holding money strangers paid to other businesses is running a
+  payments business, which in Malaysia may need a licence; this keeps each
+  venue's customers' money with that venue. It is not legal advice — ask a
+  lawyer before taking any money on behalf of venues.
+
+Switching from `platform` to `venue` shrinks nobody's balance: credit bought
+before the switch stays spendable anywhere. A booking is paid from the venue's
+own credit first and then from that older pot, a ledger line for each, and a
+refund puts each line back where it came from.
 
 ## Check-in and live crowd levels
 

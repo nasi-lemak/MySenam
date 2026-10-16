@@ -18,6 +18,9 @@ interface WalletCustomer {
 
 export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
   const [query, setQuery] = useState("");
+  // Where credit is per venue, which venue's counter this is.
+  const [creditVenueId, setCreditVenueId] = useState(venues[0]?.id ?? 0);
+  const [scope, setScope] = useState<"venue" | "platform" | null>(null);
   const [customer, setCustomer] = useState<WalletCustomer | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
   const [amount, setAmount] = useState("50");
@@ -29,11 +32,13 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/wallet?q=${encodeURIComponent(query)}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/admin/wallet?q=${encodeURIComponent(query)}&venueId=${creditVenueId}`,
+        { cache: "no-store" }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Lookup failed");
+      setScope(data.scope);
       setCustomer(data.customer);
       setEntries(data.entries);
     } catch (err) {
@@ -51,7 +56,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
       const res = await fetch("/api/admin/wallet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: customer.id, amount: Number(amount) }),
+        body: JSON.stringify({ userId: customer.id, amount: Number(amount), venueId: creditVenueId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Top-up failed");
@@ -75,6 +80,24 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
       </p>
 
       <form onSubmit={lookup} className="flex flex-wrap items-end gap-2">
+        {venues.length > 1 && (
+          <select
+            value={creditVenueId}
+            onChange={(e) => {
+              setCreditVenueId(Number(e.target.value));
+              setCustomer(null);
+              setEntries([]);
+            }}
+            aria-label="Venue counter"
+            className={inputClass}
+          >
+            {venues.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           required
           value={query}
@@ -110,8 +133,20 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
                 {customer.email} · {customer.phone}
               </div>
             </div>
-            <div className="text-2xl font-bold text-teal-700">RM{customer.balance}</div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-teal-700">RM{customer.balance}</div>
+              {scope === "venue" && (
+                <div className="text-xs text-slate-500">
+                  spendable at {venues.find((v) => v.id === creditVenueId)?.name ?? "this venue"}
+                </div>
+              )}
+            </div>
           </div>
+          {scope === "venue" && (
+            <p className="mt-2 text-xs text-slate-500">
+              Credit sold here is this venue&apos;s: spendable only here, and yours to honour.
+            </p>
+          )}
 
           <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4">
             <label className="flex flex-col text-xs font-medium text-slate-500">

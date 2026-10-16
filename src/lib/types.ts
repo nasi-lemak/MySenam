@@ -252,6 +252,16 @@ export interface WalletEntry {
   reason: string;
   bookingId: number | null;
   createdAt: string;
+  /** The venue whose credit this is, when credit is per venue; null for any venue. */
+  venueId?: number | null;
+  venueName?: string | null;
+}
+
+/** A customer's credit at one venue, or (venueId null) at any venue. */
+export interface WalletBalance {
+  venueId: number | null;
+  venueName: string | null;
+  balance: number;
 }
 
 export const MAX_TOP_UP = 1000;

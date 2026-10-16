@@ -445,6 +445,8 @@ const EN = {
   // Credit, passes, waitlist
   "wallet.title": "Credit balance",
   "wallet.intro": "Top up at any venue counter, then pay for bookings without cash.",
+  "wallet.introVenue": "Credit is bought at a venue's counter and spent at that venue.",
+  "wallet.anyVenue": "Any venue",
   "wallet.showHistory": "Show history",
   "wallet.hideHistory": "Hide history",
   "passes.title": "My passes",
@@ -968,6 +970,8 @@ const MS: Record<Phrase, string> = {
   "wallet.title": "Baki kredit",
   "wallet.intro":
     "Tambah nilai di mana-mana kaunter pusat, kemudian bayar tempahan tanpa tunai.",
+  "wallet.introVenue": "Kredit dibeli di kaunter sesebuah pusat dan dibelanjakan di pusat itu.",
+  "wallet.anyVenue": "Mana-mana pusat",
   "wallet.showHistory": "Tunjuk sejarah",
   "wallet.hideHistory": "Sembunyi sejarah",
   "passes.title": "Pas saya",

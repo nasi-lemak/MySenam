@@ -654,6 +654,15 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE bookings ADD COLUMN paid_via TEXT");
   }
 
+  // Whose credit a ledger line is: the venue it was bought at or spent at,
+  // when credit is per venue (lib/mode.ts). NULL is credit spendable at any
+  // venue — which is everything written before this column existed.
+  const walletCols = db.prepare("PRAGMA table_info(wallet_entries)").all() as { name: string }[];
+  if (walletCols.length > 0 && !walletCols.some((c) => c.name === "venue_id")) {
+    db.exec("ALTER TABLE wallet_entries ADD COLUMN venue_id INTEGER REFERENCES venues(id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_user_venue ON wallet_entries(user_id, venue_id)");
+  }
+
   const messageCols = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
   if (messageCols.length > 0 && !messageCols.some((c) => c.name === "dedupe_key")) {
     db.exec("ALTER TABLE messages ADD COLUMN dedupe_key TEXT");

@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { creditScope } from "./mode";
 import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
 
@@ -372,20 +373,37 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
 }
 
 /**
- * Credit customers hold and have not spent.
+ * Credit customers hold and have not spent, that the platform owes.
  *
- * Platform-wide rather than per venue on purpose: stored credit is bought at
- * one counter and spendable at any, so it is the platform that owes it, not
- * the venue that happened to sell it.
+ * Where credit is platform-wide, that is all of it: bought at one counter and
+ * spendable at any, so the platform owes it, not the venue that happened to
+ * sell it. Where credit is per venue, it is only what is spendable anywhere —
+ * credit from before the switch — and each venue's own is that venue's (see
+ * `venueCreditLiability`).
  */
 export function walletLiability(): { customers: number; balance: number } {
+  const perVenue = creditScope() === "venue";
   const row = getDb()
     .prepare(`
       SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
         SELECT user_id, SUM(amount) AS balance FROM wallet_entries
+        ${perVenue ? "WHERE venue_id IS NULL" : ""}
         GROUP BY user_id HAVING balance > 0
       )
     `)
     .get() as { customers: number; balance: number };
   return row;
+}
+
+/** Credit sold by this venue and not yet spent: what it owes, where credit is per venue. */
+export function venueCreditLiability(venueId: number): { customers: number; balance: number } {
+  return getDb()
+    .prepare(`
+      SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
+        SELECT user_id, SUM(amount) AS balance FROM wallet_entries
+        WHERE venue_id = ?
+        GROUP BY user_id HAVING balance > 0
+      )
+    `)
+    .get(venueId) as { customers: number; balance: number };
 }

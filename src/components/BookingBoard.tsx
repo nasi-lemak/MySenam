@@ -530,7 +530,7 @@ function BookingForm({
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
-        return fetch("/api/my/wallet", { cache: "no-store" });
+        return fetch(`/api/my/wallet?venueId=${court.venueId}`, { cache: "no-store" });
       })
       .then((res) => (res && res.ok ? res.json() : null))
       .then((wallet) => {

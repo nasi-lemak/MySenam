@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
-import { venueReport, walletLiability } from "@/lib/reports";
+import { venueCreditLiability, venueReport, walletLiability } from "@/lib/reports";
+import { creditScope } from "@/lib/mode";
 import { isValidDateString } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -37,10 +38,12 @@ export function GET(req: NextRequest) {
   const report = venueReport(venueId, from, to);
   if (!report) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
-  // Stored credit is spendable at any venue, so it is the platform's
-  // liability and only the platform owner is shown it.
+  // Credit spendable at any venue is the platform's liability, shown only to
+  // the platform owner. Where credit is per venue, each venue's own is the
+  // venue's, and its staff see what they owe.
   return NextResponse.json({
     report,
     wallet: isOwner(admin) ? walletLiability() : null,
+    venueCredit: creditScope() === "venue" ? venueCreditLiability(venueId) : null,
   });
 }
