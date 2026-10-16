@@ -5,6 +5,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import BookingBoard from "../../src/components/BookingBoard";
 import { LanguageProvider } from "../../src/components/Language";
 import { MAX_HOURS_PER_BOOKING } from "../../src/lib/types";
+import { addDays, todayISO } from "../../src/lib/time";
 
 /**
  * The grid is where a customer actually books, and the rules it enforces are
@@ -39,6 +40,11 @@ function slots(hours: number[], free = true, extra: Record<string, unknown> = {}
 
 const HOURS = [8, 9, 10, 11, 12];
 
+// Days still ahead, so no hour on the board has already passed: a past hour
+// is shown as unbookable whatever the server says about it.
+const DAY = addDays(todayISO(), 1);
+const NEXT_DAY = addDays(todayISO(), 2);
+
 function reply(availability: unknown[], extra: Record<string, unknown> = {}) {
   return {
     ok: true,
@@ -66,7 +72,7 @@ function board(initial?: Record<string, unknown>) {
       <BookingBoard
         venueId={1}
         sports={["badminton"]}
-        dates={["2026-10-04", "2026-10-05"]}
+        dates={[DAY, NEXT_DAY]}
         initial={initial}
       />
     </LanguageProvider>
@@ -190,12 +196,12 @@ describe("the day the venue is shut", () => {
     fetchMock.mockImplementation(async (url: string) => {
       if (String(url).includes("/api/availability"))
         return reply([{ court: COURT, slots: slots(HOURS, false) }], {
-          closure: { date: "2026-10-04", reason: "Public holiday" },
+          closure: { date: DAY, reason: "Public holiday" },
         });
       return { ok: true, json: async () => ({ user: null }) };
     });
     await act(async () => void board());
-    expect(screen.getByText(/Closed on 2026-10-04/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Closed on ${DAY}`))).toBeTruthy();
     expect(screen.getByText("Public holiday")).toBeTruthy();
   });
 });
@@ -216,7 +222,7 @@ describe("in Bahasa Malaysia", () => {
   it("labels the grid and the form in Malay", async () => {
     render(
       <LanguageProvider locale="ms">
-        <BookingBoard venueId={1} sports={["badminton"]} dates={["2026-10-04"]} />
+        <BookingBoard venueId={1} sports={["badminton"]} dates={[DAY]} />
       </LanguageProvider>
     );
     await act(async () => {});
