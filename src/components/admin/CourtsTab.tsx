@@ -253,7 +253,7 @@ export function CourtsTab({
             </button>
           </div>
           <p className="mt-0.5 text-xs text-slate-600">
-            Type in the code you have programmed into the lock. MySenam only passes it on — it
+            Type in the code you have programmed into the lock. The booking system only passes it on — it
             never changes the lock, so a code invented here would shut everybody out.
           </p>
 

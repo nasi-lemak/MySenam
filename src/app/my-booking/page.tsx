@@ -270,6 +270,7 @@ export default function MyBookingPage() {
               <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
                 {(() => {
                   const shareInfo = {
+                    siteName: t.site,
                     code: b.code,
                     date: b.date,
                     startHour: b.startHour,

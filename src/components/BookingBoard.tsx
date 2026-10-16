@@ -754,6 +754,7 @@ function ConfirmationModal({
   const unpaid = bookings.filter((b) => b.paymentStatus === "unpaid");
   const unpaidTotal = unpaid.reduce((sum, b) => sum + b.totalPrice, 0);
   const shareInfo = {
+    siteName: t.site,
     code: seriesCode ?? booking.code,
     date: booking.date,
     startHour: booking.startHour,

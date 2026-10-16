@@ -14,6 +14,8 @@
  * question the build answers, not one somebody has to go and check.
  */
 
+import { siteName } from "./site";
+
 export const LOCALES = ["en", "ms"] as const;
 export type Locale = (typeof LOCALES)[number];
 
@@ -50,7 +52,7 @@ export function isLocale(value: string | undefined | null): value is Locale {
  */
 const EN = {
   // Shell
-  "meta.title": "MySenam — Book Courts, Gyms & Classes Online",
+  "meta.title": "{site} — Book Courts, Gyms & Classes Online",
   "meta.description":
     "Book badminton, tennis, pickleball and futsal courts, gym sessions and classes across the Klang Valley in seconds.",
   "nav.venues": "Venues",
@@ -60,7 +62,7 @@ const EN = {
   "nav.admin": "Admin",
   "nav.signIn": "Sign in",
   "footer.tagline":
-    "MySenam — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis, pickleball, futsal, gym & swimming.",
+    "{site} — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis, pickleball, futsal, gym & swimming.",
   "footer.privacy": "Privacy notice",
   "lang.label": "Language",
 
@@ -130,7 +132,7 @@ const EN = {
   "checkin.failed": "Check-in failed",
   "checkin.tryAgain": "Try again",
   "checkin.stuck": "Still stuck? The front desk can check you in manually.",
-  "checkin.back": "Back to MySenam",
+  "checkin.back": "Back to {site}",
 
   // Claiming a waitlist place
   "claim.yoursTitle": "The place is yours",
@@ -335,12 +337,12 @@ const EN = {
   "door.failed": "Could not get the code",
 
   // Privacy notice. PDPA s.7(2) wants this in both languages.
-  "privacy.metaTitle": "Privacy notice · MySenam",
+  "privacy.metaTitle": "Privacy notice · {site}",
   "privacy.metaDescription":
-    "What MySenam holds about you, why, for how long, and how to get it back or removed.",
+    "What {site} holds about you, why, for how long, and how to get it back or removed.",
   "privacy.title": "Privacy notice",
   "privacy.intro":
-    "MySenam books courts, gym places and classes for the venues listed on this site. This says what we hold about you, why, how long for, and what you can do about it. It is written to be read rather than to be survived.",
+    "{site} books courts, gym places and classes for the venues listed on this site. This says what we hold about you, why, how long for, and what you can do about it. It is written to be read rather than to be survived.",
   "privacy.heldTitle": "What we hold, and why",
   "privacy.colWhat": "What",
   "privacy.colWhy": "Why",
@@ -422,7 +424,7 @@ const EN = {
   // Your data
   "data.title": "Your data",
   "data.intro1":
-    "Everything MySenam holds about you is yours to take a copy of, and yours to have removed. What we keep and for how long is set out in the",
+    "Everything {site} holds about you is yours to take a copy of, and yours to have removed. What we keep and for how long is set out in the",
   "data.privacyLink": "privacy notice",
   "data.download": "Download a copy",
   "data.close": "Close my account",
@@ -562,7 +564,7 @@ export type Phrase = keyof typeof EN;
 /** Bahasa Malaysia, keyed against the English above. */
 const MS: Record<Phrase, string> = {
   // Shell
-  "meta.title": "MySenam — Tempah Gelanggang, Gim & Kelas Dalam Talian",
+  "meta.title": "{site} — Tempah Gelanggang, Gim & Kelas Dalam Talian",
   "meta.description":
     "Tempah gelanggang badminton, tenis, pickleball dan futsal, sesi gim dan kelas di seluruh Lembah Klang dalam beberapa saat.",
   "nav.venues": "Gelanggang",
@@ -572,7 +574,7 @@ const MS: Record<Phrase, string> = {
   "nav.admin": "Admin",
   "nav.signIn": "Log masuk",
   "footer.tagline":
-    "MySenam — gelanggang, gim dan kelas, satu tempahan. Untuk badminton, tenis, pickleball, futsal, gim & renang.",
+    "{site} — gelanggang, gim dan kelas, satu tempahan. Untuk badminton, tenis, pickleball, futsal, gim & renang.",
   "footer.privacy": "Notis privasi",
   "lang.label": "Bahasa",
 
@@ -641,7 +643,7 @@ const MS: Record<Phrase, string> = {
   "checkin.failed": "Daftar masuk gagal",
   "checkin.tryAgain": "Cuba lagi",
   "checkin.stuck": "Masih tersekat? Kaunter hadapan boleh daftarkan anda secara manual.",
-  "checkin.back": "Kembali ke MySenam",
+  "checkin.back": "Kembali ke {site}",
 
   // Menuntut tempat senarai menunggu
   "claim.yoursTitle": "Tempat ini milik anda",
@@ -849,12 +851,12 @@ const MS: Record<Phrase, string> = {
   "door.failed": "Tidak dapat memperoleh kod",
 
   // Notis privasi. PDPA s.7(2) menghendaki ia dalam dua bahasa.
-  "privacy.metaTitle": "Notis privasi · MySenam",
+  "privacy.metaTitle": "Notis privasi · {site}",
   "privacy.metaDescription":
-    "Apa yang MySenam simpan tentang anda, kenapa, berapa lama, dan bagaimana untuk mendapatkannya semula atau membuangnya.",
+    "Apa yang {site} simpan tentang anda, kenapa, berapa lama, dan bagaimana untuk mendapatkannya semula atau membuangnya.",
   "privacy.title": "Notis privasi",
   "privacy.intro":
-    "MySenam menempah gelanggang, tempat gim dan kelas bagi pusat-pusat yang tersenarai di laman ini. Ini menerangkan apa yang kami simpan tentang anda, kenapa, berapa lama, dan apa yang boleh anda buat mengenainya. Ia ditulis untuk dibaca, bukan untuk ditahan.",
+    "{site} menempah gelanggang, tempat gim dan kelas bagi pusat-pusat yang tersenarai di laman ini. Ini menerangkan apa yang kami simpan tentang anda, kenapa, berapa lama, dan apa yang boleh anda buat mengenainya. Ia ditulis untuk dibaca, bukan untuk ditahan.",
   "privacy.heldTitle": "Apa yang kami simpan, dan kenapa",
   "privacy.colWhat": "Apa",
   "privacy.colWhy": "Kenapa",
@@ -942,7 +944,7 @@ const MS: Record<Phrase, string> = {
   // Data anda
   "data.title": "Data anda",
   "data.intro1":
-    "Segala yang MySenam simpan tentang anda boleh anda salin, dan boleh anda buang. Apa yang kami simpan dan berapa lama dinyatakan dalam",
+    "Segala yang {site} simpan tentang anda boleh anda salin, dan boleh anda buang. Apa yang kami simpan dan berapa lama dinyatakan dalam",
   "data.privacyLink": "notis privasi",
   "data.download": "Muat turun satu salinan",
   "data.close": "Tutup akaun saya",
@@ -1100,6 +1102,8 @@ export interface T {
   /** The `_one` or `_other` form, with `{n}` already filled in. */
   plural(stem: string, n: number, vars?: Vars): string;
   locale: Locale;
+  /** What this install calls itself. */
+  site: string;
 }
 
 /**
@@ -1120,12 +1124,19 @@ export function hasPhrase(key: string): key is Phrase {
 }
 
 /** The lookup for one language. */
-export function translator(locale: Locale): T {
+/**
+ * The lookup for one language. `{site}` in any phrase is the install's name:
+ * on the server that comes from SITE_NAME; in the browser, from the server,
+ * through the language provider.
+ */
+export function translator(locale: Locale, site: string = siteName()): T {
   const dict = DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
-  const t = ((phrase: Phrase, vars?: Vars) => fill(dict[phrase] ?? String(phrase), vars)) as T;
+  const t = ((phrase: Phrase, vars?: Vars) =>
+    fill(dict[phrase] ?? String(phrase), { site, ...vars })) as T;
   t.plural = (stem: string, n: number, vars?: Vars) =>
-    fill(dict[`${stem}_${n === 1 ? "one" : "other"}` as Phrase] ?? stem, { n, ...vars });
+    fill(dict[`${stem}_${n === 1 ? "one" : "other"}` as Phrase] ?? stem, { site, n, ...vars });
   t.locale = locale;
+  t.site = site;
   return t;
 }
 

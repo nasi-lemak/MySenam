@@ -176,7 +176,7 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
             </li>
           </ol>
           <p className="mt-2 text-xs text-slate-500">
-            The four demo venues that ship with MySenam can stay or go — they are only there so the
+            The four demo venues a new install starts with can stay or go — they are only there so the
             first screen is not blank.
           </p>
         </div>

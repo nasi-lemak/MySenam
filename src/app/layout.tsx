@@ -3,6 +3,7 @@ import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import { LanguageProvider } from "@/components/Language";
 import { currentLocale, serverT } from "@/lib/locale";
+import { DEFAULT_SITE_NAME, siteName } from "@/lib/site";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -13,18 +14,23 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const locale = await currentLocale();
   const t = await serverT();
+  const site = siteName();
 
   return (
     <html lang={locale}>
       <body>
-        <LanguageProvider locale={locale}>
+        <LanguageProvider locale={locale} site={site}>
           <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">
                 <span aria-hidden>🏸</span>
-                <span>
-                  My<span className="text-slate-900">Senam</span>
-                </span>
+                {site === DEFAULT_SITE_NAME ? (
+                  <span>
+                    My<span className="text-slate-900">Senam</span>
+                  </span>
+                ) : (
+                  <span>{site}</span>
+                )}
               </Link>
               {/* Wraps to a second line on a phone rather than pushing the page sideways. */}
               <SiteNav />

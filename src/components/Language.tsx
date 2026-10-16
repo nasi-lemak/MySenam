@@ -24,12 +24,15 @@ const TContext = createContext<T>(translator(DEFAULT_LOCALE));
  */
 export function LanguageProvider({
   locale,
+  site,
   children,
 }: {
   locale: Locale;
+  /** The install's name, which only the server knows. */
+  site?: string;
   children: React.ReactNode;
 }) {
-  const t = useMemo(() => translator(locale), [locale]);
+  const t = useMemo(() => translator(locale, site), [locale, site]);
   return (
     <LanguageContext.Provider value={locale}>
       <TContext.Provider value={t}>{children}</TContext.Provider>

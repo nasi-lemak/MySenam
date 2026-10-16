@@ -1,7 +1,10 @@
 // Client-safe helpers for sharing/exporting a booking. Court times are in
 // Malaysia time (UTC+8); calendar formats want UTC.
+import { DEFAULT_SITE_NAME } from "./site";
 
 export interface BookingShareInfo {
+  /** What the install is called, for the text that names it. */
+  siteName?: string;
   code: string;
   date: string; // YYYY-MM-DD (MYT)
   startHour: number;
@@ -66,7 +69,7 @@ export function icsContent(b: BookingShareInfo): string {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//MySenam//Booking//EN",
+    `PRODID:-//${icsText(b.siteName ?? DEFAULT_SITE_NAME)}//Booking//EN`,
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${toUtcStamp(b.date, b.startHour)}`,
@@ -74,7 +77,7 @@ export function icsContent(b: BookingShareInfo): string {
     `DTEND:${toUtcStamp(b.date, b.endHour)}`,
     `SUMMARY:${icsText(`${b.courtName} @ ${b.venueName}`)}`,
     `DESCRIPTION:${icsText(
-      `MySenam booking ${b.code}. Total RM${b.totalPrice}, pay at counter.`
+      `${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total RM${b.totalPrice}.`
     )}`,
     ...(b.venueAddress ? [`LOCATION:${icsText(b.venueAddress)}`] : []),
     "END:VEVENT",
@@ -98,7 +101,7 @@ export function googleCalendarUrl(b: BookingShareInfo): string {
     action: "TEMPLATE",
     text: `${b.courtName} @ ${b.venueName}`,
     dates: `${toUtcStamp(b.date, b.startHour)}/${toUtcStamp(b.date, b.endHour)}`,
-    details: `MySenam booking ${b.code}. Total RM${b.totalPrice}, pay at counter.`,
+    details: `${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total RM${b.totalPrice}.`,
     ...(b.venueAddress ? { location: b.venueAddress } : {}),
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -113,10 +116,10 @@ function formatHour12(hour: number): string {
 
 export function whatsappShareUrl(b: BookingShareInfo): string {
   const text =
-    `🏸 Court booked on MySenam!\n\n` +
+    `🏸 Court booked on ${b.siteName ?? DEFAULT_SITE_NAME}!\n\n` +
     `${b.courtName} @ ${b.venueName}\n` +
     `📅 ${b.date}, ${formatHour12(b.startHour)} – ${formatHour12(b.endHour)}\n` +
-    `💰 RM${b.totalPrice} (pay at counter)\n` +
+    `💰 RM${b.totalPrice}\n` +
     `🎟️ Code: ${b.code}\n\nSee you there!`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }

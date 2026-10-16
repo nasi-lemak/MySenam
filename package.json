@@ -12,7 +12,8 @@
     "test": "vitest run",
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "new-tenant": "node scripts/new-tenant.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

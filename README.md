@@ -127,6 +127,7 @@ Everything is an environment variable; there is nothing else to configure.
 
 | Variable | Default | What it does |
 | -------- | ------- | ------------ |
+| `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
 | `MYSENAM_DB` | `data/mysenam.db` | Where the database lives. Put it on a disk that survives a redeploy |
@@ -252,6 +253,32 @@ file.
 Migrations are additive and run when the database is opened, so a deploy is
 build, restart, done. **Take a backup first** — `npm run backup` — because a
 migration that rebuilds a table cannot be undone from inside the app.
+
+### A venue business's own copy
+
+The same code runs as the shared MySenam marketplace and as one business's own
+booking site under its own name. An own copy is a separate install with its
+own database, so its customers, credit and money never sit beside anybody
+else's; its owner signs in as the platform owner and sees every one of their
+branches, and only theirs.
+
+On Render, each copy is a Blueprint made from its own file:
+
+```bash
+npm run new-tenant -- arena "Arena Sports Booking"
+git add deploy/render/arena.yaml && git commit -m "Add Arena" && git push
+```
+
+Then in Render: **New → Blueprint**, this repository, Blueprint path
+`deploy/render/arena.yaml`. Render asks for the admin email and password and
+the site's URL, and sets up the service with a 1 GB disk, the nightly backup
+and a generated `MYSENAM_SECRET`. Each tenant gets its own file because a
+Blueprint applies itself to any existing service of the same name: two tenants
+sharing one file would be one service, overwritten.
+
+Every copy deploys from the same branch, so one push updates them all. Each
+restarts on deploy (a service with a disk runs as one instance), so push
+outside opening hours.
 
 ### What one box gives you
 
