@@ -30,6 +30,31 @@ export default async function PaymentReturnPage({
   if (result) settleBill(result);
   const payment = result ? paymentByBill(result.billId) : null;
 
+  // A venue paying its marketplace invoice, rather than a customer paying for
+  // a booking: staff, in English like the rest of the admin, and back to it.
+  if (payment?.purpose === "invoice")
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">{payment.status === "paid" ? "✅" : "↩️"}</div>
+          <h1 className="mt-2 text-xl font-bold">
+            {payment.status === "paid" ? "Invoice paid" : "Invoice not paid"}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {payment.status === "paid"
+              ? `Thank you. RM${payment.amount} has been received.`
+              : "Nothing was taken. You can try again from Billing."}
+          </p>
+          <Link
+            href="/admin"
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            Back to admin
+          </Link>
+        </div>
+      </div>
+    );
+
   const outcome: "paid" | "notPaid" | "unknown" = !result
     ? "unknown"
     : payment?.status === "paid"

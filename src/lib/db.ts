@@ -323,7 +323,25 @@ export function getDb(): Database.Database {
       -- Owed back for bookings cancelled after paying, and what staff have
       -- since refunded in the gateway.
       refund_due REAL NOT NULL DEFAULT 0,
-      refunded REAL NOT NULL DEFAULT 0
+      refunded REAL NOT NULL DEFAULT 0,
+      -- 'booking': a customer paying a venue, into the venue's account.
+      -- 'invoice': a venue paying the marketplace its fee, into the platform's.
+      purpose TEXT NOT NULL DEFAULT 'booking' CHECK (purpose IN ('booking','invoice')),
+      invoice_id INTEGER REFERENCES venue_invoices(id)
+    );
+
+    -- A marketplace venue's monthly fee, one row per venue per month.
+    CREATE TABLE IF NOT EXISTS venue_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      venue_id INTEGER NOT NULL REFERENCES venues(id),
+      period TEXT NOT NULL,
+      amount REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'due' CHECK (status IN ('due','paid','void')),
+      issued_on TEXT NOT NULL,
+      due_on TEXT NOT NULL,
+      paid_at TEXT,
+      paid_via TEXT CHECK (paid_via IN ('online','manual')),
+      UNIQUE (venue_id, period)
     );
     CREATE INDEX IF NOT EXISTS idx_online_payments_venue ON online_payments(venue_id, id);
 
@@ -678,6 +696,21 @@ function migrate(db: Database.Database) {
   // Whose credit a ledger line is: the venue it was bought at or spent at,
   // when credit is per venue (lib/mode.ts). NULL is credit spendable at any
   // venue — which is everything written before this column existed.
+  // What a marketplace venue pays, and from when. NULL fee: the default;
+  // NULL start: not billed — every venue that predates billing.
+  if (!venueCols.some((c) => c.name === "monthly_fee")) {
+    db.exec("ALTER TABLE venues ADD COLUMN monthly_fee REAL");
+    db.exec("ALTER TABLE venues ADD COLUMN billing_starts_on TEXT");
+  }
+
+  const paymentCols = db.prepare("PRAGMA table_info(online_payments)").all() as { name: string }[];
+  if (paymentCols.length > 0 && !paymentCols.some((c) => c.name === "purpose")) {
+    db.exec(
+      "ALTER TABLE online_payments ADD COLUMN purpose TEXT NOT NULL DEFAULT 'booking' CHECK (purpose IN ('booking','invoice'))"
+    );
+    db.exec("ALTER TABLE online_payments ADD COLUMN invoice_id INTEGER REFERENCES venue_invoices(id)");
+  }
+
   const walletCols = db.prepare("PRAGMA table_info(wallet_entries)").all() as { name: string }[];
   if (walletCols.length > 0 && !walletCols.some((c) => c.name === "venue_id")) {
     db.exec("ALTER TABLE wallet_entries ADD COLUMN venue_id INTEGER REFERENCES venues(id)");

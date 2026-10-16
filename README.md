@@ -129,6 +129,9 @@ Everything is an environment variable; there is nothing else to configure.
 | -------- | ------- | ------------ |
 | `MYSENAM_MARKETPLACE` | — | `on` for the shared marketplace: venues apply to join, are invoiced monthly, and stored credit is per venue |
 | `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
+| `MYSENAM_VENUE_FEE` | `0` | On a marketplace, what a venue pays a month unless it has its own fee |
+| `MYSENAM_FREE_MONTHS` | `0` | Free months for a newly approved venue before its first invoice |
+| `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
@@ -269,6 +272,18 @@ independent venues, players booking across them.
   step; nobody sends anybody a password. With email set up, the applicant is
   told either way; without it, the panel says who to tell.
 - **Stored credit is per venue** — see *Whose credit it is*.
+- **Venues are invoiced monthly.** Each pays `MYSENAM_VENUE_FEE` a month, or
+  its own fee, from the date billing starts — set on approval, after
+  `MYSENAM_FREE_MONTHS`. Every full month from then is invoiced once, on the
+  first; a venue joining on the 16th has the rest of that month free, and
+  nothing is prorated or back-billed. Venues that predate billing are not
+  billed until the owner gives them a start date. Invoices are due in 14 days.
+  Venue staff see theirs under *Venues & staff → Billing* and can pay online
+  into **the platform's own Billplz account** (`BILLPLZ_*`), which is never a
+  venue's: this is the platform's income. The owner sets each venue's fee and
+  start date there, and marks a bank transfer paid or voids an invoice. Nothing
+  is switched off automatically for an unpaid invoice — the panel shows what is
+  overdue, and what to do about it is a conversation.
 - **Terms** live at `/terms`, for players and, on a marketplace, for venues.
   They are a starting draft written to match what the software does — who
   holds the money, who refunds it, whose credit is whose — and **not legal

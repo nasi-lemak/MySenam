@@ -4,6 +4,7 @@ import { createVenue } from "./store";
 import { sendPlainEmail } from "./transports";
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
+import { startBilling } from "./billing";
 
 /**
  * Venues asking to join the marketplace.
@@ -177,6 +178,7 @@ export async function approveApplication(id: number, deciderId: number): Promise
       db.prepare(
         "UPDATE venue_applications SET status = 'approved', venue_id = ?, decided_at = datetime('now'), decided_by = ? WHERE id = ?"
       ).run(venueId, deciderId, id);
+      startBilling(venueId);
     })();
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Could not set the venue up." };

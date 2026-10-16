@@ -1,6 +1,7 @@
 import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
+import { issueDueInvoices } from "./billing";
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -42,6 +43,7 @@ export function backupDue(now: Date, hoursSinceLast: number | null, hour = backu
 }
 
 export interface TickResult {
+  invoices?: number;
   backup: { ok: boolean; name?: string; error?: string; offsite?: { ok: boolean; error?: string } | null } | null;
   outbox: { sent: number; failed: number } | null;
 }
@@ -55,6 +57,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (drained.transport) result.outbox = { sent: drained.sent, failed: drained.failed };
   } catch (err) {
     console.error("[mysenam] sending messages failed:", err);
+  }
+
+  try {
+    // A marketplace's monthly invoices, on the first tick of the month.
+    const issued = issueDueInvoices(now);
+    if (issued.length > 0) result.invoices = issued.length;
+  } catch (err) {
+    console.error("[mysenam] issuing invoices failed:", err);
   }
 
   try {

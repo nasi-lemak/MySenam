@@ -9,6 +9,7 @@ import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { MessagesPanel } from "./MessagesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
+import { BillingPanel } from "./BillingPanel";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -112,6 +113,8 @@ export function VenuesTab({
       <MessagesPanel venues={venues} />
 
       <OnlinePaymentsPanel venues={venues} />
+
+      <BillingPanel isOwner={isOwner} />
 
       {isOwner && <BackupsPanel />}
 

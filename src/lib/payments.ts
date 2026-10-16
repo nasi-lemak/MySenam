@@ -6,6 +6,7 @@ import { baseUrl } from "./outbox";
 import { toWhatsAppNumber } from "./transports";
 import { formatHour } from "./time";
 import { Booking } from "./types";
+import { platformAccount, settleInvoice } from "./billing";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -174,6 +175,8 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
+  purpose: "booking" | "invoice";
+  invoice_id: number | null;
 }
 
 export interface OnlinePayment {
@@ -191,6 +194,8 @@ export interface OnlinePayment {
   refundOwed: number;
   refunded: number;
   bookingCodes: string[];
+  /** A customer paying for bookings, or a venue paying its marketplace invoice. */
+  purpose: "booking" | "invoice";
 }
 
 function toPayment(r: PaymentRow): OnlinePayment {
@@ -213,6 +218,7 @@ function toPayment(r: PaymentRow): OnlinePayment {
     refundOwed: Math.max(0, r.refund_due - r.refunded),
     refunded: r.refunded,
     bookingCodes: codes.map((c) => c.code),
+    purpose: r.purpose,
   };
 }
 
@@ -321,7 +327,7 @@ function pendingPaymentFor(bookingIds: number[], amount: number): PaymentRow | n
   const candidates = getDb()
     .prepare(`
       SELECT p.* FROM online_payments p
-       WHERE p.status = 'pending' AND p.amount = ?
+       WHERE p.status = 'pending' AND p.purpose = 'booking' AND p.amount = ?
          AND p.created_at > datetime('now', '-1 day')
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
        ORDER BY p.id DESC
@@ -341,10 +347,13 @@ function pendingPaymentFor(bookingIds: number[], amount: number): PaymentRow | n
 
 /** Whose key checks a callback or redirect for this bill. */
 export function accountForBill(billId: string): BillplzAccount | null {
-  const row = getDb().prepare("SELECT venue_id FROM online_payments WHERE bill_id = ?").get(billId) as
-    | { venue_id: number | null }
-    | undefined;
-  if (!row || row.venue_id === null) return null;
+  const row = getDb()
+    .prepare("SELECT venue_id, purpose FROM online_payments WHERE bill_id = ?")
+    .get(billId) as { venue_id: number | null; purpose: string } | undefined;
+  if (!row) return null;
+  // A venue's fee was billed to the platform's account, and is checked with its key.
+  if (row.purpose === "invoice") return platformAccount();
+  if (row.venue_id === null) return null;
   // Checked even when the venue has since switched online payment off: a bill
   // it already sent can still be paid, and that money still arrived.
   const account = accountRow(row.venue_id);
@@ -376,6 +385,17 @@ export function settleBill(result: BillResult): Settled | null {
     | undefined;
   if (!row) return null;
   if (!result.paid || row.status === "paid") return { payment: toPayment(row), newlyPaid: [] };
+
+  if (row.purpose === "invoice") {
+    db.transaction(() => {
+      const claimed = db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes === 1 && row.invoice_id !== null) settleInvoice(row.invoice_id);
+    })();
+    const fresh = db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: toPayment(fresh), newlyPaid: [] };
+  }
 
   const paidAt = new Date().toISOString();
   const newlyPaid: number[] = [];
@@ -424,7 +444,9 @@ function bookingById(id: number): Booking | null {
 export function listOnlinePayments(venueId: number, limit = 50): OnlinePayment[] {
   return (
     getDb()
-      .prepare("SELECT * FROM online_payments WHERE venue_id = ? ORDER BY id DESC LIMIT ?")
+      .prepare(
+        "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' ORDER BY id DESC LIMIT ?"
+      )
       .all(venueId, limit) as PaymentRow[]
   ).map(toPayment);
 }
@@ -434,7 +456,7 @@ export function refundsOwed(venueId: number): OnlinePayment[] {
   return (
     getDb()
       .prepare(
-        "SELECT * FROM online_payments WHERE venue_id = ? AND refund_due > refunded ORDER BY id"
+        "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' AND refund_due > refunded ORDER BY id"
       )
       .all(venueId) as PaymentRow[]
   ).map(toPayment);
