@@ -366,6 +366,24 @@ export function getDb(): Database.Database {
       decided_by INTEGER REFERENCES admins(id)
     );
 
+    -- A venue's own website on the marketplace: a domain, a name and colour,
+    -- and the venues it shows (lib/storefront.ts).
+    CREATE TABLE IF NOT EXISTS storefronts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hostname TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      tagline TEXT,
+      accent_color TEXT,
+      logo_url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS storefront_venues (
+      storefront_id INTEGER NOT NULL REFERENCES storefronts(id) ON DELETE CASCADE,
+      venue_id INTEGER NOT NULL REFERENCES venues(id),
+      PRIMARY KEY (storefront_id, venue_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_storefront_venues_venue ON storefront_venues(venue_id);
+
     CREATE TABLE IF NOT EXISTS online_payment_bookings (
       payment_id INTEGER NOT NULL REFERENCES online_payments(id) ON DELETE CASCADE,
       booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,

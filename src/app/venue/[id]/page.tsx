@@ -5,6 +5,7 @@ import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/ty
 import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
+import { currentStorefront, shows } from "@/lib/storefront";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,8 @@ export default async function VenuePage({
   const query = await searchParams;
   const venueId = Number(id);
   const venue = Number.isInteger(venueId) ? getVenue(venueId) : null;
-  if (!venue) notFound();
+  // On a storefront, a venue it does not show is not there.
+  if (!venue || !shows(await currentStorefront(), venue.id)) notFound();
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();

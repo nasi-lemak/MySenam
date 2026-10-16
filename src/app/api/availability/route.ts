@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
+import { shows, storefrontForRequest } from "@/lib/storefront";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
 
@@ -25,7 +26,8 @@ export function GET(req: NextRequest) {
     }
     sport = sportParam as Sport;
   }
-  if (!getVenue(venueId)) {
+  // A storefront's pages do not show other venues, and neither does this.
+  if (!getVenue(venueId) || !shows(storefrontForRequest(req), venueId)) {
     return NextResponse.json({ error: "Venue not found." }, { status: 404 });
   }
 

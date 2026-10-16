@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listAreas, searchAvailability } from "@/lib/store";
+import { storefrontForRequest } from "@/lib/storefront";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { CLOSE_HOUR, MAX_HOURS_PER_BOOKING, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
 
@@ -40,6 +41,8 @@ export function GET(req: NextRequest) {
       { status: 400 }
     );
 
+  // On a storefront, only its venues.
+  const venueIds = storefrontForRequest(req)?.venueIds;
   const results = searchAvailability({
     sport: sport as Sport,
     date,
@@ -47,7 +50,8 @@ export function GET(req: NextRequest) {
     toHour,
     duration,
     area: params.get("area") ?? undefined,
+    venueIds,
   });
 
-  return NextResponse.json({ date, sport, duration, results, areas: listAreas() });
+  return NextResponse.json({ date, sport, duration, results, areas: listAreas(venueIds) });
 }

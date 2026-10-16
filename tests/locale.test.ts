@@ -9,7 +9,12 @@ import { describe, expect, it, vi } from "vitest";
  */
 const cookieValue = { current: undefined as string | undefined };
 
+// The site's name comes from the storefront the request is for, which reads
+// the database; an in-memory one keeps that off the disk.
+process.env.MYSENAM_DB = ":memory:";
+
 vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ host: "localhost:3000" }),
   cookies: async () => ({
     get: (name: string) =>
       name === "ms_lang" && cookieValue.current !== undefined

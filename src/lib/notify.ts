@@ -2,8 +2,9 @@ import { getDb } from "./db";
 import { getCourt, getVenue } from "./store";
 import { Booking } from "./types";
 import { isLocale, Locale, translator } from "./i18n";
-import { addressFor, baseUrl, drainOutbox, enqueue, hourRange } from "./outbox";
+import { addressFor, drainOutbox, enqueue, hourRange } from "./outbox";
 import { takesPaymentOnline } from "./payments";
+import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
 
 /**
@@ -54,7 +55,8 @@ export function notifyBookingConfirmed(
       weeks: bookings.length,
       ...slot(locale, court.name, venue.name, first),
       total: totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
-      link: `${baseUrl()}/my-booking`,
+      // Back to the site they booked on: the venue's storefront, if it has one.
+      link: `${venueBaseUrl(venue.id)}/my-booking`,
     },
   });
 }
@@ -156,7 +158,7 @@ export function notifyWaitlistOffer(input: {
       venue: venue.name,
       date: input.date,
       from,
-      link: `${baseUrl()}/waitlist/${input.token}`,
+      link: `${venueBaseUrl(venue.id)}/waitlist/${input.token}`,
     },
   });
 }

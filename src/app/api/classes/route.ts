@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listClasses } from "@/lib/store";
+import { storefrontForRequest } from "@/lib/storefront";
 import { isValidDateString } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
 
@@ -25,6 +26,7 @@ export function GET(req: NextRequest) {
   return NextResponse.json({
     classes: listClasses({
       venueId: venueParam ? Number(venueParam) : undefined,
+      venueIds: storefrontForRequest(req)?.venueIds,
       sport: (sportParam as Sport) ?? undefined,
       from,
       to,

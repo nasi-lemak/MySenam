@@ -7,6 +7,7 @@ import { toWhatsAppNumber } from "./transports";
 import { formatHour } from "./time";
 import { Booking } from "./types";
 import { platformAccount, settleInvoice } from "./billing";
+import { venueBaseUrl } from "./storefront";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -295,7 +296,8 @@ export async function startBookingPayment(input: {
       mobile: first.phone ? toWhatsAppNumber(first.phone) : null,
       description: `${venue.name}: ${what} (${first.seriesCode && due.length > 1 ? first.seriesCode : first.code})`,
       callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
-      redirectUrl: `${baseUrl()}/payments/return`,
+      // The customer comes back to the site they paid on; Billplz reports to ours.
+      redirectUrl: `${venueBaseUrl(venueId)}/payments/return`,
       reference: { label: "Booking", value: due.map((b) => b.code).join(" ") },
     });
   } catch (err) {

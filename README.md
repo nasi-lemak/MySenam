@@ -133,6 +133,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_FREE_MONTHS` | `0` | Free months for a newly approved venue before its first invoice |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
+| `MYSENAM_TRUST_FORWARDED_HOST` | — | `on` only behind a proxy that rewrites Host: read the storefront domain from `X-Forwarded-Host` |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
@@ -290,6 +291,40 @@ independent venues, players booking across them.
   advice: have a Malaysian lawyer review them before relying on them.** Set
   `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS` and `OPERATOR_EMAIL`;
   until `OPERATOR_NAME` is set the page says it has not been completed.
+
+### Storefront domains
+
+A marketplace venue can have its own website on the same server: `abc.com`
+shows ABC's venues, under ABC's name, tagline, logo and colour, and nothing
+else. The platform owner sets one up under *Venues & staff → Storefront
+domains* — the domain, the name, and which venues it shows — and then:
+
+1. adds the domain to the Render service (*Settings → Custom Domains*; Render
+   issues the certificate — check its per-service limit if you expect many);
+2. points the domain's DNS where Render says.
+
+What changes on a storefront is what the public pages show. The home page,
+search, classes and the venue list are only its venues; another venue's page,
+and its availability, are *not found*; a one-venue storefront opens straight on
+that venue's booking page. The colour replaces the teal the interface is drawn
+in, so every button and link takes it — and a colour too light for white
+writing on its buttons is refused. The footer says *Bookings by MySenam*.
+Confirmation and waitlist messages, and the page a customer returns to after
+paying online, link to the venue's storefront rather than the marketplace.
+
+What does not change is everything behind those pages: bookings, payments,
+staff accounts, credit and reports already belong to venues, and work as they
+always have. Customer accounts are the marketplace's, so somebody with one can
+use it on any storefront (signing in again, since sessions are per domain).
+That makes a storefront a window onto part of the marketplace, **not a wall
+around a business's data** — a business that needs its own customers and its
+own database gets its own copy, below.
+
+Which storefront a request is for comes from the hostname alone, matched
+exactly against the registered ones, with `www.` ignored. Anything else is the
+marketplace. `X-Forwarded-Host` is ignored unless `MYSENAM_TRUST_FORWARDED_HOST=on`
+— set that only behind a proxy that rewrites the Host header and sets this one
+itself. Render passes Host through as it is, so leave it off there.
 
 ### A venue business's own copy
 

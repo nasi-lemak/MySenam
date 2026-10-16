@@ -10,6 +10,7 @@ import { MessagesPanel } from "./MessagesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
 import { BillingPanel } from "./BillingPanel";
+import { StorefrontsPanel } from "./StorefrontsPanel";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -115,6 +116,8 @@ export function VenuesTab({
       <OnlinePaymentsPanel venues={venues} />
 
       <BillingPanel isOwner={isOwner} />
+
+      {isOwner && <StorefrontsPanel venues={venues} />}
 
       {isOwner && <BackupsPanel />}
 

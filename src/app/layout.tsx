@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import { LanguageProvider } from "@/components/Language";
-import { currentLocale, serverT } from "@/lib/locale";
+import { currentLocale, currentSiteName, serverT } from "@/lib/locale";
+import { accentCss, currentStorefront } from "@/lib/storefront";
+import { baseUrl } from "@/lib/outbox";
 import { DEFAULT_SITE_NAME, siteName } from "@/lib/site";
 import { isMarketplace } from "@/lib/mode";
 import "./globals.css";
@@ -15,16 +17,26 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const locale = await currentLocale();
   const t = await serverT();
-  const site = siteName();
+  const storefront = await currentStorefront();
+  const site = await currentSiteName();
 
   return (
     <html lang={locale}>
       <body>
+        {storefront?.accentColor && (
+          // Validated as #rrggbb when saved, and again when written out.
+          <style dangerouslySetInnerHTML={{ __html: accentCss(storefront.accentColor) }} />
+        )}
         <LanguageProvider locale={locale} site={site}>
           <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">
-                <span aria-hidden>🏸</span>
+                {storefront?.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- any https host, sized here
+                  <img src={storefront.logoUrl} alt="" className="h-8 w-auto max-w-[8rem] object-contain" />
+                ) : (
+                  <span aria-hidden>🏸</span>
+                )}
                 {site === DEFAULT_SITE_NAME ? (
                   <span>
                     My<span className="text-slate-900">Senam</span>
@@ -53,7 +65,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               >
                 {t("footer.terms")}
               </Link>
-              {isMarketplace() && (
+              {isMarketplace() && !storefront && (
                 <Link
                   href="/list-your-venue"
                   className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
@@ -62,6 +74,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 </Link>
               )}
             </p>
+            {storefront && (
+              <p className="mt-1.5 text-xs text-slate-400">
+                Bookings by{" "}
+                <a href={baseUrl()} className="hover:text-teal-700 hover:underline">
+                  {siteName()}
+                </a>
+              </p>
+            )}
           </footer>
         </LanguageProvider>
       </body>

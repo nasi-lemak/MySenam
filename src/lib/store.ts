@@ -584,13 +584,21 @@ export interface SearchInput {
   duration?: number;
   area?: string;
   limit?: number;
+  /** Only these venues — a storefront's. Undefined for every venue. */
+  venueIds?: number[];
 }
 
 /** Distinct venue areas, for the search filter. */
-export function listAreas(): string[] {
-  const rows = getDb()
-    .prepare("SELECT DISTINCT area FROM venues ORDER BY area")
-    .all() as { area: string }[];
+export function listAreas(venueIds?: number[]): string[] {
+  const rows = (
+    venueIds === undefined
+      ? getDb().prepare("SELECT DISTINCT area FROM venues ORDER BY area").all()
+      : getDb()
+          .prepare(
+            `SELECT DISTINCT area FROM venues WHERE id IN (${venueIds.map(() => "?").join(",") || "NULL"}) ORDER BY area`
+          )
+          .all(...venueIds)
+  ) as { area: string }[];
   return rows.map((r) => r.area);
 }
 
@@ -623,6 +631,11 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
   if (input.area) {
     sql += " AND v.area = ?";
     params.push(input.area);
+  }
+  if (input.venueIds) {
+    if (input.venueIds.length === 0) return [];
+    sql += ` AND v.id IN (${input.venueIds.map(() => "?").join(",")})`;
+    params.push(...input.venueIds);
   }
   sql += " ORDER BY v.id, c.id";
 
@@ -2662,6 +2675,8 @@ export function getClass(id: number): ClassSession | null {
 /** Upcoming scheduled classes, soonest first. */
 export function listClasses(filter: {
   venueId?: number;
+  /** Only these venues — a storefront's. */
+  venueIds?: number[];
   sport?: Sport;
   from?: string;
   to?: string;
@@ -2674,6 +2689,11 @@ export function listClasses(filter: {
   if (filter.venueId) {
     clauses.push("v.id = ?");
     params.push(filter.venueId);
+  }
+  if (filter.venueIds) {
+    if (filter.venueIds.length === 0) return [];
+    clauses.push(`v.id IN (${filter.venueIds.map(() => "?").join(",")})`);
+    params.push(...filter.venueIds);
   }
   if (filter.sport) {
     clauses.push("c.sport = ?");
