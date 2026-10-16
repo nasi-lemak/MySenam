@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { formatHour } from "./time";
 import { Locale, isLocale, translator } from "./i18n";
 import type { Phrase, Vars } from "./i18n";
+import { emailConfig, emailTransport, whatsappConfig, whatsappTransport } from "./transports";
 
 /**
  * Messages to customers, written down before they are sent.
@@ -19,7 +20,7 @@ import type { Phrase, Vars } from "./i18n";
  *
  * **Nothing is sent until a transport is configured.** There is no default
  * WhatsApp or email account to fall back on, and inventing one would be worse
- * than queuing: see `transport()` below for what plugging one in needs.
+ * than queuing: see `transport()` below for what switches each one on.
  */
 
 export type Channel = "whatsapp" | "email";
@@ -42,6 +43,12 @@ export interface OutboxMessage {
   locale: Locale;
   subject: string | null;
   body: string;
+  /**
+   * What filled the text, kept beside it. WhatsApp sends these as a template's
+   * parameters rather than the text itself. Null on messages written before
+   * they were kept.
+   */
+  params: Vars | null;
   status: MessageStatus;
   dedupeKey: string | null;
   attempts: number;
@@ -61,6 +68,7 @@ interface MessageRow {
   locale: string;
   subject: string | null;
   body: string;
+  params: string | null;
   status: string;
   attempts: number;
   last_error: string | null;
@@ -81,6 +89,7 @@ function toMessage(r: MessageRow): OutboxMessage {
     locale: isLocale(r.locale) ? r.locale : "en",
     subject: r.subject,
     body: r.body,
+    params: parseParams(r.params),
     status: r.status as MessageStatus,
     attempts: r.attempts,
     lastError: r.last_error,
@@ -89,6 +98,15 @@ function toMessage(r: MessageRow): OutboxMessage {
     sentAt: r.sent_at,
     dedupeKey: r.dedupe_key,
   };
+}
+
+function parseParams(json: string | null): Vars | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as Vars;
+  } catch {
+    return null;
+  }
 }
 
 /** Give up after this many tries; a sixth attempt is not going to work. */
@@ -142,8 +160,8 @@ export function enqueue(input: Compose): OutboxMessage {
   const info = db
     .prepare(
       `INSERT INTO messages
-         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, dedupe_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(dedupe_key) DO NOTHING`
     )
     .run(
@@ -155,6 +173,7 @@ export function enqueue(input: Compose): OutboxMessage {
       t.locale,
       input.subject ? t(input.subject, input.vars) : null,
       t(input.body, input.vars),
+      JSON.stringify(input.vars),
       input.dedupeKey ?? null
     );
   if (info.changes === 0 && input.dedupeKey) {
@@ -172,9 +191,26 @@ export function enqueue(input: Compose): OutboxMessage {
  * A phone number is always there — it is what a booking is made with — and an
  * email address only sometimes. WhatsApp is how Malaysia actually talks, so it
  * is the first choice, and email is the fallback for anyone who gave one.
+ *
+ * An install that can send email but has no WhatsApp account emails anyone
+ * who gave an address, rather than queuing a WhatsApp message that nothing
+ * will ever send.
  */
 export function channelFor(phone: string, email?: string | null): Channel {
-  return phone.trim() !== "" ? "whatsapp" : email ? "email" : "whatsapp";
+  const hasPhone = phone.trim() !== "";
+  const hasEmail = !!email && email.trim() !== "";
+  const real = override === null && process.env.MYSENAM_SEND !== "log";
+  if (real && !whatsappConfig() && emailConfig() && hasEmail) return "email";
+  return hasPhone ? "whatsapp" : hasEmail ? "email" : "whatsapp";
+}
+
+/** The channel and the address on it, for a customer with a phone and maybe an email. */
+export function addressFor(
+  phone: string,
+  email?: string | null
+): { channel: Channel; recipient: string } {
+  const channel = channelFor(phone, email);
+  return { channel, recipient: channel === "email" ? (email ?? "").trim() : phone.trim() };
 }
 
 /** A booking's hours as they read in a message. */
@@ -249,28 +285,42 @@ export function setTransport(t: Transport | null): void {
 /**
  * The transport this install sends through.
  *
- * `log` writes the message to the server log and marks it sent, which is what
- * you want while developing. Anything real — the WhatsApp Cloud API, an SMTP
- * relay — needs an account and a credential, so it is not here: add a Transport
- * that posts to the provider and return it from this function. Until then
- * messages queue up and the dashboard says so, which is honest; a message
- * silently marked sent would not be.
+ * `MYSENAM_SEND=log` writes the message to the server log and marks it sent,
+ * which is what you want while developing, whatever else is configured.
+ * Otherwise each message goes out on its own channel: WhatsApp when
+ * WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are set, email when SMTP_URL and
+ * MAIL_FROM are. With neither, messages queue up and the dashboard says so,
+ * which is honest; a message silently marked sent would not be.
  */
 export function transport(): Transport | null {
   if (override) return override;
-  if (process.env.MYSENAM_SEND === "log") {
+  if (process.env.MYSENAM_SEND !== "log") {
+    const wa = whatsappConfig();
+    const mail = emailConfig();
+    if (!wa && !mail) return null;
+    const byChannel: Record<Channel, Transport | null> = {
+      whatsapp: wa ? whatsappTransport(wa) : null,
+      email: mail ? emailTransport(mail) : null,
+    };
     return {
-      name: "log",
+      name: [wa && "whatsapp", mail && "email"].filter(Boolean).join("+"),
       async send(message) {
-        console.info(
-          `[outbox] ${message.channel} → ${message.recipient}\n${
-            message.subject ? message.subject + "\n" : ""
-          }${message.body}\n`
-        );
+        const post = byChannel[message.channel];
+        if (!post) throw new Error(`No ${message.channel} account is set up on this install.`);
+        await post.send(message);
       },
     };
   }
-  return null;
+  return {
+    name: "log",
+    async send(message) {
+      console.info(
+        `[outbox] ${message.channel} → ${message.recipient}\n${
+          message.subject ? message.subject + "\n" : ""
+        }${message.body}\n`
+      );
+    },
+  };
 }
 
 export function transportName(): string | null {

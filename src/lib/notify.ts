@@ -1,8 +1,8 @@
 import { getDb } from "./db";
 import { getCourt, getVenue } from "./store";
 import { Booking } from "./types";
-import { isLocale, Locale } from "./i18n";
-import { baseUrl, channelFor, drainOutbox, enqueue, hourRange } from "./outbox";
+import { isLocale, Locale, translator } from "./i18n";
+import { addressFor, baseUrl, drainOutbox, enqueue, hourRange } from "./outbox";
 import type { DrainResult, OutboxMessage } from "./outbox";
 
 /**
@@ -40,8 +40,7 @@ export function notifyBookingConfirmed(
     bookingId: first.id,
     venueId: venue.id,
     kind: series ? "booking_series_confirmed" : "booking_confirmed",
-    channel: channelFor(first.phone, first.email),
-    recipient: first.phone || first.email || "",
+    ...addressFor(first.phone, first.email),
     locale,
     subject: series ? "msg.seriesSubject" : "msg.confirmedSubject",
     body: series ? "msg.series" : "msg.confirmed",
@@ -50,13 +49,11 @@ export function notifyBookingConfirmed(
     vars: {
       name: firstName(first.name),
       code,
-      court: court.name,
       venue: venue.name,
-      date: first.date,
       weeks: bookings.length,
-      amount: total,
+      ...slot(locale, court.name, venue.name, first),
+      total: totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid")),
       link: `${baseUrl()}/my-booking`,
-      ...hourRange(first.startHour, first.endHour),
     },
   });
 }
@@ -75,8 +72,7 @@ export function notifyBookingCancelled(
     bookingId: booking.id,
     venueId: venue.id,
     kind: "booking_cancelled",
-    channel: channelFor(booking.phone, booking.email),
-    recipient: booking.phone || booking.email || "",
+    ...addressFor(booking.phone, booking.email),
     locale,
     subject: "msg.cancelledSubject",
     body: "msg.cancelled",
@@ -84,10 +80,8 @@ export function notifyBookingCancelled(
     vars: {
       name: firstName(booking.name),
       code: booking.code,
-      court: court.name,
       venue: venue.name,
-      date: booking.date,
-      ...hourRange(booking.startHour, booking.endHour),
+      ...slot(locale, court.name, venue.name, booking),
     },
   });
 }
@@ -107,8 +101,7 @@ export function notifyClassEnrolled(
     bookingId: booking.id,
     venueId: venue.id,
     kind: "class_enrolled",
-    channel: channelFor(booking.phone, booking.email),
-    recipient: booking.phone || booking.email || "",
+    ...addressFor(booking.phone, booking.email),
     locale,
     subject: "msg.enrolledSubject",
     body: "msg.enrolled",
@@ -119,9 +112,8 @@ export function notifyClassEnrolled(
       instructor: session.instructor,
       code: booking.code,
       venue: venue.name,
-      date: booking.date,
-      amount: booking.totalPrice,
-      ...hourRange(booking.startHour, booking.endHour),
+      ...slot(locale, court.name, venue.name, booking),
+      total: totalLine(locale, booking.totalPrice, booking.paymentStatus === "paid"),
     },
   });
 }
@@ -150,8 +142,7 @@ export function notifyWaitlistOffer(input: {
   return enqueue({
     venueId: venue.id,
     kind: "waitlist_offer",
-    channel: channelFor(input.phone, input.email),
-    recipient: input.phone || input.email || "",
+    ...addressFor(input.phone, input.email),
     locale: input.locale,
     subject: "msg.offerSubject",
     body: "msg.offer",
@@ -249,6 +240,32 @@ export function notifyPendingOffers(): OutboxMessage[] {
 export async function tickOutbox(): Promise<DrainResult> {
   notifyPendingOffers();
   return drainOutbox();
+}
+
+/**
+ * Where and when, each as one phrase.
+ *
+ * A WhatsApp template with a parameter for every detail is one Meta turns down
+ * for having too many parameters for its length, so the court and venue, and
+ * the date and hours, travel as one each.
+ */
+function slot(
+  locale: Locale,
+  court: string,
+  venue: string,
+  at: { date: string; startHour: number; endHour: number }
+): { where: string; when: string } {
+  const t = translator(locale);
+  return {
+    where: t("msg.where", { court, venue }),
+    when: t("msg.when", { date: at.date, ...hourRange(at.startHour, at.endHour) }),
+  };
+}
+
+/** The total and how it is settled: paid, or still to pay. */
+function totalLine(locale: Locale, amount: number, paid: boolean): string {
+  const t = translator(locale);
+  return t("msg.total", { amount, payment: t(paid ? "msg.paid" : "msg.payAtCounter") });
 }
 
 /** "Nurul Hana" → "Nurul". A message is not a form. */

@@ -269,6 +269,9 @@ export function getDb(): Database.Database {
       locale TEXT NOT NULL DEFAULT 'en',
       subject TEXT,
       body TEXT NOT NULL,
+      -- What filled the body, as JSON: WhatsApp sends these as a template's
+      -- parameters rather than the finished text.
+      params TEXT,
       status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued','sent','failed','abandoned')),
       attempts INTEGER NOT NULL DEFAULT 0,
@@ -607,6 +610,9 @@ function migrate(db: Database.Database) {
   if (messageCols.length > 0 && !messageCols.some((c) => c.name === "dedupe_key")) {
     db.exec("ALTER TABLE messages ADD COLUMN dedupe_key TEXT");
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedupe ON messages(dedupe_key)");
+  }
+  if (messageCols.length > 0 && !messageCols.some((c) => c.name === "params")) {
+    db.exec("ALTER TABLE messages ADD COLUMN params TEXT");
   }
 }
 

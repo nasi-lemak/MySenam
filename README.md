@@ -133,6 +133,15 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_BACKUP_DIR` | `backups/` beside the database | Where snapshots are written |
 | `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
 | `MUDAHTEMPAH_DB` | — | The old name for `MYSENAM_DB`, still honoured |
+| `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |
+| `MYSENAM_SEND` | — | `log` writes customer messages to the server log instead of sending them |
+| `WHATSAPP_TOKEN` | — | A WhatsApp Cloud API access token. With the next one, sends messages on WhatsApp |
+| `WHATSAPP_PHONE_NUMBER_ID` | — | The Cloud API phone number id messages are sent from |
+| `WHATSAPP_TEMPLATE_PREFIX` | `mysenam` | Prefix of the approved template names, e.g. `mysenam_booking_confirmed` |
+| `WHATSAPP_COUNTRY_CODE` | `60` | Country code put in front of a number typed with a leading 0 |
+| `WHATSAPP_API_VERSION` | `v23.0` | Graph API version |
+| `SMTP_URL` | — | `smtp://user:pass@host:587` (or `smtps://…:465`). With `MAIL_FROM`, sends email |
+| `MAIL_FROM` | — | The sender, e.g. `Arena Bookings <bookings@arena.my>` |
 
 `.env.example` lists all of them with comments; copy it to `.env.local`.
 
@@ -828,6 +837,172 @@ Check-in — by QR or at the desk — is only open from
 Without that window an early scan would count toward the live headcount for the
 rest of the day.
 
+## Messages to customers
+
+Confirmations, cancellations, class enrolments and waitlist offers are written
+to an outbox the moment the thing happens, then sent separately and retried
+with backoff — a mail server being down delays a confirmation; it never loses
+the court. Staff see every message, and why one failed, under *Venues*.
+
+Nothing leaves the machine until a channel is configured:
+
+- **WhatsApp** (`WHATSAPP_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`) is the first
+  choice, because everybody books with a phone number.
+- **Email** (`SMTP_URL` + `MAIL_FROM`) works with any SMTP account — Gmail,
+  Zoho, Brevo, Amazon SES. With email alone, anyone who gave an address is
+  emailed; somebody who gave only a phone number has their message kept, and
+  the dashboard says it is waiting for WhatsApp.
+- Neither: messages queue, and the dashboard says so.
+
+Numbers are sent the way WhatsApp wants them, whatever was typed:
+`012-345 6789` becomes `60123456789`.
+
+### Setting up WhatsApp
+
+WhatsApp only lets a business start a conversation with a **template Meta has
+approved**. Each kind of message is one template, written from the same phrase
+the email is, and what fills it is sent as its parameters.
+
+1. In [Meta for Developers](https://developers.facebook.com/), create an app
+   with the WhatsApp product, add the venue's number, and create a permanent
+   access token for a system user. Its token is `WHATSAPP_TOKEN`; the number's
+   *Phone number ID* is `WHATSAPP_PHONE_NUMBER_ID`.
+2. In WhatsApp Manager, create the five templates below, category **Utility**,
+   each with an English (`en`) and a Malay (`ms`) translation, the body exactly
+   as given. The name must match, prefix included.
+3. Wait for approval, then set the two variables. Anything that failed while
+   waiting can be retried from the dashboard.
+
+If the wording of a message changes, the template has to be resubmitted: the
+test suite fails when this README and the code disagree, and the text below is
+what to paste.
+
+#### `mysenam_booking_confirmed`
+
+English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} total, {{6}} link
+
+```text
+Hi {{1}}, your booking is confirmed.
+
+Code: {{2}}
+{{3}}
+{{4}}
+Total: {{5}}
+
+Show the code at the front desk. To see, pay or cancel it, open {{6}} and enter the code.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} total, {{6}} link
+
+```text
+Hai {{1}}, tempahan anda telah disahkan.
+
+Kod: {{2}}
+{{3}}
+{{4}}
+Jumlah: {{5}}
+
+Tunjukkan kod ini di kaunter hadapan. Untuk melihat, membayar atau membatalkannya, buka {{6}} dan masukkan kod ini.
+```
+
+#### `mysenam_booking_series_confirmed`
+
+English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} weeks, {{5}} when, {{6}} total, {{7}} link
+
+```text
+Hi {{1}}, your weekly sessions are booked.
+
+Series code: {{2}}
+{{3}}
+{{4}} weeks from {{5}}
+Total: {{6}}
+
+Show the code at the front desk. To see, pay or cancel, open {{7}} and enter the series code.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} code, {{3}} where, {{4}} weeks, {{5}} when, {{6}} total, {{7}} link
+
+```text
+Hai {{1}}, sesi mingguan anda telah ditempah.
+
+Kod siri: {{2}}
+{{3}}
+{{4}} minggu bermula {{5}}
+Jumlah: {{6}}
+
+Tunjukkan kod ini di kaunter hadapan. Untuk melihat, membayar atau membatalkan, buka {{7}} dan masukkan kod siri.
+```
+
+#### `mysenam_booking_cancelled`
+
+English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
+
+```text
+Hi {{1}}, booking {{2}} has been cancelled.
+
+{{3}}
+{{4}}
+
+The slot is free again. Nothing is owed for it.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
+
+```text
+Hai {{1}}, tempahan {{2}} telah dibatalkan.
+
+{{3}}
+{{4}}
+
+Waktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.
+```
+
+#### `mysenam_waitlist_offer`
+
+English (`en`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
+
+```text
+Hi {{1}}, a place has opened up for {{2}} at {{3}}, {{4}} {{5}}.
+
+It is held for you for a short while, and then goes to the next person waiting. Claim it at {{6}} while it is yours.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
+
+```text
+Hai {{1}}, ada tempat kosong untuk {{2}} di {{3}}, {{4}} {{5}}.
+
+Ia ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {{6}} selagi ia milik anda.
+```
+
+#### `mysenam_class_enrolled`
+
+English (`en`) — {{1}} name, {{2}} what, {{3}} instructor, {{4}} code, {{5}} venue, {{6}} when, {{7}} total
+
+```text
+Hi {{1}}, you are enrolled in {{2}} with {{3}}.
+
+Code: {{4}}
+{{5}}
+{{6}}
+Total: {{7}}
+
+Show the code at the front desk.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} what, {{3}} instructor, {{4}} code, {{5}} venue, {{6}} when, {{7}} total
+
+```text
+Hai {{1}}, anda telah berdaftar dalam {{2}} bersama {{3}}.
+
+Kod: {{4}}
+{{5}}
+{{6}}
+Jumlah: {{7}}
+
+Tunjukkan kod ini di kaunter hadapan.
+```
+
 ## Payments
 
 Bookings are pay-at-counter: every booking starts `unpaid`, and front-desk staff
@@ -996,5 +1171,5 @@ push and pull request (Node 22, `npm ci`).
   five people walking in behind one of them
 - Online top-ups, so credit can be bought without visiting a counter
 - Online payment (FPX / e-wallet) to replace the manual pay-at-counter toggle
-- Automated WhatsApp/email booking confirmations & reminders
+- Reminders the day before a booking, on the same outbox and templates
 - Set strong `ADMIN_EMAIL` / `ADMIN_PASSWORD` values before deploying

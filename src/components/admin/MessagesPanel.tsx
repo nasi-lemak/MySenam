@@ -121,7 +121,13 @@ export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
               {label}: <strong>{n}</strong>
             </span>
           ))}
-          <span className="rounded-lg px-3 py-1.5 text-slate-500">via {summary.transport}</span>
+          <span className="rounded-lg px-3 py-1.5 text-slate-500">
+            via{" "}
+            {summary.transport
+              .split("+")
+              .map((name) => (name === "whatsapp" ? "WhatsApp" : name))
+              .join(" and ")}
+          </span>
         </div>
       )}
 

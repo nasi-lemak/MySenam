@@ -470,19 +470,24 @@ const EN = {
   // WhatsApp or email, not into a page, so no markup and no abbreviations.
   "msg.confirmedSubject": "Booking {code} confirmed — {venue}",
   "msg.confirmed":
-    "Hi {name}, your booking is confirmed.\n\nCode: {code}\n{court} at {venue}\n{date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk. To see or cancel it: {link}",
+    "Hi {name}, your booking is confirmed.\n\nCode: {code}\n{where}\n{when}\nTotal: {total}\n\nShow the code at the front desk. To see, pay or cancel it, open {link} and enter the code.",
   "msg.seriesSubject": "{weeks} weekly sessions booked — {venue}",
   "msg.series":
-    "Hi {name}, your weekly sessions are booked.\n\nSeries code: {code}\n{court} at {venue}\n{weeks} weeks from {date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk. To see or cancel: {link}",
+    "Hi {name}, your weekly sessions are booked.\n\nSeries code: {code}\n{where}\n{weeks} weeks from {when}\nTotal: {total}\n\nShow the code at the front desk. To see, pay or cancel, open {link} and enter the series code.",
+  "msg.where": "{court} at {venue}",
+  "msg.when": "{date}, {from} to {to}",
+  "msg.total": "RM{amount}, {payment}",
+  "msg.payAtCounter": "pay at the counter",
+  "msg.paid": "already paid",
   "msg.cancelledSubject": "Booking {code} cancelled — {venue}",
   "msg.cancelled":
-    "Hi {name}, booking {code} has been cancelled.\n\n{court} at {venue}\n{date}, {from} to {to}\n\nThe slot is free again. Nothing is owed for it.",
+    "Hi {name}, booking {code} has been cancelled.\n\n{where}\n{when}\n\nThe slot is free again. Nothing is owed for it.",
   "msg.offerSubject": "A place has opened up — {venue}",
   "msg.offer":
-    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for a short while, and then goes to the next person waiting. Claim it here: {link}",
+    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for a short while, and then goes to the next person waiting. Claim it at {link} while it is yours.",
   "msg.enrolledSubject": "Enrolled in {what} — {venue}",
   "msg.enrolled":
-    "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{date}, {from} to {to}\nTotal: RM{amount}, pay at the counter\n\nShow the code at the front desk.",
+    "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{when}\nTotal: {total}\n\nShow the code at the front desk.",
 
   // Refusals a customer can be shown. The English here is the text the store
   // used to carry inline, so a code and its sentence cannot drift apart.
@@ -974,19 +979,24 @@ const MS: Record<Phrase, string> = {
   // e-mel, bukan ke dalam halaman, jadi tiada markup dan tiada singkatan.
   "msg.confirmedSubject": "Tempahan {code} disahkan — {venue}",
   "msg.confirmed":
-    "Hai {name}, tempahan anda telah disahkan.\n\nKod: {code}\n{court} di {venue}\n{date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan. Untuk melihat atau membatalkannya: {link}",
+    "Hai {name}, tempahan anda telah disahkan.\n\nKod: {code}\n{where}\n{when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan. Untuk melihat, membayar atau membatalkannya, buka {link} dan masukkan kod ini.",
   "msg.seriesSubject": "{weeks} sesi mingguan ditempah — {venue}",
   "msg.series":
-    "Hai {name}, sesi mingguan anda telah ditempah.\n\nKod siri: {code}\n{court} di {venue}\n{weeks} minggu bermula {date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan. Untuk melihat atau membatalkan: {link}",
+    "Hai {name}, sesi mingguan anda telah ditempah.\n\nKod siri: {code}\n{where}\n{weeks} minggu bermula {when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan. Untuk melihat, membayar atau membatalkan, buka {link} dan masukkan kod siri.",
+  "msg.where": "{court} di {venue}",
+  "msg.when": "{date}, {from} hingga {to}",
+  "msg.total": "RM{amount}, {payment}",
+  "msg.payAtCounter": "bayar di kaunter",
+  "msg.paid": "sudah dibayar",
   "msg.cancelledSubject": "Tempahan {code} dibatalkan — {venue}",
   "msg.cancelled":
-    "Hai {name}, tempahan {code} telah dibatalkan.\n\n{court} di {venue}\n{date}, {from} hingga {to}\n\nWaktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.",
+    "Hai {name}, tempahan {code} telah dibatalkan.\n\n{where}\n{when}\n\nWaktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.",
   "msg.offerSubject": "Ada tempat kosong — {venue}",
   "msg.offer":
-    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di sini: {link}",
+    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
   "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
   "msg.enrolled":
-    "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{date}, {from} hingga {to}\nJumlah: RM{amount}, bayar di kaunter\n\nTunjukkan kod ini di kaunter hadapan.",
+    "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan.",
 
   // Penolakan yang boleh dilihat pelanggan.
   "err.COURT_NOT_FOUND": "Gelanggang tidak dijumpai.",
