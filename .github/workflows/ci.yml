@@ -1,13 +1,30 @@
 name: CI
 
+# Runs where a result is worth paying for: on pull requests, and on pushes
+# to the branch the demo deploys from. Not on every branch an agent pushes
+# to along the way — each run tests twice and takes minutes from the
+# account's monthly allowance, and those branches get checked again when
+# they come back as a pull request.
 on:
-  push:
-    branches: ["**"]
   pull_request:
+    paths-ignore: ["**/*.md"]
+  push:
+    branches: [main, claude/sports-court-booking-w99x22]
+    paths-ignore: ["**/*.md"]
+  # Run it by hand from the Actions tab, on any branch, when wanted.
+  workflow_dispatch:
+
+# Several pushes in a row test only the last: a newer push cancels the run
+# still going for the one before it.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # A hung run stops here instead of burning the default six hours.
+    timeout-minutes: 20
     # The suite runs twice: on PGlite, as a developer runs it, and against a
     # real Postgres server, as production runs — where requests really do run
     # side by side on separate connections.
