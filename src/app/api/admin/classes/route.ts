@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { createClassSessions, getCourt, listClasses, listClassWaitlist } from "@/lib/store";
+import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
+import { ALERT_EVERY, crossed, upcomingClassSessions, VENUE_CAPS } from "@/lib/limits";
+import { tellOwners } from "@/lib/owner-alerts";
+import { createClassSessions, getCourt, getVenue, listClasses, listClassWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
 
@@ -67,6 +69,18 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
+  // A venue's own staff can keep so many sessions in the diary; past that,
+  // the platform owner adds them.
+  const before = await upcomingClassSessions(court.venueId);
+  const adding = (weeks as number) ?? 1;
+  if (!isOwner(admin) && before + adding > VENUE_CAPS.upcomingClassSessions)
+    return NextResponse.json(
+      {
+        error: `A venue can have up to ${VENUE_CAPS.upcomingClassSessions} upcoming class sessions; it has ${before}. Ask the platform for more.`,
+      },
+      { status: 409 }
+    );
+
   const result = await createClassSessions({
     courtId: courtId as number,
     name: name as string,
@@ -79,6 +93,14 @@ export async function POST(req: NextRequest) {
     weeks: (weeks as number) ?? 1,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  const after = before + result.classes.length;
+  if (!isOwner(admin) && crossed(before, after, ALERT_EVERY.upcomingClassSessions)) {
+    const venue = await getVenue(court.venueId);
+    await tellOwners(
+      `${venue?.name ?? "A venue"} now has ${after} classes coming up`,
+      `${admin.email} has scheduled classes at ${venue?.name ?? `venue ${court.venueId}`}; it now has ${after} sessions coming up.`
+    );
+  }
   return NextResponse.json(
     { classes: result.classes, seriesCode: result.seriesCode },
     { status: 201 }

@@ -129,16 +129,20 @@ describe("a partial block everywhere else it matters", () => {
     const date = future(9);
     expect(await blockSlots(k.id, date, [14], "One out", 1)).toMatchObject({ ok: true });
 
+    // Search shows a venue once per time and counts its other free courts.
+    const freeKayaks = async () =>
+      (await searchAvailability({ sport: "kayak", date, fromHour: 14, toHour: 14 }))
+        .filter((r) => r.venue.id === k.venueId)
+        .reduce((n, r) => n + 1 + r.alsoFree, 0);
     // One place left, so it still shows.
-    expect((await searchAvailability({ sport: "kayak", date, fromHour: 14, toHour: 14 }))
-      .some((r) => r.court.id === k.id)).toBe(true);
+    const withOneLeft = await freeKayaks();
+    expect(withOneLeft).toBeGreaterThan(0);
     expect((await courtsForAnyBooking({ venueId: (await venue()).id, sport: "kayak", date, hours: [14] }))
       .some((c) => c.id === k.id)).toBe(true);
 
     await rent(k.id, [14], date, "Last one");
     // Now the block has taken the last place.
-    expect((await searchAvailability({ sport: "kayak", date, fromHour: 14, toHour: 14 }))
-      .some((r) => r.court.id === k.id)).toBe(false);
+    expect(await freeKayaks()).toBe(withOneLeft - 1);
     expect((await courtsForAnyBooking({ venueId: (await venue()).id, sport: "kayak", date, hours: [14] }))
       .some((c) => c.id === k.id)).toBe(false);
   });

@@ -249,7 +249,8 @@ export default function SearchPage() {
               <ul className="space-y-2">
                 {groups.map((g) => {
                   const cheapest = g.courts[0];
-                  const others = g.courts.length - 1;
+                  // The server sends one court per venue and time, and counts the rest.
+                  const others = cheapest.alsoFree ?? g.courts.length - 1;
                   return (
                     <li
                       key={g.key}
@@ -275,7 +276,7 @@ export default function SearchPage() {
                       </div>
                       <div className="text-right">
                         <div className="font-bold">RM{cheapest.totalPrice}</div>
-                        {others > 0 && cheapest.totalPrice !== g.courts[g.courts.length - 1].totalPrice && (
+                        {others > 0 && cheapest.pricesVary && (
                           <div className="text-xs text-slate-400">{t("search.fromPrice")}</div>
                         )}
                       </div>

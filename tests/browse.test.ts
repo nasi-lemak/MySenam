@@ -13,6 +13,7 @@ import {
   listVenuePage,
   listVenues,
   SEARCH_COURT_LIMIT,
+  searchAvailability,
   sportsOfferedAt,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -109,6 +110,20 @@ describe("the venue list", () => {
     // Never more than 100 at once, whatever is asked for.
     expect((await (await GET(get("/api/venues?pageSize=5000"))).json()).pageSize).toBe(100);
     expect((await GET(get("/api/venues?sport=curling"))).status).toBe(400);
+  });
+});
+
+describe("a venue with many courts", () => {
+  it("gets one place in search per time, however many courts it adds", async () => {
+    const date = addDays(todayISO(), 3);
+    const [hall] = (await listVenuePage({ area: "Zone 0", pageSize: 1 })).venues;
+    const results = await searchAvailability({ sport: "badminton", date, area: "Zone 0", fromHour: 10, toHour: 10 });
+    const forHall = results.filter((r) => r.venue.id === hall.id);
+    expect(forHall).toHaveLength(1);
+    // Its other free courts are counted, not listed.
+    expect(forHall[0].alsoFree).toBe(hall.courts.filter((c) => c.sport === "badminton").length - 1);
+    // Every venue in the area still has its turn.
+    expect(new Set(results.map((r) => r.venue.id)).size).toBe(20);
   });
 });
 

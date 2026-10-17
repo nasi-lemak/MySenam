@@ -1450,6 +1450,14 @@ their venue, every platform owner gets an email.
 **Forms.** The venue application and sign-up forms have a field no person
 sees; a submission that fills it in is dropped.
 
+**One venue cannot crowd out the rest.** Search shows each venue once per
+start time, with its cheapest court, and counts its other free courts rather
+than listing them, so adding courts gains a venue no ground. The classes page
+shows two weeks ahead and at most six of one venue's sessions a day (a venue's
+own page shows all of them). A venue's own staff can add up to 50 courts and
+keep up to 300 class sessions in the diary; the platform owner can add more,
+and is emailed each time a venue passes another 10 courts or 50 sessions.
+
 ## Renamed from MudahTempah
 
 The project was renamed to **MySenam**. Everything user-facing moved with it —

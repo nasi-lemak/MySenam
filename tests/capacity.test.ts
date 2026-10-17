@@ -120,14 +120,19 @@ describe("shared-capacity resources", () => {
   });
 
   it("hides a full shared slot from cross-venue search", async () => {
-    const { court } = await makeGym(1, "Search Gym");
+    const { venue, court } = await makeGym(1, "Search Gym");
     const date = futureDate(7);
-    const before = await searchAvailability({ sport: "gym", date, fromHour: 16, toHour: 16 });
-    expect(before.some((r) => r.court.id === court.id)).toBe(true);
+    // Search shows a venue once per time, its cheapest court, and counts the
+    // rest: so what it knows is how many of the venue's courts are free.
+    const free = async () =>
+      (await searchAvailability({ sport: "gym", date, fromHour: 16, toHour: 16 }))
+        .filter((r) => r.venue.id === venue.id)
+        .reduce((n, r) => n + 1 + r.alsoFree, 0);
+    const before = await free();
+    expect(before).toBeGreaterThan(0);
 
     await createBooking({ courtId: court.id, date, hours: [16], name: "A", phone: "0120000401" });
-    const after = await searchAvailability({ sport: "gym", date, fromHour: 16, toHour: 16 });
-    expect(after.some((r) => r.court.id === court.id)).toBe(false);
+    expect(await free()).toBe(before - 1);
   });
 
   it("reports places taken in the admin grid", async () => {

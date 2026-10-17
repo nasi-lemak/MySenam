@@ -585,10 +585,15 @@ async function countTakenPlaces(date: string, venueId?: number): Promise<Map<str
 
 export interface SearchResult {
   venue: Venue;
+  /** The cheapest court free at this venue for this time. */
   court: Court;
   startHour: number;
   endHour: number;
   totalPrice: number;
+  /** How many more of the venue's courts are free for the same time. */
+  alsoFree: number;
+  /** Whether those others cost more than this one. */
+  pricesVary: boolean;
 }
 
 export interface SearchInput {
@@ -840,6 +845,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
         startHour: start,
         endHour: start + duration,
         totalPrice: computePrice(court, input.date, hours),
+        alsoFree: 0,
+        pricesVary: false,
       });
     }
   }
@@ -851,7 +858,25 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       a.venue.name.localeCompare(b.venue.name) ||
       a.court.name.localeCompare(b.court.name)
   );
-  return results.slice(0, limit);
+
+  // One result per venue per start time — its cheapest court — before the
+  // limit, not after. Otherwise a venue with a hundred courts fills every
+  // place in the results and the venues around it disappear from the search:
+  // adding courts would be a way to the top. The others are counted instead.
+  const shown = new Map<string, SearchResult>();
+  const fair: SearchResult[] = [];
+  for (const r of results) {
+    const key = `${r.venue.id}:${r.startHour}`;
+    const first = shown.get(key);
+    if (first) {
+      first.alsoFree++;
+      if (r.totalPrice !== first.totalPrice) first.pricesVary = true;
+      continue;
+    }
+    shown.set(key, r);
+    fair.push(r);
+  }
+  return fair.slice(0, limit);
 }
 
 /**

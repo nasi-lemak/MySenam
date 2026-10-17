@@ -118,3 +118,44 @@ export async function unblockPhone(venueId: number, phone: string): Promise<bool
     .run(venueId, phone);
   return r.changes > 0;
 }
+
+// ------------------------------------------------------------ what one venue can create
+
+/**
+ * How much one venue's own staff can add.
+ *
+ * A venue gets one place in search per time however many courts it has, so
+ * courts no longer buy a better position. But each court is still a row every
+ * search in its area works through, and classes fill the classes page, so a
+ * venue's operator can add up to this many and no more. The platform owner is
+ * not limited, and adds the rest for a venue that genuinely has more.
+ */
+export const VENUE_CAPS = {
+  courts: 50,
+  /** Class sessions scheduled from today on: about 25 a week, twelve weeks out. */
+  upcomingClassSessions: 300,
+} as const;
+
+/** Every so many, the platform owner hears how big a venue has got. */
+export const ALERT_EVERY = { courts: 10, upcomingClassSessions: 50 } as const;
+
+export async function courtCount(venueId: number): Promise<number> {
+  return ((await getDb().prepare("SELECT COUNT(*) AS n FROM courts WHERE venue_id = ?").get(venueId)) as { n: number })
+    .n;
+}
+
+export async function upcomingClassSessions(venueId: number): Promise<number> {
+  return (
+    (await getDb()
+      .prepare(
+        `SELECT COUNT(*) AS n FROM classes cl JOIN courts c ON c.id = cl.court_id
+          WHERE c.venue_id = ? AND cl.date >= ? AND cl.status = 'scheduled'`
+      )
+      .get(venueId, todayISO())) as { n: number }
+  ).n;
+}
+
+/** Did going from `before` to `after` pass a multiple of `every`? */
+export function crossed(before: number, after: number, every: number): boolean {
+  return Math.floor(after / every) > Math.floor(before / every);
+}

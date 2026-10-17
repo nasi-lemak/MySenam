@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, isOwner, listAdmins, requireAdmin } from "@/lib/admin-auth";
-import { siteName } from "@/lib/site";
-import { sendPlainEmail } from "@/lib/transports";
+import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
+import { tellOwners } from "@/lib/owner-alerts";
 import { markDetailsChecked } from "@/lib/setup";
 import { getVenue, updateVenue } from "@/lib/store";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
@@ -119,18 +118,9 @@ export async function PATCH(
   // but the platform owner hears about it, so a venue cannot quietly become
   // "AAA Best Courts" or borrow a better-known name.
   if (!isOwner(admin) && before && before.name !== result.venue.name)
-    await tellOwnersOfRename(before.name, result.venue.name, admin.email);
-  return NextResponse.json({ venue: result.venue });
-}
-
-/** Email every platform owner that a venue has a new name. */
-async function tellOwnersOfRename(from: string, to: string, by: string): Promise<void> {
-  const owners = (await listAdmins()).filter((a) => a.venueId === null);
-  for (const owner of owners)
-    await sendPlainEmail(
-      owner.email,
-      `${from} is now called ${to}`,
-      `${by} renamed "${from}" to "${to}" on ${siteName()}.\n\n` +
-        "Nothing needs doing if that is right. If it is not, change it back under Venues & staff."
+    await tellOwners(
+      `${before.name} is now called ${result.venue.name}`,
+      `${admin.email} renamed "${before.name}" to "${result.venue.name}".`
     );
+  return NextResponse.json({ venue: result.venue });
 }
