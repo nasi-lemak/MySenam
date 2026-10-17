@@ -317,6 +317,32 @@ describe("keeping nothing longer than it is needed", () => {
     ).toBe(1);
   });
 
+  it("clears old messages once sent, but never one still waiting to go", async () => {
+    const db = getDb();
+    const booking = await book("0195000022", addDays(todayISO(), 6), 13);
+    const old = `${addDays(todayISO(), -RETENTION.messageDays - 1)} 09:00:00`;
+    const message = (status: string, createdAt: string | null) =>
+      db
+        .prepare(
+          `INSERT INTO messages (booking_id, venue_id, kind, channel, recipient, locale, body, status, created_at)
+           SELECT ?, c.venue_id, 'booking_confirmed', 'whatsapp', '0195000022', 'en', 'Hi Aina', ?, COALESCE(?, datetime('now'))
+             FROM courts c WHERE c.id = ?`
+        )
+        .run(booking.id, status, createdAt, booking.courtId);
+    await message("sent", old);
+    await message("abandoned", old);
+    await message("queued", old);
+    await message("sent", null);
+
+    const due = (await retentionDue()).find((l) => l.what.startsWith("Messages"))!;
+    expect(due.affected).toBe(2);
+    await pruneOldData();
+    const left = (await db
+      .prepare("SELECT status FROM messages WHERE booking_id = ? ORDER BY id")
+      .all(booking.id)) as { status: string }[];
+    expect(left.map((m) => m.status)).toEqual(["queued", "sent"]);
+  });
+
   it("runs at most once a day", async () => {
     await pruneOldData();
     expect(await retentionLastRun()).not.toBeNull();

@@ -15,10 +15,11 @@ export async function generateMetadata(): Promise<Metadata> {
 const HOW_LONG_VARS: Record<number, { n: number }> = {
   4: { n: RETENTION.checkInDays },
   5: { n: RETENTION.accessRevealDays },
+  8: { n: RETENTION.messageDays },
 };
 
 function heldRows(t: T) {
-  return [1, 2, 3, 4, 5, 6, 7].map((i) => ({
+  return [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({
     what: t(`privacy.held${i}What` as Phrase),
     why: t(`privacy.held${i}Why` as Phrase),
     how: t(`privacy.held${i}How` as Phrase, HOW_LONG_VARS[i]),

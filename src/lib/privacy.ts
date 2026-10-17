@@ -37,6 +37,13 @@ export const RETENTION = {
   checkInDays: 365,
   /** Queue entries that were claimed, expired or cancelled. */
   waitlistDays: 90,
+  /**
+   * WhatsApp and email messages, once sent or given up on. Each one carries a
+   * phone number or address and a body that names the customer, and there is
+   * one or more for every booking: kept for ever, it is both the biggest
+   * table and the most personal. Long enough to answer "did they get it?".
+   */
+  messageDays: 90,
   /** A booking stops naming anybody after this, but its money stays. */
   bookingIdentityDays: 730,
   /** Withdrawn out-of-hours access, kept a while in case it is disputed. */
@@ -52,77 +59,104 @@ export interface RetentionLine {
   affected: number;
 }
 
+/** What a booking's customer is called once nobody is entitled to know. */
+export const ANONYMOUS = "(removed)";
+
+/**
+ * One line of the policy: which rows are due, and what happens to them.
+ *
+ * Counting what is due and acting on it share the same `where`, so the
+ * screen that says what a prune will do cannot drift from what it does.
+ * Every `where` compares a stored timestamp with a date directly — text in
+ * 'YYYY-MM-DD HH:MM:SS' sorts by time, so `< '2026-01-01'` means "before that
+ * day" — which lets an index answer it (see db/migrations/0002).
+ */
+interface Rule {
+  what: string;
+  days: number;
+  action: RetentionLine["action"];
+  table: string;
+  where: string;
+  /** For an anonymising rule: what the matching rows become. */
+  set?: string;
+}
+
+const RULES: Rule[] = [
+  {
+    what: "Door codes shown",
+    days: RETENTION.accessRevealDays,
+    action: "deleted",
+    table: "access_reveals",
+    where: "revealed_at < ?",
+  },
+  {
+    what: "Arrivals at the desk",
+    days: RETENTION.checkInDays,
+    action: "deleted",
+    table: "check_ins",
+    where: "checked_in_at < ?",
+  },
+  {
+    what: "Settled waiting-list entries",
+    days: RETENTION.waitlistDays,
+    action: "deleted",
+    table: "waitlist",
+    where: "status IN ('claimed','expired','cancelled') AND created_at < ?",
+  },
+  {
+    what: "Messages sent to customers",
+    days: RETENTION.messageDays,
+    action: "deleted",
+    table: "messages",
+    // Never one still waiting to go.
+    where: "status IN ('sent','abandoned') AND created_at < ?",
+  },
+  {
+    what: "Names and numbers on old bookings",
+    days: RETENTION.bookingIdentityDays,
+    action: "anonymised",
+    table: "bookings",
+    // The literal, not a parameter, so the planner can use the partial index
+    // that holds only bookings still naming somebody.
+    where: `date < ? AND name <> '${ANONYMOUS}'`,
+    // The booking survives — its price is the venue's record. The person in
+    // it does not.
+    set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL`,
+  },
+  {
+    what: "Withdrawn out-of-hours access",
+    days: RETENTION.revokedInductionDays,
+    action: "deleted",
+    table: "inductions",
+    where: "revoked_at IS NOT NULL AND revoked_at < ?",
+  },
+];
+
 /** What a prune would do right now, without doing it. */
 export async function retentionDue(): Promise<RetentionLine[]> {
   const db = getDb();
   const today = todayISO();
-  const before = (days: number) => addDays(today, -days);
-
   const count = async (sql: string, ...args: unknown[]) =>
     (await db.prepare(sql).get(...args) as { n: number }).n;
 
-  return [
-    {
-      what: "Door codes shown",
-      days: RETENTION.accessRevealDays,
-      action: "deleted",
-      affected: await count(
-        "SELECT COUNT(*) AS n FROM access_reveals WHERE substr(revealed_at, 1, 10) < ?",
-        before(RETENTION.accessRevealDays)
-      ),
-    },
-    {
-      what: "Arrivals at the desk",
-      days: RETENTION.checkInDays,
-      action: "deleted",
-      affected: await count(
-        "SELECT COUNT(*) AS n FROM check_ins WHERE substr(checked_in_at, 1, 10) < ?",
-        before(RETENTION.checkInDays)
-      ),
-    },
-    {
-      what: "Settled waiting-list entries",
-      days: RETENTION.waitlistDays,
-      action: "deleted",
-      affected: await count(
-        `SELECT COUNT(*) AS n FROM waitlist
-         WHERE status IN ('claimed','expired','cancelled') AND substr(created_at, 1, 10) < ?`,
-        before(RETENTION.waitlistDays)
-      ),
-    },
-    {
-      what: "Names and numbers on old bookings",
-      days: RETENTION.bookingIdentityDays,
-      action: "anonymised",
-      affected: await count(
-        `SELECT COUNT(*) AS n FROM bookings
-         WHERE date < ? AND name <> ?`,
-        before(RETENTION.bookingIdentityDays),
-        ANONYMOUS
-      ),
-    },
-    {
-      what: "Withdrawn out-of-hours access",
-      days: RETENTION.revokedInductionDays,
-      action: "deleted",
-      affected: await count(
-        "SELECT COUNT(*) AS n FROM inductions WHERE revoked_at IS NOT NULL AND substr(revoked_at, 1, 10) < ?",
-        before(RETENTION.revokedInductionDays)
-      ),
-    },
-    {
-      what: "Expired sign-in sessions",
-      days: 0,
-      action: "deleted",
-      affected:
-        await count("SELECT COUNT(*) AS n FROM sessions WHERE expires_at < datetime('now')") +
-        await count("SELECT COUNT(*) AS n FROM admin_sessions WHERE expires_at < datetime('now')"),
-    },
-  ];
+  const lines: RetentionLine[] = [];
+  for (const rule of RULES)
+    lines.push({
+      what: rule.what,
+      days: rule.days,
+      action: rule.action,
+      affected: await count(`SELECT COUNT(*) AS n FROM ${rule.table} WHERE ${rule.where}`, addDays(today, -rule.days)),
+    });
+  lines.push({
+    what: "Expired sign-in sessions",
+    days: 0,
+    action: "deleted",
+    affected:
+      (await count("SELECT COUNT(*) AS n FROM sessions WHERE expires_at < datetime('now')")) +
+      (await count("SELECT COUNT(*) AS n FROM admin_sessions WHERE expires_at < datetime('now')")),
+  });
+  return lines;
 }
-
-/** What a booking's customer is called once nobody is entitled to know. */
-export const ANONYMOUS = "(removed)";
 
 export interface PruneResult {
   ranAt: string;
@@ -140,29 +174,19 @@ export interface PruneResult {
 export async function pruneOldData(): Promise<PruneResult> {
   const db = getDb();
   const today = todayISO();
-  const before = (days: number) => addDays(today, -days);
   const lines = await retentionDue();
 
   await db.transaction(async () => {
-    await db.prepare("DELETE FROM access_reveals WHERE substr(revealed_at, 1, 10) < ?").run(
-      before(RETENTION.accessRevealDays)
-    );
-    await db.prepare("DELETE FROM check_ins WHERE substr(checked_in_at, 1, 10) < ?").run(
-      before(RETENTION.checkInDays)
-    );
-    await db.prepare(
-      `DELETE FROM waitlist
-       WHERE status IN ('claimed','expired','cancelled') AND substr(created_at, 1, 10) < ?`
-    ).run(before(RETENTION.waitlistDays));
-    // The booking survives — its price is the venue's record. The person in it
-    // does not.
-    await db.prepare(
-      `UPDATE bookings SET name = ?, phone = '', email = NULL, check_in_token = NULL
-       WHERE date < ? AND name <> ?`
-    ).run(ANONYMOUS, before(RETENTION.bookingIdentityDays), ANONYMOUS);
-    await db.prepare("DELETE FROM inductions WHERE revoked_at IS NOT NULL AND substr(revoked_at, 1, 10) < ?").run(
-      before(RETENTION.revokedInductionDays)
-    );
+    for (const rule of RULES) {
+      const cutoff = addDays(today, -rule.days);
+      await db
+        .prepare(
+          rule.set
+            ? `UPDATE ${rule.table} SET ${rule.set} WHERE ${rule.where}`
+            : `DELETE FROM ${rule.table} WHERE ${rule.where}`
+        )
+        .run(cutoff);
+    }
     await db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
     await db.prepare(

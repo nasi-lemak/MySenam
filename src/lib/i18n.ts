@@ -396,6 +396,9 @@ const EN = {
   "privacy.held7What": "Stored credit, passes and memberships",
   "privacy.held7Why": "Money and entries the venue owes you",
   "privacy.held7How": "Until spent or expired",
+  "privacy.held8What": "Messages we send you on WhatsApp or by email",
+  "privacy.held8Why": "So staff can see whether a confirmation reached you",
+  "privacy.held8How": "{n} days after sending",
   "privacy.anonAfter": "Bookings stop naming anybody after",
   "privacy.years": "{n} years",
   "privacy.anonRest":
@@ -944,6 +947,9 @@ const MS: Record<Phrase, string> = {
   "privacy.held7What": "Kredit tersimpan, pas dan keahlian",
   "privacy.held7Why": "Wang dan kemasukan yang pusat hutang kepada anda",
   "privacy.held7How": "Sehingga habis digunakan atau luput",
+  "privacy.held8What": "Mesej yang kami hantar kepada anda melalui WhatsApp atau e-mel",
+  "privacy.held8Why": "Supaya kakitangan boleh melihat sama ada pengesahan sampai kepada anda",
+  "privacy.held8How": "{n} hari selepas dihantar",
   "privacy.anonAfter": "Tempahan berhenti menamakan sesiapa selepas",
   "privacy.years": "{n} tahun",
   "privacy.anonRest":

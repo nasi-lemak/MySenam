@@ -4,6 +4,7 @@ process.env.MYSENAM_DB = ":memory:";
 
 import { getDb, withTransaction } from "../src/lib/db";
 import type { Statement } from "../src/lib/db";
+import { retentionDue } from "../src/lib/privacy";
 import { venueReport } from "../src/lib/reports";
 import {
   countNoShows,
@@ -33,7 +34,17 @@ import { addDays, todayISO } from "../src/lib/time";
  * mistake this is here to catch.
  */
 
-const BIG_TABLES = new Set(["bookings", "booking_slots", "slot_blocks", "classes"]);
+const BIG_TABLES = new Set([
+  "bookings",
+  "booking_slots",
+  "slot_blocks",
+  "classes",
+  // What the daily retention prune reads: years of these, on a big install.
+  "check_ins",
+  "access_reveals",
+  "messages",
+  "waitlist",
+]);
 
 /** Every SELECT a call runs, with the values it ran with. */
 async function queriesRunBy(fn: () => Promise<unknown>): Promise<{ sql: string; params: unknown[] }[]> {
@@ -115,6 +126,8 @@ describe("reading a venue's own bookings never reads the whole table", () => {
     ["the day list", () => listBookingsForDate(tomorrow, venueId)],
     ["the no-show count", () => countNoShows("0123456789")],
     ["the report", () => venueReport(venueId, todayISO(), addDays(todayISO(), 30))],
+    // Every day: it must find what has come due, not re-read all of history.
+    ["the retention check", () => retentionDue()],
   ];
 
   for (const [name, call] of cases) {
