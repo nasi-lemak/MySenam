@@ -44,12 +44,19 @@ export async function staleDrafts(): Promise<{ businessId: number; venueIds: num
   return rows.map((r) => ({ businessId: r.business_id, venueIds: r.venue_ids.map(Number) }));
 }
 
-/** Delete them. Run inside the retention run's transaction. */
-export async function deleteStaleDrafts(): Promise<number> {
+/**
+ * Delete them. Run inside the retention run's transaction. Their photos'
+ * files are not in the database, so their names are added to `photoKeys`
+ * for the caller to remove once the transaction has committed.
+ */
+export async function deleteStaleDrafts(photoKeys: string[] = []): Promise<number> {
   const db = getDb();
   const due = await staleDrafts();
   for (const { businessId, venueIds } of due) {
     const v = venueIds.map(() => "?").join(",");
+    photoKeys.push(
+      ...((await db.prepare(`SELECT key FROM venue_photos WHERE venue_id IN (${v})`).all(...venueIds)) as { key: string }[]).map((r) => r.key)
+    );
     const courts = `SELECT id FROM courts WHERE venue_id IN (${v})`;
     // Children before parents, and whatever names one of its accounts
     // before the accounts.
@@ -65,6 +72,7 @@ export async function deleteStaleDrafts(): Promise<number> {
       `DELETE FROM venue_payment_accounts WHERE venue_id IN (${v})`,
       `DELETE FROM storefront_venues WHERE venue_id IN (${v})`,
       `DELETE FROM venue_applications WHERE venue_id IN (${v})`,
+      `DELETE FROM venue_photos WHERE venue_id IN (${v})`,
     ];
     for (const sql of steps) {
       // Each list of venues in the statement takes the ids again.

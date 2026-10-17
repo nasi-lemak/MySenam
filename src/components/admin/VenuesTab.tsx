@@ -16,6 +16,9 @@ import { BranchRequestPanel, BusinessesPanel } from "./BusinessPanels";
 import type { ManagedVenue } from "./shared";
 import type { MapPoint } from "@/components/PinMap";
 import PinPicker, { PIN_TEXT_EN } from "@/components/PinPicker";
+import { FacilitiesEditor } from "./FacilitiesEditor";
+import { PhotosEditor } from "./PhotosEditor";
+import { RecentPhotosPanel } from "./RecentPhotosPanel";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -108,6 +111,8 @@ export function VenuesTab({
           )}
         </div>
       </section>
+
+      {isOwner && <RecentPhotosPanel />}
 
       {isManager && <BranchRequestPanel businessName={admin.businessName ?? "your business"} onChange={() => void onChange()} />}
 
@@ -636,6 +641,8 @@ function VenueRow({
         Save
       </button>
       <VenueStanding venue={venue} isOwner={isOwner} onSave={onSave} />
+      <FacilitiesEditor key={venue.amenities.join(",")} venue={venue} onSave={onSave} />
+      <PhotosEditor venue={venue} />
     </div>
   );
 }

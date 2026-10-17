@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { courtAccess, getCourt, updateCourt } from "@/lib/store";
+import { courtAccess, getCourt, setCourtFeatures, updateCourt } from "@/lib/store";
+import { isSurface, type CourtFeatures } from "@/lib/facilities";
 import { MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, MIN_ACCESS_CODE } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -140,8 +141,31 @@ export async function PATCH(
     changes.accessCode = accessCode as string | null;
   }
 
-  if (Object.keys(changes).length === 0)
+  // What the court is like, for players comparing venues.
+  const input = (body ?? {}) as Record<string, unknown>;
+  const features: Partial<CourtFeatures> = {};
+  if (input.setting !== undefined) {
+    if (input.setting !== null && input.setting !== "indoor" && input.setting !== "outdoor")
+      return NextResponse.json({ error: "Indoor, outdoor, or not said." }, { status: 400 });
+    features.setting = input.setting;
+  }
+  for (const flag of ["aircon", "floodlit"] as const) {
+    if (input[flag] === undefined) continue;
+    if (typeof input[flag] !== "boolean") return NextResponse.json({ error: `${flag} must be true or false.` }, { status: 400 });
+    features[flag] = input[flag];
+  }
+  if (input.surface !== undefined) {
+    if (input.surface !== null && !isSurface(input.surface))
+      return NextResponse.json({ error: "Choose a surface from the list." }, { status: 400 });
+    features.surface = input.surface;
+  }
+
+  if (Object.keys(changes).length === 0 && Object.keys(features).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
+  if (Object.keys(changes).length === 0) {
+    const updated = await setCourtFeatures(courtId, features);
+    return NextResponse.json({ court: updated, access: await courtAccess(courtId) }, { headers: { "Cache-Control": "no-store" } });
+  }
 
   const result = await updateCourt(courtId, changes);
   if (!result.ok)
@@ -149,8 +173,10 @@ export async function PATCH(
       { error: result.error },
       { status: result.error === "Court not found." ? 404 : 409 }
     );
+  // Only once the rest has been accepted, so a refused change changes nothing.
+  const saved = Object.keys(features).length > 0 ? ((await setCourtFeatures(courtId, features)) ?? result.court) : result.court;
   return NextResponse.json(
-    { court: result.court, access: await courtAccess(courtId) },
+    { court: saved, access: await courtAccess(courtId) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

@@ -6,6 +6,10 @@ import { serverT } from "@/lib/locale";
 import { currentStorefront } from "@/lib/storefront";
 import { Sport, SPORT_ICONS } from "@/lib/types";
 import { sportLabel } from "@/lib/i18n";
+import { FILTER_CHIPS, FILTER_ICONS, highlights, readFacilityFilters, type FilterChip } from "@/lib/facilities";
+import { Highlights } from "@/components/VenueFacilities";
+import { coversFor } from "@/lib/photos";
+import { photoAt, srcSet } from "@/lib/photos-shared";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +19,7 @@ const AREA_CHIPS = 12;
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ area?: string; page?: string; near?: string; km?: string; where?: string }>;
+  searchParams: Promise<{ area?: string; page?: string; near?: string; km?: string; where?: string; has?: string }>;
 }) {
   const storefront = await currentStorefront();
   // A one-venue storefront is that venue's website: straight to its booking page.
@@ -30,17 +34,26 @@ export default async function HomePage({
   const area = !near && areas.some((a) => a.area === query.area) ? query.area : undefined;
   // One page of venues, never all of them: with thousands, all of them is
   // megabytes of page for somebody who wants the court down the road.
+  // Must have: air-con, showers, parking...
+  const wanted = readFacilityFilters(query.has);
+  const has = FILTER_CHIPS.filter((f) => (wanted.amenities as string[]).includes(f) || (wanted.courts as string[]).includes(f));
   const { venues, total, page, pageSize } = await listVenuePage({
     area,
     venueIds,
     near: near ?? undefined,
+    amenities: wanted.amenities,
+    courtFilters: wanted.courts,
     page: Number(query.page) || 1,
   });
+  // One small picture each, if the venue has one.
+  const covers = await coversFor(venues.map((v) => v.id));
   const t = await serverT();
   const sportsOffered = await sportsOfferedAt(venueIds);
-  const link = (to: { area?: string; page?: number }) => {
+  const link = (to: { area?: string; page?: number; has?: FilterChip[] }) => {
     const params = new URLSearchParams();
     if (to.area) params.set("area", to.area);
+    const keep = to.has ?? has;
+    if (keep.length > 0) params.set("has", keep.join(","));
     if (near) {
       params.set("near", `${near.lat},${near.lng}`);
       params.set("km", String(near.km));
@@ -116,6 +129,7 @@ export default async function HomePage({
           ) : (
             // Plain GET form: works before any JavaScript has loaded.
             <form action="/" method="get" className="mt-4 flex gap-2 text-sm">
+              {has.length > 0 && <input type="hidden" name="has" value={has.join(",")} />}
               <select
                 name="area"
                 defaultValue={area ?? ""}
@@ -136,6 +150,27 @@ export default async function HomePage({
               </button>
             </form>
           ))}
+        <nav className="mt-4 flex flex-wrap items-center gap-2 text-sm" aria-label={t("fac.filterTitle")}>
+          <span className="text-slate-500">{t("fac.filterTitle")}:</span>
+          {FILTER_CHIPS.map((f) => {
+            const on = has.includes(f);
+            return (
+              <Link
+                key={f}
+                href={link({ area, has: on ? has.filter((x) => x !== f) : [...has, f] })}
+                aria-pressed={on}
+                className={`rounded-full border px-3 py-1 ${on ? "border-teal-600 bg-teal-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500"}`}
+              >
+                {FILTER_ICONS[f]} {t(`fac.${f}`)}
+              </Link>
+            );
+          })}
+          {has.length > 0 && (
+            <Link href={link({ area, has: [] })} className="text-teal-700 underline">
+              {t("fac.clear")}
+            </Link>
+          )}
+        </nav>
         {venues.length === 0 && (
           <p className="mt-6 text-slate-500">{near ? t("near.none", { km: near.km }) : t("home.noVenues")}</p>
         )}
@@ -143,12 +178,34 @@ export default async function HomePage({
           {venues.map((venue) => {
             const sportsHere = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
             const minRate = Math.min(...venue.courts.map((c) => c.offPeakRate));
+            const cover = covers.get(venue.id);
             return (
               <Link
                 key={venue.id}
                 href={`/venue/${venue.id}`}
-                className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500 hover:shadow-md"
+                className="group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500 hover:shadow-md"
               >
+                {/* The same height with a photo or without, so no card looks lesser for having none. */}
+                <div
+                  className="flex aspect-[16/9] items-center justify-center bg-teal-50 text-4xl"
+                  style={cover ? { backgroundColor: cover.color } : undefined}
+                >
+                  {cover ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photoAt(cover, 400)}
+                      srcSet={srcSet(cover)}
+                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                      alt={cover.caption ?? venue.name}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span aria-hidden>{sportsHere.slice(0, 3).map((s) => SPORT_ICONS[s]).join(" ")}</span>
+                  )}
+                </div>
+                <div className="flex flex-1 flex-col p-5">
                 <div className="text-lg font-semibold group-hover:text-teal-700">{venue.name}</div>
                 <div className="mt-1 text-sm text-slate-500">
                   📍 {venue.area}
@@ -164,6 +221,9 @@ export default async function HomePage({
                     </span>
                   ))}
                 </div>
+                <div className="mt-3">
+                  <Highlights t={t} items={highlights(venue.courts, venue.amenities)} />
+                </div>
                 <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
                   <span className="text-slate-500">
                     {t.plural("home.courts", venue.courts.length)}
@@ -173,6 +233,7 @@ export default async function HomePage({
                       {t("home.fromRate", { rate: minRate })}
                     </span>
                   )}
+                </div>
                 </div>
               </Link>
             );

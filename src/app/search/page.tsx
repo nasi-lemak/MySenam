@@ -18,6 +18,9 @@ import { translateError } from "@/lib/i18n";
 import { INTL_TAGS, sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { NearPicker, type NearChoice } from "@/components/NearPicker";
+import { Highlights } from "@/components/VenueFacilities";
+import { FILTER_CHIPS, FILTER_ICONS, highlights, type FilterChip } from "@/lib/facilities";
+import { photoAt, type Photo } from "@/lib/photos-shared";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
@@ -82,6 +85,8 @@ export default function SearchPage() {
   const [duration, setDuration] = useState(1);
   const [area, setArea] = useState("");
   const [near, setNear] = useState<NearChoice | null>(null);
+  const [has, setHas] = useState<FilterChip[]>([]);
+  const [covers, setCovers] = useState<Record<string, Photo>>({});
   const [areas, setAreas] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   // A whole marketplace is too many courts to search at once; the server says
@@ -106,10 +111,12 @@ export default function SearchPage() {
         params.set("near", `${near.lat.toFixed(5)},${near.lng.toFixed(5)}`);
         params.set("km", String(near.km));
       } else if (area) params.set("area", area);
+      if (has.length > 0) params.set("has", has.join(","));
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
       setResults(data.results);
+      setCovers(data.covers ?? {});
       setAreas(data.areas);
       setNeedsArea(Boolean(data.needsArea));
     } catch (err) {
@@ -118,7 +125,7 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, [sport, date, fromHour, toHour, duration, area, near, t]);
+  }, [sport, date, fromHour, toHour, duration, area, near, has, t]);
 
   useEffect(() => {
     search();
@@ -229,6 +236,23 @@ export default function SearchPage() {
           </label>
         </div>
         <NearPicker value={near} onChange={setNear} />
+        <div className="flex flex-wrap items-center gap-2 text-sm" role="group" aria-label={t("fac.filterTitle")}>
+          <span className="text-slate-500">{t("fac.filterTitle")}:</span>
+          {FILTER_CHIPS.map((f) => {
+            const on = has.includes(f);
+            return (
+              <button
+                key={f}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setHas(on ? has.filter((x) => x !== f) : [...has, f])}
+                className={`rounded-full border px-3 py-1 ${on ? "border-teal-600 bg-teal-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500"}`}
+              >
+                {FILTER_ICONS[f]} {t(`fac.${f}`)}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {error && (
@@ -271,6 +295,19 @@ export default function SearchPage() {
                           {t("search.to", { time: formatHour(g.endHour) })}
                         </div>
                       </div>
+                      {covers[g.venueId] && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={photoAt(covers[g.venueId], 400)}
+                          alt=""
+                          width={64}
+                          height={48}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-12 w-16 shrink-0 rounded-md object-cover"
+                          style={{ backgroundColor: covers[g.venueId].color }}
+                        />
+                      )}
                       <div className="min-w-[12rem] flex-1">
                         <div className="font-medium">{g.venueName}</div>
                         <div className="text-sm text-slate-500">
@@ -284,6 +321,7 @@ export default function SearchPage() {
                             </span>
                           )}
                         </div>
+                        <Highlights t={t} items={highlights([cheapest.court], cheapest.venue.amenities ?? [])} />
                       </div>
                       <div className="text-right">
                         <div className="font-bold">RM{cheapest.totalPrice}</div>

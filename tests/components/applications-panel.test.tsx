@@ -64,10 +64,9 @@ describe("an application waiting", () => {
 
     const boxes = screen.getAllByRole("checkbox");
     expect(boxes).toHaveLength(REVIEW_CHECKS.length);
-    fireEvent.click(boxes[0]);
-    fireEvent.click(boxes[1]);
+    for (const box of boxes.slice(0, -1)) fireEvent.click(box);
     expect(approve.disabled).toBe(true);
-    fireEvent.click(boxes[2]);
+    fireEvent.click(boxes[boxes.length - 1]);
     expect(approve.disabled).toBe(false);
 
     await act(async () => {

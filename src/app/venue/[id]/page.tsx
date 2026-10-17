@@ -9,6 +9,9 @@ import { currentStorefront, shows } from "@/lib/storefront";
 import { mayShowVenue, pageAdmin } from "@/lib/listing";
 import { listOutages } from "@/lib/outages";
 import PinMap from "@/components/PinMap";
+import { VenueFacilities } from "@/components/VenueFacilities";
+import { VenueGallery } from "@/components/VenueGallery";
+import { venuePhotos } from "@/lib/photos";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,7 @@ export default async function VenuePage({
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
   // Courts out for a stretch that touches the booking window.
   const outages = (await listOutages([venue.id])).filter((o) => o.startsOn <= dates[dates.length - 1]);
+  const photos = await venuePhotos(venue.id);
 
   return (
     <div className="space-y-6">
@@ -80,6 +84,11 @@ export default async function VenuePage({
             : t("venue.cancelAnyTime")}
         </p>
       </div>
+      <VenueGallery
+        photos={photos}
+        venueName={venue.name}
+        labels={{ close: t("photos.close"), prev: t("photos.prev"), next: t("photos.next") }}
+      />
       {closures.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="font-semibold">{t("venue.closures")}</span>{" "}
@@ -105,11 +114,11 @@ export default async function VenuePage({
             .join(" · ")}
         </div>
       )}
-      {venue.lat !== null && venue.lng !== null && (
-        <div className="max-w-xl">
-          <PinMap pin={{ lat: venue.lat, lng: venue.lng }} height={180} />
-        </div>
-      )}
+      {/* What it has, and where it is, side by side on a wide screen. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <VenueFacilities t={t} venue={venue} />
+        {venue.lat !== null && venue.lng !== null && <PinMap pin={{ lat: venue.lat, lng: venue.lng }} height={180} />}
+      </div>
       <LiveOccupancy venueId={venue.id} />
       <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
     </div>

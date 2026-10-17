@@ -10,6 +10,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Waitlists** — when a court hour or class is full, customers queue instead; a cancellation offers it to whoever has waited longest, held for 30 minutes before passing on
 - **Instructor-led classes** (`/classes`) — schedule a session or a whole weekly term on a shared facility; customers enrol rather than book, the resource is reserved while the class runs, and staff get a live roster showing who has checked in
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
+- **Facilities and photos** — each venue ticks what it has (showers, parking, surau, near LRT/MRT…) from a fixed list and says what each court is like (indoor, air-con, floodlit, surface); players see it on the venue page and on every card, and filter by it. A cover and up to five photos, optional, checked and redrawn as small WebP files, lazy-loaded so the booking grid never waits
 - **Live availability grid** — per venue, per sport, per day, with hourly slots inside that venue's own trading hours
 - **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
 - **"Any court"** — a row above the grid for customers who do not mind which court; it shows the cheapest free rate each hour and books the cheapest court free for the whole slot
@@ -170,6 +171,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_BACKUP_HOUR` | `3` | The hour, Malaysia time, of the nightly backup |
 | `MYSENAM_SCHEDULER` | on in production | `off` to leave nightly backups and message sending to your own cron |
 | `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
+| `PHOTOS_S3_*` | — | A bucket of its own for venue photos (`ENDPOINT`, `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION`); without one, photos go in the data folder. See *Venue photos* |
+| `PHOTOS_PUBLIC_URL` | — | The photo bucket's public address, so browsers fetch photos from it rather than through this server |
 | `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |
 | `MYSENAM_SEND` | — | `log` writes customer messages to the server log instead of sending them |
 | `WHATSAPP_TOKEN` | — | A WhatsApp Cloud API access token. With the next one, sends messages on WhatsApp |
@@ -409,8 +412,9 @@ live, with the evidence in front of them.
 - **Looked up again when it asks.** The details checked are the venue's as
   they are when it asks to go live, not as they were at sign-up.
 - **What the owner checked.** *Approve* stays greyed out until they tick
-  that they looked at the map, phoned the venue's number, and found the
-  business somewhere besides this form. What was ticked is recorded with the
+  that they looked at the map, phoned the venue's number, found the
+  business somewhere besides this form, and that any photos show this
+  venue. What was ticked is recorded with the
   approval, and the venue keeps its pin.
 - **Branches** are added by a signed-in manager as drafts, so there is no
   email to confirm, but they have a pin and the same checks when they ask to
@@ -903,6 +907,71 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
 
 The box arithmetic — sizes, who moves, the order for next season — is in
 `src/lib/boxes.ts`, apart from the database, and tested on its own.
+
+## Facilities: what players compare
+
+What a venue has besides its courts, and what each court is like, so players
+can compare venues and search by it.
+
+- **Worked out, never typed:** per sport, how many courts and the cheapest
+  hour, and the opening hours — from the courts themselves, so they cannot
+  go out of date.
+- **Ticked by the venue, from a fixed list** under *Venue details →
+  Facilities*: showers, changing rooms, lockers, toilets, free or paid
+  parking, near LRT/MRT, surau, drinking water, café, pro shop, racket
+  stringing, equipment rental, coaching, wheelchair access, first aid, Wi-Fi,
+  spectator seating. A fixed list rather than free text, so two venues can be
+  put side by side and searched; anything else belongs in a photo caption.
+- **Per court**, under *Courts & rates*: indoor or outdoor, air-conditioned,
+  floodlit, and for court sports the surface (wooden floor, court mat, hard
+  court, clay, artificial turf, interlocking tiles, concrete). Saved as soon
+  as it is changed.
+- **Players see** a *Facilities* panel on the venue's page (per sport: courts,
+  indoor/outdoor, air-con, surface, from-price; then the facilities), and up
+  to four highlights on each card: air-con or indoor, floodlights, then
+  showers, parking, surau and LRT/MRT, in that order.
+- **Players filter** by *Must have* chips on the home page and in search:
+  air-con, indoor, showers, parking (free or paid), surau, near LRT/MRT
+  (`?has=aircon,showers`). Court features apply to the same court as the
+  sport asked for: air-con badminton finds venues with an air-conditioned
+  badminton court, not any air-conditioned room. In search, only courts with
+  the feature are offered.
+- What a venue ticks is its own claim. Photos are what back it up.
+
+## Venue photos
+
+A cover and up to five more, under *Venue details → Photos*. All optional:
+nothing waits on them, going live included, and the setup checklist only
+suggests them.
+
+- **Only real pictures.** JPEG, PNG or WebP, up to 15 MB and 50 megapixels,
+  checked by what the file is rather than its name, and by the decoder as
+  well as the first bytes. SVG — a program as much as a picture — GIF and
+  everything else are refused. Thirty uploads an hour per address.
+- **Drawn afresh, never kept as sent.** Each is turned the way the camera
+  held it and re-encoded as WebP (quality 78) at 400, 800 and 1600 pixels
+  wide, never enlarged. Only the pixels survive: no GPS position, no camera
+  details, nothing a crafted file could carry. The original is not stored.
+  WebP rather than AVIF, which is a fifth smaller but takes seconds of
+  processor per photo on a small server.
+- **Never in the way.** Every picture is lazy-loaded, sized by the browser
+  from the three widths, and sits in a box of fixed shape filled with its own
+  main colour until it arrives, so nothing jumps and the booking grid never
+  waits for one. Search results get a small thumbnail; cards get the cover,
+  and a venue without one gets its sports' icons in the same space, so no card
+  looks lesser for having none. Photos play no part in the order venues are
+  listed.
+- **Where they are kept.** In their own bucket when `PHOTOS_S3_*` is set — not
+  the backup bucket, which must stay private and whose key may only upload —
+  served straight from `PHOTOS_PUBLIC_URL` when it is set (an R2 public
+  bucket, or a domain in front of it), otherwise through `/photos/...` on this
+  server. With no bucket, in `photos/` in the data folder. Either way they are
+  not in the database, so backups do not grow with them. Every file name is
+  new, so browsers and caches keep them for a year.
+- **Looked at.** Going live asks the platform owner to confirm any photos show
+  this venue. Photos added since are listed for the owner under *New photos*
+  for 14 days, with *Remove*. A draft deleted for going stale takes its photo
+  files with it.
 
 ## Courts near me
 

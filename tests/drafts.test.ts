@@ -233,7 +233,13 @@ describe("a draft nobody came back to", () => {
     expect((await staleDrafts()).some((d) => d.venueIds.includes(venueId))).toBe(true);
     expect((await retentionDue()).find((l) => l.what.startsWith("Draft venues"))!.affected).toBeGreaterThan(0);
 
-    await deleteStaleDrafts();
+    // A photo's files are not in the database: their names come back, to remove once it commits.
+    await getDb()
+      .prepare("INSERT INTO venue_photos (venue_id, key, width, height, color, position) VALUES (?, ?, 800, 600, '#000000', 0)")
+      .run(venueId, `venues/${venueId}/00112233445566ff`);
+    const photoKeys: string[] = [];
+    await deleteStaleDrafts(photoKeys);
+    expect(photoKeys).toEqual([`venues/${venueId}/00112233445566ff`]);
     expect(await getDb().prepare("SELECT 1 FROM venues WHERE id = ?").get(venueId)).toBeUndefined();
     expect(await getDb().prepare("SELECT 1 FROM courts WHERE id = ?").get(courtId)).toBeUndefined();
     expect(await authenticateAdmin(`dee${n}@draft.my`, "a long enough password")).toBeNull();

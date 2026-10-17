@@ -21,6 +21,8 @@ export const POLICIES = {
   /** Password endpoints: slow guessing without locking out a shared office IP. */
   login: { limit: 10, windowMs: 10 * MINUTE },
   register: { limit: 5, windowMs: 60 * MINUTE },
+  /** Each photo is drawn three times over; plenty for a venue, too few to keep a server busy. */
+  photoUpload: { limit: 30, windowMs: 60 * MINUTE },
   /** Booking codes are short, so lookup/cancel are guessable without this. */
   bookingLookup: { limit: 20, windowMs: 10 * MINUTE },
   /** Stops a script filling a venue's day with junk bookings. */

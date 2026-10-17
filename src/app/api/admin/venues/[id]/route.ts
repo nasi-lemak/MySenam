@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { tellOwners } from "@/lib/owner-alerts";
 import { markDetailsChecked } from "@/lib/setup";
-import { getVenue, setVenuePin, updateVenue } from "@/lib/store";
+import { getVenue, setVenueAmenities, setVenuePin, updateVenue } from "@/lib/store";
+import { isAmenity } from "@/lib/facilities";
 import { formatDistance, inMalaysia, readPoint } from "@/lib/geo";
 import { FAR_FROM_ADDRESS_M } from "@/lib/applications";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
@@ -112,7 +113,15 @@ export async function PATCH(
     if (!inMalaysia(pin)) return NextResponse.json({ error: "The pin is outside Malaysia." }, { status: 400 });
   }
 
-  if (Object.keys(changes).length === 0 && !pin)
+  // What it offers, from the fixed list: replaced whole.
+  let amenities: string[] | null = null;
+  if (input.amenities !== undefined) {
+    if (!Array.isArray(input.amenities) || !input.amenities.every(isAmenity))
+      return NextResponse.json({ error: "Choose facilities from the list." }, { status: 400 });
+    amenities = input.amenities;
+  }
+
+  if (Object.keys(changes).length === 0 && !pin && !amenities)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
   const before = await getVenue(venueId);
@@ -122,6 +131,7 @@ export async function PATCH(
       { error: result.error },
       { status: result.error === "Venue not found." ? 404 : 400 }
     );
+  if (amenities) await setVenueAmenities(venueId, amenities.filter(isAmenity));
   // Saving the venue's details is the owner having looked at its hours.
   await markDetailsChecked(venueId);
   // A venue's name is what customers trust. An operator may change their own,
@@ -145,5 +155,5 @@ export async function PATCH(
       );
     return NextResponse.json({ venue: (await getVenue(venueId)) ?? result.venue });
   }
-  return NextResponse.json({ venue: result.venue });
+  return NextResponse.json({ venue: amenities ? ((await getVenue(venueId)) ?? result.venue) : result.venue });
 }

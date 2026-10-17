@@ -4,6 +4,7 @@ import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
 import { bookingCancelled, forgetPlayer } from "./games";
 import { withdraw } from "./tournaments";
 import { forgetLeaguePlayer } from "./leagues";
+import { removeVenuePhotoFiles } from "./photos";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -197,8 +198,10 @@ export async function pruneOldData(): Promise<PruneResult> {
   const db = getDb();
   const today = todayISO();
   const lines = await retentionDue();
+  let photoKeys: string[] = [];
 
   await db.transaction(async () => {
+    photoKeys = [];
     for (const rule of RULES) {
       const cutoff = addDays(today, -rule.days);
       await db
@@ -209,7 +212,7 @@ export async function pruneOldData(): Promise<PruneResult> {
         )
         .run(cutoff);
     }
-    await deleteStaleDrafts();
+    await deleteStaleDrafts(photoKeys);
     await db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
     await db.prepare(
@@ -217,6 +220,8 @@ export async function pruneOldData(): Promise<PruneResult> {
         " ON CONFLICT(key) DO UPDATE SET value = datetime('now')"
     ).run();
   })();
+  // The photo files of drafts deleted, now the deletion has stuck.
+  await removeVenuePhotoFiles(photoKeys);
 
   return {
     ranAt: new Date().toISOString(),

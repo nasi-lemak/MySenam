@@ -3,6 +3,17 @@ import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
 import { OPEN_TO_CUSTOMERS } from "./listing";
 import { distanceM, inMalaysia, readPoint } from "./geo";
+import {
+  amenitiesFor,
+  cleanAmenities,
+  courtFilterSql,
+  type Amenity,
+  type AmenityFilter,
+  type CourtFeatures,
+  type CourtFilter,
+  type Setting,
+  type Surface,
+} from "./facilities";
 import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -86,6 +97,10 @@ interface CourtRow {
   unmanned: number;
   access_code: string | null;
   access_code_changed_at: string | null;
+  setting: Setting | null;
+  aircon: number;
+  floodlit: number;
+  surface: Surface | null;
 }
 
 interface VenueRow {
@@ -107,6 +122,7 @@ interface VenueRow {
   suspended_reason: string | null;
   lat: number | null;
   lng: number | null;
+  amenities: string[] | null;
 }
 
 function toVenue(r: VenueRow): Venue {
@@ -129,6 +145,7 @@ function toVenue(r: VenueRow): Venue {
     suspendedReason: r.suspended_reason,
     lat: r.lat,
     lng: r.lng,
+    amenities: cleanAmenities(r.amenities),
   };
 }
 
@@ -274,6 +291,10 @@ function toCourt(r: CourtRow): Court {
     capacity: r.capacity,
     deposit: r.deposit,
     unmanned: r.unmanned === 1,
+    setting: r.setting ?? null,
+    aircon: r.aircon === 1,
+    floodlit: r.floodlit === 1,
+    surface: r.surface ?? null,
   };
 }
 
@@ -648,6 +669,22 @@ export interface SearchInput {
   venueIds?: number[];
   /** Only venues within this distance of here, nearest first. */
   near?: Near;
+  /** Only venues with all of these (lib/facilities.ts). */
+  amenities?: AmenityFilter[];
+  /** Only courts with all of these: air-con, indoor, floodlit. */
+  courtFilters?: CourtFilter[];
+}
+
+/** `WHERE` clauses for venues `v` that have every one of these, with their parameters. */
+function amenityClauses(filters: AmenityFilter[] | undefined): { clauses: string[]; params: string[] } {
+  const clauses: string[] = [];
+  const params: string[] = [];
+  for (const f of filters ?? []) {
+    const any = amenitiesFor(f);
+    clauses.push(`(${any.map(() => "? = ANY(v.amenities)").join(" OR ")})`);
+    params.push(...any);
+  }
+  return { clauses, params };
 }
 
 /** Somewhere to search around, and how far out. */
@@ -711,7 +748,14 @@ export const VENUE_PAGE_SIZE = 24;
 const MAX_VENUE_PAGE_SIZE = 100;
 
 /** `WHERE` for the public venue list, shared by the page and its counts. */
-function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[]; near?: Near }): {
+function venueFilter(opts: {
+  area?: string;
+  sport?: Sport;
+  venueIds?: number[];
+  near?: Near;
+  amenities?: AmenityFilter[];
+  courtFilters?: CourtFilter[];
+}): {
   sql: string;
   params: (string | number)[];
 } {
@@ -727,10 +771,18 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[]; 
     clauses.push("v.area = ?");
     params.push(opts.area);
   }
-  if (opts.sport) {
-    clauses.push("EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id AND c.sport = ?)");
-    params.push(opts.sport);
+  // One court of the sport with every feature asked for, not one court with
+  // air-con and another of a different sport that is indoor.
+  const features = (opts.courtFilters ?? []).map(courtFilterSql);
+  if (opts.sport || features.length > 0) {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id${opts.sport ? " AND c.sport = ?" : ""}${features.map((f) => ` AND ${f}`).join("")})`
+    );
+    if (opts.sport) params.push(opts.sport);
   }
+  const amenities = amenityClauses(opts.amenities);
+  clauses.push(...amenities.clauses);
+  params.push(...amenities.params);
   if (opts.near) {
     const box = nearBox(opts.near);
     const distance = distanceKmSql(opts.near);
@@ -750,7 +802,16 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[]; 
  * only their courts.
  */
 export async function listVenuePage(
-  opts: { area?: string; sport?: Sport; venueIds?: number[]; near?: Near; page?: number; pageSize?: number } = {}
+  opts: {
+    area?: string;
+    sport?: Sport;
+    venueIds?: number[];
+    near?: Near;
+    amenities?: AmenityFilter[];
+    courtFilters?: CourtFilter[];
+    page?: number;
+    pageSize?: number;
+  } = {}
 ): Promise<VenuePage> {
   const db = getDb();
   const pageSize = Math.min(Math.max(Math.trunc(opts.pageSize ?? VENUE_PAGE_SIZE), 1), MAX_VENUE_PAGE_SIZE);
@@ -873,7 +934,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.open_hour AS v_open, v.close_hour AS v_close,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
-           v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng
+           v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities
     FROM courts c JOIN venues v ON v.id = c.venue_id
     WHERE c.sport = ? AND ${OPEN_TO_CUSTOMERS}
   `;
@@ -891,6 +952,10 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     sql += ` AND ${box.sql}`;
     params.push(...box.params);
   }
+  for (const f of input.courtFilters ?? []) sql += ` AND ${courtFilterSql(f)}`;
+  const amenities = amenityClauses(input.amenities);
+  for (const clause of amenities.clauses) sql += ` AND ${clause}`;
+  params.push(...amenities.params);
   sql += " ORDER BY v.id, c.id";
 
   const rows = await db.prepare(sql).all(...params) as (CourtRow & {
@@ -909,6 +974,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_published_at: string | null;
     v_lat: number | null;
     v_lng: number | null;
+    v_amenities: string[] | null;
   })[];
   if (rows.length === 0) return [];
 
@@ -956,6 +1022,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       suspendedReason: null,
       lat: row.v_lat,
       lng: row.v_lng,
+      amenities: cleanAmenities(row.v_amenities),
     };
     // Inside the box, but is it inside the circle?
     let distanceKm: number | undefined;
@@ -1814,6 +1881,24 @@ export async function setVenuePin(venueId: number, pin: { lat: number; lng: numb
     | undefined;
   await db.prepare("UPDATE venues SET lat = ?, lng = ? WHERE id = ?").run(pin.lat, pin.lng, venueId);
   return old && old.lat !== null && old.lng !== null ? distanceM({ lat: old.lat, lng: old.lng }, pin) : null;
+}
+
+/** What a venue offers besides its courts, replaced whole: from the fixed list, nothing else. */
+export async function setVenueAmenities(venueId: number, amenities: Amenity[]): Promise<void> {
+  await getDb()
+    .prepare("UPDATE venues SET amenities = string_to_array(?, ',') WHERE id = ?")
+    .run(cleanAmenities(amenities).join(","), venueId);
+}
+
+/** What a court is like: indoor or outdoor, air-con, floodlights, surface. Only what is given changes. */
+export async function setCourtFeatures(courtId: number, f: Partial<CourtFeatures>): Promise<Court | null> {
+  const court = await getCourt(courtId);
+  if (!court) return null;
+  const next = { ...court, ...f };
+  await getDb()
+    .prepare("UPDATE courts SET setting = ?, aircon = ?, floodlit = ?, surface = ? WHERE id = ?")
+    .run(next.setting, next.aircon ? 1 : 0, next.floodlit ? 1 : 0, next.surface, courtId);
+  return getCourt(courtId);
 }
 
 export async function updateVenue(

@@ -610,5 +610,50 @@ async function seedIfEmpty(): Promise<void> {
     // A fleet, not a court: eight hulls share the hour, and each one goes out
     // of the building, so the desk holds a deposit against it.
     await court(lakeside, "Kayak Fleet", "kayak", 15, 20, 8, 50);
+
+    // What each offers and what its courts are like (lib/facilities.ts) —
+    // the same as migration 0013 gives the starter venues of an older install.
+    const describe = async (
+      venueId: number,
+      amenities: string[],
+      courts: Record<string, { setting: string; aircon?: boolean; floodlit?: boolean; surface?: string }>
+    ) => {
+      await tx.query("UPDATE venues SET amenities = string_to_array($1, ',') WHERE id = $2", [amenities.join(","), venueId]);
+      for (const [sport, f] of Object.entries(courts))
+        await tx.query("UPDATE courts SET setting = $1, aircon = $2, floodlit = $3, surface = $4 WHERE venue_id = $5 AND sport = $6", [
+          f.setting,
+          f.aircon ? 1 : 0,
+          f.floodlit ? 1 : 0,
+          f.surface ?? null,
+          venueId,
+          sport,
+        ]);
+    };
+    await describe(
+      arena,
+      ["showers", "changing_rooms", "lockers", "toilets", "free_parking", "surau", "drinking_water", "cafe", "equipment_rental", "wifi"],
+      {
+        badminton: { setting: "indoor", aircon: true, surface: "mat" },
+        pickleball: { setting: "indoor", aircon: true, surface: "hard" },
+        futsal: { setting: "indoor", aircon: true, surface: "tiles" },
+        gym: { setting: "indoor", aircon: true },
+      }
+    );
+    await describe(sunway, ["showers", "toilets", "paid_parking", "transit", "surau", "pro_shop", "stringing", "coaching"], {
+      badminton: { setting: "indoor", surface: "mat" },
+      tennis: { setting: "outdoor", floodlit: true, surface: "hard" },
+      swimming: { setting: "outdoor" },
+    });
+    await describe(
+      bangsar,
+      ["showers", "changing_rooms", "lockers", "toilets", "paid_parking", "transit", "cafe", "pro_shop", "coaching", "seating"],
+      {
+        tennis: { setting: "outdoor", floodlit: true, surface: "hard" },
+        pickleball: { setting: "indoor", aircon: true, surface: "hard" },
+      }
+    );
+    await describe(lakeside, ["changing_rooms", "lockers", "toilets", "free_parking", "first_aid", "drinking_water"], {
+      kayak: { setting: "outdoor" },
+    });
   });
 }

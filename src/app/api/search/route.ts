@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { countSearchCourts, listAreas, readNear, SEARCH_COURT_LIMIT, searchAvailability } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
+import { readFacilityFilters } from "@/lib/facilities";
+import { coversFor } from "@/lib/photos";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { CLOSE_HOUR, MAX_HOURS_PER_BOOKING, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
 
@@ -65,7 +67,14 @@ export async function GET(req: NextRequest) {
     area,
     venueIds,
     near,
+    // Must have: `has=aircon,showers`.
+    ...(() => {
+      const wanted = readFacilityFilters(params.get("has"));
+      return { amenities: wanted.amenities, courtFilters: wanted.courts };
+    })(),
   });
 
-  return NextResponse.json({ date, sport, duration, results, areas, needsArea: false });
+  // A thumbnail for each venue found that has one.
+  const covers = Object.fromEntries(await coversFor([...new Set(results.map((r) => r.venue.id))]));
+  return NextResponse.json({ date, sport, duration, results, areas, covers, needsArea: false });
 }

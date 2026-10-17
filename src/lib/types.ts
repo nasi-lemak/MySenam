@@ -1,4 +1,5 @@
 import type { ErrorCode } from "./i18n";
+import type { Amenity, CourtFeatures } from "./facilities";
 export type Sport =
   | "badminton"
   | "tennis"
@@ -70,6 +71,8 @@ export interface Venue {
   /** Where it is on the map; null for venues never pinned. */
   lat: number | null;
   lng: number | null;
+  /** What it offers besides its courts, from a fixed list (lib/facilities.ts). */
+  amenities: Amenity[];
 }
 
 /** True when nobody is behind the counter at this hour. */
@@ -100,7 +103,7 @@ export const MAX_CANCEL_CUTOFF_HOURS = 72;
  * 1 is a shared facility (gym floor, pool, class) where that many people can
  * hold the same hour.
  */
-export interface Court {
+export interface Court extends CourtFeatures {
   id: number;
   venueId: number;
   name: string;

@@ -6,6 +6,10 @@ import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPO
 import type { Court, Induction, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
+import { SURFACES, SURFACE_SPORTS, type CourtFeatures } from "@/lib/facilities";
+import { DICTIONARIES } from "@/lib/i18n";
+
+const SURFACE_LABEL = (x: string) => (DICTIONARIES.en as Record<string, string>)[`surface.${x}`] ?? x;
 
 /** What one row of the courts table can change in a save. */
 interface CourtEdits {
@@ -80,6 +84,25 @@ export function CourtsTab({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Update failed");
       setNotice(`Saved ${data.court.name}.`);
+      refreshVenues();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  /** What a court is like, saved as soon as it is changed. */
+  async function saveFeatures(court: Court, change: Partial<CourtFeatures>) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/courts/${court.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(change),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      setNotice(`Saved what ${data.court.name} is like.`);
       refreshVenues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
@@ -241,6 +264,23 @@ export function CourtsTab({
             </tbody>
           </table>
         </div>
+      )}
+
+      {venue && venue.courts.length > 0 && (
+        <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="font-semibold">What each court is like</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Players compare venues by these and can search for them — air-conditioned badminton, floodlit tennis. Saved
+            as soon as you change one.
+          </p>
+          <table className="mt-2 w-full min-w-[560px] text-sm">
+            <tbody>
+              {venue.courts.map((court) => (
+                <CourtFeaturesRow key={court.id} court={court} onFeatures={(change) => saveFeatures(court, change)} />
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {venue && <OutagesPanel key={venue.id} venueId={venue.id} courts={venue.courts} />}
@@ -566,6 +606,62 @@ function CourtRow({
         >
           Save
         </button>
+      </td>
+    </tr>
+  );
+}
+
+
+function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; onFeatures: (change: Partial<CourtFeatures>) => void }) {
+  // Shown changed at once, and saved behind it; the saved court replaces it when it comes back.
+  const [court, setCourt] = useState(saved);
+  useEffect(() => setCourt(saved), [saved]);
+  const onFeatures = (change: Partial<CourtFeatures>) => {
+    setCourt({ ...court, ...change });
+    save(change);
+  };
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="w-48 px-3 py-2 font-medium">
+        {SPORT_ICONS[court.sport]} {court.name}
+      </td>
+      <td className="px-3 py-2">
+        {/* For players comparing venues; saved as soon as it changes. */}
+        <div className="flex min-w-[15rem] flex-wrap items-center gap-2 text-xs">
+          <select
+            aria-label={`${court.name}: indoor or outdoor`}
+            value={court.setting ?? ""}
+            onChange={(e) => onFeatures({ setting: e.target.value === "" ? null : (e.target.value as "indoor" | "outdoor") })}
+            className="rounded-md border border-slate-200 px-1.5 py-1"
+          >
+            <option value="">Indoor/outdoor?</option>
+            <option value="indoor">Indoor</option>
+            <option value="outdoor">Outdoor</option>
+          </select>
+          <label className="flex items-center gap-1" title="Air-conditioned">
+            <input type="checkbox" checked={court.aircon} onChange={(e) => onFeatures({ aircon: e.target.checked })} />
+            ❄️ Air-con
+          </label>
+          <label className="flex items-center gap-1" title="Lit for playing after dark">
+            <input type="checkbox" checked={court.floodlit} onChange={(e) => onFeatures({ floodlit: e.target.checked })} />
+            💡 Lit
+          </label>
+          {SURFACE_SPORTS.includes(court.sport) && (
+            <select
+              aria-label={`${court.name}: surface`}
+              value={court.surface ?? ""}
+              onChange={(e) => onFeatures({ surface: e.target.value === "" ? null : (e.target.value as CourtFeatures["surface"]) })}
+              className="rounded-md border border-slate-200 px-1.5 py-1"
+            >
+              <option value="">Surface?</option>
+              {SURFACES.map((x) => (
+                <option key={x} value={x}>
+                  {SURFACE_LABEL(x)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </td>
     </tr>
   );

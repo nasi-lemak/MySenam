@@ -8,6 +8,8 @@ interface VenueSetup {
   detailsChecked: boolean;
   testBooking: boolean;
   onlinePayment: boolean;
+  photos: boolean;
+  facilities: boolean;
   dismissed: boolean;
   complete: boolean;
 }
@@ -99,6 +101,13 @@ export function SetupChecklist({
       optional: true,
       title: "Take payment online",
       body: "Optional. Customers can pay at the counter as they are. To take FPX and cards, connect your Billplz account under Venue details.",
+      actions: <Go onClick={() => onGo("venues")}>Venue details</Go>,
+    },
+    {
+      done: setup.photos && setup.facilities,
+      optional: true,
+      title: "Add a cover photo and your facilities",
+      body: "Optional. Players choose by these: a photo of your courts, and what you have — showers, parking, a surau, air-con. Under Venue details; what each court is like is under Courts & rates.",
       actions: <Go onClick={() => onGo("venues")}>Venue details</Go>,
     },
   ];
