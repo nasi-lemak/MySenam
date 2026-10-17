@@ -12,7 +12,7 @@ import {
   SPORTS,
   SPORT_ICONS,
 } from "@/lib/types";
-import type { SearchResult } from "@/lib/store";
+import type { SearchResult, SearchSort } from "@/lib/store";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { INTL_TAGS, sportLabel } from "@/lib/i18n";
@@ -87,6 +87,9 @@ export default function SearchPage() {
   const [near, setNear] = useState<NearChoice | null>(null);
   const [has, setHas] = useState<FilterChip[]>([]);
   const [covers, setCovers] = useState<Record<string, Photo>>({});
+  const [sortChoice, setSort] = useState<SearchSort>("soonest");
+  // Nearest means nothing without somewhere to be near.
+  const sort: SearchSort = sortChoice === "nearest" && !near ? "soonest" : sortChoice;
   const [areas, setAreas] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   // A whole marketplace is too many courts to search at once; the server says
@@ -112,6 +115,7 @@ export default function SearchPage() {
         params.set("km", String(near.km));
       } else if (area) params.set("area", area);
       if (has.length > 0) params.set("has", has.join(","));
+      if (sort !== "soonest") params.set("sort", sort);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
@@ -125,11 +129,18 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, [sport, date, fromHour, toHour, duration, area, near, has, t]);
+  }, [sport, date, fromHour, toHour, duration, area, near, has, sort, t]);
 
   useEffect(() => {
     search();
   }, [search]);
+
+  // The venue page says how far it is, from wherever the search was near.
+  const nearQuery = near
+    ? `&near=${near.lat.toFixed(5)},${near.lng.toFixed(5)}${near.where ? `&where=${encodeURIComponent(near.where)}` : ""}`
+    : "";
+  const bookHref = (r: SearchResult) =>
+    `/venue/${r.venue.id}?date=${date}&sport=${r.court.sport}&court=${r.court.id}&hour=${r.startHour}&duration=${r.endHour - r.startHour}${nearQuery}`;
 
   const selectClass =
     "mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -269,11 +280,17 @@ export default function SearchPage() {
         <div className="rounded-xl border border-teal-200 bg-teal-50 p-6 text-center text-teal-800">
           {near ? t("near.tooMany") : t("search.needsArea")}
         </div>
+      ) : results && results.length > 0 && sort !== "soonest" ? (
+        <div>
+          <SortBar t={t} sort={sort} onSort={setSort} near={near !== null} />
+          <VenueResults t={t} results={results} covers={covers} bookHref={bookHref} />
+        </div>
       ) : results && results.length > 0 ? (
         (() => {
           const groups = groupResults(results);
           return (
             <div>
+              <SortBar t={t} sort={sort} onSort={setSort} near={near !== null} />
               <p className="mb-3 text-sm text-slate-600">
                 {t.plural("search.count", groups.length)}{" "}
                 <span className="font-medium">{sportLabel(t, sport).toLowerCase()}</span>{" "}
@@ -330,7 +347,7 @@ export default function SearchPage() {
                         )}
                       </div>
                       <Link
-                        href={`/venue/${g.venueId}?date=${date}&sport=${cheapest.court.sport}&court=${cheapest.court.id}&hour=${g.startHour}&duration=${g.endHour - g.startHour}`}
+                        href={bookHref(cheapest)}
                         className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
                       >
                         {t("search.book")}
@@ -348,5 +365,99 @@ export default function SearchPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Soonest, nearest or cheapest; nearest only once there is somewhere to be near. */
+function SortBar({ t, sort, onSort, near }: { t: T; sort: SearchSort; onSort: (s: SearchSort) => void; near: boolean }) {
+  const options: SearchSort[] = near ? ["soonest", "nearest", "cheapest"] : ["soonest", "cheapest"];
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-sm" role="group" aria-label={t("search.sort")}>
+      <span className="text-slate-500">{t("search.sort")}:</span>
+      {options.map((o) => (
+        <button
+          key={o}
+          type="button"
+          aria-pressed={sort === o}
+          onClick={() => onSort(o)}
+          className={`rounded-full border px-3 py-1 ${sort === o ? "border-teal-600 bg-teal-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500"}`}
+        >
+          {t(`search.sort.${o}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One row per venue, in the order the server sent its best hour — nearest or
+ * cheapest — with every free start time under it, each straight to booking.
+ */
+function VenueResults({
+  t,
+  results,
+  covers,
+  bookHref,
+}: {
+  t: T;
+  results: SearchResult[];
+  covers: Record<string, Photo>;
+  bookHref: (r: SearchResult) => string;
+}) {
+  const venues = new Map<number, SearchResult[]>();
+  for (const r of results) venues.set(r.venue.id, [...(venues.get(r.venue.id) ?? []), r]);
+  return (
+    <>
+      <p className="mb-3 text-sm text-slate-600">{t.plural("search.venues", venues.size)}</p>
+      <ul className="space-y-2">
+        {[...venues.values()].map((slots) => {
+          const first = slots[0];
+          const times = [...slots].sort((a, b) => a.startHour - b.startHour);
+          const from = Math.min(...slots.map((s) => s.totalPrice));
+          const cover = covers[first.venue.id];
+          return (
+            <li key={first.venue.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                {cover && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={photoAt(cover, 400)}
+                    alt=""
+                    width={64}
+                    height={48}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-12 w-16 shrink-0 rounded-md object-cover"
+                    style={{ backgroundColor: cover.color }}
+                  />
+                )}
+                <div className="min-w-[12rem] flex-1">
+                  <div className="font-medium">{first.venue.name}</div>
+                  <div className="text-sm text-slate-500">
+                    📍 {first.venue.area}
+                    {first.distanceKm !== undefined && ` · ${t("near.away", { km: first.distanceKm })}`}
+                  </div>
+                  <Highlights t={t} items={highlights([first.court], first.venue.amenities ?? [])} />
+                </div>
+                <div className="text-right text-sm">
+                  <span className="text-slate-400">{t("search.fromPrice")}</span> <span className="font-bold">RM{from}</span>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {times.map((r) => (
+                  <Link
+                    key={r.startHour}
+                    href={bookHref(r)}
+                    className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-sm font-medium text-teal-800 hover:border-teal-500"
+                  >
+                    {formatHour(r.startHour)} <span className="font-normal text-teal-700">· RM{r.totalPrice}</span>
+                  </Link>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

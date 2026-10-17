@@ -182,7 +182,11 @@ export default async function HomePage({
             return (
               <Link
                 key={venue.id}
-                href={`/venue/${venue.id}`}
+                href={
+                  near
+                    ? `/venue/${venue.id}?near=${near.lat},${near.lng}${where ? `&where=${encodeURIComponent(where)}` : ""}`
+                    : `/venue/${venue.id}`
+                }
                 className="group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500 hover:shadow-md"
               >
                 {/* The same height with a photo or without, so no card looks lesser for having none. */}

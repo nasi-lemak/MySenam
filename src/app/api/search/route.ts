@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { countSearchCourts, listAreas, readNear, SEARCH_COURT_LIMIT, searchAvailability } from "@/lib/store";
+import { countSearchCourts, listAreas, readNear, SEARCH_COURT_LIMIT, SEARCH_SORTS, searchAvailability, type SearchSort } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
 import { readFacilityFilters } from "@/lib/facilities";
 import { coversFor } from "@/lib/photos";
@@ -58,7 +58,14 @@ export async function GET(req: NextRequest) {
   if (!area && (await countSearchCourts({ sport: sport as Sport, venueIds, near })) > SEARCH_COURT_LIMIT)
     return NextResponse.json({ date, sport, duration, results: [], areas, needsArea: true });
 
+  // `sort=nearest` needs somewhere to be near; without it, soonest.
+  const asked = params.get("sort");
+  const sort: SearchSort = SEARCH_SORTS.includes(asked as SearchSort) && (asked !== "nearest" || near) ? (asked as SearchSort) : "soonest";
+
   const results = await searchAvailability({
+    sort,
+    // By venue, each venue's times come together: room for more than the first few.
+    limit: sort === "soonest" ? undefined : 200,
     sport: sport as Sport,
     date,
     fromHour,
@@ -76,5 +83,5 @@ export async function GET(req: NextRequest) {
 
   // A thumbnail for each venue found that has one.
   const covers = Object.fromEntries(await coversFor([...new Set(results.map((r) => r.venue.id))]));
-  return NextResponse.json({ date, sport, duration, results, areas, covers, needsArea: false });
+  return NextResponse.json({ date, sport, duration, sort, results, areas, covers, needsArea: false });
 }

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { getVenue, listVenueClosures } from "@/lib/store";
+import { getVenue, listVenueClosures, readNear } from "@/lib/store";
+import { distanceM } from "@/lib/geo";
 import { todayISO, addDays, formatHour } from "@/lib/time";
 import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
@@ -44,6 +45,14 @@ export default async function VenuePage({
   // Courts out for a stretch that touches the booking window.
   const outages = (await listOutages([venue.id])).filter((o) => o.startsOn <= dates[dates.length - 1]);
   const photos = await venuePhotos(venue.id);
+  // Arrived from a search near somewhere: how far this is from there, as the crow flies.
+  const one = (key: string) => (Array.isArray(query[key]) ? query[key][0] : query[key]);
+  const near = readNear(one("near"));
+  const nearWhere = one("where")?.slice(0, 80) || null;
+  const awayKm =
+    near && venue.lat !== null && venue.lng !== null
+      ? Math.round(distanceM(near, { lat: venue.lat, lng: venue.lng }) / 100) / 10
+      : null;
 
   return (
     <div className="space-y-6">
@@ -59,6 +68,14 @@ export default async function VenuePage({
         <h1 className="text-2xl font-bold">{venue.name}</h1>
         <p className="mt-1 text-sm text-slate-600">
           📍 {venue.address} · ☎ {venue.phone}
+          {awayKm !== null && (
+            <>
+              {" · "}
+              <span className="font-medium text-slate-700">
+                {nearWhere ? t("venue.distanceFrom", { km: awayKm, where: nearWhere }) : t("venue.distanceFromYou", { km: awayKm })}
+              </span>
+            </>
+          )}
           {venue.lat !== null && venue.lng !== null && (
             <>
               {" · "}

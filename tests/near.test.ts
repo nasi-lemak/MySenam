@@ -69,3 +69,38 @@ describe("searching near somewhere", () => {
     expect(body.venues.map((v: { name: string }) => v.name)).toEqual(["Bangsar Racquet Club"]);
   });
 });
+
+describe("sorting a search", () => {
+  const date = addDays(todayISO(), 1);
+  const near = { ...BANGSAR, km: 50 };
+
+  it("nearest keeps each venue's hours together, the closest venue first", async () => {
+    const nearest = await searchAvailability({ sport: "badminton", date, near, sort: "nearest", limit: 200 });
+    expect([...new Set(nearest.map((r) => r.venue.name))]).toEqual(["Arena MySenam @ Petaling Jaya", "SmashPoint Sports Centre"]);
+    const firstOther = nearest.findIndex((r) => r.venue.name.startsWith("SmashPoint"));
+    expect(nearest.slice(firstOther).every((r) => r.venue.name.startsWith("SmashPoint"))).toBe(true);
+    // Still one row per venue and time, its cheapest court.
+    expect(new Set(nearest.map((r) => `${r.venue.id}:${r.startHour}`)).size).toBe(nearest.length);
+  });
+
+  it("cheapest puts the cheapest hour first; nearest with nowhere to be near is soonest", async () => {
+    const cheapest = await searchAvailability({ sport: "badminton", date, sort: "cheapest", limit: 200 });
+    expect(cheapest[0].venue.name).toBe("SmashPoint Sports Centre");
+    expect(cheapest.every((r, i) => i === 0 || cheapest[i - 1].totalPrice <= r.totalPrice)).toBe(true);
+    const nowhere = await searchAvailability({ sport: "badminton", date, sort: "nearest" });
+    expect(nowhere.every((r, i) => i === 0 || nowhere[i - 1].startHour <= r.startHour)).toBe(true);
+  });
+
+  it("through the route, asks for nearest only with a place, and says which it used", async () => {
+    const { GET } = await import("../src/app/api/search/route");
+    const without = await (await GET(new NextRequest(`http://localhost/api/search?sport=badminton&date=${date}&sort=nearest`))).json();
+    expect(without.sort).toBe("soonest");
+    const withPlace = await (
+      await GET(new NextRequest(`http://localhost/api/search?sport=badminton&date=${date}&sort=nearest&near=3.146,101.67&km=50`))
+    ).json();
+    expect(withPlace.sort).toBe("nearest");
+    expect(withPlace.results[0].venue.name).toBe("Arena MySenam @ Petaling Jaya");
+    const odd = await (await GET(new NextRequest(`http://localhost/api/search?sport=badminton&date=${date}&sort=sideways`))).json();
+    expect(odd.sort).toBe("soonest");
+  });
+});

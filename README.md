@@ -982,6 +982,19 @@ courts within 5, 10, 25 or 50 km, nearest first at each time. The address can
 be shared: `/?near=3.146,101.67&km=10`, and `/api/venues` and `/api/search`
 take the same `near` and `km`.
 
+Search results can be sorted three ways (`sort=` on `/api/search`):
+
+- **Soonest**, the default: by start time, the nearest venue first at each.
+- **Nearest**, offered only once there is a place: one row per venue, the
+  closest first, with every free start time under it as a button straight to
+  booking — for "the closest place with anything tonight".
+- **Cheapest**: one row per venue, the one with the cheapest hour first.
+
+Each venue and time is still its cheapest court whichever way it is sorted.
+Following a result or a card from a search near somewhere carries the place
+along, so the venue's page says "6 km from Bangsar" (or "from you") beside
+*Directions*. Distances are as the crow flies, not by road.
+
 It uses each venue's pin. Venues that signed up place one; staff move it, or
 add one to a venue that never had one, under *Venues & staff* (*Move the
 pin*). A venue with no pin is not found by distance. A live venue moving its

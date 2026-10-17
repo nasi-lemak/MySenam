@@ -518,6 +518,14 @@ const EN = {
   "search.moreCourts_other": " +{n} more courts free",
   "search.fromPrice": "from",
   "search.book": "Book",
+  "search.sort": "Sort",
+  "search.sort.soonest": "Soonest",
+  "search.sort.nearest": "Nearest",
+  "search.sort.cheapest": "Cheapest",
+  "search.venues_one": "{n} venue with a court free",
+  "search.venues_other": "{n} venues with a court free",
+  "venue.distanceFrom": "{km} km from {where}",
+  "venue.distanceFromYou": "{km} km from you",
   "search.none":
     "No {sport} courts free in that window. Try a wider time range, another day, or a different area.",
 
@@ -1296,6 +1304,14 @@ const MS: Record<Phrase, string> = {
   "search.moreCourts_other": " +{n} gelanggang lagi kosong",
   "search.fromPrice": "dari",
   "search.book": "Tempah",
+  "search.sort": "Susun",
+  "search.sort.soonest": "Paling awal",
+  "search.sort.nearest": "Paling dekat",
+  "search.sort.cheapest": "Paling murah",
+  "search.venues_one": "{n} pusat dengan gelanggang kosong",
+  "search.venues_other": "{n} pusat dengan gelanggang kosong",
+  "venue.distanceFrom": "{km} km dari {where}",
+  "venue.distanceFromYou": "{km} km dari anda",
   "search.none":
     "Tiada gelanggang {sport} kosong dalam waktu itu. Cuba julat waktu yang lebih luas, hari lain, atau kawasan lain.",
 

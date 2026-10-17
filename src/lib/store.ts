@@ -673,7 +673,15 @@ export interface SearchInput {
   amenities?: AmenityFilter[];
   /** Only courts with all of these: air-con, indoor, floodlit. */
   courtFilters?: CourtFilter[];
+  /**
+   * The order: the earliest start first (the default); the nearest venue
+   * first, which needs `near`; or the cheapest hour first.
+   */
+  sort?: SearchSort;
 }
+
+export const SEARCH_SORTS = ["soonest", "nearest", "cheapest"] as const;
+export type SearchSort = (typeof SEARCH_SORTS)[number];
 
 /** `WHERE` clauses for venues `v` that have every one of these, with their parameters. */
 function amenityClauses(filters: AmenityFilter[] | undefined): { clauses: string[]; params: string[] } {
@@ -1084,6 +1092,11 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     shown.set(key, r);
     fair.push(r);
   }
+  // Ordered as asked only now, so each venue and time is still its cheapest court.
+  if (input.sort === "nearest" && input.near)
+    fair.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id || a.startHour - b.startHour);
+  else if (input.sort === "cheapest")
+    fair.sort((a, b) => a.totalPrice - b.totalPrice || a.startHour - b.startHour || (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id);
   return fair.slice(0, limit);
 }
 
