@@ -16,7 +16,7 @@ import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapA
 import { registerUser, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { savePaymentSettings, settleBill, startEntryPayment } from "../src/lib/payments";
-import { createBooking, createVenue, getAvailability, listVenues } from "../src/lib/store";
+import { createBooking, createVenue, getAvailability, joinSlotWaitlist, listVenues, listWaitlistFor } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import {
   cancelTournament,
@@ -275,6 +275,62 @@ describe("groups, then a knockout", () => {
       [g2[0], g1[1]],
     ]);
     expect((await playOut(t.id)).status).toBe("finished");
+  });
+});
+
+describe("court time", () => {
+  const heldHours = async (id: number) =>
+    (
+      (await getDb()
+        .prepare("SELECT court_id, hour FROM slot_blocks WHERE tournament_id = ? ORDER BY court_id, hour")
+        .all(id)) as { court_id: number; hour: number }[]
+    ).map((b) => `${b.court_id}:${b.hour}`);
+
+  it("is held whole until the draw, then only from each court's first match to its last", async () => {
+    const t = await tournament();
+    await entries(t.id, 4);
+    expect(await heldHours(t.id)).toHaveLength(24);
+    const drawn = await makeDraw(t.id, fixed);
+    if (!drawn.ok) throw new Error(drawn.error);
+    // Two semi-finals side by side at 9, the final at 10 on the first court.
+    expect(await heldHours(t.id)).toEqual([`${courts[0]}:9`, `${courts[0]}:10`, `${courts[1]}:9`]);
+    const grid = await getAvailability(venueId, t.startsOn);
+    const at = (court: number, hour: number) => grid.find((g) => g.court.id === court)!.slots.find((x) => x.hour === hour)!.available;
+    expect(at(courts[0], 10)).toBe(false);
+    expect(at(courts[0], 11)).toBe(true);
+    expect(at(courts[1], 10)).toBe(true);
+  });
+
+  it("keeps the hours between matches, gives back what a walkover leaves at the end, and everything once it is won", async () => {
+    const t = await tournament({ courtIds: [courts[0]] });
+    const field = await entries(t.id, 4);
+    const drawn = await makeDraw(t.id, fixed);
+    if (!drawn.ok) throw new Error(drawn.error);
+    // One court: semi-finals at 9 and 10, the final at 11.
+    expect(await heldHours(t.id)).toEqual([9, 10, 11].map((h) => `${courts[0]}:${h}`));
+    const second = drawn.value.matches.find((m) => m.hour === 10)!;
+    // Somebody in the 10 o'clock semi-final withdraws: that hour is between
+    // two matches, so it stays held in case the first runs over.
+    await withdraw(field.find((f) => f.entryId === second.a)!.entryId);
+    expect(await heldHours(t.id)).toHaveLength(3);
+    // The first semi-final is a walkover too: nothing before the final needs the court.
+    const first = drawn.value.matches.find((m) => m.hour === 9)!;
+    await withdraw(field.find((f) => f.entryId === first.a)!.entryId);
+    expect(await heldHours(t.id)).toEqual([`${courts[0]}:11`]);
+    expect((await playOut(t.id)).status).toBe("finished");
+    expect(await heldHours(t.id)).toEqual([]);
+  });
+
+  it("offers what comes free to whoever is waiting for that court", async () => {
+    // Tomorrow, within the days a waiting list takes; no other test uses it.
+    const tomorrow = addDays(todayISO(), 1);
+    const t = await tournament({ courtIds: [courts[1]], startsOn: tomorrow, endsOn: tomorrow });
+    await entries(t.id, 2);
+    const queued = await joinSlotWaitlist({ courtId: courts[1], date: t.startsOn, startHour: 18, endHour: 19, name: "Waiting Wong", phone: "0124445555" });
+    expect(queued, JSON.stringify(queued)).toMatchObject({ ok: true });
+    expect((await listWaitlistFor("0124445555"))[0].status).toBe("waiting");
+    expect((await makeDraw(t.id, fixed)).ok).toBe(true);
+    expect((await listWaitlistFor("0124445555"))[0].status).toBe("offered");
   });
 });
 

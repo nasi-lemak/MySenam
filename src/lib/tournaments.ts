@@ -17,6 +17,7 @@ import {
 import { OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
+import { offerSlotPlace } from "./store";
 import { sendPlainEmail } from "./transports";
 import { addDays, formatHour, isPastSlot, isValidDateString, todayISO } from "./time";
 import { SPORTS, type Sport } from "./types";
@@ -36,7 +37,9 @@ import type { Level } from "./games";
  * go through to one. Seeds are kept apart and get the byes; everybody else
  * is drawn by lot. Every match is given a court and an hour within those
  * held, with nobody playing twice at once and no round before the one it
- * follows — or the draw says how many matches did not fit. Staff enter each
+ * follows — or the draw says how many matches did not fit — and the held
+ * hours no match will use go back on sale, then more as results come in
+ * (releaseUnneeded). Staff enter each
  * result; winners move on by themselves, groups fill the knockout when their
  * last match is in, and the public page shows it all as it happens.
  */
@@ -410,6 +413,9 @@ export async function cancelTournament(id: number): Promise<Result> {
   const db = getDb();
   const t = await tournamentById(id);
   if (!t || t.status === "cancelled" || t.status === "finished") return { ok: false, error: "That cannot be called off now." };
+  const freed = (await db
+    .prepare("SELECT DISTINCT court_id, date FROM slot_blocks WHERE tournament_id = ? AND date >= ?")
+    .all(id, todayISO())) as { court_id: number; date: string }[];
   await db.transaction(async () => {
     await db.prepare("UPDATE tournaments SET status = 'cancelled' WHERE id = ?").run(id);
     await db.prepare("DELETE FROM slot_blocks WHERE tournament_id = ?").run(id);
@@ -421,6 +427,8 @@ export async function cancelTournament(id: number): Promise<Result> {
       )
       .run(id);
   })();
+  // Whoever is waiting for one of those courts is offered it.
+  for (const day of freed) await offerSlotPlace(day.court_id, day.date);
   for (const userId of await entrants(id)) await tellEntrant(userId, t, `${t.name} is called off`, `${t.name} at ${t.venueName} has been called off. Any entry fee you paid online will be refunded by the venue.`);
   return { ok: true, value: (await tournamentById(id))! };
 }
@@ -700,6 +708,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
     await db.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ?").run(tournamentId);
   })();
 
+  await releaseUnneeded(tournamentId);
   const detail = (await tournamentDetail(tournamentId))!;
   await tellFirstMatches(detail);
   return { ok: true, value: detail };
@@ -755,6 +764,8 @@ async function settleMatch(matchId: number, winner: number, score: string | null
     await db.prepare(`UPDATE tournament_matches SET entry_${m.next_slot} = ? WHERE id = ?`).run(winner, m.next_match_id);
   if (m.stage === "group") await fillKnockoutIfGroupsDone(m.tournament_id);
   await finishIfDone(m.tournament_id);
+  // A walkover, a bye or the final may leave a court with nothing more to play.
+  await releaseUnneeded(m.tournament_id);
 }
 
 /** The groups are in: their best go into the knockout, best finishers on the best lines. */
@@ -789,7 +800,7 @@ async function fillKnockoutIfGroupsDone(tournamentId: number): Promise<void> {
   }
 }
 
-/** Every match decided: finished, and whatever court time is left goes back on sale. */
+/** Every match decided: finished. */
 async function finishIfDone(tournamentId: number): Promise<void> {
   const db = getDb();
   const left = (await db
@@ -797,8 +808,47 @@ async function finishIfDone(tournamentId: number): Promise<void> {
     .get(tournamentId)) as { n: number };
   if (left.n > 0) return;
   await db.prepare("UPDATE tournaments SET status = 'finished' WHERE id = ? AND status = 'drawn'").run(tournamentId);
-  const today = todayISO();
-  await db.prepare("DELETE FROM slot_blocks WHERE tournament_id = ? AND date > ?").run(tournamentId, today);
+}
+
+/**
+ * Give back the held hours no match needs. Once the draw is made, every
+ * match has its court and hour and none ever moves, so on each court each
+ * day only the hours from its first match still to play to its last are
+ * needed — those between stay held, so a match that runs over does not run
+ * into somebody's booking. A court with nothing left to play that day is
+ * given back whole; when the last match is in, everything left is. Hours
+ * already gone stay, as the record of what was held. Whoever is waiting for
+ * a court that day is offered what came free. Returns how many hours.
+ */
+export async function releaseUnneeded(tournamentId: number): Promise<number> {
+  const db = getDb();
+  const t = await tournamentById(tournamentId);
+  // Before the draw nobody knows which hours will be needed.
+  if (!t || (t.status !== "drawn" && t.status !== "finished")) return 0;
+  const held = (await db
+    .prepare("SELECT id, court_id, date, hour FROM slot_blocks WHERE tournament_id = ?")
+    .all(tournamentId)) as { id: number; court_id: number; date: string; hour: number }[];
+  const spans = new Map(
+    (
+      (await db
+        .prepare(
+          `SELECT court_id, date, MIN(hour) AS first, MAX(hour) AS last FROM tournament_matches
+            WHERE tournament_id = ? AND status = 'scheduled' AND court_id IS NOT NULL
+            GROUP BY court_id, date`
+        )
+        .all(tournamentId)) as { court_id: number; date: string; first: number; last: number }[]
+    ).map((r) => [`${r.court_id}:${r.date}`, r])
+  );
+  const free = held.filter((b) => {
+    if (isPastSlot(b.date, b.hour)) return false;
+    const span = spans.get(`${b.court_id}:${b.date}`);
+    return !span || b.hour < span.first || b.hour > span.last;
+  });
+  if (free.length === 0) return 0;
+  await db.prepare(`DELETE FROM slot_blocks WHERE id IN (${free.map(() => "?").join(",")})`).run(...free.map((b) => b.id));
+  const days = new Map(free.map((b) => [`${b.court_id}:${b.date}`, b]));
+  for (const b of days.values()) await offerSlotPlace(b.court_id, b.date);
+  return free.length;
 }
 
 // ------------------------------------------------------------ telling people

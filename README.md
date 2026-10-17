@@ -835,12 +835,22 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   won — a score that says the other side won is refused — or a walkover.
   Winners move on by themselves; the last group match fills the knockout from
   the tables (wins, then sets, then points, then who beat whom); the final
-  finishes it, and the court time it no longer needs goes back on sale. A
-  result can be put right until the match it fed has been played.
+  finishes it. A result can be put right until the match it fed has been
+  played.
+- **Court time goes back as soon as it is not needed.** Until the draw, every
+  hour is held, since nobody knows which will be used. Once it is made, each
+  court keeps only the hours from its first match still to play that day to
+  its last — the hours between stay held, so a match that runs over does not
+  run into a booking — and a court with nothing to play that day is given
+  back whole. It is worked out again after every result and walkover, so a
+  court is freed the moment its last match is in, and the rest of the final
+  day when the final is. Hours already gone stay on the schedule as a record.
+  Anybody on the waiting list for that court and day is offered what comes
+  free, as with a cancellation.
 - **Withdrawals** before the draw free the place for the waiting list and owe
   back a fee paid online; after it, every match still to play is a walkover.
-  **Calling it off** gives the courts back, tells every entrant, and owes back
-  every fee paid online.
+  **Calling it off** gives the courts back (offering them to the waiting
+  list), tells every entrant, and owes back every fee paid online.
 - The public page shows entries, then the groups, the bracket and every
   match's court and time, refreshing while it is on.
 
