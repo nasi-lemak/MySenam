@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "The message must be text." }, { status: 400 });
   // A field no person sees: a form that fills it in is a script.
   if (typeof input.website === "string" && input.website !== "")
-    return NextResponse.json({ ok: true }, { status: 201 });
+    return NextResponse.json({ ok: true, emailSent: true }, { status: 201 });
 
   const limited = rateLimit(req, "register");
   if (limited) return limited;
@@ -38,7 +38,10 @@ export async function POST(req: NextRequest) {
     email: input.email as string,
     password: input.password as string,
     message: input.message as string | undefined,
+    lat: input.lat,
+    lng: input.lng,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-  return NextResponse.json({ ok: true }, { status: 201 });
+  // Whether to tell them to look for a link in their email.
+  return NextResponse.json({ ok: true, emailSent: result.emailSent }, { status: 201 });
 }

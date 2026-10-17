@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Admin } from "@/lib/admin-auth";
+import type { MapPoint } from "@/components/PinMap";
+import PinPicker, { PIN_TEXT_EN } from "@/components/PinPicker";
 import type { ManagedVenue } from "./shared";
 
 const input = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
@@ -18,11 +20,13 @@ interface BranchRequest {
 /**
  * A business manager asking for another branch. It waits for the platform
  * owner, like the business's first application did, unless the install
- * approves branches of approved businesses on its own.
+ * approves branches of approved businesses on its own and its pin and
+ * address agree.
  */
 export function BranchRequestPanel({ businessName, onChange }: { businessName: string; onChange: () => void }) {
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [form, setForm] = useState({ name: "", area: "", address: "", phone: "", message: "" });
+  const [pin, setPin] = useState<MapPoint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -38,10 +42,11 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
     e.preventDefault();
     setError(null);
     setNotice(null);
+    if (!pin) return setError("Drop a pin on the map where the branch is.");
     const res = await fetch("/api/admin/branches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...form, ...pin }),
     });
     const data = await res.json();
     if (!res.ok) return setError(data.error ?? "Could not send that.");
@@ -51,6 +56,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
         : `Asked for ${form.name}. You will get an email when it is approved.`
     );
     setForm({ name: "", area: "", address: "", phone: "", message: "" });
+    setPin(null);
     await load();
     onChange();
   }
@@ -67,6 +73,14 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
         <input required minLength={5} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={`w-64 ${input}`} />
         <input required placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-40 ${input}`} />
         <input placeholder="Anything we should know? (optional)" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
+        <div className="w-full">
+          <PinPicker
+            query={[form.address, form.area].filter((v) => v.trim()).join(", ")}
+            pin={pin}
+            onPin={setPin}
+            text={PIN_TEXT_EN}
+          />
+        </div>
         <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Ask for this branch</button>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

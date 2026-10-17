@@ -88,6 +88,23 @@ const EN = {
   "apply.failed": "The application could not be sent.",
   "apply.doneTitle": "Thank you, we have your application",
   "apply.doneBody": "We will email {email} once it has been looked at.",
+  "apply.checkTitle": "Check your email",
+  "apply.checkBody": "We have sent a link to {email}. Follow it to confirm your email, and we will look at your application. The link works for 7 days.",
+  "apply.mapLabel": "Where is it on the map?",
+  "apply.mapHint": "Tap the map on your venue's entrance. Drag the pin to move it.",
+  "apply.findAddress": "Find the address",
+  "apply.useLocation": "I'm at the venue: use my location",
+  "apply.looking": "Looking…",
+  "apply.found": "The grey ring is where your address leads. Now tap your venue's entrance.",
+  "apply.notFound": "We couldn't find that address on the map. Move the map to your venue and tap it.",
+  "apply.pinned": "Pinned. Drag the pin if it isn't quite right.",
+  "apply.locationFailed": "We couldn't get your location. Tap the map instead.",
+  "apply.needPin": "Drop a pin on the map where the venue is.",
+  "confirm.title": "Your email is confirmed",
+  "confirm.body": "Thank you. We will look at your application and email you once it has been decided.",
+  "confirm.unknownTitle": "That link has expired or was already used",
+  "confirm.unknownBody": "If you confirmed already, there is nothing more to do: we will email you. If you applied more than 7 days ago, please apply again.",
+  "confirm.again": "Apply again",
   "lang.label": "Language",
 
   // Home
@@ -640,6 +657,23 @@ const MS: Record<Phrase, string> = {
   "apply.failed": "Permohonan tidak dapat dihantar.",
   "apply.doneTitle": "Terima kasih, permohonan anda telah diterima",
   "apply.doneBody": "Kami akan e-mel {email} setelah ia disemak.",
+  "apply.checkTitle": "Semak e-mel anda",
+  "apply.checkBody": "Kami telah menghantar pautan ke {email}. Ikuti pautan itu untuk mengesahkan e-mel anda, dan kami akan menyemak permohonan anda. Pautan itu sah selama 7 hari.",
+  "apply.mapLabel": "Di mana lokasinya di peta?",
+  "apply.mapHint": "Ketik pada pintu masuk pusat anda di peta. Seret pin untuk mengalihkannya.",
+  "apply.findAddress": "Cari alamat",
+  "apply.useLocation": "Saya di pusat ini: guna lokasi saya",
+  "apply.looking": "Mencari…",
+  "apply.found": "Bulatan kelabu ialah lokasi alamat anda. Sekarang ketik pada pintu masuk pusat anda.",
+  "apply.notFound": "Kami tidak menemui alamat itu di peta. Alihkan peta ke pusat anda dan ketik padanya.",
+  "apply.pinned": "Pin diletakkan. Seret pin jika kurang tepat.",
+  "apply.locationFailed": "Kami tidak dapat mengesan lokasi anda. Sila ketik pada peta.",
+  "apply.needPin": "Letakkan pin di peta pada lokasi pusat anda.",
+  "confirm.title": "E-mel anda telah disahkan",
+  "confirm.body": "Terima kasih. Kami akan menyemak permohonan anda dan menghantar e-mel setelah keputusan dibuat.",
+  "confirm.unknownTitle": "Pautan itu telah tamat tempoh atau sudah digunakan",
+  "confirm.unknownBody": "Jika anda sudah mengesahkannya, tiada apa-apa lagi perlu dibuat: kami akan e-mel anda. Jika anda memohon lebih 7 hari lalu, sila mohon semula.",
+  "confirm.again": "Mohon semula",
   "lang.label": "Bahasa",
 
   // Home
@@ -1236,6 +1270,9 @@ export function sportLabel(t: T, sport: string): string {
  * the first is much the better failure.
  */
 const CUSTOMER_ERRORS_MS: Record<string, string> = {
+  // Applying to list a venue
+  "Drop a pin on the map where the venue is.": "Letakkan pin di peta pada lokasi pusat anda.",
+  "The pin is outside Malaysia. Move it onto the venue.": "Pin itu di luar Malaysia. Alihkan ke pusat anda.",
   // Booking
   "That time has already passed.": "Waktu itu sudah berlalu.",
   "That time slot has already passed.": "Waktu itu sudah berlalu.",

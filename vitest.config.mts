@@ -18,6 +18,9 @@ export default defineConfig({
     // `// @vitest-environment jsdom` line at the top of the file, so the two
     // kinds live side by side without the DB tests paying for a DOM.
     environment: "node",
+    // Nothing in the suite reaches OpenStreetMap; a test that looks an
+    // address up points the geocoder at a fetch it stubs.
+    env: { MYSENAM_GEOCODER: "off" },
     setupFiles: ["./tests/setup-db.ts", "./tests/setup-dom.ts"],
     // Postgres in WebAssembly is real Postgres, but not a fast one: filling the
     // demo or loading a backup back in to check it takes seconds, not

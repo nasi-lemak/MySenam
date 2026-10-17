@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useT } from "@/components/Language";
+import PinPicker from "@/components/PinPicker";
+import type { MapPoint } from "@/components/PinMap";
 import { translateError } from "@/lib/i18n";
 
 const EMPTY = {
@@ -20,24 +22,27 @@ const EMPTY = {
 export default function ApplyForm() {
   const t = useT();
   const [form, setForm] = useState(EMPTY);
+  const [pin, setPin] = useState<MapPoint | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [sent, setSent] = useState<{ to: string; confirm: boolean } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setError(null);
+    if (!pin) return setError(t("apply.needPin"));
+    setBusy(true);
     try {
       const res = await fetch("/api/venue-applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, ...pin }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("apply.failed"));
-      setSentTo(form.email);
+      setSent({ to: form.email, confirm: data.emailSent !== false });
       setForm(EMPTY);
+      setPin(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("apply.failed"));
     } finally {
@@ -60,12 +65,14 @@ export default function ApplyForm() {
     </label>
   );
 
-  if (sentTo)
+  if (sent)
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
         <div className="text-4xl">📨</div>
-        <h1 className="mt-2 text-xl font-bold">{t("apply.doneTitle")}</h1>
-        <p className="mt-2 text-sm text-slate-600">{t("apply.doneBody", { email: sentTo })}</p>
+        <h1 className="mt-2 text-xl font-bold">{t(sent.confirm ? "apply.checkTitle" : "apply.doneTitle")}</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          {t(sent.confirm ? "apply.checkBody" : "apply.doneBody", { email: sent.to })}
+        </p>
       </div>
     );
 
@@ -82,6 +89,22 @@ export default function ApplyForm() {
           {field("venuePhone", t("apply.venuePhone"), { type: "tel", maxLength: 20 })}
         </div>
         {field("address", t("apply.address"), { maxLength: 200 })}
+        <PinPicker
+          query={[form.address, form.area].filter((v) => v.trim()).join(", ")}
+          pin={pin}
+          onPin={setPin}
+          text={{
+            label: t("apply.mapLabel"),
+            hint: t("apply.mapHint"),
+            find: t("apply.findAddress"),
+            useLocation: t("apply.useLocation"),
+            looking: t("apply.looking"),
+            found: t("apply.found"),
+            notFound: t("apply.notFound"),
+            pinned: t("apply.pinned"),
+            locationFailed: t("apply.locationFailed"),
+          }}
+        />
         <div className="grid gap-4 sm:grid-cols-2">
           {field("contactName", t("apply.contactName"), { maxLength: 100, autoComplete: "name" })}
           {field("email", t("apply.email"), { type: "email", maxLength: 200, autoComplete: "email" })}

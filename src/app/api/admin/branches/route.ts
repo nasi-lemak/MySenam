@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests: await listBranchRequests(admin.businessId!) });
 }
 
-/** `{ name, area, address, phone, message? }` — ask for another branch. */
+/** `{ name, area, address, phone, lat, lng, message? }` — ask for another branch. */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
     address: body.address as string,
     phone: body.phone as string,
     message: typeof body.message === "string" ? body.message : undefined,
+    lat: body.lat,
+    lng: body.lng,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ request: result.application, approved: result.approved === true }, { status: 201 });

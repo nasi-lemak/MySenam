@@ -36,6 +36,12 @@ export const POLICIES = {
    * makes a bill at the gateway, which limits us in turn.
    */
   payment: { limit: 10, windowMs: 10 * MINUTE },
+  /**
+   * Looking an address up on the map, as somebody fills in where their venue
+   * is. Every lookup is a request to OpenStreetMap's server, which allows us
+   * one a second in all.
+   */
+  geocode: { limit: 20, windowMs: 10 * MINUTE },
 } satisfies Record<string, Policy>;
 
 export type PolicyName = keyof typeof POLICIES;

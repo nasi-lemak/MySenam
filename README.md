@@ -156,6 +156,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_FREE_MONTHS` | `0` | Free months for a newly approved venue before its first invoice |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
+| `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
+| `MYSENAM_AUTO_APPROVE_BRANCHES` | — | `on` to approve a business's new branch without the platform owner, when its location checks pass |
 | `MYSENAM_TRUST_FORWARDED_HOST` | — | `on` only behind a proxy that rewrites Host: read the storefront domain from `X-Forwarded-Host` |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
@@ -331,6 +333,8 @@ independent venues, players booking across them.
   applications*. Approving makes the venue and the operator's account in one
   step; nobody sends anybody a password. With email set up, the applicant is
   told either way; without it, the panel says who to tell.
+- **Applications are checked before anyone sees them** — see *Checking a
+  venue is real*.
 - **Stored credit is per venue** — see *Whose credit it is*.
 - **Venues are invoiced monthly.** Each pays `MYSENAM_VENUE_FEE` a month, or
   its own fee, from the date billing starts — set on approval, after
@@ -350,6 +354,44 @@ independent venues, players booking across them.
   advice: have a Malaysian lawyer review them before relying on them.** Set
   `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS` and `OPERATOR_EMAIL`;
   until `OPERATOR_NAME` is set the page says it has not been completed.
+
+### Checking a venue is real
+
+Nothing about an application is taken on trust, and nothing is decided
+automatically either: the platform owner decides, with the evidence in front
+of them.
+
+- **A pin on the map.** The applicant taps their entrance on a map
+  (OpenStreetMap, through Leaflet), after the form has flown it to the
+  address they typed, or uses their phone's location from inside the venue.
+  No pin, or a pin outside Malaysia, and the form is not accepted.
+- **The address, looked up.** When they apply, the address is looked up
+  (Nominatim), and so is what the map calls the place at the pin. The panel
+  flags a pin more than 1 km from where the address leads, a pin whose
+  place doesn't mention the area they typed, an address the map doesn't
+  know, and another business's venue listed within 150 m of the pin — and
+  links to Google Maps and Street View at the pin. A new taman missing from
+  OpenStreetMap is common; a flag is a reason to look, not to refuse.
+- **A confirmed email.** The applicant is emailed a link, good for 7 days, and
+  the platform owner neither sees the application nor hears of it until it is
+  followed. A second application from the same unconfirmed email replaces
+  the first, and an unconfirmed one is deleted after 7 days. An install that
+  cannot send email lets applications straight through, marked as
+  unconfirmed.
+- **What the owner checked.** *Approve* stays greyed out until they tick
+  that they looked at the map, phoned the venue's number, and found the
+  business somewhere besides this form. What was ticked is recorded with the
+  approval, and the venue keeps its pin.
+- **Branches** are asked for from a signed-in manager's account, so there is
+  no email to confirm, but they have a pin and the same checks. With
+  `MYSENAM_AUTO_APPROVE_BRANCHES=on`, a branch is approved on its own only
+  when none of the location checks flag anything; otherwise it waits like
+  any other, with the flags in the email to the owner.
+
+Lookups go to OpenStreetMap's public Nominatim server by default, at most
+one a second as its usage policy asks, cached, and rate limited per visitor.
+A busy install should run its own Nominatim and set `MYSENAM_GEOCODER` to its
+address; `MYSENAM_GEOCODER=off` looks nothing up, and the panel says so.
 
 ### Storefront domains
 
@@ -401,7 +443,8 @@ that venue as its first branch and the applicant as its manager.
 - **Branch staff** see their own branch and nothing else.
 - **New branches** wait for the platform owner's approval, like the first
   one did, unless the install sets `MYSENAM_AUTO_APPROVE_BRANCHES=on` to
-  approve branches of businesses it has already approved.
+  approve branches of businesses it has already approved — and then only
+  when the branch's pin and address agree (see *Checking a venue is real*).
 - **Credit, passes and memberships** bought at any branch work at every
   branch of that business, and nowhere else. A member pays each branch's
   member rate wherever they play, and is not sold a second membership at
@@ -752,6 +795,7 @@ the account would destroy the only record of whose money the venue is holding.
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
+| Venue applications never confirmed by email | 7 days | deleted |
 | Expired sessions | — | deleted |
 
 Door logs go first and shortest: they tie a named person to a time and a

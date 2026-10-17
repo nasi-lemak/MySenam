@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 process.env.MYSENAM_MARKETPLACE = "on";
@@ -14,7 +14,8 @@ import {
   listAdmins,
 } from "../src/lib/admin-auth";
 import type { Admin } from "../src/lib/admin-auth";
-import { approveApplication, requestBranch, submitApplication } from "../src/lib/applications";
+import { approveApplication, REVIEW_CHECKS, requestBranch, submitApplication } from "../src/lib/applications";
+import { resetGeocoder } from "../src/lib/geo";
 import { registerUser } from "../src/lib/auth";
 import { groupIntoBusiness, listBusinesses } from "../src/lib/branches";
 import { issueDueInvoices, listInvoices, markInvoicePaid, setVenuePlan } from "../src/lib/billing";
@@ -54,6 +55,8 @@ async function reload(admin: Admin): Promise<Admin> {
   return (await getAdminByToken((await createAdminSession(admin.id)).token))!;
 }
 
+const ALL_CHECKS = REVIEW_CHECKS.map((c) => c.id);
+
 async function court(venueId: number, sport = "badminton") {
   const c = await createCourt({ venueId, name: `Court ${++n}`, sport: sport as "badminton", offPeakRate: 10, peakRate: 10 });
   if (!c.ok) throw new Error("court");
@@ -71,9 +74,11 @@ beforeAll(async () => {
     contactName: "Lim",
     email: "lim@smashchain.my",
     password: "a long enough password",
+    lat: 3.1,
+    lng: 101.59,
   });
   if (!applied.ok) throw new Error(applied.error);
-  const approved = await approveApplication(applied.application.id, ownerId);
+  const approved = await approveApplication(applied.application.id, ownerId, ALL_CHECKS);
   if (!approved.ok) throw new Error(approved.error);
   branchA = approved.application.venueId!;
   manager = (await authenticateAdmin("lim@smashchain.my", "a long enough password"))!;
@@ -98,34 +103,86 @@ describe("a business's branches", () => {
       area: "Subang Jaya",
       address: "2 Jalan SS15, Subang",
       phone: "0378000002",
+      lat: 3.08,
+      lng: 101.58,
     });
     if (!asked.ok) throw new Error(asked.error);
     expect(asked.application.status).toBe("pending");
     expect(asked.application.forBusiness).toBe("Smash Chain Kelana");
 
-    const approved = await approveApplication(asked.application.id, ownerId);
+    const approved = await approveApplication(asked.application.id, ownerId, ALL_CHECKS);
     if (!approved.ok) throw new Error(approved.error);
     branchB = approved.application.venueId!;
     manager = await reload(manager);
     expect(manager.venueIds).toEqual([branchA, branchB]);
   });
 
-  it("can be approved on their own where the install says so", async () => {
+  it("can be approved on their own where the install says so, if the map agrees", async () => {
+    process.env.MYSENAM_AUTO_APPROVE_BRANCHES = "on";
+    process.env.MYSENAM_GEOCODER = "http://geo.test";
+    const puchong = { lat: 3.0333, lng: 101.6167 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        Response.json(
+          url.includes("/search")
+            ? [{ lat: String(puchong.lat), lon: String(puchong.lng + 0.002), display_name: "3 Jalan Puchong" }]
+            : { display_name: "Bandar Puchong Jaya, Puchong, Selangor, Malaysia" }
+        )
+      )
+    );
+    try {
+      const asked = await requestBranch(manager, {
+        name: "Smash Chain Puchong",
+        area: "Puchong",
+        address: "3 Jalan Puchong",
+        phone: "0378000003",
+        ...puchong,
+      });
+      expect(asked.ok && asked.approved).toBe(true);
+      expect((await reload(manager)).venueIds).toHaveLength(3);
+
+      // A pin nowhere near the address it gave waits for a person.
+      const far = await requestBranch(manager, {
+        name: "Smash Chain Far",
+        area: "Puchong",
+        address: "3 Jalan Puchong",
+        phone: "0378000004",
+        lat: 5.4,
+        lng: 100.33,
+      });
+      expect(far.ok && far.approved).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      process.env.MYSENAM_GEOCODER = "off";
+      resetGeocoder();
+    }
+  });
+
+  it("are never approved on their own when nothing was looked up", async () => {
     process.env.MYSENAM_AUTO_APPROVE_BRANCHES = "on";
     const asked = await requestBranch(manager, {
-      name: "Smash Chain Puchong",
+      name: "Smash Chain Unseen",
       area: "Puchong",
-      address: "3 Jalan Puchong",
-      phone: "0378000003",
+      address: "4 Jalan Puchong",
+      phone: "0378000005",
+      lat: 3.04,
+      lng: 101.62,
     });
-    expect(asked.ok && asked.approved).toBe(true);
-    expect((await reload(manager)).venueIds).toHaveLength(3);
+    expect(asked.ok && asked.approved).toBe(false);
   });
 
   it("are asked for only by a manager", async () => {
     const staff = await createAdmin({ name: "Desk", email: "desk-a@smashchain.my", password: "desk-password", venueId: branchA });
     if (!staff.ok) throw new Error(staff.error);
-    const asked = await requestBranch(staff.admin, { name: "Nope", area: "Nowhere", address: "Jalan Nope", phone: "0300000000" });
+    const asked = await requestBranch(staff.admin, {
+      name: "Nope",
+      area: "Nowhere",
+      address: "Jalan Nope",
+      phone: "0300000000",
+      lat: 3.1,
+      lng: 101.6,
+    });
     expect(asked.ok).toBe(false);
   });
 });

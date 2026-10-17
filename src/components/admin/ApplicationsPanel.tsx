@@ -1,14 +1,31 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import type { VenueApplication } from "@/lib/applications";
+import type { EmailCheck, VenueApplication } from "@/lib/applications";
+import { REVIEW_CHECKS } from "@/lib/review-checks";
+import { googleMapsLink, streetViewLink } from "@/components/PinMap";
+
+const PinMap = dynamic(() => import("@/components/PinMap"), { ssr: false });
+
+const EMAIL_CHECK: Record<EmailCheck, { text: string; ok: boolean }> = {
+  confirmed: { text: "Email confirmed", ok: true },
+  account: { text: "Asked from their manager account", ok: true },
+  unsent: { text: "Email not confirmed: this install cannot send email", ok: false },
+  "not asked": { text: "Applied before emails were confirmed", ok: false },
+  waiting: { text: "Email not confirmed yet", ok: false },
+};
 
 /**
  * Venues asking to join, for the platform owner to let in or turn away.
  *
- * Approving makes the venue and its operator's account in one go, with the
- * password they chose when applying. If the install cannot email, the owner is
- * told so, with the address to pass the news on to.
+ * Each shows the evidence that it is real: its pin beside where its address
+ * leads, anything about that which doesn't add up, and whether its email was
+ * confirmed. Approving asks for the checks only a person can do — a look at
+ * the map, a phone call, a search for the business — and makes the venue and
+ * its operator's account in one go, with the password they chose when
+ * applying. If the install cannot email, the owner is told so, with the
+ * address to pass the news on to.
  */
 export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   const [applications, setApplications] = useState<VenueApplication[] | null>(null);
@@ -16,6 +33,12 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ticked, setTicked] = useState<Record<number, string[]>>({});
+  const tick = (id: number, check: string) =>
+    setTicked((all) => {
+      const now = all[id] ?? [];
+      return { ...all, [id]: now.includes(check) ? now.filter((c) => c !== check) : [...now, check] };
+    });
 
   const load = useCallback(async () => {
     try {
@@ -55,7 +78,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
       const res = await fetch("/api/admin/venue-applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: a.id, decision, reason }),
+        body: JSON.stringify({ id: a.id, decision, reason, checks: ticked[a.id] ?? [] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Request failed");
@@ -108,7 +131,10 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                     )}
                   </div>
                   <div className="text-sm text-slate-600">
-                    {a.area} · {a.address} · {a.venuePhone}
+                    {a.area} · {a.address} ·{" "}
+                    <a href={`tel:${a.venuePhone.replace(/[^+\d]/g, "")}`} className="underline">
+                      {a.venuePhone}
+                    </a>
                   </div>
                   <div className="mt-1 text-sm text-slate-600">
                     {a.contactName} · <span className="font-mono text-xs">{a.email}</span> · applied{" "}
@@ -122,7 +148,8 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    disabled={busy}
+                    disabled={busy || !REVIEW_CHECKS.every((c) => ticked[a.id]?.includes(c.id))}
+                    title="Tick every check below first"
                     onClick={() => decide(a, "approve")}
                     className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                   >
@@ -137,6 +164,23 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                   </button>
                 </div>
               </div>
+              <Evidence a={a} />
+              <fieldset className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
+                <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Before approving
+                </legend>
+                {REVIEW_CHECKS.map((c) => (
+                  <label key={c.id} className="flex items-start gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={ticked[a.id]?.includes(c.id) ?? false}
+                      onChange={() => tick(a.id, c.id)}
+                    />
+                    {c.label}
+                  </label>
+                ))}
+              </fieldset>
             </div>
           ))}
         </div>
@@ -146,7 +190,12 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
         <ul className="mt-3 space-y-1 text-sm text-slate-500">
           {decided.map((a) => (
             <li key={a.id}>
-              {a.businessName} — {a.status === "approved" ? "approved" : "turned down"}{" "}
+              {a.businessName} —{" "}
+              {a.status === "approved"
+                ? a.reviewChecks.includes("auto")
+                  ? "approved on its own"
+                  : "approved"
+                : "turned down"}{" "}
               {a.decidedAt?.slice(0, 10)}
               {a.reason ? ` (${a.reason})` : ""}
             </li>
@@ -154,5 +203,52 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
         </ul>
       )}
     </section>
+  );
+}
+
+/** Where it says it is, and what about that doesn't add up. */
+function Evidence({ a }: { a: VenueApplication }) {
+  const email = EMAIL_CHECK[a.emailCheck];
+  const warnings = a.location?.warnings ?? [];
+  return (
+    <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-2">
+      <div className="space-y-2 text-sm">
+        <p className={email.ok ? "text-emerald-700" : "text-amber-700"}>
+          {email.ok ? "✓" : "!"} {email.text}
+        </p>
+        {a.pinPlace && (
+          <p className="text-slate-600">
+            <span className="font-medium text-slate-700">What the map says is at the pin:</span> {a.pinPlace}
+          </p>
+        )}
+        {warnings.length === 0 ? (
+          <p className="text-emerald-700">✓ The pin, the address and the area agree, and no other venue is listed there.</p>
+        ) : (
+          <ul className="space-y-1 text-amber-800">
+            {warnings.map((w) => (
+              <li key={w}>! {w}</li>
+            ))}
+          </ul>
+        )}
+        {a.pin && (
+          <p className="flex gap-3 text-xs font-semibold">
+            <a href={googleMapsLink(a.pin)} target="_blank" rel="noreferrer" className="text-teal-700 underline">
+              Open in Google Maps
+            </a>
+            <a href={streetViewLink(a.pin)} target="_blank" rel="noreferrer" className="text-teal-700 underline">
+              Street View
+            </a>
+          </p>
+        )}
+      </div>
+      {a.pin && (
+        <div>
+          <PinMap pin={a.pin} found={a.found} height={200} />
+          <p className="mt-1 text-xs text-slate-500">
+            Teal pin: where they say the venue is.{a.found && " Grey ring: where the address they typed leads."}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

@@ -48,6 +48,11 @@ export const RETENTION = {
   bookingIdentityDays: 730,
   /** Withdrawn out-of-hours access, kept a while in case it is disputed. */
   revokedInductionDays: 365,
+  /**
+   * A venue application whose emailed link was never followed: somebody's
+   * name, email and password hash, with nobody shown to want it kept.
+   */
+  unconfirmedApplicationDays: 7,
 } as const;
 
 export interface RetentionLine {
@@ -129,6 +134,13 @@ const RULES: Rule[] = [
     action: "deleted",
     table: "inductions",
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
+  },
+  {
+    what: "Venue applications never confirmed by email",
+    days: RETENTION.unconfirmedApplicationDays,
+    action: "deleted",
+    table: "venue_applications",
+    where: "email_check = 'waiting' AND created_at < ?",
   },
 ];
 
