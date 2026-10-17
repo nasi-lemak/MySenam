@@ -5,10 +5,10 @@ import { listMembershipsFor } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 /** The signed-in customer's memberships. */
-export function GET(req: NextRequest) {
-  const user = getSessionUser(req);
+export async function GET(req: NextRequest) {
+  const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   return NextResponse.json({
-    memberships: listMembershipsFor(user.id),
+    memberships: await listMembershipsFor(user.id),
   });
 }

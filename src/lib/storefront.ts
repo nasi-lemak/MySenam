@@ -38,9 +38,9 @@ interface Row {
   logo_url: string | null;
 }
 
-function toStorefront(r: Row): Storefront {
+async function toStorefront(r: Row): Promise<Storefront> {
   const venueIds = (
-    getDb()
+    await getDb()
       .prepare("SELECT venue_id FROM storefront_venues WHERE storefront_id = ? ORDER BY venue_id")
       .all(r.id) as { venue_id: number }[]
   ).map((v) => v.venue_id);
@@ -70,11 +70,11 @@ export function normalizeHost(raw: string | null | undefined): string | null {
 
 const HOSTNAME = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-export function storefrontForHost(raw: string | null | undefined): Storefront | null {
+export async function storefrontForHost(raw: string | null | undefined): Promise<Storefront | null> {
   const host = normalizeHost(raw);
   if (!host) return null;
-  const row = getDb().prepare("SELECT * FROM storefronts WHERE hostname = ?").get(host) as Row | undefined;
-  return row ? toStorefront(row) : null;
+  const row = await getDb().prepare("SELECT * FROM storefronts WHERE hostname = ?").get(host) as Row | undefined;
+  return row ? await toStorefront(row) : null;
 }
 
 /**
@@ -92,14 +92,14 @@ export function requestHost(headers: { get(name: string): string | null }): stri
 }
 
 /** The storefront an API request was made on, if any. */
-export function storefrontForRequest(req: { headers: { get(name: string): string | null } }): Storefront | null {
-  return storefrontForHost(requestHost(req.headers));
+export async function storefrontForRequest(req: { headers: { get(name: string): string | null } }): Promise<Storefront | null> {
+  return await storefrontForHost(requestHost(req.headers));
 }
 
 /** The storefront a page is being rendered for, if any. */
 export async function currentStorefront(): Promise<Storefront | null> {
   const { headers } = await import("next/headers");
-  return storefrontForHost(requestHost(await headers()));
+  return await storefrontForHost(requestHost(await headers()));
 }
 
 /** Does this storefront show this venue? No storefront shows every venue. */
@@ -111,8 +111,8 @@ export function shows(storefront: Storefront | null, venueId: number): boolean {
  * Where a customer of this venue should be sent back to: its storefront, if
  * it has one, so a link in a confirmation opens the site they booked on.
  */
-export function venueBaseUrl(venueId: number): string {
-  const row = getDb()
+export async function venueBaseUrl(venueId: number): Promise<string> {
+  const row = await getDb()
     .prepare(`
       SELECT s.hostname FROM storefronts s
         JOIN storefront_venues sv ON sv.storefront_id = s.id
@@ -166,13 +166,14 @@ export function accentCss(hex: string): string {
 
 // ------------------------------------------------------------ managing them
 
-export function listStorefronts(): Storefront[] {
-  return (getDb().prepare("SELECT * FROM storefronts ORDER BY hostname").all() as Row[]).map(toStorefront);
+export async function listStorefronts(): Promise<Storefront[]> {
+  const rows = (await getDb().prepare("SELECT * FROM storefronts ORDER BY hostname").all()) as Row[];
+  return Promise.all(rows.map(toStorefront));
 }
 
 export type SaveResult = { ok: true; storefront: Storefront } | { ok: false; error: string };
 
-export function saveStorefront(input: {
+export async function saveStorefront(input: {
   id?: number;
   hostname: string;
   name: string;
@@ -180,7 +181,7 @@ export function saveStorefront(input: {
   accentColor?: string | null;
   logoUrl?: string | null;
   venueIds: number[];
-}): SaveResult {
+}): Promise<SaveResult> {
   // Whatever got pasted — https://www.abc.com/booking — comes down to its domain.
   const hostname = normalizeHost(input.hostname.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split(/[/?#]/)[0]);
   if (!hostname || !HOSTNAME.test(hostname))
@@ -207,43 +208,43 @@ export function saveStorefront(input: {
 
   const venueIds = [...new Set(input.venueIds)];
   if (venueIds.length === 0) return { ok: false, error: "A storefront shows at least one venue." };
-  for (const id of venueIds) if (!getVenue(id)) return { ok: false, error: `Venue ${id} not found.` };
+  for (const id of venueIds) if (!await getVenue(id)) return { ok: false, error: `Venue ${id} not found.` };
 
   const db = getDb();
-  const clash = db.prepare("SELECT id FROM storefronts WHERE hostname = ?").get(hostname) as
+  const clash = await db.prepare("SELECT id FROM storefronts WHERE hostname = ?").get(hostname) as
     | { id: number }
     | undefined;
   if (clash && clash.id !== input.id) return { ok: false, error: `${hostname} is already a storefront.` };
 
   let id = input.id ?? 0;
   try {
-    db.transaction(() => {
+    await db.transaction(async () => {
       if (input.id) {
-        const done = db
+        const done = await db
           .prepare(
             "UPDATE storefronts SET hostname = ?, name = ?, tagline = ?, accent_color = ?, logo_url = ? WHERE id = ?"
           )
           .run(hostname, name, tagline, accent, logoUrl, input.id);
         if (done.changes === 0) throw new Error("NOT_FOUND");
       } else {
-        id = db
+        id = (await db
           .prepare("INSERT INTO storefronts (hostname, name, tagline, accent_color, logo_url) VALUES (?, ?, ?, ?, ?)")
-          .run(hostname, name, tagline, accent, logoUrl).lastInsertRowid as number;
+          .run(hostname, name, tagline, accent, logoUrl)).lastInsertRowid as number;
       }
-      db.prepare("DELETE FROM storefront_venues WHERE storefront_id = ?").run(id);
+      await db.prepare("DELETE FROM storefront_venues WHERE storefront_id = ?").run(id);
       const link = db.prepare("INSERT INTO storefront_venues (storefront_id, venue_id) VALUES (?, ?)");
-      for (const venueId of venueIds) link.run(id, venueId);
+      for (const venueId of venueIds) await link.run(id, venueId);
     })();
   } catch (err) {
     if (err instanceof Error && err.message === "NOT_FOUND") return { ok: false, error: "Storefront not found." };
     throw err;
   }
 
-  const row = db.prepare("SELECT * FROM storefronts WHERE id = ?").get(id) as Row | undefined;
+  const row = await db.prepare("SELECT * FROM storefronts WHERE id = ?").get(id) as Row | undefined;
   if (!row) return { ok: false, error: "Storefront not found." };
-  return { ok: true, storefront: toStorefront(row) };
+  return { ok: true, storefront: await toStorefront(row) };
 }
 
-export function deleteStorefront(id: number): boolean {
-  return getDb().prepare("DELETE FROM storefronts WHERE id = ?").run(id).changes === 1;
+export async function deleteStorefront(id: number): Promise<boolean> {
+  return (await getDb().prepare("DELETE FROM storefronts WHERE id = ?").run(id)).changes === 1;
 }

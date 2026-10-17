@@ -163,7 +163,7 @@ describe("sending a copy", () => {
       headers: {
         host: put.headers.host!,
         "content-length": "300000",
-        "content-type": "application/vnd.sqlite3",
+        "content-type": "application/octet-stream",
         "x-amz-content-sha256": hash,
         "x-amz-date": "20261016T030000Z",
       },
@@ -202,7 +202,7 @@ describe("sending a copy", () => {
 
     const ok = await copyOffsite({ name: path.basename(file), path: file });
     expect(ok?.ok).toBe(true);
-    let status = offsiteStatus();
+    let status = await offsiteStatus();
     expect(status.configured).toBe(true);
     expect(status.lastCopied?.name).toBe(path.basename(file));
     expect(status.lastError).toBeNull();
@@ -210,7 +210,7 @@ describe("sending a copy", () => {
 
     reply = { status: 500, body: "<Error><Code>InternalError</Code></Error>" };
     await copyOffsite({ name: path.basename(file), path: file });
-    status = offsiteStatus();
+    status = await offsiteStatus();
     // The last good copy is still the last good copy.
     expect(status.lastCopied?.name).toBe(path.basename(file));
     expect(status.lastError?.error).toMatch(/500 InternalError/);

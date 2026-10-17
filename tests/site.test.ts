@@ -81,6 +81,9 @@ describe("a tenant's own Render Blueprint", () => {
       expect(yaml).toContain('value: "Arena Sports Booking"');
       expect(yaml).toContain("generateValue: true");
       expect(yaml).toContain("mountPath: /var/data");
+      // Its own Postgres, wired to the service by name.
+      expect(yaml).toContain("name: mysenam-arena-db");
+      expect(yaml).toMatch(/fromDatabase:\s+name: mysenam-arena-db\s+property: connectionString/);
       expect(yaml).not.toContain("__");
 
       // A second tenant with the same slug would take over the first one's service.

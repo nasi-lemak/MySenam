@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 /** The longest period a single report may cover, so one query cannot scan years. */
 const MAX_DAYS = 400;
 
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const params = req.nextUrl.searchParams;
@@ -35,7 +35,7 @@ export function GET(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  const report = venueReport(venueId, from, to);
+  const report = await venueReport(venueId, from, to);
   if (!report) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
   // Credit spendable at any venue is the platform's liability, shown only to
@@ -43,7 +43,7 @@ export function GET(req: NextRequest) {
   // venue's, and its staff see what they owe.
   return NextResponse.json({
     report,
-    wallet: isOwner(admin) ? walletLiability() : null,
-    venueCredit: creditScope() === "venue" ? venueCreditLiability(venueId) : null,
+    wallet: isOwner(admin) ? await walletLiability() : null,
+    venueCredit: creditScope() === "venue" ? await venueCreditLiability(venueId) : null,
   });
 }

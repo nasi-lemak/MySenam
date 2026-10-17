@@ -28,7 +28,7 @@ async function parseBody(req: NextRequest) {
 
 /** Shared validation + venue scoping for both verbs. */
 async function resolve(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return { error: admin };
 
   const input = await parseBody(req);
@@ -40,7 +40,7 @@ async function resolve(req: NextRequest) {
       ),
     };
 
-  const court = getCourt(input.courtId);
+  const court = await getCourt(input.courtId);
   if (!court)
     return { error: NextResponse.json({ error: "Court not found." }, { status: 404 }) };
   const denied = denyVenue(admin, court.venueId);
@@ -52,7 +52,7 @@ async function resolve(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { error, input } = await resolve(req);
   if (error) return error;
-  const result = blockSlots(input.courtId, input.date, input.hours, input.reason, input.places);
+  const result = await blockSlots(input.courtId, input.date, input.hours, input.reason, input.places);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ changed: result.changed });
 }
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const { error, input } = await resolve(req);
   if (error) return error;
-  const result = unblockSlots(input.courtId, input.date, input.hours);
+  const result = await unblockSlots(input.courtId, input.date, input.hours);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ changed: result.changed });
 }

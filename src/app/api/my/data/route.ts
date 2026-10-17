@@ -11,11 +11,11 @@ export const dynamic = "force-dynamic";
  * one booking to somebody holding its code, while this is a person's whole
  * history, and a phone number is not a secret.
  */
-export function GET(req: NextRequest) {
-  const user = getSessionUser(req);
+export async function GET(req: NextRequest) {
+  const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
 
-  const data = exportCustomerData(user.id);
+  const data = await exportCustomerData(user.id);
   if (!data) return NextResponse.json({ error: "Account not found." }, { status: 404 });
 
   const stamp = data.takenAt.slice(0, 10);

@@ -6,17 +6,17 @@ import { isMarketplace } from "@/lib/mode";
 export const dynamic = "force-dynamic";
 
 /** Venues waiting to join, for the platform owner alone. */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
-  return NextResponse.json({ marketplace: isMarketplace(), applications: listApplications() });
+  return NextResponse.json({ marketplace: isMarketplace(), applications: await listApplications() });
 }
 
 /** `{ id, decision: "approve" | "reject", reason? }` */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;

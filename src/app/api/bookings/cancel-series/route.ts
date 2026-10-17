@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const result = cancelSeries(seriesCode, phone);
+  const result = await cancelSeries(seriesCode, phone);
   if (!result.ok) return refusal(result);
   return NextResponse.json({ cancelled: result.cancelled });
 }

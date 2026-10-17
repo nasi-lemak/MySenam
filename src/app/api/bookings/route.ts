@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "booking");
   if (limited) return limited;
 
-  const user = getSessionUser(req);
+  const user = await getSessionUser(req);
   const common = {
     date,
     hours: hours as number[],
@@ -79,12 +79,12 @@ export async function POST(req: NextRequest) {
   };
 
   const result = anyCourt
-    ? createBookingOnAnyCourt({
+    ? await createBookingOnAnyCourt({
         ...common,
         venueId: venueId as number,
         sport: sport as Sport,
       })
-    : createBookingSeries({ ...common, courtId: courtId as number });
+    : await createBookingSeries({ ...common, courtId: courtId as number });
 
   if (!result.ok) return refusal(result);
 
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
   let discount = 0;
   if (typeof promoCode === "string" && promoCode.trim() !== "") {
     for (const booking of result.bookings) {
-      const applied = applyPromo(booking.id, promoCode);
+      const applied = await applyPromo(booking.id, promoCode);
       if (!applied.ok) {
         if (!promoError) promoError = applied.error;
       } else {
@@ -112,13 +112,13 @@ export async function POST(req: NextRequest) {
     // The pass itself proves entitlement: it must match the booking's phone
     // number, which payBookingWithPass checks.
     for (const booking of result.bookings) {
-      const paid = payBookingWithPass(booking.id, payWithPass);
+      const paid = await payBookingWithPass(booking.id, payWithPass);
       if (!paid.ok) payErrors.push(paid.error);
       else booking.paymentStatus = "paid";
     }
   } else if (payFromWallet === true && user) {
     for (const booking of result.bookings) {
-      const paid = payBookingFromWallet(booking.id);
+      const paid = await payBookingFromWallet(booking.id);
       if (!paid.ok) payErrors.push(paid.error);
       else booking.paymentStatus = "paid";
     }
@@ -126,11 +126,11 @@ export async function POST(req: NextRequest) {
 
   // Queued after the money has settled, so the total in the message is the
   // total the customer will actually be asked for at the counter.
-  notifyBookingConfirmed(result.bookings, await currentLocale(), result.seriesCode);
+  await notifyBookingConfirmed(result.bookings, await currentLocale(), result.seriesCode);
   await tickOutbox();
 
-  const court = getCourt(result.bookings[0].courtId)!;
-  const venue = getVenue(court.venueId)!;
+  const court = (await getCourt(result.bookings[0].courtId))!;
+  const venue = (await getVenue(court.venueId))!;
   return NextResponse.json(
     {
       booking: result.bookings[0],
@@ -142,13 +142,13 @@ export async function POST(req: NextRequest) {
       discount,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
-      payOnline: takesPaymentOnline(venue.id),
+      payOnline: await takesPaymentOnline(venue.id),
     },
     { status: 201 }
   );
 }
 
-export function GET(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const code = params.get("code");
   const phone = params.get("phone");
@@ -158,15 +158,15 @@ export function GET(req: NextRequest) {
   const limited = rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const booking = findBooking(code, phone);
+  const booking = await findBooking(code, phone);
   if (!booking)
     return NextResponse.json(
       { error: "Booking not found. Check the code and phone number." },
       { status: 404 }
     );
 
-  const court = getCourt(booking.courtId)!;
-  const venue = getVenue(court.venueId)!;
+  const court = (await getCourt(booking.courtId))!;
+  const venue = (await getVenue(court.venueId))!;
   return NextResponse.json({
     booking,
     court,
@@ -177,6 +177,6 @@ export function GET(req: NextRequest) {
       address: venue.address,
       cancelCutoffHours: venue.cancelCutoffHours,
     },
-    payOnline: takesPaymentOnline(venue.id),
+    payOnline: await takesPaymentOnline(venue.id),
   });
 }

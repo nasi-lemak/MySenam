@@ -13,7 +13,7 @@ function parseHour(value: string | null, fallback: number): number | null {
   return hour;
 }
 
-export function GET(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const sport = params.get("sport");
   const date = params.get("date") ?? todayISO();
@@ -42,8 +42,8 @@ export function GET(req: NextRequest) {
     );
 
   // On a storefront, only its venues.
-  const venueIds = storefrontForRequest(req)?.venueIds;
-  const results = searchAvailability({
+  const venueIds = (await storefrontForRequest(req))?.venueIds;
+  const results = await searchAvailability({
     sport: sport as Sport,
     date,
     fromHour,
@@ -53,5 +53,5 @@ export function GET(req: NextRequest) {
     venueIds,
   });
 
-  return NextResponse.json({ date, sport, duration, results, areas: listAreas(venueIds) });
+  return NextResponse.json({ date, sport, duration, results, areas: await listAreas(venueIds) });
 }

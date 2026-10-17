@@ -35,8 +35,8 @@ let courtA: number;
 let courtB: number;
 let n = 0;
 
-function customer() {
-  const made = registerUser({
+async function customer() {
+  const made = await registerUser({
     name: `Customer ${++n}`,
     email: `credit${n}@example.com`,
     phone: `01900000${String(n).padStart(2, "0")}`,
@@ -46,8 +46,8 @@ function customer() {
   return made.user;
 }
 
-function bookAt(courtId: number, userId: number, phone: string) {
-  const made = createBooking({
+async function bookAt(courtId: number, userId: number, phone: string) {
+  const made = await createBooking({
     courtId,
     date: addDays(todayISO(), 1 + (n % 10)),
     hours: [8 + (n % 12)],
@@ -59,15 +59,15 @@ function bookAt(courtId: number, userId: number, phone: string) {
   return made.booking;
 }
 
-beforeAll(() => {
-  ensureBootstrapAdmin();
-  adminId = listAdmins()[0].id;
-  venueA = listVenues()[0].id;
-  courtA = listVenues()[0].courts.find((c) => c.capacity === 1)!.id;
-  const b = createVenue({ name: "Other Business", area: "Klang", address: "x", phone: "0300000000" });
+beforeAll(async () => {
+  await ensureBootstrapAdmin();
+  adminId = (await listAdmins())[0].id;
+  venueA = (await listVenues())[0].id;
+  courtA = (await listVenues())[0].courts.find((c) => c.capacity === 1)!.id;
+  const b = await createVenue({ name: "Other Business", area: "Klang", address: "x", phone: "0300000000" });
   if (!b.ok) throw new Error("venue");
   venueB = b.venue.id;
-  const c = createCourt({ venueId: venueB, name: "Court B", sport: "badminton", offPeakRate: 10, peakRate: 10 });
+  const c = await createCourt({ venueId: venueB, name: "Court B", sport: "badminton", offPeakRate: 10, peakRate: 10 });
   if (!c.ok) throw new Error("court");
   courtB = c.court.id;
 });
@@ -88,14 +88,14 @@ describe("which way it is", () => {
 });
 
 describe("platform-wide credit", () => {
-  it("is bought anywhere and spent anywhere, as it always was", () => {
-    const user = customer();
-    topUpWallet({ userId: user.id, amount: 50, adminId });
-    const booking = bookAt(courtB, user.id, user.phone);
-    expect(payBookingFromWallet(booking.id).ok).toBe(true);
-    expect(getWalletBalance(user.id)).toBe(50 - booking.totalPrice);
+  it("is bought anywhere and spent anywhere, as it always was", async () => {
+    const user = await customer();
+    await topUpWallet({ userId: user.id, amount: 50, adminId });
+    const booking = await bookAt(courtB, user.id, user.phone);
+    expect((await payBookingFromWallet(booking.id)).ok).toBe(true);
+    expect(await getWalletBalance(user.id)).toBe(50 - booking.totalPrice);
     // Nothing is tagged to a venue, so a later switch finds it all spendable anywhere.
-    const tagged = getDb()
+    const tagged = await getDb()
       .prepare("SELECT COUNT(*) AS n FROM wallet_entries WHERE user_id = ? AND venue_id IS NOT NULL")
       .get(user.id) as { n: number };
     expect(tagged.n).toBe(0);
@@ -103,63 +103,63 @@ describe("platform-wide credit", () => {
 });
 
 describe("per-venue credit", () => {
-  it("must say which venue sold it", () => {
+  it("must say which venue sold it", async () => {
     process.env.MYSENAM_CREDIT_SCOPE = "venue";
-    const user = customer();
-    expect(topUpWallet({ userId: user.id, amount: 50, adminId }).ok).toBe(false);
-    expect(topUpWallet({ userId: user.id, amount: 50, adminId, venueId: venueA }).ok).toBe(true);
+    const user = await customer();
+    expect((await topUpWallet({ userId: user.id, amount: 50, adminId })).ok).toBe(false);
+    expect((await topUpWallet({ userId: user.id, amount: 50, adminId, venueId: venueA })).ok).toBe(true);
   });
 
-  it("is spendable only at the venue that sold it", () => {
+  it("is spendable only at the venue that sold it", async () => {
     process.env.MYSENAM_CREDIT_SCOPE = "venue";
-    const user = customer();
-    topUpWallet({ userId: user.id, amount: 100, adminId, venueId: venueA });
+    const user = await customer();
+    await topUpWallet({ userId: user.id, amount: 100, adminId, venueId: venueA });
 
-    expect(getWalletBalance(user.id, venueA)).toBe(100);
-    expect(getWalletBalance(user.id, venueB)).toBe(0);
+    expect(await getWalletBalance(user.id, venueA)).toBe(100);
+    expect(await getWalletBalance(user.id, venueB)).toBe(0);
 
-    const elsewhere = bookAt(courtB, user.id, user.phone);
-    const refused = payBookingFromWallet(elsewhere.id);
+    const elsewhere = await bookAt(courtB, user.id, user.phone);
+    const refused = await payBookingFromWallet(elsewhere.id);
     expect(refused.ok).toBe(false);
 
-    const here = bookAt(courtA, user.id, user.phone);
-    expect(payBookingFromWallet(here.id).ok).toBe(true);
-    expect(getWalletBalance(user.id, venueA)).toBe(100 - here.totalPrice);
+    const here = await bookAt(courtA, user.id, user.phone);
+    expect((await payBookingFromWallet(here.id)).ok).toBe(true);
+    expect(await getWalletBalance(user.id, venueA)).toBe(100 - here.totalPrice);
   });
 
-  it("keeps older credit spendable anywhere, and spends the venue's own first", () => {
-    const user = customer();
+  it("keeps older credit spendable anywhere, and spends the venue's own first", async () => {
+    const user = await customer();
     // Bought before the switch: platform-wide.
-    topUpWallet({ userId: user.id, amount: 30, adminId });
+    await topUpWallet({ userId: user.id, amount: 30, adminId });
     process.env.MYSENAM_CREDIT_SCOPE = "venue";
-    topUpWallet({ userId: user.id, amount: 5, adminId, venueId: venueA });
+    await topUpWallet({ userId: user.id, amount: 5, adminId, venueId: venueA });
 
-    expect(getWalletBalance(user.id, venueA)).toBe(35);
-    expect(getWalletBalance(user.id, venueB)).toBe(30);
+    expect(await getWalletBalance(user.id, venueA)).toBe(35);
+    expect(await getWalletBalance(user.id, venueB)).toBe(30);
 
-    const booking = bookAt(courtA, user.id, user.phone);
+    const booking = await bookAt(courtA, user.id, user.phone);
     expect(booking.totalPrice).toBeGreaterThan(5);
-    expect(payBookingFromWallet(booking.id).ok).toBe(true);
+    expect((await payBookingFromWallet(booking.id)).ok).toBe(true);
 
     // The venue's own 5 went first; the rest came from the older credit.
-    const pots = Object.fromEntries(walletBalances(user.id).map((b) => [b.venueId ?? "any", b.balance]));
+    const pots = Object.fromEntries((await walletBalances(user.id)).map((b) => [b.venueId ?? "any", b.balance]));
     expect(pots[venueA]).toBeUndefined();
     expect(pots.any).toBe(30 - (booking.totalPrice - 5));
 
     // Cancelling puts each part back where it came from.
-    adminCancelBooking(booking.code);
-    const after = Object.fromEntries(walletBalances(user.id).map((b) => [b.venueId ?? "any", b.balance]));
+    await adminCancelBooking(booking.code);
+    const after = Object.fromEntries((await walletBalances(user.id)).map((b) => [b.venueId ?? "any", b.balance]));
     expect(after[venueA]).toBe(5);
     expect(after.any).toBe(30);
   });
 
-  it("is owed by the venue that sold it, not the platform", () => {
+  it("is owed by the venue that sold it, not the platform", async () => {
     process.env.MYSENAM_CREDIT_SCOPE = "venue";
-    const before = venueCreditLiability(venueB).balance;
-    const platformBefore = walletLiability().balance;
-    const user = customer();
-    topUpWallet({ userId: user.id, amount: 40, adminId, venueId: venueB });
-    expect(venueCreditLiability(venueB).balance).toBe(before + 40);
-    expect(walletLiability().balance).toBe(platformBefore);
+    const before = (await venueCreditLiability(venueB)).balance;
+    const platformBefore = (await walletLiability()).balance;
+    const user = await customer();
+    await topUpWallet({ userId: user.id, amount: 40, adminId, venueId: venueB });
+    expect((await venueCreditLiability(venueB)).balance).toBe(before + 40);
+    expect((await walletLiability()).balance).toBe(platformBefore);
   });
 });

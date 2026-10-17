@@ -7,8 +7,8 @@
  * kind of thing nobody notices until it is being exploited.
  *
  * Free of any database import at the top: this module is compiled for every
- * runtime, including the edge one, where a native module like better-sqlite3
- * cannot be resolved. The scheduler is imported inside the Node.js branch,
+ * runtime, including the edge one, where the database drivers cannot be
+ * resolved. The scheduler is imported inside the Node.js branch,
  * which is the one place it can be.
  */
 export async function register(): Promise<void> {

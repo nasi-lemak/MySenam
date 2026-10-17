@@ -8,7 +8,7 @@ import { notifyBookingCancelled, tickOutbox } from "@/lib/notify";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const user = getSessionUser(req);
+  const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
 
   let body: unknown;
@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(bookingId))
     return NextResponse.json({ error: "bookingId is required." }, { status: 400 });
 
-  const result = cancelUserBooking(user.id, bookingId as number);
+  const result = await cancelUserBooking(user.id, bookingId as number);
   if (!result.ok) return refusal(result);
 
-  notifyBookingCancelled(result.booking, await currentLocale());
+  await notifyBookingCancelled(result.booking, await currentLocale());
   // A cancellation is what frees a place, so it is also what makes an
   // offer worth telling somebody about.
   await tickOutbox();

@@ -1,19 +1,25 @@
+import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
-import Database from "better-sqlite3";
-import { databaseFile, getDb } from "./db";
+import { promisify } from "util";
+import { dataDirectory, databaseTarget, getDb } from "./db.ts";
+
+const run = promisify(execFile);
 
 /**
  * Backups.
  *
  * Everything a venue has — its bookings, its ledger, who opened which door —
- * is one file. A crashed box or a mistyped command takes all of it, so taking
- * copies is not an optional extra: it is the difference between software a
- * venue can run on and a demo.
+ * is in one database. A crashed box or a mistyped command takes all of it, so
+ * taking copies is not an optional extra: it is the difference between
+ * software a venue can run on and a demo.
  *
- * `VACUUM INTO` is what makes this simple. It writes a consistent snapshot of
- * the live database from inside SQLite, while the app keeps serving, without
- * the half-copied WAL that `cp` would give you.
+ * On a Postgres server a backup is `pg_dump` in its custom format: consistent
+ * while the app keeps serving, and restored with `pg_restore`. On PGlite —
+ * development and the demo — it is PGlite's own copy of its data folder.
+ * Either way the copy is checked before it is kept, written under a temporary
+ * name and renamed only once it has passed, so an interrupted or broken backup
+ * never sits beside the good ones looking like one.
  */
 
 /** How many snapshots to keep before the oldest are dropped. */
@@ -28,18 +34,11 @@ export interface BackupFile {
 }
 
 export function backupDir(): string {
-  const configured = process.env.MYSENAM_BACKUP_DIR;
-  if (configured) return configured;
-  const db = databaseFile();
-  // Beside the database by default, which is the directory an operator
-  // already knows to look after.
-  return db === ":memory:"
-    ? path.join(process.cwd(), "data", "backups")
-    : path.join(path.dirname(db), "backups");
+  return process.env.MYSENAM_BACKUP_DIR || path.join(dataDirectory(), "backups");
 }
 
-/** `mysenam-2026-09-26-0214.db`, in Malaysia time, so the name sorts and reads. */
-function snapshotName(now = new Date()): string {
+/** `mysenam-2026-09-26-021400.dump`, in Malaysia time, so the name sorts and reads. */
+function snapshotName(extension: string, now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kuala_Lumpur",
     year: "numeric",
@@ -54,12 +53,14 @@ function snapshotName(now = new Date()): string {
     .reduce<Record<string, string>>((acc, p) => ({ ...acc, [p.type]: p.value }), {});
   // Intl gives 24 for midnight in some runtimes; the date has already rolled.
   const hour = parts.hour === "24" ? "00" : parts.hour;
-  return `mysenam-${parts.year}-${parts.month}-${parts.day}-${hour}${parts.minute}${parts.second}.db`;
+  return `mysenam-${parts.year}-${parts.month}-${parts.day}-${hour}${parts.minute}${parts.second}.${extension}`;
 }
+
+const NAME = /^mysenam-(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})\.(dump|tar\.gz|db)$/;
 
 /** Read the timestamp back out of a snapshot's name. */
 function takenAtFrom(name: string): string {
-  const m = name.match(/^mysenam-(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})\.db$/);
+  const m = name.match(NAME);
   if (!m) return "";
   const [, y, mo, d, h, mi, sec] = m;
   return `${y}-${mo}-${d} ${h}:${mi}:${sec}`;
@@ -76,32 +77,73 @@ export function listBackups(dir = backupDir()): BackupFile[] {
   return fs
     .readdirSync(dir)
     .filter((f) => takenAtFrom(f) !== "")
-    .sort()
-    .reverse()
+    .sort((a, b) => takenAtFrom(b).localeCompare(takenAtFrom(a)))
     .map((name) => describe(dir, name));
 }
 
 /**
- * Is this file a database we could actually restore from?
- *
- * A backup nobody has read is a guess. This opens the snapshot, runs SQLite's
- * own integrity check and counts a table that must exist, so a truncated or
- * corrupt file is caught while there is still a good one beside it.
+ * The connection details for pg_dump and pg_restore, as environment
+ * variables — so the password is never on a command line, where anybody on
+ * the machine could read it from the process list.
  */
-export function verifyBackup(file: string): { ok: true; bookings: number } | { ok: false; error: string } {
-  let snapshot: Database.Database | null = null;
+export function pgEnvironment(url: string): NodeJS.ProcessEnv {
+  const u = new URL(url);
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (u.hostname) env.PGHOST = decodeURIComponent(u.hostname);
+  if (u.port) env.PGPORT = u.port;
+  if (u.username) env.PGUSER = decodeURIComponent(u.username);
+  if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
+  const database = decodeURIComponent(u.pathname.replace(/^\//, ""));
+  if (database) env.PGDATABASE = database;
+  const host = u.searchParams.get("host");
+  if (host) env.PGHOST = host;
+  const sslmode = u.searchParams.get("sslmode");
+  if (sslmode) env.PGSSLMODE = sslmode;
+  return env;
+}
+
+const pgDump = () => process.env.MYSENAM_PG_DUMP || "pg_dump";
+const pgRestore = () => process.env.MYSENAM_PG_RESTORE || "pg_restore";
+
+/** Tables a real backup must contain; a dump without them is not one. */
+const MUST_HAVE = ["venues", "courts", "bookings", "booking_slots", "users", "wallet_entries"];
+
+export type VerifyResult = { ok: true; bookings: number | null } | { ok: false; error: string };
+
+/**
+ * Is this file a backup we could actually restore from?
+ *
+ * A backup nobody has read is a guess. A pg_dump file is read back by
+ * pg_restore, and must list the tables that hold the business; a PGlite copy
+ * is loaded into a fresh PGlite and its bookings counted.
+ */
+export async function verifyBackup(file: string): Promise<VerifyResult> {
   try {
-    snapshot = new Database(file, { readonly: true, fileMustExist: true });
-    const [{ integrity_check: result }] = snapshot.pragma("integrity_check") as {
-      integrity_check: string;
-    }[];
-    if (result !== "ok") return { ok: false, error: `Integrity check failed: ${result}` };
-    const { n } = snapshot.prepare("SELECT COUNT(*) AS n FROM bookings").get() as { n: number };
-    return { ok: true, bookings: n };
+    if (file.endsWith(".dump")) {
+      const { stdout } = await run(pgRestore(), ["--list", file], { maxBuffer: 64 * 1024 * 1024 });
+      const missing = MUST_HAVE.filter((t) => !new RegExp(`TABLE DATA public ${t} `).test(stdout));
+      if (missing.length > 0) return { ok: false, error: `The backup has no data for ${missing.join(", ")}.` };
+      return { ok: true, bookings: null };
+    }
+    if (file.endsWith(".tar.gz")) {
+      const { PGlite, types } = await import("@electric-sql/pglite");
+      const { citext } = await import("@electric-sql/pglite/contrib/citext");
+      const data = fs.readFileSync(file);
+      const copy = await PGlite.create({
+        loadDataDir: new Blob([data]),
+        extensions: { citext },
+        parsers: { [types.INT8]: (v: string) => Number(v) },
+      });
+      try {
+        const { rows } = await copy.query<{ n: number }>("SELECT COUNT(*) AS n FROM bookings");
+        return { ok: true, bookings: Number(rows[0].n) };
+      } finally {
+        await copy.close();
+      }
+    }
+    return { ok: false, error: "Not a backup this install can read." };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Unreadable backup" };
-  } finally {
-    snapshot?.close();
+    return { ok: false, error: err instanceof Error ? err.message.split("\n")[0] : "Unreadable backup" };
   }
 }
 
@@ -120,15 +162,11 @@ export type BackupResult =
   | { ok: true; file: BackupFile; bookings: number; pruned: string[] }
   | { ok: false; error: string };
 
-/**
- * Take a snapshot, check it, and retire the oldest.
- *
- * It writes to a `.tmp` name and renames on success, so an interrupted backup
- * never leaves behind a half-file that looks like a good one.
- */
-export function createBackup(opts: { dir?: string; keep?: number } = {}): BackupResult {
+/** Take a snapshot, check it, and retire the oldest. */
+export async function createBackup(opts: { dir?: string; keep?: number } = {}): Promise<BackupResult> {
   const dir = opts.dir ?? backupDir();
   const keep = opts.keep ?? Number(process.env.MYSENAM_BACKUP_KEEP ?? DEFAULT_KEEP);
+  const target = databaseTarget();
 
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -136,31 +174,48 @@ export function createBackup(opts: { dir?: string; keep?: number } = {}): Backup
     return { ok: false, error: err instanceof Error ? err.message : "Cannot create backup folder" };
   }
 
-  const name = snapshotName();
-  const target = path.join(dir, name);
-  const temporary = `${target}.tmp`;
-  if (fs.existsSync(target)) return { ok: false, error: `${name} already exists.` };
+  const name = snapshotName(target.kind === "postgres" ? "dump" : "tar.gz");
+  const final = path.join(dir, name);
+  // The temporary name keeps the real extension last, so the checks that go by
+  // it still know what the file is.
+  const temporary = path.join(dir, `.tmp-${name}`);
+  if (fs.existsSync(final)) return { ok: false, error: `${name} already exists.` };
 
   try {
     fs.rmSync(temporary, { force: true });
-    // Consistent snapshot from inside SQLite, taken while the app serves.
-    getDb().prepare("VACUUM INTO ?").run(temporary);
+    if (target.kind === "postgres") {
+      await run(pgDump(), ["--format=custom", "--no-owner", "--no-privileges", "--file", temporary], {
+        env: pgEnvironment(target.url),
+        maxBuffer: 16 * 1024 * 1024,
+      });
+    } else {
+      fs.writeFileSync(temporary, await getDb().dumpDataDir());
+    }
   } catch (err) {
     fs.rmSync(temporary, { force: true });
-    return { ok: false, error: err instanceof Error ? err.message : "Backup failed" };
+    const message = err instanceof Error ? err.message.split("\n")[0] : "Backup failed";
+    return {
+      ok: false,
+      error: /ENOENT/.test(message) ? "pg_dump is not installed on this machine (apt install postgresql-client)." : message,
+    };
   }
 
-  const verified = verifyBackup(temporary);
+  const verified = await verifyBackup(temporary);
   if (!verified.ok) {
     fs.rmSync(temporary, { force: true });
     return { ok: false, error: verified.error };
   }
 
-  fs.renameSync(temporary, target);
+  fs.renameSync(temporary, final);
+  // A pg_dump file is read back rather than restored, so its count comes from
+  // the database it was taken from.
+  const bookings =
+    verified.bookings ??
+    Number(((await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get()) as { n: number }).n);
   return {
     ok: true,
     file: describe(dir, name),
-    bookings: verified.bookings,
+    bookings,
     pruned: pruneBackups(keep, dir),
   };
 }

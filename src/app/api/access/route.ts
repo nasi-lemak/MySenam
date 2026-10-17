@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "accessCode");
   if (limited) return limited;
 
-  const result = accessCodeFor(code, phone);
+  const result = await accessCodeFor(code, phone);
   if (result === null)
     return NextResponse.json(
       { error: "Booking not found. Check the code and phone number." },

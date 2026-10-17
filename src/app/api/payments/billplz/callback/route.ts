@@ -18,10 +18,10 @@ export async function POST(req: NextRequest) {
   const fields: Record<string, string> = {};
   for (const [k, v] of form) if (typeof v === "string") fields[k] = v;
 
-  const account = fields.id ? accountForBill(fields.id) : null;
+  const account = fields.id ? await accountForBill(fields.id) : null;
   const result = account ? verifyCallback(fields, account.xSignatureKey) : null;
   if (!result) return NextResponse.json({ error: "Unknown bill or bad signature." }, { status: 400 });
 
-  settleBill(result);
+  await settleBill(result);
   return new NextResponse("OK", { status: 200 });
 }

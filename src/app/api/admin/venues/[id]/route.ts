@@ -11,7 +11,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
@@ -103,7 +103,7 @@ export async function PATCH(
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
-  const result = updateVenue(venueId, changes);
+  const result = await updateVenue(venueId, changes);
   if (!result.ok)
     return NextResponse.json(
       { error: result.error },

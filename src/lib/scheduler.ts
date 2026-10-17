@@ -61,7 +61,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
 
   try {
     // A marketplace's monthly invoices, on the first tick of the month.
-    const issued = issueDueInvoices(now);
+    const issued = await issueDueInvoices(now);
     if (issued.length > 0) result.invoices = issued.length;
   } catch (err) {
     console.error("[mysenam] issuing invoices failed:", err);
@@ -69,7 +69,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
 
   try {
     if (backupDue(now, hoursSinceLastBackup())) {
-      const taken = createBackup();
+      const taken = await createBackup();
       if (!taken.ok) {
         result.backup = { ok: false, error: taken.error };
         console.error(`[mysenam] scheduled backup failed: ${taken.error}`);

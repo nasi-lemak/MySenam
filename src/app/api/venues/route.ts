@@ -5,7 +5,7 @@ import { shows, storefrontForRequest } from "@/lib/storefront";
 export const dynamic = "force-dynamic";
 
 /** Every venue, or on a storefront, its own. */
-export function GET(req: NextRequest) {
-  const storefront = storefrontForRequest(req);
-  return NextResponse.json({ venues: listVenues().filter((v) => shows(storefront, v.id)) });
+export async function GET(req: NextRequest) {
+  const storefront = await storefrontForRequest(req);
+  return NextResponse.json({ venues: (await listVenues()).filter((v) => shows(storefront, v.id)) });
 }

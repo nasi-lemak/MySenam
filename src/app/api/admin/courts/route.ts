@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const MAX_RATE = 1000;
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       (!Number.isInteger(deposit) || (deposit as number) < 0 || (deposit as number) > MAX_DEPOSIT))
     return NextResponse.json({ error: `A deposit must be RM0–${MAX_DEPOSIT}.` }, { status: 400 });
 
-  const result = createCourt({
+  const result = await createCourt({
     venueId: venueId as number,
     name: name.trim(),
     sport: sport as Sport,

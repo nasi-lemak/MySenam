@@ -8,7 +8,7 @@ async function venueFor(
   req: NextRequest,
   params: Promise<{ id: string }>
 ): Promise<number | NextResponse> {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const venueId = Number((await params).id);
   if (!Number.isInteger(venueId) || venueId <= 0)
@@ -20,7 +20,7 @@ async function venueFor(
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const venueId = await venueFor(req, params);
   if (venueId instanceof NextResponse) return venueId;
-  return NextResponse.json({ settings: paymentSettings(venueId) });
+  return NextResponse.json({ settings: await paymentSettings(venueId) });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -46,7 +46,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (value !== undefined && value !== "" && (typeof value !== "string" || value.length > 200))
       return NextResponse.json({ error: `${name} must be text.` }, { status: 400 });
 
-  const result = savePaymentSettings(venueId, {
+  const result = await savePaymentSettings(venueId, {
     apiKey: typeof apiKey === "string" && apiKey !== "" ? apiKey : undefined,
     collectionId,
     xSignatureKey: typeof xSignatureKey === "string" && xSignatureKey !== "" ? xSignatureKey : undefined,
@@ -60,6 +60,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const venueId = await venueFor(req, params);
   if (venueId instanceof NextResponse) return venueId;
-  removePaymentSettings(venueId);
-  return NextResponse.json({ settings: paymentSettings(venueId) });
+  await removePaymentSettings(venueId);
+  return NextResponse.json({ settings: await paymentSettings(venueId) });
 }

@@ -22,23 +22,23 @@ import type { DrainResult, OutboxMessage } from "./outbox";
  */
 
 /** Tell a customer their booking stands. */
-export function notifyBookingConfirmed(
+export async function notifyBookingConfirmed(
   bookings: Booking[],
   locale: Locale,
   seriesCode: string | null
-): OutboxMessage | null {
+): Promise<OutboxMessage | null> {
   const first = bookings[0];
   if (!first) return null;
-  const court = getCourt(first.courtId);
+  const court = await getCourt(first.courtId);
   if (!court) return null;
-  const venue = getVenue(court.venueId);
+  const venue = await getVenue(court.venueId);
   if (!venue) return null;
 
   const series = bookings.length > 1;
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const code = seriesCode ?? first.code;
 
-  return enqueue({
+  return await enqueue({
     bookingId: first.id,
     venueId: venue.id,
     kind: series ? "booking_series_confirmed" : "booking_confirmed",
@@ -54,24 +54,24 @@ export function notifyBookingConfirmed(
       venue: venue.name,
       weeks: bookings.length,
       ...slot(locale, court.name, venue.name, first),
-      total: totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
+      total: await totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
       // Back to the site they booked on: the venue's storefront, if it has one.
-      link: `${venueBaseUrl(venue.id)}/my-booking`,
+      link: `${await venueBaseUrl(venue.id)}/my-booking`,
     },
   });
 }
 
 /** Tell a customer a booking is off, and that they owe nothing for it. */
-export function notifyBookingCancelled(
+export async function notifyBookingCancelled(
   booking: Booking,
   locale: Locale
-): OutboxMessage | null {
-  const court = getCourt(booking.courtId);
+): Promise<OutboxMessage | null> {
+  const court = await getCourt(booking.courtId);
   if (!court) return null;
-  const venue = getVenue(court.venueId);
+  const venue = await getVenue(court.venueId);
   if (!venue) return null;
 
-  return enqueue({
+  return await enqueue({
     bookingId: booking.id,
     venueId: venue.id,
     kind: "booking_cancelled",
@@ -90,17 +90,17 @@ export function notifyBookingCancelled(
 }
 
 /** Tell a customer they are in a class. */
-export function notifyClassEnrolled(
+export async function notifyClassEnrolled(
   booking: Booking,
   locale: Locale,
   session: { name: string; instructor: string }
-): OutboxMessage | null {
-  const court = getCourt(booking.courtId);
+): Promise<OutboxMessage | null> {
+  const court = await getCourt(booking.courtId);
   if (!court) return null;
-  const venue = getVenue(court.venueId);
+  const venue = await getVenue(court.venueId);
   if (!venue) return null;
 
-  return enqueue({
+  return await enqueue({
     bookingId: booking.id,
     venueId: venue.id,
     kind: "class_enrolled",
@@ -116,7 +116,7 @@ export function notifyClassEnrolled(
       code: booking.code,
       venue: venue.name,
       ...slot(locale, court.name, venue.name, booking),
-      total: totalLine(locale, booking.totalPrice, booking.paymentStatus === "paid", venue.id),
+      total: await totalLine(locale, booking.totalPrice, booking.paymentStatus === "paid", venue.id),
     },
   });
 }
@@ -127,7 +127,7 @@ export function notifyClassEnrolled(
  * This is the message that most earns its keep: an offer expires, and an offer
  * nobody was told about expires having helped nobody at all.
  */
-export function notifyWaitlistOffer(input: {
+export async function notifyWaitlistOffer(input: {
   venueId: number;
   name: string;
   phone: string;
@@ -137,12 +137,12 @@ export function notifyWaitlistOffer(input: {
   date: string;
   startHour: number;
   token: string;
-}): OutboxMessage | null {
-  const venue = getVenue(input.venueId);
+}): Promise<OutboxMessage | null> {
+  const venue = await getVenue(input.venueId);
   if (!venue) return null;
   const { from } = hourRange(input.startHour, input.startHour + 1);
 
-  return enqueue({
+  return await enqueue({
     venueId: venue.id,
     kind: "waitlist_offer",
     ...addressFor(input.phone, input.email),
@@ -158,7 +158,7 @@ export function notifyWaitlistOffer(input: {
       venue: venue.name,
       date: input.date,
       from,
-      link: `${venueBaseUrl(venue.id)}/waitlist/${input.token}`,
+      link: `${await venueBaseUrl(venue.id)}/waitlist/${input.token}`,
     },
   });
 }
@@ -189,8 +189,8 @@ interface OfferRow {
  * the dedupe key, so running it twice writes nothing twice, and a re-offer to
  * the next person in the queue gets a new token and so a new message.
  */
-export function notifyPendingOffers(): OutboxMessage[] {
-  const rows = getDb()
+export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
+  const rows = await getDb()
     .prepare(
       `SELECT w.id, w.name, w.phone, w.email, w.locale, w.offer_token,
               w.class_id, w.court_id,
@@ -217,7 +217,7 @@ export function notifyPendingOffers(): OutboxMessage[] {
     if (row.venue_id === null) continue;
     const what = row.class_name ?? row.court_name;
     if (!what || !row.date || row.start_hour === null) continue;
-    const message = notifyWaitlistOffer({
+    const message = await notifyWaitlistOffer({
       venueId: row.venue_id,
       name: row.name,
       phone: row.phone,
@@ -241,8 +241,8 @@ export function notifyPendingOffers(): OutboxMessage[] {
  * the requests that could have caused work, and is cheap when there is none.
  */
 export async function tickOutbox(): Promise<DrainResult> {
-  notifyPendingOffers();
-  return drainOutbox();
+  await notifyPendingOffers();
+  return await drainOutbox();
 }
 
 /**
@@ -266,11 +266,11 @@ function slot(
 }
 
 /** The total and how it is settled: paid, or still to pay — online too, where the venue takes it. */
-function totalLine(locale: Locale, amount: number, paid: boolean, venueId: number): string {
+async function totalLine(locale: Locale, amount: number, paid: boolean, venueId: number): Promise<string> {
   const t = translator(locale);
   const payment = paid
     ? "msg.paid"
-    : takesPaymentOnline(venueId)
+    : await takesPaymentOnline(venueId)
       ? "msg.payAtCounterOrOnline"
       : "msg.payAtCounter";
   return t("msg.total", { amount, payment: t(payment) });

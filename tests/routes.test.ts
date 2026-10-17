@@ -50,27 +50,27 @@ const asDesk = () => `${ADMIN_SESSION_COOKIE}=${deskToken}`;
 const asCustomer = () => `${SESSION_COOKIE}=${userToken}`;
 
 beforeAll(async () => {
-  ensureBootstrapAdmin();
-  const owner = listAdmins().find((a) => a.venueId === null)!;
-  ownerToken = createAdminSession(owner.id).token;
+  await ensureBootstrapAdmin();
+  const owner = (await listAdmins()).find((a) => a.venueId === null)!;
+  ownerToken = (await createAdminSession(owner.id)).token;
 
-  ownVenue = listVenues()[0].id;
-  const second = createVenue({
+  ownVenue = (await listVenues())[0].id;
+  const second = await createVenue({
     name: "Somebody Else's Courts",
     area: "Klang",
     address: "1 Jalan Lain",
     phone: "+60 3-9999 9999",
   });
-  otherVenue = second.ok ? second.venue.id : listVenues()[1].id;
+  otherVenue = second.ok ? second.venue.id : (await listVenues())[1].id;
 
-  const desk = createAdmin({
+  const desk = await createAdmin({
     name: "Front Desk",
     email: "desk-routes@example.com",
     password: "desk-password",
     venueId: ownVenue,
   });
   if (!desk.ok) throw new Error(desk.error);
-  deskToken = createAdminSession(desk.admin.id).token;
+  deskToken = (await createAdminSession(desk.admin.id)).token;
 
   const user = await registerUser({
     name: "Route Customer",
@@ -79,7 +79,7 @@ beforeAll(async () => {
     password: "correct horse battery",
   });
   if (!user.ok) throw new Error(user.error);
-  userToken = createSession(user.user.id).token;
+  userToken = (await createSession(user.user.id)).token;
 });
 
 /* ---------------- The sweep ---------------- */
@@ -188,7 +188,7 @@ describe("a venue operator cannot reach another venue", () => {
 describe("a venue operator cannot resend another venue's message", () => {
   it("refuses a message id belonging to the other venue", async () => {
     const { enqueue } = await import("../src/lib/outbox");
-    const theirs = enqueue({
+    const theirs = await enqueue({
       venueId: otherVenue,
       kind: "booking_confirmed",
       channel: "whatsapp",
@@ -287,7 +287,7 @@ describe("the public door-code route", () => {
 describe("a refused request says which refusal it was", () => {
   it("names the refusal and what it quotes, so the page can say it in Malay", async () => {
     const mod = await import("../src/app/api/bookings/route");
-    const court = listVenues()[0].courts.find((c) => c.capacity === 1)!;
+    const court = (await listVenues())[0].courts.find((c) => c.capacity === 1)!;
     const res = await mod.POST(
       req("/api/bookings", {
         method: "POST",

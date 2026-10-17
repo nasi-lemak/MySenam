@@ -15,11 +15,11 @@ export async function GET(
   const venueId = Number(id);
   if (!Number.isInteger(venueId) || venueId <= 0)
     return NextResponse.json({ error: "Invalid venue id." }, { status: 400 });
-  if (!getVenue(venueId))
+  if (!await getVenue(venueId))
     return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
   return NextResponse.json({
     asOf: new Date().toISOString(),
-    occupancy: getLiveOccupancy(venueId),
+    occupancy: await getLiveOccupancy(venueId),
   });
 }

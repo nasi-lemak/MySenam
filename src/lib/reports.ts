@@ -110,14 +110,14 @@ function monthsIn(from: string, to: string): string[] {
  * number rather than folded into revenue, so a month that looks thin can be
  * read as either "we sold less" or "they cancelled".
  */
-export function venueReport(venueId: number, from: string, to: string): VenueReport | null {
+export async function venueReport(venueId: number, from: string, to: string): Promise<VenueReport | null> {
   const db = getDb();
-  const venue = db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as
+  const venue = await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as
     | { id: number; name: string; open_hour: number; close_hour: number }
     | undefined;
   if (!venue) return null;
 
-  const courts = db
+  const courts = await db
     .prepare("SELECT id, name, sport, capacity FROM courts WHERE venue_id = ? ORDER BY id")
     .all(venueId) as { id: number; name: string; sport: Sport; capacity: number }[];
 
@@ -126,9 +126,9 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
     Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
   );
 
-  const { closedDays } = db
+  const { closedDays } = await db
     .prepare(
-      "SELECT COUNT(*) AS closedDays FROM venue_closures WHERE venue_id = ? AND date >= ? AND date <= ?"
+      `SELECT COUNT(*) AS "closedDays" FROM venue_closures WHERE venue_id = ? AND date >= ? AND date <= ?`
     )
     .get(venueId, from, to) as { closedDays: number };
 
@@ -139,12 +139,12 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
   // venue added to the platform rather than with this venue's own trade.
 
   // --- bookings and money, one row per booking -----------------------------
-  const counts = db
+  const counts = await db
     .prepare(`
       SELECT
         SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
         SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-        SUM(CASE WHEN b.no_show = 1 THEN 1 ELSE 0 END) AS noShows,
+        SUM(CASE WHEN b.no_show = 1 THEN 1 ELSE 0 END) AS "noShows",
         SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END) AS expected,
         SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
       FROM bookings b
@@ -163,9 +163,9 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
   const collected = counts.collected ?? 0;
 
   // --- place-hours sold ----------------------------------------------------
-  const { soldHours } = db
+  const { soldHours } = await db
     .prepare(`
-      SELECT COUNT(*) AS soldHours FROM booking_slots s
+      SELECT COUNT(*) AS "soldHours" FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
       WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
@@ -178,9 +178,9 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
   const tradingHours = Math.max(0, venue.close_hour - venue.open_hour);
   const openDays = days - closedDays;
   const blockedByCourt = new Map<number, number>();
-  for (const row of db
+  for (const row of await db
     .prepare(`
-      SELECT b.court_id AS courtId, SUM(COALESCE(b.places, c.capacity)) AS blocked
+      SELECT b.court_id AS "courtId", SUM(COALESCE(b.places, c.capacity)) AS blocked
       FROM slot_blocks b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
@@ -194,9 +194,9 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
 
   // --- per court -----------------------------------------------------------
   const soldByCourt = new Map<number, { hours: number; expected: number }>();
-  for (const row of db
+  for (const row of await db
     .prepare(`
-      SELECT b.court_id AS courtId, COUNT(*) AS hours
+      SELECT b.court_id AS "courtId", COUNT(*) AS hours
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
@@ -206,9 +206,9 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
     .all(venueId, from, to) as { courtId: number; hours: number }[])
     soldByCourt.set(row.courtId, { hours: row.hours, expected: 0 });
 
-  for (const row of db
+  for (const row of await db
     .prepare(`
-      SELECT b.court_id AS courtId, SUM(b.total_price) AS expected
+      SELECT b.court_id AS "courtId", SUM(b.total_price) AS expected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
@@ -236,7 +236,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
 
   // --- per sport -----------------------------------------------------------
   const bySport: SportLine[] = (
-    db
+    await db
       .prepare(`
         SELECT c.sport AS sport, COUNT(*) AS bookings,
                SUM(b.total_price) AS expected,
@@ -261,7 +261,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
   }));
 
   // --- per month, for the trend -------------------------------------------
-  const monthRows = db
+  const monthRows = await db
     .prepare(`
       SELECT substr(b.date, 1, 7) AS month,
              SUM(b.total_price) AS expected,
@@ -272,7 +272,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
       GROUP BY month
     `)
     .all(venueId, from, to) as { month: string; expected: number; collected: number }[];
-  const monthHours = db
+  const monthHours = await db
     .prepare(`
       SELECT substr(s.date, 1, 7) AS month, COUNT(*) AS hours
       FROM booking_slots s
@@ -291,7 +291,7 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
   }));
 
   // --- when the place is actually busy ------------------------------------
-  const hourRows = db
+  const hourRows = await db
     .prepare(`
       SELECT s.hour AS hour, COUNT(*) AS hours
       FROM booking_slots s
@@ -308,26 +308,26 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
 
   // --- what the venue still owes people -----------------------------------
   const today = todayISO();
-  const { passEntriesUnspent, passesLive } = db
+  const { passEntriesUnspent, passesLive } = await db
     .prepare(`
       SELECT
-        COALESCE(SUM(p.entries + COALESCE((SELECT SUM(e.delta) FROM pass_entries e WHERE e.pass_id = p.id), 0)), 0) AS passEntriesUnspent,
-        COUNT(*) AS passesLive
+        COALESCE(SUM(p.entries + COALESCE((SELECT SUM(e.delta) FROM pass_entries e WHERE e.pass_id = p.id), 0)), 0) AS "passEntriesUnspent",
+        COUNT(*) AS "passesLive"
       FROM passes p
       WHERE p.venue_id = ? AND p.status = 'active' AND p.expires_on >= ?
     `)
     .get(venueId, today) as { passEntriesUnspent: number; passesLive: number };
 
-  const { membershipsActive } = db
+  const { membershipsActive } = await db
     .prepare(`
-      SELECT COUNT(*) AS membershipsActive FROM memberships
+      SELECT COUNT(*) AS "membershipsActive" FROM memberships
       WHERE venue_id = ? AND status = 'active' AND starts_on <= ? AND expires_on >= ?
     `)
     .get(venueId, today, today) as { membershipsActive: number };
 
-  const { membershipsExpiringSoon } = db
+  const { membershipsExpiringSoon } = await db
     .prepare(`
-      SELECT COUNT(*) AS membershipsExpiringSoon FROM memberships
+      SELECT COUNT(*) AS "membershipsExpiringSoon" FROM memberships
       WHERE venue_id = ? AND status = 'active' AND expires_on >= ? AND expires_on <= ?
     `)
     .get(venueId, today, addDays(today, EXPIRING_SOON_DAYS)) as {
@@ -381,29 +381,29 @@ export function venueReport(venueId: number, from: string, to: string): VenueRep
  * credit from before the switch — and each venue's own is that venue's (see
  * `venueCreditLiability`).
  */
-export function walletLiability(): { customers: number; balance: number } {
+export async function walletLiability(): Promise<{ customers: number; balance: number }> {
   const perVenue = creditScope() === "venue";
-  const row = getDb()
+  const row = await getDb()
     .prepare(`
       SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
         SELECT user_id, SUM(amount) AS balance FROM wallet_entries
         ${perVenue ? "WHERE venue_id IS NULL" : ""}
-        GROUP BY user_id HAVING balance > 0
-      )
+        GROUP BY user_id HAVING SUM(amount) > 0
+      ) AS owed
     `)
     .get() as { customers: number; balance: number };
   return row;
 }
 
 /** Credit sold by this venue and not yet spent: what it owes, where credit is per venue. */
-export function venueCreditLiability(venueId: number): { customers: number; balance: number } {
-  return getDb()
+export async function venueCreditLiability(venueId: number): Promise<{ customers: number; balance: number }> {
+  return await getDb()
     .prepare(`
       SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
         SELECT user_id, SUM(amount) AS balance FROM wallet_entries
         WHERE venue_id = ?
-        GROUP BY user_id HAVING balance > 0
-      )
+        GROUP BY user_id HAVING SUM(amount) > 0
+      ) AS owed
     `)
     .get(venueId) as { customers: number; balance: number };
 }

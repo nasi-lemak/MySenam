@@ -61,9 +61,9 @@ function nextSlot(): { date: string; hour: number } {
   return { date: addDays(todayISO(), 2 + (n % 10)), hour: 8 + Math.floor(n / 10) };
 }
 
-function book(phone = PHONE) {
+async function book(phone = PHONE) {
   const { date, hour } = nextSlot();
-  const made = createBooking({ courtId, date, hours: [hour], name: "Aina Zahra", phone });
+  const made = await createBooking({ courtId, date, hours: [hour], name: "Aina Zahra", phone });
   if (!made.ok) throw new Error(made.error);
   return made.booking;
 }
@@ -106,18 +106,18 @@ function callbackFields(billId: string, paid: boolean, key = SIGNATURE_KEY) {
   return fields;
 }
 
-beforeAll(() => {
-  const venue = listVenues()[0];
+beforeAll(async () => {
+  const venue = (await listVenues())[0];
   venueId = venue.id;
   courtId = venue.courts.find((c) => c.capacity === 1)!.id;
-  const other = createVenue({ name: "Elsewhere", area: "Klang", address: "x", phone: "0300000000" });
+  const other = await createVenue({ name: "Elsewhere", area: "Klang", address: "x", phone: "0300000000" });
   if (!other.ok) throw new Error("venue");
   otherVenueId = other.venue.id;
-  createCourt({ venueId: otherVenueId, name: "Court X", sport: "badminton", offPeakRate: 10, peakRate: 20 });
+  await createCourt({ venueId: otherVenueId, name: "Court X", sport: "badminton", offPeakRate: 10, peakRate: 20 });
 });
 
-beforeEach(() => {
-  const saved = savePaymentSettings(venueId, {
+beforeEach(async () => {
+  const saved = await savePaymentSettings(venueId, {
     apiKey: "api-key-1234",
     collectionId: "col123",
     xSignatureKey: SIGNATURE_KEY,
@@ -179,8 +179,8 @@ describe("Billplz's signatures", () => {
 });
 
 describe("a venue's keys", () => {
-  it("are never stored readable", () => {
-    const row = getDb()
+  it("are never stored readable", async () => {
+    const row = await getDb()
       .prepare("SELECT api_key, x_signature_key FROM venue_payment_accounts WHERE venue_id = ?")
       .get(venueId) as { api_key: string; x_signature_key: string };
     expect(row.api_key).not.toContain("api-key-1234");
@@ -188,21 +188,21 @@ describe("a venue's keys", () => {
     expect(unseal(row.api_key)).toBe("api-key-1234");
   });
 
-  it("are never shown back, beyond the last four characters", () => {
-    const shown = paymentSettings(venueId);
+  it("are never shown back, beyond the last four characters", async () => {
+    const shown = await paymentSettings(venueId);
     expect(JSON.stringify(shown)).not.toContain("api-key-1234");
     expect(JSON.stringify(shown)).not.toContain(SIGNATURE_KEY);
     expect(shown).toMatchObject({ configured: true, enabled: true, sandbox: true, apiKeyEnding: "1234" });
   });
 
-  it("can be left blank on a later save to keep them", () => {
-    const again = savePaymentSettings(venueId, { collectionId: "col456", sandbox: false, enabled: true });
+  it("can be left blank on a later save to keep them", async () => {
+    const again = await savePaymentSettings(venueId, { collectionId: "col456", sandbox: false, enabled: true });
     expect(again.ok).toBe(true);
-    expect(paymentSettings(venueId)).toMatchObject({ collectionId: "col456", apiKeyEnding: "1234" });
+    expect(await paymentSettings(venueId)).toMatchObject({ collectionId: "col456", apiKeyEnding: "1234" });
   });
 
-  it("must both be given the first time", () => {
-    const result = savePaymentSettings(otherVenueId, {
+  it("must both be given the first time", async () => {
+    const result = await savePaymentSettings(otherVenueId, {
       apiKey: "only-one",
       collectionId: "col1",
       sandbox: true,
@@ -211,17 +211,17 @@ describe("a venue's keys", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("stop working, visibly, on an install with a different secret", () => {
+  it("stop working, visibly, on an install with a different secret", async () => {
     const sealed = seal("hello");
     process.env.MYSENAM_SECRET = "some other machine";
     resetSecretKey();
     try {
       expect(unseal(sealed)).toBeNull();
-      expect(paymentSettings(venueId).unreadable).toBe(true);
-      expect(takesPaymentOnline(venueId)).toBe(false);
+      expect((await paymentSettings(venueId)).unreadable).toBe(true);
+      expect(await takesPaymentOnline(venueId)).toBe(false);
       // …and cannot be half-updated: both keys must be typed again.
       expect(
-        savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: true }).ok
+        (await savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: true })).ok
       ).toBe(false);
     } finally {
       delete process.env.MYSENAM_SECRET;
@@ -230,16 +230,16 @@ describe("a venue's keys", () => {
     expect(unseal(sealed)).toBe("hello");
   });
 
-  it("switched off means no online payment", () => {
-    savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: false });
-    expect(takesPaymentOnline(venueId)).toBe(false);
+  it("switched off means no online payment", async () => {
+    await savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: false });
+    expect(await takesPaymentOnline(venueId)).toBe(false);
   });
 });
 
 describe("opening a payment page", () => {
   it("bills the venue's own account for what is unpaid", async () => {
     const calls = fakeBillplz();
-    const booking = book();
+    const booking = await book();
     const result = await startBookingPayment({ codes: [booking.code], phone: PHONE });
     expect(result).toMatchObject({ ok: true, amount: booking.totalPrice, reused: false });
 
@@ -256,7 +256,7 @@ describe("opening a payment page", () => {
 
   it("sends the same page again rather than making a second bill", async () => {
     const calls = fakeBillplz();
-    const booking = book();
+    const booking = await book();
     const first = await startBookingPayment({ codes: [booking.code], phone: PHONE });
     const second = await startBookingPayment({ codes: [booking.code], phone: PHONE });
     expect(calls).toHaveLength(1);
@@ -266,7 +266,7 @@ describe("opening a payment page", () => {
 
   it("pays for a whole weekly series in one bill, leaving out weeks already settled", async () => {
     const calls = fakeBillplz();
-    const series = createBookingSeries({
+    const series = await createBookingSeries({
       courtId,
       date: addDays(todayISO(), 1),
       hours: [22],
@@ -275,7 +275,7 @@ describe("opening a payment page", () => {
       phone: PHONE,
     });
     if (!series.ok) throw new Error(series.error);
-    setPaymentStatus(series.bookings[0].code, true);
+    await setPaymentStatus(series.bookings[0].code, true);
     const result = await startBookingPayment({ codes: series.bookings.map((b) => b.code), phone: PHONE });
     const expected = series.bookings[1].totalPrice + series.bookings[2].totalPrice;
     expect(result).toMatchObject({ ok: true, amount: expected });
@@ -284,15 +284,15 @@ describe("opening a payment page", () => {
 
   it("refuses somebody else's booking", async () => {
     fakeBillplz();
-    const booking = book();
+    const booking = await book();
     const result = await startBookingPayment({ codes: [booking.code], phone: "0199999999" });
     expect(result).toMatchObject({ ok: false, status: 404 });
   });
 
   it("refuses at a venue that takes no payment online", async () => {
     fakeBillplz();
-    savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: false });
-    const booking = book();
+    await savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: false });
+    const booking = await book();
     expect(await startBookingPayment({ codes: [booking.code], phone: PHONE })).toMatchObject({
       ok: false,
       status: 409,
@@ -301,14 +301,14 @@ describe("opening a payment page", () => {
 
   it("has nothing to do for a booking already paid, or cancelled", async () => {
     fakeBillplz();
-    const paid = book();
-    setPaymentStatus(paid.code, true);
+    const paid = await book();
+    await setPaymentStatus(paid.code, true);
     expect(await startBookingPayment({ codes: [paid.code], phone: PHONE })).toMatchObject({
       ok: false,
       status: 409,
     });
-    const gone = book();
-    cancelBooking(gone.code, PHONE);
+    const gone = await book();
+    await cancelBooking(gone.code, PHONE);
     expect(await startBookingPayment({ codes: [gone.code], phone: PHONE })).toMatchObject({
       ok: false,
       status: 409,
@@ -320,7 +320,7 @@ describe("opening a payment page", () => {
       "fetch",
       vi.fn(async () => Response.json({ error: { message: ["Mobile is invalid"] } }, { status: 422 }))
     );
-    const booking = book();
+    const booking = await book();
     const result = await startBookingPayment({ codes: [booking.code], phone: PHONE });
     expect(result).toMatchObject({ ok: false, status: 502 });
     expect(!result.ok && result.error).toMatch(/Mobile is invalid/);
@@ -330,7 +330,7 @@ describe("opening a payment page", () => {
 describe("being told it was paid", () => {
   async function opened() {
     fakeBillplz();
-    const booking = book();
+    const booking = await book();
     const result = await startBookingPayment({ codes: [booking.code], phone: PHONE });
     if (!result.ok) throw new Error(result.error);
     const billId = result.url.split("/").pop()!;
@@ -339,58 +339,58 @@ describe("being told it was paid", () => {
 
   it("marks the booking paid online, once, however many times it is told", async () => {
     const { booking, billId } = await opened();
-    const first = settleBill({ billId, paid: true, paidAt: null });
+    const first = await settleBill({ billId, paid: true, paidAt: null });
     expect(first?.newlyPaid.map((b) => b.code)).toEqual([booking.code]);
-    expect(settleBill({ billId, paid: true, paidAt: null })?.newlyPaid).toEqual([]);
+    expect((await settleBill({ billId, paid: true, paidAt: null }))?.newlyPaid).toEqual([]);
 
-    const now = findBooking(booking.code, PHONE)!;
+    const now = (await findBooking(booking.code, PHONE))!;
     expect(now.paymentStatus).toBe("paid");
     expect(now.paidOnline).toBe(true);
-    expect(refundsOwed(venueId).find((p) => p.billId === billId)).toBeUndefined();
+    expect((await refundsOwed(venueId)).find((p) => p.billId === billId)).toBeUndefined();
   });
 
   it("changes nothing when it was not paid", async () => {
     const { booking, billId } = await opened();
-    settleBill({ billId, paid: false, paidAt: null });
-    expect(findBooking(booking.code, PHONE)!.paymentStatus).toBe("unpaid");
+    await settleBill({ billId, paid: false, paidAt: null });
+    expect((await findBooking(booking.code, PHONE))!.paymentStatus).toBe("unpaid");
   });
 
   it("owes the money back for a booking cancelled before it arrived", async () => {
     const { booking, billId } = await opened();
-    cancelBooking(booking.code, PHONE);
-    settleBill({ billId, paid: true, paidAt: null });
-    const owed = refundsOwed(venueId).find((p) => p.billId === billId)!;
+    await cancelBooking(booking.code, PHONE);
+    await settleBill({ billId, paid: true, paidAt: null });
+    const owed = (await refundsOwed(venueId)).find((p) => p.billId === billId)!;
     expect(owed.refundOwed).toBe(booking.totalPrice);
   });
 
   it("owes the money back for a booking cancelled after it was paid", async () => {
     const { booking, billId } = await opened();
-    settleBill({ billId, paid: true, paidAt: null });
-    adminCancelBooking(booking.code);
-    const owed = refundsOwed(venueId).find((p) => p.billId === billId)!;
+    await settleBill({ billId, paid: true, paidAt: null });
+    await adminCancelBooking(booking.code);
+    const owed = (await refundsOwed(venueId)).find((p) => p.billId === billId)!;
     expect(owed.refundOwed).toBe(booking.totalPrice);
 
     // Staff refund it in Billplz and say so; it stops being owed.
-    expect(markRefunded(owed.id, otherVenueId).ok).toBe(false);
-    expect(markRefunded(owed.id, venueId).ok).toBe(true);
-    expect(refundsOwed(venueId).find((p) => p.billId === billId)).toBeUndefined();
-    expect(markRefunded(owed.id, venueId).ok).toBe(false);
+    expect((await markRefunded(owed.id, otherVenueId)).ok).toBe(false);
+    expect((await markRefunded(owed.id, venueId)).ok).toBe(true);
+    expect((await refundsOwed(venueId)).find((p) => p.billId === billId)).toBeUndefined();
+    expect((await markRefunded(owed.id, venueId)).ok).toBe(false);
   });
 
   it("does not take a booking paid at the counter as paid twice", async () => {
     const { booking, billId } = await opened();
-    setPaymentStatus(booking.code, true);
-    settleBill({ billId, paid: true, paidAt: null });
-    expect(findBooking(booking.code, PHONE)!.paidOnline).toBe(false);
-    expect(refundsOwed(venueId).find((p) => p.billId === billId)!.refundOwed).toBe(
+    await setPaymentStatus(booking.code, true);
+    await settleBill({ billId, paid: true, paidAt: null });
+    expect((await findBooking(booking.code, PHONE))!.paidOnline).toBe(false);
+    expect((await refundsOwed(venueId)).find((p) => p.billId === billId)!.refundOwed).toBe(
       booking.totalPrice
     );
   });
 
   it("is listed for staff", async () => {
     const { billId } = await opened();
-    expect(listOnlinePayments(venueId).some((p) => p.billId === billId)).toBe(true);
-    expect(listOnlinePayments(otherVenueId).some((p) => p.billId === billId)).toBe(false);
+    expect((await listOnlinePayments(venueId)).some((p) => p.billId === billId)).toBe(true);
+    expect((await listOnlinePayments(otherVenueId)).some((p) => p.billId === billId)).toBe(false);
   });
 });
 
@@ -408,7 +408,7 @@ describe("the routes", () => {
 
   it("a signed callback settles the booking; a forged one is turned away", async () => {
     fakeBillplz();
-    const booking = book();
+    const booking = await book();
     const res = await (await pay()).POST(
       new NextRequest("http://localhost/api/payments", {
         method: "POST",
@@ -422,11 +422,11 @@ describe("the routes", () => {
 
     const forged = await (await callback()).POST(form(callbackFields(billId, true, "guessed-key")));
     expect(forged.status).toBe(400);
-    expect(findBooking(booking.code, PHONE)!.paymentStatus).toBe("unpaid");
+    expect((await findBooking(booking.code, PHONE))!.paymentStatus).toBe("unpaid");
 
     const real = await (await callback()).POST(form(callbackFields(billId, true)));
     expect(real.status).toBe(200);
-    expect(findBooking(booking.code, PHONE)!.paidOnline).toBe(true);
+    expect((await findBooking(booking.code, PHONE))!.paidOnline).toBe(true);
 
     // Billplz retries: the same callback again is still a 200, and changes nothing.
     expect((await (await callback()).POST(form(callbackFields(billId, true)))).status).toBe(200);
@@ -449,18 +449,18 @@ describe("the routes", () => {
   });
 
   it("staff settings never carry the keys, and stop at the venue's edge", async () => {
-    ensureBootstrapAdmin();
-    const desk = createAdmin({
+    await ensureBootstrapAdmin();
+    const desk = await createAdmin({
       name: "Desk",
       email: "desk-payments@example.com",
       password: "desk-password",
       venueId,
     });
     if (!desk.ok) throw new Error(desk.error);
-    const cookie = `${ADMIN_SESSION_COOKIE}=${createAdminSession(desk.admin.id).token}`;
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
     const mod = await import("../src/app/api/admin/venues/[id]/payment-settings/route");
-    const get = (id: number) =>
-      mod.GET(new NextRequest(`http://localhost/api/admin/venues/${id}/payment-settings`, { headers: { cookie } }), {
+    const get = async (id: number) =>
+      await mod.GET(new NextRequest(`http://localhost/api/admin/venues/${id}/payment-settings`, { headers: { cookie } }), {
         params: Promise.resolve({ id: String(id) }),
       });
 
@@ -474,15 +474,15 @@ describe("the routes", () => {
 });
 
 describe("the confirmation message", () => {
-  it("offers paying online where the venue takes it", () => {
-    const booking = book();
-    notifyBookingConfirmed([booking], "en", null);
-    expect(messagesForBooking(booking.id)[0].body).toContain("pay at the counter or online");
+  it("offers paying online where the venue takes it", async () => {
+    const booking = await book();
+    await notifyBookingConfirmed([booking], "en", null);
+    expect((await messagesForBooking(booking.id))[0].body).toContain("pay at the counter or online");
 
-    savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: false });
-    const later = book();
-    notifyBookingConfirmed([later], "en", null);
-    const body = messagesForBooking(later.id)[0].body;
+    await savePaymentSettings(venueId, { collectionId: "col123", sandbox: true, enabled: false });
+    const later = await book();
+    await notifyBookingConfirmed([later], "en", null);
+    const body = (await messagesForBooking(later.id))[0].body;
     expect(body).toContain("pay at the counter");
     expect(body).not.toContain("or online");
   });

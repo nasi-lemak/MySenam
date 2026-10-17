@@ -12,7 +12,7 @@ export default async function HomePage() {
   const storefront = await currentStorefront();
   // A one-venue storefront is that venue's website: straight to its booking page.
   if (storefront?.venueIds.length === 1) redirect(`/venue/${storefront.venueIds[0]}`);
-  const venues = listVenues().filter((v) => shows(storefront, v.id));
+  const venues = (await listVenues()).filter((v) => shows(storefront, v.id));
   const t = await serverT();
   const sportsOffered = storefront
     ? SPORTS.filter((s) => venues.some((v) => v.courts.some((c) => c.sport === s)))

@@ -5,8 +5,8 @@ import { getVenue, listInductions, recordInduction } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 /** Everyone cleared to use this venue outside staffed hours. */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
@@ -14,9 +14,9 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  if (!getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
+  if (!await getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
-  return NextResponse.json({ inductions: listInductions(venueId) });
+  return NextResponse.json({ inductions: await listInductions(venueId) });
 }
 
 /**
@@ -25,7 +25,7 @@ export function GET(req: NextRequest) {
  * only because a named person stands behind it.
  */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   if (note !== undefined && note !== null && typeof note !== "string")
     return NextResponse.json({ error: "note must be text." }, { status: 400 });
 
-  const result = recordInduction({
+  const result = await recordInduction({
     venueId: venueId as number,
     phone,
     name,

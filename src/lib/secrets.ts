@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { databaseFile } from "./db";
+import { dataDirectory, isEphemeral } from "./db";
 
 /**
  * Credentials kept in the database, encrypted.
@@ -25,8 +25,9 @@ let cached: { source: string; key: Buffer } | null = null;
 let memoryMaterial: string | null = null;
 
 function keyFile(): string | null {
-  const db = databaseFile();
-  return db === ":memory:" ? null : path.join(path.dirname(db), "secret.key");
+  // Beside the database's folder, never inside the database: a backup carries
+  // the locked credentials without what unlocks them.
+  return isEphemeral() ? null : path.join(dataDirectory(), "secret.key");
 }
 
 function key(): Buffer {

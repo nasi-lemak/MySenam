@@ -20,11 +20,11 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const result = checkInByToken(token);
+  const result = await checkInByToken(token);
   if (!result.ok) return refusal(result);
 
-  const court = getCourt(result.booking.courtId)!;
-  const venue = getVenue(court.venueId)!;
+  const court = (await getCourt(result.booking.courtId))!;
+  const venue = (await getVenue(court.venueId))!;
   return NextResponse.json({
     booking: result.booking,
     court: { name: court.name, sport: court.sport },

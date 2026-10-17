@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const user = getSessionUser(req);
+export async function GET(req: NextRequest) {
+  const user = await getSessionUser(req);
   return NextResponse.json({ user });
 }

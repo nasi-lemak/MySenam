@@ -25,10 +25,10 @@ export default async function PaymentReturnPage({
   for (const [k, v] of Object.entries(raw)) if (typeof v === "string") query.set(k, v);
 
   const billId = redirectBillId(query);
-  const account = billId ? accountForBill(billId) : null;
+  const account = billId ? await accountForBill(billId) : null;
   const result = account ? verifyRedirect(query, account.xSignatureKey) : null;
-  if (result) settleBill(result);
-  const payment = result ? paymentByBill(result.billId) : null;
+  if (result) await settleBill(result);
+  const payment = result ? await paymentByBill(result.billId) : null;
 
   // A venue paying its marketplace invoice, rather than a customer paying for
   // a booking: staff, in English like the rest of the admin, and back to it.

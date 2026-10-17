@@ -7,7 +7,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
@@ -19,7 +19,7 @@ export async function DELETE(
   if (adminId === admin.id)
     return NextResponse.json({ error: "You cannot remove your own account." }, { status: 409 });
 
-  const result = deleteAdmin(adminId);
+  const result = await deleteAdmin(adminId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ ok: true });
 }

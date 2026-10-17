@@ -53,21 +53,21 @@ export interface RetentionLine {
 }
 
 /** What a prune would do right now, without doing it. */
-export function retentionDue(): RetentionLine[] {
+export async function retentionDue(): Promise<RetentionLine[]> {
   const db = getDb();
   const today = todayISO();
   const before = (days: number) => addDays(today, -days);
 
-  const count = (sql: string, ...args: unknown[]) =>
-    (db.prepare(sql).get(...args) as { n: number }).n;
+  const count = async (sql: string, ...args: unknown[]) =>
+    (await db.prepare(sql).get(...args) as { n: number }).n;
 
   return [
     {
       what: "Door codes shown",
       days: RETENTION.accessRevealDays,
       action: "deleted",
-      affected: count(
-        "SELECT COUNT(*) AS n FROM access_reveals WHERE date(revealed_at) < ?",
+      affected: await count(
+        "SELECT COUNT(*) AS n FROM access_reveals WHERE substr(revealed_at, 1, 10) < ?",
         before(RETENTION.accessRevealDays)
       ),
     },
@@ -75,8 +75,8 @@ export function retentionDue(): RetentionLine[] {
       what: "Arrivals at the desk",
       days: RETENTION.checkInDays,
       action: "deleted",
-      affected: count(
-        "SELECT COUNT(*) AS n FROM check_ins WHERE date(checked_in_at) < ?",
+      affected: await count(
+        "SELECT COUNT(*) AS n FROM check_ins WHERE substr(checked_in_at, 1, 10) < ?",
         before(RETENTION.checkInDays)
       ),
     },
@@ -84,9 +84,9 @@ export function retentionDue(): RetentionLine[] {
       what: "Settled waiting-list entries",
       days: RETENTION.waitlistDays,
       action: "deleted",
-      affected: count(
+      affected: await count(
         `SELECT COUNT(*) AS n FROM waitlist
-         WHERE status IN ('claimed','expired','cancelled') AND date(created_at) < ?`,
+         WHERE status IN ('claimed','expired','cancelled') AND substr(created_at, 1, 10) < ?`,
         before(RETENTION.waitlistDays)
       ),
     },
@@ -94,7 +94,7 @@ export function retentionDue(): RetentionLine[] {
       what: "Names and numbers on old bookings",
       days: RETENTION.bookingIdentityDays,
       action: "anonymised",
-      affected: count(
+      affected: await count(
         `SELECT COUNT(*) AS n FROM bookings
          WHERE date < ? AND name <> ?`,
         before(RETENTION.bookingIdentityDays),
@@ -105,8 +105,8 @@ export function retentionDue(): RetentionLine[] {
       what: "Withdrawn out-of-hours access",
       days: RETENTION.revokedInductionDays,
       action: "deleted",
-      affected: count(
-        "SELECT COUNT(*) AS n FROM inductions WHERE revoked_at IS NOT NULL AND date(revoked_at) < ?",
+      affected: await count(
+        "SELECT COUNT(*) AS n FROM inductions WHERE revoked_at IS NOT NULL AND substr(revoked_at, 1, 10) < ?",
         before(RETENTION.revokedInductionDays)
       ),
     },
@@ -115,8 +115,8 @@ export function retentionDue(): RetentionLine[] {
       days: 0,
       action: "deleted",
       affected:
-        count("SELECT COUNT(*) AS n FROM sessions WHERE expires_at < datetime('now')") +
-        count("SELECT COUNT(*) AS n FROM admin_sessions WHERE expires_at < datetime('now')"),
+        await count("SELECT COUNT(*) AS n FROM sessions WHERE expires_at < datetime('now')") +
+        await count("SELECT COUNT(*) AS n FROM admin_sessions WHERE expires_at < datetime('now')"),
     },
   ];
 }
@@ -137,35 +137,35 @@ export interface PruneResult {
  * a venue that never opens the dashboard is a venue with nothing accumulating
  * either. It runs at most once a day, whenever staff are already here.
  */
-export function pruneOldData(): PruneResult {
+export async function pruneOldData(): Promise<PruneResult> {
   const db = getDb();
   const today = todayISO();
   const before = (days: number) => addDays(today, -days);
-  const lines = retentionDue();
+  const lines = await retentionDue();
 
-  db.transaction(() => {
-    db.prepare("DELETE FROM access_reveals WHERE date(revealed_at) < ?").run(
+  await db.transaction(async () => {
+    await db.prepare("DELETE FROM access_reveals WHERE substr(revealed_at, 1, 10) < ?").run(
       before(RETENTION.accessRevealDays)
     );
-    db.prepare("DELETE FROM check_ins WHERE date(checked_in_at) < ?").run(
+    await db.prepare("DELETE FROM check_ins WHERE substr(checked_in_at, 1, 10) < ?").run(
       before(RETENTION.checkInDays)
     );
-    db.prepare(
+    await db.prepare(
       `DELETE FROM waitlist
-       WHERE status IN ('claimed','expired','cancelled') AND date(created_at) < ?`
+       WHERE status IN ('claimed','expired','cancelled') AND substr(created_at, 1, 10) < ?`
     ).run(before(RETENTION.waitlistDays));
     // The booking survives — its price is the venue's record. The person in it
     // does not.
-    db.prepare(
+    await db.prepare(
       `UPDATE bookings SET name = ?, phone = '', email = NULL, check_in_token = NULL
        WHERE date < ? AND name <> ?`
     ).run(ANONYMOUS, before(RETENTION.bookingIdentityDays), ANONYMOUS);
-    db.prepare("DELETE FROM inductions WHERE revoked_at IS NOT NULL AND date(revoked_at) < ?").run(
+    await db.prepare("DELETE FROM inductions WHERE revoked_at IS NOT NULL AND substr(revoked_at, 1, 10) < ?").run(
       before(RETENTION.revokedInductionDays)
     );
-    db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
-    db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
-    db.prepare(
+    await db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+    await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
+    await db.prepare(
       "INSERT INTO settings (key, value) VALUES ('retention_last_run', datetime('now'))" +
         " ON CONFLICT(key) DO UPDATE SET value = datetime('now')"
     ).run();
@@ -179,19 +179,19 @@ export function pruneOldData(): PruneResult {
 }
 
 /** When the policy was last applied, or null if it never has been. */
-export function retentionLastRun(): string | null {
-  const row = getDb()
+export async function retentionLastRun(): Promise<string | null> {
+  const row = await getDb()
     .prepare("SELECT value FROM settings WHERE key = 'retention_last_run'")
     .get() as { value: string } | undefined;
   return row?.value ?? null;
 }
 
 /** Run it if a day has passed, and say whether it did. */
-export function pruneIfDue(): PruneResult | null {
-  const last = retentionLastRun();
+export async function pruneIfDue(): Promise<PruneResult | null> {
+  const last = await retentionLastRun();
   if (last !== null && Date.now() - Date.parse(`${last.replace(" ", "T")}Z`) < 86_400_000)
     return null;
-  return pruneOldData();
+  return await pruneOldData();
 }
 
 /* ---------------- What one person can ask for ---------------- */
@@ -215,16 +215,16 @@ export interface CustomerExport {
  * most of what a venue holds — a pass bought at the counter, a membership, an
  * induction — is filed against a number rather than a login.
  */
-export function exportCustomerData(userId: number): CustomerExport | null {
+export async function exportCustomerData(userId: number): Promise<CustomerExport | null> {
   const db = getDb();
-  const account = db
+  const account = await db
     .prepare("SELECT id, name, email, phone, created_at FROM users WHERE id = ?")
     .get(userId) as
     | { id: number; name: string; email: string; phone: string; created_at: string | null }
     | undefined;
   if (!account) return null;
 
-  const all = (sql: string, ...args: unknown[]) => db.prepare(sql).all(...args);
+  const all = async (sql: string, ...args: unknown[]) => await db.prepare(sql).all(...args);
 
   return {
     takenAt: new Date().toISOString(),
@@ -235,7 +235,7 @@ export function exportCustomerData(userId: number): CustomerExport | null {
       phone: account.phone,
       createdAt: account.created_at ?? null,
     },
-    bookings: all(
+    bookings: await all(
       `SELECT b.code, b.date, b.start_hour, b.end_hour, b.total_price, b.status,
               b.payment_status, b.created_at, c.name AS court, v.name AS venue
        FROM bookings b
@@ -247,28 +247,28 @@ export function exportCustomerData(userId: number): CustomerExport | null {
     ),
     wallet: {
       balance: (
-        db
+        await db
           .prepare("SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ?")
           .get(userId) as { balance: number }
       ).balance,
-      entries: all(
+      entries: await all(
         "SELECT amount, reason, created_at FROM wallet_entries WHERE user_id = ? ORDER BY id",
         userId
       ),
     },
-    passes: all(
+    passes: await all(
       `SELECT p.code, p.name, p.entries, p.price, p.expires_on, p.status, v.name AS venue
        FROM passes p JOIN venues v ON v.id = p.venue_id
        WHERE p.user_id = ?`,
       userId
     ),
-    memberships: all(
+    memberships: await all(
       `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue
        FROM memberships m JOIN venues v ON v.id = m.venue_id
        WHERE m.user_id = ?`,
       userId
     ),
-    doorCodesShown: all(
+    doorCodesShown: await all(
       `SELECT r.revealed_at, b.code AS booking, c.name AS court
        FROM access_reveals r
        JOIN bookings b ON b.id = r.booking_id
@@ -305,14 +305,14 @@ export type EraseResult =
  * the counter. Cancelling a stranger's court because they once used the same
  * number would be far worse than leaving a guest booking named.
  */
-export function eraseCustomer(userId: number): EraseResult {
+export async function eraseCustomer(userId: number): Promise<EraseResult> {
   const db = getDb();
-  const account = db.prepare("SELECT id FROM users WHERE id = ?").get(userId) as
+  const account = await db.prepare("SELECT id FROM users WHERE id = ?").get(userId) as
     | { id: number }
     | undefined;
   if (!account) return { ok: false, error: "Account not found." };
 
-  const { balance } = db
+  const { balance } = await db
     .prepare("SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ?")
     .get(userId) as { balance: number };
   if (balance > 0)
@@ -322,7 +322,7 @@ export function eraseCustomer(userId: number): EraseResult {
     };
 
   const today = todayISO();
-  const { live } = db
+  const { live } = await db
     .prepare(
       `SELECT
          (SELECT COUNT(*) FROM passes
@@ -342,23 +342,23 @@ export function eraseCustomer(userId: number): EraseResult {
   let cancelled = 0;
   let bookingsAnonymised = 0;
 
-  db.transaction(() => {
+  await db.transaction(async () => {
     // Nothing should still be held for somebody who is leaving. Only what is
     // provably theirs: a booking that merely shares a phone number may belong
     // to the person who used the counter before them.
-    const upcoming = db
+    const upcoming = await db
       .prepare(
         `SELECT id FROM bookings
          WHERE user_id = ? AND status = 'confirmed' AND date >= ?`
       )
       .all(userId, today) as { id: number }[];
     for (const booking of upcoming) {
-      db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+      await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
       cancelled++;
     }
 
-    const result = db
+    const result = await db
       .prepare(
         `UPDATE bookings SET name = ?, phone = '', email = NULL, check_in_token = NULL, user_id = NULL
          WHERE user_id = ?`
@@ -366,15 +366,15 @@ export function eraseCustomer(userId: number): EraseResult {
       .run(ANONYMOUS, userId);
     bookingsAnonymised = result.changes;
 
-    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+    await db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
     // Spent passes and lapsed memberships keep their money but lose the name.
-    db.prepare(
+    await db.prepare(
       "UPDATE passes SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
-    db.prepare(
+    await db.prepare(
       "UPDATE memberships SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
-    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   })();
 
   return { ok: true, bookingsAnonymised, cancelled };

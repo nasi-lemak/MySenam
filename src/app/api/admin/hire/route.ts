@@ -6,8 +6,8 @@ import { HIRE_CONDITIONS, HireCondition } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 /** What is still out at a venue. */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
@@ -15,14 +15,14 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  if (!getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
+  if (!await getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
-  return NextResponse.json({ hires: listOpenHires(venueId) });
+  return NextResponse.json({ hires: await listOpenHires(venueId) });
 }
 
 /** Hand kit over (`action: "take"`) or take it back in (`action: "return"`). */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (action !== "take" && action !== "return")
     return NextResponse.json({ error: 'action must be "take" or "return".' }, { status: 400 });
 
-  const venueId = getVenueIdForBookingCode(code);
+  const venueId = await getVenueIdForBookingCode(code);
   if (venueId === null) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (action === "take") {
     if (deposit !== undefined && typeof deposit !== "number")
       return NextResponse.json({ error: "deposit must be a number." }, { status: 400 });
-    const result = takeHire(code, deposit as number | undefined);
+    const result = await takeHire(code, deposit as number | undefined);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({ hire: result.hire, booking: result.booking });
   }
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   if (note !== undefined && typeof note !== "string")
     return NextResponse.json({ error: "note must be text." }, { status: 400 });
 
-  const result = returnHire(code, {
+  const result = await returnHire(code, {
     condition: condition as HireCondition,
     withheld: withheld as number | undefined,
     note: note as string | undefined,

@@ -4,16 +4,16 @@ import { getVenue } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
-  return NextResponse.json({ admins: listAdmins() });
+  return NextResponse.json({ admins: await listAdmins() });
 }
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
@@ -38,12 +38,12 @@ export async function POST(req: NextRequest) {
   if (venueId !== null && venueId !== undefined) {
     if (!Number.isInteger(venueId) || (venueId as number) <= 0)
       return NextResponse.json({ error: "Invalid venueId." }, { status: 400 });
-    if (!getVenue(venueId as number))
+    if (!await getVenue(venueId as number))
       return NextResponse.json({ error: "Venue not found." }, { status: 404 });
     scope = venueId as number;
   }
 
-  const result = createAdmin({ name, email, password, venueId: scope });
+  const result = await createAdmin({ name, email, password, venueId: scope });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ admin: result.admin }, { status: 201 });
 }

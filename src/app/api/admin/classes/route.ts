@@ -6,8 +6,8 @@ import { MAX_CLASS_WEEKS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueParam = req.nextUrl.searchParams.get("venueId");
@@ -16,18 +16,18 @@ export function GET(req: NextRequest) {
     const denied = denyVenue(admin, venueId);
     if (denied) return denied;
   }
-  const classes = listClasses({ venueId, includeCancelled: true });
+  const classes = await listClasses({ venueId, includeCancelled: true });
   // Queue length per class, so the list can flag demand at a glance.
   const waiting: Record<number, number> = {};
   for (const session of classes) {
-    const queue = listClassWaitlist(session.id).length;
+    const queue = (await listClassWaitlist(session.id)).length;
     if (queue > 0) waiting[session.id] = queue;
   }
   return NextResponse.json({ classes, waiting });
 }
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   if (!Number.isInteger(courtId) || (courtId as number) <= 0)
     return NextResponse.json({ error: "courtId is required." }, { status: 400 });
-  const court = getCourt(courtId as number);
+  const court = await getCourt(courtId as number);
   if (!court) return NextResponse.json({ error: "Court not found." }, { status: 404 });
   const denied = denyVenue(admin, court.venueId);
   if (denied) return denied;
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
-  const result = createClassSessions({
+  const result = await createClassSessions({
     courtId: courtId as number,
     name: name as string,
     instructor: instructor as string,

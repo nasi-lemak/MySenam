@@ -19,11 +19,11 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "login", email);
   if (limited) return limited;
 
-  const user = authenticate(email, password);
+  const user = await authenticate(email, password);
   if (!user)
     return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
 
-  const session = createSession(user.id);
+  const session = await createSession(user.id);
   const res = NextResponse.json({ user });
   res.cookies.set(SESSION_COOKIE, session.token, sessionCookieOptions(req, session.expiresAt));
   return res;

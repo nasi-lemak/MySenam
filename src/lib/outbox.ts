@@ -154,10 +154,10 @@ export interface Compose {
  * who has a court and no message — the other order would be a message about a
  * court nobody holds, and that is the worse one.
  */
-export function enqueue(input: Compose): OutboxMessage {
+export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const t = translator(input.locale ?? "en");
   const db = getDb();
-  const info = db
+  const info = await db
     .prepare(
       `INSERT INTO messages
          (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key)
@@ -177,12 +177,12 @@ export function enqueue(input: Compose): OutboxMessage {
       input.dedupeKey ?? null
     );
   if (info.changes === 0 && input.dedupeKey) {
-    const existing = db
+    const existing = await db
       .prepare("SELECT * FROM messages WHERE dedupe_key = ?")
       .get(input.dedupeKey) as MessageRow;
     return toMessage(existing);
   }
-  return messageById(info.lastInsertRowid as number)!;
+  return (await messageById(info.lastInsertRowid as number))!;
 }
 
 /**
@@ -220,25 +220,25 @@ export function hourRange(startHour: number, endHour: number): { from: string; t
 
 // ------------------------------------------------------------------ reading
 
-export function messageById(id: number): OutboxMessage | null {
-  const row = getDb().prepare("SELECT * FROM messages WHERE id = ?").get(id) as
+export async function messageById(id: number): Promise<OutboxMessage | null> {
+  const row = await getDb().prepare("SELECT * FROM messages WHERE id = ?").get(id) as
     | MessageRow
     | undefined;
   return row ? toMessage(row) : null;
 }
 
 /** The venue's recent messages, newest first. */
-export function listMessages(venueId: number, limit = 50): OutboxMessage[] {
+export async function listMessages(venueId: number, limit = 50): Promise<OutboxMessage[]> {
   return (
-    getDb()
+    await getDb()
       .prepare("SELECT * FROM messages WHERE venue_id = ? ORDER BY id DESC LIMIT ?")
       .all(venueId, limit) as MessageRow[]
   ).map(toMessage);
 }
 
-export function messagesForBooking(bookingId: number): OutboxMessage[] {
+export async function messagesForBooking(bookingId: number): Promise<OutboxMessage[]> {
   return (
-    getDb()
+    await getDb()
       .prepare("SELECT * FROM messages WHERE booking_id = ? ORDER BY id")
       .all(bookingId) as MessageRow[]
   ).map(toMessage);
@@ -253,8 +253,8 @@ export interface OutboxSummary {
   transport: string | null;
 }
 
-export function outboxSummary(venueId: number): OutboxSummary {
-  const rows = getDb()
+export async function outboxSummary(venueId: number): Promise<OutboxSummary> {
+  const rows = await getDb()
     .prepare("SELECT status, COUNT(*) AS n FROM messages WHERE venue_id = ? GROUP BY status")
     .all(venueId) as { status: string; n: number }[];
   const by = (s: string) => rows.find((r) => r.status === s)?.n ?? 0;
@@ -328,9 +328,9 @@ export function transportName(): string | null {
 }
 
 /** Messages that are due to be tried now. */
-export function dueMessages(limit = 25): OutboxMessage[] {
+export async function dueMessages(limit = 25): Promise<OutboxMessage[]> {
   return (
-    getDb()
+    await getDb()
       .prepare(
         `SELECT * FROM messages
           WHERE status IN ('queued','failed')
@@ -363,23 +363,23 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
   const db = getDb();
   const result: DrainResult = { sent: 0, failed: 0, abandoned: 0, transport: post.name };
 
-  for (const message of dueMessages(limit)) {
+  for (const message of await dueMessages(limit)) {
     const attempts = message.attempts + 1;
     try {
       await post.send(message);
-      db.prepare(
+      await db.prepare(
         "UPDATE messages SET status = 'sent', attempts = ?, sent_at = datetime('now'), last_error = NULL WHERE id = ?"
       ).run(attempts, message.id);
       result.sent++;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       if (attempts >= MAX_ATTEMPTS) {
-        db.prepare(
+        await db.prepare(
           "UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?"
         ).run(attempts, reason, message.id);
         result.abandoned++;
       } else {
-        db.prepare(
+        await db.prepare(
           `UPDATE messages
               SET status = 'failed', attempts = ?, last_error = ?,
                   next_attempt_at = datetime('now', ?)
@@ -398,10 +398,10 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
  * For the case the retries cannot help with: the number was wrong, or the
  * venue's account was not set up yet. Staff fix the cause and ask again.
  */
-export function retryMessage(id: number, recipient?: string): OutboxMessage | null {
-  const existing = messageById(id);
+export async function retryMessage(id: number, recipient?: string): Promise<OutboxMessage | null> {
+  const existing = await messageById(id);
   if (!existing) return null;
-  getDb()
+  await getDb()
     .prepare(
       `UPDATE messages
           SET status = 'queued', attempts = 0, last_error = NULL,
@@ -410,5 +410,5 @@ export function retryMessage(id: number, recipient?: string): OutboxMessage | nu
         WHERE id = ?`
     )
     .run(recipient?.trim() || null, id);
-  return messageById(id);
+  return await messageById(id);
 }

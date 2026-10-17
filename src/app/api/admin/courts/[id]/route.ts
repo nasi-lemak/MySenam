@@ -12,7 +12,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
@@ -20,13 +20,13 @@ export async function GET(
   if (!Number.isInteger(courtId) || courtId <= 0)
     return NextResponse.json({ error: "Invalid court id." }, { status: 400 });
 
-  const court = getCourt(courtId);
+  const court = await getCourt(courtId);
   if (!court) return NextResponse.json({ error: "Court not found." }, { status: 404 });
   const denied = denyVenue(admin, court.venueId);
   if (denied) return denied;
 
   return NextResponse.json(
-    { court, access: courtAccess(courtId) },
+    { court, access: await courtAccess(courtId) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
@@ -35,7 +35,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
@@ -43,7 +43,7 @@ export async function PATCH(
   if (!Number.isInteger(courtId) || courtId <= 0)
     return NextResponse.json({ error: "Invalid court id." }, { status: 400 });
 
-  const court = getCourt(courtId);
+  const court = await getCourt(courtId);
   if (!court) return NextResponse.json({ error: "Court not found." }, { status: 404 });
   const denied = denyVenue(admin, court.venueId);
   if (denied) return denied;
@@ -143,14 +143,14 @@ export async function PATCH(
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
-  const result = updateCourt(courtId, changes);
+  const result = await updateCourt(courtId, changes);
   if (!result.ok)
     return NextResponse.json(
       { error: result.error },
       { status: result.error === "Court not found." ? 404 : 409 }
     );
   return NextResponse.json(
-    { court: result.court, access: courtAccess(courtId) },
+    { court: result.court, access: await courtAccess(courtId) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

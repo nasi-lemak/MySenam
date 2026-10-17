@@ -29,14 +29,14 @@ let ownerCookie: string;
 const req = (path: string, cookie: string) =>
   new NextRequest(`http://localhost${path}`, { headers: { cookie } });
 
-beforeAll(() => {
-  ensureBootstrapAdmin();
-  adminId = authenticateAdmin("admin@mysenam.my", "mysenam-admin")!.id;
-  venueId = listVenues()[0].id;
+beforeAll(async () => {
+  await ensureBootstrapAdmin();
+  adminId = (await authenticateAdmin("admin@mysenam.my", "mysenam-admin"))!.id;
+  venueId = (await listVenues())[0].id;
 
   // Sold at the counter, to somebody standing there, against their number.
   expect(
-    issuePass({
+    (await issuePass({
       venueId,
       name: "20-entry gym pass",
       sport: null,
@@ -46,11 +46,11 @@ beforeAll(() => {
       holderPhone: VICTIM_PHONE,
       expiresOn: addDays(todayISO(), 180),
       adminId,
-    }).ok
+    })).ok
   ).toBe(true);
 
   expect(
-    sellMembership({
+    (await sellMembership({
       venueId,
       holderName: "Nurul Hana",
       holderPhone: VICTIM_PHONE,
@@ -58,29 +58,29 @@ beforeAll(() => {
       expiresOn: addDays(todayISO(), 180),
       price: 300,
       adminId,
-    }).ok
+    })).ok
   ).toBe(true);
 
   // Anybody may register with anybody's number. That is the premise.
-  const attacker = registerUser({
+  const attacker = await registerUser({
     name: "Not Nurul",
     email: "not-nurul@example.com",
     phone: VICTIM_PHONE,
     password: "a-password",
   });
   if (!attacker.ok) throw new Error(attacker.error);
-  attackerCookie = `${SESSION_COOKIE}=${createSession(attacker.user.id).token}`;
+  attackerCookie = `${SESSION_COOKIE}=${(await createSession(attacker.user.id)).token}`;
 
-  const owner = registerUser({
+  const owner = await registerUser({
     name: "Real Owner",
     email: "real-owner@example.com",
     phone: "0197778888",
     password: "a-password",
   });
   if (!owner.ok) throw new Error(owner.error);
-  ownerCookie = `${SESSION_COOKIE}=${createSession(owner.user.id).token}`;
+  ownerCookie = `${SESSION_COOKIE}=${(await createSession(owner.user.id)).token}`;
   expect(
-    issuePass({
+    (await issuePass({
       venueId,
       name: "10-hour badminton pass",
       sport: "badminton",
@@ -91,7 +91,7 @@ beforeAll(() => {
       userId: owner.user.id,
       expiresOn: addDays(todayISO(), 180),
       adminId,
-    }).ok
+    })).ok
   ).toBe(true);
 });
 
@@ -141,7 +141,7 @@ describe("the counter linking a sale to an account", () => {
   it("puts the pass on that account's page", async () => {
     const mod = await import("../src/app/api/admin/passes/route");
     const { ADMIN_SESSION_COOKIE, createAdminSession } = await import("../src/lib/admin-auth");
-    const cookie = `${ADMIN_SESSION_COOKIE}=${createAdminSession(adminId).token}`;
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(adminId)).token}`;
 
     const sold = await mod.POST(
       new NextRequest("http://localhost/api/admin/passes", {
@@ -169,7 +169,7 @@ describe("the counter linking a sale to an account", () => {
   it("refuses an email no account holds, rather than selling it unlinked", async () => {
     const mod = await import("../src/app/api/admin/passes/route");
     const { ADMIN_SESSION_COOKIE, createAdminSession } = await import("../src/lib/admin-auth");
-    const cookie = `${ADMIN_SESSION_COOKIE}=${createAdminSession(adminId).token}`;
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(adminId)).token}`;
 
     const res = await mod.POST(
       new NextRequest("http://localhost/api/admin/passes", {

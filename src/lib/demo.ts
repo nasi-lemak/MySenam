@@ -118,14 +118,14 @@ export interface DemoResult {
 export type SeedResult = DemoResult | { ok: false; error: string };
 
 /** True once anything has been sold here — the signal that this is real. */
-export function hasTradingHistory(): boolean {
-  const row = getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get() as { n: number };
+export async function hasTradingHistory(): Promise<boolean> {
+  const row = await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get() as { n: number };
   return row.n > 0;
 }
 
 /** True once a booking nobody invented exists. After this the demo is over. */
-export function hasRealBookings(): boolean {
-  const row = getDb()
+export async function hasRealBookings(): Promise<boolean> {
+  const row = await getDb()
     .prepare("SELECT COUNT(*) AS n FROM bookings WHERE demo = 0")
     .get() as { n: number };
   return row.n > 0;
@@ -145,8 +145,8 @@ export interface DemoState {
   refreshable: boolean;
 }
 
-function setting(key: string): string | null {
-  const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+async function setting(key: string): Promise<string | null> {
+  const row = await getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key) as
     | { value: string }
     | undefined;
   return row?.value ?? null;
@@ -162,14 +162,14 @@ function setting(key: string): string | null {
  * first real customer ends the demo permanently, because a reload clears the
  * trading tables and there would be no way to tell what was safe to drop.
  */
-export function demoState(): DemoState {
-  const seededOn = setting("demo_seeded_on");
-  const runsTo = setting("demo_runs_to");
-  const real = hasRealBookings();
-  const seeded = seededOn !== null && hasTradingHistory();
+export async function demoState(): Promise<DemoState> {
+  const seededOn = await setting("demo_seeded_on");
+  const runsTo = await setting("demo_runs_to");
+  const real = await hasRealBookings();
+  const seeded = seededOn !== null && await hasTradingHistory();
   return {
     seeded,
-    empty: !hasTradingHistory(),
+    empty: !await hasTradingHistory(),
     seededOn,
     runsTo,
     stale: seeded && runsTo !== null && todayISO() > runsTo,
@@ -185,18 +185,18 @@ export function demoState(): DemoState {
  * are what the operator set up rather than what the seeder invented, so they
  * are left exactly as they are.
  */
-export function refreshDemoData(opts: { adminId: number }): SeedResult {
-  if (hasRealBookings())
+export async function refreshDemoData(opts: { adminId: number }): Promise<SeedResult> {
+  if (await hasRealBookings())
     return {
       ok: false,
       error:
         "This install has taken a real booking, so the demo can no longer be reloaded — clearing it would take that booking with it.",
     };
-  if (!hasTradingHistory())
+  if (!await hasTradingHistory())
     return { ok: false, error: "There is no demo here to reload." };
 
   const db = getDb();
-  db.transaction(() => {
+  await db.transaction(async () => {
     // Children before parents: foreign keys are on, and not every one of these
     // cascades. Venues, courts, admins and settings are deliberately absent.
     for (const table of [
@@ -219,10 +219,10 @@ export function refreshDemoData(opts: { adminId: number }): SeedResult {
       "venue_closures",
       "users",
     ])
-      db.prepare(`DELETE FROM ${table}`).run();
+      await db.prepare(`DELETE FROM ${table}`).run();
   })();
 
-  return seedDemoData({ force: true, adminId: opts.adminId });
+  return await seedDemoData({ force: true, adminId: opts.adminId });
 }
 
 /**
@@ -233,8 +233,8 @@ export function refreshDemoData(opts: { adminId: number }): SeedResult {
  * onwards goes through `createBooking`, so the demo exercises the real pricing
  * and seat allocation rather than inventing rows that could not exist.
  */
-export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedResult {
-  if (!opts.force && hasTradingHistory())
+export async function seedDemoData(opts: { force?: boolean; adminId: number }): Promise<SeedResult> {
+  if (!opts.force && await hasTradingHistory())
     return {
       ok: false,
       error:
@@ -244,7 +244,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   const db = getDb();
   const rng = mulberry32(20260101);
   const today = todayISO();
-  const venues = listVenues();
+  const venues = await listVenues();
   if (venues.length === 0) return { ok: false, error: "There are no venues to fill." };
 
   let bookings = 0;
@@ -253,7 +253,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   const extras: string[] = [];
 
   /** Insert a booking that has already happened, slots and all. */
-  const insertPast = (
+  const insertPast = async (
     court: Court,
     date: string,
     hour: number,
@@ -263,7 +263,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
     const price = computePrice(court, date, [hour]);
     const code = `MS-${Math.floor(rng() * 1e9).toString(36).toUpperCase().padStart(6, "0").slice(0, 6)}`;
     const status = opts2.cancelled ? "cancelled" : "confirmed";
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, total_price,
                                status, payment_status, paid_at, no_show, created_at)
@@ -288,21 +288,22 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
 
     if (!opts2.cancelled) {
       // The UNIQUE constraint still decides: if this hour is taken, so be it.
-      for (let seat = 0; seat < court.capacity; seat++) {
-        try {
-          db.prepare(
-            "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
-          ).run(bookingId, court.id, date, hour, seat);
-          break;
-        } catch {
-          if (seat === court.capacity - 1) {
-            db.prepare("DELETE FROM bookings WHERE id = ?").run(bookingId);
-            return null;
-          }
-        }
+      // The lowest free place, in one statement rather than one try per place.
+      const slot = await db.prepare(
+        `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat)
+         SELECT ?, ?, ?, ?, seat FROM generate_series(0, ? - 1) AS seat
+          WHERE NOT EXISTS (
+            SELECT 1 FROM booking_slots t WHERE t.court_id = ? AND t.date = ? AND t.hour = ? AND t.seat = seat.seat
+          )
+          ORDER BY seat LIMIT 1
+         ON CONFLICT DO NOTHING`
+      ).run(bookingId, court.id, date, hour, court.capacity, court.id, date, hour);
+      if (slot.changes !== 1) {
+        await db.prepare("DELETE FROM bookings WHERE id = ?").run(bookingId);
+        return null;
       }
       if (opts2.checkedIn && !opts2.noShow)
-        db.prepare("INSERT INTO check_ins (booking_id, checked_in_at, checked_out_at) VALUES (?, ?, ?)").run(
+        await db.prepare("INSERT INTO check_ins (booking_id, checked_in_at, checked_out_at) VALUES (?, ?, ?)").run(
           bookingId,
           `${date} ${String(hour).padStart(2, "0")}:02:00`,
           `${date} ${String(hour + 1).padStart(2, "0")}:05:00`
@@ -317,7 +318,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   const racquet = arena.courts.find((c) => c.sport === "badminton") ?? arena.courts[0];
 
   // A coached term, with a few people on it.
-  const term = createClassSessions({
+  const term = await createClassSessions({
     courtId: shared.id,
     name: "Beginner badminton drills",
     instructor: "Coach Rahim",
@@ -333,7 +334,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
     classes = term.classes.length;
     for (let i = 0; i < 4; i++) {
       const person = who++;
-      enrolInClass({
+      await enrolInClass({
         classId: term.classes[0].id,
         name: NAMES[person % NAMES.length],
         phone: phoneFor(person),
@@ -342,7 +343,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
     extras.push(`${classes} class sessions with a roster`);
   }
 
-  db.transaction(() => {
+  await db.transaction(async () => {
     for (const [index, venue] of venues.entries()) {
       const factor = VENUE_BUSYNESS[index % VENUE_BUSYNESS.length];
       for (const court of venue.courts) {
@@ -354,7 +355,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
             if (!demand(date, hour, factor, rng) || rng() > busy) continue;
             for (let place = 0; place < placesTaken(court.capacity, hour, rng); place++) {
               const roll = rng();
-              const made = insertPast(court, date, hour, who++, {
+              const made = await insertPast(court, date, hour, who++, {
                 paid: roll > 0.22,
                 cancelled: roll < 0.08,
                 noShow: roll > 0.965,
@@ -383,7 +384,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
           if (!demand(date, hour, factor, rng) || rng() > busy) continue;
           for (let place = 0; place < placesTaken(court.capacity, hour, rng); place++) {
             const person = who++;
-            const made = createBooking({
+            const made = await createBooking({
               courtId: court.id,
               date,
               hours: [hour],
@@ -394,7 +395,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
             bookings++;
             // Most people pay at the counter when they arrive, so tomorrow's
             // list is mostly unpaid and today's mostly is not.
-            if (rng() < (offset === 0 ? 0.6 : 0.25)) setPaymentStatus(made.booking.code, true);
+            if (rng() < (offset === 0 ? 0.6 : 0.25)) await setPaymentStatus(made.booking.code, true);
           }
         }
       }
@@ -402,7 +403,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   }
   // Two people with accounts, one holding credit.
   let customers = 0;
-  const account = registerUser({
+  const account = await registerUser({
     name: "Aiman Hakim",
     email: "aiman@example.com",
     phone: phoneFor(0),
@@ -410,11 +411,11 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   });
   if (account.ok) {
     customers++;
-    topUpWallet({ userId: account.user.id, amount: 80, adminId: opts.adminId, reason: "Counter top-up" });
+    await topUpWallet({ userId: account.user.id, amount: 80, adminId: opts.adminId, reason: "Counter top-up" });
     extras.push("a customer holding RM80 of credit");
   }
 
-  const pass = issuePass({
+  const pass = await issuePass({
     venueId: arena.id,
     name: "10 hours badminton",
     sport: "badminton",
@@ -427,7 +428,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   });
   if (pass.ok) extras.push("a 10-hour pass, part used");
 
-  const membership = sellMembership({
+  const membership = await sellMembership({
     venueId: arena.id,
     holderName: NAMES[5],
     holderPhone: phoneFor(5),
@@ -438,7 +439,7 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   });
   if (membership.ok) extras.push("a membership lapsing within the month");
 
-  const promo = createPromoCode({
+  const promo = await createPromoCode({
     venueId: arena.id,
     code: "RAYA20",
     description: "20% off, weekdays before 6",
@@ -452,12 +453,12 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   if (promo.ok) extras.push("a live promo code (RAYA20)");
 
   // A court out for repair, and a public holiday coming up.
-  blockSlots(racquet.id, addDays(today, 3), [14, 15, 16], "Net replacement");
-  closeVenueDay(arena.id, addDays(today, 8), "Public holiday");
+  await blockSlots(racquet.id, addDays(today, 3), [14, 15, 16], "Net replacement");
+  await closeVenueDay(arena.id, addDays(today, 8), "Public holiday");
   extras.push("an afternoon blocked for maintenance and a closed public holiday");
 
   // Somebody cleared for unstaffed hours.
-  const inducted = recordInduction({
+  const inducted = await recordInduction({
     venueId: arena.id,
     phone: phoneFor(1),
     name: NAMES[1],
@@ -469,12 +470,12 @@ export function seedDemoData(opts: { force?: boolean; adminId: number }): SeedRe
   // Everything here was invented by this function — the guard above means no
   // real booking can have existed when it started — so marking the lot is
   // both correct and the only thing that makes a reload safe later.
-  db.prepare("UPDATE bookings SET demo = 1").run();
+  await db.prepare("UPDATE bookings SET demo = 1").run();
   const record = db.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
   );
-  record.run("demo_seeded_on", today);
-  record.run("demo_runs_to", addDays(today, FUTURE_DAYS));
+  await record.run("demo_seeded_on", today);
+  await record.run("demo_runs_to", addDays(today, FUTURE_DAYS));
 
   return { ok: true, bookings, cancelled, noShows, customers, classes, extras };
 }

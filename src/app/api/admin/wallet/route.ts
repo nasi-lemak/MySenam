@@ -21,8 +21,8 @@ function venueFor(admin: Admin, asked: unknown): number | undefined | NextRespon
 }
 
 /** Look a customer up at the counter by email or phone. */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const query = req.nextUrl.searchParams.get("q");
@@ -31,17 +31,17 @@ export function GET(req: NextRequest) {
 
   const venueId = venueFor(admin, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
-  const customer = findUserForWallet(query, venueId);
+  const customer = await findUserForWallet(query, venueId);
   if (!customer) return NextResponse.json({ error: "Customer not found." }, { status: 404 });
   return NextResponse.json({
     scope: creditScope(),
     customer,
-    entries: listWalletEntries(customer.id, 20),
+    entries: await listWalletEntries(customer.id, 20),
   });
 }
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(amount) || (amount as number) < 1 || (amount as number) > MAX_TOP_UP)
     return NextResponse.json({ error: `Top-up must be RM1–${MAX_TOP_UP}.` }, { status: 400 });
 
-  const result = topUpWallet({
+  const result = await topUpWallet({
     userId: userId as number,
     amount: amount as number,
     adminId: admin.id,

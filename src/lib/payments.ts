@@ -53,14 +53,14 @@ export interface PaymentSettings {
   updatedAt: string | null;
 }
 
-function accountRow(venueId: number): AccountRow | undefined {
-  return getDb().prepare("SELECT * FROM venue_payment_accounts WHERE venue_id = ?").get(venueId) as
+async function accountRow(venueId: number): Promise<AccountRow | undefined> {
+  return await getDb().prepare("SELECT * FROM venue_payment_accounts WHERE venue_id = ?").get(venueId) as
     | AccountRow
     | undefined;
 }
 
-export function paymentSettings(venueId: number): PaymentSettings {
-  const row = accountRow(venueId);
+export async function paymentSettings(venueId: number): Promise<PaymentSettings> {
+  const row = await accountRow(venueId);
   if (!row)
     return {
       provider: "billplz",
@@ -87,8 +87,8 @@ export function paymentSettings(venueId: number): PaymentSettings {
 }
 
 /** The account to bill through, or null when the venue takes no payment online. */
-export function venueAccount(venueId: number): BillplzAccount | null {
-  const row = accountRow(venueId);
+export async function venueAccount(venueId: number): Promise<BillplzAccount | null> {
+  const row = await accountRow(venueId);
   if (!row || row.enabled !== 1) return null;
   const apiKey = unseal(row.api_key);
   const xSignatureKey = unseal(row.x_signature_key);
@@ -96,8 +96,8 @@ export function venueAccount(venueId: number): BillplzAccount | null {
   return { apiKey, collectionId: row.collection_id, xSignatureKey, sandbox: row.sandbox === 1 };
 }
 
-export function takesPaymentOnline(venueId: number): boolean {
-  return venueAccount(venueId) !== null;
+export async function takesPaymentOnline(venueId: number): Promise<boolean> {
+  return await venueAccount(venueId) !== null;
 }
 
 export type SettingsResult = { ok: true; settings: PaymentSettings } | { ok: false; error: string };
@@ -107,7 +107,7 @@ export type SettingsResult = { ok: true; settings: PaymentSettings } | { ok: fal
  * already stored, so turning it off or switching to sandbox does not mean
  * finding them again.
  */
-export function savePaymentSettings(
+export async function savePaymentSettings(
   venueId: number,
   input: {
     apiKey?: string;
@@ -116,9 +116,9 @@ export function savePaymentSettings(
     sandbox: boolean;
     enabled: boolean;
   }
-): SettingsResult {
-  if (!getVenue(venueId)) return { ok: false, error: "Venue not found." };
-  const existing = accountRow(venueId);
+): Promise<SettingsResult> {
+  if (!await getVenue(venueId)) return { ok: false, error: "Venue not found." };
+  const existing = await accountRow(venueId);
   const apiKey = input.apiKey?.trim();
   const signatureKey = input.xSignatureKey?.trim();
   const collectionId = input.collectionId.trim();
@@ -132,7 +132,7 @@ export function savePaymentSettings(
       error: "The stored keys cannot be read on this install. Enter both keys again.",
     };
 
-  getDb()
+  await getDb()
     .prepare(`
       INSERT INTO venue_payment_accounts
         (venue_id, provider, api_key, collection_id, x_signature_key, sandbox, enabled, updated_at)
@@ -153,11 +153,11 @@ export function savePaymentSettings(
       input.sandbox ? 1 : 0,
       input.enabled ? 1 : 0
     );
-  return { ok: true, settings: paymentSettings(venueId) };
+  return { ok: true, settings: await paymentSettings(venueId) };
 }
 
-export function removePaymentSettings(venueId: number): void {
-  getDb().prepare("DELETE FROM venue_payment_accounts WHERE venue_id = ?").run(venueId);
+export async function removePaymentSettings(venueId: number): Promise<void> {
+  await getDb().prepare("DELETE FROM venue_payment_accounts WHERE venue_id = ?").run(venueId);
 }
 
 // ------------------------------------------------------------ paying
@@ -199,8 +199,8 @@ export interface OnlinePayment {
   purpose: "booking" | "invoice";
 }
 
-function toPayment(r: PaymentRow): OnlinePayment {
-  const codes = getDb()
+async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
+  const codes = await getDb()
     .prepare(
       "SELECT b.code FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ? ORDER BY b.date, b.start_hour"
     )
@@ -223,11 +223,11 @@ function toPayment(r: PaymentRow): OnlinePayment {
   };
 }
 
-export function paymentByBill(billId: string): OnlinePayment | null {
-  const row = getDb().prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(billId) as
+export async function paymentByBill(billId: string): Promise<OnlinePayment | null> {
+  const row = await getDb().prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(billId) as
     | PaymentRow
     | undefined;
-  return row ? toPayment(row) : null;
+  return row ? await toPayment(row) : null;
 }
 
 export type StartResult =
@@ -252,18 +252,19 @@ export async function startBookingPayment(input: {
 
   const bookings: Booking[] = [];
   for (const code of codes) {
-    const booking = findBooking(code, input.phone);
+    const booking = await findBooking(code, input.phone);
     if (!booking)
       return { ok: false, error: "Booking not found. Check the code and phone number.", status: 404 };
     bookings.push(booking);
   }
 
-  const venueIds = new Set(bookings.map((b) => getCourt(b.courtId)?.venueId));
+  const venueIds = new Set<number | undefined>();
+  for (const b of bookings) venueIds.add((await getCourt(b.courtId))?.venueId);
   if (venueIds.size !== 1)
     return { ok: false, error: "Bookings at different venues are paid separately.", status: 400 };
   const venueId = [...venueIds][0]!;
-  const venue = getVenue(venueId)!;
-  const account = venueAccount(venueId);
+  const venue = (await getVenue(venueId))!;
+  const account = await venueAccount(venueId);
   if (!account)
     return { ok: false, error: `${venue.name} does not take payment online.`, status: 409 };
 
@@ -277,11 +278,11 @@ export async function startBookingPayment(input: {
   // Pressing the button twice, or coming back to it, should not make a second
   // bill for the same thing.
   const ids = due.map((b) => b.id).sort((a, b) => a - b);
-  const reusable = pendingPaymentFor(ids, amount);
+  const reusable = await pendingPaymentFor(ids, amount);
   if (reusable) return { ok: true, url: reusable.url, amount, reused: true };
 
   const first = due[0];
-  const court = getCourt(first.courtId)!;
+  const court = (await getCourt(first.courtId))!;
   const what =
     due.length === 1
       ? `${court.name}, ${first.date} ${formatHour(first.startHour)}-${formatHour(first.endHour)}`
@@ -297,7 +298,7 @@ export async function startBookingPayment(input: {
       description: `${venue.name}: ${what} (${first.seriesCode && due.length > 1 ? first.seriesCode : first.code})`,
       callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       // The customer comes back to the site they paid on; Billplz reports to ours.
-      redirectUrl: `${venueBaseUrl(venueId)}/payments/return`,
+      redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
       reference: { label: "Booking", value: due.map((b) => b.code).join(" ") },
     });
   } catch (err) {
@@ -309,8 +310,8 @@ export async function startBookingPayment(input: {
   }
 
   const db = getDb();
-  db.transaction(() => {
-    const info = db
+  await db.transaction(async () => {
+    const info = await db
       .prepare(
         `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone)
          VALUES ('billplz', ?, ?, ?, ?, ?, ?)`
@@ -319,14 +320,14 @@ export async function startBookingPayment(input: {
     const link = db.prepare(
       "INSERT INTO online_payment_bookings (payment_id, booking_id) VALUES (?, ?)"
     );
-    for (const id of ids) link.run(info.lastInsertRowid, id);
+    for (const id of ids) await link.run(info.lastInsertRowid, id);
   })();
   return { ok: true, url: bill.url, amount, reused: false };
 }
 
 /** A bill already made for exactly these bookings, still unpaid and recent. */
-function pendingPaymentFor(bookingIds: number[], amount: number): PaymentRow | null {
-  const candidates = getDb()
+async function pendingPaymentFor(bookingIds: number[], amount: number): Promise<PaymentRow | null> {
+  const candidates = await getDb()
     .prepare(`
       SELECT p.* FROM online_payments p
        WHERE p.status = 'pending' AND p.purpose = 'booking' AND p.amount = ?
@@ -337,7 +338,7 @@ function pendingPaymentFor(bookingIds: number[], amount: number): PaymentRow | n
     .all(amount, bookingIds[0]) as PaymentRow[];
   for (const row of candidates) {
     const linked = (
-      getDb()
+      await getDb()
         .prepare("SELECT booking_id FROM online_payment_bookings WHERE payment_id = ? ORDER BY booking_id")
         .all(row.id) as { booking_id: number }[]
     ).map((r) => r.booking_id);
@@ -348,8 +349,8 @@ function pendingPaymentFor(bookingIds: number[], amount: number): PaymentRow | n
 }
 
 /** Whose key checks a callback or redirect for this bill. */
-export function accountForBill(billId: string): BillplzAccount | null {
-  const row = getDb()
+export async function accountForBill(billId: string): Promise<BillplzAccount | null> {
+  const row = await getDb()
     .prepare("SELECT venue_id, purpose FROM online_payments WHERE bill_id = ?")
     .get(billId) as { venue_id: number | null; purpose: string } | undefined;
   if (!row) return null;
@@ -358,7 +359,7 @@ export function accountForBill(billId: string): BillplzAccount | null {
   if (row.venue_id === null) return null;
   // Checked even when the venue has since switched online payment off: a bill
   // it already sent can still be paid, and that money still arrived.
-  const account = accountRow(row.venue_id);
+  const account = await accountRow(row.venue_id);
   if (!account) return null;
   const apiKey = unseal(account.api_key);
   const xSignatureKey = unseal(account.x_signature_key);
@@ -380,34 +381,34 @@ export interface Settled {
  * booking cancelled, or paid some other way, before the money arrived is not
  * marked paid twice: the amount is written down as owed back instead.
  */
-export function settleBill(result: BillResult): Settled | null {
+export async function settleBill(result: BillResult): Promise<Settled | null> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(result.billId) as
+  const row = await db.prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(result.billId) as
     | PaymentRow
     | undefined;
   if (!row) return null;
-  if (!result.paid || row.status === "paid") return { payment: toPayment(row), newlyPaid: [] };
+  if (!result.paid || row.status === "paid") return { payment: await toPayment(row), newlyPaid: [] };
 
   if (row.purpose === "invoice") {
-    db.transaction(() => {
-      const claimed = db
+    await db.transaction(async () => {
+      const claimed = await db
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
-      if (claimed.changes === 1 && row.invoice_id !== null) settleInvoice(row.invoice_id);
+      if (claimed.changes === 1 && row.invoice_id !== null) await settleInvoice(row.invoice_id);
     })();
-    const fresh = db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
-    return { payment: toPayment(fresh), newlyPaid: [] };
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
   }
 
   const paidAt = new Date().toISOString();
   const newlyPaid: number[] = [];
-  db.transaction(() => {
-    const claimed = db
+  await db.transaction(async () => {
+    const claimed = await db
       .prepare("UPDATE online_payments SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'pending'")
       .run(paidAt, row.id);
     if (claimed.changes === 0) return;
 
-    const linked = db
+    const linked = await db
       .prepare(`
         SELECT b.id, b.status, b.payment_status, b.total_price
           FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id
@@ -417,7 +418,7 @@ export function settleBill(result: BillResult): Settled | null {
     let owed = 0;
     for (const b of linked) {
       if (b.status === "confirmed" && b.payment_status === "unpaid") {
-        db.prepare(
+        await db.prepare(
           "UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = 'online' WHERE id = ?"
         ).run(paidAt, b.id);
         newlyPaid.push(b.id);
@@ -426,51 +427,53 @@ export function settleBill(result: BillResult): Settled | null {
       }
     }
     if (owed > 0)
-      db.prepare("UPDATE online_payments SET refund_due = refund_due + ? WHERE id = ?").run(owed, row.id);
+      await db.prepare("UPDATE online_payments SET refund_due = refund_due + ? WHERE id = ?").run(owed, row.id);
   })();
 
-  const fresh = db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
-  const bookings = newlyPaid.map((id) => bookingById(id)).filter((b): b is Booking => b !== null);
-  return { payment: toPayment(fresh), newlyPaid: bookings };
+  const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+  const bookings: Booking[] = [];
+  for (const id of newlyPaid) {
+    const b = await bookingById(id);
+    if (b) bookings.push(b);
+  }
+  return { payment: await toPayment(fresh), newlyPaid: bookings };
 }
 
-function bookingById(id: number): Booking | null {
-  const row = getDb().prepare("SELECT code, phone FROM bookings WHERE id = ?").get(id) as
+async function bookingById(id: number): Promise<Booking | null> {
+  const row = await getDb().prepare("SELECT code, phone FROM bookings WHERE id = ?").get(id) as
     | { code: string; phone: string }
     | undefined;
-  return row ? findBooking(row.code, row.phone) : null;
+  return row ? await findBooking(row.code, row.phone) : null;
 }
 
 // ------------------------------------------------------------ for staff
 
-export function listOnlinePayments(venueId: number, limit = 50): OnlinePayment[] {
-  return (
-    getDb()
-      .prepare(
-        "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' ORDER BY id DESC LIMIT ?"
-      )
-      .all(venueId, limit) as PaymentRow[]
-  ).map(toPayment);
+export async function listOnlinePayments(venueId: number, limit = 50): Promise<OnlinePayment[]> {
+  const rows = (await getDb()
+    .prepare(
+      "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' ORDER BY id DESC LIMIT ?"
+    )
+    .all(venueId, limit)) as PaymentRow[];
+  return Promise.all(rows.map(toPayment));
 }
 
 /** Payments with money still to go back, oldest first. */
-export function refundsOwed(venueId: number): OnlinePayment[] {
-  return (
-    getDb()
-      .prepare(
-        "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' AND refund_due > refunded ORDER BY id"
-      )
-      .all(venueId) as PaymentRow[]
-  ).map(toPayment);
+export async function refundsOwed(venueId: number): Promise<OnlinePayment[]> {
+  const rows = (await getDb()
+    .prepare(
+      "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' AND refund_due > refunded ORDER BY id"
+    )
+    .all(venueId)) as PaymentRow[];
+  return Promise.all(rows.map(toPayment));
 }
 
 /** Staff have made the refund in the gateway. */
-export function markRefunded(
+export async function markRefunded(
   paymentId: number,
   venueId: number
-): { ok: true; payment: OnlinePayment } | { ok: false; error: string } {
+): Promise<{ ok: true; payment: OnlinePayment } | { ok: false; error: string }> {
   const db = getDb();
-  const done = db
+  const done = await db
     .prepare(
       "UPDATE online_payments SET refunded = refund_due WHERE id = ? AND venue_id = ? AND refund_due > refunded"
     )
@@ -478,7 +481,7 @@ export function markRefunded(
   if (done.changes === 0) return { ok: false, error: "Nothing is owed back on that payment." };
   return {
     ok: true,
-    payment: toPayment(db.prepare("SELECT * FROM online_payments WHERE id = ?").get(paymentId) as PaymentRow),
+    payment: await toPayment(await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(paymentId) as PaymentRow),
   };
 }
 

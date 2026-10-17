@@ -19,11 +19,11 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const result = claimWaitlistOffer(token);
+  const result = await claimWaitlistOffer(token);
   if (!result.ok) return refusal(result);
 
   return NextResponse.json({
     booking: result.booking,
-    session: result.booking.classId ? getClass(result.booking.classId) : null,
+    session: result.booking.classId ? await getClass(result.booking.classId) : null,
   });
 }

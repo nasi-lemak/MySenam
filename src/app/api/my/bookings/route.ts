@@ -4,8 +4,8 @@ import { listUserBookings } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const user = getSessionUser(req);
+export async function GET(req: NextRequest) {
+  const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  return NextResponse.json({ bookings: listUserBookings(user.id) });
+  return NextResponse.json({ bookings: await listUserBookings(user.id) });
 }

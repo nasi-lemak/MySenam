@@ -165,7 +165,7 @@ export async function uploadBackup(
   const headers: Record<string, string> = {
     host: url.host,
     "content-length": String(bytes),
-    "content-type": "application/vnd.sqlite3",
+    "content-type": "application/octet-stream",
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate(now),
   };
@@ -225,8 +225,8 @@ interface Stored {
   lastError: OffsiteStatus["lastError"];
 }
 
-function stored(): Stored {
-  const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(STATUS_KEY) as
+async function stored(): Promise<Stored> {
+  const row = await getDb().prepare("SELECT value FROM settings WHERE key = ?").get(STATUS_KEY) as
     | { value: string }
     | undefined;
   try {
@@ -236,17 +236,17 @@ function stored(): Stored {
   }
 }
 
-function remember(next: Stored): void {
-  getDb()
+async function remember(next: Stored): Promise<void> {
+  await getDb()
     .prepare(
       "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
     )
     .run(STATUS_KEY, JSON.stringify(next));
 }
 
-export function offsiteStatus(): OffsiteStatus {
+export async function offsiteStatus(): Promise<OffsiteStatus> {
   const config = offsiteConfig();
-  const { lastCopied, lastError } = stored();
+  const { lastCopied, lastError } = await stored();
   return {
     configured: config !== null,
     destination: config ? `${config.endpoint}/${config.bucket}/${config.prefix}` : null,
@@ -267,8 +267,8 @@ export async function copyOffsite(
   if (!config) return null;
   const result = await uploadBackup(backup, config);
   const now = new Date().toISOString();
-  const previous = stored();
-  remember(
+  const previous = await stored();
+  await remember(
     result.ok
       ? { lastCopied: { name: backup.name, at: now, key: result.key }, lastError: null }
       : { lastCopied: previous.lastCopied, lastError: { at: now, error: result.error } }

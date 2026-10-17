@@ -13,12 +13,17 @@ export default defineConfig({
     alias: { "@": path.resolve(import.meta.dirname, "./src") },
   },
   test: {
-    // The default is node, because most of the suite drives a real SQLite
-    // database. A component test opts into a browser with a
+    // The default is node, because most of the suite drives a real Postgres
+    // database (PGlite, in memory, unless DATABASE_URL names a server). A component test opts into a browser with a
     // `// @vitest-environment jsdom` line at the top of the file, so the two
     // kinds live side by side without the DB tests paying for a DOM.
     environment: "node",
-    setupFiles: ["./tests/setup-dom.ts"],
+    setupFiles: ["./tests/setup-db.ts", "./tests/setup-dom.ts"],
+    // Postgres in WebAssembly is real Postgres, but not a fast one: filling the
+    // demo or loading a backup back in to check it takes seconds, not
+    // milliseconds.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     coverage: {
       provider: "v8",
       reportsDirectory: "./coverage",

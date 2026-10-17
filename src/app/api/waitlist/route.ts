@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "booking");
   if (limited) return limited;
 
-  const user = getSessionUser(req);
+  const user = await getSessionUser(req);
   const person = {
     name: name.trim(),
     phone: phone.trim(),
@@ -54,8 +54,8 @@ export async function POST(req: NextRequest) {
   };
 
   const result = forClass
-    ? joinClassWaitlist({ classId: classId as number, ...person })
-    : joinSlotWaitlist({
+    ? await joinClassWaitlist({ classId: classId as number, ...person })
+    : await joinSlotWaitlist({
         courtId: courtId as number,
         date: date as string,
         startHour: startHour as number,
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     {
       entry: result.entry,
       position: result.position,
-      session: forClass ? getClass(classId as number) : null,
+      session: forClass ? await getClass(classId as number) : null,
     },
     { status: 201 }
   );
@@ -89,7 +89,7 @@ export async function DELETE(req: NextRequest) {
   const limited = rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const result = leaveWaitlist(entryId as number, phone);
+  const result = await leaveWaitlist(entryId as number, phone);
   if (!result.ok) return refusal(result);
   return NextResponse.json({ ok: true });
 }

@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "booking");
   if (limited) return limited;
 
-  const user = getSessionUser(req);
-  const result = enrolInClass({
+  const user = await getSessionUser(req);
+  const result = await enrolInClass({
     classId: classId as number,
     name: name.trim(),
     phone: phone.trim(),
@@ -45,14 +45,14 @@ export async function POST(req: NextRequest) {
 
   let walletError: string | null = null;
   if (payFromWallet === true && user) {
-    const paid = payBookingFromWallet(result.booking.id);
+    const paid = await payBookingFromWallet(result.booking.id);
     if (paid.ok) result.booking.paymentStatus = "paid";
     else walletError = paid.error;
   }
 
-  const session = getClass(classId as number);
+  const session = await getClass(classId as number);
   if (session)
-    notifyClassEnrolled(result.booking, await currentLocale(), session);
+    await notifyClassEnrolled(result.booking, await currentLocale(), session);
   await tickOutbox();
 
   return NextResponse.json({ booking: result.booking, session, walletError }, { status: 201 });

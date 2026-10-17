@@ -5,8 +5,8 @@ import { isValidDateString, todayISO } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const params = req.nextUrl.searchParams;
@@ -19,7 +19,7 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  if (!getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
+  if (!await getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
-  return NextResponse.json({ date, courts: getAdminSlots(venueId, date) });
+  return NextResponse.json({ date, courts: await getAdminSlots(venueId, date) });
 }

@@ -5,13 +5,13 @@ import { demoState, refreshDemoData, seedDemoData } from "@/lib/demo";
 export const dynamic = "force-dynamic";
 
 /** Whether this install is empty enough to be worth filling, and if the demo has aged. */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
 
-  return NextResponse.json(demoState(), { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(await demoState(), { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -24,7 +24,7 @@ export function GET(req: NextRequest) {
  * reload ever clearing a real booking.
  */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const result =
     body?.refresh === true
-      ? refreshDemoData({ adminId: admin.id })
-      : seedDemoData({ adminId: admin.id });
+      ? await refreshDemoData({ adminId: admin.id })
+      : await seedDemoData({ adminId: admin.id });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json(result);
 }

@@ -32,9 +32,9 @@ import { getDb } from "../src/lib/db";
 let ownerId: number;
 let n = 0;
 
-function apply(over: Record<string, string> = {}) {
+async function apply(over: Record<string, string> = {}) {
   n++;
-  return submitApplication({
+  return await submitApplication({
     businessName: `Smash Hall ${n}`,
     area: "Cheras",
     address: "12 Jalan Cheras, Kuala Lumpur",
@@ -47,9 +47,9 @@ function apply(over: Record<string, string> = {}) {
   });
 }
 
-beforeAll(() => {
-  ensureBootstrapAdmin();
-  ownerId = listAdmins().find((a) => a.venueId === null)!.id;
+beforeAll(async () => {
+  await ensureBootstrapAdmin();
+  ownerId = (await listAdmins()).find((a) => a.venueId === null)!.id;
 });
 
 beforeEach(() => sendMail.mockClear());
@@ -61,29 +61,29 @@ afterEach(() => {
 });
 
 describe("applying", () => {
-  it("is written down, waiting, without the password readable", () => {
-    const result = apply();
+  it("is written down, waiting, without the password readable", async () => {
+    const result = await apply();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.application.status).toBe("pending");
     expect(JSON.stringify(result.application)).not.toContain("a long enough password");
-    const row = getDb()
+    const row = await getDb()
       .prepare("SELECT password_hash FROM venue_applications WHERE id = ?")
       .get(result.application.id) as { password_hash: string };
     expect(row.password_hash).not.toContain("a long enough password");
   });
 
-  it("asks for a real password, email and phone", () => {
-    expect(apply({ password: "short" }).ok).toBe(false);
-    expect(apply({ email: "not-an-email" }).ok).toBe(false);
-    expect(apply({ venuePhone: "call me" }).ok).toBe(false);
+  it("asks for a real password, email and phone", async () => {
+    expect((await apply({ password: "short" })).ok).toBe(false);
+    expect((await apply({ email: "not-an-email" })).ok).toBe(false);
+    expect((await apply({ venuePhone: "call me" })).ok).toBe(false);
   });
 
-  it("will not take a second application for an email already waiting, or already in", () => {
-    const first = apply({ email: "dup@example.my" });
+  it("will not take a second application for an email already waiting, or already in", async () => {
+    const first = await apply({ email: "dup@example.my" });
     expect(first.ok).toBe(true);
-    expect(apply({ email: "DUP@example.my" }).ok).toBe(false);
-    expect(apply({ email: "admin@mysenam.my" }).ok).toBe(false);
+    expect((await apply({ email: "DUP@example.my" })).ok).toBe(false);
+    expect((await apply({ email: "admin@mysenam.my" })).ok).toBe(false);
   });
 });
 
@@ -91,7 +91,7 @@ describe("approving", () => {
   it("makes the venue and its operator, who signs in with the password they chose", async () => {
     process.env.SMTP_URL = "smtp://x";
     process.env.MAIL_FROM = "hello@mysenam.my";
-    const applied = apply();
+    const applied = await apply();
     if (!applied.ok) throw new Error(applied.error);
 
     const result = await approveApplication(applied.application.id, ownerId);
@@ -100,9 +100,9 @@ describe("approving", () => {
     expect(result.emailed).toBe(true);
     expect(sendMail).toHaveBeenCalledOnce();
 
-    const venue = listVenues().find((v) => v.id === result.application.venueId)!;
+    const venue = (await listVenues()).find((v) => v.id === result.application.venueId)!;
     expect(venue.name).toBe(applied.application.businessName);
-    const operator = authenticateAdmin(applied.application.email, "a long enough password");
+    const operator = await authenticateAdmin(applied.application.email, "a long enough password");
     expect(operator?.venueId).toBe(venue.id);
 
     // Once only.
@@ -110,7 +110,7 @@ describe("approving", () => {
   });
 
   it("says so when there is no email to tell them by", async () => {
-    const applied = apply();
+    const applied = await apply();
     if (!applied.ok) throw new Error(applied.error);
     const result = await approveApplication(applied.application.id, ownerId);
     expect(result.ok && result.emailed).toBe(false);
@@ -119,18 +119,18 @@ describe("approving", () => {
 
 describe("turning one down", () => {
   it("keeps why, and drops the password", async () => {
-    const applied = apply();
+    const applied = await apply();
     if (!applied.ok) throw new Error(applied.error);
     const result = await rejectApplication(applied.application.id, ownerId, "We do not cover Cheras yet.");
     expect(result.ok).toBe(true);
-    const row = getDb()
+    const row = await getDb()
       .prepare("SELECT status, reason, password_hash FROM venue_applications WHERE id = ?")
       .get(applied.application.id) as { status: string; reason: string; password_hash: string };
     expect(row).toEqual({ status: "rejected", reason: "We do not cover Cheras yet.", password_hash: "" });
-    expect(authenticateAdmin(applied.application.email, "a long enough password")).toBeNull();
+    expect(await authenticateAdmin(applied.application.email, "a long enough password")).toBeNull();
     // Waiting ones are listed first, the newest at the top.
-    const pending = apply();
-    const listed = listApplications();
+    const pending = await apply();
+    const listed = await listApplications();
     expect(listed[0].id).toBe(pending.ok && pending.application.id);
     const firstDecided = listed.findIndex((a) => a.status !== "pending");
     expect(listed.slice(firstDecided).every((a) => a.status !== "pending")).toBe(true);
@@ -165,26 +165,26 @@ describe("the routes", () => {
 
   it("quietly drop what a script filled in", async () => {
     process.env.MYSENAM_MARKETPLACE = "on";
-    const before = listApplications().length;
+    const before = (await listApplications()).length;
     const res = await (await publicRoute()).POST(post({ ...form(), website: "http://spam.example" }));
     expect(res.status).toBe(201);
-    expect(listApplications()).toHaveLength(before);
+    expect(await listApplications()).toHaveLength(before);
   });
 
   it("are decided by the platform owner only", async () => {
-    const desk = createAdmin({
+    const desk = await createAdmin({
       name: "Desk",
       email: "desk-apps@example.com",
       password: "desk-password",
-      venueId: listVenues()[0].id,
+      venueId: (await listVenues())[0].id,
     });
     if (!desk.ok) throw new Error(desk.error);
-    const asDesk = `${ADMIN_SESSION_COOKIE}=${createAdminSession(desk.admin.id).token}`;
-    const asOwner = `${ADMIN_SESSION_COOKIE}=${createAdminSession(ownerId).token}`;
+    const asDesk = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
+    const asOwner = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(ownerId)).token}`;
     const get = (cookie: string) =>
       new NextRequest("http://localhost/api/admin/venue-applications", { headers: { cookie } });
     const mod = await adminRoute();
-    expect(mod.GET(get(asDesk)).status).toBe(403);
-    expect(mod.GET(get(asOwner)).status).toBe(200);
+    expect((await mod.GET(get(asDesk))).status).toBe(403);
+    expect((await mod.GET(get(asOwner))).status).toBe(200);
   });
 });

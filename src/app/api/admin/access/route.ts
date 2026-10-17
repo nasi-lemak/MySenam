@@ -5,8 +5,8 @@ import { getVenue, listAccessReveals } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 /** Who has been given a door code at this venue, most recent first. */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
@@ -14,10 +14,10 @@ export function GET(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  if (!getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
+  if (!await getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
   return NextResponse.json(
-    { reveals: listAccessReveals(venueId) },
+    { reveals: await listAccessReveals(venueId) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

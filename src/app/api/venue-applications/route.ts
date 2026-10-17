@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "register");
   if (limited) return limited;
 
-  const result = submitApplication({
+  const result = await submitApplication({
     businessName: input.businessName as string,
     area: input.area as string,
     address: input.address as string,

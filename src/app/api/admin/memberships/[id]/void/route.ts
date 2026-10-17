@@ -8,7 +8,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
@@ -16,12 +16,12 @@ export async function POST(
   if (!Number.isInteger(membershipId) || membershipId <= 0)
     return NextResponse.json({ error: "Invalid membership id." }, { status: 400 });
 
-  const existing = membershipById(membershipId);
+  const existing = await membershipById(membershipId);
   if (!existing) return NextResponse.json({ error: "Membership not found." }, { status: 404 });
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const result = voidMembership(membershipId);
+  const result = await voidMembership(membershipId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ membership: result.membership });
 }

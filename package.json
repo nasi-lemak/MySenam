@@ -2,6 +2,7 @@
   "name": "mysenam",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "MySenam - online booking for badminton, tennis, pickleball and futsal courts, gyms, pools and classes",
   "scripts": {
     "dev": "next dev",
@@ -12,13 +13,16 @@
     "test": "vitest run",
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs",
+    "import-sqlite": "node scripts/import-sqlite.mjs",
     "coverage": "vitest run --coverage",
     "new-tenant": "node scripts/new-tenant.mjs"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "better-sqlite3": "^11.10.0",
     "next": "^15.5.2",
     "nodemailer": "^10.1.2",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
@@ -30,6 +34,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

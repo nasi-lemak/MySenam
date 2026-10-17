@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { getDb } from "./db";
+import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -118,8 +118,8 @@ function toVenue(r: VenueRow): Venue {
 }
 
 /** A venue's trading hours, falling back to the defaults if it has vanished. */
-export function venueHours(venueId: number): { openHour: number; closeHour: number } {
-  const row = getDb()
+export async function venueHours(venueId: number): Promise<{ openHour: number; closeHour: number }> {
+  const row = await getDb()
     .prepare("SELECT open_hour, close_hour FROM venues WHERE id = ?")
     .get(venueId) as { open_hour: number; close_hour: number } | undefined;
   return {
@@ -129,8 +129,8 @@ export function venueHours(venueId: number): { openHour: number; closeHour: numb
 }
 
 /** The trading hours of the venue a court belongs to. */
-export function courtVenueHours(courtId: number): { openHour: number; closeHour: number } {
-  const row = getDb()
+export async function courtVenueHours(courtId: number): Promise<{ openHour: number; closeHour: number }> {
+  const row = await getDb()
     .prepare(`
       SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour
       FROM courts c JOIN venues v ON v.id = c.venue_id WHERE c.id = ?
@@ -143,19 +143,19 @@ export function courtVenueHours(courtId: number): { openHour: number; closeHour:
 }
 
 /** The closure covering a date, if the venue is shut that whole day. */
-export function getVenueClosure(venueId: number, date: string): VenueClosure | null {
-  const row = getDb()
+export async function getVenueClosure(venueId: number, date: string): Promise<VenueClosure | null> {
+  const row = await getDb()
     .prepare("SELECT date, reason FROM venue_closures WHERE venue_id = ? AND date = ?")
     .get(venueId, date) as { date: string; reason: string | null } | undefined;
   return row ? { date: row.date, reason: row.reason } : null;
 }
 
 /** Every closure a venue has from `from` onwards, soonest first. */
-export function listVenueClosures(venueId: number, from?: string): VenueClosure[] {
-  const rows = getDb()
+export async function listVenueClosures(venueId: number, from?: string): Promise<VenueClosure[]> {
+  const rows = await getDb()
     .prepare(`
       SELECT date, reason FROM venue_closures
-      WHERE venue_id = ? AND (? IS NULL OR date >= ?)
+      WHERE venue_id = ? AND (?::text IS NULL OR date >= ?)
       ORDER BY date
     `)
     .all(venueId, from ?? null, from ?? null) as { date: string; reason: string | null }[];
@@ -184,32 +184,34 @@ const ENGLISH = translator("en");
 export type ClosureResult = { ok: true; closure: VenueClosure } | Refusal;
 
 /** Shut a venue for a whole day. Existing bookings are left for staff to handle. */
-export function closeVenueDay(venueId: number, date: string, reason?: string): ClosureResult {
-  if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
-  const db = getDb();
-  const venue = db.prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
-  if (!venue) return refuse("VENUE_NOT_FOUND");
-  const trimmed = reason?.trim();
-  db.prepare(
-    `INSERT INTO venue_closures (venue_id, date, reason) VALUES (?, ?, ?)
-     ON CONFLICT (venue_id, date) DO UPDATE SET reason = excluded.reason`
-  ).run(venueId, date, trimmed && trimmed.length > 0 ? trimmed : null);
-  return { ok: true, closure: { date, reason: trimmed && trimmed.length > 0 ? trimmed : null } };
+export async function closeVenueDay(venueId: number, date: string, reason?: string): Promise<ClosureResult> {
+  return withTransaction(async () => {
+    if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
+    const db = getDb();
+    const venue = await db.prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
+    if (!venue) return refuse("VENUE_NOT_FOUND");
+    const trimmed = reason?.trim();
+    await db.prepare(
+      `INSERT INTO venue_closures (venue_id, date, reason) VALUES (?, ?, ?)
+       ON CONFLICT (venue_id, date) DO UPDATE SET reason = excluded.reason`
+    ).run(venueId, date, trimmed && trimmed.length > 0 ? trimmed : null);
+    return { ok: true, closure: { date, reason: trimmed && trimmed.length > 0 ? trimmed : null } };
+  });
 }
 
 /** Re-open a closed day. */
-export function reopenVenueDay(venueId: number, date: string): { ok: boolean } {
-  const info = getDb()
+export async function reopenVenueDay(venueId: number, date: string): Promise<{ ok: boolean }> {
+  const info = await getDb()
     .prepare("DELETE FROM venue_closures WHERE venue_id = ? AND date = ?")
     .run(venueId, date);
   return { ok: info.changes > 0 };
 }
 
 /** Dates a venue is shut inside a range, as a set for bulk checks. */
-function closedDatesIn(venueIds: number[], from: string, to: string): Set<string> {
+async function closedDatesIn(venueIds: number[], from: string, to: string): Promise<Set<string>> {
   if (venueIds.length === 0) return new Set();
   const list = venueIds.map(() => "?").join(",");
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       `SELECT venue_id, date FROM venue_closures
        WHERE venue_id IN (${list}) AND date >= ? AND date <= ?`
@@ -285,27 +287,27 @@ function toBooking(r: BookingRow): Booking {
   };
 }
 
-export function listVenues(): (Venue & { courts: Court[] })[] {
+export async function listVenues(): Promise<(Venue & { courts: Court[] })[]> {
   const db = getDb();
-  const venues = (db.prepare("SELECT * FROM venues ORDER BY id").all() as VenueRow[]).map(toVenue);
-  const courts = (db.prepare("SELECT * FROM courts ORDER BY id").all() as CourtRow[]).map(toCourt);
+  const venues = (await db.prepare("SELECT * FROM venues ORDER BY id").all() as VenueRow[]).map(toVenue);
+  const courts = (await db.prepare("SELECT * FROM courts ORDER BY id").all() as CourtRow[]).map(toCourt);
   return venues.map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) }));
 }
 
-export function getVenue(id: number): (Venue & { courts: Court[] }) | null {
+export async function getVenue(id: number): Promise<(Venue & { courts: Court[] }) | null> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM venues WHERE id = ?").get(id) as VenueRow | undefined;
+  const row = await db.prepare("SELECT * FROM venues WHERE id = ?").get(id) as VenueRow | undefined;
   if (!row) return null;
   const venue = toVenue(row);
   const courts = (
-    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(id) as CourtRow[]
+    await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(id) as CourtRow[]
   ).map(toCourt);
   return { ...venue, courts };
 }
 
-export function getCourt(id: number): Court | null {
+export async function getCourt(id: number): Promise<Court | null> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM courts WHERE id = ?").get(id) as CourtRow | undefined;
+  const row = await db.prepare("SELECT * FROM courts WHERE id = ?").get(id) as CourtRow | undefined;
   return row ? toCourt(row) : null;
 }
 
@@ -317,27 +319,27 @@ export function getCourt(id: number): Court | null {
 /** Errors that mean "that court went", rather than something structural. */
 const TAKEN_ERROR = /just booked|filling up very quickly|filled up|already taken/i;
 
-export function courtsForAnyBooking(input: {
+export async function courtsForAnyBooking(input: {
   venueId: number;
   sport: Sport;
   date: string;
   hours: number[];
-}): Court[] {
+}): Promise<Court[]> {
   const { venueId, sport, date } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
   if (hours.length === 0) return [];
 
   const db = getDb();
   const courts = (
-    db
+    await db
       .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id")
       .all(venueId, sport) as CourtRow[]
   ).map(toCourt);
   if (courts.length === 0) return [];
 
-  const classHours = classHoursOn(date, venueId);
-  const taken = countTakenPlaces(date, venueId);
-  const blocked = blockedPlacesOn(date, venueId);
+  const classHours = await classHoursOn(date, venueId);
+  const taken = await countTakenPlaces(date, venueId);
+  const blocked = await blockedPlacesOn(date, venueId);
 
   const free = courts.filter((court) =>
     hours.every((hour) => {
@@ -365,7 +367,7 @@ export function courtsForAnyBooking(input: {
  * they do not mind, so a race should cost them a different court, not the
  * booking.
  */
-export function createBookingOnAnyCourt(input: {
+export async function createBookingOnAnyCourt(input: {
   venueId: number;
   sport: Sport;
   date: string;
@@ -376,26 +378,26 @@ export function createBookingOnAnyCourt(input: {
   phone: string;
   email?: string;
   userId?: number;
-}): CreateSeriesResult {
+}): Promise<CreateSeriesResult> {
   const { venueId, sport, date, hours, ...rest } = input;
 
-  const venue = getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
+  const venue = await getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
   if (!venue) return refuse("VENUE_NOT_FOUND");
   if (!SPORTS.includes(sport)) return refuse("UNKNOWN_SPORT");
 
-  const candidates = courtsForAnyBooking({ venueId, sport, date, hours });
+  const candidates = await courtsForAnyBooking({ venueId, sport, date, hours });
   if (candidates.length === 0) {
     // Fall through to the single-court path on any court of that sport, so the
     // customer gets the real reason (closed day, outside hours, past slot)
     // rather than a flat "nothing free".
     const anyCourt = (
-      getDb()
+      await getDb()
         .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id LIMIT 1")
         .all(venueId, sport) as CourtRow[]
     ).map(toCourt)[0];
     if (!anyCourt)
       return refuse("NO_SPORT_AT_VENUE", { sport: SPORT_LABELS[sport] });
-    const probe = createBookingSeries({ ...rest, courtId: anyCourt.id, date, hours, weeks: input.weeks ?? 1 });
+    const probe = await createBookingSeries({ ...rest, courtId: anyCourt.id, date, hours, weeks: input.weeks ?? 1 });
     if (probe.ok) return probe; // it came free between the two reads
     // A "someone took it" error from the probe is about that one court, and
     // the customer never chose it. Say what is actually true of all of them.
@@ -406,7 +408,7 @@ export function createBookingOnAnyCourt(input: {
 
   let lastError = "No court is free for that whole time. Please pick another time.";
   for (const court of candidates) {
-    const result = createBookingSeries({
+    const result = await createBookingSeries({
       ...rest,
       courtId: court.id,
       date,
@@ -425,8 +427,8 @@ export function createBookingOnAnyCourt(input: {
 /**
  * ` AND <column> IN (this venue's courts)`, or nothing for every venue.
  *
- * Spelled out rather than written as `(? IS NULL OR ...)`, because SQLite
- * cannot use an index through that OR: asking for one venue read every
+ * Spelled out rather than written as `(? IS NULL OR ...)`, because the
+ * planner cannot use an index through that OR: asking for one venue read every
  * venue's rows for the date, so the venue page slowed down with each venue
  * added to the platform.
  */
@@ -443,9 +445,9 @@ function venueCourts(column: string, venueId?: number | null): { sql: string; pa
  * capacity here. That keeps a capacity-1 court behaving exactly as before: one
  * place blocked out of one is the court closed.
  */
-function blockedPlacesOn(date: string, venueId?: number): Map<string, number> {
+async function blockedPlacesOn(date: string, venueId?: number): Promise<Map<string, number>> {
   const venue = venueCourts("b.court_id", venueId);
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(`
       SELECT b.court_id AS court_id, b.hour AS hour,
              COALESCE(b.places, c.capacity) AS places
@@ -461,10 +463,10 @@ function blockedPlacesOn(date: string, venueId?: number): Map<string, number> {
 }
 
 /** Places out of service on one court-hour. */
-function blockedPlacesFor(courtId: number, date: string, hours: number[]): Map<number, number> {
+async function blockedPlacesFor(courtId: number, date: string, hours: number[]): Promise<Map<number, number>> {
   if (hours.length === 0) return new Map();
   const list = hours.map(() => "?").join(",");
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(`
       SELECT b.hour AS hour, COALESCE(b.places, c.capacity) AS places
       FROM slot_blocks b JOIN courts c ON c.id = b.court_id
@@ -475,26 +477,26 @@ function blockedPlacesFor(courtId: number, date: string, hours: number[]): Map<n
 }
 
 /** Availability grid for every court of a venue (optionally one sport) on a date. */
-export function getAvailability(
+export async function getAvailability(
   venueId: number,
   date: string,
   sport?: Sport,
   /** Price the grid at member rates, for a caller known to be a member. */
   member = false
-): CourtAvailability[] {
+): Promise<CourtAvailability[]> {
   const db = getDb();
   let courts = (
-    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+    await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
   if (sport) courts = courts.filter((c) => c.sport === sport);
 
-  const takenCounts = countTakenPlaces(date, venueId);
+  const takenCounts = await countTakenPlaces(date, venueId);
 
-  const blockedPlaces = blockedPlacesOn(date, venueId);
-  const classHours = classHoursOn(date, venueId);
-  const { openHour, closeHour } = venueHours(venueId);
+  const blockedPlaces = await blockedPlacesOn(date, venueId);
+  const classHours = await classHoursOn(date, venueId);
+  const { openHour, closeHour } = await venueHours(venueId);
   // A closed day reads like every hour is blocked, so nothing can be picked.
-  const closed = getVenueClosure(venueId, date) !== null;
+  const closed = await getVenueClosure(venueId, date) !== null;
 
   return courts.map((court) => ({
     court,
@@ -524,12 +526,12 @@ export function getAvailability(
 }
 
 /** `courtId:hour` -> the class holding it, for a date (optionally one venue). */
-function classHoursOn(
+async function classHoursOn(
   date: string,
   venueId?: number
-): Map<string, { id: number; name: string }> {
+): Promise<Map<string, { id: number; name: string }>> {
   const venue = venueCourts("court_id", venueId);
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(`
       SELECT id, court_id, name, start_hour, end_hour FROM classes
       WHERE date = ? AND status = 'scheduled'${venue.sql}
@@ -552,9 +554,9 @@ function classHoursOn(
 }
 
 /** Places already taken per `courtId:hour` on a date, for one venue or all. */
-function countTakenPlaces(date: string, venueId?: number): Map<string, number> {
+async function countTakenPlaces(date: string, venueId?: number): Promise<Map<string, number>> {
   const venue = venueCourts("court_id", venueId);
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(`
       SELECT court_id, hour, COUNT(*) AS n FROM booking_slots
       WHERE date = ?${venue.sql}
@@ -589,11 +591,11 @@ export interface SearchInput {
 }
 
 /** Distinct venue areas, for the search filter. */
-export function listAreas(venueIds?: number[]): string[] {
+export async function listAreas(venueIds?: number[]): Promise<string[]> {
   const rows = (
     venueIds === undefined
-      ? getDb().prepare("SELECT DISTINCT area FROM venues ORDER BY area").all()
-      : getDb()
+      ? await getDb().prepare("SELECT DISTINCT area FROM venues ORDER BY area").all()
+      : await getDb()
           .prepare(
             `SELECT DISTINCT area FROM venues WHERE id IN (${venueIds.map(() => "?").join(",") || "NULL"}) ORDER BY area`
           )
@@ -607,7 +609,7 @@ export function listAreas(venueIds?: number[]): string[] {
  * starting inside [fromHour, toHour] on `date`. One result per viable start
  * time, cheapest-first within the same start hour.
  */
-export function searchAvailability(input: SearchInput): SearchResult[] {
+export async function searchAvailability(input: SearchInput): Promise<SearchResult[]> {
   const db = getDb();
   const duration = Math.min(Math.max(input.duration ?? 1, 1), MAX_HOURS_PER_BOOKING);
   // The window of start hours asked for, clamped per venue below to that
@@ -639,7 +641,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
   }
   sql += " ORDER BY v.id, c.id";
 
-  const rows = db.prepare(sql).all(...params) as (CourtRow & {
+  const rows = await db.prepare(sql).all(...params) as (CourtRow & {
     v_id: number;
     v_name: string;
     v_area: string;
@@ -656,7 +658,7 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
   if (rows.length === 0) return [];
 
   // A venue shut for the day has nothing to offer, whatever its courts say.
-  const closedVenues = closedDatesIn(
+  const closedVenues = await closedDatesIn(
     [...new Set(rows.map((r) => r.v_id))],
     input.date,
     input.date
@@ -664,15 +666,15 @@ export function searchAvailability(input: SearchInput): SearchResult[] {
 
   const courtIds = rows.map((r) => r.id);
   const idList = courtIds.map(() => "?").join(",");
-  const taken = db
+  const taken = await db
     .prepare(`
       SELECT court_id, hour, COUNT(*) AS n FROM booking_slots
       WHERE date = ? AND court_id IN (${idList}) GROUP BY court_id, hour
     `)
     .all(input.date, ...courtIds) as { court_id: number; hour: number; n: number }[];
   const takenCounts = new Map(taken.map((t) => [`${t.court_id}:${t.hour}`, t.n]));
-  const blockedPlaces = blockedPlacesOn(input.date);
-  const classHours = classHoursOn(input.date);
+  const blockedPlaces = await blockedPlacesOn(input.date);
+  const classHours = await classHoursOn(input.date);
 
   const results: SearchResult[] = [];
   for (const row of rows) {
@@ -778,7 +780,7 @@ export type CreateSeriesResult =
   | { ok: true; bookings: Booking[]; skipped: SeriesSkip[]; seriesCode: string | null }
   | Refusal;
 
-export function createBooking(input: {
+export async function createBooking(input: {
   courtId: number;
   date: string;
   hours: number[];
@@ -786,8 +788,8 @@ export function createBooking(input: {
   phone: string;
   email?: string;
   userId?: number;
-}): CreateBookingResult {
-  const result = createBookingSeries({ ...input, weeks: 1 });
+}): Promise<CreateBookingResult> {
+  const result = await createBookingSeries({ ...input, weeks: 1 });
   if (!result.ok) return result;
   return { ok: true, booking: result.bookings[0] };
 }
@@ -797,7 +799,7 @@ export function createBooking(input: {
  * `skipConflicts`, weeks that clash with existing bookings or blocks are
  * skipped and reported; otherwise any clash fails the whole series.
  */
-export function createBookingSeries(input: {
+export async function createBookingSeries(input: {
   courtId: number;
   date: string;
   hours: number[];
@@ -809,12 +811,12 @@ export function createBookingSeries(input: {
   skipConflicts?: boolean;
   /** Set when this booking is an enrolment, which may use the class's hours. */
   classId?: number;
-}, attempt = 0): CreateSeriesResult {
+}, attempt = 0): Promise<CreateSeriesResult> {
   const { courtId, date, weeks, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
 
-  const court = getCourt(courtId);
+  const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_RECUR_WEEKS)
     return refuse("WEEKS_RANGE", { max: MAX_RECUR_WEEKS });
@@ -827,12 +829,12 @@ export function createBookingSeries(input: {
     if (hours[i] !== hours[i - 1] + 1)
       return refuse("HOURS_NOT_CONSECUTIVE");
   }
-  const { openHour, closeHour } = courtVenueHours(courtId);
+  const { openHour, closeHour } = await courtVenueHours(courtId);
   if (hours[0] < openHour || hours[hours.length - 1] >= closeHour)
     return refuse("HOURS_OUTSIDE_OPENING");
   if (isPastSlot(date, hours[0]))
     return refuse("SLOT_PAST");
-  if (getVenueClosure(court.venueId, date))
+  if (await getVenueClosure(court.venueId, date))
     return refuse("VENUE_CLOSED");
 
   const db = getDb();
@@ -844,18 +846,19 @@ export function createBookingSeries(input: {
    * Does a block leave room for one more? A partial block shrinks the
    * resource, so it only closes the hour once the places left run out.
    */
-  const blockedOut = (weekDate: string): boolean => {
-    const blocked = blockedPlacesFor(courtId, weekDate, hours);
+  const blockedOut = async (weekDate: string): Promise<boolean> => {
+    const blocked = await blockedPlacesFor(courtId, weekDate, hours);
     if (blocked.size === 0) return false;
     const takenHere = db.prepare(
       "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
     );
-    return hours.some((hour) => {
+    for (const hour of hours) {
       const out = blocked.get(hour) ?? 0;
-      if (out === 0) return false;
-      const taken = (takenHere.get(courtId, weekDate, hour) as { n: number }).n;
-      return taken + out >= court.capacity;
-    });
+      if (out === 0) continue;
+      const taken = (await takenHere.get(courtId, weekDate, hour) as { n: number }).n;
+      if (taken + out >= court.capacity) return true;
+    }
+    return false;
   };
   const insertBooking = db.prepare(`
     INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token, class_id)
@@ -866,9 +869,9 @@ export function createBookingSeries(input: {
   );
 
   /** Lowest unused place for an hour, or null when the resource is full. */
-  const freeSeat = (weekDate: string, hour: number): number | null => {
+  const freeSeat = async (weekDate: string, hour: number): Promise<number | null> => {
     const used = new Set(
-      (seatsTaken.all(courtId, weekDate, hour) as { seat: number }[]).map((r) => r.seat)
+      (await seatsTaken.all(courtId, weekDate, hour) as { seat: number }[]).map((r) => r.seat)
     );
     for (let seat = 0; seat < court.capacity; seat++) {
       if (!used.has(seat)) return seat;
@@ -881,22 +884,23 @@ export function createBookingSeries(input: {
   // Member rates are decided per session, against the date that session falls
   // on: a membership that lapses part-way through a weekly series discounts
   // the weeks it covers and no more.
-  const memberOn = (weekDate: string) =>
-    activeMembership(court.venueId, phone, weekDate) !== null;
+  const memberOn = async (weekDate: string) =>
+    await activeMembership(court.venueId, phone, weekDate) !== null;
 
   try {
-    const result = db.transaction(() => {
+    const result = await db.transaction(async () => {
       const bookings: Booking[] = [];
       const skipped: SeriesSkip[] = [];
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
-        const seats = hours.map((hour) => freeSeat(weekDate, hour));
+        const seats: (number | null)[] = [];
+        for (const hour of hours) seats.push(await freeSeat(weekDate, hour));
 
         let reason: string | null = null;
-        const classes = classHoursOn(weekDate);
+        const classes = await classHoursOn(weekDate);
         if (seats.some((seat) => seat === null)) {
           reason = court.capacity > 1 ? "fully booked" : "already booked";
-        } else if (blockedOut(weekDate)) {
+        } else if (await blockedOut(weekDate)) {
           reason = "closed for maintenance";
         } else if (!input.classId && hours.some((h) => classes.has(`${courtId}:${h}`))) {
           reason = "reserved for a class";
@@ -906,14 +910,14 @@ export function createBookingSeries(input: {
           skipped.push({ date: weekDate, reason });
           continue;
         }
-        const bookingId = insertBooking.run(
+        const bookingId = (await insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
-          name, phone, email ?? null, computePrice(court, weekDate, hours, memberOn(weekDate)),
+          name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate)),
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
           input.classId ?? null
-        ).lastInsertRowid as number;
-        hours.forEach((hour, i) => insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!));
-        bookings.push(getBookingById(bookingId)!);
+        )).lastInsertRowid as number;
+        for (const [i, hour] of hours.entries()) await insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!);
+        bookings.push((await getBookingById(bookingId))!);
       }
       if (bookings.length === 0) throw new Error("ALL_CONFLICT");
       return { bookings, skipped };
@@ -940,16 +944,16 @@ export function createBookingSeries(input: {
     if (message === "ALL_CONFLICT") {
       return refuse("SERIES_ALL_TAKEN");
     }
-    if (message.includes("UNIQUE constraint failed: booking_slots")) {
+    if (isUniqueViolation(err, "booking_slots")) {
       // Two requests picked the same place at once; the loser retries against
       // the winner's state. A genuinely full resource fails the seat check
       // above instead, so this cannot spin, but bound it regardless.
-      if (attempt < MAX_SEAT_RETRIES) return createBookingSeries(input, attempt + 1);
+      if (attempt < MAX_SEAT_RETRIES) return await createBookingSeries(input, attempt + 1);
       return refuse("FILLING_FAST");
     }
-    if (message.includes("UNIQUE constraint failed: bookings.code")) {
+    if (isUniqueViolation(err, "bookings")) {
       // Astronomically rare code collision — one retry is plenty.
-      if (attempt < MAX_SEAT_RETRIES) return createBookingSeries(input, attempt + 1);
+      if (attempt < MAX_SEAT_RETRIES) return await createBookingSeries(input, attempt + 1);
       throw err;
     }
     throw err;
@@ -957,12 +961,12 @@ export function createBookingSeries(input: {
 }
 
 /** Cancel all future confirmed bookings in a series (verified by phone). */
-export function cancelSeries(
+export async function cancelSeries(
   seriesCode: string,
   phone: string
-): { ok: true; cancelled: number } | (Refusal & { cancelled: number }) {
+): Promise<{ ok: true; cancelled: number } | (Refusal & { cancelled: number })> {
   const db = getDb();
-  const rows = db
+  const rows = await db
     .prepare(
       "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND phone = ? AND status = 'confirmed'"
     )
@@ -970,30 +974,30 @@ export function cancelSeries(
   if (rows.length === 0)
     return { ...refuse("SERIES_NOT_FOUND"), cancelled: 0 };
 
-  const cutoff = cancelCutoffForBooking(rows[0].id);
+  const cutoff = await cancelCutoffForBooking(rows[0].id);
   const future = rows.filter((r) => isWithinCancelWindow(r.date, r.start_hour, cutoff));
   if (future.length === 0)
     return { ...refuse("SERIES_NONE_LEFT", { n: cutoff }), cancelled: 0 };
 
-  db.transaction(() => {
+  await db.transaction(async () => {
     for (const row of future) {
-      db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
-      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+      await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
+      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
     }
   })();
-  for (const row of future) refundBooking(row.id);
+  for (const row of future) await refundBooking(row.id);
   return { ok: true, cancelled: future.length };
 }
 
-function getBookingById(id: number): Booking | null {
+async function getBookingById(id: number): Promise<Booking | null> {
   const db = getDb();
-  const row = db.prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?").get(id) as BookingRow | undefined;
+  const row = await db.prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?").get(id) as BookingRow | undefined;
   return row ? toBooking(row) : null;
 }
 
-export function findBooking(code: string, phone: string): Booking | null {
+export async function findBooking(code: string, phone: string): Promise<Booking | null> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?) AND b.phone = ?")
     .get(code.trim(), phone.trim()) as BookingRow | undefined;
   return row ? toBooking(row) : null;
@@ -1002,8 +1006,8 @@ export function findBooking(code: string, phone: string): Booking | null {
 export type CancelResult = { ok: true; booking: Booking } | Refusal;
 
 /** The cancellation cutoff of the venue a booking belongs to. */
-function cancelCutoffForBooking(bookingId: number): number {
-  const row = getDb()
+async function cancelCutoffForBooking(bookingId: number): Promise<number> {
+  const row = await getDb()
     .prepare(`
       SELECT v.cancel_cutoff_hours AS hours FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -1020,25 +1024,25 @@ function cutoffMessage(hours: number): string {
     : `Bookings can only be cancelled at least ${hours} hour${hours === 1 ? "" : "s"} before they start. Please call the venue.`;
 }
 
-export function cancelBooking(code: string, phone: string): CancelResult {
-  const booking = findBooking(code, phone);
+export async function cancelBooking(code: string, phone: string): Promise<CancelResult> {
+  const booking = await findBooking(code, phone);
   if (!booking) return refuse("BOOKING_NOT_FOUND_CODE");
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
-  if (hasOpenHire(booking.id))
+  if (await hasOpenHire(booking.id))
     return refuse("KIT_STILL_OUT");
-  const cutoff = cancelCutoffForBooking(booking.id);
+  const cutoff = await cancelCutoffForBooking(booking.id);
   if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
     return { ok: false, error: cutoffMessage(cutoff) };
 
   const db = getDb();
-  db.transaction(() => {
-    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-    db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+  await db.transaction(async () => {
+    await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+    await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
-  refundBooking(booking.id);
+  await refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
-  if (booking.classId) offerClassPlace(booking.classId);
-  else offerSlotPlace(booking.courtId, booking.date);
+  if (booking.classId) await offerClassPlace(booking.classId);
+  else await offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -1060,13 +1064,13 @@ export interface AdminCourtSlots {
 }
 
 /** Full slot-status grid for a venue on a date (admin view). */
-export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] {
+export async function getAdminSlots(venueId: number, date: string): Promise<AdminCourtSlots[]> {
   const db = getDb();
   const courts = (
-    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+    await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
 
-  const booked = db
+  const booked = await db
     .prepare(`
       SELECT s.court_id, s.hour, b.code FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
@@ -1082,7 +1086,7 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
     bookedCounts.set(key, (bookedCounts.get(key) ?? 0) + 1);
   }
 
-  const blocks = db
+  const blocks = await db
     .prepare("SELECT court_id, hour, reason, places FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
     .all(date, venueId) as {
     court_id: number;
@@ -1091,10 +1095,10 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
     places: number | null;
   }[];
   const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b]));
-  const blockedPlaces = blockedPlacesOn(date, venueId);
+  const blockedPlaces = await blockedPlacesOn(date, venueId);
 
-  const { openHour, closeHour } = venueHours(venueId);
-  const closure = getVenueClosure(venueId, date);
+  const { openHour, closeHour } = await venueHours(venueId);
+  const closure = await getVenueClosure(venueId, date);
 
   return courts.map((court) => ({
     court,
@@ -1141,7 +1145,7 @@ export function getAdminSlots(venueId: number, date: string): AdminCourtSlots[] 
 export type BlockResult = { ok: true; changed: number } | Refusal;
 
 /** Block hours on a court (maintenance/closure). Skips hours that are booked. */
-export function blockSlots(
+export async function blockSlots(
   courtId: number,
   date: string,
   hours: number[],
@@ -1152,10 +1156,10 @@ export function blockSlots(
    * many places out and leaves the rest bookable.
    */
   places?: number
-): BlockResult {
-  const court = getCourt(courtId);
+): Promise<BlockResult> {
+  const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
-  const { openHour, closeHour } = courtVenueHours(courtId);
+  const { openHour, closeHour } = await courtVenueHours(courtId);
   const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour);
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
 
@@ -1180,42 +1184,42 @@ export function blockSlots(
 
   let changed = 0;
   let strandedAt: number | null = null;
-  db.transaction(() => {
+  await db.transaction(async () => {
     for (const hour of valid) {
-      const booked = (isBooked.get(courtId, date, hour) as { n: number }).n;
+      const booked = (await isBooked.get(courtId, date, hour) as { n: number }).n;
       // Taking out more places than are free would strand a booking.
       const wanted = partial ? places! : court.capacity;
       if (booked + wanted > court.capacity) {
         if (partial && strandedAt === null) strandedAt = hour;
         continue;
       }
-      changed += insert.run(courtId, date, hour, reason ?? null, partial ? places! : null).changes;
+      changed += (await insert.run(courtId, date, hour, reason ?? null, partial ? places! : null)).changes;
     }
   })();
 
   if (changed === 0 && strandedAt !== null)
     return {
       ok: false,
-      error: `Only ${court.capacity - (isBooked.get(courtId, date, strandedAt) as { n: number }).n} place(s) are free at ${formatHour(strandedAt)}.`,
+      error: `Only ${court.capacity - (await isBooked.get(courtId, date, strandedAt) as { n: number }).n} place(s) are free at ${formatHour(strandedAt)}.`,
     };
   return { ok: true, changed };
 }
 
-export function unblockSlots(courtId: number, date: string, hours: number[]): BlockResult {
-  if (!getCourt(courtId)) return refuse("COURT_NOT_FOUND");
+export async function unblockSlots(courtId: number, date: string, hours: number[]): Promise<BlockResult> {
+  if (!await getCourt(courtId)) return refuse("COURT_NOT_FOUND");
   const valid = [...new Set(hours)];
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
   const db = getDb();
-  const result = db
+  const result = await db
     .prepare(`DELETE FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${valid.map(() => "?").join(",")})`)
     .run(courtId, date, ...valid);
   return { ok: true, changed: result.changes };
 }
 
 /** Admin cancellation by code — no phone check, works even after start time. */
-export function adminCancelBooking(code: string): CancelResult {
+export async function adminCancelBooking(code: string): Promise<CancelResult> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
     .get(code.trim()) as BookingRow | undefined;
   if (!row) return refuse("BOOKING_NOT_FOUND");
@@ -1223,17 +1227,17 @@ export function adminCancelBooking(code: string): CancelResult {
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
   // Cancelling would drop the only record of what is out and what is held
   // against it, so settle the hire first even from the admin side.
-  if (hasOpenHire(booking.id))
+  if (await hasOpenHire(booking.id))
     return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
 
-  db.transaction(() => {
-    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-    db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+  await db.transaction(async () => {
+    await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+    await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
-  refundBooking(booking.id);
+  await refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
-  if (booking.classId) offerClassPlace(booking.classId);
-  else offerSlotPlace(booking.courtId, booking.date);
+  if (booking.classId) await offerClassPlace(booking.classId);
+  else await offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
@@ -1251,9 +1255,9 @@ export type MoveResult =
  * customer's, so it never costs them more — nor do they gain from being put on
  * a cheaper court.
  */
-export function moveBooking(code: string, toCourtId: number): MoveResult {
+export async function moveBooking(code: string, toCourtId: number): Promise<MoveResult> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)"
     )
@@ -1267,11 +1271,11 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
     return { ok: false, error: "A class enrolment moves with its class, not on its own." };
   // The kit came off this resource; moving the booking would file it against
   // another one.
-  if (hasOpenHire(booking.id))
+  if (await hasOpenHire(booking.id))
     return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
 
-  const fromCourt = getCourt(booking.courtId);
-  const toCourt = getCourt(toCourtId);
+  const fromCourt = await getCourt(booking.courtId);
+  const toCourt = await getCourt(toCourtId);
   if (!fromCourt || !toCourt) return refuse("COURT_NOT_FOUND");
   if (fromCourt.id === toCourt.id)
     return { ok: false, error: "That booking is already on that court." };
@@ -1291,19 +1295,19 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
   if (isPastSlot(booking.date, hours[hours.length - 1]))
     return { ok: false, error: "That booking has already finished." };
 
-  const blockedThere = blockedPlacesFor(toCourtId, booking.date, hours);
+  const blockedThere = await blockedPlacesFor(toCourtId, booking.date, hours);
   const takenThere = db.prepare(
     "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
   );
   for (const hour of hours) {
     const out = blockedThere.get(hour) ?? 0;
     if (out === 0) continue;
-    const taken = (takenThere.get(toCourtId, booking.date, hour) as { n: number }).n;
+    const taken = (await takenThere.get(toCourtId, booking.date, hour) as { n: number }).n;
     if (taken + out >= toCourt.capacity)
       return { ok: false, error: `${toCourt.name} is blocked off for part of that time.` };
   }
 
-  const classHours = classHoursOn(booking.date, toCourt.venueId);
+  const classHours = await classHoursOn(booking.date, toCourt.venueId);
   for (const hour of hours) {
     const session = classHours.get(`${toCourtId}:${hour}`);
     if (session)
@@ -1315,17 +1319,17 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
   );
 
   try {
-    db.transaction(() => {
+    await db.transaction(async () => {
       // Free the old places first, so a court can be swapped with itself in a
       // shared facility and so the target sees a true picture.
-      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
 
       const insert = db.prepare(
         "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
       );
       for (const hour of hours) {
         const used = new Set(
-          (seatsTaken.all(toCourtId, booking.date, hour) as { seat: number }[]).map((r) => r.seat)
+          (await seatsTaken.all(toCourtId, booking.date, hour) as { seat: number }[]).map((r) => r.seat)
         );
         let seat: number | null = null;
         for (let s = 0; s < toCourt.capacity; s++) {
@@ -1333,22 +1337,22 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
         }
         if (seat === null) throw new Error(`FULL:${hour}`);
         // The unique index is the real guard; a racing insert fails here.
-        insert.run(booking.id, toCourtId, booking.date, hour, seat);
+        await insert.run(booking.id, toCourtId, booking.date, hour, seat);
       }
-      db.prepare("UPDATE bookings SET court_id = ? WHERE id = ?").run(toCourtId, booking.id);
+      await db.prepare("UPDATE bookings SET court_id = ? WHERE id = ?").run(toCourtId, booking.id);
     })();
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("FULL:")) {
       const hour = err.message.slice(5);
       return { ok: false, error: `${toCourt.name} is already taken at ${formatHour(Number(hour))}.` };
     }
-    if (err instanceof Error && /UNIQUE constraint failed/.test(err.message))
+    if (isUniqueViolation(err))
       return { ok: false, error: `${toCourt.name} was taken while you were moving it. Try again.` };
     throw err;
   }
 
   // The court it left may now be free for somebody waiting on it.
-  offerSlotPlace(fromCourt.id, booking.date);
+  await offerSlotPlace(fromCourt.id, booking.date);
 
   return {
     ok: true,
@@ -1359,10 +1363,10 @@ export function moveBooking(code: string, toCourtId: number): MoveResult {
 }
 
 /** Courts a booking could move to right now, for the staff picker. */
-export function moveTargetsFor(code: string): Court[] {
-  const booking = bookingByCode(code);
+export async function moveTargetsFor(code: string): Promise<Court[]> {
+  const booking = await bookingByCode(code);
   if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
-  const court = getCourt(booking.courtId);
+  const court = await getCourt(booking.courtId);
   if (!court) return [];
   const hours = Array.from(
     { length: booking.endHour - booking.startHour },
@@ -1370,25 +1374,27 @@ export function moveTargetsFor(code: string): Court[] {
   );
   const db = getDb();
   const candidates = (
-    db
+    await db
       .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
       .all(court.venueId, court.sport, court.id) as CourtRow[]
   ).map(toCourt);
 
-  const classHours = classHoursOn(booking.date, court.venueId);
-  return candidates.filter((c) => {
-    const blocked = blockedPlacesFor(c.id, booking.date, hours);
+  const classHours = await classHoursOn(booking.date, court.venueId);
+  const free: Court[] = [];
+  candidates: for (const c of candidates) {
+    const blocked = await blockedPlacesFor(c.id, booking.date, hours);
     for (const hour of hours) {
-      if (classHours.has(`${c.id}:${hour}`)) return false;
-      const taken = db
+      if (classHours.has(`${c.id}:${hour}`)) continue candidates;
+      const taken = await db
         .prepare(
           "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
         )
         .get(c.id, booking.date, hour) as { n: number };
-      if (taken.n + (blocked.get(hour) ?? 0) >= c.capacity) return false;
+      if (taken.n + (blocked.get(hour) ?? 0) >= c.capacity) continue candidates;
     }
-    return true;
-  });
+    free.push(c);
+  }
+  return free;
 }
 
 export interface OccupancyDay {
@@ -1403,17 +1409,17 @@ export interface OccupancyReport {
 }
 
 /** Booked/blocked hour counts per court for `numDays` days from `start`. */
-export function getOccupancy(venueId: number, start: string, numDays: number): OccupancyReport {
+export async function getOccupancy(venueId: number, start: string, numDays: number): Promise<OccupancyReport> {
   const db = getDb();
   const courts = (
-    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+    await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
   const courtIds = new Set(courts.map((c) => c.id));
 
   const dates = Array.from({ length: numDays }, (_, i) => addDays(start, i));
   const end = dates[dates.length - 1];
 
-  const bookedRows = db
+  const bookedRows = await db
     .prepare(`
       SELECT court_id, date, COUNT(*) AS n FROM booking_slots
       WHERE date >= ? AND date <= ? GROUP BY court_id, date
@@ -1421,7 +1427,7 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
     .all(start, end) as { court_id: number; date: string; n: number }[];
   // A partial block does not remove an hour from the day, so only count the
   // blocks that take the whole resource.
-  const blockedRows = db
+  const blockedRows = await db
     .prepare(`
       SELECT b.court_id AS court_id, b.date AS date, COUNT(*) AS n
       FROM slot_blocks b JOIN courts c ON c.id = b.court_id
@@ -1438,7 +1444,7 @@ export function getOccupancy(venueId: number, start: string, numDays: number): O
     blockedRows.filter((r) => courtIds.has(r.court_id)).map((r) => [`${r.court_id}:${r.date}`, r.n])
   );
 
-  const { openHour, closeHour } = venueHours(venueId);
+  const { openHour, closeHour } = await venueHours(venueId);
 
   return {
     totalSlotsPerDay: closeHour - openHour,
@@ -1472,18 +1478,18 @@ function normaliseHours(
   return { ok: true, openHour, closeHour };
 }
 
-export function createVenue(input: {
+export async function createVenue(input: {
   name: string;
   area: string;
   address: string;
   phone: string;
   openHour?: number;
   closeHour?: number;
-}): VenueEditResult {
+}): Promise<VenueEditResult> {
   const hours = normaliseHours(input.openHour, input.closeHour);
   if (!hours.ok) return hours;
   const db = getDb();
-  const info = db
+  const info = await db
     .prepare(
       "INSERT INTO venues (name, area, address, phone, open_hour, close_hour) VALUES (?, ?, ?, ?, ?, ?)"
     )
@@ -1496,12 +1502,12 @@ export function createVenue(input: {
       hours.closeHour
     );
   const venue = toVenue(
-    db.prepare("SELECT * FROM venues WHERE id = ?").get(info.lastInsertRowid) as VenueRow
+    await db.prepare("SELECT * FROM venues WHERE id = ?").get(info.lastInsertRowid) as VenueRow
   );
   return { ok: true, venue };
 }
 
-export function updateVenue(
+export async function updateVenue(
   venueId: number,
   changes: {
     name?: string;
@@ -1517,9 +1523,9 @@ export function updateVenue(
     emergencyPhone?: string | null;
     emergencyInfo?: string | null;
   }
-): VenueEditResult {
+): Promise<VenueEditResult> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow | undefined;
+  const row = await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow | undefined;
   if (!row) return refuse("VENUE_NOT_FOUND");
   const current = toVenue(row);
 
@@ -1529,7 +1535,7 @@ export function updateVenue(
   );
   if (!hours.ok) return hours;
   // Narrowing the day would strand anything already sold outside the new hours.
-  const stranded = db
+  const stranded = await db
     .prepare(`
       SELECT COUNT(*) AS n FROM booking_slots s
       WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
@@ -1554,13 +1560,13 @@ export function updateVenue(
   // Unstaffed hours only mean anything where a resource can be let into, and
   // taking the counter away from kit that is on loan is the one combination
   // that cannot work at all.
-  if (staffedFrom !== null && listOpenHires(venueId).length > 0 && staffedFrom === staffedTo)
+  if (staffedFrom !== null && (await listOpenHires(venueId)).length > 0 && staffedFrom === staffedTo)
     return {
       ok: false,
       error: "Kit is out on hire at this venue. Somebody has to be here to take it back.",
     };
 
-  db.prepare(
+  await db.prepare(
     `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
                        open_hour = ?, close_hour = ?, staffed_from = ?, staffed_to = ?,
                        emergency_phone = ?, emergency_info = ? WHERE id = ?`
@@ -1584,13 +1590,13 @@ export function updateVenue(
   );
   return {
     ok: true,
-    venue: toVenue(db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow),
+    venue: toVenue(await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow),
   };
 }
 
 /** Which venue a booking code belongs to — used to scope admin actions. */
-export function getVenueIdForBookingCode(code: string): number | null {
-  const row = getDb()
+export async function getVenueIdForBookingCode(code: string): Promise<number | null> {
+  const row = await getDb()
     .prepare(`
       SELECT c.venue_id AS venue_id FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -1601,8 +1607,8 @@ export function getVenueIdForBookingCode(code: string): number | null {
 }
 
 /** Venues touched by a series — a series should never span venues, but check. */
-export function getVenueIdsForSeriesCode(seriesCode: string): number[] {
-  const rows = getDb()
+export async function getVenueIdsForSeriesCode(seriesCode: string): Promise<number[]> {
+  const rows = await getDb()
     .prepare(`
       SELECT DISTINCT c.venue_id AS venue_id FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -1632,9 +1638,9 @@ export interface UserBookingRow extends Booking {
   venueAddress: string;
 }
 
-export function listUserBookings(userId: number): UserBookingRow[] {
+export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
   const db = getDb();
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
@@ -1664,64 +1670,66 @@ export function listUserBookings(userId: number): UserBookingRow[] {
 }
 
 /** Cancel a booking that belongs to this user (before it starts). */
-export function cancelUserBooking(userId: number, bookingId: number): CancelResult {
+export async function cancelUserBooking(userId: number, bookingId: number): Promise<CancelResult> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ? AND b.user_id = ?")
     .get(bookingId, userId) as BookingRow | undefined;
   if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
-  if (hasOpenHire(booking.id))
+  if (await hasOpenHire(booking.id))
     return refuse("KIT_STILL_OUT");
-  const cutoff = cancelCutoffForBooking(booking.id);
+  const cutoff = await cancelCutoffForBooking(booking.id);
   if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
     return { ok: false, error: cutoffMessage(cutoff) };
 
-  db.transaction(() => {
-    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-    db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+  await db.transaction(async () => {
+    await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+    await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
   })();
-  refundBooking(booking.id);
+  await refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
-  if (booking.classId) offerClassPlace(booking.classId);
-  else offerSlotPlace(booking.courtId, booking.date);
+  if (booking.classId) await offerClassPlace(booking.classId);
+  else await offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
 export type PaymentResult = { ok: true; booking: Booking } | Refusal;
 
 /** Front-desk payment toggle for a single booking (admin only). */
-export function setPaymentStatus(code: string, paid: boolean): PaymentResult {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
-    .get(code.trim()) as BookingRow | undefined;
-  if (!row) return refuse("BOOKING_NOT_FOUND");
-  const booking = toBooking(row);
-  if (booking.status === "cancelled")
-    return { ok: false, error: "This booking is cancelled." };
-  if ((booking.paymentStatus === "paid") === paid)
-    return { ok: false, error: `This booking is already marked ${paid ? "paid" : "unpaid"}.` };
+export async function setPaymentStatus(code: string, paid: boolean): Promise<PaymentResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const row = await db
+      .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
+      .get(code.trim()) as BookingRow | undefined;
+    if (!row) return refuse("BOOKING_NOT_FOUND");
+    const booking = toBooking(row);
+    if (booking.status === "cancelled")
+      return { ok: false, error: "This booking is cancelled." };
+    if ((booking.paymentStatus === "paid") === paid)
+      return { ok: false, error: `This booking is already marked ${paid ? "paid" : "unpaid"}.` };
 
-  // Marked by hand, so whatever it was paid with, it was not the gateway.
-  db.prepare(
-    "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = NULL WHERE id = ?"
-  ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, booking.id);
-  return {
-    ok: true,
-    booking: {
-      ...booking,
-      paymentStatus: paid ? "paid" : "unpaid",
-      paidAt: paid ? new Date().toISOString() : null,
-    },
-  };
+    // Marked by hand, so whatever it was paid with, it was not the gateway.
+    await db.prepare(
+      "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = NULL WHERE id = ?"
+    ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, booking.id);
+    return {
+      ok: true,
+      booking: {
+        ...booking,
+        paymentStatus: paid ? "paid" : "unpaid",
+        paidAt: paid ? new Date().toISOString() : null,
+      },
+    };
+  });
 }
 
 /** Mark every confirmed session in a series paid at once. */
-export function paySeries(seriesCode: string): { ok: boolean; paid: number; error?: string } {
+export async function paySeries(seriesCode: string): Promise<{ ok: boolean; paid: number; error?: string }> {
   const db = getDb();
-  const rows = db
+  const rows = await db
     .prepare(
       "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND status = 'confirmed' AND payment_status = 'unpaid'"
     )
@@ -1730,9 +1738,9 @@ export function paySeries(seriesCode: string): { ok: boolean; paid: number; erro
     return { ok: false, paid: 0, error: "No unpaid sessions found for that series." };
 
   const now = new Date().toISOString();
-  db.transaction(() => {
+  await db.transaction(async () => {
     for (const row of rows) {
-      db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ? WHERE id = ?").run(
+      await db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ? WHERE id = ?").run(
         now,
         row.id
       );
@@ -1743,8 +1751,8 @@ export function paySeries(seriesCode: string): { ok: boolean; paid: number; erro
 
 export type CheckInResult = { ok: true; booking: Booking } | Refusal;
 
-function bookingByCode(code: string): Booking | null {
-  const row = getDb()
+async function bookingByCode(code: string): Promise<Booking | null> {
+  const row = await getDb()
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)"
     )
@@ -1769,50 +1777,52 @@ function checkInWindowError(booking: Booking): string | null {
 }
 
 /** Record an arrival at the front desk. */
-export function checkIn(code: string): CheckInResult {
-  const booking = bookingByCode(code);
+export async function checkIn(code: string): Promise<CheckInResult> {
+  const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
-  return checkInBooking(booking);
+  return await checkInBooking(booking);
 }
 
 /** Self-service check-in from the QR code on a booking. */
-export function checkInByToken(token: string): CheckInResult {
+export async function checkInByToken(token: string): Promise<CheckInResult> {
   const trimmed = token.trim();
   if (trimmed === "") return refuse("BOOKING_NOT_FOUND");
-  const row = getDb()
+  const row = await getDb()
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.check_in_token = ?"
     )
     .get(trimmed) as BookingRow | undefined;
   if (!row) return refuse("BOOKING_NOT_FOUND");
-  return checkInBooking(toBooking(row));
+  return await checkInBooking(toBooking(row));
 }
 
-function checkInBooking(booking: Booking): CheckInResult {
+async function checkInBooking(booking: Booking): Promise<CheckInResult> {
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
   const windowError = checkInWindowError(booking);
   if (windowError) return { ok: false, error: windowError };
 
   const db = getDb();
-  db.transaction(() => {
-    db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+  await db.transaction(async () => {
+    await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
     // Arriving contradicts a no-show, so clear any stale flag.
-    if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+    if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
   })();
-  return { ok: true, booking: bookingByCode(booking.code)! };
+  return { ok: true, booking: (await bookingByCode(booking.code))! };
 }
 
-export function checkOut(code: string): CheckInResult {
-  const booking = bookingByCode(code);
-  if (!booking) return refuse("BOOKING_NOT_FOUND");
-  if (!booking.checkedInAt) return { ok: false, error: "This booking has not checked in." };
-  if (booking.checkedOutAt) return { ok: false, error: "Already checked out." };
+export async function checkOut(code: string): Promise<CheckInResult> {
+  return withTransaction(async () => {
+    const booking = await bookingByCode(code);
+    if (!booking) return refuse("BOOKING_NOT_FOUND");
+    if (!booking.checkedInAt) return { ok: false, error: "This booking has not checked in." };
+    if (booking.checkedOutAt) return { ok: false, error: "Already checked out." };
 
-  getDb()
-    .prepare("UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ?")
-    .run(booking.id);
-  return { ok: true, booking: bookingByCode(code)! };
+    await getDb()
+      .prepare("UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ?")
+      .run(booking.id);
+    return { ok: true, booking: (await bookingByCode(code))! };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1858,8 +1868,8 @@ const INDUCTION_SELECT = `
 `;
 
 /** Has this person been shown round, and not since been withdrawn? */
-export function isInducted(venueId: number, phone: string): boolean {
-  const row = getDb()
+export async function isInducted(venueId: number, phone: string): Promise<boolean> {
+  const row = await getDb()
     .prepare(
       "SELECT 1 AS n FROM inductions WHERE venue_id = ? AND phone = ? AND revoked_at IS NULL"
     )
@@ -1878,65 +1888,69 @@ export type InductionResult =
  * adding a second one, so the venue keeps one line per person and the history
  * of it stays on that line.
  */
-export function recordInduction(input: {
+export async function recordInduction(input: {
   venueId: number;
   phone: string;
   name: string;
   adminId?: number;
   note?: string;
-}): InductionResult {
-  const db = getDb();
-  if (!getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
-  const phone = normalisePhone(input.phone);
-  if (phone.length < 7) return { ok: false, error: "Please give a valid phone number." };
-  const name = input.name.trim();
-  if (name.length < 2) return { ok: false, error: "Please give the person's name." };
-  const note = nullIfBlank(input.note ?? null);
+}): Promise<InductionResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    if (!await getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
+    const phone = normalisePhone(input.phone);
+    if (phone.length < 7) return { ok: false, error: "Please give a valid phone number." };
+    const name = input.name.trim();
+    if (name.length < 2) return { ok: false, error: "Please give the person's name." };
+    const note = nullIfBlank(input.note ?? null);
 
-  const existing = db
-    .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone = ?")
-    .get(input.venueId, phone) as { id: number; revoked_at: string | null } | undefined;
+    const existing = await db
+      .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone = ?")
+      .get(input.venueId, phone) as { id: number; revoked_at: string | null } | undefined;
 
-  if (existing && existing.revoked_at === null)
-    return { ok: false, error: `${name} has already been inducted here.` };
+    if (existing && existing.revoked_at === null)
+      return { ok: false, error: `${name} has already been inducted here.` };
 
-  if (existing) {
-    db.prepare(`
-      UPDATE inductions
-      SET name = ?, admin_id = ?, note = ?, created_at = datetime('now'), revoked_at = NULL
-      WHERE id = ?
-    `).run(name, input.adminId ?? null, note, existing.id);
-    return { ok: true, induction: inductionById(existing.id)! };
-  }
+    if (existing) {
+      await db.prepare(`
+        UPDATE inductions
+        SET name = ?, admin_id = ?, note = ?, created_at = datetime('now'), revoked_at = NULL
+        WHERE id = ?
+      `).run(name, input.adminId ?? null, note, existing.id);
+      return { ok: true, induction: (await inductionById(existing.id))! };
+    }
 
-  const info = db
-    .prepare(
-      "INSERT INTO inductions (venue_id, phone, name, admin_id, note) VALUES (?, ?, ?, ?, ?)"
-    )
-    .run(input.venueId, phone, name, input.adminId ?? null, note);
-  return { ok: true, induction: inductionById(info.lastInsertRowid as number)! };
+    const info = await db
+      .prepare(
+        "INSERT INTO inductions (venue_id, phone, name, admin_id, note) VALUES (?, ?, ?, ?, ?)"
+      )
+      .run(input.venueId, phone, name, input.adminId ?? null, note);
+    return { ok: true, induction: (await inductionById(info.lastInsertRowid as number))! };
+  });
 }
 
 /** Withdraw someone's out-of-hours access without losing the record of it. */
-export function revokeInduction(id: number): InductionResult {
-  const db = getDb();
-  const induction = inductionById(id);
-  if (!induction) return { ok: false, error: "Induction not found." };
-  if (induction.revokedAt) return { ok: false, error: "That access is already withdrawn." };
-  db.prepare("UPDATE inductions SET revoked_at = datetime('now') WHERE id = ?").run(id);
-  return { ok: true, induction: inductionById(id)! };
+export async function revokeInduction(id: number): Promise<InductionResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const induction = await inductionById(id);
+    if (!induction) return { ok: false, error: "Induction not found." };
+    if (induction.revokedAt) return { ok: false, error: "That access is already withdrawn." };
+    await db.prepare("UPDATE inductions SET revoked_at = datetime('now') WHERE id = ?").run(id);
+    return { ok: true, induction: (await inductionById(id))! };
+  });
 }
 
-export function inductionById(id: number): Induction | null {
-  const row = getDb().prepare(`${INDUCTION_SELECT} WHERE i.id = ?`).get(id) as
+export async function inductionById(id: number): Promise<Induction | null> {
+  const row = await getDb().prepare(`${INDUCTION_SELECT} WHERE i.id = ?`).get(id) as
     | InductionRow
     | undefined;
   return row ? toInduction(row) : null;
 }
 
 /** Everyone cleared for out-of-hours use at a venue, newest first. */
-export function listInductions(venueId: number): Induction[] {
-  const rows = getDb()
+export async function listInductions(venueId: number): Promise<Induction[]> {
+  const rows = await getDb()
     .prepare(`${INDUCTION_SELECT} WHERE i.venue_id = ? ORDER BY i.revoked_at IS NOT NULL, i.created_at DESC`)
     .all(venueId) as InductionRow[];
   return rows.map(toInduction);
@@ -1946,8 +1960,8 @@ export function listInductions(venueId: number): Induction[] {
  * How many people are inside this venue right now, from door codes and desk
  * check-ins alike. The honest answer to "will I be on my own in there?".
  */
-export function presentAtVenue(venueId: number): number {
-  const rows = getDb()
+export async function presentAtVenue(venueId: number): Promise<number> {
+  const rows = await getDb()
     .prepare(`
       SELECT b.date, b.end_hour FROM check_ins ci
       JOIN bookings b ON b.id = ci.booking_id
@@ -1983,8 +1997,8 @@ export interface CourtAccess {
 }
 
 /** The door code for a resource. Admin-only: never goes near a public route. */
-export function courtAccess(courtId: number): CourtAccess {
-  const row = getDb()
+export async function courtAccess(courtId: number): Promise<CourtAccess> {
+  const row = await getDb()
     .prepare("SELECT access_code, access_code_changed_at FROM courts WHERE id = ?")
     .get(courtId) as { access_code: string | null; access_code_changed_at: string | null } | undefined;
   if (!row) return { code: null, changedAt: null, stale: false };
@@ -2007,14 +2021,14 @@ export function courtAccess(courtId: number): CourtAccess {
  * arriving, so this also checks them in and the live headcount stays honest
  * without anybody at a desk to press a button.
  */
-export function accessCodeFor(code: string, phone: string): AccessResult | null {
+export async function accessCodeFor(code: string, phone: string): Promise<AccessResult | null> {
   const db = getDb();
-  const booking = findBooking(code, phone);
+  const booking = await findBooking(code, phone);
   if (!booking) return null;
 
-  const court = getCourt(booking.courtId);
+  const court = await getCourt(booking.courtId);
   if (!court) return null;
-  const access = courtAccess(court.id);
+  const access = await courtAccess(court.id);
 
   if (!court.unmanned || access.code === null)
     return {
@@ -2025,7 +2039,7 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
   if (booking.status === "cancelled")
     return { ok: false, reason: "cancelled", message: "This booking was cancelled." };
 
-  const venue = getVenue(court.venueId);
+  const venue = await getVenue(court.venueId);
   if (!venue) return null;
 
   // During staffed hours the counter does this, and a code handed out then is
@@ -2039,7 +2053,7 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
 
   // Nobody is here to show a stranger where the emergency button is, so that
   // has to have happened already, in person, while somebody could check it.
-  if (!isInducted(venue.id, booking.phone))
+  if (!await isInducted(venue.id, booking.phone))
     return {
       ok: false,
       reason: "no-induction",
@@ -2070,12 +2084,12 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
   if (now >= ends)
     return { ok: false, reason: "over", message: "This booking has already ended." };
 
-  db.transaction(() => {
-    db.prepare("INSERT INTO access_reveals (booking_id) VALUES (?)").run(booking.id);
+  await db.transaction(async () => {
+    await db.prepare("INSERT INTO access_reveals (booking_id) VALUES (?)").run(booking.id);
     // Opening the door is the arrival, so there is nothing else to press.
     if (!booking.checkedInAt) {
-      db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
-      if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+      await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+      if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
     }
   })();
 
@@ -2088,7 +2102,7 @@ export function accessCodeFor(code: string, phone: string): AccessResult | null 
     emergencyPhone: venue.emergencyPhone,
     emergencyInfo: venue.emergencyInfo,
     // Counted after the check-in above, so it includes them.
-    presentNow: presentAtVenue(venue.id),
+    presentNow: await presentAtVenue(venue.id),
   };
 }
 
@@ -2101,8 +2115,8 @@ export interface AccessReveal {
 }
 
 /** Who has been given a code at this venue, most recent first. */
-export function listAccessReveals(venueId: number, limit = 50): AccessReveal[] {
-  const rows = getDb()
+export async function listAccessReveals(venueId: number, limit = 50): Promise<AccessReveal[]> {
+  const rows = await getDb()
     .prepare(`
       SELECT b.code, b.name, b.phone, c.name AS court_name, r.revealed_at
       FROM access_reveals r
@@ -2183,23 +2197,23 @@ function toHire(r: HireRow): HireRecord {
 }
 
 /** The hire against a booking, open or settled. */
-export function hireFor(bookingId: number): HireRecord | null {
-  const row = getDb()
+export async function hireFor(bookingId: number): Promise<HireRecord | null> {
+  const row = await getDb()
     .prepare(`${HIRE_SELECT} WHERE h.booking_id = ?`)
     .get(bookingId) as HireRow | undefined;
   return row ? toHire(row) : null;
 }
 
 /** True while kit against this booking is physically out. */
-export function hasOpenHire(bookingId: number): boolean {
-  const row = getDb()
+export async function hasOpenHire(bookingId: number): Promise<boolean> {
+  const row = await getDb()
     .prepare("SELECT 1 AS n FROM hire_records WHERE booking_id = ? AND returned_at IS NULL")
     .get(bookingId) as { n: number } | undefined;
   return row !== undefined;
 }
 
-function openHireCountForCourt(courtId: number): number {
-  const row = getDb()
+async function openHireCountForCourt(courtId: number): Promise<number> {
+  const row = await getDb()
     .prepare(`
       SELECT COUNT(*) AS n FROM hire_records h
       JOIN bookings b ON b.id = h.booking_id
@@ -2210,8 +2224,8 @@ function openHireCountForCourt(courtId: number): number {
 }
 
 /** Everything still out at a venue, oldest first — the desk's chase list. */
-export function listOpenHires(venueId: number): HireRecord[] {
-  const rows = getDb()
+export async function listOpenHires(venueId: number): Promise<HireRecord[]> {
+  const rows = await getDb()
     .prepare(`${HIRE_SELECT} WHERE c.venue_id = ? AND h.returned_at IS NULL ORDER BY h.taken_at`)
     .all(venueId) as HireRow[];
   return rows.map(toHire);
@@ -2230,18 +2244,18 @@ export type HireResult =
  * in, so the desk does one thing instead of two, and the check-in window
  * applies unchanged: kit does not leave before the slot it belongs to.
  */
-export function takeHire(code: string, deposit?: number): HireResult {
+export async function takeHire(code: string, deposit?: number): Promise<HireResult> {
   const db = getDb();
-  const booking = bookingByCode(code);
+  const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
 
-  const court = getCourt(booking.courtId);
+  const court = await getCourt(booking.courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
   if (court.deposit <= 0)
     return { ok: false, error: `${court.name} is not hired out. Set a deposit on it first.` };
 
-  const existing = hireFor(booking.id);
+  const existing = await hireFor(booking.id);
   if (existing)
     return {
       ok: false,
@@ -2263,18 +2277,18 @@ export function takeHire(code: string, deposit?: number): HireResult {
   if (booking.checkedOutAt)
     return { ok: false, error: "This booking has already checked out." };
 
-  db.transaction(() => {
+  await db.transaction(async () => {
     if (!booking.checkedInAt) {
-      db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
-      if (booking.noShow) db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+      await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+      if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
     }
-    db.prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, ?)").run(
+    await db.prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, ?)").run(
       booking.id,
       held
     );
   })();
 
-  return { ok: true, hire: hireFor(booking.id)!, booking: bookingByCode(booking.code)! };
+  return { ok: true, hire: (await hireFor(booking.id))!, booking: (await bookingByCode(booking.code))! };
 }
 
 /**
@@ -2286,15 +2300,15 @@ export function takeHire(code: string, deposit?: number): HireResult {
  * be told why they are not getting all of their money, and "damaged" alone is
  * not a reason anyone can stand behind later.
  */
-export function returnHire(
+export async function returnHire(
   code: string,
   input: { condition: HireCondition; withheld?: number; note?: string }
-): HireResult {
+): Promise<HireResult> {
   const db = getDb();
-  const booking = bookingByCode(code);
+  const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
 
-  const hire = hireFor(booking.id);
+  const hire = await hireFor(booking.id);
   if (!hire) return { ok: false, error: "No deposit is held on this booking." };
   if (hire.returnedAt) return { ok: false, error: "This kit has already been taken back." };
 
@@ -2316,19 +2330,19 @@ export function returnHire(
   if ((input.condition !== "ok" || withheld > 0) && note === "")
     return { ok: false, error: "Say what happened — a note is required when the kit is not returned fine." };
 
-  db.transaction(() => {
-    db.prepare(`
+  await db.transaction(async () => {
+    await db.prepare(`
       UPDATE hire_records
       SET returned_at = datetime('now'), withheld = ?, condition = ?, note = ?
       WHERE booking_id = ?
     `).run(withheld, input.condition, note === "" ? null : note, booking.id);
     // The kit is back, so whoever brought it has left the desk.
-    db.prepare(
+    await db.prepare(
       "UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ? AND checked_out_at IS NULL"
     ).run(booking.id);
   })();
 
-  return { ok: true, hire: hireFor(booking.id)!, booking: bookingByCode(booking.code)! };
+  return { ok: true, hire: (await hireFor(booking.id))!, booking: (await bookingByCode(booking.code))! };
 }
 
 /**
@@ -2338,14 +2352,14 @@ export function returnHire(
  * and their booking has not ended yet — most people leave without telling the
  * desk, so the booking's end time is the backstop.
  */
-export function getLiveOccupancy(venueId: number): LiveOccupancy[] {
+export async function getLiveOccupancy(venueId: number): Promise<LiveOccupancy[]> {
   const db = getDb();
   const courts = (
-    db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
+    await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
   if (courts.length === 0) return [];
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT b.court_id, b.date, b.end_hour FROM check_ins ci
       JOIN bookings b ON b.id = ci.booking_id
@@ -2378,30 +2392,32 @@ export function getLiveOccupancy(venueId: number): LiveOccupancy[] {
 export type NoShowResult = { ok: true; booking: Booking } | Refusal;
 
 /** Flag a passed booking whose customer never turned up (staff only). */
-export function setNoShow(code: string, noShow: boolean): NoShowResult {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
-    .get(code.trim()) as BookingRow | undefined;
-  if (!row) return refuse("BOOKING_NOT_FOUND");
-  const booking = toBooking(row);
+export async function setNoShow(code: string, noShow: boolean): Promise<NoShowResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const row = await db
+      .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
+      .get(code.trim()) as BookingRow | undefined;
+    if (!row) return refuse("BOOKING_NOT_FOUND");
+    const booking = toBooking(row);
 
-  if (booking.status === "cancelled")
-    return refuse("BOOKING_WAS_CANCELLED");
-  if (noShow && !isPastSlot(booking.date, booking.startHour))
-    return { ok: false, error: "This booking has not started yet." };
-  if (noShow && booking.checkedInAt)
-    return { ok: false, error: "This customer checked in, so they were not a no-show." };
-  if (booking.noShow === noShow)
-    return { ok: false, error: `Already marked ${noShow ? "a no-show" : "attended"}.` };
+    if (booking.status === "cancelled")
+      return refuse("BOOKING_WAS_CANCELLED");
+    if (noShow && !isPastSlot(booking.date, booking.startHour))
+      return { ok: false, error: "This booking has not started yet." };
+    if (noShow && booking.checkedInAt)
+      return { ok: false, error: "This customer checked in, so they were not a no-show." };
+    if (booking.noShow === noShow)
+      return { ok: false, error: `Already marked ${noShow ? "a no-show" : "attended"}.` };
 
-  db.prepare("UPDATE bookings SET no_show = ? WHERE id = ?").run(noShow ? 1 : 0, booking.id);
-  return { ok: true, booking: { ...booking, noShow } };
+    await db.prepare("UPDATE bookings SET no_show = ? WHERE id = ?").run(noShow ? 1 : 0, booking.id);
+    return { ok: true, booking: { ...booking, noShow } };
+  });
 }
 
 /** How many times this phone number has been flagged a no-show. */
-export function countNoShows(phone: string): number {
-  const row = getDb()
+export async function countNoShows(phone: string): Promise<number> {
+  const row = await getDb()
     .prepare("SELECT COUNT(*) AS n FROM bookings WHERE phone = ? AND no_show = 1")
     .get(phone.trim()) as { n: number };
   return row.n;
@@ -2409,7 +2425,7 @@ export function countNoShows(phone: string): number {
 
 export type CourtEditResult = { ok: true; court: Court } | Refusal;
 
-export function createCourt(input: {
+export async function createCourt(input: {
   venueId: number;
   name: string;
   sport: Sport;
@@ -2417,10 +2433,10 @@ export function createCourt(input: {
   peakRate: number;
   capacity?: number;
   deposit?: number;
-}): CourtEditResult {
+}): Promise<CourtEditResult> {
   const db = getDb();
-  if (!getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
-  const info = db
+  if (!await getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
+  const info = await db
     .prepare(
       "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity, deposit) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
@@ -2433,10 +2449,10 @@ export function createCourt(input: {
       input.capacity ?? 1,
       input.deposit ?? 0
     );
-  return { ok: true, court: getCourt(info.lastInsertRowid as number)! };
+  return { ok: true, court: (await getCourt(info.lastInsertRowid as number))! };
 }
 
-export function updateCourt(
+export async function updateCourt(
   courtId: number,
   changes: {
     name?: string;
@@ -2451,18 +2467,18 @@ export function updateCourt(
     /** null clears the stored code, which also switches unmanned off. */
     accessCode?: string | null;
   }
-): CourtEditResult {
+): Promise<CourtEditResult> {
   const db = getDb();
-  const court = getCourt(courtId);
+  const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
 
   // Shrinking capacity below what is already booked would strand those
   // bookings, so refuse rather than silently overbook.
   if (changes.capacity !== undefined && changes.capacity < court.capacity) {
-    const peak = db
+    const peak = await db
       .prepare(`
         SELECT COUNT(*) AS n FROM booking_slots
-        WHERE court_id = ? AND date >= date('now')
+        WHERE court_id = ? AND date >= substr(datetime('now'), 1, 10)
         GROUP BY date, hour ORDER BY n DESC LIMIT 1
       `)
       .get(courtId) as { n: number } | undefined;
@@ -2495,10 +2511,10 @@ export function updateCourt(
     return { ok: false, error: `A deposit cannot be more than RM${MAX_DEPOSIT}.` };
   // Dropping the deposit to nothing while kit is out would leave those holds
   // unsettleable, so let them come back first.
-  if (deposit === 0 && court.deposit > 0 && openHireCountForCourt(courtId) > 0)
+  if (deposit === 0 && court.deposit > 0 && await openHireCountForCourt(courtId) > 0)
     return { ok: false, error: "Some kit is still out on hire. Take it back in first." };
 
-  const stored = courtAccess(courtId);
+  const stored = await courtAccess(courtId);
   const codeGiven = changes.accessCode !== undefined;
   const newCode =
     changes.accessCode === undefined
@@ -2541,8 +2557,8 @@ export function updateCourt(
 
   const codeChanged = codeGiven && newCode !== stored.code;
 
-  db.transaction(() => {
-    db.prepare(`
+  await db.transaction(async () => {
+    await db.prepare(`
       UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
                         member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
                         deposit = ?, unmanned = ?, access_code = ?
@@ -2562,17 +2578,17 @@ export function updateCourt(
     // Only a genuine change restarts the clock, so re-saving the same code
     // cannot be used to make a stale door look fresh.
     if (codeChanged)
-      db.prepare("UPDATE courts SET access_code_changed_at = datetime('now') WHERE id = ?").run(
+      await db.prepare("UPDATE courts SET access_code_changed_at = datetime('now') WHERE id = ?").run(
         courtId
       );
   })();
-  return { ok: true, court: getCourt(courtId)! };
+  return { ok: true, court: (await getCourt(courtId))! };
 }
 
-export function listBookingsForDate(date: string, venueId?: number): AdminBookingRow[] {
+export async function listBookingsForDate(date: string, venueId?: number): Promise<AdminBookingRow[]> {
   const db = getDb();
   const venue = venueCourts("b.court_id", venueId);
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
              v.name AS venue_name, ci.checked_in_at, ci.checked_out_at
@@ -2592,25 +2608,27 @@ export function listBookingsForDate(date: string, venueId?: number): AdminBookin
   // One pass for the whole day rather than a lookup per row.
   const hires = new Map<number, HireRecord>();
   if (rows.length > 0) {
-    const held = db
+    const held = await db
       .prepare(`${HIRE_SELECT} WHERE h.booking_id IN (${rows.map(() => "?").join(",")})`)
       .all(...rows.map((r) => r.id)) as HireRow[];
     for (const row of held) hires.set(row.booking_id, toHire(row));
   }
 
-  return rows.map((r) => {
+  const list: AdminBookingRow[] = [];
+  for (const r of rows) {
     const booking = toBooking(r);
-    return {
+    list.push({
       ...booking,
       courtName: r.court_name,
       sport: r.court_sport,
       venueName: r.venue_name,
       // Exclude this booking so the count reads as history, not self-reference.
-      priorNoShows: countNoShows(booking.phone) - (booking.noShow ? 1 : 0),
+      priorNoShows: (await countNoShows(booking.phone)) - (booking.noShow ? 1 : 0),
       courtDeposit: r.court_deposit,
       hire: hires.get(booking.id) ?? null,
-    };
-  });
+    });
+  }
+  return list;
 }
 
 /* ---------------- Instructor-led classes ---------------- */
@@ -2667,13 +2685,13 @@ function toClass(r: ClassRow): ClassSession {
   };
 }
 
-export function getClass(id: number): ClassSession | null {
-  const row = getDb().prepare(`${CLASS_SELECT} WHERE cl.id = ?`).get(id) as ClassRow | undefined;
+export async function getClass(id: number): Promise<ClassSession | null> {
+  const row = await getDb().prepare(`${CLASS_SELECT} WHERE cl.id = ?`).get(id) as ClassRow | undefined;
   return row ? toClass(row) : null;
 }
 
 /** Upcoming scheduled classes, soonest first. */
-export function listClasses(filter: {
+export async function listClasses(filter: {
   venueId?: number;
   /** Only these venues — a storefront's. */
   venueIds?: number[];
@@ -2681,7 +2699,7 @@ export function listClasses(filter: {
   from?: string;
   to?: string;
   includeCancelled?: boolean;
-} = {}): ClassSession[] {
+} = {}): Promise<ClassSession[]> {
   const from = filter.from ?? todayISO();
   const clauses = ["cl.date >= ?"];
   const params: (string | number)[] = [from];
@@ -2704,7 +2722,7 @@ export function listClasses(filter: {
     params.push(filter.to);
   }
 
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(`${CLASS_SELECT} WHERE ${clauses.join(" AND ")} ORDER BY cl.date, cl.start_hour, cl.id`)
     .all(...params) as ClassRow[];
   return rows.map(toClass);
@@ -2718,7 +2736,7 @@ export type CreateClassResult =
  * Schedule a class, optionally repeating weekly for a term. The resource must
  * be free for those hours — a class cannot be laid over existing bookings.
  */
-export function createClassSessions(input: {
+export async function createClassSessions(input: {
   courtId: number;
   name: string;
   instructor: string;
@@ -2728,18 +2746,18 @@ export function createClassSessions(input: {
   capacity: number;
   price: number;
   weeks?: number;
-}): CreateClassResult {
+}): Promise<CreateClassResult> {
   const { courtId, date, startHour, endHour } = input;
   const weeks = input.weeks ?? 1;
 
-  const court = getCourt(courtId);
+  const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
     return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
-  const { openHour, closeHour } = courtVenueHours(courtId);
+  const { openHour, closeHour } = await courtVenueHours(courtId);
   if (startHour < openHour || endHour > closeHour || endHour <= startHour)
     return { ok: false, error: "Class hours are outside operating hours." };
-  if (getVenueClosure(court.venueId, date))
+  if (await getVenueClosure(court.venueId, date))
     return refuse("VENUE_CLOSED");
   if (input.capacity < 1 || input.capacity > court.capacity)
     return {
@@ -2764,21 +2782,21 @@ export function createClassSessions(input: {
   `);
 
   try {
-    const created = db.transaction(() => {
+    const created = await db.transaction(async () => {
       const sessions: ClassSession[] = [];
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
-        if ((taken.get(courtId, weekDate, ...hours) as { n: number }).n > 0)
+        if ((await taken.get(courtId, weekDate, ...hours) as { n: number }).n > 0)
           throw new Error(`BOOKED:${weekDate}`);
-        const clashes = classHoursOn(weekDate);
+        const clashes = await classHoursOn(weekDate);
         if (hours.some((h) => clashes.has(`${courtId}:${h}`)))
           throw new Error(`CLASH:${weekDate}`);
 
-        const id = insert.run(
+        const id = (await insert.run(
           courtId, input.name.trim(), input.instructor.trim(), weekDate,
           startHour, endHour, input.capacity, input.price, seriesCode
-        ).lastInsertRowid as number;
-        sessions.push(getClass(id)!);
+        )).lastInsertRowid as number;
+        sessions.push((await getClass(id))!);
       }
       return sessions;
     })();
@@ -2799,85 +2817,87 @@ export function createClassSessions(input: {
 export type EnrolResult = { ok: true; booking: Booking } | Refusal;
 
 /** Take a place in a class. The enrolment is an ordinary booking. */
-export function enrolInClass(input: {
+export async function enrolInClass(input: {
   classId: number;
   name: string;
   phone: string;
   email?: string;
   userId?: number;
-}): EnrolResult {
-  const session = getClass(input.classId);
-  if (!session) return refuse("CLASS_NOT_FOUND");
-  if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
-  if (isPastSlot(session.date, session.startHour))
-    return refuse("CLASS_STARTED");
-  if (session.enrolled >= session.capacity)
-    return refuse("CLASS_FULL");
-  // The day may have been closed after the class was put in the diary.
-  if (getVenueClosure(session.venueId, session.date))
-    return refuse("VENUE_CLOSED");
+}): Promise<EnrolResult> {
+  return withTransaction(async () => {
+    const session = await getClass(input.classId);
+    if (!session) return refuse("CLASS_NOT_FOUND");
+    if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
+    if (isPastSlot(session.date, session.startHour))
+      return refuse("CLASS_STARTED");
+    if (session.enrolled >= session.capacity)
+      return refuse("CLASS_FULL");
+    // The day may have been closed after the class was put in the diary.
+    if (await getVenueClosure(session.venueId, session.date))
+      return refuse("VENUE_CLOSED");
 
-  const already = getDb()
-    .prepare(
-      "SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'"
-    )
-    .get(session.id, input.phone.trim());
-  if (already) return refuse("ALREADY_ENROLLED");
+    const already = await getDb()
+      .prepare(
+        "SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'"
+      )
+      .get(session.id, input.phone.trim());
+    if (already) return refuse("ALREADY_ENROLLED");
 
-  const hours = Array.from(
-    { length: session.endHour - session.startHour },
-    (_, i) => session.startHour + i
-  );
-  const result = createBookingSeries({
-    courtId: session.courtId,
-    date: session.date,
-    hours,
-    weeks: 1,
-    name: input.name,
-    phone: input.phone,
-    email: input.email,
-    userId: input.userId,
-    classId: session.id,
+    const hours = Array.from(
+      { length: session.endHour - session.startHour },
+      (_, i) => session.startHour + i
+    );
+    const result = await createBookingSeries({
+      courtId: session.courtId,
+      date: session.date,
+      hours,
+      weeks: 1,
+      name: input.name,
+      phone: input.phone,
+      email: input.email,
+      userId: input.userId,
+      classId: session.id,
+    });
+    if (!result.ok) return { ok: false, error: result.error };
+
+    // Price the enrolment at the class rate, not the court's hourly rate.
+    await getDb()
+      .prepare("UPDATE bookings SET total_price = ? WHERE id = ?")
+      .run(session.price, result.bookings[0].id);
+    return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price } };
   });
-  if (!result.ok) return { ok: false, error: result.error };
-
-  // Price the enrolment at the class rate, not the court's hourly rate.
-  getDb()
-    .prepare("UPDATE bookings SET total_price = ? WHERE id = ?")
-    .run(session.price, result.bookings[0].id);
-  return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price } };
 }
 
 /** Cancel a class and release every enrolment in it. */
-export function cancelClassSession(classId: number): {
+export async function cancelClassSession(classId: number): Promise<{
   ok: boolean;
   released: number;
   error?: string;
-} {
-  const session = getClass(classId);
+}> {
+  const session = await getClass(classId);
   if (!session) return { ok: false, released: 0, error: "Class not found." };
   if (session.status === "cancelled")
     return { ok: false, released: 0, error: "This class is already cancelled." };
 
   const db = getDb();
-  const enrolments = db
+  const enrolments = await db
     .prepare("SELECT id FROM bookings WHERE class_id = ? AND status = 'confirmed'")
     .all(classId) as { id: number }[];
 
-  db.transaction(() => {
-    db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
+  await db.transaction(async () => {
+    await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
     for (const row of enrolments) {
-      db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
-      db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+      await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
+      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
     }
   })();
-  for (const row of enrolments) refundBooking(row.id);
+  for (const row of enrolments) await refundBooking(row.id);
   return { ok: true, released: enrolments.length };
 }
 
 /** Who is coming to a class. */
-export function getClassRoster(classId: number): Booking[] {
-  const rows = getDb()
+export async function getClassRoster(classId: number): Promise<Booking[]> {
+  const rows = await getDb()
     .prepare(`
       SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
@@ -2916,13 +2936,13 @@ function toWalletEntry(r: WalletRow): WalletEntry {
   };
 }
 
-function walletEntryById(id: number | bigint): WalletEntry {
-  return toWalletEntry(getDb().prepare(`${WALLET_SELECT} WHERE w.id = ?`).get(id) as WalletRow);
+async function walletEntryById(id: number | bigint): Promise<WalletEntry> {
+  return toWalletEntry(await getDb().prepare(`${WALLET_SELECT} WHERE w.id = ?`).get(id) as WalletRow);
 }
 
 /** Credit in one pot: a venue's, or (null) the one spendable anywhere. */
-function potBalance(userId: number, venueId: number | null): number {
-  const row = getDb()
+async function potBalance(userId: number, venueId: number | null): Promise<number> {
+  const row = await getDb()
     .prepare(
       venueId === null
         ? "SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ? AND venue_id IS NULL"
@@ -2937,25 +2957,25 @@ function potBalance(userId: number, venueId: number | null): number {
  * that is the venue's own credit plus any spendable anywhere; otherwise all
  * of it.
  */
-export function getWalletBalance(userId: number, venueId?: number): number {
+export async function getWalletBalance(userId: number, venueId?: number): Promise<number> {
   if (creditScope() === "venue" && venueId !== undefined)
-    return potBalance(userId, venueId) + potBalance(userId, null);
-  const row = getDb()
+    return await potBalance(userId, venueId) + await potBalance(userId, null);
+  const row = await getDb()
     .prepare("SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ?")
     .get(userId) as { balance: number };
   return row.balance;
 }
 
 /** A customer's credit, pot by pot — one line per venue it can be spent at. */
-export function walletBalances(userId: number): WalletBalance[] {
+export async function walletBalances(userId: number): Promise<WalletBalance[]> {
   return (
-    getDb()
+    await getDb()
       .prepare(`
-        SELECT w.venue_id AS venueId, v.name AS venueName, SUM(w.amount) AS balance
+        SELECT w.venue_id AS "venueId", v.name AS "venueName", SUM(w.amount) AS balance
           FROM wallet_entries w LEFT JOIN venues v ON v.id = w.venue_id
          WHERE w.user_id = ?
-         GROUP BY w.venue_id
-        HAVING balance <> 0
+         GROUP BY w.venue_id, v.name
+        HAVING SUM(w.amount) <> 0
          ORDER BY w.venue_id IS NOT NULL, v.name
       `)
       .all(userId) as WalletBalance[]
@@ -2963,8 +2983,8 @@ export function walletBalances(userId: number): WalletBalance[] {
 }
 
 /** Most recent movements first. */
-export function listWalletEntries(userId: number, limit = 50): WalletEntry[] {
-  const rows = getDb()
+export async function listWalletEntries(userId: number, limit = 50): Promise<WalletEntry[]> {
+  const rows = await getDb()
     .prepare(`${WALLET_SELECT} WHERE w.user_id = ? ORDER BY w.id DESC LIMIT ?`)
     .all(userId, Math.min(Math.max(limit, 1), 200)) as WalletRow[];
   return rows.map(toWalletEntry);
@@ -2978,38 +2998,40 @@ export type WalletResult =
  * Record credit bought at the counter. Where credit is per venue, it is the
  * credit of the venue that sold it, and `venueId` says which.
  */
-export function topUpWallet(input: {
+export async function topUpWallet(input: {
   userId: number;
   amount: number;
   adminId: number;
   reason?: string;
   venueId?: number;
-}): WalletResult {
-  if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_TOP_UP)
-    return { ok: false, error: `Top-up must be RM1–${MAX_TOP_UP}.` };
-  const db = getDb();
-  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(input.userId);
-  if (!user) return { ok: false, error: "Customer not found." };
-  const perVenue = creditScope() === "venue";
-  if (perVenue && (input.venueId === undefined || !getVenue(input.venueId)))
-    return { ok: false, error: "Credit belongs to a venue here: say which one sold it." };
+}): Promise<WalletResult> {
+  return withTransaction(async () => {
+    if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_TOP_UP)
+      return { ok: false, error: `Top-up must be RM1–${MAX_TOP_UP}.` };
+    const db = getDb();
+    const user = await db.prepare("SELECT id FROM users WHERE id = ?").get(input.userId);
+    if (!user) return { ok: false, error: "Customer not found." };
+    const perVenue = creditScope() === "venue";
+    if (perVenue && (input.venueId === undefined || !await getVenue(input.venueId)))
+      return { ok: false, error: "Credit belongs to a venue here: say which one sold it." };
 
-  const info = db
-    .prepare(
-      "INSERT INTO wallet_entries (user_id, amount, reason, admin_id, venue_id) VALUES (?, ?, ?, ?, ?)"
-    )
-    .run(
-      input.userId,
-      input.amount,
-      input.reason?.trim() || "Counter top-up",
-      input.adminId,
-      perVenue ? input.venueId! : null
-    );
-  return {
-    ok: true,
-    balance: getWalletBalance(input.userId, perVenue ? input.venueId : undefined),
-    entry: walletEntryById(info.lastInsertRowid),
-  };
+    const info = await db
+      .prepare(
+        "INSERT INTO wallet_entries (user_id, amount, reason, admin_id, venue_id) VALUES (?, ?, ?, ?, ?)"
+      )
+      .run(
+        input.userId,
+        input.amount,
+        input.reason?.trim() || "Counter top-up",
+        input.adminId,
+        perVenue ? input.venueId! : null
+      );
+    return {
+      ok: true,
+      balance: await getWalletBalance(input.userId, perVenue ? input.venueId : undefined),
+      entry: await walletEntryById(info.lastInsertRowid!),
+    };
+  });
 }
 
 /**
@@ -3020,34 +3042,27 @@ export function topUpWallet(input: {
  * Mark a booking paid, and say whether this call is the one that did it.
  *
  * Every payment path checks "is it already paid?" before opening its
- * transaction. In one process that is sound — better-sqlite3 is synchronous,
- * so nothing interleaves between the check and the write. Across two it is
- * not: a venue running more than one worker against the same file could have
- * both read "unpaid", and the customer is charged twice for one hour, once
- * from a wallet and once from a pass.
- *
- * This is not reachable on the deployment this ships with — one SQLite file,
- * one writer, and better-sqlite3 synchronous throughout — so it is hardening
- * rather than a fix. It is here because "safe as long as there is exactly one
- * process" is an assumption nothing states at the call sites, and the README's
- * own scaling answer is Postgres, where it stops holding. The database decides
- * instead: exactly one UPDATE can move a booking out of 'unpaid', everybody
- * else gets no rows and throws, rolling their own ledger entry back with them.
- * The same shape promo codes already get from their UNIQUE constraint.
+ * transaction. Two requests can both make that check before either writes —
+ * every query is a point where another request can run — and the customer
+ * would be charged twice for one hour, once from a wallet and once from a
+ * pass. The database decides instead: exactly one UPDATE can move a booking
+ * out of 'unpaid', everybody else gets no rows and throws, rolling their own
+ * ledger entry back with them. The same shape promo codes already get from
+ * their UNIQUE constraint.
  */
-export function claimPayment(bookingId: number): boolean {
+export async function claimPayment(bookingId: number): Promise<boolean> {
   return (
-    getDb()
+    (await getDb()
       .prepare(
         "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ? AND payment_status = 'unpaid'"
       )
-      .run(bookingId).changes === 1
+      .run(bookingId)).changes === 1
   );
 }
 
-export function payBookingFromWallet(bookingId: number): WalletResult {
+export async function payBookingFromWallet(bookingId: number): Promise<WalletResult> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
     )
@@ -3063,35 +3078,35 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
   // Where credit is per venue, a booking is paid from this venue's credit
   // first and then from any spendable anywhere — a line for each, so a refund
   // puts each part back where it came from.
-  const venueId = creditScope() === "venue" ? getCourt(booking.courtId)?.venueId : undefined;
+  const venueId = creditScope() === "venue" ? (await getCourt(booking.courtId))?.venueId : undefined;
   try {
-    const entryId = db.transaction(() => {
+    const entryId = await db.transaction(async () => {
       const price = booking.totalPrice;
-      if (getWalletBalance(userId, venueId) < price) throw new Error("INSUFFICIENT");
+      if (await getWalletBalance(userId, venueId) < price) throw new Error("INSUFFICIENT");
       const charge = db.prepare(
         "INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)"
       );
       const reason = `Booking ${booking.code}`;
       let first: number | bigint | null = null;
       if (venueId === undefined) {
-        first = charge.run(userId, -price, reason, booking.id, null).lastInsertRowid;
+        first = (await charge.run(userId, -price, reason, booking.id, null)).lastInsertRowid;
       } else {
-        const fromVenue = Math.min(Math.max(potBalance(userId, venueId), 0), price);
+        const fromVenue = Math.min(Math.max(await potBalance(userId, venueId), 0), price);
         if (fromVenue > 0)
-          first = charge.run(userId, -fromVenue, reason, booking.id, venueId).lastInsertRowid;
+          first = (await charge.run(userId, -fromVenue, reason, booking.id, venueId)).lastInsertRowid;
         if (price - fromVenue > 0) {
-          const id = charge.run(userId, -(price - fromVenue), reason, booking.id, null).lastInsertRowid;
+          const id = (await charge.run(userId, -(price - fromVenue), reason, booking.id, null)).lastInsertRowid;
           first ??= id;
         }
       }
-      if (!claimPayment(booking.id)) throw new Error("RACED");
+      if (!await claimPayment(booking.id)) throw new Error("RACED");
       return first!;
     })();
 
     return {
       ok: true,
-      balance: getWalletBalance(userId, venueId),
-      entry: walletEntryById(entryId),
+      balance: await getWalletBalance(userId, venueId),
+      entry: await walletEntryById(entryId),
     };
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT")
@@ -3102,10 +3117,10 @@ export function payBookingFromWallet(bookingId: number): WalletResult {
 }
 
 /** What this booking took from stored credit, line by line — one per pot. */
-function walletChargesFor(
+async function walletChargesFor(
   bookingId: number
-): { user_id: number; amount: number; venue_id: number | null }[] {
-  return getDb()
+): Promise<{ user_id: number; amount: number; venue_id: number | null }[]> {
+  return await getDb()
     .prepare(
       "SELECT user_id, amount, venue_id FROM wallet_entries WHERE booking_id = ? AND amount < 0 ORDER BY id"
     )
@@ -3116,33 +3131,37 @@ function walletChargesFor(
  * Put a wallet-paid booking's money back when it is cancelled. Refunding twice
  * is refused, so a double cancellation cannot mint credit.
  */
-export function refundBookingToWallet(bookingId: number): WalletResult {
-  const charges = walletChargesFor(bookingId);
+export async function refundBookingToWallet(bookingId: number): Promise<WalletResult> {
+  const charges = await walletChargesFor(bookingId);
   if (charges.length === 0) return { ok: false, error: "This booking was not paid from credit." };
 
   const db = getDb();
-  const refunded = db
+  const refunded = await db
     .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0")
     .get(bookingId);
   if (refunded) return { ok: false, error: "This booking has already been refunded." };
 
-  const code = (db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
+  const code = (await db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
     | { code: string }
     | undefined)?.code;
   const put = db.prepare(
     "INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)"
   );
-  const ids = db.transaction(() =>
-    charges.map(
-      (c) => put.run(c.user_id, -c.amount, `Refund for ${code ?? "booking"}`, bookingId, c.venue_id).lastInsertRowid
-    )
-  )();
+  const ids = await db.transaction(async () => {
+    const made: number[] = [];
+    for (const c of charges)
+      made.push(
+        (await put.run(c.user_id, -c.amount, `Refund for ${code ?? "booking"}`, bookingId, c.venue_id))
+          .lastInsertRowid as number
+      );
+    return made;
+  })();
 
   const venueId = charges.find((c) => c.venue_id !== null)?.venue_id ?? undefined;
   return {
     ok: true,
-    balance: getWalletBalance(charges[0].user_id, venueId),
-    entry: walletEntryById(ids[0]),
+    balance: await getWalletBalance(charges[0].user_id, venueId),
+    entry: await walletEntryById(ids[0]),
   };
 }
 
@@ -3150,12 +3169,12 @@ export function refundBookingToWallet(bookingId: number): WalletResult {
  * Undo whatever a cancelled booking was settled with. A booking is paid from
  * credit or with a pass, never both, so each call is a no-op for the other.
  */
-function refundBooking(bookingId: number): void {
-  refundBookingToWallet(bookingId);
-  refundBookingToPass(bookingId);
-  noteOnlineRefundDue(bookingId);
+async function refundBooking(bookingId: number): Promise<void> {
+  await refundBookingToWallet(bookingId);
+  await refundBookingToPass(bookingId);
+  await noteOnlineRefundDue(bookingId);
   // The customer never had the benefit, so a limited code is not poorer for it.
-  releasePromoUse(bookingId);
+  await releasePromoUse(bookingId);
 }
 
 /**
@@ -3164,8 +3183,8 @@ function refundBooking(bookingId: number): void {
  * back — a refund is made in the gateway — so the amount is written against
  * the payment, and the venue is shown what it owes until staff say it is done.
  */
-function noteOnlineRefundDue(bookingId: number): void {
-  getDb()
+async function noteOnlineRefundDue(bookingId: number): Promise<void> {
+  await getDb()
     .prepare(`
       UPDATE online_payments
          SET refund_due = refund_due + (SELECT total_price FROM bookings WHERE id = ?)
@@ -3230,15 +3249,15 @@ function membershipBlockedReason(m: Membership): string | null {
  * booked as a guest still gets their rate. The date checked is the booking's,
  * not today's: a membership that lapses before the session does not discount it.
  */
-export function activeMembership(
+export async function activeMembership(
   venueId: number,
   phone: string,
   onDate?: string
-): Membership | null {
+): Promise<Membership | null> {
   const digits = normalisePhone(phone);
   if (digits.length < 6) return null;
   const date = onDate ?? todayISO();
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
     .all(venueId) as MembershipRow[];
   const match = rows.find(
@@ -3252,22 +3271,22 @@ export function activeMembership(
 
 /** Every membership a phone number holds, newest first. */
 /** What this account holds. Keyed on the account, for the reason above. */
-export function listMembershipsFor(userId: number): Membership[] {
-  const rows = getDb()
+export async function listMembershipsFor(userId: number): Promise<Membership[]> {
+  const rows = await getDb()
     .prepare(`${MEMBERSHIP_SELECT} WHERE m.user_id = ? ORDER BY m.id DESC`)
     .all(userId) as MembershipRow[];
   return rows.map(toMembership);
 }
 
-export function listMembershipsForVenue(venueId: number, limit = 200): Membership[] {
-  const rows = getDb()
+export async function listMembershipsForVenue(venueId: number, limit = 200): Promise<Membership[]> {
+  const rows = await getDb()
     .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? ORDER BY m.id DESC LIMIT ?`)
     .all(venueId, Math.min(Math.max(limit, 1), 500)) as MembershipRow[];
   return rows.map(toMembership);
 }
 
-export function membershipById(id: number): Membership | null {
-  const row = getDb().prepare(`${MEMBERSHIP_SELECT} WHERE m.id = ?`).get(id) as
+export async function membershipById(id: number): Promise<Membership | null> {
+  const row = await getDb().prepare(`${MEMBERSHIP_SELECT} WHERE m.id = ?`).get(id) as
     | MembershipRow
     | undefined;
   return row ? toMembership(row) : null;
@@ -3278,7 +3297,7 @@ export type MembershipResult =
   | Refusal;
 
 /** Sell a membership at the counter. */
-export function sellMembership(input: {
+export async function sellMembership(input: {
   venueId: number;
   holderName: string;
   holderPhone: string;
@@ -3287,66 +3306,70 @@ export function sellMembership(input: {
   price: number;
   adminId: number;
   userId?: number;
-}): MembershipResult {
-  const db = getDb();
-  if (!db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
-    return refuse("VENUE_NOT_FOUND");
+}): Promise<MembershipResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    if (!await db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
+      return refuse("VENUE_NOT_FOUND");
 
-  const holderName = input.holderName.trim();
-  const holderPhone = input.holderPhone.trim();
-  if (holderName.length < 2 || holderPhone.length < 6)
-    return { ok: false, error: "A holder name and phone number are required." };
-  if (!Number.isInteger(input.price) || input.price < 0)
-    return { ok: false, error: "Price must be a whole number of ringgit." };
-  if (!isValidDateString(input.startsOn) || !isValidDateString(input.expiresOn))
-    return { ok: false, error: "Invalid dates." };
-  if (input.expiresOn < input.startsOn)
-    return { ok: false, error: "The end date is before the start date." };
-  if (input.expiresOn < todayISO())
-    return { ok: false, error: "That membership would already have expired." };
-  if (input.expiresOn > addDays(todayISO(), MAX_MEMBERSHIP_MONTHS * 31))
-    return {
-      ok: false,
-      error: `A membership may not run more than ${MAX_MEMBERSHIP_MONTHS} months.`,
-    };
+    const holderName = input.holderName.trim();
+    const holderPhone = input.holderPhone.trim();
+    if (holderName.length < 2 || holderPhone.length < 6)
+      return { ok: false, error: "A holder name and phone number are required." };
+    if (!Number.isInteger(input.price) || input.price < 0)
+      return { ok: false, error: "Price must be a whole number of ringgit." };
+    if (!isValidDateString(input.startsOn) || !isValidDateString(input.expiresOn))
+      return { ok: false, error: "Invalid dates." };
+    if (input.expiresOn < input.startsOn)
+      return { ok: false, error: "The end date is before the start date." };
+    if (input.expiresOn < todayISO())
+      return { ok: false, error: "That membership would already have expired." };
+    if (input.expiresOn > addDays(todayISO(), MAX_MEMBERSHIP_MONTHS * 31))
+      return {
+        ok: false,
+        error: `A membership may not run more than ${MAX_MEMBERSHIP_MONTHS} months.`,
+      };
 
-  // Overlapping memberships at one venue would make "which rate?" ambiguous.
-  const clash = (
-    db
-      .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
-      .all(input.venueId) as MembershipRow[]
-  ).find(
-    (r) =>
-      normalisePhone(r.holder_phone) === normalisePhone(holderPhone) &&
-      r.starts_on <= input.expiresOn &&
-      r.expires_on >= input.startsOn
-  );
-  if (clash)
-    return {
-      ok: false,
-      error: `That number already has a membership here until ${clash.expires_on}.`,
-    };
-
-  const info = db
-    .prepare(`
-      INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
-                               starts_on, expires_on, price, admin_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
-      randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
-      input.startsOn, input.expiresOn, input.price, input.adminId
+    // Overlapping memberships at one venue would make "which rate?" ambiguous.
+    const clash = (
+      await db
+        .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
+        .all(input.venueId) as MembershipRow[]
+    ).find(
+      (r) =>
+        normalisePhone(r.holder_phone) === normalisePhone(holderPhone) &&
+        r.starts_on <= input.expiresOn &&
+        r.expires_on >= input.startsOn
     );
-  return { ok: true, membership: membershipById(Number(info.lastInsertRowid))! };
+    if (clash)
+      return {
+        ok: false,
+        error: `That number already has a membership here until ${clash.expires_on}.`,
+      };
+
+    const info = await db
+      .prepare(`
+        INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
+                                 starts_on, expires_on, price, admin_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
+        input.startsOn, input.expiresOn, input.price, input.adminId
+      );
+    return { ok: true, membership: (await membershipById(Number(info.lastInsertRowid)))! };
+  });
 }
 
 /** Cancel a membership. Bookings already made keep the price they were given. */
-export function voidMembership(id: number): MembershipResult {
-  const m = membershipById(id);
-  if (!m) return { ok: false, error: "Membership not found." };
-  if (m.status === "void") return { ok: false, error: "This membership is already cancelled." };
-  getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
-  return { ok: true, membership: membershipById(id)! };
+export async function voidMembership(id: number): Promise<MembershipResult> {
+  return withTransaction(async () => {
+    const m = await membershipById(id);
+    if (!m) return { ok: false, error: "Membership not found." };
+    if (m.status === "void") return { ok: false, error: "This membership is already cancelled." };
+    await getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
+    return { ok: true, membership: (await membershipById(id))! };
+  });
 }
 
 /* ---------------- Promo codes ---------------- */
@@ -3410,15 +3433,15 @@ function promoDiscount(p: Pick<PromoCode, "kind" | "value">, price: number): num
   return Math.max(0, Math.min(off, price));
 }
 
-export function getPromoCode(venueId: number, code: string): PromoCode | null {
-  const row = getDb()
+export async function getPromoCode(venueId: number, code: string): Promise<PromoCode | null> {
+  const row = await getDb()
     .prepare(`${PROMO_SELECT} WHERE p.venue_id = ? AND UPPER(p.code) = UPPER(?)`)
     .get(venueId, code.trim()) as PromoRow | undefined;
   return row ? toPromo(row) : null;
 }
 
-export function listPromoCodes(venueId: number): PromoCode[] {
-  const rows = getDb()
+export async function listPromoCodes(venueId: number): Promise<PromoCode[]> {
+  const rows = await getDb()
     .prepare(`${PROMO_SELECT} WHERE p.venue_id = ? ORDER BY p.id DESC`)
     .all(venueId) as PromoRow[];
   return rows.map(toPromo);
@@ -3426,7 +3449,7 @@ export function listPromoCodes(venueId: number): PromoCode[] {
 
 export type PromoEditResult = { ok: true; promo: PromoCode } | Refusal;
 
-export function createPromoCode(input: {
+export async function createPromoCode(input: {
   venueId: number;
   code: string;
   description: string;
@@ -3438,71 +3461,75 @@ export function createPromoCode(input: {
   validTo: string;
   maxUses?: number | null;
   adminId: number;
-}): PromoEditResult {
-  const db = getDb();
-  if (!db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
-    return refuse("VENUE_NOT_FOUND");
+}): Promise<PromoEditResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    if (!await db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
+      return refuse("VENUE_NOT_FOUND");
 
-  const code = input.code.trim().toUpperCase();
-  if (!/^[A-Z0-9-]{3,20}$/.test(code))
-    return { ok: false, error: "A code is 3–20 letters, digits or dashes." };
-  if (input.description.trim().length < 3)
-    return { ok: false, error: "Describe what the code is for." };
-  if (input.kind !== "percent" && input.kind !== "amount")
-    return { ok: false, error: "Unknown discount type." };
-  if (!Number.isInteger(input.value) || input.value < 1)
-    return { ok: false, error: "The discount must be a whole number above zero." };
-  if (input.kind === "percent" && input.value > MAX_PROMO_PERCENT)
-    return { ok: false, error: `A percentage cannot exceed ${MAX_PROMO_PERCENT}.` };
-  if (input.kind === "amount" && input.value > MAX_PROMO_AMOUNT)
-    return { ok: false, error: `A fixed discount cannot exceed RM${MAX_PROMO_AMOUNT}.` };
+    const code = input.code.trim().toUpperCase();
+    if (!/^[A-Z0-9-]{3,20}$/.test(code))
+      return { ok: false, error: "A code is 3–20 letters, digits or dashes." };
+    if (input.description.trim().length < 3)
+      return { ok: false, error: "Describe what the code is for." };
+    if (input.kind !== "percent" && input.kind !== "amount")
+      return { ok: false, error: "Unknown discount type." };
+    if (!Number.isInteger(input.value) || input.value < 1)
+      return { ok: false, error: "The discount must be a whole number above zero." };
+    if (input.kind === "percent" && input.value > MAX_PROMO_PERCENT)
+      return { ok: false, error: `A percentage cannot exceed ${MAX_PROMO_PERCENT}.` };
+    if (input.kind === "amount" && input.value > MAX_PROMO_AMOUNT)
+      return { ok: false, error: `A fixed discount cannot exceed RM${MAX_PROMO_AMOUNT}.` };
 
-  const minHours = input.minHours ?? 1;
-  if (!Number.isInteger(minHours) || minHours < 1 || minHours > MAX_HOURS_PER_BOOKING)
-    return { ok: false, error: `Minimum hours must be 1–${MAX_HOURS_PER_BOOKING}.` };
-  if (!isValidDateString(input.validFrom) || !isValidDateString(input.validTo))
-    return { ok: false, error: "Invalid dates." };
-  if (input.validTo < input.validFrom)
-    return { ok: false, error: "The end date is before the start date." };
-  if (input.maxUses !== undefined && input.maxUses !== null &&
-      (!Number.isInteger(input.maxUses) || input.maxUses < 1))
-    return { ok: false, error: "A usage limit must be a whole number above zero." };
-  if (input.sport && !SPORTS.includes(input.sport))
-    return refuse("UNKNOWN_SPORT");
-  if (input.sport) {
-    const has = db
-      .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
-      .get(input.venueId, input.sport);
-    if (!has) return { ok: false, error: "That venue has no courts for that sport." };
-  }
-  if (getPromoCode(input.venueId, code))
-    return { ok: false, error: `${code} already exists at this venue.` };
+    const minHours = input.minHours ?? 1;
+    if (!Number.isInteger(minHours) || minHours < 1 || minHours > MAX_HOURS_PER_BOOKING)
+      return { ok: false, error: `Minimum hours must be 1–${MAX_HOURS_PER_BOOKING}.` };
+    if (!isValidDateString(input.validFrom) || !isValidDateString(input.validTo))
+      return { ok: false, error: "Invalid dates." };
+    if (input.validTo < input.validFrom)
+      return { ok: false, error: "The end date is before the start date." };
+    if (input.maxUses !== undefined && input.maxUses !== null &&
+        (!Number.isInteger(input.maxUses) || input.maxUses < 1))
+      return { ok: false, error: "A usage limit must be a whole number above zero." };
+    if (input.sport && !SPORTS.includes(input.sport))
+      return refuse("UNKNOWN_SPORT");
+    if (input.sport) {
+      const has = await db
+        .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
+        .get(input.venueId, input.sport);
+      if (!has) return { ok: false, error: "That venue has no courts for that sport." };
+    }
+    if (await getPromoCode(input.venueId, code))
+      return { ok: false, error: `${code} already exists at this venue.` };
 
-  const info = db
-    .prepare(`
-      INSERT INTO promo_codes (code, venue_id, sport, description, kind, value,
-                               min_hours, valid_from, valid_to, max_uses, admin_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
-      code, input.venueId, input.sport ?? null, input.description.trim(), input.kind,
-      input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.adminId
-    );
-  return { ok: true, promo: promoById(Number(info.lastInsertRowid))! };
+    const info = await db
+      .prepare(`
+        INSERT INTO promo_codes (code, venue_id, sport, description, kind, value,
+                                 min_hours, valid_from, valid_to, max_uses, admin_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        code, input.venueId, input.sport ?? null, input.description.trim(), input.kind,
+        input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.adminId
+      );
+    return { ok: true, promo: (await promoById(Number(info.lastInsertRowid)))! };
+  });
 }
 
-export function promoById(id: number): PromoCode | null {
-  const row = getDb().prepare(`${PROMO_SELECT} WHERE p.id = ?`).get(id) as PromoRow | undefined;
+export async function promoById(id: number): Promise<PromoCode | null> {
+  const row = await getDb().prepare(`${PROMO_SELECT} WHERE p.id = ?`).get(id) as PromoRow | undefined;
   return row ? toPromo(row) : null;
 }
 
 /** Withdraw a code. Discounts already given stand. */
-export function voidPromoCode(id: number): PromoEditResult {
-  const promo = promoById(id);
-  if (!promo) return { ok: false, error: "Code not found." };
-  if (promo.status === "void") return { ok: false, error: "This code is already withdrawn." };
-  getDb().prepare("UPDATE promo_codes SET status = 'void' WHERE id = ?").run(id);
-  return { ok: true, promo: promoById(id)! };
+export async function voidPromoCode(id: number): Promise<PromoEditResult> {
+  return withTransaction(async () => {
+    const promo = await promoById(id);
+    if (!promo) return { ok: false, error: "Code not found." };
+    if (promo.status === "void") return { ok: false, error: "This code is already withdrawn." };
+    await getDb().prepare("UPDATE promo_codes SET status = 'void' WHERE id = ?").run(id);
+    return { ok: true, promo: (await promoById(id))! };
+  });
 }
 
 export type PromoQuote =
@@ -3513,15 +3540,15 @@ export type PromoQuote =
  * What a code would take off this particular booking, without claiming it.
  * The quote is advisory: the use count is only binding inside applyPromo().
  */
-export function quotePromo(input: {
+export async function quotePromo(input: {
   venueId: number;
   code: string;
   sport: Sport;
   date: string;
   hours: number;
   price: number;
-}): PromoQuote {
-  const promo = getPromoCode(input.venueId, input.code);
+}): Promise<PromoQuote> {
+  const promo = await getPromoCode(input.venueId, input.code);
   if (!promo) return { ok: false, error: "That code is not valid at this venue." };
 
   const blocked = promoBlockedReason(promo);
@@ -3557,9 +3584,9 @@ export type PromoApplyResult =
  * or a pass, and the day's takings — sees the discounted figure without
  * knowing promo codes exist.
  */
-export function applyPromo(bookingId: number, code: string): PromoApplyResult {
+export async function applyPromo(bookingId: number, code: string): Promise<PromoApplyResult> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
     )
@@ -3570,10 +3597,10 @@ export function applyPromo(bookingId: number, code: string): PromoApplyResult {
   if (booking.paymentStatus === "paid")
     return refuse("PROMO_TOO_LATE");
 
-  const court = getCourt(booking.courtId);
+  const court = await getCourt(booking.courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
 
-  const quote = quotePromo({
+  const quote = await quotePromo({
     venueId: court.venueId,
     code,
     sport: court.sport,
@@ -3584,35 +3611,35 @@ export function applyPromo(bookingId: number, code: string): PromoApplyResult {
   if (!quote.ok) return quote;
 
   try {
-    db.transaction(() => {
-      const fresh = promoById(quote.promo.id)!;
+    await db.transaction(async () => {
+      const fresh = (await promoById(quote.promo.id))!;
       const blocked = promoBlockedReason(fresh);
       if (blocked) throw new Error(`BLOCKED:${blocked}`);
       // Re-derive against the live price, not the quoted one.
       const discount = promoDiscount(fresh, booking.totalPrice);
       if (discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
-      db.prepare(
+      await db.prepare(
         "INSERT INTO promo_uses (promo_id, booking_id, discount) VALUES (?, ?, ?)"
       ).run(fresh.id, booking.id, discount);
-      db.prepare("UPDATE bookings SET total_price = total_price - ? WHERE id = ?")
+      await db.prepare("UPDATE bookings SET total_price = total_price - ? WHERE id = ?")
         .run(discount, booking.id);
     })();
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))
       return { ok: false, error: err.message.slice("BLOCKED:".length) };
-    if (err instanceof Error && /UNIQUE constraint failed: promo_uses/.test(err.message))
+    if (isUniqueViolation(err, "promo_uses"))
       return refuse("PROMO_ALREADY_USED");
     throw err;
   }
 
-  const use = db
+  const use = await db
     .prepare("SELECT discount FROM promo_uses WHERE booking_id = ?")
     .get(booking.id) as { discount: number };
   return {
     ok: true,
     discount: use.discount,
     newTotal: booking.totalPrice - use.discount,
-    promo: promoById(quote.promo.id)!,
+    promo: (await promoById(quote.promo.id))!,
   };
 }
 
@@ -3620,13 +3647,13 @@ export function applyPromo(bookingId: number, code: string): PromoApplyResult {
  * Give a cancelled booking's use of a code back. The customer never had the
  * benefit, so a limited code should not be poorer for it.
  */
-function releasePromoUse(bookingId: number): void {
-  getDb().prepare("DELETE FROM promo_uses WHERE booking_id = ?").run(bookingId);
+async function releasePromoUse(bookingId: number): Promise<void> {
+  await getDb().prepare("DELETE FROM promo_uses WHERE booking_id = ?").run(bookingId);
 }
 
 /** The code used on a booking, for showing it back to staff and customers. */
-export function promoUseFor(bookingId: number): { code: string; discount: number } | null {
-  const row = getDb()
+export async function promoUseFor(bookingId: number): Promise<{ code: string; discount: number } | null> {
+  const row = await getDb()
     .prepare(`
       SELECT p.code AS code, u.discount AS discount
       FROM promo_uses u JOIN promo_codes p ON p.id = u.promo_id
@@ -3694,8 +3721,8 @@ function passBlockedReason(pass: Pick<Pass, "status" | "expiresOn" | "remaining"
   return null;
 }
 
-export function getPass(code: string): Pass | null {
-  const row = getDb()
+export async function getPass(code: string): Promise<Pass | null> {
+  const row = await getDb()
     .prepare(`${PASS_SELECT} WHERE UPPER(p.code) = UPPER(?)`)
     .get(code.trim()) as PassRow | undefined;
   return row ? toPass(row) : null;
@@ -3715,23 +3742,23 @@ export function getPass(code: string): Pass | null {
  * is bearer money. The counter links a pass to an account by choosing it in
  * front of the customer, which is the only place anybody checks who they are.
  */
-export function listPassesFor(userId: number): Pass[] {
-  const rows = getDb()
+export async function listPassesFor(userId: number): Promise<Pass[]> {
+  const rows = await getDb()
     .prepare(`${PASS_SELECT} WHERE p.user_id = ? ORDER BY p.id DESC`)
     .all(userId) as PassRow[];
   return rows.map(toPass);
 }
 
 /** Passes issued by one venue, newest first — the counter's list. */
-export function listPassesForVenue(venueId: number, limit = 100): Pass[] {
-  const rows = getDb()
+export async function listPassesForVenue(venueId: number, limit = 100): Promise<Pass[]> {
+  const rows = await getDb()
     .prepare(`${PASS_SELECT} WHERE p.venue_id = ? ORDER BY p.id DESC LIMIT ?`)
     .all(venueId, Math.min(Math.max(limit, 1), 500)) as PassRow[];
   return rows.map(toPass);
 }
 
-export function listPassEntries(passId: number, limit = 50): PassEntry[] {
-  const rows = getDb()
+export async function listPassEntries(passId: number, limit = 50): Promise<PassEntry[]> {
+  const rows = await getDb()
     .prepare(
       "SELECT id, delta, reason, booking_id, created_at FROM pass_entries WHERE pass_id = ? ORDER BY id DESC LIMIT ?"
     )
@@ -3754,7 +3781,7 @@ export function listPassEntries(passId: number, limit = 50): PassEntry[] {
 export type PassResult = { ok: true; pass: Pass } | Refusal;
 
 /** Sell a pass at the counter. */
-export function issuePass(input: {
+export async function issuePass(input: {
   venueId: number;
   sport?: Sport | null;
   name: string;
@@ -3765,84 +3792,88 @@ export function issuePass(input: {
   expiresOn: string;
   adminId: number;
   userId?: number;
-}): PassResult {
-  const db = getDb();
-  const venue = db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId);
-  if (!venue) return refuse("VENUE_NOT_FOUND");
+}): Promise<PassResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const venue = await db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId);
+    if (!venue) return refuse("VENUE_NOT_FOUND");
 
-  const name = input.name.trim();
-  const holderName = input.holderName.trim();
-  const holderPhone = input.holderPhone.trim();
-  if (name.length < 2) return { ok: false, error: "Give the pass a name." };
-  if (holderName.length < 2 || holderPhone.length < 6)
-    return { ok: false, error: "A holder name and phone number are required." };
-  if (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_ENTRIES)
-    return { ok: false, error: `Entries must be 1–${MAX_PASS_ENTRIES}.` };
-  if (!Number.isInteger(input.price) || input.price < 0)
-    return { ok: false, error: "Price must be a whole number of ringgit." };
-  if (!isValidDateString(input.expiresOn))
-    return { ok: false, error: "Invalid expiry date." };
-  if (input.expiresOn < todayISO())
-    return { ok: false, error: "The expiry date has already passed." };
-  if (input.expiresOn > addDays(todayISO(), MAX_PASS_MONTHS * 31))
-    return { ok: false, error: `A pass may not run more than ${MAX_PASS_MONTHS} months.` };
-  if (input.sport && !SPORTS.includes(input.sport))
-    return refuse("UNKNOWN_SPORT");
-  // A sport-locked pass is pointless if the venue has no such courts.
-  if (input.sport) {
-    const has = db
-      .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
-      .get(input.venueId, input.sport);
-    if (!has) return { ok: false, error: "That venue has no courts for that sport." };
-  }
+    const name = input.name.trim();
+    const holderName = input.holderName.trim();
+    const holderPhone = input.holderPhone.trim();
+    if (name.length < 2) return { ok: false, error: "Give the pass a name." };
+    if (holderName.length < 2 || holderPhone.length < 6)
+      return { ok: false, error: "A holder name and phone number are required." };
+    if (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_ENTRIES)
+      return { ok: false, error: `Entries must be 1–${MAX_PASS_ENTRIES}.` };
+    if (!Number.isInteger(input.price) || input.price < 0)
+      return { ok: false, error: "Price must be a whole number of ringgit." };
+    if (!isValidDateString(input.expiresOn))
+      return { ok: false, error: "Invalid expiry date." };
+    if (input.expiresOn < todayISO())
+      return { ok: false, error: "The expiry date has already passed." };
+    if (input.expiresOn > addDays(todayISO(), MAX_PASS_MONTHS * 31))
+      return { ok: false, error: `A pass may not run more than ${MAX_PASS_MONTHS} months.` };
+    if (input.sport && !SPORTS.includes(input.sport))
+      return refuse("UNKNOWN_SPORT");
+    // A sport-locked pass is pointless if the venue has no such courts.
+    if (input.sport) {
+      const has = await db
+        .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
+        .get(input.venueId, input.sport);
+      if (!has) return { ok: false, error: "That venue has no courts for that sport." };
+    }
 
-  const info = db
-    .prepare(`
-      INSERT INTO passes (code, venue_id, sport, name, entries, price, holder_name,
-                          holder_phone, user_id, expires_on, admin_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
-      randomCode("PS-"),
-      input.venueId,
-      input.sport ?? null,
-      name,
-      input.entries,
-      input.price,
-      holderName,
-      holderPhone,
-      input.userId ?? null,
-      input.expiresOn,
-      input.adminId
-    );
-  return { ok: true, pass: passById(Number(info.lastInsertRowid))! };
+    const info = await db
+      .prepare(`
+        INSERT INTO passes (code, venue_id, sport, name, entries, price, holder_name,
+                            holder_phone, user_id, expires_on, admin_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        randomCode("PS-"),
+        input.venueId,
+        input.sport ?? null,
+        name,
+        input.entries,
+        input.price,
+        holderName,
+        holderPhone,
+        input.userId ?? null,
+        input.expiresOn,
+        input.adminId
+      );
+    return { ok: true, pass: (await passById(Number(info.lastInsertRowid)))! };
+  });
 }
 
-export function getPassById(id: number): Pass | null {
-  return passById(id);
+export async function getPassById(id: number): Promise<Pass | null> {
+  return await passById(id);
 }
 
-function passById(id: number): Pass | null {
-  const row = getDb().prepare(`${PASS_SELECT} WHERE p.id = ?`).get(id) as PassRow | undefined;
+async function passById(id: number): Promise<Pass | null> {
+  const row = await getDb().prepare(`${PASS_SELECT} WHERE p.id = ?`).get(id) as PassRow | undefined;
   return row ? toPass(row) : null;
 }
 
 /** Cancel a pass. Entries already spent stay spent; the rest become unusable. */
-export function voidPass(passId: number): PassResult {
-  const db = getDb();
-  const pass = passById(passId);
-  if (!pass) return refuse("PASS_NOT_FOUND");
-  if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
-  db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
-  return { ok: true, pass: passById(passId)! };
+export async function voidPass(passId: number): Promise<PassResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const pass = await passById(passId);
+    if (!pass) return refuse("PASS_NOT_FOUND");
+    if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
+    await db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
+    return { ok: true, pass: (await passById(passId))! };
+  });
 }
 
 /**
  * Can this pass pay for this booking? Checks scope and standing but not the
  * entry count, which is only safe to read inside the paying transaction.
  */
-function passScopeError(pass: Pass, booking: Booking): string | null {
-  const court = getCourt(booking.courtId);
+async function passScopeError(pass: Pass, booking: Booking): Promise<string | null> {
+  const court = await getCourt(booking.courtId);
   if (!court) return "Court not found.";
   if (court.venueId !== pass.venueId) return "That pass is for a different venue.";
   if (pass.sport && court.sport !== pass.sport)
@@ -3859,9 +3890,9 @@ export type PassPayResult =
  * The remaining count is re-read inside the transaction so two concurrent
  * bookings cannot spend the same entry.
  */
-export function payBookingWithPass(bookingId: number, passCode: string): PassPayResult {
+export async function payBookingWithPass(bookingId: number, passCode: string): Promise<PassPayResult> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare(
       "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?"
     )
@@ -3871,9 +3902,9 @@ export function payBookingWithPass(bookingId: number, passCode: string): PassPay
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.paymentStatus === "paid") return refuse("ALREADY_PAID");
 
-  const pass = getPass(passCode);
+  const pass = await getPass(passCode);
   if (!pass) return refuse("PASS_NOT_FOUND");
-  const scope = passScopeError(pass, booking);
+  const scope = await passScopeError(pass, booking);
   if (scope) return { ok: false, error: scope };
 
   // A pass is the holder's to spend, so it has to be their booking.
@@ -3883,18 +3914,18 @@ export function payBookingWithPass(bookingId: number, passCode: string): PassPay
   const hours = booking.endHour - booking.startHour;
 
   try {
-    db.transaction(() => {
-      const fresh = passById(pass.id)!;
+    await db.transaction(async () => {
+      const fresh = (await passById(pass.id))!;
       const blocked = passBlockedReason(fresh);
       if (blocked) throw new Error(`BLOCKED:${blocked}`);
       if (fresh.remaining < hours)
         throw new Error(
           `BLOCKED:This pass has ${fresh.remaining} ${fresh.remaining === 1 ? "entry" : "entries"} left, and this booking needs ${hours}.`
         );
-      db.prepare(
+      await db.prepare(
         "INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)"
       ).run(pass.id, -hours, `Booking ${booking.code}`, booking.id);
-      if (!claimPayment(booking.id)) throw new Error("RACED");
+      if (!await claimPayment(booking.id)) throw new Error("RACED");
     })();
   } catch (err) {
     if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");
@@ -3903,7 +3934,7 @@ export function payBookingWithPass(bookingId: number, passCode: string): PassPay
     throw err;
   }
 
-  return { ok: true, pass: passById(pass.id)!, spent: hours };
+  return { ok: true, pass: (await passById(pass.id))!, spent: hours };
 }
 
 /**
@@ -3928,42 +3959,44 @@ function normalisePhone(phone: string): string {
  * double cancellation cannot mint entries. An expired pass is still credited —
  * the ledger stays honest, even if the entries can no longer be spent.
  */
-export function refundBookingToPass(bookingId: number): PassPayResult {
-  const db = getDb();
-  const charge = db
-    .prepare(
-      "SELECT pass_id, delta FROM pass_entries WHERE booking_id = ? AND delta < 0 ORDER BY id LIMIT 1"
-    )
-    .get(bookingId) as { pass_id: number; delta: number } | undefined;
-  if (!charge) return { ok: false, error: "This booking was not paid with a pass." };
+export async function refundBookingToPass(bookingId: number): Promise<PassPayResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const charge = await db
+      .prepare(
+        "SELECT pass_id, delta FROM pass_entries WHERE booking_id = ? AND delta < 0 ORDER BY id LIMIT 1"
+      )
+      .get(bookingId) as { pass_id: number; delta: number } | undefined;
+    if (!charge) return { ok: false, error: "This booking was not paid with a pass." };
 
-  const refunded = db
-    .prepare("SELECT id FROM pass_entries WHERE booking_id = ? AND delta > 0")
-    .get(bookingId);
-  if (refunded) return { ok: false, error: "This booking has already been refunded." };
+    const refunded = await db
+      .prepare("SELECT id FROM pass_entries WHERE booking_id = ? AND delta > 0")
+      .get(bookingId);
+    if (refunded) return { ok: false, error: "This booking has already been refunded." };
 
-  const code = (db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
-    | { code: string }
-    | undefined)?.code;
-  db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
-    .run(charge.pass_id, -charge.delta, `Refund for ${code ?? "booking"}`, bookingId);
+    const code = (await db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
+      | { code: string }
+      | undefined)?.code;
+    await db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
+      .run(charge.pass_id, -charge.delta, `Refund for ${code ?? "booking"}`, bookingId);
 
-  return { ok: true, pass: passById(charge.pass_id)!, spent: charge.delta };
+    return { ok: true, pass: (await passById(charge.pass_id))!, spent: charge.delta };
+  });
 }
 
 /** Find a customer by email or phone, for the counter. */
-export function findUserForWallet(
+export async function findUserForWallet(
   query: string,
   venueId?: number
-): { id: number; name: string; email: string; phone: string; balance: number } | null {
+): Promise<{ id: number; name: string; email: string; phone: string; balance: number } | null> {
   const trimmed = query.trim();
   if (trimmed === "") return null;
-  const row = getDb()
+  const row = await getDb()
     .prepare("SELECT id, name, email, phone FROM users WHERE email = ? OR phone = ?")
     .get(trimmed, trimmed) as
     | { id: number; name: string; email: string; phone: string }
     | undefined;
-  return row ? { ...row, balance: getWalletBalance(row.id, venueId) } : null;
+  return row ? { ...row, balance: await getWalletBalance(row.id, venueId) } : null;
 }
 
 /**
@@ -3973,14 +4006,14 @@ export function findUserForWallet(
  * hold it, and staff are looking at the person who just said it. A phone
  * number is none of those things — see `listPassesFor`.
  */
-export function findAccountByEmail(
+export async function findAccountByEmail(
   email: string
-): { id: number; name: string; email: string } | null {
+): Promise<{ id: number; name: string; email: string } | null> {
   const trimmed = email.trim();
   if (trimmed === "") return null;
   return (
-    (getDb()
-      .prepare("SELECT id, name, email FROM users WHERE email = ? COLLATE NOCASE")
+    (await getDb()
+      .prepare("SELECT id, name, email FROM users WHERE email = ?")
       .get(trimmed) as { id: number; name: string; email: string } | undefined) ?? null
   );
 }
@@ -4028,7 +4061,7 @@ function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
   return entry;
 }
 
-/** SQLite's datetime('now') is UTC without a zone marker. */
+/** datetime('now') is UTC without a zone marker. */
 function parseUtc(stamp: string): number {
   return new Date(stamp.includes("Z") ? stamp : `${stamp.replace(" ", "T")}Z`).getTime();
 }
@@ -4038,16 +4071,16 @@ function parseUtc(stamp: string): number {
  * start of every waitlist operation — the queue is only ever read through one
  * of these, so a stale offer never blocks the next person for long.
  */
-function expireStaleOffers(): void {
+async function expireStaleOffers(): Promise<void> {
   const db = getDb();
-  const rows = db
+  const rows = await db
     .prepare("SELECT id, offered_at FROM waitlist WHERE status = 'offered'")
     .all() as { id: number; offered_at: string | null }[];
   const now = Date.now();
   for (const row of rows) {
     if (!row.offered_at) continue;
     if (parseUtc(row.offered_at) + WAITLIST_OFFER_MINUTES * 60_000 <= now) {
-      db.prepare(
+      await db.prepare(
         "UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ?"
       ).run(row.id);
     }
@@ -4059,7 +4092,7 @@ export type WaitlistResult =
   | Refusal;
 
 /** Queue for a class place. Only possible while the class is actually full. */
-export function joinClassWaitlist(input: {
+export async function joinClassWaitlist(input: {
   classId: number;
   name: string;
   phone: string;
@@ -4067,48 +4100,50 @@ export function joinClassWaitlist(input: {
   locale?: string;
   email?: string;
   userId?: number;
-}): WaitlistResult {
-  expireStaleOffers();
-  const session = getClass(input.classId);
-  if (!session) return refuse("CLASS_NOT_FOUND");
-  if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
-  if (isPastSlot(session.date, session.startHour))
-    return refuse("CLASS_STARTED");
-  if (session.enrolled < session.capacity)
-    return refuse("CLASS_HAS_PLACES");
+}): Promise<WaitlistResult> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const session = await getClass(input.classId);
+    if (!session) return refuse("CLASS_NOT_FOUND");
+    if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
+    if (isPastSlot(session.date, session.startHour))
+      return refuse("CLASS_STARTED");
+    if (session.enrolled < session.capacity)
+      return refuse("CLASS_HAS_PLACES");
 
-  const db = getDb();
-  const already = db
-    .prepare(
-      "SELECT id FROM waitlist WHERE class_id = ? AND phone = ? AND status IN ('waiting','offered')"
-    )
-    .get(input.classId, input.phone.trim());
-  if (already) return refuse("ALREADY_WAITING");
-  const enrolled = db
-    .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'")
-    .get(input.classId, input.phone.trim());
-  if (enrolled) return refuse("ALREADY_ENROLLED");
+    const db = getDb();
+    const already = await db
+      .prepare(
+        "SELECT id FROM waitlist WHERE class_id = ? AND phone = ? AND status IN ('waiting','offered')"
+      )
+      .get(input.classId, input.phone.trim());
+    if (already) return refuse("ALREADY_WAITING");
+    const enrolled = await db
+      .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'")
+      .get(input.classId, input.phone.trim());
+    if (enrolled) return refuse("ALREADY_ENROLLED");
 
-  const info = db
-    .prepare(
-      "INSERT INTO waitlist (class_id, name, phone, email, user_id, locale) VALUES (?, ?, ?, ?, ?, ?)"
-    )
-    .run(
-      input.classId,
-      input.name.trim(),
-      input.phone.trim(),
-      input.email?.trim() ?? null,
-      input.userId ?? null,
-      input.locale ?? "en"
+    const info = await db
+      .prepare(
+        "INSERT INTO waitlist (class_id, name, phone, email, user_id, locale) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(
+        input.classId,
+        input.name.trim(),
+        input.phone.trim(),
+        input.email?.trim() ?? null,
+        input.userId ?? null,
+        input.locale ?? "en"
+      );
+    const entry = toWaitlistEntry(
+      await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
     );
-  const entry = toWaitlistEntry(
-    db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
-  );
-  return { ok: true, entry, position: classQueue(input.classId).length };
+    return { ok: true, entry, position: (await classQueue(input.classId)).length };
+  });
 }
 
-function classQueue(classId: number): WaitlistRow[] {
-  return getDb()
+async function classQueue(classId: number): Promise<WaitlistRow[]> {
+  return await getDb()
     .prepare(
       "SELECT * FROM waitlist WHERE class_id = ? AND status IN ('waiting','offered') ORDER BY id"
     )
@@ -4119,26 +4154,28 @@ function classQueue(classId: number): WaitlistRow[] {
  * A place in a class opened up: offer it to the person who has waited longest.
  * Does nothing if someone already holds a live offer for it.
  */
-export function offerClassPlace(classId: number): WaitlistEntry | null {
-  expireStaleOffers();
-  const queue = classQueue(classId);
-  if (queue.some((row) => row.status === "offered")) return null;
+export async function offerClassPlace(classId: number): Promise<WaitlistEntry | null> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const queue = await classQueue(classId);
+    if (queue.some((row) => row.status === "offered")) return null;
 
-  const session = getClass(classId);
-  if (!session || session.status === "cancelled") return null;
-  if (session.enrolled >= session.capacity) return null;
+    const session = await getClass(classId);
+    if (!session || session.status === "cancelled") return null;
+    if (session.enrolled >= session.capacity) return null;
 
-  const next = queue.find((row) => row.status === "waiting");
-  if (!next) return null;
+    const next = queue.find((row) => row.status === "waiting");
+    if (!next) return null;
 
-  const db = getDb();
-  db.prepare(
-    "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
-  ).run(randomBytes(16).toString("hex"), next.id);
-  return toWaitlistEntry(
-    db.prepare("SELECT * FROM waitlist WHERE id = ?").get(next.id) as WaitlistRow,
-    true
-  );
+    const db = getDb();
+    await db.prepare(
+      "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
+    ).run(randomBytes(16).toString("hex"), next.id);
+    return toWaitlistEntry(
+      await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(next.id) as WaitlistRow,
+      true
+    );
+  });
 }
 
 export type ClaimResult =
@@ -4146,83 +4183,87 @@ export type ClaimResult =
   | Refusal;
 
 /** Take up an offered place. The offer token is the only way in. */
-export function claimWaitlistOffer(token: string): ClaimResult {
-  expireStaleOffers();
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM waitlist WHERE offer_token = ?")
-    .get(token.trim()) as WaitlistRow | undefined;
-  if (!row) return refuse("OFFER_INVALID");
-  if (row.status !== "offered")
-    return refuse("OFFER_EXPIRED");
+export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const db = getDb();
+    const row = await db
+      .prepare("SELECT * FROM waitlist WHERE offer_token = ?")
+      .get(token.trim()) as WaitlistRow | undefined;
+    if (!row) return refuse("OFFER_INVALID");
+    if (row.status !== "offered")
+      return refuse("OFFER_EXPIRED");
 
-  let booking: Booking;
-  if (row.class_id) {
-    const enrolled = enrolInClass({
-      classId: row.class_id,
-      name: row.name,
-      phone: row.phone,
-      email: row.email ?? undefined,
-      userId: row.user_id ?? undefined,
-    });
-    if (!enrolled.ok) return { ok: false, error: enrolled.error };
-    booking = enrolled.booking;
-  } else if (row.court_id && row.date && row.start_hour !== null && row.end_hour !== null) {
-    const hours = Array.from(
-      { length: row.end_hour - row.start_hour },
-      (_, i) => row.start_hour! + i
-    );
-    const created = createBooking({
-      courtId: row.court_id,
-      date: row.date,
-      hours,
-      name: row.name,
-      phone: row.phone,
-      email: row.email ?? undefined,
-      userId: row.user_id ?? undefined,
-    });
-    if (!created.ok) {
-      // Somebody beat them to it. Keep their place rather than burning it.
-      db.prepare(
-        "UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ?"
-      ).run(row.id);
-      return { ok: false, error: created.error };
+    let booking: Booking;
+    if (row.class_id) {
+      const enrolled = await enrolInClass({
+        classId: row.class_id,
+        name: row.name,
+        phone: row.phone,
+        email: row.email ?? undefined,
+        userId: row.user_id ?? undefined,
+      });
+      if (!enrolled.ok) return { ok: false, error: enrolled.error };
+      booking = enrolled.booking;
+    } else if (row.court_id && row.date && row.start_hour !== null && row.end_hour !== null) {
+      const hours = Array.from(
+        { length: row.end_hour - row.start_hour },
+        (_, i) => row.start_hour! + i
+      );
+      const created = await createBooking({
+        courtId: row.court_id,
+        date: row.date,
+        hours,
+        name: row.name,
+        phone: row.phone,
+        email: row.email ?? undefined,
+        userId: row.user_id ?? undefined,
+      });
+      if (!created.ok) {
+        // Somebody beat them to it. Keep their place rather than burning it.
+        await db.prepare(
+          "UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ?"
+        ).run(row.id);
+        return { ok: false, error: created.error };
+      }
+      booking = created.booking;
+    } else {
+      return refuse("OFFER_INVALID");
     }
-    booking = created.booking;
-  } else {
-    return refuse("OFFER_INVALID");
-  }
 
-  db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
-  return {
-    ok: true,
-    booking,
-    entry: toWaitlistEntry(
-      db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow
-    ),
-  };
+    await db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
+    return {
+      ok: true,
+      booking,
+      entry: toWaitlistEntry(
+        await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow
+      ),
+    };
+  });
 }
 
 /** Give up a place in the queue. */
-export function leaveWaitlist(entryId: number, phone: string): { ok: true } | Refusal {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM waitlist WHERE id = ? AND phone = ?")
-    .get(entryId, phone.trim()) as WaitlistRow | undefined;
-  if (!row) return refuse("WAITLIST_NOT_FOUND");
-  if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
+export async function leaveWaitlist(entryId: number, phone: string): Promise<{ ok: true } | Refusal> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const row = await db
+      .prepare("SELECT * FROM waitlist WHERE id = ? AND phone = ?")
+      .get(entryId, phone.trim()) as WaitlistRow | undefined;
+    if (!row) return refuse("WAITLIST_NOT_FOUND");
+    if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
 
-  db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
-  // Someone dropping out may free a live offer for the next person.
-  if (row.class_id) offerClassPlace(row.class_id);
-  else if (row.court_id && row.date) offerSlotPlace(row.court_id, row.date);
-  return { ok: true };
+    await db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
+    // Someone dropping out may free a live offer for the next person.
+    if (row.class_id) await offerClassPlace(row.class_id);
+    else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
+    return { ok: true };
+  });
 }
 
 /** The queue for a class, for staff. */
-export function listClassWaitlist(classId: number): WaitlistEntry[] {
-  expireStaleOffers();
-  const rows = getDb()
+export async function listClassWaitlist(classId: number): Promise<WaitlistEntry[]> {
+  await expireStaleOffers();
+  const rows = await getDb()
     .prepare(
       "SELECT * FROM waitlist WHERE class_id = ? AND status IN ('waiting','offered') ORDER BY id"
     )
@@ -4231,28 +4272,30 @@ export function listClassWaitlist(classId: number): WaitlistEntry[] {
 }
 
 /** What this person is queuing for, with any live offer's token. */
-export function listWaitlistFor(phone: string): WaitlistEntry[] {
-  expireStaleOffers();
-  const rows = getDb()
+export async function listWaitlistFor(phone: string): Promise<WaitlistEntry[]> {
+  await expireStaleOffers();
+  const rows = await getDb()
     .prepare(
       "SELECT * FROM waitlist WHERE phone = ? AND status IN ('waiting','offered') ORDER BY id DESC"
     )
     .all(phone.trim()) as WaitlistRow[];
-  return rows.map((row) => {
+  const entries: WaitlistEntry[] = [];
+  for (const row of rows) {
     const entry = toWaitlistEntry(row, row.status === "offered");
     if (row.class_id) {
-      const session = getClass(row.class_id);
+      const session = await getClass(row.class_id);
       if (session) {
         entry.label = `${session.name} · ${session.date} ${formatHourLabel(session.startHour)}`;
       }
     } else if (row.court_id && row.date && row.start_hour !== null) {
-      const court = getCourt(row.court_id);
+      const court = await getCourt(row.court_id);
       if (court) {
         entry.label = `${court.name} · ${row.date} ${formatHourLabel(row.start_hour)}`;
       }
     }
-    return entry;
-  });
+    entries.push(entry);
+  }
+  return entries;
 }
 
 function formatHourLabel(hour: number): string {
@@ -4264,15 +4307,15 @@ function formatHourLabel(hour: number): string {
 /* ---------------- Waitlists for ordinary slots ---------------- */
 
 /** Are all these hours free on this resource right now? */
-function slotHoursFree(courtId: number, date: string, hours: number[]): boolean {
-  const court = getCourt(courtId);
+async function slotHoursFree(courtId: number, date: string, hours: number[]): Promise<boolean> {
+  const court = await getCourt(courtId);
   if (!court) return false;
   const db = getDb();
-  const classes = classHoursOn(date);
-  const blocked = blockedPlacesFor(courtId, date, hours);
+  const classes = await classHoursOn(date);
+  const blocked = await blockedPlacesFor(courtId, date, hours);
   for (const hour of hours) {
     if (classes.has(`${courtId}:${hour}`)) return false;
-    const taken = db
+    const taken = await db
       .prepare(
         "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
       )
@@ -4283,7 +4326,7 @@ function slotHoursFree(courtId: number, date: string, hours: number[]): boolean 
 }
 
 /** Queue for a court or facility slot that is currently taken. */
-export function joinSlotWaitlist(input: {
+export async function joinSlotWaitlist(input: {
   courtId: number;
   date: string;
   /** The language to make the offer in, when one comes. */
@@ -4294,55 +4337,57 @@ export function joinSlotWaitlist(input: {
   phone: string;
   email?: string;
   userId?: number;
-}): WaitlistResult {
-  expireStaleOffers();
-  const { courtId, date, startHour, endHour } = input;
+}): Promise<WaitlistResult> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const { courtId, date, startHour, endHour } = input;
 
-  const waitCourt = getCourt(courtId);
-  if (!waitCourt) return refuse("COURT_NOT_FOUND");
-  const { openHour, closeHour } = courtVenueHours(courtId);
-  if (endHour <= startHour || startHour < openHour || endHour > closeHour)
-    return refuse("THOSE_HOURS_OUTSIDE_OPENING");
-  if (getVenueClosure(waitCourt.venueId, date))
-    return refuse("VENUE_CLOSED");
-  if (endHour - startHour > MAX_HOURS_PER_BOOKING)
-    return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
-  if (!isBookableDate(date)) return refuse("DATE_OUT_OF_WINDOW");
-  if (isPastSlot(date, startHour)) return refuse("TIME_PAST");
+    const waitCourt = await getCourt(courtId);
+    if (!waitCourt) return refuse("COURT_NOT_FOUND");
+    const { openHour, closeHour } = await courtVenueHours(courtId);
+    if (endHour <= startHour || startHour < openHour || endHour > closeHour)
+      return refuse("THOSE_HOURS_OUTSIDE_OPENING");
+    if (await getVenueClosure(waitCourt.venueId, date))
+      return refuse("VENUE_CLOSED");
+    if (endHour - startHour > MAX_HOURS_PER_BOOKING)
+      return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
+    if (!isBookableDate(date)) return refuse("DATE_OUT_OF_WINDOW");
+    if (isPastSlot(date, startHour)) return refuse("TIME_PAST");
 
-  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
-  if (slotHoursFree(courtId, date, hours))
-    return refuse("SLOT_FREE_BOOK_IT");
+    const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+    if (await slotHoursFree(courtId, date, hours))
+      return refuse("SLOT_FREE_BOOK_IT");
 
-  const db = getDb();
-  const already = db
-    .prepare(`
-      SELECT id FROM waitlist
-      WHERE court_id = ? AND date = ? AND start_hour = ? AND phone = ?
-        AND status IN ('waiting','offered')
-    `)
-    .get(courtId, date, startHour, input.phone.trim());
-  if (already) return refuse("ALREADY_WAITING");
+    const db = getDb();
+    const already = await db
+      .prepare(`
+        SELECT id FROM waitlist
+        WHERE court_id = ? AND date = ? AND start_hour = ? AND phone = ?
+          AND status IN ('waiting','offered')
+      `)
+      .get(courtId, date, startHour, input.phone.trim());
+    if (already) return refuse("ALREADY_WAITING");
 
-  const info = db
-    .prepare(`
-      INSERT INTO waitlist (court_id, date, start_hour, end_hour, name, phone, email, user_id, locale)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
-      courtId, date, startHour, endHour,
-      input.name.trim(), input.phone.trim(), input.email?.trim() ?? null,
-      input.userId ?? null, input.locale ?? "en"
+    const info = await db
+      .prepare(`
+        INSERT INTO waitlist (court_id, date, start_hour, end_hour, name, phone, email, user_id, locale)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        courtId, date, startHour, endHour,
+        input.name.trim(), input.phone.trim(), input.email?.trim() ?? null,
+        input.userId ?? null, input.locale ?? "en"
+      );
+
+    const entry = toWaitlistEntry(
+      await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
     );
-
-  const entry = toWaitlistEntry(
-    db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
-  );
-  return { ok: true, entry, position: slotQueue(courtId, date).length };
+    return { ok: true, entry, position: (await slotQueue(courtId, date)).length };
+  });
 }
 
-function slotQueue(courtId: number, date: string): WaitlistRow[] {
-  return getDb()
+async function slotQueue(courtId: number, date: string): Promise<WaitlistRow[]> {
+  return await getDb()
     .prepare(
       "SELECT * FROM waitlist WHERE court_id = ? AND date = ? AND status IN ('waiting','offered') ORDER BY id"
     )
@@ -4354,28 +4399,30 @@ function slotQueue(courtId: number, date: string): WaitlistRow[] {
  * requested window is now entirely free. One live offer per resource and day,
  * so overlapping windows cannot be promised to two people at once.
  */
-export function offerSlotPlace(courtId: number, date: string): WaitlistEntry | null {
-  expireStaleOffers();
-  const queue = slotQueue(courtId, date);
-  if (queue.some((row) => row.status === "offered")) return null;
+export async function offerSlotPlace(courtId: number, date: string): Promise<WaitlistEntry | null> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const queue = await slotQueue(courtId, date);
+    if (queue.some((row) => row.status === "offered")) return null;
 
-  for (const row of queue) {
-    if (row.status !== "waiting" || row.start_hour === null || row.end_hour === null) continue;
-    const hours = Array.from(
-      { length: row.end_hour - row.start_hour },
-      (_, i) => row.start_hour! + i
-    );
-    if (isPastSlot(date, row.start_hour)) continue;
-    if (!slotHoursFree(courtId, date, hours)) continue;
+    for (const row of queue) {
+      if (row.status !== "waiting" || row.start_hour === null || row.end_hour === null) continue;
+      const hours = Array.from(
+        { length: row.end_hour - row.start_hour },
+        (_, i) => row.start_hour! + i
+      );
+      if (isPastSlot(date, row.start_hour)) continue;
+      if (!await slotHoursFree(courtId, date, hours)) continue;
 
-    const db = getDb();
-    db.prepare(
-      "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
-    ).run(randomBytes(16).toString("hex"), row.id);
-    return toWaitlistEntry(
-      db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow,
-      true
-    );
-  }
-  return null;
+      const db = getDb();
+      await db.prepare(
+        "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
+      ).run(randomBytes(16).toString("hex"), row.id);
+      return toWaitlistEntry(
+        await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow,
+        true
+      );
+    }
+    return null;
+  });
 }

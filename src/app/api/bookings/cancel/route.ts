@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const result = cancelBooking(code, phone);
+  const result = await cancelBooking(code, phone);
   if (!result.ok) return refusal(result);
 
-  notifyBookingCancelled(result.booking, await currentLocale());
+  await notifyBookingCancelled(result.booking, await currentLocale());
   // A cancellation is what frees a place, so it is also what makes an
   // offer worth telling somebody about.
   await tickOutbox();

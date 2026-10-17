@@ -97,7 +97,7 @@ describe("a tick", () => {
     const [taken] = listBackups(dir);
     expect(result.backup?.name).toBe(taken.name);
     expect(uploads).toEqual([`/backups/mysenam/${taken.name}`]);
-    expect(offsiteStatus().lastCopied?.name).toBe(taken.name);
+    expect((await offsiteStatus()).lastCopied?.name).toBe(taken.name);
   });
 
   it("does nothing more a minute later", async () => {

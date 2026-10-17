@@ -29,10 +29,10 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, "register");
   if (limited) return limited;
 
-  const result = registerUser({ name, email, phone, password });
+  const result = await registerUser({ name, email, phone, password });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
-  const session = createSession(result.user.id);
+  const session = await createSession(result.user.id);
   const res = NextResponse.json({ user: result.user }, { status: 201 });
   res.cookies.set(SESSION_COOKIE, session.token, sessionCookieOptions(req, session.expiresAt));
   return res;

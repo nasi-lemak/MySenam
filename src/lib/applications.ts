@@ -73,7 +73,7 @@ export const MIN_PASSWORD = 10;
 
 export type SubmitResult = { ok: true; application: VenueApplication } | { ok: false; error: string };
 
-export function submitApplication(input: {
+export async function submitApplication(input: {
   businessName: string;
   area: string;
   address: string;
@@ -82,7 +82,7 @@ export function submitApplication(input: {
   email: string;
   password: string;
   message?: string;
-}): SubmitResult {
+}): Promise<SubmitResult> {
   const text = (v: string, min: number, max: number) => v.trim().length >= min && v.trim().length <= max;
   if (!text(input.businessName, 2, 100)) return { ok: false, error: "Give the venue's name." };
   if (!text(input.area, 2, 60)) return { ok: false, error: "Give the area the venue is in." };
@@ -98,16 +98,16 @@ export function submitApplication(input: {
   if ((input.message ?? "").length > 2000) return { ok: false, error: "The message is too long." };
 
   const db = getDb();
-  if (db.prepare("SELECT id FROM admins WHERE email = ? COLLATE NOCASE").get(email))
+  if (await db.prepare("SELECT id FROM admins WHERE email = ?").get(email))
     return { ok: false, error: "That email already has an account. Sign in at /admin." };
   if (
-    db
-      .prepare("SELECT id FROM venue_applications WHERE email = ? COLLATE NOCASE AND status = 'pending'")
+    await db
+      .prepare("SELECT id FROM venue_applications WHERE email = ? AND status = 'pending'")
       .get(email)
   )
     return { ok: false, error: "There is already an application waiting for that email." };
 
-  const info = db
+  const info = await db
     .prepare(`
       INSERT INTO venue_applications
         (business_name, area, address, venue_phone, contact_name, email, password_hash, message)
@@ -123,18 +123,18 @@ export function submitApplication(input: {
       hashPassword(input.password),
       input.message?.trim() || null
     );
-  return { ok: true, application: applicationById(info.lastInsertRowid as number)! };
+  return { ok: true, application: (await applicationById(info.lastInsertRowid as number))! };
 }
 
-export function applicationById(id: number): VenueApplication | null {
-  const row = getDb().prepare("SELECT * FROM venue_applications WHERE id = ?").get(id) as Row | undefined;
+export async function applicationById(id: number): Promise<VenueApplication | null> {
+  const row = await getDb().prepare("SELECT * FROM venue_applications WHERE id = ?").get(id) as Row | undefined;
   return row ? toApplication(row) : null;
 }
 
 /** Waiting ones first, then the most recently decided. */
-export function listApplications(limit = 100): VenueApplication[] {
+export async function listApplications(limit = 100): Promise<VenueApplication[]> {
   return (
-    getDb()
+    await getDb()
       .prepare(
         "SELECT * FROM venue_applications ORDER BY status = 'pending' DESC, COALESCE(decided_at, created_at) DESC, id DESC LIMIT ?"
       )
@@ -152,16 +152,16 @@ export type DecisionResult =
  */
 export async function approveApplication(id: number, deciderId: number): Promise<DecisionResult> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM venue_applications WHERE id = ?").get(id) as Row | undefined;
+  const row = await db.prepare("SELECT * FROM venue_applications WHERE id = ?").get(id) as Row | undefined;
   if (!row) return { ok: false, error: "Application not found." };
   if (row.status !== "pending") return { ok: false, error: "That application has already been decided." };
-  if (db.prepare("SELECT id FROM admins WHERE email = ? COLLATE NOCASE").get(row.email))
+  if (await db.prepare("SELECT id FROM admins WHERE email = ?").get(row.email))
     return { ok: false, error: "That email has an account already. Reject this one and add them by hand." };
 
   let venueId = 0;
   try {
-    db.transaction(() => {
-      const venue = createVenue({
+    await db.transaction(async () => {
+      const venue = await createVenue({
         name: row.business_name,
         area: row.area,
         address: row.address,
@@ -169,16 +169,16 @@ export async function approveApplication(id: number, deciderId: number): Promise
       });
       if (!venue.ok) throw new Error(venue.error);
       venueId = venue.venue.id;
-      db.prepare("INSERT INTO admins (name, email, password_hash, venue_id) VALUES (?, ?, ?, ?)").run(
+      await db.prepare("INSERT INTO admins (name, email, password_hash, venue_id) VALUES (?, ?, ?, ?)").run(
         row.contact_name,
         row.email,
         row.password_hash,
         venueId
       );
-      db.prepare(
+      await db.prepare(
         "UPDATE venue_applications SET status = 'approved', venue_id = ?, decided_at = datetime('now'), decided_by = ? WHERE id = ?"
       ).run(venueId, deciderId, id);
-      startBilling(venueId);
+      await startBilling(venueId);
     })();
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Could not set the venue up." };
@@ -192,7 +192,7 @@ export async function approveApplication(id: number, deciderId: number): Promise
       `Sign in at ${baseUrl()}/admin with ${row.email} and the password you chose when you applied, ` +
       `then add your courts and opening hours under Venues & staff.\n\n${site}`
   );
-  return { ok: true, application: applicationById(id)!, emailed };
+  return { ok: true, application: (await applicationById(id))!, emailed };
 }
 
 export async function rejectApplication(
@@ -201,13 +201,13 @@ export async function rejectApplication(
   reason: string
 ): Promise<DecisionResult> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM venue_applications WHERE id = ?").get(id) as Row | undefined;
+  const row = await db.prepare("SELECT * FROM venue_applications WHERE id = ?").get(id) as Row | undefined;
   if (!row) return { ok: false, error: "Application not found." };
   if (row.status !== "pending") return { ok: false, error: "That application has already been decided." };
   const why = reason.trim().slice(0, 500) || null;
   // Nothing they asked for was granted, so nothing of theirs needs keeping
   // but the record that they asked and why not: the password goes.
-  db.prepare(
+  await db.prepare(
     "UPDATE venue_applications SET status = 'rejected', reason = ?, password_hash = '', decided_at = datetime('now'), decided_by = ? WHERE id = ?"
   ).run(why, deciderId, id);
 
@@ -218,5 +218,5 @@ export async function rejectApplication(
     `Hi ${row.contact_name},\n\nThank you for applying to list ${row.business_name} on ${site}. ` +
       `We are not able to take it on at the moment.${why ? `\n\n${why}` : ""}\n\n${site}`
   );
-  return { ok: true, application: applicationById(id)!, emailed };
+  return { ok: true, application: (await applicationById(id))!, emailed };
 }

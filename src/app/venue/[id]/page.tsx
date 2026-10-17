@@ -20,7 +20,7 @@ export default async function VenuePage({
   const { id } = await params;
   const query = await searchParams;
   const venueId = Number(id);
-  const venue = Number.isInteger(venueId) ? getVenue(venueId) : null;
+  const venue = Number.isInteger(venueId) ? await getVenue(venueId) : null;
   // On a storefront, a venue it does not show is not there.
   if (!venue || !shows(await currentStorefront(), venue.id)) notFound();
 
@@ -30,7 +30,7 @@ export default async function VenuePage({
 
   const initial = parseInitialSelection(query, sports, dates);
   // Only closures inside the booking window are worth warning about.
-  const closures = listVenueClosures(venue.id, today).filter((c) => dates.includes(c.date));
+  const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
 
   return (
     <div className="space-y-6">

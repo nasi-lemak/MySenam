@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { backupDir, createBackup, hoursSinceLastBackup, listBackups } from "@/lib/backup";
-import { databaseFile } from "@/lib/db";
+import { databaseLabel } from "@/lib/db";
 import { copyOffsite, offsiteStatus } from "@/lib/offsite";
 import { backupHour, schedulerEnabled } from "@/lib/scheduler";
 
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
  * rather than a venue operator's: one venue's staff have no reason to hold a
  * copy of every other venue's bookings.
  */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
@@ -22,9 +22,9 @@ export function GET(req: NextRequest) {
     {
       backups: listBackups(),
       directory: backupDir(),
-      database: databaseFile(),
+      database: databaseLabel(),
       hoursSinceLast: hoursSinceLastBackup(),
-      offsite: offsiteStatus(),
+      offsite: await offsiteStatus(),
       schedule: schedulerEnabled() ? { hour: backupHour() } : null,
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -33,12 +33,12 @@ export function GET(req: NextRequest) {
 
 /** Take one now — before a risky change, or because the schedule has not run. */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
 
-  const result = createBackup();
+  const result = await createBackup();
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 });
   const offsite = await copyOffsite(result.file);
   return NextResponse.json({

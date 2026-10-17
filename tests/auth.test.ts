@@ -26,8 +26,8 @@ describe("passwords", () => {
 });
 
 describe("registration and login", () => {
-  it("registers once per email (case-insensitive) and authenticates", () => {
-    const result = registerUser({
+  it("registers once per email (case-insensitive) and authenticates", async () => {
+    const result = await registerUser({
       name: "Nurul",
       email: "nurul@example.com",
       phone: "0129998888",
@@ -36,18 +36,18 @@ describe("registration and login", () => {
     expect(result.ok).toBe(true);
 
     expect(
-      registerUser({ name: "N2", email: "NURUL@example.com", phone: "01", password: "password1" })
+      await registerUser({ name: "N2", email: "NURUL@example.com", phone: "01", password: "password1" })
     ).toMatchObject({ ok: false, error: expect.stringContaining("already exists") });
 
-    expect(authenticate("nurul@example.com", "rahsia-123")).toMatchObject({ name: "Nurul" });
-    expect(authenticate("nurul@example.com", "wrong")).toBeNull();
-    expect(authenticate("nobody@example.com", "rahsia-123")).toBeNull();
+    expect(await authenticate("nurul@example.com", "rahsia-123")).toMatchObject({ name: "Nurul" });
+    expect(await authenticate("nurul@example.com", "wrong")).toBeNull();
+    expect(await authenticate("nobody@example.com", "rahsia-123")).toBeNull();
   });
 });
 
 describe("sessions", () => {
-  it("round-trips a session token and destroys it", () => {
-    const user = registerUser({
+  it("round-trips a session token and destroys it", async () => {
+    const user = await registerUser({
       name: "Sesi",
       email: "sesi@example.com",
       phone: "0121112222",
@@ -56,23 +56,23 @@ describe("sessions", () => {
     expect(user.ok).toBe(true);
     if (!user.ok) return;
 
-    const { token } = createSession(user.user.id);
-    expect(getUserByToken(token)).toMatchObject({ email: "sesi@example.com" });
-    expect(getUserByToken("not-a-token")).toBeNull();
-    destroySession(token);
-    expect(getUserByToken(token)).toBeNull();
+    const { token } = await createSession(user.user.id);
+    expect(await getUserByToken(token)).toMatchObject({ email: "sesi@example.com" });
+    expect(await getUserByToken("not-a-token")).toBeNull();
+    await destroySession(token);
+    expect(await getUserByToken(token)).toBeNull();
   });
 });
 
 describe("user bookings", () => {
-  it("lists only the owner's bookings and enforces ownership on cancel", () => {
-    const owner = registerUser({
+  it("lists only the owner's bookings and enforces ownership on cancel", async () => {
+    const owner = await registerUser({
       name: "Owner",
       email: "owner@example.com",
       phone: "0123334444",
       password: "password1",
     });
-    const other = registerUser({
+    const other = await registerUser({
       name: "Other",
       email: "other@example.com",
       phone: "0125556666",
@@ -81,9 +81,9 @@ describe("user bookings", () => {
     expect(owner.ok && other.ok).toBe(true);
     if (!owner.ok || !other.ok) return;
 
-    const court = listVenues()[0].courts[0];
+    const court = (await listVenues())[0].courts[0];
     const date = addDays(todayISO(), 3);
-    const booking = createBooking({
+    const booking = await createBooking({
       courtId: court.id,
       date,
       hours: [10],
@@ -94,13 +94,13 @@ describe("user bookings", () => {
     expect(booking.ok).toBe(true);
     if (!booking.ok) return;
 
-    expect(listUserBookings(owner.user.id)).toHaveLength(1);
-    expect(listUserBookings(other.user.id)).toHaveLength(0);
+    expect(await listUserBookings(owner.user.id)).toHaveLength(1);
+    expect(await listUserBookings(other.user.id)).toHaveLength(0);
 
-    expect(cancelUserBooking(other.user.id, booking.booking.id)).toMatchObject({
+    expect(await cancelUserBooking(other.user.id, booking.booking.id)).toMatchObject({
       ok: false,
       error: "Booking not found.",
     });
-    expect(cancelUserBooking(owner.user.id, booking.booking.id)).toMatchObject({ ok: true });
+    expect(await cancelUserBooking(owner.user.id, booking.booking.id)).toMatchObject({ ok: true });
   });
 });

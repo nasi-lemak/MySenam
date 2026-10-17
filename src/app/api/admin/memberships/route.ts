@@ -4,8 +4,8 @@ import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/l
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
@@ -14,11 +14,11 @@ export function GET(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  return NextResponse.json({ memberships: listMembershipsForVenue(venueId) });
+  return NextResponse.json({ memberships: await listMembershipsForVenue(venueId) });
 }
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   // a phone number would let whoever registered it first claim the pass.
   let userId: number | undefined;
   if (typeof input.accountEmail === "string" && input.accountEmail.trim() !== "") {
-    const account = findAccountByEmail(input.accountEmail);
+    const account = await findAccountByEmail(input.accountEmail);
     if (!account)
       return NextResponse.json(
         { error: "No account has that email address. Leave it blank to sell without one." },
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     userId = account.id;
   }
 
-  const result = sellMembership({
+  const result = await sellMembership({
     venueId: venueId as number,
     holderName: input.holderName as string,
     holderPhone: input.holderPhone as string,

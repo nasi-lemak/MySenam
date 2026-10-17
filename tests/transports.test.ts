@@ -274,12 +274,12 @@ describe("choosing how to reach a customer", () => {
 
 describe("a confirmation, end to end", () => {
   let courtId: number;
-  beforeAll(() => {
-    courtId = listVenues()[0].courts.find((c) => c.capacity === 1)!.id;
+  beforeAll(async () => {
+    courtId = (await listVenues())[0].courts.find((c) => c.capacity === 1)!.id;
   });
 
   it("keeps what filled the text, and sends it as the template's parameters", async () => {
-    const made = createBooking({
+    const made = await createBooking({
       courtId,
       date: addDays(todayISO(), 3),
       hours: [14],
@@ -287,8 +287,8 @@ describe("a confirmation, end to end", () => {
       phone: "019-888 7777",
     });
     if (!made.ok) throw new Error(made.error);
-    notifyBookingConfirmed([made.booking], "en", null);
-    const [queued] = messagesForBooking(made.booking.id);
+    await notifyBookingConfirmed([made.booking], "en", null);
+    const [queued] = await messagesForBooking(made.booking.id);
     expect(queued.params).toMatchObject({ name: "Aina", code: made.booking.code });
     expect(queued.params!.total).toBe(`RM${made.booking.totalPrice}, pay at the counter`);
 
@@ -298,7 +298,7 @@ describe("a confirmation, end to end", () => {
     vi.stubGlobal("fetch", fetchMock);
     const result = await drainOutbox();
     expect(result.transport).toBe("whatsapp");
-    expect(messagesForBooking(made.booking.id)[0].status).toBe("sent");
+    expect((await messagesForBooking(made.booking.id))[0].status).toBe("sent");
 
     const sentBodies = fetchMock.mock.calls.map(
       (call) => JSON.parse((call as unknown as [string, RequestInit])[1].body as string)
@@ -314,7 +314,7 @@ describe("a confirmation, end to end", () => {
   it("an email-only install sends no WhatsApp it cannot deliver", async () => {
     process.env.SMTP_URL = "smtp://x";
     process.env.MAIL_FROM = "a@b.my";
-    const made = createBooking({
+    const made = await createBooking({
       courtId,
       date: addDays(todayISO(), 4),
       hours: [15],
@@ -322,9 +322,9 @@ describe("a confirmation, end to end", () => {
       phone: "0171112222",
     });
     if (!made.ok) throw new Error(made.error);
-    notifyBookingConfirmed([made.booking], "en", null);
+    await notifyBookingConfirmed([made.booking], "en", null);
     await drainOutbox();
-    const [msg] = messagesForBooking(made.booking.id);
+    const [msg] = await messagesForBooking(made.booking.id);
     // No email to send it to: it fails with a reason staff can act on.
     expect(msg.status).toBe("failed");
     expect(msg.lastError).toMatch(/No whatsapp account is set up/);

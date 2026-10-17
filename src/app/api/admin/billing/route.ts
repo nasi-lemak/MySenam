@@ -20,27 +20,27 @@ export const dynamic = "force-dynamic";
  * A marketplace venue's invoices. Venue staff see their own venue's; the
  * platform owner sees every venue's, and what each is on.
  */
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   if (!isMarketplace()) return NextResponse.json({ marketplace: false, invoices: [] });
 
   // Lazily as well as on the schedule, so the first visit of the month is
   // never looking at last month.
-  issueDueInvoices();
+  await issueDueInvoices();
 
   if (isOwner(admin)) {
     return NextResponse.json({
       marketplace: true,
-      invoices: listInvoices(),
-      plans: venuePlans(),
+      invoices: await listInvoices(),
+      plans: await venuePlans(),
       defaultFee: defaultFee(),
       canPayOnline: platformAccount() !== null,
     });
   }
   return NextResponse.json({
     marketplace: true,
-    invoices: listInvoices(admin.venueId!),
+    invoices: await listInvoices(admin.venueId!),
     canPayOnline: platformAccount() !== null,
   });
 }
@@ -51,7 +51,7 @@ export function GET(req: NextRequest) {
  * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` — the owner.
  */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   if (!isMarketplace()) return NextResponse.json({ error: "Not a marketplace." }, { status: 404 });
 
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   const input = (body ?? {}) as Record<string, unknown>;
 
   if (input.action === "pay") {
-    const invoice = Number.isInteger(input.invoiceId) ? invoiceById(input.invoiceId as number) : null;
+    const invoice = Number.isInteger(input.invoiceId) ? await invoiceById(input.invoiceId as number) : null;
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     if (!canAccessVenue(admin, invoice.venueId))
       return NextResponse.json({ error: "You do not manage that venue." }, { status: 403 });
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     if (!Number.isInteger(input.invoiceId))
       return NextResponse.json({ error: "invoiceId is required." }, { status: 400 });
     const result =
-      input.action === "markPaid" ? markInvoicePaid(input.invoiceId as number) : voidInvoice(input.invoiceId as number);
+      input.action === "markPaid" ? await markInvoicePaid(input.invoiceId as number) : await voidInvoice(input.invoiceId as number);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({ invoice: result.invoice });
   }
@@ -93,9 +93,9 @@ export async function POST(req: NextRequest) {
     const fee = input.monthlyFee === null || input.monthlyFee === "" ? null : Number(input.monthlyFee);
     const start =
       input.billingStartsOn === null || input.billingStartsOn === "" ? null : String(input.billingStartsOn);
-    const result = setVenuePlan(input.venueId as number, { monthlyFee: fee, billingStartsOn: start });
+    const result = await setVenuePlan(input.venueId as number, { monthlyFee: fee, billingStartsOn: start });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-    return NextResponse.json({ plans: venuePlans() });
+    return NextResponse.json({ plans: await venuePlans() });
   }
 
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });

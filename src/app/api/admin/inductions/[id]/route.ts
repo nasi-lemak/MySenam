@@ -9,7 +9,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
@@ -17,12 +17,12 @@ export async function DELETE(
   if (!Number.isInteger(inductionId) || inductionId <= 0)
     return NextResponse.json({ error: "Invalid induction id." }, { status: 400 });
 
-  const induction = inductionById(inductionId);
+  const induction = await inductionById(inductionId);
   if (!induction) return NextResponse.json({ error: "Induction not found." }, { status: 404 });
   const denied = denyVenue(admin, induction.venueId);
   if (denied) return denied;
 
-  const result = revokeInduction(inductionId);
+  const result = await revokeInduction(inductionId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ induction: result.induction });
 }

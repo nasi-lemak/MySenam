@@ -9,21 +9,21 @@ export const dynamic = "force-dynamic";
  * venues is a promise about the marketplace, and the domain has to be pointed
  * at the server before it means anything.
  */
-function owner(req: NextRequest): NextResponse | null {
-  const admin = requireAdmin(req);
+async function owner(req: NextRequest): Promise<NextResponse | null> {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   return requireOwner(admin);
 }
 
-export function GET(req: NextRequest) {
-  const denied = owner(req);
+export async function GET(req: NextRequest) {
+  const denied = await owner(req);
   if (denied) return denied;
-  return NextResponse.json({ storefronts: listStorefronts() });
+  return NextResponse.json({ storefronts: await listStorefronts() });
 }
 
 /** Create, or with `id` update: `{ id?, hostname, name, tagline?, accentColor?, logoUrl?, venueIds }` */
 export async function POST(req: NextRequest) {
-  const denied = owner(req);
+  const denied = await owner(req);
   if (denied) return denied;
   let body: unknown;
   try {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (input.id !== undefined && !Number.isInteger(input.id))
     return NextResponse.json({ error: "Invalid id." }, { status: 400 });
 
-  const result = saveStorefront({
+  const result = await saveStorefront({
     id: input.id as number | undefined,
     hostname: input.hostname,
     name: input.name,
@@ -56,11 +56,11 @@ export async function POST(req: NextRequest) {
 }
 
 /** `?id=` */
-export function DELETE(req: NextRequest) {
-  const denied = owner(req);
+export async function DELETE(req: NextRequest) {
+  const denied = await owner(req);
   if (denied) return denied;
   const id = Number(req.nextUrl.searchParams.get("id"));
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Invalid id." }, { status: 400 });
-  if (!deleteStorefront(id)) return NextResponse.json({ error: "Storefront not found." }, { status: 404 });
+  if (!await deleteStorefront(id)) return NextResponse.json({ error: "Storefront not found." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

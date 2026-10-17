@@ -9,6 +9,16 @@
 # path to deploy/render/<slug>.yaml. Each tenant has its own file because a
 # Blueprint applies itself to any existing service with the same name: two
 # tenants sharing one file would be one service, overwritten.
+databases:
+  # The tenant's own Postgres. The smallest paid plan: the free one is deleted
+  # after 30 days. Reachable only from Render's private network.
+  - name: __SERVICE__-db
+    plan: basic-256mb
+    region: singapore
+    databaseName: mysenam
+    postgresMajorVersion: "16"
+    ipAllowList: []
+
 services:
   - type: web
     name: __SERVICE__
@@ -20,8 +30,8 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
-    # The whole system is this one SQLite file: without a disk it is wiped on
-    # every deploy. Backups are taken nightly onto it and copied off-site.
+    # The nightly backups are written here before they are copied off-site.
+    # (Render Postgres keeps its own daily backups too.)
     disk:
       name: data
       mountPath: /var/data
@@ -31,8 +41,12 @@ services:
         value: "22"
       - key: SITE_NAME
         value: "__SITE_NAME__"
-      - key: MYSENAM_DB
-        value: /var/data/mysenam.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: __SERVICE__-db
+          property: connectionString
+      - key: MYSENAM_DATA_DIR
+        value: /var/data
       - key: MYSENAM_BACKUP_DIR
         value: /var/data/backups
       # Kept in Render rather than on the disk, so payment keys still unlock

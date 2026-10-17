@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /** What this venue has told its customers, and what is still waiting. */
 export async function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
@@ -20,14 +20,14 @@ export async function GET(req: NextRequest) {
   await tickOutbox();
 
   return NextResponse.json(
-    { messages: listMessages(venueId), summary: outboxSummary(venueId) },
+    { messages: await listMessages(venueId), summary: await outboxSummary(venueId) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
 
 /** Put one message back in the queue, optionally at a corrected address. */
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const body = await req.json().catch(() => ({}));
@@ -38,12 +38,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "recipient must be text." }, { status: 400 });
 
   // A message belongs to a venue, and an operator may only touch their own.
-  const existing = messageById(id as number);
+  const existing = await messageById(id as number);
   if (!existing) return NextResponse.json({ error: "Message not found." }, { status: 404 });
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const message = retryMessage(id as number, recipient as string | undefined);
+  const message = await retryMessage(id as number, recipient as string | undefined);
   await tickOutbox();
   return NextResponse.json({ message });
 }

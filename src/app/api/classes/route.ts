@@ -7,7 +7,7 @@ import { Sport, SPORTS } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 /** Public: upcoming instructor-led classes. */
-export function GET(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const venueParam = params.get("venueId");
   const sportParam = params.get("sport");
@@ -24,9 +24,9 @@ export function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    classes: listClasses({
+    classes: await listClasses({
       venueId: venueParam ? Number(venueParam) : undefined,
-      venueIds: storefrontForRequest(req)?.venueIds,
+      venueIds: (await storefrontForRequest(req))?.venueIds,
       sport: (sportParam as Sport) ?? undefined,
       from,
       to,

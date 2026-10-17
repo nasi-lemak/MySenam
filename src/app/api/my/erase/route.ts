@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * misclicking.
  */
 export async function POST(req: NextRequest) {
-  const user = getSessionUser(req);
+  const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
 
   let body: unknown;
@@ -28,11 +28,11 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
-  const result = eraseCustomer(user.id);
+  const result = await eraseCustomer(user.id);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  if (token) destroySession(token);
+  if (token) await destroySession(token);
   const res = NextResponse.json({
     ok: true,
     bookingsAnonymised: result.bookingsAnonymised,

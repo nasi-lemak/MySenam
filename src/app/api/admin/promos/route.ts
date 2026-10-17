@@ -5,8 +5,8 @@ import { MAX_HOURS_PER_BOOKING, PromoKind, Sport, SPORTS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
-  const admin = requireAdmin(req);
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
@@ -15,11 +15,11 @@ export function GET(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  return NextResponse.json({ promos: listPromoCodes(venueId) });
+  return NextResponse.json({ promos: await listPromoCodes(venueId) });
 }
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   let body: unknown;
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     sport = input.sport as Sport;
   }
 
-  const result = createPromoCode({
+  const result = await createPromoCode({
     venueId: venueId as number,
     code: input.code as string,
     description: input.description as string,

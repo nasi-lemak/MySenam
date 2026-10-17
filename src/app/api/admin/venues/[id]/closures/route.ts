@@ -10,7 +10,7 @@ async function scope(
   req: NextRequest,
   params: Promise<{ id: string }>
 ): Promise<number | NextResponse> {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const { id } = await params;
   const venueId = Number(id);
@@ -24,7 +24,7 @@ async function scope(
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const venueId = await scope(req, params);
   if (venueId instanceof NextResponse) return venueId;
-  return NextResponse.json({ closures: listVenueClosures(venueId, todayISO()) });
+  return NextResponse.json({ closures: await listVenueClosures(venueId, todayISO()) });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "A valid date is required." }, { status: 400 });
   const reason = typeof input.reason === "string" ? input.reason : undefined;
 
-  const result = closeVenueDay(venueId, date, reason);
+  const result = await closeVenueDay(venueId, date, reason);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ closure: result.closure }, { status: 201 });
 }
@@ -55,7 +55,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const date = req.nextUrl.searchParams.get("date") ?? "";
   if (!isValidDateString(date))
     return NextResponse.json({ error: "A valid date is required." }, { status: 400 });
-  if (!reopenVenueDay(venueId, date).ok)
+  if (!(await reopenVenueDay(venueId, date)).ok)
     return NextResponse.json({ error: "That day is not closed." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

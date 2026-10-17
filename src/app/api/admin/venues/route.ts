@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const FIELDS = ["name", "area", "address", "phone"] as const;
 
 export async function POST(req: NextRequest) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     hours[field] = value as number;
   }
 
-  const result = createVenue({
+  const result = await createVenue({
     name: input.name as string,
     area: input.area as string,
     address: input.address as string,

@@ -29,25 +29,25 @@ const futureDate = (offset: number) => addDays(todayISO(), offset);
 let seq = 0;
 
 // Top-ups record which operator sold the credit, so a real admin must exist.
-ensureBootstrapAdmin();
-const ADMIN_ID = authenticateAdmin("admin@mysenam.my", "mysenam-admin")!.id;
+await ensureBootstrapAdmin();
+const ADMIN_ID = (await authenticateAdmin("admin@mysenam.my", "mysenam-admin"))!.id;
 
-function customer(balance = 0) {
+async function customer(balance = 0) {
   seq++;
-  const result = registerUser({
+  const result = await registerUser({
     name: `Wallet User ${seq}`,
     email: `wallet${seq}@example.com`,
     phone: `0170000${String(seq).padStart(3, "0")}`,
     password: "password1",
   });
   if (!result.ok) throw new Error("user not created");
-  if (balance > 0) topUpWallet({ userId: result.user.id, amount: balance, adminId: ADMIN_ID });
+  if (balance > 0) await topUpWallet({ userId: result.user.id, amount: balance, adminId: ADMIN_ID });
   return result.user;
 }
 
-function book(userId: number, phone: string, offset = 3, hour = 10) {
-  const court = listVenues()[0].courts[0];
-  return createBooking({
+async function book(userId: number, phone: string, offset = 3, hour = 10) {
+  const court = (await listVenues())[0].courts[0];
+  return await createBooking({
     courtId: court.id,
     date: futureDate(offset),
     hours: [hour],
@@ -58,54 +58,54 @@ function book(userId: number, phone: string, offset = 3, hour = 10) {
 }
 
 describe("the ledger", () => {
-  it("starts empty and sums top-ups into a balance", () => {
-    const user = customer();
-    expect(getWalletBalance(user.id)).toBe(0);
+  it("starts empty and sums top-ups into a balance", async () => {
+    const user = await customer();
+    expect(await getWalletBalance(user.id)).toBe(0);
 
-    expect(topUpWallet({ userId: user.id, amount: 50, adminId: ADMIN_ID })).toMatchObject({
+    expect(await topUpWallet({ userId: user.id, amount: 50, adminId: ADMIN_ID })).toMatchObject({
       ok: true,
       balance: 50,
     });
-    expect(topUpWallet({ userId: user.id, amount: 30, adminId: ADMIN_ID })).toMatchObject({
+    expect(await topUpWallet({ userId: user.id, amount: 30, adminId: ADMIN_ID })).toMatchObject({
       ok: true,
       balance: 80,
     });
-    expect(getWalletBalance(user.id)).toBe(80);
-    expect(listWalletEntries(user.id)).toHaveLength(2);
+    expect(await getWalletBalance(user.id)).toBe(80);
+    expect(await listWalletEntries(user.id)).toHaveLength(2);
   });
 
-  it("rejects a nonsensical top-up or an unknown customer", () => {
-    const user = customer();
+  it("rejects a nonsensical top-up or an unknown customer", async () => {
+    const user = await customer();
     for (const amount of [0, -20, 1.5, MAX_TOP_UP + 1]) {
-      expect(topUpWallet({ userId: user.id, amount, adminId: ADMIN_ID }), String(amount)).toMatchObject({
+      expect(await topUpWallet({ userId: user.id, amount, adminId: ADMIN_ID }), String(amount)).toMatchObject({
         ok: false,
       });
     }
-    expect(topUpWallet({ userId: 99999, amount: 10, adminId: ADMIN_ID })).toMatchObject({
+    expect(await topUpWallet({ userId: 99999, amount: 10, adminId: ADMIN_ID })).toMatchObject({
       ok: false,
       error: "Customer not found.",
     });
-    expect(getWalletBalance(user.id)).toBe(0);
+    expect(await getWalletBalance(user.id)).toBe(0);
   });
 
-  it("finds a customer by email or phone for the counter", () => {
-    const user = customer(25);
-    expect(findUserForWallet(user.email)).toMatchObject({ id: user.id, balance: 25 });
-    expect(findUserForWallet(user.phone)).toMatchObject({ id: user.id });
-    expect(findUserForWallet("nobody@example.com")).toBeNull();
-    expect(findUserForWallet("  ")).toBeNull();
+  it("finds a customer by email or phone for the counter", async () => {
+    const user = await customer(25);
+    expect(await findUserForWallet(user.email)).toMatchObject({ id: user.id, balance: 25 });
+    expect(await findUserForWallet(user.phone)).toMatchObject({ id: user.id });
+    expect(await findUserForWallet("nobody@example.com")).toBeNull();
+    expect(await findUserForWallet("  ")).toBeNull();
   });
 });
 
 describe("paying from credit", () => {
-  it("debits the balance and marks the booking paid", () => {
-    const user = customer(100);
-    const booking = book(user.id, user.phone, 3, 10);
+  it("debits the balance and marks the booking paid", async () => {
+    const user = await customer(100);
+    const booking = await book(user.id, user.phone, 3, 10);
     expect(booking.ok).toBe(true);
     if (!booking.ok) return;
     const price = booking.booking.totalPrice;
 
-    const paid = payBookingFromWallet(booking.booking.id);
+    const paid = await payBookingFromWallet(booking.booking.id);
     expect(paid.ok).toBe(true);
     if (!paid.ok) return;
     expect(paid.balance).toBe(100 - price);
@@ -113,49 +113,49 @@ describe("paying from credit", () => {
     expect(paid.entry.reason).toContain(booking.booking.code);
 
     // paying twice is refused
-    expect(payBookingFromWallet(booking.booking.id)).toMatchObject({
+    expect(await payBookingFromWallet(booking.booking.id)).toMatchObject({
       ok: false,
       error: "This booking is already paid.",
     });
-    expect(getWalletBalance(user.id)).toBe(100 - price);
+    expect(await getWalletBalance(user.id)).toBe(100 - price);
   });
 
-  it("never lets a balance go negative", () => {
-    const user = customer(5);
-    const booking = book(user.id, user.phone, 4, 11);
+  it("never lets a balance go negative", async () => {
+    const user = await customer(5);
+    const booking = await book(user.id, user.phone, 4, 11);
     if (!booking.ok) return;
     expect(booking.booking.totalPrice).toBeGreaterThan(5);
 
-    expect(payBookingFromWallet(booking.booking.id)).toMatchObject({
+    expect(await payBookingFromWallet(booking.booking.id)).toMatchObject({
       ok: false,
       error: expect.stringContaining("Not enough credit"),
     });
-    expect(getWalletBalance(user.id)).toBe(5);
+    expect(await getWalletBalance(user.id)).toBe(5);
     // and nothing was written to the ledger
-    expect(listWalletEntries(user.id)).toHaveLength(1);
+    expect(await listWalletEntries(user.id)).toHaveLength(1);
   });
 
-  it("refuses a guest booking, an unknown one, and a cancelled one", () => {
-    expect(payBookingFromWallet(99999)).toMatchObject({ ok: false, error: "Booking not found." });
+  it("refuses a guest booking, an unknown one, and a cancelled one", async () => {
+    expect(await payBookingFromWallet(99999)).toMatchObject({ ok: false, error: "Booking not found." });
 
-    const guest = createBooking({
-      courtId: listVenues()[0].courts[1].id,
+    const guest = await createBooking({
+      courtId: (await listVenues())[0].courts[1].id,
       date: futureDate(5),
       hours: [12],
       name: "Guest",
       phone: "0179999999",
     });
     if (!guest.ok) return;
-    expect(payBookingFromWallet(guest.booking.id)).toMatchObject({
+    expect(await payBookingFromWallet(guest.booking.id)).toMatchObject({
       ok: false,
       error: expect.stringContaining("no account"),
     });
 
-    const user = customer(100);
-    const booking = book(user.id, user.phone, 6, 13);
+    const user = await customer(100);
+    const booking = await book(user.id, user.phone, 6, 13);
     if (!booking.ok) return;
-    adminCancelBooking(booking.booking.code);
-    expect(payBookingFromWallet(booking.booking.id)).toMatchObject({
+    await adminCancelBooking(booking.booking.code);
+    expect(await payBookingFromWallet(booking.booking.id)).toMatchObject({
       ok: false,
       error: "This booking was cancelled.",
     });
@@ -163,49 +163,49 @@ describe("paying from credit", () => {
 });
 
 describe("refunds", () => {
-  it("returns the money when a wallet-paid booking is cancelled", () => {
-    const user = customer(100);
-    const booking = book(user.id, user.phone, 7, 14);
+  it("returns the money when a wallet-paid booking is cancelled", async () => {
+    const user = await customer(100);
+    const booking = await book(user.id, user.phone, 7, 14);
     if (!booking.ok) return;
     const price = booking.booking.totalPrice;
 
-    payBookingFromWallet(booking.booking.id);
-    expect(getWalletBalance(user.id)).toBe(100 - price);
+    await payBookingFromWallet(booking.booking.id);
+    expect(await getWalletBalance(user.id)).toBe(100 - price);
 
-    expect(cancelUserBooking(user.id, booking.booking.id)).toMatchObject({ ok: true });
-    expect(getWalletBalance(user.id)).toBe(100);
+    expect(await cancelUserBooking(user.id, booking.booking.id)).toMatchObject({ ok: true });
+    expect(await getWalletBalance(user.id)).toBe(100);
   });
 
-  it("cannot be claimed twice, so a double cancel cannot mint credit", () => {
-    const user = customer(100);
-    const booking = book(user.id, user.phone, 8, 15);
+  it("cannot be claimed twice, so a double cancel cannot mint credit", async () => {
+    const user = await customer(100);
+    const booking = await book(user.id, user.phone, 8, 15);
     if (!booking.ok) return;
-    payBookingFromWallet(booking.booking.id);
+    await payBookingFromWallet(booking.booking.id);
 
-    expect(refundBookingToWallet(booking.booking.id)).toMatchObject({ ok: true, balance: 100 });
-    expect(refundBookingToWallet(booking.booking.id)).toMatchObject({
+    expect(await refundBookingToWallet(booking.booking.id)).toMatchObject({ ok: true, balance: 100 });
+    expect(await refundBookingToWallet(booking.booking.id)).toMatchObject({
       ok: false,
       error: expect.stringContaining("already been refunded"),
     });
-    expect(getWalletBalance(user.id)).toBe(100);
+    expect(await getWalletBalance(user.id)).toBe(100);
   });
 
-  it("does nothing for a booking that was never paid from credit", () => {
-    const user = customer(100);
-    const booking = book(user.id, user.phone, 9, 16);
+  it("does nothing for a booking that was never paid from credit", async () => {
+    const user = await customer(100);
+    const booking = await book(user.id, user.phone, 9, 16);
     if (!booking.ok) return;
 
-    expect(refundBookingToWallet(booking.booking.id)).toMatchObject({
+    expect(await refundBookingToWallet(booking.booking.id)).toMatchObject({
       ok: false,
       error: expect.stringContaining("not paid from credit"),
     });
-    expect(getWalletBalance(user.id)).toBe(100);
+    expect(await getWalletBalance(user.id)).toBe(100);
   });
 
-  it("refunds enrolments when a class is cancelled", () => {
-    const user = customer(100);
-    const court = createCourt({
-      venueId: listVenues()[0].id,
+  it("refunds enrolments when a class is cancelled", async () => {
+    const user = await customer(100);
+    const court = await createCourt({
+      venueId: (await listVenues())[0].id,
       name: "Wallet Studio",
       sport: "gym",
       offPeakRate: 5,
@@ -214,7 +214,7 @@ describe("refunds", () => {
     });
     if (!court.ok) return;
 
-    const session = createClassSessions({
+    const session = await createClassSessions({
       courtId: court.court.id,
       name: "Pilates",
       instructor: "Nadia",
@@ -227,7 +227,7 @@ describe("refunds", () => {
     if (!session.ok) return;
     const classId = session.classes[0].id;
 
-    const enrolment = enrolInClass({
+    const enrolment = await enrolInClass({
       classId,
       name: user.name,
       phone: user.phone,
@@ -237,45 +237,45 @@ describe("refunds", () => {
     if (!enrolment.ok) return;
 
     // charged the class price, not the hourly rate
-    expect(payBookingFromWallet(enrolment.booking.id)).toMatchObject({ ok: true, balance: 65 });
+    expect(await payBookingFromWallet(enrolment.booking.id)).toMatchObject({ ok: true, balance: 65 });
 
-    expect(cancelClassSession(classId)).toMatchObject({ ok: true, released: 1 });
-    expect(getWalletBalance(user.id)).toBe(100);
+    expect(await cancelClassSession(classId)).toMatchObject({ ok: true, released: 1 });
+    expect(await getWalletBalance(user.id)).toBe(100);
   });
 });
 
 describe("a booking can only be paid for once", () => {
-  it("refuses a second settlement, so nothing is charged twice", () => {
-    const user = customer(500);
-    const made = book(user.id, user.phone, 3, 9);
+  it("refuses a second settlement, so nothing is charged twice", async () => {
+    const user = await customer(500);
+    const made = await book(user.id, user.phone, 3, 9);
     expect(made.ok).toBe(true);
     if (!made.ok) return;
 
-    expect(payBookingFromWallet(made.booking.id).ok).toBe(true);
-    const afterOne = getWalletBalance(user.id);
+    expect((await payBookingFromWallet(made.booking.id)).ok).toBe(true);
+    const afterOne = await getWalletBalance(user.id);
 
     // Whatever route the second attempt comes in by, the booking is spoken for.
-    const second = payBookingFromWallet(made.booking.id);
+    const second = await payBookingFromWallet(made.booking.id);
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.code).toBe("ALREADY_PAID");
-    expect(getWalletBalance(user.id)).toBe(afterOne);
+    expect(await getWalletBalance(user.id)).toBe(afterOne);
   });
 
-  it("takes nothing when the counter settles it first", () => {
-    const user = customer(500);
-    const made = book(user.id, user.phone, 3, 11);
+  it("takes nothing when the counter settles it first", async () => {
+    const user = await customer(500);
+    const made = await book(user.id, user.phone, 3, 11);
     if (!made.ok) return;
 
-    setPaymentStatus(made.booking.code, true);
-    const before = getWalletBalance(user.id);
-    const entries = () => listWalletEntries(user.id).filter((e) => e.bookingId === made.booking.id);
-    const had = entries().length;
+    await setPaymentStatus(made.booking.code, true);
+    const before = await getWalletBalance(user.id);
+    const entries = async () => (await listWalletEntries(user.id)).filter((e) => e.bookingId === made.booking.id);
+    const had = (await entries()).length;
 
-    const paid = payBookingFromWallet(made.booking.id);
+    const paid = await payBookingFromWallet(made.booking.id);
     expect(paid.ok).toBe(false);
     if (!paid.ok) expect(paid.code).toBe("ALREADY_PAID");
-    expect(getWalletBalance(user.id)).toBe(before);
-    expect(entries().length).toBe(had);
+    expect(await getWalletBalance(user.id)).toBe(before);
+    expect((await entries()).length).toBe(had);
   });
 });
 
@@ -290,30 +290,30 @@ describe("a booking can only be paid for once", () => {
  * way would pass with the guard removed.
  */
 describe("claiming a payment", () => {
-  it("succeeds exactly once, however many times it is called", () => {
-    const user = customer(500);
-    const made = book(user.id, user.phone, 4, 14);
+  it("succeeds exactly once, however many times it is called", async () => {
+    const user = await customer(500);
+    const made = await book(user.id, user.phone, 4, 14);
     if (!made.ok) return;
 
-    expect(claimPayment(made.booking.id)).toBe(true);
-    expect(claimPayment(made.booking.id)).toBe(false);
-    expect(claimPayment(made.booking.id)).toBe(false);
+    expect(await claimPayment(made.booking.id)).toBe(true);
+    expect(await claimPayment(made.booking.id)).toBe(false);
+    expect(await claimPayment(made.booking.id)).toBe(false);
   });
 
-  it("will not claim a booking somebody already settled", () => {
-    const user = customer(500);
-    const made = book(user.id, user.phone, 4, 15);
+  it("will not claim a booking somebody already settled", async () => {
+    const user = await customer(500);
+    const made = await book(user.id, user.phone, 4, 15);
     if (!made.ok) return;
-    setPaymentStatus(made.booking.code, true);
-    expect(claimPayment(made.booking.id)).toBe(false);
+    await setPaymentStatus(made.booking.code, true);
+    expect(await claimPayment(made.booking.id)).toBe(false);
   });
 
-  it("claims again once a refund puts it back to unpaid", () => {
-    const user = customer(500);
-    const made = book(user.id, user.phone, 4, 16);
+  it("claims again once a refund puts it back to unpaid", async () => {
+    const user = await customer(500);
+    const made = await book(user.id, user.phone, 4, 16);
     if (!made.ok) return;
-    expect(claimPayment(made.booking.id)).toBe(true);
-    setPaymentStatus(made.booking.code, false);
-    expect(claimPayment(made.booking.id)).toBe(true);
+    expect(await claimPayment(made.booking.id)).toBe(true);
+    await setPaymentStatus(made.booking.code, false);
+    expect(await claimPayment(made.booking.id)).toBe(true);
   });
 });

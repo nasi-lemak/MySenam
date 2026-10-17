@@ -8,7 +8,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = requireAdmin(req);
+  const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
   const { id } = await params;
@@ -17,12 +17,12 @@ export async function POST(
     return NextResponse.json({ error: "Invalid pass id." }, { status: 400 });
 
   // Scope the action to the venue that sold the pass.
-  const existing = getPassById(passId);
+  const existing = await getPassById(passId);
   if (!existing) return NextResponse.json({ error: "Pass not found." }, { status: 404 });
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const result = voidPass(passId);
+  const result = await voidPass(passId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
-  return NextResponse.json({ pass: result.pass, entries: listPassEntries(passId, 20) });
+  return NextResponse.json({ pass: result.pass, entries: await listPassEntries(passId, 20) });
 }
