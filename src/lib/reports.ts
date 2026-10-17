@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { SAME_CREDIT } from "./branches";
 import { creditScope } from "./mode";
 import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
@@ -395,13 +396,18 @@ export async function walletLiability(): Promise<{ customers: number; balance: n
   return row;
 }
 
-/** Credit sold by this venue and not yet spent: what it owes, where credit is per venue. */
+/**
+ * Credit sold by this venue and not yet spent: what it owes, where credit is
+ * per venue. For a branch, that is its whole business's: credit bought at one
+ * branch is spent at any of them, so it is owed by the business, not by
+ * whichever branch happened to sell it.
+ */
 export async function venueCreditLiability(venueId: number): Promise<{ customers: number; balance: number }> {
   return await getDb()
     .prepare(`
       SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
         SELECT user_id, SUM(amount) AS balance FROM wallet_entries
-        WHERE venue_id = ?
+        WHERE ${SAME_CREDIT}
         GROUP BY user_id HAVING SUM(amount) > 0
       ) AS owed
     `)

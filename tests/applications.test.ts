@@ -98,12 +98,17 @@ describe("approving", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.emailed).toBe(true);
-    expect(sendMail).toHaveBeenCalledOnce();
+    // Applying told the platform owner; approving tells the applicant.
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(sendMail).toHaveBeenLastCalledWith(expect.objectContaining({ to: applied.application.email }));
 
     const venue = (await listVenues()).find((v) => v.id === result.application.venueId)!;
     expect(venue.name).toBe(applied.application.businessName);
+    // They run a business of their own, with this as its first branch, so a
+    // second branch later is a request rather than a second account.
     const operator = await authenticateAdmin(applied.application.email, "a long enough password");
-    expect(operator?.venueId).toBe(venue.id);
+    expect(operator?.businessName).toBe(applied.application.businessName);
+    expect(operator?.venueIds).toEqual([venue.id]);
 
     // Once only.
     expect((await approveApplication(applied.application.id, ownerId)).ok).toBe(false);

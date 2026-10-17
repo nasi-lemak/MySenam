@@ -387,6 +387,32 @@ marketplace. `X-Forwarded-Host` is ignored unless `MYSENAM_TRUST_FORWARDED_HOST=
 itself. Caddy passes Host through as it is, so leave it off behind the
 DigitalOcean kit.
 
+### Businesses with several branches
+
+On a marketplace, every venue belongs to a business, and a business can have
+any number of branches. Approving an application creates the business, with
+that venue as its first branch and the applicant as its manager.
+
+- **Managers** sign in once for every branch. The day list, schedule,
+  reports, classes, credit, messages and invoices cover all their branches,
+  with a branch picker wherever a screen is about one. They add and remove
+  their business's staff, and ask for new branches under *Branches & staff →
+  Add a branch*.
+- **Branch staff** see their own branch and nothing else.
+- **New branches** wait for the platform owner's approval, like the first
+  one did, unless the install sets `MYSENAM_AUTO_APPROVE_BRANCHES=on` to
+  approve branches of businesses it has already approved.
+- **Credit and passes** bought at any branch work at every branch of that
+  business, and nowhere else. A customer sees one balance under the
+  business's name, and the business, not a single branch, is shown as owing
+  it.
+- **Venues that joined one at a time**, before businesses existed, can be put
+  together by the platform owner under *Venues & staff → Businesses*,
+  choosing which of their staff become managers.
+
+Each branch is still invoiced for itself; a manager sees all of them in one
+list.
+
 ### A venue business's own copy
 
 The same code runs as the shared MySenam marketplace and as one business's own

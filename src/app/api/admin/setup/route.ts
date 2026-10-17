@@ -5,8 +5,9 @@ import { dismissSetup, markDetailsChecked, venueSetup } from "@/lib/setup";
 export const dynamic = "force-dynamic";
 
 /** The venue asked about: `?venueId=`, or the admin's own. */
-function venueOf(admin: { venueId: number | null }, raw: unknown): number | null {
-  const id = raw === undefined || raw === null || raw === "" ? admin.venueId : Number(raw);
+function venueOf(admin: { venueIds: number[] | null }, raw: unknown): number | null {
+  const own = admin.venueIds?.length === 1 ? admin.venueIds[0] : null;
+  const id = raw === undefined || raw === null || raw === "" ? own : Number(raw);
   return Number.isInteger(id) && (id as number) > 0 ? (id as number) : null;
 }
 

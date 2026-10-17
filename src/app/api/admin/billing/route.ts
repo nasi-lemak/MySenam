@@ -40,7 +40,8 @@ export async function GET(req: NextRequest) {
   }
   return NextResponse.json({
     marketplace: true,
-    invoices: await listInvoices(admin.venueId!),
+    // A business manager sees every branch's invoices together.
+    invoices: await listInvoices(admin.venueIds ?? []),
     canPayOnline: platformAccount() !== null,
   });
 }

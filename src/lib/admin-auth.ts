@@ -6,21 +6,64 @@ import { hashPassword, verifyPassword } from "./auth";
 export const ADMIN_SESSION_COOKIE = "ms_admin";
 const SESSION_DAYS = 7;
 
+/**
+ * Somebody who signs in to the dashboard, and what they may manage:
+ *
+ *   - branch staff: one venue (venueId);
+ *   - a business manager: every branch of one business (businessId);
+ *   - the platform owner: everything (neither).
+ */
 export interface Admin {
   id: number;
   name: string;
   email: string;
-  /** null = platform owner, who can manage every venue. */
+  /** The one branch a member of branch staff works at. */
   venueId: number | null;
+  /** The business a manager runs, every branch of it. */
+  businessId: number | null;
+  businessName: string | null;
+  /** The venues this admin may manage; null for the platform owner, who may manage all. */
+  venueIds: number[] | null;
 }
 
-interface AdminRow extends Admin {
+interface AdminRow {
+  id: number;
+  name: string;
+  email: string;
   venue_id: number | null;
+  business_id: number | null;
+  business_name: string | null;
   password_hash: string;
 }
 
-function toAdmin(r: AdminRow): Admin {
-  return { id: r.id, name: r.name, email: r.email, venueId: r.venue_id };
+/** Columns every admin read takes, with the business's name. */
+const ADMIN_COLUMNS = `a.id, a.name, a.email, a.venue_id, a.business_id, b.name AS business_name`;
+const ADMIN_FROM = `admins a LEFT JOIN businesses b ON b.id = a.business_id`;
+
+/** Rows to admins, with the venues each may manage, in one more query at most. */
+async function toAdmins(rows: AdminRow[]): Promise<Admin[]> {
+  const businesses = [...new Set(rows.map((r) => r.business_id).filter((id): id is number => id !== null))];
+  const branches = new Map<number, number[]>();
+  if (businesses.length > 0) {
+    const venues = (await getDb()
+      .prepare(`SELECT id, business_id FROM venues WHERE business_id IN (${businesses.map(() => "?").join(",")}) ORDER BY id`)
+      .all(...businesses)) as { id: number; business_id: number }[];
+    for (const v of venues) branches.set(v.business_id, [...(branches.get(v.business_id) ?? []), v.id]);
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    venueId: r.venue_id,
+    businessId: r.business_id,
+    businessName: r.business_name,
+    venueIds:
+      r.business_id !== null ? (branches.get(r.business_id) ?? []) : r.venue_id !== null ? [r.venue_id] : null,
+  }));
+}
+
+async function toAdmin(r: AdminRow): Promise<Admin> {
+  return (await toAdmins([r]))[0];
 }
 
 /**
@@ -44,10 +87,10 @@ export async function ensureBootstrapAdmin(): Promise<void> {
 export async function authenticateAdmin(email: string, password: string): Promise<Admin | null> {
   await ensureBootstrapAdmin();
   const row = await getDb()
-    .prepare("SELECT id, name, email, venue_id, password_hash FROM admins WHERE email = ?")
+    .prepare(`SELECT ${ADMIN_COLUMNS}, a.password_hash FROM ${ADMIN_FROM} WHERE a.email = ?`)
     .get(email.trim()) as AdminRow | undefined;
   if (!row || !verifyPassword(password, row.password_hash)) return null;
-  return toAdmin(row);
+  return await toAdmin(row);
 }
 
 export async function createAdminSession(adminId: number): Promise<{ token: string; expiresAt: Date }> {
@@ -70,12 +113,12 @@ export async function destroyAdminSession(token: string): Promise<void> {
 export async function getAdminByToken(token: string): Promise<Admin | null> {
   const row = await getDb()
     .prepare(`
-      SELECT a.id, a.name, a.email, a.venue_id FROM admin_sessions s
-      JOIN admins a ON a.id = s.admin_id
+      SELECT ${ADMIN_COLUMNS} FROM admin_sessions s
+      JOIN ${ADMIN_FROM} ON a.id = s.admin_id
       WHERE s.token = ? AND s.expires_at >= datetime('now')
     `)
     .get(token) as AdminRow | undefined;
-  return row ? toAdmin(row) : null;
+  return row ? await toAdmin(row) : null;
 }
 
 export async function getSessionAdmin(req: NextRequest): Promise<Admin | null> {
@@ -95,12 +138,17 @@ export async function requireAdmin(req: NextRequest): Promise<Admin | NextRespon
   return admin;
 }
 
-export function isOwner(admin: Admin): boolean {
-  return admin.venueId === null;
+export function isOwner(admin: Pick<Admin, "venueId" | "businessId">): boolean {
+  return admin.venueId === null && admin.businessId === null;
+}
+
+/** Runs a business: every branch of it, and its staff. */
+export function isManager(admin: Pick<Admin, "businessId">): boolean {
+  return admin.businessId !== null;
 }
 
 export function canAccessVenue(admin: Admin, venueId: number): boolean {
-  return isOwner(admin) || admin.venueId === venueId;
+  return isOwner(admin) || (admin.venueIds ?? []).includes(venueId);
 }
 
 /** 403 response when this admin may not touch `venueId`, else null. */
@@ -120,7 +168,10 @@ export async function createAdmin(input: {
   name: string;
   email: string;
   password: string;
+  /** Branch staff at this venue. */
   venueId: number | null;
+  /** A manager of this whole business. Neither: another platform owner. */
+  businessId?: number | null;
 }): Promise<CreateAdminResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -128,34 +179,61 @@ export async function createAdmin(input: {
     if (clash) return { ok: false, error: "An admin with this email already exists." };
 
     const info = await db
-      .prepare("INSERT INTO admins (name, email, password_hash, venue_id) VALUES (?, ?, ?, ?)")
-      .run(input.name.trim(), input.email.trim(), hashPassword(input.password), input.venueId);
+      .prepare("INSERT INTO admins (name, email, password_hash, venue_id, business_id) VALUES (?, ?, ?, ?, ?)")
+      .run(
+        input.name.trim(),
+        input.email.trim(),
+        hashPassword(input.password),
+        input.venueId,
+        input.venueId === null ? (input.businessId ?? null) : null
+      );
     const row = await db
-      .prepare("SELECT id, name, email, venue_id FROM admins WHERE id = ?")
+      .prepare(`SELECT ${ADMIN_COLUMNS} FROM ${ADMIN_FROM} WHERE a.id = ?`)
       .get(info.lastInsertRowid) as AdminRow;
-    return { ok: true, admin: toAdmin(row) };
+    return { ok: true, admin: await toAdmin(row) };
   });
 }
 
+/** Platform owners first, then business managers, then branch staff. */
 export async function listAdmins(): Promise<Admin[]> {
   const rows = await getDb()
-    .prepare("SELECT id, name, email, venue_id FROM admins ORDER BY venue_id IS NOT NULL, id")
+    .prepare(
+      `SELECT ${ADMIN_COLUMNS} FROM ${ADMIN_FROM}
+        ORDER BY a.business_id IS NOT NULL OR a.venue_id IS NOT NULL, a.venue_id IS NOT NULL, a.id`
+    )
     .all() as AdminRow[];
-  return rows.map(toAdmin);
+  return await toAdmins(rows);
+}
+
+/** The accounts that work at this admin's venues: what a business manager sees and manages. */
+export async function listAdminsFor(admin: Admin): Promise<Admin[]> {
+  if (isOwner(admin)) return await listAdmins();
+  const venues = admin.venueIds ?? [];
+  return (await listAdmins()).filter(
+    (a) =>
+      (admin.businessId !== null && a.businessId === admin.businessId) ||
+      (a.venueId !== null && venues.includes(a.venueId))
+  );
 }
 
 export async function deleteAdmin(id: number): Promise<{ ok: boolean; error?: string }> {
   return withTransaction(async () => {
     const db = getDb();
-    const row = await db.prepare("SELECT venue_id FROM admins WHERE id = ?").get(id) as
-      | { venue_id: number | null }
+    const row = await db.prepare("SELECT venue_id, business_id FROM admins WHERE id = ?").get(id) as
+      | { venue_id: number | null; business_id: number | null }
       | undefined;
     if (!row) return { ok: false, error: "Admin not found." };
-    if (row.venue_id === null) {
+    if (row.venue_id === null && row.business_id === null) {
       const owners = await db
-        .prepare("SELECT COUNT(*) AS n FROM admins WHERE venue_id IS NULL")
+        .prepare("SELECT COUNT(*) AS n FROM admins WHERE venue_id IS NULL AND business_id IS NULL")
         .get() as { n: number };
       if (owners.n <= 1) return { ok: false, error: "Cannot remove the last platform owner." };
+    }
+    if (row.business_id !== null) {
+      const managers = await db
+        .prepare("SELECT COUNT(*) AS n FROM admins WHERE business_id = ?")
+        .get(row.business_id) as { n: number };
+      if (managers.n <= 1) return { ok: false, error: "A business needs at least one manager." };
     }
     await db.prepare("DELETE FROM admins WHERE id = ?").run(id);
     return { ok: true };

@@ -24,15 +24,22 @@ type Tab = "courts" | "venues" | "bookings";
  */
 export function SetupChecklist({
   venueId,
+  venueName,
+  startOpen = true,
   refreshKey,
   onGo,
 }: {
   venueId: number;
+  /** Shown in full, or as one line to open — for the second branch on. */
+  startOpen?: boolean;
+  /** Shown when there is more than one branch to set up. */
+  venueName?: string | null;
   /** Changes whenever something on the dashboard might have completed a step. */
   refreshKey: string;
   onGo: (tab: Tab) => void;
 }) {
   const [setup, setSetup] = useState<VenueSetup | null>(null);
+  const [open, setOpen] = useState(startOpen);
 
   useEffect(() => {
     fetch(`/api/admin/setup?venueId=${venueId}`, { cache: "no-store" })
@@ -100,11 +107,18 @@ export function SetupChecklist({
   return (
     <section className="rounded-xl border border-teal-200 bg-teal-50/60 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold text-teal-900">Set up your venue</h2>
+        <h2 className="text-lg font-semibold text-teal-900">{venueName ? `Set up ${venueName}` : "Set up your venue"}</h2>
         <span className="text-sm text-teal-800">
           {left === 1 ? "1 step to go" : `${left} steps to go`}
+          {!open && (
+            <button onClick={() => setOpen(true)} className="ml-3 font-medium underline">
+              Show
+            </button>
+          )}
         </span>
       </div>
+      {open && (
+        <>
       <ol className="mt-3 space-y-3">
         {steps.map((step, i) => (
           <li key={step.title} className="flex gap-3">
@@ -137,6 +151,8 @@ export function SetupChecklist({
       >
         Hide this; I know my way round
       </button>
+        </>
+      )}
     </section>
   );
 }

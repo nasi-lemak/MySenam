@@ -39,7 +39,13 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
       const given = window.prompt(`Turn down ${a.businessName}? A reason for them (optional):`, "");
       if (given === null) return;
       reason = given;
-    } else if (!window.confirm(`Approve ${a.businessName}? This creates the venue and ${a.email}'s account.`)) {
+    } else if (
+      !window.confirm(
+        a.forBusiness
+          ? `Approve ${a.businessName} as a branch of ${a.forBusiness}?`
+          : `Approve ${a.businessName}? This creates the venue and ${a.email}'s account.`
+      )
+    ) {
       return;
     }
     setBusy(true);
@@ -93,7 +99,14 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
             <div key={a.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="font-semibold">{a.businessName}</div>
+                  <div className="font-semibold">
+                    {a.businessName}
+                    {a.forBusiness && (
+                      <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        new branch of {a.forBusiness}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-slate-600">
                     {a.area} · {a.address} · {a.venuePhone}
                   </div>

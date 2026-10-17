@@ -1,4 +1,4 @@
-import { listAdmins } from "./admin-auth";
+import { isOwner, listAdmins } from "./admin-auth";
 import { siteName } from "./site";
 import { sendPlainEmail } from "./transports";
 
@@ -8,7 +8,7 @@ import { sendPlainEmail } from "./transports";
  * is held back waiting for them; they hear about it, and can undo it.
  */
 export async function tellOwners(subject: string, body: string): Promise<void> {
-  const owners = (await listAdmins()).filter((a) => a.venueId === null);
+  const owners = (await listAdmins()).filter(isOwner);
   for (const owner of owners)
     await sendPlainEmail(
       owner.email,

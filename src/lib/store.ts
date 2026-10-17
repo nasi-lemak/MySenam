@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
+import { SAME_CREDIT, sameBusiness } from "./branches";
 import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -294,6 +295,20 @@ export async function listVenues(): Promise<(Venue & { courts: Court[] })[]> {
   return venues.map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) }));
 }
 
+/** These venues and their courts, in id order: a business's branches. */
+export async function listVenuesByIds(ids: number[]): Promise<(Venue & { courts: Court[] })[]> {
+  if (ids.length === 0) return [];
+  const db = getDb();
+  const list = ids.map(() => "?").join(",");
+  const venues = ((await db.prepare(`SELECT * FROM venues WHERE id IN (${list}) ORDER BY id`).all(...ids)) as VenueRow[]).map(
+    toVenue
+  );
+  const courts = (
+    (await db.prepare(`SELECT * FROM courts WHERE venue_id IN (${list}) ORDER BY id`).all(...ids)) as CourtRow[]
+  ).map(toCourt);
+  return venues.map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) }));
+}
+
 export async function getVenue(id: number): Promise<(Venue & { courts: Court[] }) | null> {
   const db = getDb();
   const row = await db.prepare("SELECT * FROM venues WHERE id = ?").get(id) as VenueRow | undefined;
@@ -438,10 +453,17 @@ function onlyCourts(column: string, courtIds?: number[]): { sql: string; params:
   return { sql: ` AND ${column} IN (${courtIds.map(() => "?").join(",") || "NULL"})`, params: courtIds };
 }
 
-function venueCourts(column: string, venueId?: number | null): { sql: string; params: number[] } {
-  return venueId == null
-    ? { sql: "", params: [] }
-    : { sql: ` AND ${column} IN (SELECT id FROM courts WHERE venue_id = ?)`, params: [venueId] };
+function venueCourts(column: string, venueId?: number | number[] | null): { sql: string; params: number[] } {
+  if (venueId == null) return { sql: "", params: [] };
+  // Several venues: a business's branches.
+  if (Array.isArray(venueId))
+    return venueId.length === 0
+      ? { sql: " AND FALSE", params: [] }
+      : {
+          sql: ` AND ${column} IN (SELECT id FROM courts WHERE venue_id IN (${venueId.map(() => "?").join(",")}))`,
+          params: venueId,
+        };
+  return { sql: ` AND ${column} IN (SELECT id FROM courts WHERE venue_id = ?)`, params: [venueId] };
 }
 
 /**
@@ -2737,7 +2759,8 @@ export async function updateCourt(
   return { ok: true, court: (await getCourt(courtId))! };
 }
 
-export async function listBookingsForDate(date: string, venueId?: number): Promise<AdminBookingRow[]> {
+/** A day's bookings: everywhere, at one venue, or at several (a business's branches). */
+export async function listBookingsForDate(date: string, venueId?: number | number[]): Promise<AdminBookingRow[]> {
   const db = getDb();
   const venue = venueCourts("b.court_id", venueId);
   const rows = await db
@@ -3094,13 +3117,13 @@ async function walletEntryById(id: number | bigint): Promise<WalletEntry> {
   return toWalletEntry(await getDb().prepare(`${WALLET_SELECT} WHERE w.id = ?`).get(id) as WalletRow);
 }
 
-/** Credit in one pot: a venue's, or (null) the one spendable anywhere. */
+/** Credit in one pot: a venue's (its business's), or (null) the one spendable anywhere. */
 async function potBalance(userId: number, venueId: number | null): Promise<number> {
   const row = await getDb()
     .prepare(
       venueId === null
         ? "SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ? AND venue_id IS NULL"
-        : "SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ? AND venue_id = ?"
+        : `SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_entries WHERE user_id = ? AND ${SAME_CREDIT}`
     )
     .get(...(venueId === null ? [userId] : [userId, venueId])) as { balance: number };
   return row.balance;
@@ -3125,12 +3148,17 @@ export async function walletBalances(userId: number): Promise<WalletBalance[]> {
   return (
     await getDb()
       .prepare(`
-        SELECT w.venue_id AS "venueId", v.name AS "venueName", SUM(w.amount) AS balance
-          FROM wallet_entries w LEFT JOIN venues v ON v.id = w.venue_id
+        SELECT MIN(w.venue_id) AS "venueId", MIN(COALESCE(b.name, v.name)) AS "venueName", SUM(w.amount) AS balance
+          FROM wallet_entries w
+          LEFT JOIN venues v ON v.id = w.venue_id
+          LEFT JOIN businesses b ON b.id = v.business_id
          WHERE w.user_id = ?
-         GROUP BY w.venue_id, v.name
+         -- One pot per business, or per venue on its own, or the one spendable anywhere.
+         GROUP BY CASE WHEN w.venue_id IS NULL THEN NULL
+                       WHEN v.business_id IS NOT NULL THEN 'b' || v.business_id
+                       ELSE 'v' || w.venue_id END
         HAVING SUM(w.amount) <> 0
-         ORDER BY w.venue_id IS NOT NULL, v.name
+         ORDER BY MIN(w.venue_id) IS NOT NULL, MIN(COALESCE(b.name, v.name))
       `)
       .all(userId) as WalletBalance[]
   );
@@ -4029,7 +4057,8 @@ export async function voidPass(passId: number): Promise<PassResult> {
 async function passScopeError(pass: Pass, booking: Booking): Promise<string | null> {
   const court = await getCourt(booking.courtId);
   if (!court) return "Court not found.";
-  if (court.venueId !== pass.venueId) return "That pass is for a different venue.";
+  if (court.venueId !== pass.venueId && !(await sameBusiness(court.venueId, pass.venueId)))
+    return "That pass is for a different venue.";
   if (pass.sport && court.sport !== pass.sport)
     return `That pass only covers ${SPORT_LABELS[pass.sport]}.`;
   return null;

@@ -186,11 +186,17 @@ export async function invoiceById(id: number, now = new Date()): Promise<Invoice
 }
 
 /** One venue's invoices, or every venue's for the platform owner. Newest first. */
-export async function listInvoices(venueId?: number, limit = 100): Promise<Invoice[]> {
+/** Invoices for every venue, one venue, or several (a business's branches). */
+export async function listInvoices(venueId?: number | number[], limit = 100): Promise<Invoice[]> {
+  const ids = venueId === undefined ? undefined : Array.isArray(venueId) ? venueId : [venueId];
   const rows = (
-    venueId === undefined
+    ids === undefined
       ? await getDb().prepare(`${INVOICE_SELECT} ORDER BY i.period DESC, v.name LIMIT ?`).all(limit)
-      : await getDb().prepare(`${INVOICE_SELECT} WHERE i.venue_id = ? ORDER BY i.period DESC LIMIT ?`).all(venueId, limit)
+      : await getDb()
+          .prepare(
+            `${INVOICE_SELECT} WHERE i.venue_id IN (${ids.map(() => "?").join(",") || "NULL"}) ORDER BY i.period DESC, v.name LIMIT ?`
+          )
+          .all(...ids, limit)
   ) as InvoiceRow[];
   return rows.map((r) => toInvoice(r));
 }

@@ -14,7 +14,9 @@ export const dynamic = "force-dynamic";
  */
 function venueFor(admin: Admin, asked: unknown): number | undefined | NextResponse {
   if (creditScope() !== "venue") return undefined;
-  const id = asked === undefined || asked === null || asked === "" ? admin.venueId : Number(asked);
+  // Not named: the admin's own venue, when they have just the one.
+  const own = admin.venueIds?.length === 1 ? admin.venueIds[0] : null;
+  const id = asked === undefined || asked === null || asked === "" ? own : Number(asked);
   if (id === null || id === undefined || !Number.isInteger(id) || id <= 0)
     return NextResponse.json({ error: "Say which venue's credit this is." }, { status: 400 });
   return denyVenue(admin, id) ?? id;

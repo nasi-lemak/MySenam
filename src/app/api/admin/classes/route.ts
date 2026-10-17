@@ -13,12 +13,17 @@ export async function GET(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
 
   const venueParam = req.nextUrl.searchParams.get("venueId");
-  const venueId = venueParam ? Number(venueParam) : admin.venueId ?? undefined;
+  const venueId = venueParam ? Number(venueParam) : undefined;
   if (venueId !== undefined) {
     const denied = denyVenue(admin, venueId);
     if (denied) return denied;
   }
-  const classes = await listClasses({ venueId, includeCancelled: true });
+  // No venue named: every venue this admin manages (all of them, for the owner).
+  const classes = await listClasses({
+    venueId,
+    venueIds: venueId === undefined ? (admin.venueIds ?? undefined) : undefined,
+    includeCancelled: true,
+  });
   // Queue length per class, so the list can flag demand at a glance.
   const waiting: Record<number, number> = {};
   for (const session of classes) {

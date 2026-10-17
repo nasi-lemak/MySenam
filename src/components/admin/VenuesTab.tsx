@@ -12,6 +12,7 @@ import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
 import { BillingPanel } from "./BillingPanel";
 import { StorefrontsPanel } from "./StorefrontsPanel";
+import { BranchRequestPanel, BusinessesPanel } from "./BusinessPanels";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -25,20 +26,25 @@ export function VenuesTab({
   venues: ManagedVenue[];
   onChange: () => Promise<Admin | null>;
 }) {
-  const isOwner = admin.venueId === null;
+  const isOwner = admin.venueId === null && admin.businessId === null;
+  // A business manager runs every branch of their business, and its staff.
+  const isManager = admin.businessId !== null;
+  const managesStaff = isOwner || isManager;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [admins, setAdmins] = useState<Admin[] | null>(null);
   const [newVenue, setNewVenue] = useState({ name: "", area: "", address: "", phone: "" });
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: "" });
+  // "" is another platform owner, "business" a manager of the whole business, an id that branch.
+  const staffDefault = admin.venueId === null && admin.businessId !== null ? "business" : "";
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: staffDefault });
 
   const loadAdmins = useCallback(async () => {
-    if (!isOwner) return;
+    if (!managesStaff) return;
     const res = await fetch("/api/admin/admins", { cache: "no-store" });
     if (!res.ok) return;
     const data = await res.json();
     setAdmins(data.admins);
-  }, [isOwner]);
+  }, [managesStaff]);
 
   useEffect(() => {
     loadAdmins();
@@ -88,7 +94,9 @@ export function VenuesTab({
       {isOwner && <ApplicationsPanel onChange={() => void onChange()} />}
 
       <section>
-        <h2 className="text-lg font-bold">{isOwner ? "Venues" : "Venue details"}</h2>
+        <h2 className="text-lg font-bold">
+          {isOwner ? "Venues" : isManager && venues.length > 1 ? "Branches" : "Venue details"}
+        </h2>
         <div className="mt-3 space-y-3">
           {venues.map((venue) => (
             <VenueRow key={venue.id} venue={venue} onSave={send} />
@@ -98,6 +106,8 @@ export function VenuesTab({
           )}
         </div>
       </section>
+
+      {isManager && <BranchRequestPanel businessName={admin.businessName ?? "your business"} onChange={() => void onChange()} />}
 
       <section>
         <h2 className="text-lg font-bold">Closed days</h2>
@@ -126,8 +136,9 @@ export function VenuesTab({
 
       {isOwner && <RetentionPanel />}
 
+      {isOwner && <BusinessesPanel venues={venues} onChange={() => void onChange()} />}
+
       {isOwner && (
-        <>
           <section>
             <h3 className="font-semibold text-slate-700">Add a venue</h3>
             <form
@@ -167,12 +178,15 @@ export function VenuesTab({
               </button>
             </form>
           </section>
+      )}
 
+      {managesStaff && (
           <section>
             <h2 className="text-lg font-bold">Staff accounts</h2>
             <p className="mt-1 text-sm text-slate-600">
-              A venue operator only ever sees their own venue&apos;s bookings, schedule and
-              revenue. Leave the venue blank to create another platform owner.
+              {isOwner
+                ? "Branch staff only ever see their own branch's bookings, schedule and revenue; a business's managers see every branch of it. Leave the venue blank to create another platform owner."
+                : "Branch staff only ever see their own branch. Managers see every branch, and add and remove staff."}
             </p>
             {admins && (
               <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -190,7 +204,11 @@ export function VenuesTab({
                         <td className="px-3 py-2 font-medium">{a.name}</td>
                         <td className="px-3 py-2">{a.email}</td>
                         <td className="px-3 py-2">
-                          {a.venueId === null ? (
+                          {a.businessId !== null ? (
+                            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                              manager · {a.businessName}
+                            </span>
+                          ) : a.venueId === null ? (
                             <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
                               platform owner
                             </span>
@@ -226,10 +244,12 @@ export function VenuesTab({
                 send(
                   "/api/admin/admins",
                   "POST",
-                  { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
+                  newStaff.venueId === "business"
+                    ? { ...newStaff, venueId: null, businessId: admin.businessId }
+                    : { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
                   `Added ${newStaff.email}.`,
                   () => {
-                    setNewStaff({ name: "", email: "", password: "", venueId: "" });
+                    setNewStaff({ name: "", email: "", password: "", venueId: staffDefault });
                     loadAdmins();
                   }
                 );
@@ -257,7 +277,11 @@ export function VenuesTab({
                 onChange={(e) => setNewStaff({ ...newStaff, venueId: e.target.value })}
                 className={inputClass}
               >
-                <option value="">Platform owner (all venues)</option>
+                {isOwner ? (
+                  <option value="">Platform owner (all venues)</option>
+                ) : (
+                  <option value="business">Manager (every branch)</option>
+                )}
                 {venues.map((v) => (
                   <option key={v.id} value={v.id}>{v.name}</option>
                 ))}
@@ -270,7 +294,6 @@ export function VenuesTab({
               </button>
             </form>
           </section>
-        </>
       )}
     </div>
   );

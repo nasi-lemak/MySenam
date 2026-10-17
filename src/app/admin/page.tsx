@@ -132,7 +132,8 @@ export default function AdminPage() {
     );
   }
 
-  const isOwner = admin.venueId === null;
+  const isOwner = admin.venueId === null && admin.businessId === null;
+  const isManager = admin.businessId !== null;
   const tabs: [Tab, string][] = [
     ["bookings", "Bookings"],
     ["schedule", "Court schedule"],
@@ -141,7 +142,7 @@ export default function AdminPage() {
     ["courts", "Courts & rates"],
     ["classes", "Classes"],
     ["credit", "Credit & passes"],
-    ["venues", isOwner ? "Venues & staff" : "Venue details"],
+    ["venues", isOwner ? "Venues & staff" : isManager ? "Branches & staff" : "Venue details"],
   ];
 
   return (
@@ -153,6 +154,10 @@ export default function AdminPage() {
             {admin.name} ·{" "}
             {isOwner ? (
               <span className="font-medium text-teal-700">Platform owner — all venues</span>
+            ) : isManager && venues.length > 1 ? (
+              <span className="font-medium text-teal-700">
+                {admin.businessName} · {venues.length} branches
+              </span>
             ) : (
               <span className="font-medium text-teal-700">
                 {venues[0]?.name ?? "Your venue"}
@@ -169,14 +174,19 @@ export default function AdminPage() {
       </div>
 
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
-      {!isOwner && venues[0] && (
-        <SetupChecklist
-          venueId={venues[0].id}
-          // A string, so it changes only when a step might have: a new tab, or a court added.
-          refreshKey={`${tab}:${venues[0].courts.length}`}
-          onGo={setTab}
-        />
-      )}
+      {/* One for each branch still being set up; each disappears once its branch is ready. */}
+      {!isOwner &&
+        venues.map((venue, i) => (
+          <SetupChecklist
+            key={venue.id}
+            venueId={venue.id}
+            venueName={venues.length > 1 ? venue.name : null}
+            startOpen={i === 0}
+            // A string, so it changes only when a step might have: a new tab, or a court added.
+            refreshKey={`${tab}:${venue.courts.length}`}
+            onGo={setTab}
+          />
+        ))}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (
