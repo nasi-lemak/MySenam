@@ -195,9 +195,9 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
             </button>
           </div>
           <p className="text-xs text-slate-500">
-            Then add the domain to this server — on Render, the service&apos;s <em>Settings → Custom
-            Domains</em> — and at the domain&apos;s registrar point it where Render says. Render issues the
-            certificate.
+            Then point the domain at this server. On a server of your own, give it an A record with the
+            server&apos;s address; the certificate is issued on the first visit. On Render, add it under the
+            service&apos;s <em>Settings → Custom Domains</em> and point it where Render says.
           </p>
         </form>
       )}

@@ -48,7 +48,9 @@ equipment hire such as kayaks, and instructor-led classes.
 
 - [Next.js 15](https://nextjs.org/) (App Router) + React 19 + TypeScript
 - [Tailwind CSS 4](https://tailwindcss.com/)
-- SQLite via [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — zero-config, auto-created and seeded at `data/mysenam.db` on first run
+- PostgreSQL — a Postgres server in production (`DATABASE_URL`), and
+  [PGlite](https://pglite.dev), Postgres compiled to WebAssembly and run inside
+  the app, for development and the tests, so neither needs a server
 
 ## Getting started
 
@@ -58,15 +60,25 @@ cp .env.example .env.local   # optional: every value has a working default
 npm run dev
 ```
 
-Run the test suite (Vitest against an in-memory database) with:
+Run the test suite (Vitest; each test file gets its own in-memory PGlite) with:
 
 ```bash
 npm test
 ```
 
-Open http://localhost:3000. The database is created and seeded with four demo venues
-(Petaling Jaya, Subang Jaya, Bangsar, Putrajaya) on first request. Node 22 is what
-this is developed against; `.nvmrc` pins it.
+and against a real Postgres server — each test file gets a throwaway database
+there, dropped when it finishes — with:
+
+```bash
+TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres npm test
+```
+
+Open http://localhost:3000. With no `DATABASE_URL` the database is PGlite in
+`data/pglite`; it is created, migrated and seeded with four demo venues
+(Petaling Jaya, Subang Jaya, Bangsar, Putrajaya) on first request. PGlite is
+for development: running Postgres inside the app's own process costs it the
+best part of a gigabyte of memory, against about 250 MB with a server. Node 22
+is what this is developed against; `.nvmrc` pins it.
 
 Nothing has been *booked* at those venues, though, so every admin tab opens
 empty. Sign in at `/admin` and the dashboard offers to fix that: **Load demo
@@ -115,11 +127,26 @@ the suite red.
 
 ## Deploying
 
+Production runs against a Postgres server, version 16 or later:
+
 ```bash
 npm ci
 npm run build
-npm start          # listens on 3000; put a TLS-terminating proxy in front
+DATABASE_URL=postgres://mysenam:…@127.0.0.1:5432/mysenam npm start
+                   # listens on 3000; put a TLS-terminating proxy in front
 ```
+
+The schema is created on the first start and moved on by every later one: the
+files in `db/migrations` are applied in order, each once, under a lock, so two
+servers starting together do not both run one.
+
+There are two ready-made ways to run it:
+
+- **A server of your own**: one DigitalOcean Droplet with Postgres, the app and
+  Caddy on it, set up by a script and deployed by another. See
+  [`deploy/digitalocean/README.md`](deploy/digitalocean/README.md).
+- **Render**: a Blueprint per tenant, each with its own Render Postgres. See
+  *A venue business's own copy*, below.
 
 ### Configuration
 
@@ -137,13 +164,14 @@ Everything is an environment variable; there is nothing else to configure.
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
-| `MYSENAM_DB` | `data/mysenam.db` | Where the database lives. Put it on a disk that survives a redeploy |
-| `MYSENAM_BACKUP_DIR` | `backups/` beside the database | Where snapshots are written |
+| `DATABASE_URL` | PGlite in `data/pglite` | `postgres://user:password@host:5432/db` in production. `pglite:/some/folder` or `pglite:memory` for PGlite |
+| `DATABASE_POOL_SIZE` | `10` | Connections the app keeps open to the server |
+| `MYSENAM_DATA_DIR` | `data/` | The app's own folder: backups, and `secret.key` when `MYSENAM_SECRET` is not set. Put it on a disk that survives a redeploy |
+| `MYSENAM_BACKUP_DIR` | `backups/` in the data folder | Where snapshots are written |
 | `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
 | `MYSENAM_BACKUP_HOUR` | `3` | The hour, Malaysia time, of the nightly backup |
 | `MYSENAM_SCHEDULER` | on in production | `off` to leave nightly backups and message sending to your own cron |
 | `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
-| `MUDAHTEMPAH_DB` | — | The old name for `MYSENAM_DB`, still honoured |
 | `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |
 | `MYSENAM_SEND` | — | `log` writes customer messages to the server log instead of sending them |
 | `WHATSAPP_TOKEN` | — | A WhatsApp Cloud API access token. With the next one, sends messages on WhatsApp |
@@ -153,7 +181,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `WHATSAPP_API_VERSION` | `v23.0` | Graph API version |
 | `SMTP_URL` | — | `smtp://user:pass@host:587` (or `smtps://…:465`). With `MAIL_FROM`, sends email |
 | `MAIL_FROM` | — | The sender, e.g. `Arena Bookings <bookings@arena.my>` |
-| `MYSENAM_SECRET` | `secret.key` beside the database | Encrypts stored payment keys. Keep it out of the backups |
+| `MYSENAM_SECRET` | `secret.key` in the data folder | Encrypts stored payment keys. Keep it out of the backups |
 
 `.env.example` lists all of them with comments; copy it to `.env.local`.
 
@@ -170,7 +198,9 @@ Two things depend on the proxy being configured properly:
   set `X-Forwarded-Proto`, or cookies will not carry the flag.
 - **Rate limits** identify a client by `X-Forwarded-For`. If the proxy does not
   set it, every request looks like one client and the limits apply to the whole
-  internet at once.
+  internet at once. It must also *replace* what the visitor sent rather than add
+  to it, or a visitor can pick their own address. The DigitalOcean kit's
+  Caddyfile does both.
 
 `GET /api/health` answers `{"ok":true}` while the database is readable, and
 `503` when it is not. It deliberately says nothing else — anything reachable by
@@ -178,7 +208,7 @@ the load balancer is reachable by everyone else too.
 
 ### Backups
 
-The whole system is one SQLite file. Losing it loses every booking, the credit
+Everything is in one database. Losing it loses every booking, the credit
 ledger, and the record of who opened which door.
 
 ```bash
@@ -199,14 +229,19 @@ and do, if more than one server shares the database:
 0 3 * * *  cd /srv/mysenam && /usr/bin/npm run backup >> /var/log/mysenam-backup.log 2>&1
 ```
 
-Each run takes a consistent snapshot with SQLite's own `VACUUM INTO` — safe
-while the app is serving, unlike copying the file, which would catch the WAL
-mid-write. It then **opens the snapshot and checks it**: `PRAGMA
-integrity_check` plus a row count. A snapshot that does not verify is deleted
-rather than kept, and the script exits non-zero so a failing backup shows up as
-a failing cron job instead of a quiet no-op. It writes to a `.tmp` name and
-renames on success, so an interrupted run never leaves a half-file that looks
-real.
+On a Postgres server each run is `pg_dump` in its custom format (`.dump`):
+consistent while the app keeps serving, and taken with the password passed in
+the environment, never on a command line where the process list would show it.
+It then **reads the snapshot back**: `pg_restore --list` must find the tables
+that hold the business. `pg_dump` has to be installed where the app runs
+(`apt install postgresql-client`, at the server's version or newer; the
+DigitalOcean kit installs it). On PGlite a snapshot is a copy of its data folder
+(`.tar.gz`), loaded into a fresh PGlite and its bookings counted.
+
+Either way, a snapshot that does not verify is deleted rather than kept, and
+the script exits non-zero so a failing backup shows up as a failing cron job
+instead of a quiet no-op. It is written under a temporary name and renamed on
+success, so an interrupted run never leaves a half-file that looks real.
 
 A platform owner can see the same list under *Venues & staff → Backups*, take
 one by hand before a risky change, and is told in red when the newest snapshot
@@ -245,21 +280,49 @@ Venues' payment keys inside are encrypted, and the key that unlocks them
 ### Restoring
 
 ```bash
-# Stop the app first — swapping the file under a running process ends badly.
-node scripts/restore.mjs data/backups/mysenam-2026-09-26-030000.db --force
+# Stop the app first.
+npm run restore -- /var/lib/mysenam/backups/mysenam-2026-09-26-030000.dump --force
 ```
 
-The script refuses a file that will not open as a MySenam database, prints what
-it is about to replace and how many bookings are in it, and does nothing at all
-without `--force`. The database it replaces is moved aside rather than deleted,
-because the worst restore is the one that turns out to have used the wrong
-file.
+The script refuses a file that is not a backup it could restore, prints what it
+is about to replace, and does nothing at all without `--force`. A `.dump` goes
+back into the server in `DATABASE_URL` with `pg_restore`, in one transaction:
+all of it or none of it. Before it touches anything it takes a fresh snapshot
+of what is there, and a PGlite folder it replaces is moved aside rather than
+deleted, because the worst restore is the one that turns out to have used the
+wrong file.
 
 ### Upgrading
 
-Migrations are additive and run when the database is opened, so a deploy is
-build, restart, done. **Take a backup first** — `npm run backup` — because a
-migration that rebuilds a table cannot be undone from inside the app.
+Migrations run when the app starts, so a deploy is build, restart, done.
+**Take a backup first** (`npm run backup`), because a migration cannot be undone
+from inside the app. The DigitalOcean kit's deploy script takes one with the
+live version, just before it switches to the new one, and puts the old version
+back if the new one does not answer.
+
+### Moving from SQLite
+
+Before Postgres, an install kept everything in one SQLite file
+(`data/mysenam.db`, or wherever `MYSENAM_DB` pointed). Started on this version,
+such an install **refuses to start**, and says why, rather than open a new,
+empty database beside the old one and look to its staff as if everything had
+gone. To bring it across:
+
+1. Stop the old app, so nothing is written to the file halfway through.
+2. Set `DATABASE_URL` (and `MYSENAM_DATA_DIR`), and remove `MYSENAM_DB`.
+3. Run:
+
+   ```bash
+   npm run import-sqlite -- /var/data/mysenam.db
+   ```
+
+It copies every table, keeping every id, so booking codes, links and the ledger
+still line up. It runs as one transaction, so if anything does not fit, nothing
+is changed. Then it counts every table on both sides. Saved payment keys are
+locked with the old install's `secret.key`, so that is brought across from
+beside the file too, unless `MYSENAM_SECRET` is set, in which case it must hold
+the old value. It refuses a database that already has customers, bookings or
+staff of its own unless told `--force`, which wipes them first.
 
 ### Running the marketplace
 
@@ -299,9 +362,14 @@ shows ABC's venues, under ABC's name, tagline, logo and colour, and nothing
 else. The platform owner sets one up under *Venues & staff → Storefront
 domains* — the domain, the name, and which venues it shows — and then:
 
-1. adds the domain to the Render service (*Settings → Custom Domains*; Render
-   issues the certificate — check its per-service limit if you expect many);
-2. points the domain's DNS where Render says.
+- **on a server of its own** (the DigitalOcean kit), points the domain's A
+  record at the server. Caddy gets the certificate on the first visit, once it
+  has asked the app (`/api/tls-check`) and been told the domain is a registered
+  storefront, so nobody can point domains of their own at the box and have it
+  request certificates for them;
+- **on Render**, adds the domain to the service (*Settings → Custom Domains*;
+  Render issues the certificate, but check its per-service limit if you expect
+  many), and points the domain's DNS where Render says.
 
 What changes on a storefront is what the public pages show. The home page,
 search, classes and the venue list are only its venues; another venue's page,
@@ -343,8 +411,9 @@ git add deploy/render/arena.yaml && git commit -m "Add Arena" && git push
 
 Then in Render: **New → Blueprint**, this repository, Blueprint path
 `deploy/render/arena.yaml`. Render asks for the admin email and password and
-the site's URL, and sets up the service with a 1 GB disk, the nightly backup
-and a generated `MYSENAM_SECRET`. Each tenant gets its own file because a
+the site's URL, and sets up the service with its own Render Postgres
+(`basic-256mb`; the free plan is deleted after 30 days), a 1 GB disk for the
+nightly backups, and a generated `MYSENAM_SECRET`. Each tenant gets its own file because a
 Blueprint applies itself to any existing service of the same name: two tenants
 sharing one file would be one service, overwritten.
 
@@ -354,11 +423,15 @@ outside opening hours.
 
 ### What one box gives you
 
-One SQLite file means one writer. WAL mode keeps reads concurrent and a single
-venue will not notice, but scaling out means Postgres, at which point the
-uniqueness constraint that prevents double-booking ports directly. Rate-limit
-counters live in process memory, so several instances each keep their own; that
-wants Redis with the same policies.
+Postgres takes any number of writers. Every path that checks and then writes
+(a court's last free hour, a wallet balance, a pass entry, a class's last
+place) runs in one serializable transaction, retried when two collide, and
+`tests/concurrency.test.ts` fires each of them several times at once and counts
+what got through. So more than one app instance can share a database. Two
+things still live in each process: rate-limit counters, so several instances
+each keep their own (that wants Redis with the same policies); and the
+scheduler, so with several instances set `MYSENAM_SCHEDULER=off` on all but
+one.
 
 ## API
 
@@ -471,19 +544,21 @@ src/
   components/
     BookingBoard.tsx  # Interactive slot-picker (client component)
   lib/
-    db.ts             # SQLite schema, migrations + seed data
+    db.ts             # Postgres (server or PGlite), migrations + seed data
     store.ts          # All queries & booking/cancel/block logic
     auth.ts           # Accounts: scrypt passwords + session cookies
     admin-auth.ts     # Operator accounts, sessions and venue scoping
     booking-links.ts  # WhatsApp / Google Calendar / .ics helpers
-    backup.ts         # Verified SQLite snapshots, retention and staleness
+    backup.ts         # Verified pg_dump / PGlite snapshots, retention, staleness
     reports.ts        # Period reporting: revenue, utilisation, liabilities
     privacy.ts        # Export, erasure and the retention schedule
     demo.ts           # A deterministic demo fortnight for an empty install
     rate-limit.ts     # Fixed-window limiter for password and code endpoints
     time.ts           # Malaysia-timezone helpers, peak-hour rules
     types.ts          # Shared types & constants
-scripts/              # backup.mjs and restore.mjs, for cron and for a human
+db/migrations/        # The schema, one numbered .sql file per change
+scripts/              # backup, restore, and import-sqlite for moving off SQLite
+deploy/               # digitalocean/ (one server, set up by a script), render/
 vitest.config.mts     # Resolves the @/ alias, so tests can call route handlers
 tests/                # Vitest suite (booking rules, blocks, series, search,
                       # payments, customer auth, admin scoping, equipment hire,
@@ -1193,8 +1268,8 @@ running booking software and running a payments business.
 
 The keys are encrypted in the database, which is the file that gets backed up
 and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
-when that is unset, one generated into `secret.key` beside the database —
-never inside it. A backup restored onto another machine without that key asks
+when that is unset, one generated into `secret.key` in the data folder —
+never in the database. A backup restored onto another machine without that key asks
 for the venue's payment keys to be entered again instead of handing them over.
 
 ## Booking without naming a court
@@ -1330,9 +1405,9 @@ install:
 
 - Booking codes already issued keep their `MT-` prefix and still resolve; lookup
   matches the whole code, never the prefix.
-- The database file is now `data/mysenam.db`, and the override variable is
-  `MYSENAM_DB`. A database still sitting at `data/mudahtempah.db` is opened as
-  before, and `MUDAHTEMPAH_DB` is still honoured, so nothing has to be moved.
+- The SQLite file became `data/mysenam.db`, set by `MYSENAM_DB`. Both that and
+  the older `data/mudahtempah.db` / `MUDAHTEMPAH_DB` are recognised by the
+  check described in *Moving from SQLite*, and brought across the same way.
 - Session cookies are now `ms_session` and `ms_admin`, so everyone signed in
   under the old names has to sign in once more.
 - The bootstrap owner's default email is now `admin@mysenam.my`. That default

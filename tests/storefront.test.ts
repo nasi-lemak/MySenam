@@ -186,6 +186,29 @@ describe("links back", () => {
   });
 });
 
+describe("certificates on a server of our own", () => {
+  const ask = async (domain: string) => {
+    const { GET } = await import("../src/app/api/tls-check/route");
+    return (await GET(new NextRequest(`http://127.0.0.1/api/tls-check?domain=${encodeURIComponent(domain)}`))).status;
+  };
+
+  it("are allowed for a registered storefront, with or without www.", async () => {
+    expect(await ask("abcbadminton.com")).toBe(200);
+    expect(await ask("www.abcbadminton.com")).toBe(200);
+  });
+
+  it("are allowed for the install's own address", async () => {
+    expect(await ask("mysenam.my")).toBe(200);
+  });
+
+  it("are refused for anything else", async () => {
+    expect(await ask("evil.abcbadminton.com")).toBe(404);
+    expect(await ask("abcbadminton.com.evil.com")).toBe(404);
+    expect(await ask("somebody-else.com")).toBe(404);
+    expect(await ask("")).toBe(404);
+  });
+});
+
 describe("managing them", () => {
   it("is for the platform owner only", async () => {
     await ensureBootstrapAdmin();

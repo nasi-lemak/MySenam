@@ -12,7 +12,7 @@ import { dataDirectory, isEphemeral } from "./db";
  * restoring it.
  *
  * The key that unlocks them is MYSENAM_SECRET when it is set. Otherwise one is
- * made on first use and kept in a file beside the database, never inside it:
+ * made on first use and kept in a file in the data folder, never in the database:
  * a backup then carries the locked credentials without the key, and an install
  * restored elsewhere asks for them to be entered again rather than handing
  * them over.

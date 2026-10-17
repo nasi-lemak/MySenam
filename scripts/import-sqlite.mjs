@@ -16,12 +16,14 @@
  * it first.
  *
  * Stop the old app before copying its file, so nothing is written to it
- * halfway through. Encrypted settings (payment keys, the off-site backup
- * secret) are locked with the old install's secret.key, so that is brought
- * across too, unless MYSENAM_SECRET holds the key instead.
+ * halfway through. Venues' saved payment keys are locked with the old
+ * install's secret.key or MYSENAM_SECRET; this checks the new install's key
+ * opens them before it starts, and brings secret.key across from beside the
+ * file when there is no other.
  *
  * Usage: node scripts/import-sqlite.mjs <mysenam.db> [--force]
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -56,24 +58,43 @@ if (!sqliteTables.has("bookings") || !sqliteTables.has("venues")) fail(`${source
 
 // ------------------------------------------------------------ the key
 
+// Venues' saved payment keys are sealed with a key the database does not
+// hold: MYSENAM_SECRET, or else secret.key in the data folder (the same
+// material either way — the file holds what the variable would). Work out
+// which key this install will use, and prove it opens them before copying
+// anything, because the wrong one fails quietly: online payment just stops.
 const oldKey = path.join(path.dirname(path.resolve(source)), "secret.key");
 const newKey = path.join(dataDirectory(), "secret.key");
-let keyNote = null;
-if (process.env.MYSENAM_SECRET) {
-  keyNote = "MYSENAM_SECRET is set: it must be the same value the old install used, or saved payment keys will not open.";
-} else if (fs.existsSync(oldKey)) {
-  const old = fs.readFileSync(oldKey);
-  if (fs.existsSync(newKey)) {
-    if (!fs.readFileSync(newKey).equals(old))
-      fail(
-        `${newKey} already holds a different key, which could not open the old install's saved payment keys.\n` +
-          `Move it away, or copy ${oldKey} over it, and run this again.`
-      );
-  } else {
-    keyNote = `copy ${oldKey} to ${newKey}`;
+const read = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : null);
+const material = process.env.MYSENAM_SECRET || read(newKey) || read(oldKey);
+const bringKeyAcross = !process.env.MYSENAM_SECRET && !read(newKey) && read(oldKey) !== null;
+
+function opens(key, sealed) {
+  try {
+    const raw = Buffer.from(sealed.slice("v1:".length), "base64");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", crypto.createHash("sha256").update(key).digest(), raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
+    return true;
+  } catch {
+    return false;
   }
-} else {
-  keyNote = `No secret.key beside ${source}. If the old install saved payment keys, copy its secret.key to ${newKey}.`;
+}
+
+const sealed = sqliteTables.has("venue_payment_accounts")
+  ? sqlite.prepare("SELECT api_key FROM venue_payment_accounts WHERE api_key LIKE 'v1:%' LIMIT 1").get()?.api_key
+  : undefined;
+if (sealed && !(material && opens(material, sealed)) && !force) {
+  const where = process.env.MYSENAM_SECRET
+    ? "MYSENAM_SECRET"
+    : read(newKey)
+      ? newKey
+      : "no key at all";
+  fail(
+    `The old install has saved payment keys, and the key this install would use (${where}) cannot open them.\n` +
+      `Set MYSENAM_SECRET to the old install's MYSENAM_SECRET, or to the contents of its secret.key, and run this again.\n` +
+      "(Or pass --force to import anyway; each venue then enters its payment keys again.)"
+  );
 }
 
 // ------------------------------------------------------------ the target
@@ -179,12 +200,14 @@ try {
 await db.close();
 sqlite.close();
 
-if (keyNote?.startsWith("copy ")) {
+let keyNote = null;
+if (bringKeyAcross) {
   fs.mkdirSync(path.dirname(newKey), { recursive: true });
   fs.copyFileSync(oldKey, newKey);
   fs.chmodSync(newKey, 0o600);
   keyNote = `Brought the old install's secret.key across to ${newKey}.`;
 }
+if (sealed) keyNote = `${keyNote ? `${keyNote} ` : ""}Saved payment keys: ${opens(material ?? "", sealed) ? "checked, and they open" : "will need entering again"}.`;
 
 const width = Math.max(...counts.map((c) => c.table.length));
 for (const c of counts.filter((c) => c.from > 0)) console.log(`  ${c.table.padEnd(width)}  ${c.to}`);

@@ -1,0 +1,37 @@
+# MySenam, run by systemd. Installed to /etc/systemd/system/ by setup.sh.
+#
+#   systemctl status mysenam       is it up?
+#   journalctl -u mysenam -f       what is it saying?
+#   systemctl restart mysenam      after changing /etc/mysenam/env
+
+[Unit]
+Description=MySenam booking site
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service postgresql@16-main.service
+
+[Service]
+Type=simple
+User=mysenam
+Group=mysenam
+WorkingDirectory=/srv/mysenam/current
+EnvironmentFile=/etc/mysenam/env
+# Only Caddy, on the same machine, talks to it.
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+Restart=always
+RestartSec=3
+# Give in-flight requests a moment when restarting for a deploy.
+TimeoutStopSec=20
+
+# It needs to write its data folder (backups) and Next's cache, and nothing
+# else on the machine.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/mysenam /srv/mysenam/releases
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

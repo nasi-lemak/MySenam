@@ -8,6 +8,17 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # The suite runs twice: on PGlite, as a developer runs it, and against a
+    # real Postgres server, as production runs — where requests really do run
+    # side by side on separate connections.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -22,8 +33,13 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
-      - name: Test
+      - name: Test (PGlite)
         run: npm test
+
+      - name: Test (Postgres 16)
+        run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
       - name: Build
         run: npm run build
