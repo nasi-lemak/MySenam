@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { tellOwners } from "@/lib/owner-alerts";
 import { markDetailsChecked } from "@/lib/setup";
-import { getVenue, updateVenue } from "@/lib/store";
+import { getVenue, setVenuePin, updateVenue } from "@/lib/store";
+import { formatDistance, inMalaysia, readPoint } from "@/lib/geo";
+import { FAR_FROM_ADDRESS_M } from "@/lib/applications";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -102,10 +104,18 @@ export async function PATCH(
     changes[field] = value as string | null;
   }
 
-  if (Object.keys(changes).length === 0)
+  // Where it is on the map: both, or neither.
+  let pin: { lat: number; lng: number } | null = null;
+  if (input.lat !== undefined || input.lng !== undefined) {
+    pin = readPoint(input.lat, input.lng);
+    if (!pin) return NextResponse.json({ error: "Drop the pin on the map where the venue is." }, { status: 400 });
+    if (!inMalaysia(pin)) return NextResponse.json({ error: "The pin is outside Malaysia." }, { status: 400 });
+  }
+
+  if (Object.keys(changes).length === 0 && !pin)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
-  const before = changes.name !== undefined ? await getVenue(venueId) : null;
+  const before = await getVenue(venueId);
   const result = await updateVenue(venueId, changes);
   if (!result.ok)
     return NextResponse.json(
@@ -122,5 +132,18 @@ export async function PATCH(
       `${before.name} is now called ${result.venue.name}`,
       `${admin.email} renamed "${before.name}" to "${result.venue.name}".`
     );
+  if (pin) {
+    const moved = await setVenuePin(venueId, pin);
+    // Where a live venue says it is was checked when it went live. Moving the
+    // pin a street is a correction; moving it across town is a different
+    // place, and the platform owner hears of it.
+    if (!isOwner(admin) && before?.publishedAt && moved !== null && moved > FAR_FROM_ADDRESS_M)
+      await tellOwners(
+        `${result.venue.name} moved its pin ${formatDistance(moved)}`,
+        `${admin.email} moved ${result.venue.name}'s pin on the map by ${formatDistance(moved)}. ` +
+          `Its address is now "${result.venue.address}".`
+      );
+    return NextResponse.json({ venue: (await getVenue(venueId)) ?? result.venue });
+  }
   return NextResponse.json({ venue: result.venue });
 }

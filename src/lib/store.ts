@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
 import { OPEN_TO_CUSTOMERS } from "./listing";
+import { distanceM, inMalaysia, readPoint } from "./geo";
 import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -102,6 +103,10 @@ interface VenueRow {
   emergency_info: string | null;
   published_at: string | null;
   suspended_at: string | null;
+  suspended_by: "payment" | "owner" | null;
+  suspended_reason: string | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 function toVenue(r: VenueRow): Venue {
@@ -120,6 +125,10 @@ function toVenue(r: VenueRow): Venue {
     emergencyInfo: r.emergency_info,
     publishedAt: r.published_at,
     suspendedAt: r.suspended_at,
+    suspendedBy: r.suspended_by,
+    suspendedReason: r.suspended_reason,
+    lat: r.lat,
+    lng: r.lng,
   };
 }
 
@@ -489,10 +498,10 @@ async function blockedPlacesOn(
     .prepare(`
       SELECT b.court_id AS court_id, b.hour AS hour,
              COALESCE(b.places, c.capacity) AS places
-      FROM slot_blocks b JOIN courts c ON c.id = b.court_id
-      WHERE b.date = ?${venue.sql}${courts.sql}
+      FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
+      WHERE true${venue.sql}${courts.sql}
     `)
-    .all(date, ...venue.params, ...courts.params) as {
+    .all(date, date, ...venue.params, ...courts.params) as {
     court_id: number;
     hour: number;
     places: number;
@@ -507,10 +516,10 @@ async function blockedPlacesFor(courtId: number, date: string, hours: number[]):
   const rows = await getDb()
     .prepare(`
       SELECT b.hour AS hour, COALESCE(b.places, c.capacity) AS places
-      FROM slot_blocks b JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id = ? AND b.date = ? AND b.hour IN (${list})
+      FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
+      WHERE b.court_id = ? AND b.hour IN (${list})
     `)
-    .all(courtId, date, ...hours) as { hour: number; places: number }[];
+    .all(date, date, courtId, ...hours) as { hour: number; places: number }[];
   return new Map(rows.map((r) => [r.hour, r.places]));
 }
 
@@ -612,6 +621,8 @@ async function countTakenPlaces(date: string, venueId?: number): Promise<Map<str
 
 export interface SearchResult {
   venue: Venue;
+  /** How far away, when the search was near somewhere. */
+  distanceKm?: number;
   /** The cheapest court free at this venue for this time. */
   court: Court;
   startHour: number;
@@ -633,12 +644,62 @@ export interface SearchInput {
   limit?: number;
   /** Only these venues — a storefront's. Undefined for every venue. */
   venueIds?: number[];
+  /** Only venues within this distance of here, nearest first. */
+  near?: Near;
+}
+
+/** Somewhere to search around, and how far out. */
+export interface Near {
+  lat: number;
+  lng: number;
+  km: number;
+}
+export const NEAR_DEFAULT_KM = 10;
+export const NEAR_MAX_KM = 50;
+
+/**
+ * `near=3.1390,101.6869` and `km=10` from a query string, or null. A point
+ * outside Malaysia, or not a point at all, is no point.
+ */
+export function readNear(near: string | null | undefined, km?: string | null): Near | null {
+  if (!near) return null;
+  const [lat, lng] = near.split(",").map((x) => Number(x.trim()));
+  const point = readPoint(lat, lng);
+  if (!point || !inMalaysia(point)) return null;
+  const radius = Number(km);
+  return {
+    ...point,
+    km: Number.isFinite(radius) && radius > 0 ? Math.min(radius, NEAR_MAX_KM) : NEAR_DEFAULT_KM,
+  };
+}
+
+/**
+ * Kilometres from a point to venue `v`, in SQL, along the ground. With its
+ * parameters, which go wherever the expression does.
+ */
+function distanceKmSql(near: Near): { sql: string; params: number[] } {
+  return {
+    sql: `(6371 * acos(LEAST(1.0, GREATEST(-1.0,
+            cos(radians(?)) * cos(radians(v.lat)) * cos(radians(v.lng) - radians(?))
+            + sin(radians(?)) * sin(radians(v.lat))))))`,
+    params: [near.lat, near.lng, near.lat],
+  };
+}
+
+/** A box around the circle, which an index on the columns can answer, before the exact distance. */
+function nearBox(near: Near): { sql: string; params: number[] } {
+  const dLat = near.km / 111;
+  const dLng = near.km / (111 * Math.max(Math.cos((near.lat * Math.PI) / 180), 0.01));
+  return {
+    sql: "v.lat BETWEEN ? AND ? AND v.lng BETWEEN ? AND ?",
+    params: [near.lat - dLat, near.lat + dLat, near.lng - dLng, near.lng + dLng],
+  };
 }
 
 /** Distinct venue areas, for the search filter. */
 /** One page of the venue list, and how many venues there are in all. */
 export interface VenuePage {
-  venues: (Venue & { courts: Court[] })[];
+  venues: (Venue & { courts: Court[]; distanceKm?: number })[];
   total: number;
   page: number;
   pageSize: number;
@@ -648,7 +709,7 @@ export const VENUE_PAGE_SIZE = 24;
 const MAX_VENUE_PAGE_SIZE = 100;
 
 /** `WHERE` for the public venue list, shared by the page and its counts. */
-function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }): {
+function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[]; near?: Near }): {
   sql: string;
   params: (string | number)[];
 } {
@@ -668,6 +729,12 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }
     clauses.push("EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id AND c.sport = ?)");
     params.push(opts.sport);
   }
+  if (opts.near) {
+    const box = nearBox(opts.near);
+    const distance = distanceKmSql(opts.near);
+    clauses.push(box.sql, `${distance.sql} <= ?`);
+    params.push(...box.params, ...distance.params, opts.near.km);
+  }
   return { sql: `WHERE ${clauses.join(" AND ")}`, params };
 }
 
@@ -681,7 +748,7 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }
  * only their courts.
  */
 export async function listVenuePage(
-  opts: { area?: string; sport?: Sport; venueIds?: number[]; page?: number; pageSize?: number } = {}
+  opts: { area?: string; sport?: Sport; venueIds?: number[]; near?: Near; page?: number; pageSize?: number } = {}
 ): Promise<VenuePage> {
   const db = getDb();
   const pageSize = Math.min(Math.max(Math.trunc(opts.pageSize ?? VENUE_PAGE_SIZE), 1), MAX_VENUE_PAGE_SIZE);
@@ -690,13 +757,24 @@ export async function listVenuePage(
   const { total } = (await db
     .prepare(`SELECT COUNT(*) AS total FROM venues v ${filter.sql}`)
     .get(...filter.params)) as { total: number };
-  const rows = (await db
-    // A fair order, not an alphabetical one: by name, "AAA Badminton" would
-    // sit at the top for good, and a venue could rename itself to get there.
-    // Shuffled by the day, so every venue takes its turn near the top, and
-    // the same all day, so paging through never shows one venue twice.
-    .prepare(`SELECT v.* FROM venues v ${filter.sql} ORDER BY md5(v.id || ':' || ?), v.id LIMIT ? OFFSET ?`)
-    .all(...filter.params, todayISO(), pageSize, (page - 1) * pageSize)) as VenueRow[];
+  // Near somewhere: nearest first, which nobody can game but by moving.
+  const distance = opts.near ? distanceKmSql(opts.near) : null;
+  const rows = (
+    distance
+      ? await db
+          .prepare(
+            `SELECT v.*, ${distance.sql} AS distance_km FROM venues v ${filter.sql}
+              ORDER BY distance_km, v.id LIMIT ? OFFSET ?`
+          )
+          .all(...distance.params, ...filter.params, pageSize, (page - 1) * pageSize)
+      : await db
+          // A fair order, not an alphabetical one: by name, "AAA Badminton" would
+          // sit at the top for good, and a venue could rename itself to get there.
+          // Shuffled by the day, so every venue takes its turn near the top, and
+          // the same all day, so paging through never shows one venue twice.
+          .prepare(`SELECT v.* FROM venues v ${filter.sql} ORDER BY md5(v.id || ':' || ?), v.id LIMIT ? OFFSET ?`)
+          .all(...filter.params, todayISO(), pageSize, (page - 1) * pageSize)
+  ) as (VenueRow & { distance_km?: number })[];
   if (rows.length === 0) return { venues: [], total, page, pageSize };
   const courts = (
     (await db
@@ -704,7 +782,11 @@ export async function listVenuePage(
       .all(...rows.map((r) => r.id))) as CourtRow[]
   ).map(toCourt);
   return {
-    venues: rows.map(toVenue).map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) })),
+    venues: rows.map((r) => ({
+      ...toVenue(r),
+      courts: courts.filter((c) => c.venueId === r.id),
+      ...(r.distance_km !== undefined ? { distanceKm: Math.round(Number(r.distance_km) * 10) / 10 } : {}),
+    })),
     total,
     page,
     pageSize,
@@ -746,8 +828,13 @@ export async function sportsOfferedAt(venueIds?: number[]): Promise<Sport[]> {
  */
 export const SEARCH_COURT_LIMIT = 400;
 
-export async function countSearchCourts(input: { sport: Sport; area?: string; venueIds?: number[] }): Promise<number> {
-  const filter = venueFilter({ area: input.area, venueIds: input.venueIds });
+export async function countSearchCourts(input: {
+  sport: Sport;
+  area?: string;
+  venueIds?: number[];
+  near?: Near;
+}): Promise<number> {
+  const filter = venueFilter({ area: input.area, venueIds: input.venueIds, near: input.near });
   const { n } = (await getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql} AND c.sport = ?`
@@ -784,7 +871,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.open_hour AS v_open, v.close_hour AS v_close,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
-           v.published_at AS v_published_at, v.suspended_at AS v_suspended_at
+           v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng
     FROM courts c JOIN venues v ON v.id = c.venue_id
     WHERE c.sport = ? AND ${OPEN_TO_CUSTOMERS}
   `;
@@ -796,6 +883,11 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     if (input.venueIds.length === 0) return [];
     sql += ` AND v.id IN (${input.venueIds.map(() => "?").join(",")})`;
     params.push(...input.venueIds);
+  }
+  if (input.near) {
+    const box = nearBox(input.near);
+    sql += ` AND ${box.sql}`;
+    params.push(...box.params);
   }
   sql += " ORDER BY v.id, c.id";
 
@@ -813,7 +905,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_emergency_phone: string | null;
     v_emergency_info: string | null;
     v_published_at: string | null;
-    v_suspended_at: string | null;
+    v_lat: number | null;
+    v_lng: number | null;
   })[];
   if (rows.length === 0) return [];
 
@@ -855,8 +948,19 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       emergencyPhone: row.v_emergency_phone,
       emergencyInfo: row.v_emergency_info,
       publishedAt: row.v_published_at,
-      suspendedAt: row.v_suspended_at,
+      // Search only finds venues open to customers.
+      suspendedAt: null,
+      suspendedBy: null,
+      suspendedReason: null,
+      lat: row.v_lat,
+      lng: row.v_lng,
     };
+    // Inside the box, but is it inside the circle?
+    let distanceKm: number | undefined;
+    if (input.near) {
+      distanceKm = Math.round(distanceM(input.near, { lat: row.v_lat!, lng: row.v_lng! }) / 100) / 10;
+      if (distanceKm > input.near.km) continue;
+    }
     // A booking of `duration` hours must still finish by the venue's close.
     const fromHour = Math.max(wantFrom, venue.openHour);
     const lastStart = Math.min(wantTo, venue.closeHour - duration);
@@ -879,6 +983,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
         totalPrice: computePrice(court, input.date, hours),
         alsoFree: 0,
         pricesVary: false,
+        ...(distanceKm !== undefined ? { distanceKm } : {}),
       });
     }
   }
@@ -886,6 +991,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   results.sort(
     (a, b) =>
       a.startHour - b.startHour ||
+      // Near somewhere, the nearest first at each time; otherwise the cheapest.
+      (a.distanceKm ?? 0) - (b.distanceKm ?? 0) ||
       a.totalPrice - b.totalPrice ||
       a.venue.name.localeCompare(b.venue.name) ||
       a.court.name.localeCompare(b.court.name)
@@ -1270,8 +1377,10 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
   }
 
   const blocks = await db
-    .prepare("SELECT court_id, hour, reason, places FROM slot_blocks WHERE date = ? AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)")
-    .all(date, venueId) as {
+    .prepare(
+      "SELECT court_id, hour, reason, places FROM blocks_between(?, ?) WHERE court_id IN (SELECT id FROM courts WHERE venue_id = ?)"
+    )
+    .all(date, date, venueId) as {
     court_id: number;
     hour: number;
     reason: string | null;
@@ -1613,9 +1722,8 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
   const blockedRows = await db
     .prepare(`
       SELECT b.court_id AS court_id, b.date AS date, COUNT(*) AS n
-      FROM slot_blocks b JOIN courts c ON c.id = b.court_id
-      WHERE b.date >= ? AND b.date <= ?
-        AND COALESCE(b.places, c.capacity) >= c.capacity
+      FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
+      WHERE COALESCE(b.places, c.capacity) >= c.capacity
       GROUP BY b.court_id, b.date
     `)
     .all(start, end) as { court_id: number; date: string; n: number }[];
@@ -1691,6 +1799,19 @@ export async function createVenue(input: {
     await db.prepare("SELECT * FROM venues WHERE id = ?").get(info.lastInsertRowid) as VenueRow
   );
   return { ok: true, venue };
+}
+
+/**
+ * Move a venue's pin. Returns how far it moved, in metres, or null when it
+ * had none before.
+ */
+export async function setVenuePin(venueId: number, pin: { lat: number; lng: number }): Promise<number | null> {
+  const db = getDb();
+  const old = (await db.prepare("SELECT lat, lng FROM venues WHERE id = ?").get(venueId)) as
+    | { lat: number | null; lng: number | null }
+    | undefined;
+  await db.prepare("UPDATE venues SET lat = ?, lng = ? WHERE id = ?").run(pin.lat, pin.lng, venueId);
+  return old && old.lat !== null && old.lng !== null ? distanceM({ lat: old.lat, lng: old.lng }, pin) : null;
 }
 
 export async function updateVenue(

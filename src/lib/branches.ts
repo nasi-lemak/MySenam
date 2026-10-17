@@ -36,6 +36,9 @@ export async function sameBusiness(a: number, b: number): Promise<boolean> {
 export interface Business {
   id: number;
   name: string;
+  /** Suspended by the platform owner: why, or null. */
+  suspendedReason: string | null;
+  suspended: boolean;
   branches: { id: number; name: string; area: string }[];
   managers: { id: number; name: string; email: string }[];
 }
@@ -43,10 +46,11 @@ export interface Business {
 /** Every business, with its branches and managers: what the platform owner sees. */
 export async function listBusinesses(): Promise<Business[]> {
   const db = getDb();
-  const businesses = (await db.prepare("SELECT id, name FROM businesses ORDER BY name, id").all()) as {
-    id: number;
-    name: string;
-  }[];
+  const businesses = (
+    (await db
+      .prepare("SELECT id, name, suspended_at, suspended_reason FROM businesses ORDER BY name, id")
+      .all()) as { id: number; name: string; suspended_at: string | null; suspended_reason: string | null }[]
+  ).map((b) => ({ id: b.id, name: b.name, suspended: b.suspended_at !== null, suspendedReason: b.suspended_reason }));
   const branches = (await db
     .prepare("SELECT id, name, area, business_id FROM venues WHERE business_id IS NOT NULL ORDER BY name")
     .all()) as { id: number; name: string; area: string; business_id: number }[];

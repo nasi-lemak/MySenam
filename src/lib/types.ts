@@ -61,8 +61,15 @@ export interface Venue {
   emergencyInfo: string | null;
   /** When customers could first reach it; null for a draft (lib/listing.ts). */
   publishedAt: string | null;
-  /** Taken off the marketplace for an invoice long overdue; null otherwise. */
+  /** Taken off the marketplace; null otherwise. */
   suspendedAt: string | null;
+  /** By an invoice long overdue, which paying lifts, or by the platform owner. */
+  suspendedBy: "payment" | "owner" | null;
+  /** The platform owner's reason, shown to the venue's staff. */
+  suspendedReason: string | null;
+  /** Where it is on the map; null for venues never pinned. */
+  lat: number | null;
+  lng: number | null;
 }
 
 /** True when nobody is behind the counter at this hour. */

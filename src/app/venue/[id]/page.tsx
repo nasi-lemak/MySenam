@@ -7,6 +7,8 @@ import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
 import { currentStorefront, shows } from "@/lib/storefront";
 import { mayShowVenue, pageAdmin } from "@/lib/listing";
+import { listOutages } from "@/lib/outages";
+import PinMap from "@/components/PinMap";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,8 @@ export default async function VenuePage({
   const initial = parseInitialSelection(query, sports, dates);
   // Only closures inside the booking window are worth warning about.
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
+  // Courts out for a stretch that touches the booking window.
+  const outages = (await listOutages([venue.id])).filter((o) => o.startsOn <= dates[dates.length - 1]);
 
   return (
     <div className="space-y-6">
@@ -51,6 +55,19 @@ export default async function VenuePage({
         <h1 className="text-2xl font-bold">{venue.name}</h1>
         <p className="mt-1 text-sm text-slate-600">
           📍 {venue.address} · ☎ {venue.phone}
+          {venue.lat !== null && venue.lng !== null && (
+            <>
+              {" · "}
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${venue.lat},${venue.lng}`}
+                target="_blank"
+                rel="noopener"
+                className="font-medium text-teal-700 underline"
+              >
+                {t("venue.directions")}
+              </a>
+            </>
+          )}
         </p>
         <p className="mt-1 text-sm text-slate-500">
           {t("venue.openDaily", {
@@ -69,6 +86,28 @@ export default async function VenuePage({
           {closures
             .map((c) => (c.reason ? `${c.date} (${c.reason})` : c.date))
             .join(" · ")}
+        </div>
+      )}
+      {outages.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">{t("venue.outages")}</span>{" "}
+          {outages
+            .map(
+              (o) =>
+                `${o.courtName}, ` +
+                (o.endsOn === null
+                  ? `${o.startsOn > today ? `${t("venue.fromDate", { date: o.startsOn })} ` : ""}${t("venue.untilFurtherNotice")}`
+                  : o.startsOn === o.endsOn
+                    ? o.startsOn
+                    : `${o.startsOn > today ? o.startsOn : today} – ${o.endsOn}`) +
+                (o.reason ? ` (${o.reason})` : "")
+            )
+            .join(" · ")}
+        </div>
+      )}
+      {venue.lat !== null && venue.lng !== null && (
+        <div className="max-w-xl">
+          <PinMap pin={{ lat: venue.lat, lng: venue.lng }} height={180} />
         </div>
       )}
       <LiveOccupancy venueId={venue.id} />

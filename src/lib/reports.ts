@@ -182,12 +182,12 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   for (const row of await db
     .prepare(`
       SELECT b.court_id AS "courtId", SUM(COALESCE(b.places, c.capacity)) AS blocked
-      FROM slot_blocks b
+      FROM blocks_between(?, ?) b
       JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
       GROUP BY b.court_id
     `)
-    .all(venueId, from, to) as { courtId: number; blocked: number }[])
+    .all(from, to, venueId) as { courtId: number; blocked: number }[])
     blockedByCourt.set(row.courtId, row.blocked);
 
   const sellableFor = (court: { id: number; capacity: number }) =>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 interface GoLiveStatus {
   state: "draft" | "live" | "unlisted";
+  suspension: { by: "payment" | "owner"; reason: string | null } | null;
   request: { status: "draft" | "pending" | "approved" | "rejected"; reason: string | null } | null;
   missing: string[];
 }
@@ -61,6 +62,18 @@ export function GoLiveBanner({
 
   if (!status || status.state === "live") return null;
   const name = venueName ?? "Your venue";
+
+  if (status.state === "unlisted" && status.suspension?.by === "owner")
+    return (
+      <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+        <p className="font-semibold">{name} has been suspended</p>
+        <p className="mt-1">
+          {status.suspension.reason ? `${status.suspension.reason}. ` : ""}Customers cannot find, book or pay it online until
+          the platform owner lifts this. Bookings already made stand, and you can still use your dashboard. Reply to the
+          email we sent you to talk to us.
+        </p>
+      </section>
+    );
 
   if (status.state === "unlisted")
     return (

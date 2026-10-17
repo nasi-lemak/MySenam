@@ -6,29 +6,17 @@
  * say out loud that a deployment is still holding its factory settings — the
  * kind of thing nobody notices until it is being exploited.
  *
- * Free of any database import at the top: this module is compiled for every
- * runtime, including the edge one, where the database drivers cannot be
- * resolved. The scheduler is imported inside the Node.js branch,
- * which is the one place it can be.
+ * This module is compiled for every runtime, including the edge one, where
+ * the database drivers cannot be resolved. Everything that needs them is in
+ * src/instrumentation-node.ts, imported inside a test of NEXT_RUNTIME written
+ * the way the compiler can see through: an `if` around the import, which it
+ * drops from the edge build. An early `return` before the import was not
+ * seen through, and `next dev` failed on every page trying to bundle pg for
+ * the edge.
  */
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== "nodejs") return;
-
-  const { startScheduler } = await import("./lib/scheduler");
-  startScheduler();
-
-  if (process.env.NODE_ENV !== "production") return;
-
-  const warn = (message: string) => console.warn(`[mysenam] ${message}`);
-
-  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === "mysenam-admin")
-    warn(
-      "ADMIN_PASSWORD is unset or still the default. Anyone who knows this project owns every venue — set it and restart."
-    );
-  if (!process.env.ADMIN_EMAIL)
-    warn("ADMIN_EMAIL is unset, so the first operator account is admin@mysenam.my.");
-  if (!process.env.OFFSITE_S3_ENDPOINT || !process.env.OFFSITE_S3_BUCKET)
-    warn(
-      "Off-site copies are not set up (OFFSITE_S3_*), so every backup is on the same disk as the database it backs up."
-    );
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { startNode } = await import("./instrumentation-node");
+    await startNode();
+  }
 }

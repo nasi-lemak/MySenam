@@ -359,11 +359,20 @@ independent venues, players booking across them.
   start date there, and marks a bank transfer paid or voids an invoice.
 - **An invoice more than 14 days overdue** (28 days after it was issued) takes
   every venue on it off the marketplace until it is paid: not listed, not
-  bookable, not payable online. Its staff and the owner are emailed; the
-  dashboard keeps working and bookings already made stand. Paying it, or the
-  owner marking it paid or voiding it, puts the venue back at once. It is
-  worked out afresh from the invoices by the scheduler, and whenever anybody
-  opens *Billing* (`src/lib/payment-holds.ts`).
+  bookable, not payable online. A week before that, its staff are emailed
+  once with the amount and the date it happens. When it happens, they and the
+  owner are emailed; the dashboard keeps working and bookings already made
+  stand. Paying it, or the owner marking it paid or voiding it, puts the venue
+  back at once. It is worked out afresh from the invoices by the scheduler,
+  and whenever anybody opens *Billing* (`src/lib/payment-holds.ts`).
+- **The owner can suspend a venue, or a whole business**, with a reason its
+  staff are emailed: under *Venues & staff*, on the venue (*Suspend*) or under
+  *Businesses* (*Suspend the business*). Customers stop seeing it at once, as
+  for an unpaid invoice; staff can still sign in, and bookings already made
+  stand — cancel them separately if they should not. A suspended business
+  cannot add a branch or send one live. Only the owner lifts a suspension:
+  paying an invoice does not, and lifting one on a venue that still owes
+  leaves it off for that (`src/lib/suspensions.ts`).
 - **Terms** live at `/terms`, for players and, on a marketplace, for venues.
   They are a starting draft written to match what the software does — who
   holds the money, who refunds it, whose credit is whose — and **not legal
@@ -639,6 +648,27 @@ tests/                # Vitest suite (booking rules, blocks, series, search,
                       # export, erasure, retention, route authorisation)
 ```
 
+## Courts out of service
+
+Two ways, for two lengths of time:
+
+- **A few hours**: block them on the *Schedule*, with a reason. On a shared
+  facility, only some of its places (below).
+- **Days, or until further notice**: *Courts & rates → Out of service* — a
+  court, a first day, a last day or "until further notice", and a reason,
+  which customers see on the venue's page. Nobody can book it, search finds it
+  closed, and the reports count it as out. If anything is booked in the
+  stretch, it lists those bookings and classes and stops; staff move them, or
+  choose to cancel them, which refunds each as a staff cancellation would and
+  messages its customer. *Back in service today* ends it early.
+
+An outage is not a row per hour. The database function `blocks_between`
+(`db/migrations/0009`) answers "what is blocked between these days" with the
+hours blocked by hand and every trading hour of every outage, and everything
+that asks what is blocked asks it — so availability, search, booking, moving
+a booking, the waitlist, the schedule and the reports close the court without
+knowing outages exist. Where an hour is both, the hand-made block wins.
+
 ## Taking some of a shared facility out of service
 
 A court is blocked whole — blocking it *is* taking the unit out, because a
@@ -747,6 +777,22 @@ Four consequences worth stating plainly:
 The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
 than an ordinary booking lookup, because a booking code plus a phone number is
 now a door.
+
+## Courts near me
+
+On the home page and the search page, *Near me* uses the phone's location,
+or a place typed (Bangsar, KLCC, a postcode) is looked up on the map. The
+venue list is then nearest first, with how far each is; search finds free
+courts within 5, 10, 25 or 50 km, nearest first at each time. The address can
+be shared: `/?near=3.146,101.67&km=10`, and `/api/venues` and `/api/search`
+take the same `near` and `km`.
+
+It uses each venue's pin. Venues that signed up place one; staff move it, or
+add one to a venue that never had one, under *Venues & staff* (*Move the
+pin*). A venue with no pin is not found by distance. A live venue moving its
+pin more than 1 km is reported to the platform owner. Distances are worked out
+in SQL, inside a box drawn around the circle first, so a search near KL never
+looks at a venue in Johor.
 
 ## Personal data
 

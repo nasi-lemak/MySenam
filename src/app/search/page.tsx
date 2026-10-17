@@ -17,6 +17,7 @@ import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { INTL_TAGS, sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
+import { NearPicker, type NearChoice } from "@/components/NearPicker";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
@@ -37,6 +38,7 @@ interface ResultGroup {
   venueId: number;
   venueName: string;
   area: string;
+  distanceKm?: number;
   startHour: number;
   endHour: number;
   /** Cheapest first — the Book button targets courts[0]. */
@@ -57,6 +59,7 @@ function groupResults(results: SearchResult[]): ResultGroup[] {
         venueId: r.venue.id,
         venueName: r.venue.name,
         area: r.venue.area,
+        distanceKm: r.distanceKm,
         startHour: r.startHour,
         endHour: r.endHour,
         courts: [r],
@@ -78,6 +81,7 @@ export default function SearchPage() {
   const [toHour, setToHour] = useState(CLOSE_HOUR - 1);
   const [duration, setDuration] = useState(1);
   const [area, setArea] = useState("");
+  const [near, setNear] = useState<NearChoice | null>(null);
   const [areas, setAreas] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   // A whole marketplace is too many courts to search at once; the server says
@@ -97,7 +101,11 @@ export default function SearchPage() {
         to: String(toHour),
         duration: String(duration),
       });
-      if (area) params.set("area", area);
+      // Near somewhere is where; an area on top of it would only narrow it oddly.
+      if (near) {
+        params.set("near", `${near.lat.toFixed(5)},${near.lng.toFixed(5)}`);
+        params.set("km", String(near.km));
+      } else if (area) params.set("area", area);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
@@ -110,7 +118,7 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, [sport, date, fromHour, toHour, duration, area, t]);
+  }, [sport, date, fromHour, toHour, duration, area, near, t]);
 
   useEffect(() => {
     search();
@@ -210,7 +218,7 @@ export default function SearchPage() {
           </label>
           <label className="flex flex-col text-xs font-medium text-slate-500">
             {t("search.area")}
-            <select value={area} onChange={(e) => setArea(e.target.value)} className={selectClass}>
+            <select value={area} onChange={(e) => setArea(e.target.value)} className={selectClass} disabled={near !== null}>
               <option value="">{t("search.anywhere")}</option>
               {areas.map((a) => (
                 <option key={a} value={a}>
@@ -220,6 +228,7 @@ export default function SearchPage() {
             </select>
           </label>
         </div>
+        <NearPicker value={near} onChange={setNear} />
       </div>
 
       {error && (
@@ -234,7 +243,7 @@ export default function SearchPage() {
         </div>
       ) : needsArea ? (
         <div className="rounded-xl border border-teal-200 bg-teal-50 p-6 text-center text-teal-800">
-          {t("search.needsArea")}
+          {near ? t("near.tooMany") : t("search.needsArea")}
         </div>
       ) : results && results.length > 0 ? (
         (() => {
@@ -265,7 +274,9 @@ export default function SearchPage() {
                       <div className="min-w-[12rem] flex-1">
                         <div className="font-medium">{g.venueName}</div>
                         <div className="text-sm text-slate-500">
-                          📍 {g.area} · {SPORT_ICONS[cheapest.court.sport]} {cheapest.court.name}
+                          📍 {g.area}
+                          {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
+                          {SPORT_ICONS[cheapest.court.sport]} {cheapest.court.name}
                           {others > 0 && (
                             <span className="text-slate-400">
                               {" "}
@@ -295,7 +306,7 @@ export default function SearchPage() {
         })()
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          {t("search.none", { sport: sportLabel(t, sport).toLowerCase() })}
+          {near ? t("near.none", { km: near.km }) : t("search.none", { sport: sportLabel(t, sport).toLowerCase() })}
         </div>
       )}
     </div>

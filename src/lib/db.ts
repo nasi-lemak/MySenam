@@ -303,16 +303,35 @@ function param(v: unknown): unknown {
 
 // ------------------------------------------------------------ the handle
 
-const txStore = new AsyncLocalStorage<Runner>();
+/**
+ * One connection per process, not per bundle.
+ *
+ * Next compiles the startup code (src/instrumentation.ts, which runs the
+ * scheduler) apart from the routes, so a module-level variable here exists
+ * once in each. Against Postgres that was two pools; against PGlite it was two
+ * databases on one folder, in one process, which corrupts it. Everything that
+ * must be one-per-process lives on globalThis instead.
+ */
+interface Shared {
+  txStore: AsyncLocalStorage<Runner>;
+  savepoints: number;
+  driverPromise: Promise<Driver> | null;
+  ready: Promise<void> | null;
+  handle: Db | null;
+}
+const shared = ((globalThis as { __mysenamDb?: Shared }).__mysenamDb ??= {
+  txStore: new AsyncLocalStorage<Runner>(),
+  savepoints: 0,
+  driverPromise: null,
+  ready: null,
+  handle: null,
+});
+const txStore = shared.txStore;
 
 /** Serialization failure and deadlock: run the transaction again. */
 const RETRYABLE = new Set(["40001", "40P01"]);
 const MAX_ATTEMPTS = 8;
 
-let savepoints = 0;
-let driverPromise: Promise<Driver> | null = null;
-let ready: Promise<void> | null = null;
-let handle: Db | null = null;
 
 /**
  * An install upgraded from the SQLite version, still pointed at its old file.
@@ -338,29 +357,29 @@ function sqliteLeftBehind(): string | null {
 }
 
 function driver(): Promise<Driver> {
-  if (!driverPromise) {
+  if (!shared.driverPromise) {
     const leftBehind = sqliteLeftBehind();
     if (leftBehind) return Promise.reject(new Error(leftBehind));
     const target = databaseTarget();
-    driverPromise = target.kind === "postgres" ? postgresDriver(target.url) : pgliteDriver(target.dir);
+    shared.driverPromise = target.kind === "postgres" ? postgresDriver(target.url) : pgliteDriver(target.dir);
   }
-  return driverPromise;
+  return shared.driverPromise;
 }
 
 /** The driver, with the schema migrated and the first venues seeded. */
 function opened(): Promise<Driver> {
-  if (!ready) {
-    ready = (async () => {
+  if (!shared.ready) {
+    shared.ready = (async () => {
       const d = await driver();
       await migrate(d);
       await seedIfEmpty();
     })();
     // A failed start must not be remembered: the next query tries again.
-    ready.catch(() => {
-      ready = null;
+    shared.ready.catch(() => {
+      shared.ready = null;
     });
   }
-  return ready.then(driver);
+  return shared.ready.then(driver);
 }
 
 async function runQuery(sql: string, params: unknown[]): Promise<QueryResult> {
@@ -372,8 +391,8 @@ async function runQuery(sql: string, params: unknown[]): Promise<QueryResult> {
 }
 
 export function getDb(): Db {
-  if (handle) return handle;
-  handle = {
+  if (shared.handle) return shared.handle;
+  shared.handle = {
     get kind() {
       return databaseTarget().kind;
     },
@@ -404,7 +423,7 @@ export function getDb(): Db {
         // is what any error does to a Postgres transaction.
         const outer = txStore.getStore();
         if (outer) {
-          const savepoint = `sp_${++savepoints}`;
+          const savepoint = `sp_${++shared.savepoints}`;
           await outer.query(`SAVEPOINT ${savepoint}`, []);
           try {
             const result = await fn(...args);
@@ -434,15 +453,15 @@ export function getDb(): Db {
       return d.dumpDataDir();
     },
     async close() {
-      if (!driverPromise) return;
-      const d = await driverPromise;
-      driverPromise = null;
-      ready = null;
-      handle = null;
+      if (!shared.driverPromise) return;
+      const d = await shared.driverPromise;
+      shared.driverPromise = null;
+      shared.ready = null;
+      shared.handle = null;
       await d.close();
     },
   };
-  return handle;
+  return shared.handle;
 }
 
 /** Run fn in one serializable transaction (or the one already open). */
@@ -504,11 +523,19 @@ async function seedIfEmpty(): Promise<void> {
   if (Number(rows[0].n) > 0) return;
 
   await d.inTransaction(async (tx) => {
-    const venue = async (name: string, area: string, address: string, phone: string, open: number, close: number) =>
+    const venue = async (
+      name: string,
+      area: string,
+      address: string,
+      phone: string,
+      open: number,
+      close: number,
+      [lat, lng]: [number, number]
+    ) =>
       (
         await tx.query(
-          "INSERT INTO venues (name, area, address, phone, open_hour, close_hour) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-          [name, area, address, phone, open, close]
+          "INSERT INTO venues (name, area, address, phone, open_hour, close_hour, lat, lng) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+          [name, area, address, phone, open, close, lat, lng]
         )
       ).rows[0].id as number;
     const court = (
@@ -535,7 +562,8 @@ async function seedIfEmpty(): Promise<void> {
       "12 Jalan SS2/61, 47300 Petaling Jaya, Selangor",
       "+60 3-1234 5678",
       8,
-      23
+      23,
+      [3.1185, 101.623]
     );
     for (let i = 1; i <= 4; i++) await court(arena, `Badminton Court ${i}`, "badminton", 15, 25, 1);
     for (let i = 1; i <= 2; i++) await court(arena, `Pickleball Court ${i}`, "pickleball", 20, 30, 1);
@@ -550,7 +578,8 @@ async function seedIfEmpty(): Promise<void> {
       "+60 3-8765 4321",
       // The lap pool opens for the before-work swim.
       7,
-      22
+      22,
+      [3.059, 101.587]
     );
     for (let i = 1; i <= 6; i++) await court(sunway, `Badminton Court ${i}`, "badminton", 12, 22, 1);
     for (let i = 1; i <= 2; i++) await court(sunway, `Tennis Court ${i}`, "tennis", 25, 40, 1);
@@ -562,7 +591,8 @@ async function seedIfEmpty(): Promise<void> {
       "3 Jalan Maarof, Bangsar, 59000 Kuala Lumpur",
       "+60 3-2222 3333",
       9,
-      22
+      22,
+      [3.146, 101.67]
     );
     for (let i = 1; i <= 3; i++) await court(bangsar, `Tennis Court ${i}`, "tennis", 30, 45, 1);
     for (let i = 1; i <= 4; i++) await court(bangsar, `Pickleball Court ${i}`, "pickleball", 18, 28, 1);
@@ -574,7 +604,8 @@ async function seedIfEmpty(): Promise<void> {
       "+60 3-8888 1234",
       // Off the water before the afternoon storms.
       8,
-      19
+      19,
+      [2.926, 101.689]
     );
     // A fleet, not a court: eight hulls share the hour, and each one goes out
     // of the building, so the desk holds a deposit against it.

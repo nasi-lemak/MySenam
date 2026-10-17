@@ -1,5 +1,6 @@
 "use client";
 
+import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS } from "@/lib/types";
 import type { Court, Induction, Venue } from "@/lib/types";
@@ -241,6 +242,8 @@ export function CourtsTab({
           </table>
         </div>
       )}
+
+      {venue && <OutagesPanel key={venue.id} venueId={venue.id} courts={venue.courts} />}
 
       {door && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">

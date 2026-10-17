@@ -14,6 +14,8 @@ import { BillingPanel } from "./BillingPanel";
 import { StorefrontsPanel } from "./StorefrontsPanel";
 import { BranchRequestPanel, BusinessesPanel } from "./BusinessPanels";
 import type { ManagedVenue } from "./shared";
+import type { MapPoint } from "@/components/PinMap";
+import PinPicker, { PIN_TEXT_EN } from "@/components/PinPicker";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -99,7 +101,7 @@ export function VenuesTab({
         </h2>
         <div className="mt-3 space-y-3">
           {venues.map((venue) => (
-            <VenueRow key={venue.id} venue={venue} onSave={send} />
+            <VenueRow key={venue.id} venue={venue} onSave={send} isOwner={isOwner} />
           ))}
           {venues.length === 0 && (
             <p className="text-sm text-slate-500">No venues yet.</p>
@@ -418,8 +420,10 @@ function ClosuresRow({
 function VenueRow({
   venue,
   onSave,
+  isOwner,
 }: {
   venue: ManagedVenue;
+  isOwner: boolean;
   onSave: (
     url: string,
     method: string,
@@ -631,6 +635,78 @@ function VenueRow({
       >
         Save
       </button>
+      <VenueStanding venue={venue} isOwner={isOwner} onSave={onSave} />
+    </div>
+  );
+}
+
+/**
+ * Where the venue is on the map, whether customers can see it, and — for the
+ * platform owner — suspending it.
+ */
+function VenueStanding({
+  venue,
+  isOwner,
+  onSave,
+}: {
+  venue: ManagedVenue;
+  isOwner: boolean;
+  onSave: (url: string, method: string, body: unknown, okMessage: string) => Promise<void>;
+}) {
+  const [moving, setMoving] = useState(false);
+  const [pin, setPin] = useState<MapPoint | null>(venue.lat !== null && venue.lng !== null ? { lat: venue.lat, lng: venue.lng } : null);
+  const state =
+    venue.publishedAt === null
+      ? { text: "Draft: only its staff can see it", tone: "bg-slate-100 text-slate-700" }
+      : venue.suspendedAt === null
+        ? { text: "Live", tone: "bg-emerald-50 text-emerald-700" }
+        : venue.suspendedBy === "owner"
+          ? { text: `Suspended: ${venue.suspendedReason ?? "by the platform owner"}`, tone: "bg-red-50 text-red-700" }
+          : { text: "Off the marketplace: invoice overdue", tone: "bg-red-50 text-red-700" };
+
+  async function suspend() {
+    const reason = window.prompt(`Suspend ${venue.name}? Customers stop seeing it at once. Why (its staff are told):`, "");
+    if (!reason) return;
+    await onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "suspend", reason }, `${venue.name} is suspended.`);
+  }
+
+  return (
+    <div className="w-full space-y-2 border-t border-slate-100 pt-2 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${state.tone}`}>{state.text}</span>
+        <span className="text-xs text-slate-500">
+          {pin ? `Pinned at ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Not on the map yet: customers searching near them will not find it."}
+        </span>
+        <button onClick={() => setMoving(!moving)} className="text-xs font-medium text-teal-700 underline">
+          {moving ? "Close the map" : pin ? "Move the pin" : "Pin it on the map"}
+        </button>
+        {isOwner && venue.publishedAt !== null && (
+          venue.suspendedBy === "owner" ? (
+            <button
+              onClick={() => onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "lift" }, `${venue.name} is back.`)}
+              className="text-xs font-medium text-teal-700 underline"
+            >
+              Lift the suspension
+            </button>
+          ) : (
+            <button onClick={suspend} className="text-xs font-medium text-red-700 underline">
+              Suspend
+            </button>
+          )
+        )}
+      </div>
+      {moving && (
+        <div className="max-w-xl">
+          <PinPicker query={`${venue.address}, ${venue.area}`} pin={pin} onPin={setPin} text={PIN_TEXT_EN} />
+          <button
+            disabled={!pin}
+            onClick={() => pin && onSave(`/api/admin/venues/${venue.id}`, "PATCH", pin, `Moved ${venue.name}'s pin.`)}
+            className="mt-2 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
+          >
+            Save the pin
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { listAreaCounts, listVenuePage, sportsOfferedAt } from "@/lib/store";
+import { listAreaCounts, listVenuePage, readNear, sportsOfferedAt } from "@/lib/store";
+import { HomeNear } from "./HomeNear";
 import { serverT } from "@/lib/locale";
 import { currentStorefront } from "@/lib/storefront";
 import { Sport, SPORT_ICONS } from "@/lib/types";
@@ -14,7 +15,7 @@ const AREA_CHIPS = 12;
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ area?: string; page?: string }>;
+  searchParams: Promise<{ area?: string; page?: string; near?: string; km?: string; where?: string }>;
 }) {
   const storefront = await currentStorefront();
   // A one-venue storefront is that venue's website: straight to its booking page.
@@ -22,13 +23,17 @@ export default async function HomePage({
   const query = await searchParams;
   const venueIds = storefront?.venueIds;
   const areas = await listAreaCounts({ venueIds });
+  // Near somewhere, nearest first; otherwise by area.
+  const near = readNear(query.near, query.km);
+  const where = near && query.where ? query.where.slice(0, 80) : null;
   // An area nobody has a venue in is no area at all.
-  const area = areas.some((a) => a.area === query.area) ? query.area : undefined;
+  const area = !near && areas.some((a) => a.area === query.area) ? query.area : undefined;
   // One page of venues, never all of them: with thousands, all of them is
   // megabytes of page for somebody who wants the court down the road.
   const { venues, total, page, pageSize } = await listVenuePage({
     area,
     venueIds,
+    near: near ?? undefined,
     page: Number(query.page) || 1,
   });
   const t = await serverT();
@@ -36,6 +41,11 @@ export default async function HomePage({
   const link = (to: { area?: string; page?: number }) => {
     const params = new URLSearchParams();
     if (to.area) params.set("area", to.area);
+    if (near) {
+      params.set("near", `${near.lat},${near.lng}`);
+      params.set("km", String(near.km));
+      if (where) params.set("where", where);
+    }
     if (to.page && to.page > 1) params.set("page", String(to.page));
     const qs = params.toString();
     return qs ? `/?${qs}` : "/";
@@ -80,7 +90,11 @@ export default async function HomePage({
           </Link>
           .
         </p>
-        {areas.length > 1 &&
+        <div className="mt-4 max-w-2xl">
+          <HomeNear value={near ? { ...near, where } : null} />
+        </div>
+        {!near &&
+          areas.length > 1 &&
           (areas.length <= AREA_CHIPS ? (
             <nav className="mt-4 flex flex-wrap gap-2 text-sm">
               {[{ area: undefined, venues: allVenues, label: t("home.allAreas") }, ...areas.map((a) => ({ ...a, label: a.area }))].map(
@@ -122,7 +136,9 @@ export default async function HomePage({
               </button>
             </form>
           ))}
-        {venues.length === 0 && <p className="mt-6 text-slate-500">{t("home.noVenues")}</p>}
+        {venues.length === 0 && (
+          <p className="mt-6 text-slate-500">{near ? t("near.none", { km: near.km }) : t("home.noVenues")}</p>
+        )}
         <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {venues.map((venue) => {
             const sportsHere = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
@@ -134,7 +150,10 @@ export default async function HomePage({
                 className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500 hover:shadow-md"
               >
                 <div className="text-lg font-semibold group-hover:text-teal-700">{venue.name}</div>
-                <div className="mt-1 text-sm text-slate-500">📍 {venue.area}</div>
+                <div className="mt-1 text-sm text-slate-500">
+                  📍 {venue.area}
+                  {venue.distanceKm !== undefined && ` · ${t("near.away", { km: venue.distanceKm })}`}
+                </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {sportsHere.map((sport) => (
                     <span

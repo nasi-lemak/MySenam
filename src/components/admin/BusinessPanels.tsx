@@ -108,6 +108,8 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
 interface Business {
   id: number;
   name: string;
+  suspended: boolean;
+  suspendedReason: string | null;
   branches: { id: number; name: string; area: string }[];
   managers: { id: number; name: string; email: string }[];
 }
@@ -145,6 +147,29 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
   const promotable = staff.filter((a) => a.venueId !== null && branchIds.has(a.venueId));
   const toggle = (list: number[], id: number) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
+  /** Every branch off the marketplace at once, or back. */
+  async function suspend(b: Business) {
+    let reason = "";
+    if (!b.suspended) {
+      const given = window.prompt(
+        `Suspend ${b.name} and all ${b.branches.length} of its branches? Customers stop seeing them at once. Why (their staff are told):`,
+        ""
+      );
+      if (!given) return;
+      reason = given;
+    }
+    setError(null);
+    const res = await fetch("/api/admin/suspensions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ businessId: b.id, action: b.suspended ? "lift" : "suspend", reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setError(data.error ?? "Could not do that.");
+    await load();
+    onChange();
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -179,7 +204,23 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
         <ul className="mt-3 space-y-2 text-sm">
           {businesses.map((b) => (
             <li key={b.id} className="rounded-xl border border-slate-200 bg-white p-3">
-              <div className="font-semibold">{b.name}</div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold">
+                  {b.name}
+                  {b.suspended && (
+                    <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                      suspended{b.suspendedReason ? `: ${b.suspendedReason}` : ""}
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void suspend(b)}
+                  className={`text-xs font-medium underline ${b.suspended ? "text-teal-700" : "text-red-700"}`}
+                >
+                  {b.suspended ? "Lift the suspension" : "Suspend the business"}
+                </button>
+              </div>
               <div className="text-slate-600">
                 {b.branches.length === 0 ? "No branches" : b.branches.map((v) => `${v.name} (${v.area})`).join(" · ")}
               </div>

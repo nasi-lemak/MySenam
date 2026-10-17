@@ -1,8 +1,7 @@
 import { getDb } from "./db";
 import { isMarketplace } from "./mode";
-import { tellOwners } from "./owner-alerts";
+import { tellOwners, tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
-import { sendPlainEmail } from "./transports";
 
 /**
  * A venue whose invoice is long overdue comes off the marketplace until it
@@ -21,10 +20,19 @@ import { sendPlainEmail } from "./transports";
  */
 
 export const GRACE_DAYS = 14;
+/** How far into the grace a venue is warned that it is coming off. */
+export const WARN_AFTER_DAYS = 7;
 
-function cutoff(now: Date): string {
+/** Malaysia's date, `days` before now. */
+function daysAgo(now: Date, days: number): string {
   const d = new Date(now.getTime() + 8 * 3600_000);
-  d.setUTCDate(d.getUTCDate() - GRACE_DAYS);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
@@ -40,30 +48,35 @@ export interface HoldChanges {
   lifted: { id: number; name: string }[];
 }
 
-/** Take off what is long overdue, and put back what has been settled. */
+/**
+ * Warn what is a week overdue, take off what is long overdue, and put back
+ * what has been settled. A venue the platform owner suspended is theirs to
+ * put back (lib/suspensions.ts): settling an invoice does not lift that.
+ */
 export async function applyPaymentHolds(now = new Date()): Promise<HoldChanges> {
   if (!isMarketplace()) return { held: [], lifted: [] };
   const db = getDb();
-  const before = cutoff(now);
+  const before = daysAgo(now, GRACE_DAYS);
+  await warnOverdue(now);
   let changes: HoldChanges = { held: [], lifted: [] };
   await db.transaction(async () => {
     const held = (await db
       .prepare(
-        `UPDATE venues SET suspended_at = datetime('now')
+        `UPDATE venues SET suspended_at = datetime('now'), suspended_by = 'payment', suspended_reason = NULL
           WHERE suspended_at IS NULL AND id IN (${OVERDUE}) RETURNING id, name`
       )
       .all(before, before)) as { id: number; name: string }[];
     const lifted = (await db
       .prepare(
-        `UPDATE venues SET suspended_at = NULL
-          WHERE suspended_at IS NOT NULL AND id NOT IN (${OVERDUE}) RETURNING id, name`
+        `UPDATE venues SET suspended_at = NULL, suspended_by = NULL
+          WHERE suspended_by = 'payment' AND id NOT IN (${OVERDUE}) RETURNING id, name`
       )
       .all(before, before)) as { id: number; name: string }[];
     changes = { held, lifted };
   })();
 
   for (const v of changes.held) {
-    await tellStaff(
+    await tellVenueStaff(
       v.id,
       `${v.name} is off ${siteName()} until its invoice is paid`,
       `An invoice for ${v.name} is more than ${GRACE_DAYS} days overdue, so customers cannot find, book or pay ` +
@@ -78,17 +91,43 @@ export async function applyPaymentHolds(now = new Date()): Promise<HoldChanges> 
         "They come back on their own once paid, marked paid, or the invoice is voided."
     );
   for (const v of changes.lifted)
-    await tellStaff(v.id, `${v.name} is back on ${siteName()}`, `Thank you. Customers can find and book ${v.name} again.`);
+    await tellVenueStaff(v.id, `${v.name} is back on ${siteName()}`, `Thank you. Customers can find and book ${v.name} again.`);
   return changes;
 }
 
-/** A venue's managers and staff, by email. */
-async function tellStaff(venueId: number, subject: string, body: string): Promise<void> {
-  const people = (await getDb()
+/**
+ * A week into the grace, once per invoice: what is owed, and the day the
+ * venue comes off if it is still owed then.
+ */
+async function warnOverdue(now: Date): Promise<void> {
+  const db = getDb();
+  const due = (await db
     .prepare(
-      `SELECT a.email, a.name FROM admins a
-        WHERE a.venue_id = ? OR a.business_id = (SELECT business_id FROM venues WHERE id = ?)`
+      `UPDATE venue_invoices SET warned_at = datetime('now')
+        WHERE status = 'due' AND warned_at IS NULL AND due_on < ? AND due_on >= ?
+        RETURNING id, venue_id, business_id, amount, due_on, period`
     )
-    .all(venueId, venueId)) as { email: string; name: string }[];
-  for (const p of people) await sendPlainEmail(p.email, subject, `Hi ${p.name},\n\n${body}\n\n${siteName()}`);
+    .all(daysAgo(now, WARN_AFTER_DAYS), daysAgo(now, GRACE_DAYS))) as {
+    id: number;
+    venue_id: number | null;
+    business_id: number | null;
+    amount: number;
+    due_on: string;
+    period: string;
+  }[];
+  for (const invoice of due) {
+    const venues = (await db
+      .prepare("SELECT id, name FROM venues WHERE id = ? OR (business_id = ? AND published_at IS NOT NULL) ORDER BY id")
+      .all(invoice.venue_id, invoice.business_id)) as { id: number; name: string }[];
+    if (venues.length === 0) continue;
+    const names = venues.map((v) => v.name).join(", ");
+    const offOn = addDays(invoice.due_on, GRACE_DAYS + 1);
+    await tellVenueStaff(
+      venues[0].id,
+      `Your ${siteName()} invoice is overdue`,
+      `The invoice for ${invoice.period}, RM${Number(invoice.amount).toFixed(2)}, was due on ${invoice.due_on}. ` +
+        `If it is still unpaid on ${offOn}, ${names} will be hidden from customers until it is paid. ` +
+        `Bookings already made will stand.\n\nPay it under Venues & staff → Billing.`
+    );
+  }
 }

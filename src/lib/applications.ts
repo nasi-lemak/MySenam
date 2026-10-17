@@ -12,6 +12,7 @@ import { REVIEW_CHECKS } from "./review-checks";
 import type { Admin } from "./admin-auth";
 import { VENUE_CAPS } from "./limits";
 import { listingState, venueListing, type ListingState } from "./listing";
+import { businessSuspension } from "./suspensions";
 import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inMalaysia, placeAt, readPoint, type Point } from "./geo";
 
 /**
@@ -377,6 +378,8 @@ export async function addBranch(
   input: { name: string; area: string; address: string; phone: string; message?: string; lat: unknown; lng: unknown }
 ): Promise<SubmitResult & { venueId?: number }> {
   if (admin.businessId === null) return { ok: false, error: "Only a business manager can add a branch." };
+  const suspended = await businessSuspension(admin.businessId);
+  if (suspended) return { ok: false, error: suspended };
   const text = (v: string, min: number, max: number) => v.trim().length >= min && v.trim().length <= max;
   if (!text(input.name, 2, 100)) return { ok: false, error: "Give the branch's name." };
   if (!text(input.area, 2, 60)) return { ok: false, error: "Give the area the branch is in." };
@@ -459,6 +462,8 @@ export async function goLiveMissing(venueId: number): Promise<string[]> {
 
 export interface GoLiveStatus {
   state: ListingState;
+  /** Why it is off the marketplace, if it is. */
+  suspension: { by: "payment" | "owner"; reason: string | null } | null;
   /** Its request: 'draft' until it asks, then 'pending', 'approved' or 'rejected'. */
   request: { status: ApplicationStatus; reason: string | null } | null;
   missing: string[];
@@ -470,8 +475,12 @@ export async function goLiveStatus(venueId: number): Promise<GoLiveStatus | null
   const row = (await getDb()
     .prepare("SELECT status, reason FROM venue_applications WHERE venue_id = ? ORDER BY id DESC LIMIT 1")
     .get(venueId)) as { status: ApplicationStatus; reason: string | null } | undefined;
+  const held = (await getDb()
+    .prepare("SELECT suspended_by, suspended_reason FROM venues WHERE id = ? AND suspended_at IS NOT NULL")
+    .get(venueId)) as { suspended_by: "payment" | "owner" | null; suspended_reason: string | null } | undefined;
   return {
     state: listingState(listing),
+    suspension: held ? { by: held.suspended_by ?? "payment", reason: held.suspended_reason } : null,
     request: row ?? null,
     missing: listing.publishedAt === null ? await goLiveMissing(venueId) : [],
   };
@@ -508,6 +517,8 @@ export async function requestGoLive(
     | undefined;
   if (!venue) return { ok: false, error: "Venue not found." };
   if (venue.published_at !== null) return { ok: false, error: "This venue is live already." };
+  const suspended = await businessSuspension(venue.business_id);
+  if (suspended) return { ok: false, error: suspended };
   const row = (await db
     .prepare("SELECT id, status FROM venue_applications WHERE venue_id = ? ORDER BY id DESC LIMIT 1")
     .get(venueId)) as { id: number; status: ApplicationStatus } | undefined;
@@ -665,6 +676,11 @@ export async function approveApplication(
   if (row.venue_id === null) return await approveFromBefore(row, deciderId, checks);
 
   const venueId = row.venue_id;
+  const { business_id: businessId } = (await db.prepare("SELECT business_id FROM venues WHERE id = ?").get(venueId)) as {
+    business_id: number | null;
+  };
+  const suspended = await businessSuspension(businessId);
+  if (suspended) return { ok: false, error: `Not while its business is suspended. ${suspended}` };
   await db.transaction(async () => {
     await db
       .prepare("UPDATE venues SET published_at = COALESCE(published_at, datetime('now')), lat = ?, lng = ? WHERE id = ?")
