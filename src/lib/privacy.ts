@@ -3,6 +3,7 @@ import { addDays, todayISO } from "./time";
 import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
 import { bookingCancelled, forgetPlayer } from "./games";
 import { withdraw } from "./tournaments";
+import { forgetLeaguePlayer } from "./leagues";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -254,6 +255,8 @@ export interface CustomerExport {
   games: unknown[];
   levels: unknown[];
   tournaments: unknown[];
+  /** Leagues joined, and each season's box, finish and fee. */
+  leagues: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -350,6 +353,17 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE e.user_id = ? ORDER BY t.starts_on DESC`,
       userId
     ),
+    leagues: await all(
+      `SELECT l.name AS league, v.name AS venue, p.name AS playing_as, p.status, p.joined_at,
+              s.number AS season, s.starts_on, lp.box_no, lp.finish, lp.move, lp.paid_at
+         FROM league_players p
+         JOIN leagues l ON l.id = p.league_id
+         JOIN venues v ON v.id = l.venue_id
+         LEFT JOIN league_places lp ON lp.player_id = p.id
+         LEFT JOIN league_seasons s ON s.id = lp.season_id
+        WHERE p.user_id = ? ORDER BY p.id, s.number`,
+      userId
+    ),
     heldAtACounter:
       "A pass, membership, waiting-list place or induction taken at a counter is filed against a phone number rather than this account. Ask the venue for those — they check who you are in person, which this page cannot.",
   };
@@ -444,6 +458,8 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     await db
       .prepare("UPDATE tournament_entries SET name = ?, partner_name = NULL, user_id = NULL WHERE user_id = ?")
       .run(ANONYMOUS, userId);
+    // Out of leagues too, and off their boxes and tables by name.
+    await forgetLeaguePlayer(userId, ANONYMOUS);
 
     const result = await db
       .prepare(

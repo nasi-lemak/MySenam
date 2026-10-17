@@ -177,10 +177,11 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share" | "entry";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league";
   invoice_id: number | null;
   game_player_id: number | null;
   tournament_entry_id: number | null;
+  league_place_id: number | null;
 }
 
 export interface OnlinePayment {
@@ -199,7 +200,7 @@ export interface OnlinePayment {
   refunded: number;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league";
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -411,6 +412,24 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
       if (!entry || entry.status === "withdrawn" || entry.t_status === "cancelled")
         await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
       else await db.prepare("UPDATE tournament_entries SET paid_at = datetime('now') WHERE id = ?").run(row.tournament_entry_id);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "league") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes === 0) return;
+      // Left the league, or paid at the counter, while they paid: owed back.
+      const place = (await db.prepare("SELECT withdrawn_at, paid_at FROM league_places WHERE id = ?").get(row.league_place_id)) as
+        | { withdrawn_at: string | null; paid_at: string | null }
+        | undefined;
+      if (!place || place.withdrawn_at !== null || place.paid_at !== null)
+        await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+      else await db.prepare("UPDATE league_places SET paid_at = datetime('now') WHERE id = ?").run(row.league_place_id);
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -686,6 +705,63 @@ export async function startEntryPayment(user: { id: number; name: string; phone:
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, tournament_entry_id)
        VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'entry', ?)`
+    )
+    .run(bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
+  return { ok: true, url: bill.url, amount: row.fee, reused: false };
+}
+
+// ------------------------------------------------------------ league fees
+
+/** A player paying this season's league fee, online, to the venue running it. */
+export async function startLeaguePayment(user: { id: number; name: string; phone: string; email: string }, leagueId: number): Promise<StartResult> {
+  const db = getDb();
+  const row = (await db
+    .prepare(
+      `SELECT lp.id, lp.paid_at, lp.withdrawn_at, s.number, l.name, l.fee::float AS fee, l.venue_id
+         FROM league_places lp
+         JOIN league_seasons s ON s.id = lp.season_id AND s.status = 'running'
+         JOIN league_players p ON p.id = lp.player_id
+         JOIN leagues l ON l.id = s.league_id
+        WHERE l.id = ? AND p.user_id = ? AND p.status = 'active'`
+    )
+    .get(leagueId, user.id)) as
+    | { id: number; paid_at: string | null; withdrawn_at: string | null; number: number; name: string; fee: number; venue_id: number }
+    | undefined;
+  if (!row || row.withdrawn_at) return { ok: false, error: "You are not in a box this season.", status: 404 };
+  if (row.paid_at) return { ok: false, error: "This season's fee is paid already.", status: 409 };
+  if (row.fee <= 0) return { ok: false, error: "There is no fee.", status: 409 };
+  const venue = (await getVenue(row.venue_id))!;
+  if (!isOpen(venue)) return { ok: false, error: `${venue.name} is not taking payment online at the moment.`, status: 409 };
+  const account = await venueAccount(row.venue_id);
+  if (!account) return { ok: false, error: `${venue.name} does not take payment online. Pay at the venue.`, status: 409 };
+
+  const reusable = (await db
+    .prepare(
+      `SELECT * FROM online_payments WHERE league_place_id = ? AND purpose = 'league' AND status = 'pending'
+          AND created_at > datetime('now', '-1 day') ORDER BY id DESC LIMIT 1`
+    )
+    .get(row.id)) as PaymentRow | undefined;
+  if (reusable) return { ok: true, url: reusable.url, amount: row.fee, reused: true };
+
+  let bill;
+  try {
+    bill = await createBill(account, {
+      amount: row.fee,
+      name: user.name,
+      email: user.email,
+      mobile: toWhatsAppNumber(user.phone),
+      description: `${venue.name}: ${row.name}, season ${row.number}`,
+      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
+      redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
+      reference: { label: "League", value: `L${leagueId}-${row.id}` },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await db
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, league_place_id)
+       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'league', ?)`
     )
     .run(bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
   return { ok: true, url: bill.url, amount: row.fee, reused: false };

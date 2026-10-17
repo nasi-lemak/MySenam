@@ -219,7 +219,9 @@ npm run backup -- --dir /mnt/backups # somewhere else
 (`MYSENAM_BACKUP_HOUR`), and catches up as soon as it is back if it was down at
 the hour. Hosts like Render cannot point a cron job at a web service's disk, so
 the schedule lives in the app: `next start` ticks once a minute and does what is
-due, which also sends any customer messages waiting to go. Set
+due, which also sends any customer messages waiting to go and starts and ends
+league seasons on their dates (with it off, staff start and end them from the
+dashboard). Set
 `MYSENAM_SCHEDULER=off` to run `npm run backup` from your own cron instead —
 and do, if more than one server shares the database:
 
@@ -845,6 +847,52 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
 The draw's arithmetic — seeding, byes, round-robins, tables, fitting matches
 into court time — is in `src/lib/brackets.ts`, apart from the database, and
 tested on its own.
+
+## Box leagues
+
+Venues run them from the dashboard's *Leagues* tab; players find them at
+`/leagues`. A league runs season after season, four weeks each by default
+(two to eight), rather than as fixed weekly fixtures nobody can keep.
+
+- **Setting one up**: sport, singles or doubles pairs, level, box size (3 to
+  6, default 4), one or two up and down, season length, a fee per season, and
+  when the first season starts. Nothing is held: players book courts like
+  anybody else.
+- **Joining**: with an account, at any time. A player joining mid-season goes
+  into a box at the next one. Joining says plainly that box-mates will see
+  your name and phone number — that is how matches get arranged — and only
+  box-mates in the season being played see them, with a WhatsApp link.
+- **Boxes**: everybody who has joined goes into one. Those who played last
+  season go where their move takes them; a newcomer goes into the bottom box,
+  best self-rated level first, unless staff give them a box to start in. Box
+  sizes keep to the size asked and spread the odd ones over from the top
+  (nine players in boxes of four make 5 and 4, not 3, 3 and 3), so one more
+  or one fewer player does not reshuffle the ladder. Everybody plays
+  everybody in their box once.
+- **Results**: either player reports the score, their own games first, and
+  who won; the other confirms it, or says it is wrong and why — staff are
+  emailed and decide it. A report nobody answers stands after three days.
+  Staff can also enter any result, give a walkover, strike a match, or put it
+  back to be played. Tables use the tournament rules: wins, then sets, then
+  points, then who beat whom.
+- **Seasons start and end by themselves.** A season starts on its date if
+  three or more have joined, and ends three days after its last day, for late
+  results; staff can do either sooner, or move the start. At the end,
+  unanswered reports stand, disputes nobody settled do not count, and the best
+  one (or two) of every box but the top go up and the worst of every box but
+  the bottom go down — never more than half a box. Everybody is emailed where
+  they finished and where they go; the next season starts the day after.
+- **Leaving** mid-season makes every match not yet played a walkover to the
+  other side; what was played still counts for the opponents.
+- **The fee** is paid online to the venue from the league page once the
+  boxes are made, or at the counter, where staff tick it off. A fee that
+  arrives after the player left, or paid at the counter meanwhile, is owed
+  back.
+- Closing an account takes the player out of their leagues and their name
+  off every box; the personal data export includes leagues and seasons.
+
+The box arithmetic — sizes, who moves, the order for next season — is in
+`src/lib/boxes.ts`, apart from the database, and tested on its own.
 
 ## Courts near me
 

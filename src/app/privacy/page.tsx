@@ -76,6 +76,9 @@ export default async function PrivacyPage() {
             <strong>{t("privacy.seeVenueLead")}</strong> {t("privacy.seeVenueBody")}
           </li>
           <li>
+            <strong>{t("privacy.seePlayersLead")}</strong> {t("privacy.seePlayersBody")}
+          </li>
+          <li>
             <strong>{t("privacy.seeNoneLead")}</strong> {t("privacy.seeNoneBody")}
           </li>
         </ul>

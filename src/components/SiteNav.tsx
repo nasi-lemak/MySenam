@@ -50,13 +50,14 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
     { href: "/classes", label: t("nav.classes") },
     { href: "/games", label: t("nav.games") },
     { href: "/tournaments", label: t("nav.tournaments") },
+    { href: "/leagues", label: t("nav.leagues") },
     { href: "/my-booking", label: t("nav.myBooking") },
   ];
 
   return (
     <nav className="flex items-center gap-x-1 text-sm font-medium text-slate-600">
       {/* Wide screens: everything in one row. */}
-      <div className="hidden items-center gap-x-1 lg:flex">
+      <div className="hidden items-center gap-x-1 xl:flex">
         {links.map((l) => (
           <Link key={l.href} href={l.href} className={ITEM}>
             {l.label}
@@ -74,8 +75,8 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
         <LanguageToggle />
       </div>
 
-      {/* Phones: the one thing most people came for, signing in, and a menu. */}
-      <div className="flex items-center gap-x-1 lg:hidden">
+      {/* Phones and narrower screens: the one thing most people came for, signing in, and a menu. */}
+      <div className="flex items-center gap-x-1 xl:hidden">
         <Link href="/search" className={ITEM}>
           {t("nav.find")}
         </Link>
@@ -94,7 +95,7 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
       {open && (
         <div
           id="site-menu"
-          className="absolute inset-x-0 top-full border-b border-slate-200 bg-white px-4 py-2 shadow-sm lg:hidden"
+          className="absolute inset-x-0 top-full border-b border-slate-200 bg-white px-4 py-2 shadow-sm xl:hidden"
         >
           {links.map((l) => (
             <Link key={l.href} href={l.href} className={`${ITEM} w-full`}>

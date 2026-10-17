@@ -73,6 +73,24 @@ export default async function PaymentReturnPage({
       </div>
     );
 
+  // A season's league fee.
+  if (payment?.purpose === "league" && payment.status === "paid")
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">✅</div>
+          <h1 className="mt-2 text-xl font-bold">{t("pay.leagueTitle")}</h1>
+          <p className="mt-2 text-sm text-slate-600">{t("pay.leagueBody", { amount: payment.amount })}</p>
+          <Link
+            href="/leagues"
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            {t("pay.leagueBack")}
+          </Link>
+        </div>
+      </div>
+    );
+
   // A player's share of somebody else's open game.
   if (payment?.purpose === "share" && payment.status === "paid")
     return (

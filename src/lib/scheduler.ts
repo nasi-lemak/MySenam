@@ -3,6 +3,7 @@ import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
 import { applyPaymentHolds } from "./payment-holds";
+import { leagueHousekeeping } from "./leagues";
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -73,6 +74,13 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await applyPaymentHolds(now);
   } catch (err) {
     console.error("[mysenam] checking for overdue invoices failed:", err);
+  }
+
+  try {
+    // League results nobody answered, and seasons due to end or start.
+    await leagueHousekeeping();
+  } catch (err) {
+    console.error("[mysenam] league housekeeping failed:", err);
   }
 
   try {
