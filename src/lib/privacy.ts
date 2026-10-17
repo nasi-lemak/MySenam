@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { addDays, todayISO } from "./time";
 import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
+import { bookingCancelled, forgetPlayer } from "./games";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -248,6 +249,9 @@ export interface CustomerExport {
   passes: unknown[];
   memberships: unknown[];
   doorCodesShown: unknown[];
+  /** Open games they hosted or asked to join, and the levels they gave. */
+  games: unknown[];
+  levels: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -321,6 +325,23 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
        ORDER BY r.revealed_at DESC`,
       userId
     ),
+    games: await all(
+      `SELECT b.date, b.start_hour, v.name AS venue, c.sport,
+              CASE WHEN g.host_id = ? THEN 'host' ELSE p.status END AS role,
+              g.share, p.paid_at AS share_paid_at, p.no_show
+         FROM open_games g
+         JOIN bookings b ON b.id = g.booking_id
+         JOIN courts c ON c.id = b.court_id
+         JOIN venues v ON v.id = c.venue_id
+         LEFT JOIN open_game_players p ON p.game_id = g.id AND p.user_id = ?
+        WHERE g.host_id = ? OR p.user_id = ?
+        ORDER BY b.date DESC`,
+      userId,
+      userId,
+      userId,
+      userId
+    ),
+    levels: await all("SELECT sport, level, updated_at FROM player_levels WHERE user_id = ?", userId),
     heldAtACounter:
       "A pass, membership, waiting-list place or induction taken at a counter is filed against a phone number rather than this account. Ask the venue for those — they check who you are in person, which this page cannot.",
   };
@@ -399,8 +420,11 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     for (const booking of upcoming) {
       await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
       await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+      // Players in an open game on it hear it is off, and are owed their shares.
+      await bookingCancelled(booking.id);
       cancelled++;
     }
+    await forgetPlayer(userId);
 
     const result = await db
       .prepare(

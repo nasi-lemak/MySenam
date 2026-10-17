@@ -177,8 +177,9 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice";
+  purpose: "booking" | "invoice" | "share";
   invoice_id: number | null;
+  game_player_id: number | null;
 }
 
 export interface OnlinePayment {
@@ -196,8 +197,8 @@ export interface OnlinePayment {
   refundOwed: number;
   refunded: number;
   bookingCodes: string[];
-  /** A customer paying for bookings, or a venue paying its marketplace invoice. */
-  purpose: "booking" | "invoice";
+  /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
+  purpose: "booking" | "invoice" | "share";
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -275,7 +276,8 @@ export async function startBookingPayment(input: {
   const due = bookings.filter((b) => b.status === "confirmed" && b.paymentStatus === "unpaid");
   if (due.length === 0)
     return { ok: false, error: "There is nothing left to pay on this booking.", status: 409 };
-  const amount = Math.round(due.reduce((sum, b) => sum + b.totalPrice, 0) * 100) / 100;
+  // Less whatever other players in an open game have paid towards it.
+  const amount = Math.round(due.reduce((sum, b) => sum + b.totalPrice - b.sharesPaid, 0) * 100) / 100;
   if (amount <= 0)
     return { ok: false, error: "There is nothing left to pay on this booking.", status: 409 };
 
@@ -393,6 +395,17 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
   if (!row) return null;
   if (!result.paid || row.status === "paid") return { payment: await toPayment(row), newlyPaid: [] };
 
+  if (row.purpose === "share") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes === 1) await settleShare(row);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
   if (row.purpose === "invoice") {
     await db.transaction(async () => {
       const claimed = await db
@@ -489,3 +502,114 @@ export async function markRefunded(
   };
 }
 
+
+// ------------------------------------------------------------ shares of open games
+
+/**
+ * A player in somebody else's open game paying their share to the venue
+ * (lib/games.ts). Towards the host's booking: what the host then owes is the
+ * rest. Not once the court is paid for in full — that is between them.
+ */
+export async function startSharePayment(user: { id: number; name: string; phone: string; email: string }, gameId: number): Promise<StartResult> {
+  const db = getDb();
+  const row = (await db
+    .prepare(
+      `SELECT p.id AS player_id, p.status, p.paid_at, g.share::float AS share, b.id AS booking_id, b.code,
+              b.status AS booking_status, b.payment_status, c.venue_id, c.name AS court_name, b.date, b.start_hour, b.end_hour
+         FROM open_game_players p
+         JOIN open_games g ON g.id = p.game_id
+         JOIN bookings b ON b.id = g.booking_id
+         JOIN courts c ON c.id = b.court_id
+        WHERE g.id = ? AND p.user_id = ?`
+    )
+    .get(gameId, user.id)) as
+    | {
+        player_id: number;
+        status: string;
+        paid_at: string | null;
+        share: number;
+        booking_id: number;
+        code: string;
+        booking_status: string;
+        payment_status: string;
+        venue_id: number;
+        court_name: string;
+        date: string;
+        start_hour: number;
+        end_hour: number;
+      }
+    | undefined;
+  if (!row || row.status !== "accepted") return { ok: false, error: "You are not in that game.", status: 404 };
+  if (row.paid_at) return { ok: false, error: "Your share is paid already.", status: 409 };
+  if (row.share <= 0) return { ok: false, error: "There is nothing to pay for this game.", status: 409 };
+  if (row.booking_status !== "confirmed") return { ok: false, error: "That game is off.", status: 409 };
+  if (row.payment_status === "paid")
+    return { ok: false, error: "The court is paid for already: settle your share with the host.", status: 409 };
+  const venue = (await getVenue(row.venue_id))!;
+  if (!isOpen(venue))
+    return { ok: false, error: `${venue.name} is not taking payment online at the moment.`, status: 409 };
+  const account = await venueAccount(row.venue_id);
+  if (!account) return { ok: false, error: `${venue.name} does not take payment online. Pay at the venue.`, status: 409 };
+
+  const reusable = (await db
+    .prepare(
+      `SELECT * FROM online_payments WHERE game_player_id = ? AND purpose = 'share' AND status = 'pending'
+          AND amount = ? AND created_at > datetime('now', '-1 day') ORDER BY id DESC LIMIT 1`
+    )
+    .get(row.player_id, row.share)) as PaymentRow | undefined;
+  if (reusable) return { ok: true, url: reusable.url, amount: row.share, reused: true };
+
+  let bill;
+  try {
+    bill = await createBill(account, {
+      amount: row.share,
+      name: user.name,
+      email: user.email,
+      mobile: toWhatsAppNumber(user.phone),
+      description: `${venue.name}: share of ${row.court_name}, ${row.date} ${formatHour(row.start_hour)}-${formatHour(row.end_hour)} (${row.code})`,
+      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
+      redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
+      reference: { label: "Booking", value: row.code },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await db
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, game_player_id)
+       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'share', ?)`
+    )
+    .run(bill.id, bill.url, row.venue_id, row.share, user.name, user.phone, row.player_id);
+  return { ok: true, url: bill.url, amount: row.share, reused: false };
+}
+
+/**
+ * A share arrived. Counted towards the booking if the player is still in and
+ * the court still unpaid; owed back if not — they left, the game went, or the
+ * host paid for the whole court meanwhile.
+ */
+async function settleShare(row: PaymentRow): Promise<void> {
+  const db = getDb();
+  const target = (await db
+    .prepare(
+      `SELECT p.id, p.status, b.id AS booking_id, b.status AS booking_status, b.payment_status,
+              b.total_price::float AS total_price, b.shares_paid::float AS shares_paid
+         FROM open_game_players p JOIN open_games g ON g.id = p.game_id JOIN bookings b ON b.id = g.booking_id
+        WHERE p.id = ?`
+    )
+    .get(row.game_player_id)) as
+    | { id: number; status: string; booking_id: number; booking_status: string; payment_status: string; total_price: number; shares_paid: number }
+    | undefined;
+  if (!target || target.status !== "accepted" || target.booking_status !== "confirmed" || target.payment_status === "paid") {
+    await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+    return;
+  }
+  await db.prepare("UPDATE open_game_players SET paid_at = datetime('now') WHERE id = ?").run(target.id);
+  const sharesPaid = Math.round((target.shares_paid + Number(row.amount)) * 100) / 100;
+  await db.prepare("UPDATE bookings SET shares_paid = ? WHERE id = ?").run(sharesPaid, target.booking_id);
+  // Shares alone covered the court: nothing is left for the host to pay.
+  if (sharesPaid >= target.total_price)
+    await db
+      .prepare("UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now'), paid_via = 'online' WHERE id = ?")
+      .run(target.booking_id);
+}

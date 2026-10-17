@@ -648,14 +648,17 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <button
       onClick={() => act.togglePaid(b.code, !paid)}
-      title={paid ? "Click to mark unpaid" : "Click to mark paid"}
+      title={
+        (b.sharesPaid > 0 ? `RM${b.sharesPaid} paid online by other players in its open game. ` : "") +
+        (paid ? "Click to mark unpaid" : "Click to mark paid")
+      }
       className={`${CHIP} ${
         paid
           ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
           : "bg-amber-100 text-amber-700 hover:bg-amber-200"
       }`}
     >
-      {paid ? "✓ paid" : "unpaid"}
+      {paid ? "✓ paid" : b.sharesPaid > 0 ? `RM${b.totalPrice - b.sharesPaid} due` : "unpaid"}
     </button>
   );
 }

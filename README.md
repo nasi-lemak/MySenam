@@ -778,6 +778,36 @@ The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
 than an ordinary booking lookup, because a booking code plus a phone number is
 now a door.
 
+## Open games: finding players
+
+A player who has booked a court can open it to others at `/games` (*Games* in
+the menu): how many players they want, at what level, and what each pays
+towards the court — split evenly unless they say otherwise. Others find open
+games by sport, day, level, or *Near me*, and ask to join; the host accepts or
+declines from the same page, or lets anybody straight in. Everything needs an
+account.
+
+- **Money goes to the venue.** A player who joins pays their share online to
+  the venue's own Billplz account, towards the host's booking; staff see
+  "RM12 due" instead of the full price, and the host paying online pays only
+  the rest. Shares that cover the court mark it paid. Where the venue does not
+  take payment online, shares are paid at the counter. The platform never
+  holds anybody's money.
+- **Owed back when the game does not happen to them**: a player leaving or
+  being removed, or the booking being cancelled by anyone, puts their paid
+  share on the venue's list of refunds to make, like any online payment for
+  something that did not happen. A share that arrives after the court was paid
+  for in full, or after they left, is owed back at once.
+- **Privacy.** Players see each other's first name and level, never a phone
+  number or email. Levels are self-rated per sport: beginner, intermediate,
+  advanced or competitive.
+- **No-shows.** After the game, the host can mark a player who did not come.
+  Three in 90 days, and that player cannot join games until they age out.
+- Everyone is emailed when it matters: the host when somebody asks, joins or
+  leaves; the player when accepted, declined, removed, or the game is off.
+- Closing an account takes the player out of games to come, and calls off
+  games they were hosting; the personal data export includes games and levels.
+
 ## Courts near me
 
 On the home page and the search page, *Near me* uses the phone's location,

@@ -32,7 +32,9 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("auth.failed"));
-      router.push("/account");
+      // Back where they were, if they were sent here from somewhere on this site.
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/account");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.failed"));

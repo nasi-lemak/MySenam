@@ -228,6 +228,8 @@ export interface Booking {
   checkInToken: string | null;
   /** Set when this booking is an enrolment in an instructor-led class. */
   classId: number | null;
+  /** Paid online towards it by other players in its open game (lib/games.ts). */
+  sharesPaid: number;
 }
 
 export type ClassStatus = "scheduled" | "cancelled";

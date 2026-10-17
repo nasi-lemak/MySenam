@@ -255,6 +255,7 @@ interface BookingRow {
   no_show: number;
   check_in_token: string | null;
   class_id: number | null;
+  shares_paid?: number | string;
   user_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
@@ -299,6 +300,7 @@ function toBooking(r: BookingRow): Booking {
     checkedOutAt: r.checked_out_at ?? null,
     checkInToken: r.check_in_token,
     classId: r.class_id,
+    sharesPaid: Number(r.shares_paid ?? 0),
   };
 }
 
@@ -3494,6 +3496,10 @@ async function refundBooking(bookingId: number): Promise<void> {
   await noteOnlineRefundDue(bookingId);
   // The customer never had the benefit, so a limited code is not poorer for it.
   await releasePromoUse(bookingId);
+  // An open game on it goes too, and its players' shares are owed back.
+  // Imported here, not at the top: lib/games.ts reads from this module.
+  const { bookingCancelled } = await import("./games");
+  await bookingCancelled(bookingId);
 }
 
 /**
@@ -3506,7 +3512,7 @@ async function noteOnlineRefundDue(bookingId: number): Promise<void> {
   await getDb()
     .prepare(`
       UPDATE online_payments
-         SET refund_due = refund_due + (SELECT total_price FROM bookings WHERE id = ?)
+         SET refund_due = refund_due + (SELECT total_price - shares_paid FROM bookings WHERE id = ?)
        WHERE status = 'paid'
          AND id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
          AND EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')

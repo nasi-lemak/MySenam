@@ -48,6 +48,7 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
     { href: "/", label: t("nav.venues") },
     { href: "/search", label: t("nav.find") },
     { href: "/classes", label: t("nav.classes") },
+    { href: "/games", label: t("nav.games") },
     { href: "/my-booking", label: t("nav.myBooking") },
   ];
 
