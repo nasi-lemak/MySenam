@@ -432,6 +432,12 @@ export async function createBookingOnAnyCourt(input: {
  * venue's rows for the date, so the venue page slowed down with each venue
  * added to the platform.
  */
+/** ` AND <column> IN (these courts)`, or nothing when no list is given. */
+function onlyCourts(column: string, courtIds?: number[]): { sql: string; params: number[] } {
+  if (courtIds === undefined) return { sql: "", params: [] };
+  return { sql: ` AND ${column} IN (${courtIds.map(() => "?").join(",") || "NULL"})`, params: courtIds };
+}
+
 function venueCourts(column: string, venueId?: number | null): { sql: string; params: number[] } {
   return venueId == null
     ? { sql: "", params: [] }
@@ -445,16 +451,21 @@ function venueCourts(column: string, venueId?: number | null): { sql: string; pa
  * capacity here. That keeps a capacity-1 court behaving exactly as before: one
  * place blocked out of one is the court closed.
  */
-async function blockedPlacesOn(date: string, venueId?: number): Promise<Map<string, number>> {
+async function blockedPlacesOn(
+  date: string,
+  venueId?: number,
+  courtIds?: number[]
+): Promise<Map<string, number>> {
   const venue = venueCourts("b.court_id", venueId);
+  const courts = onlyCourts("b.court_id", courtIds);
   const rows = await getDb()
     .prepare(`
       SELECT b.court_id AS court_id, b.hour AS hour,
              COALESCE(b.places, c.capacity) AS places
       FROM slot_blocks b JOIN courts c ON c.id = b.court_id
-      WHERE b.date = ?${venue.sql}
+      WHERE b.date = ?${venue.sql}${courts.sql}
     `)
-    .all(date, ...venue.params) as {
+    .all(date, ...venue.params, ...courts.params) as {
     court_id: number;
     hour: number;
     places: number;
@@ -528,15 +539,17 @@ export async function getAvailability(
 /** `courtId:hour` -> the class holding it, for a date (optionally one venue). */
 async function classHoursOn(
   date: string,
-  venueId?: number
+  venueId?: number,
+  courtIds?: number[]
 ): Promise<Map<string, { id: number; name: string }>> {
   const venue = venueCourts("court_id", venueId);
+  const courts = onlyCourts("court_id", courtIds);
   const rows = await getDb()
     .prepare(`
       SELECT id, court_id, name, start_hour, end_hour FROM classes
-      WHERE date = ? AND status = 'scheduled'${venue.sql}
+      WHERE date = ? AND status = 'scheduled'${venue.sql}${courts.sql}
     `)
-    .all(date, ...venue.params) as {
+    .all(date, ...venue.params, ...courts.params) as {
     id: number;
     court_id: number;
     name: string;
@@ -591,6 +604,119 @@ export interface SearchInput {
 }
 
 /** Distinct venue areas, for the search filter. */
+/** One page of the venue list, and how many venues there are in all. */
+export interface VenuePage {
+  venues: (Venue & { courts: Court[] })[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const VENUE_PAGE_SIZE = 24;
+const MAX_VENUE_PAGE_SIZE = 100;
+
+/** `WHERE` for the public venue list, shared by the page and its counts. */
+function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }): {
+  sql: string;
+  params: (string | number)[];
+} {
+  const clauses: string[] = [];
+  const params: (string | number)[] = [];
+  if (opts.venueIds) {
+    clauses.push(`v.id IN (${opts.venueIds.map(() => "?").join(",") || "NULL"})`);
+    params.push(...opts.venueIds);
+  }
+  if (opts.area) {
+    clauses.push("v.area = ?");
+    params.push(opts.area);
+  }
+  if (opts.sport) {
+    clauses.push("EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id AND c.sport = ?)");
+    params.push(opts.sport);
+  }
+  return { sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+}
+
+/**
+ * The venues a visitor is browsing, a page at a time.
+ *
+ * `listVenues` hands back every venue and every court, which is right for a
+ * business with a handful of branches and wrong for a marketplace with
+ * thousands: measured with two thousand venues, the home page was 4 MB of
+ * HTML and stopped answering under load. This reads one page of venues, and
+ * only their courts.
+ */
+export async function listVenuePage(
+  opts: { area?: string; sport?: Sport; venueIds?: number[]; page?: number; pageSize?: number } = {}
+): Promise<VenuePage> {
+  const db = getDb();
+  const pageSize = Math.min(Math.max(Math.trunc(opts.pageSize ?? VENUE_PAGE_SIZE), 1), MAX_VENUE_PAGE_SIZE);
+  const page = Math.max(Math.trunc(opts.page ?? 1), 1);
+  const filter = venueFilter(opts);
+  const { total } = (await db
+    .prepare(`SELECT COUNT(*) AS total FROM venues v ${filter.sql}`)
+    .get(...filter.params)) as { total: number };
+  const rows = (await db
+    .prepare(`SELECT v.* FROM venues v ${filter.sql} ORDER BY v.name, v.id LIMIT ? OFFSET ?`)
+    .all(...filter.params, pageSize, (page - 1) * pageSize)) as VenueRow[];
+  if (rows.length === 0) return { venues: [], total, page, pageSize };
+  const courts = (
+    (await db
+      .prepare(`SELECT * FROM courts WHERE venue_id IN (${rows.map(() => "?").join(",")}) ORDER BY id`)
+      .all(...rows.map((r) => r.id))) as CourtRow[]
+  ).map(toCourt);
+  return {
+    venues: rows.map(toVenue).map((v) => ({ ...v, courts: courts.filter((c) => c.venueId === v.id) })),
+    total,
+    page,
+    pageSize,
+  };
+}
+
+/** Each area with how many venues are in it, for browsing by area. */
+export async function listAreaCounts(
+  opts: { sport?: Sport; venueIds?: number[] } = {}
+): Promise<{ area: string; venues: number }[]> {
+  const filter = venueFilter(opts);
+  return (await getDb()
+    .prepare(`SELECT v.area, COUNT(*) AS venues FROM venues v ${filter.sql} GROUP BY v.area ORDER BY v.area`)
+    .all(...filter.params)) as { area: string; venues: number }[];
+}
+
+/** The sports played at these venues, or anywhere. */
+export async function sportsOfferedAt(venueIds?: number[]): Promise<Sport[]> {
+  const rows = (
+    venueIds === undefined
+      ? await getDb().prepare("SELECT DISTINCT sport FROM courts").all()
+      : await getDb()
+          .prepare(`SELECT DISTINCT sport FROM courts WHERE venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"})`)
+          .all(...venueIds)
+  ) as { sport: Sport }[];
+  const offered = new Set(rows.map((r) => r.sport));
+  return SPORTS.filter((s) => offered.has(s));
+}
+
+/**
+ * How many courts a search would have to look at.
+ *
+ * Every free hour on every court is worked out to find the few shown, so a
+ * search's cost is its number of courts. Narrowed to an area it is a few
+ * hundred; across a national marketplace it is ten thousand or more, and
+ * measured at that size one search took eight seconds. `SEARCH_COURT_LIMIT`
+ * is where the search page asks for an area first.
+ */
+export const SEARCH_COURT_LIMIT = 400;
+
+export async function countSearchCourts(input: { sport: Sport; area?: string; venueIds?: number[] }): Promise<number> {
+  const filter = venueFilter({ area: input.area, venueIds: input.venueIds });
+  const { n } = (await getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql ? `${filter.sql} AND` : "WHERE"} c.sport = ?`
+    )
+    .get(...filter.params, input.sport)) as { n: number };
+  return n;
+}
+
 export async function listAreas(venueIds?: number[]): Promise<string[]> {
   const rows = (
     venueIds === undefined
@@ -673,8 +799,9 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     `)
     .all(input.date, ...courtIds) as { court_id: number; hour: number; n: number }[];
   const takenCounts = new Map(taken.map((t) => [`${t.court_id}:${t.hour}`, t.n]));
-  const blockedPlaces = await blockedPlacesOn(input.date);
-  const classHours = await classHoursOn(input.date);
+  // Only for the courts being searched, not every court in the country.
+  const blockedPlaces = await blockedPlacesOn(input.date, undefined, courtIds);
+  const classHours = await classHoursOn(input.date, undefined, courtIds);
 
   const results: SearchResult[] = [];
   for (const row of rows) {
@@ -897,7 +1024,7 @@ export async function createBookingSeries(input: {
         for (const hour of hours) seats.push(await freeSeat(weekDate, hour));
 
         let reason: string | null = null;
-        const classes = await classHoursOn(weekDate);
+        const classes = await classHoursOn(weekDate, court.venueId);
         if (seats.some((seat) => seat === null)) {
           reason = court.capacity > 1 ? "fully booked" : "already booked";
         } else if (await blockedOut(weekDate)) {
@@ -2788,7 +2915,7 @@ export async function createClassSessions(input: {
         const weekDate = addDays(date, week * 7);
         if ((await taken.get(courtId, weekDate, ...hours) as { n: number }).n > 0)
           throw new Error(`BOOKED:${weekDate}`);
-        const clashes = await classHoursOn(weekDate);
+        const clashes = await classHoursOn(weekDate, court.venueId);
         if (hours.some((h) => clashes.has(`${courtId}:${h}`)))
           throw new Error(`CLASH:${weekDate}`);
 
@@ -4311,7 +4438,7 @@ async function slotHoursFree(courtId: number, date: string, hours: number[]): Pr
   const court = await getCourt(courtId);
   if (!court) return false;
   const db = getDb();
-  const classes = await classHoursOn(date);
+  const classes = await classHoursOn(date, court.venueId);
   const blocked = await blockedPlacesFor(courtId, date, hours);
   for (const hour of hours) {
     if (classes.has(`${courtId}:${hour}`)) return false;

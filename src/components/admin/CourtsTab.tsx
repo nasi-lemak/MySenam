@@ -51,7 +51,8 @@ export function CourtsTab({
   const venue = venues.find((v) => v.id === venueId);
 
   async function refreshVenues() {
-    const res = await fetch("/api/venues", { cache: "no-store" });
+    // The venues this admin manages, not the public list, which is paged.
+    const res = await fetch("/api/admin/auth/me", { cache: "no-store" });
     const data = await res.json();
     onVenuesChange(data.venues);
   }

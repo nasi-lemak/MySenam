@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionAdmin } from "@/lib/admin-auth";
-import { listVenues } from "@/lib/store";
+import { getVenue, listVenues } from "@/lib/store";
 import { pruneIfDue } from "@/lib/privacy";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,12 @@ export async function GET(req: NextRequest) {
   // nothing either.
   await pruneIfDue();
 
-  // Only the venues this admin may manage.
-  const venues = (await listVenues()).filter((v) => admin.venueId === null || v.id === admin.venueId);
+  // Only the venues this admin may manage: every one for the platform owner,
+  // and for anybody else their own, read on its own rather than picked out
+  // of every venue there is.
+  const venues =
+    admin.venueId === null
+      ? await listVenues()
+      : await getVenue(admin.venueId).then((v) => (v ? [v] : []));
   return NextResponse.json({ admin, venues });
 }

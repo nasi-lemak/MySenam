@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listAreas, searchAvailability } from "@/lib/store";
+import { countSearchCourts, listAreas, SEARCH_COURT_LIMIT, searchAvailability } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { CLOSE_HOUR, MAX_HOURS_PER_BOOKING, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
@@ -43,15 +43,24 @@ export async function GET(req: NextRequest) {
 
   // On a storefront, only its venues.
   const venueIds = (await storefrontForRequest(req))?.venueIds;
+  const area = params.get("area") || undefined;
+  const areas = await listAreas(venueIds);
+
+  // Across a whole marketplace, every free hour on every court in the
+  // country is too much to work out for one page of results — and a court
+  // three states away is no use to whoever is asking. Ask where first.
+  if (!area && (await countSearchCourts({ sport: sport as Sport, venueIds })) > SEARCH_COURT_LIMIT)
+    return NextResponse.json({ date, sport, duration, results: [], areas, needsArea: true });
+
   const results = await searchAvailability({
     sport: sport as Sport,
     date,
     fromHour,
     toHour,
     duration,
-    area: params.get("area") ?? undefined,
+    area,
     venueIds,
   });
 
-  return NextResponse.json({ date, sport, duration, results, areas: await listAreas(venueIds) });
+  return NextResponse.json({ date, sport, duration, results, areas, needsArea: false });
 }

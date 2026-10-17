@@ -80,6 +80,9 @@ export default function SearchPage() {
   const [area, setArea] = useState("");
   const [areas, setAreas] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[] | null>(null);
+  // A whole marketplace is too many courts to search at once; the server says
+  // so, and the page asks for an area instead of showing nothing.
+  const [needsArea, setNeedsArea] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -100,6 +103,7 @@ export default function SearchPage() {
       if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
       setResults(data.results);
       setAreas(data.areas);
+      setNeedsArea(Boolean(data.needsArea));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("search.failed"));
       setResults(null);
@@ -227,6 +231,10 @@ export default function SearchPage() {
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
           {t("search.working")}
+        </div>
+      ) : needsArea ? (
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-6 text-center text-teal-800">
+          {t("search.needsArea")}
         </div>
       ) : results && results.length > 0 ? (
         (() => {
