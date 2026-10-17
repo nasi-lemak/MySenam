@@ -808,6 +808,44 @@ account.
 - Closing an account takes the player out of games to come, and calls off
   games they were hosting; the personal data export includes games and levels.
 
+## Tournaments
+
+Venues run them from the dashboard's *Tournaments* tab; players find them at
+`/tournaments`.
+
+- **Setting one up**: sport, singles or doubles, level, entry fee, most
+  entries, days (up to two weeks) and daily hours, and which courts. Those
+  hours are **held at once** — ordinary blocks with the tournament's name, so
+  every booking path already treats them as taken. It will not hold over a
+  booking already made, or a court out of service, and says which.
+- **Entries**: players enter with their account (naming a partner for
+  doubles) and pay the fee online to the venue, or at its counter, where
+  staff tick it off. Past the limit they go on a waiting list, and move up,
+  and are told, when somebody withdraws.
+- **The draw**: a straight knockout, or round-robin groups (3 to 6) whose top
+  one or two go through to a knockout. Seeds staff set are kept apart and get
+  the byes; everybody else is drawn by lot. Each group's runner-up is put in
+  the other half of the knockout from its winner. Every match gets a court and
+  an hour within those held, with nobody playing twice at once and no round
+  before the one feeding it — or the draw says how many matches did not fit
+  and changes nothing. Everybody is emailed their first match.
+- **Results**: staff enter the score as sets ("21-15, 18-21, 21-10") and who
+  won — a score that says the other side won is refused — or a walkover.
+  Winners move on by themselves; the last group match fills the knockout from
+  the tables (wins, then sets, then points, then who beat whom); the final
+  finishes it, and the court time it no longer needs goes back on sale. A
+  result can be put right until the match it fed has been played.
+- **Withdrawals** before the draw free the place for the waiting list and owe
+  back a fee paid online; after it, every match still to play is a walkover.
+  **Calling it off** gives the courts back, tells every entrant, and owes back
+  every fee paid online.
+- The public page shows entries, then the groups, the bracket and every
+  match's court and time, refreshing while it is on.
+
+The draw's arithmetic — seeding, byes, round-robins, tables, fitting matches
+into court time — is in `src/lib/brackets.ts`, apart from the database, and
+tested on its own.
+
 ## Courts near me
 
 On the home page and the search page, *Near me* uses the phone's location,

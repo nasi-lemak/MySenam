@@ -11,6 +11,7 @@ import { GoLiveBanner } from "@/components/admin/GoLiveBanner";
 import { OccupancyTab } from "@/components/admin/OccupancyTab";
 import { ReportsTab } from "@/components/admin/ReportsTab";
 import { ScheduleTab } from "@/components/admin/ScheduleTab";
+import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
@@ -22,6 +23,7 @@ type Tab =
   | "reports"
   | "courts"
   | "classes"
+  | "tournaments"
   | "credit"
   | "venues";
 
@@ -142,6 +144,7 @@ export default function AdminPage() {
     ["reports", "Reports"],
     ["courts", "Courts & rates"],
     ["classes", "Classes"],
+    ["tournaments", "Tournaments"],
     ["credit", "Credit & passes"],
     ["venues", isOwner ? "Venues & staff" : isManager ? "Branches & staff" : "Venue details"],
   ];
@@ -234,6 +237,7 @@ export default function AdminPage() {
           {tab === "reports" && <ReportsTab venues={venues} />}
           {tab === "courts" && <CourtsTab venues={venues} onVenuesChange={refreshVenues} />}
           {tab === "classes" && <ClassesTab venues={venues} />}
+          {tab === "tournaments" && <TournamentsTab venues={venues} />}
           {tab === "credit" && <CreditTab venues={venues} />}
           {tab === "venues" && (
             <VenuesTab admin={admin} venues={venues} onChange={refreshVenues} />

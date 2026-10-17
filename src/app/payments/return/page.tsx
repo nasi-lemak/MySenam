@@ -55,6 +55,24 @@ export default async function PaymentReturnPage({
       </div>
     );
 
+  // A tournament entry fee.
+  if (payment?.purpose === "entry" && payment.status === "paid")
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">✅</div>
+          <h1 className="mt-2 text-xl font-bold">{t("pay.entryTitle")}</h1>
+          <p className="mt-2 text-sm text-slate-600">{t("pay.entryBody", { amount: payment.amount })}</p>
+          <Link
+            href="/tournaments"
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            {t("pay.entryBack")}
+          </Link>
+        </div>
+      </div>
+    );
+
   // A player's share of somebody else's open game.
   if (payment?.purpose === "share" && payment.status === "paid")
     return (

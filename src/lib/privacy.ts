@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { addDays, todayISO } from "./time";
 import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
 import { bookingCancelled, forgetPlayer } from "./games";
+import { withdraw } from "./tournaments";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -252,6 +253,7 @@ export interface CustomerExport {
   /** Open games they hosted or asked to join, and the levels they gave. */
   games: unknown[];
   levels: unknown[];
+  tournaments: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -342,6 +344,12 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     levels: await all("SELECT sport, level, updated_at FROM player_levels WHERE user_id = ?", userId),
+    tournaments: await all(
+      `SELECT t.name AS tournament, t.starts_on, v.name AS venue, e.name AS entered_as, e.status, e.paid_at
+         FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id JOIN venues v ON v.id = t.venue_id
+        WHERE e.user_id = ? ORDER BY t.starts_on DESC`,
+      userId
+    ),
     heldAtACounter:
       "A pass, membership, waiting-list place or induction taken at a counter is filed against a phone number rather than this account. Ask the venue for those — they check who you are in person, which this page cannot.",
   };
@@ -425,6 +433,17 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       cancelled++;
     }
     await forgetPlayer(userId);
+    // Out of tournaments still to come; and off every draw, past or not, by name.
+    const entered = (await db
+      .prepare(
+        `SELECT e.id FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id
+          WHERE e.user_id = ? AND e.status <> 'withdrawn' AND t.status IN ('open', 'closed', 'drawn')`
+      )
+      .all(userId)) as { id: number }[];
+    for (const e of entered) await withdraw(e.id);
+    await db
+      .prepare("UPDATE tournament_entries SET name = ?, partner_name = NULL, user_id = NULL WHERE user_id = ?")
+      .run(ANONYMOUS, userId);
 
     const result = await db
       .prepare(

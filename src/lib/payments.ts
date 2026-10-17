@@ -177,9 +177,10 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share";
+  purpose: "booking" | "invoice" | "share" | "entry";
   invoice_id: number | null;
   game_player_id: number | null;
+  tournament_entry_id: number | null;
 }
 
 export interface OnlinePayment {
@@ -198,7 +199,7 @@ export interface OnlinePayment {
   refunded: number;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share";
+  purpose: "booking" | "invoice" | "share" | "entry";
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -394,6 +395,26 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
     | undefined;
   if (!row) return null;
   if (!result.paid || row.status === "paid") return { payment: await toPayment(row), newlyPaid: [] };
+
+  if (row.purpose === "entry") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes === 0) return;
+      // Withdrawn, or the tournament called off, while they paid: owed back.
+      const entry = (await db
+        .prepare(
+          `SELECT e.status, t.status AS t_status FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.id = ?`
+        )
+        .get(row.tournament_entry_id)) as { status: string; t_status: string } | undefined;
+      if (!entry || entry.status === "withdrawn" || entry.t_status === "cancelled")
+        await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+      else await db.prepare("UPDATE tournament_entries SET paid_at = datetime('now') WHERE id = ?").run(row.tournament_entry_id);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
 
   if (row.purpose === "share") {
     await db.transaction(async () => {
@@ -612,4 +633,60 @@ async function settleShare(row: PaymentRow): Promise<void> {
     await db
       .prepare("UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now'), paid_via = 'online' WHERE id = ?")
       .run(target.booking_id);
+}
+
+// ------------------------------------------------------------ tournament entry fees
+
+/** A player paying their tournament entry fee, online, to the venue running it. */
+export async function startEntryPayment(user: { id: number; name: string; phone: string; email: string }, tournamentId: number): Promise<StartResult> {
+  const db = getDb();
+  const row = (await db
+    .prepare(
+      `SELECT e.id, e.status, e.paid_at, t.name, t.entry_fee::float AS fee, t.status AS t_status, t.venue_id, t.starts_on
+         FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id
+        WHERE e.tournament_id = ? AND e.user_id = ? AND e.status <> 'withdrawn' ORDER BY e.id DESC LIMIT 1`
+    )
+    .get(tournamentId, user.id)) as
+    | { id: number; status: string; paid_at: string | null; name: string; fee: number; t_status: string; venue_id: number; starts_on: string }
+    | undefined;
+  if (!row) return { ok: false, error: "You have not entered.", status: 404 };
+  if (row.status !== "entered") return { ok: false, error: "You are on the waiting list: pay once you are in.", status: 409 };
+  if (row.paid_at) return { ok: false, error: "Your entry fee is paid already.", status: 409 };
+  if (row.fee <= 0) return { ok: false, error: "There is no entry fee.", status: 409 };
+  if (row.t_status === "cancelled" || row.t_status === "finished") return { ok: false, error: "That tournament is over.", status: 409 };
+  const venue = (await getVenue(row.venue_id))!;
+  if (!isOpen(venue)) return { ok: false, error: `${venue.name} is not taking payment online at the moment.`, status: 409 };
+  const account = await venueAccount(row.venue_id);
+  if (!account) return { ok: false, error: `${venue.name} does not take payment online. Pay at the venue.`, status: 409 };
+
+  const reusable = (await db
+    .prepare(
+      `SELECT * FROM online_payments WHERE tournament_entry_id = ? AND purpose = 'entry' AND status = 'pending'
+          AND created_at > datetime('now', '-1 day') ORDER BY id DESC LIMIT 1`
+    )
+    .get(row.id)) as PaymentRow | undefined;
+  if (reusable) return { ok: true, url: reusable.url, amount: row.fee, reused: true };
+
+  let bill;
+  try {
+    bill = await createBill(account, {
+      amount: row.fee,
+      name: user.name,
+      email: user.email,
+      mobile: toWhatsAppNumber(user.phone),
+      description: `${venue.name}: entry, ${row.name} (${row.starts_on})`,
+      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
+      redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
+      reference: { label: "Entry", value: `T${tournamentId}-${row.id}` },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await db
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, tournament_entry_id)
+       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'entry', ?)`
+    )
+    .run(bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
+  return { ok: true, url: bill.url, amount: row.fee, reused: false };
 }
