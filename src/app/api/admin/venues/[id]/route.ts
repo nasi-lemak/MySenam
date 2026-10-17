@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { denyVenue, isOwner, listAdmins, requireAdmin } from "@/lib/admin-auth";
+import { siteName } from "@/lib/site";
+import { sendPlainEmail } from "@/lib/transports";
 import { markDetailsChecked } from "@/lib/setup";
-import { updateVenue } from "@/lib/store";
+import { getVenue, updateVenue } from "@/lib/store";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -104,6 +106,7 @@ export async function PATCH(
   if (Object.keys(changes).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 
+  const before = changes.name !== undefined ? await getVenue(venueId) : null;
   const result = await updateVenue(venueId, changes);
   if (!result.ok)
     return NextResponse.json(
@@ -112,5 +115,22 @@ export async function PATCH(
     );
   // Saving the venue's details is the owner having looked at its hours.
   await markDetailsChecked(venueId);
+  // A venue's name is what customers trust. An operator may change their own,
+  // but the platform owner hears about it, so a venue cannot quietly become
+  // "AAA Best Courts" or borrow a better-known name.
+  if (!isOwner(admin) && before && before.name !== result.venue.name)
+    await tellOwnersOfRename(before.name, result.venue.name, admin.email);
   return NextResponse.json({ venue: result.venue });
+}
+
+/** Email every platform owner that a venue has a new name. */
+async function tellOwnersOfRename(from: string, to: string, by: string): Promise<void> {
+  const owners = (await listAdmins()).filter((a) => a.venueId === null);
+  for (const owner of owners)
+    await sendPlainEmail(
+      owner.email,
+      `${from} is now called ${to}`,
+      `${by} renamed "${from}" to "${to}" on ${siteName()}.\n\n` +
+        "Nothing needs doing if that is right. If it is not, change it back under Venues & staff."
+    );
 }

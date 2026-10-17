@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
+import { isBlocked, phoneBlocked } from "@/lib/limits";
 import { rateLimit } from "@/lib/rate-limit";
-import { getClass, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
+import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { currentLocale } from "@/lib/locale";
 
@@ -52,6 +53,13 @@ export async function POST(req: NextRequest) {
     // remembered now rather than read off that request.
     locale: await currentLocale(),
   };
+
+  // A number the venue has refused does not queue for it either.
+  const venueId = forClass
+    ? (await getClass(classId as number))?.venueId
+    : (await getCourt(courtId as number))?.venueId;
+  if (venueId !== undefined && (await isBlocked(venueId, person.phone)))
+    return refusal(phoneBlocked());
 
   const result = forClass
     ? await joinClassWaitlist({ classId: classId as number, ...person })

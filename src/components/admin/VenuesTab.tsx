@@ -7,6 +7,7 @@ import type { Venue, VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { MessagesPanel } from "./MessagesPanel";
+import { BlockedPhonesPanel } from "./BlockedPhonesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
 import { BillingPanel } from "./BillingPanel";
@@ -110,6 +111,8 @@ export function VenuesTab({
           ))}
         </div>
       </section>
+
+      <BlockedPhonesPanel venues={venues} />
 
       <MessagesPanel venues={venues} />
 

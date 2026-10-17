@@ -212,6 +212,30 @@ export function BookingsTab() {
     }
   }
 
+  /**
+   * Stop a number booking this venue online again — somebody filling the
+   * evening with bookings nobody plays. Their bookings stay until cancelled.
+   */
+  async function blockNumber(b: AdminBookingRow) {
+    const reason = window.prompt(
+      `Stop ${b.phone} booking ${b.venueName} online? They can still call you. Why (optional, only staff see it):`
+    );
+    if (reason === null) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/venues/${b.venueId}/blocked-phones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: b.phone, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not block the number");
+      setNotice(`${b.phone} can no longer book ${b.venueName} online. Undo under Venue details.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not block the number");
+    }
+  }
+
   async function toggleNoShow(code: string, noShow: boolean) {
     setError(null);
     try {
@@ -253,6 +277,7 @@ export function BookingsTab() {
     openMove,
     cancelBooking,
     paySeries,
+    blockNumber,
   };
 
   return (
@@ -576,6 +601,7 @@ interface Act {
   openMove: (code: string) => void;
   cancelBooking: (code: string) => void;
   paySeries: (seriesCode: string) => void;
+  blockNumber: (b: AdminBookingRow) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -734,6 +760,13 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
         className="inline-flex min-h-7 items-center rounded-md border border-red-300 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"
       >
         Cancel
+      </button>
+      <button
+        onClick={() => act.blockNumber(b)}
+        title="Stop this phone number booking online"
+        className="inline-flex min-h-7 items-center rounded-md px-2 text-xs text-slate-400 hover:text-red-600"
+      >
+        Block number
       </button>
     </>
   );

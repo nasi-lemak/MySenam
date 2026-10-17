@@ -555,6 +555,11 @@ const EN = {
   "err.MAX_HOURS": "Maximum {max} hours per booking.",
   "err.HOURS_NOT_CONSECUTIVE": "Selected hours must be consecutive.",
   "err.HOURS_OUTSIDE_OPENING": "Selected hours are outside operating hours.",
+  "err.PHONE_BLOCKED": "This venue is not taking online bookings from this number. Please call the venue.",
+  "err.PHONE_LIMIT_VENUE":
+    "This number already has {n} unpaid bookings coming up here. Pay for or cancel one first, or call the venue.",
+  "err.PHONE_LIMIT_ALL": "This number already has {n} unpaid bookings coming up. Pay for or cancel one first.",
+  "err.SERIES_NEEDS_ACCOUNT": "Sign in to book the same slot every week.",
   "err.THOSE_HOURS_OUTSIDE_OPENING": "Those hours are outside operating hours.",
   "err.SLOT_PAST": "That time slot has already passed.",
   "err.TIME_PAST": "That time has already passed.",
@@ -1114,6 +1119,11 @@ const MS: Record<Phrase, string> = {
   "err.MAX_HOURS": "Maksimum {max} jam bagi setiap tempahan.",
   "err.HOURS_NOT_CONSECUTIVE": "Jam yang dipilih mesti berturut-turut.",
   "err.HOURS_OUTSIDE_OPENING": "Jam yang dipilih di luar waktu operasi.",
+  "err.PHONE_BLOCKED": "Pusat ini tidak menerima tempahan dalam talian daripada nombor ini. Sila hubungi pusat tersebut.",
+  "err.PHONE_LIMIT_VENUE":
+    "Nombor ini sudah mempunyai {n} tempahan belum dibayar yang akan datang di sini. Bayar atau batalkan satu dahulu, atau hubungi pusat tersebut.",
+  "err.PHONE_LIMIT_ALL": "Nombor ini sudah mempunyai {n} tempahan belum dibayar yang akan datang. Bayar atau batalkan satu dahulu.",
+  "err.SERIES_NEEDS_ACCOUNT": "Log masuk untuk menempah slot yang sama setiap minggu.",
   "err.THOSE_HOURS_OUTSIDE_OPENING": "Jam tersebut di luar waktu operasi.",
   "err.SLOT_PAST": "Waktu itu sudah berlalu.",
   "err.TIME_PAST": "Waktu tersebut sudah berlalu.",

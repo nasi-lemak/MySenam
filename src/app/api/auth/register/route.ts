@@ -12,7 +12,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, email, phone, password } = (body ?? {}) as Record<string, unknown>;
+  const { name, email, phone, password, website } = (body ?? {}) as Record<string, unknown>;
+  // A field no person sees: a form that fills it in is a script.
+  if (typeof website === "string" && website !== "")
+    return NextResponse.json({ error: "The account could not be created." }, { status: 400 });
 
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Please provide your name." }, { status: 400 });

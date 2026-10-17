@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  // Nobody sees this field; a script filling in every field fills it too.
+  const [website, setWebsite] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -25,7 +27,7 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          mode === "login" ? { email, password } : { name, email, phone, password }
+          mode === "login" ? { email, password } : { name, email, phone, password, website }
         ),
       });
       const data = await res.json();
@@ -75,6 +77,15 @@ export default function LoginPage() {
         onSubmit={submit}
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
       >
+        <input
+          tabIndex={-1}
+          aria-hidden
+          autoComplete="off"
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          className="hidden"
+          name="website"
+        />
         {mode === "register" && (
           <>
             <label className="block text-sm font-medium text-slate-700">

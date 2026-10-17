@@ -660,8 +660,12 @@ export async function listVenuePage(
     .prepare(`SELECT COUNT(*) AS total FROM venues v ${filter.sql}`)
     .get(...filter.params)) as { total: number };
   const rows = (await db
-    .prepare(`SELECT v.* FROM venues v ${filter.sql} ORDER BY v.name, v.id LIMIT ? OFFSET ?`)
-    .all(...filter.params, pageSize, (page - 1) * pageSize)) as VenueRow[];
+    // A fair order, not an alphabetical one: by name, "AAA Badminton" would
+    // sit at the top for good, and a venue could rename itself to get there.
+    // Shuffled by the day, so every venue takes its turn near the top, and
+    // the same all day, so paging through never shows one venue twice.
+    .prepare(`SELECT v.* FROM venues v ${filter.sql} ORDER BY md5(v.id || ':' || ?), v.id LIMIT ? OFFSET ?`)
+    .all(...filter.params, todayISO(), pageSize, (page - 1) * pageSize)) as VenueRow[];
   if (rows.length === 0) return { venues: [], total, page, pageSize };
   const courts = (
     (await db
@@ -1743,6 +1747,7 @@ export async function getVenueIdsForSeriesCode(seriesCode: string): Promise<numb
 export interface AdminBookingRow extends Booking {
   courtName: string;
   sport: Sport;
+  venueId: number;
   venueName: string;
   /** Prior no-shows by this phone number, so the desk can spot repeats. */
   priorNoShows: number;
@@ -2713,7 +2718,7 @@ export async function listBookingsForDate(date: string, venueId?: number): Promi
   const rows = await db
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
-             v.name AS venue_name, ci.checked_in_at, ci.checked_out_at
+             v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
@@ -2725,6 +2730,7 @@ export async function listBookingsForDate(date: string, venueId?: number): Promi
     court_name: string;
     court_sport: Sport;
     court_deposit: number;
+    venue_id: number;
     venue_name: string;
   })[];
   // One pass for the whole day rather than a lookup per row.
@@ -2743,6 +2749,7 @@ export async function listBookingsForDate(date: string, venueId?: number): Promi
       ...booking,
       courtName: r.court_name,
       sport: r.court_sport,
+      venueId: r.venue_id,
       venueName: r.venue_name,
       // Exclude this booking so the count reads as history, not self-reference.
       priorNoShows: (await countNoShows(booking.phone)) - (booking.noShow ? 1 : 0),

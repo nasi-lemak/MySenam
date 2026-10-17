@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
+import { customerMayBook } from "@/lib/limits";
 import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
@@ -34,6 +35,11 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const user = await getSessionUser(req);
+  const forClass = await getClass(classId as number);
+  if (forClass) {
+    const refused = await customerMayBook({ venueId: forClass.venueId, phone, signedIn: user !== null });
+    if (refused) return refusal(refused);
+  }
   const result = await enrolInClass({
     classId: classId as number,
     name: name.trim(),

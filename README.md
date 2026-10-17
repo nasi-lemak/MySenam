@@ -1423,6 +1423,33 @@ scaled deploy should move them to a shared store (Redis) with the same policies.
 Client identity comes from `x-forwarded-for`, which is only trustworthy behind a
 proxy that sets it.
 
+### Limits that follow the phone number
+
+A phone on mobile data gets a new IP address whenever it likes, so the limits
+that matter most follow the number instead (`src/lib/limits.ts`). Numbers are
+compared as digits, so `+60 12-345 6789` and `0123456789` are the same.
+
+| Limit | Value |
+| ----- | ----- |
+| Unpaid bookings coming up, one number, one venue | 3 |
+| Unpaid bookings coming up, one number, every venue | 6 |
+| The same slot every week | needs a signed-in account |
+| Messages to one number or email address | 8 a day; any more are kept, marked not sent |
+
+Paying for a booking, playing it or cancelling it frees its place, and a weekly
+series counts once. Staff booking at the counter are not limited.
+
+**Blocked numbers.** A venue can stop a number booking or queueing with it
+online: *Block number* on any booking, or under *Venue details → Blocked
+numbers*. That person can still ring the venue.
+
+**Order and names.** Venues are listed in an order shuffled once a day, not
+alphabetically, so an "AAA" name gains nothing. When a venue operator renames
+their venue, every platform owner gets an email.
+
+**Forms.** The venue application and sign-up forms have a field no person
+sees; a submission that fills it in is dropped.
+
 ## Renamed from MudahTempah
 
 The project was renamed to **MySenam**. Everything user-facing moved with it —

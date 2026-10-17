@@ -147,6 +147,31 @@ export interface Compose {
 }
 
 /**
+ * The most messages one phone number or email address is sent in a day.
+ *
+ * Every booking messages the number it was made with, and nothing checks the
+ * number is the booker's own. Without a ceiling, anybody could use the site
+ * to send a stranger confirmation after confirmation — on WhatsApp, each one
+ * paid for. A real customer's busiest day (a few bookings, a change, a
+ * waitlist offer) is well under it.
+ */
+export const MESSAGES_PER_RECIPIENT_PER_DAY = 8;
+
+const RECIPIENT_KEY = "(CASE WHEN channel = 'email' THEN lower(recipient) ELSE phone_key(recipient) END)";
+
+/** Messages written for this recipient in the last day, sent or not. */
+async function sentToday(channel: Channel, recipient: string): Promise<number> {
+  const { n } = (await getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM messages
+        WHERE ${RECIPIENT_KEY} = (CASE WHEN ? = 'email' THEN lower(?) ELSE phone_key(?) END)
+          AND created_at >= datetime('now', '-1 day')`
+    )
+    .get(channel, recipient.trim(), recipient.trim())) as { n: number };
+  return n;
+}
+
+/**
  * Write one message down.
  *
  * Call it as soon as the thing has happened. A crash in the gap between the
@@ -157,11 +182,14 @@ export interface Compose {
 export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const t = translator(input.locale ?? "en");
   const db = getDb();
+  // Past the day's limit for this recipient, it is written down but never
+  // sent, with the reason, where staff can see it.
+  const capped = (await sentToday(input.channel, input.recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY;
   const info = await db
     .prepare(
       `INSERT INTO messages
-         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(dedupe_key) DO NOTHING`
     )
     .run(
@@ -174,7 +202,9 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       input.subject ? t(input.subject, input.vars) : null,
       t(input.body, input.vars),
       JSON.stringify(input.vars),
-      input.dedupeKey ?? null
+      input.dedupeKey ?? null,
+      capped ? "abandoned" : "queued",
+      capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null
     );
   if (info.changes === 0 && input.dedupeKey) {
     const existing = await db

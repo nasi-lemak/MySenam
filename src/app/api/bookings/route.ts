@@ -11,6 +11,7 @@ import {
   payBookingFromWallet,
   payBookingWithPass,
 } from "@/lib/store";
+import { customerMayBook } from "@/lib/limits";
 import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
@@ -67,6 +68,20 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const user = await getSessionUser(req);
+
+  // Not too many unpaid bookings ahead on one number, no weekly series
+  // without an account, and not from a number this venue has refused.
+  const venueOfBooking = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
+  if (venueOfBooking !== undefined) {
+    const refused = await customerMayBook({
+      venueId: venueOfBooking,
+      phone,
+      weeks: (weeks as number) ?? 1,
+      signedIn: user !== null,
+    });
+    if (refused) return refusal(refused);
+  }
+
   const common = {
     date,
     hours: hours as number[],
