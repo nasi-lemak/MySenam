@@ -1,8 +1,4 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync } from "child_process";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { DICTIONARIES, LOCALES, translator } from "../src/lib/i18n";
 import { DEFAULT_SITE_NAME, siteName } from "../src/lib/site";
 import { googleCalendarUrl, icsContent, whatsappShareUrl } from "../src/lib/booking-links";
@@ -64,44 +60,5 @@ describe("the site's name", () => {
     expect(decodeURIComponent(whatsappShareUrl({ ...info, siteName: undefined }))).toContain(
       "Court booked on MySenam!"
     );
-  });
-});
-
-describe("a tenant's own Render Blueprint", () => {
-  const script = path.join(__dirname, "..", "scripts", "new-tenant.mjs");
-  const run = (dir: string, ...args: string[]) =>
-    execFileSync("node", [script, ...args, "--dir", dir], { encoding: "utf8", stdio: "pipe" });
-
-  it("gets its own service name and site name, and never overwrites another", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tenant-"));
-    try {
-      run(dir, "arena", "Arena Sports Booking");
-      const yaml = fs.readFileSync(path.join(dir, "arena.yaml"), "utf8");
-      expect(yaml).toContain("name: mysenam-arena");
-      expect(yaml).toContain('value: "Arena Sports Booking"');
-      expect(yaml).toContain("generateValue: true");
-      expect(yaml).toContain("mountPath: /var/data");
-      // Its own Postgres, wired to the service by name.
-      expect(yaml).toContain("name: mysenam-arena-db");
-      expect(yaml).toMatch(/fromDatabase:\s+name: mysenam-arena-db\s+property: connectionString/);
-      expect(yaml).not.toContain("__");
-
-      // A second tenant with the same slug would take over the first one's service.
-      expect(() => run(dir, "arena", "Somebody Else")).toThrow();
-      expect(fs.readFileSync(path.join(dir, "arena.yaml"), "utf8")).toBe(yaml);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("refuses a name that would break the file", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tenant-"));
-    try {
-      expect(() => run(dir, "Bad Slug", "Arena")).toThrow();
-      expect(() => run(dir, "arena", 'Say "hi"')).toThrow();
-      expect(fs.readdirSync(dir)).toEqual([]);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   });
 });

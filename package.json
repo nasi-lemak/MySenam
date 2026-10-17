@@ -14,8 +14,7 @@
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs",
     "import-sqlite": "node scripts/import-sqlite.mjs",
-    "coverage": "vitest run --coverage",
-    "new-tenant": "node scripts/new-tenant.mjs"
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

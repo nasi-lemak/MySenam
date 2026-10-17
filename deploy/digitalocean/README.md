@@ -139,8 +139,7 @@ and a database connection, which is what the Droplet is for.
 
 ## Moving an install here
 
-**From another Postgres install** (a Render tenant using Render Postgres, or
-another Droplet): take a backup there, copy the `.dump` here, and restore it as
+**From another Postgres install** (another Droplet, say): take a backup there, copy the `.dump` here, and restore it as
 above. Put the old install's `MYSENAM_SECRET` into `/etc/mysenam/env` in place
 of the generated one, so saved payment keys still open.
 
@@ -148,7 +147,7 @@ of the generated one, so saved payment keys still open.
 copy the file into `/var/lib/mysenam/` on the Droplet, with its `-wal` file
 if there is one beside it. In `/etc/mysenam/env`,
 replace the generated `MYSENAM_SECRET` with the old install's key. That is its
-own `MYSENAM_SECRET` if it had one (Render tenants did), or otherwise the
+own `MYSENAM_SECRET` if it had one, or otherwise the
 contents of the `secret.key` file beside its database. Then:
 
 ```bash

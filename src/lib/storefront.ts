@@ -80,7 +80,7 @@ export async function storefrontForHost(raw: string | null | undefined): Promise
 /**
  * The hostname a request was made to. The Host header, unless the install
  * sits behind a proxy that rewrites it and is trusted to pass the original in
- * X-Forwarded-Host (MYSENAM_TRUST_FORWARDED_HOST=on). Render passes Host
+ * X-Forwarded-Host (MYSENAM_TRUST_FORWARDED_HOST=on). Caddy and Render pass Host
  * through as it is.
  */
 export function requestHost(headers: { get(name: string): string | null }): string | null {

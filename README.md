@@ -140,13 +140,9 @@ The schema is created on the first start and moved on by every later one: the
 files in `db/migrations` are applied in order, each once, under a lock, so two
 servers starting together do not both run one.
 
-There are two ready-made ways to run it:
-
-- **A server of your own**: one DigitalOcean Droplet with Postgres, the app and
-  Caddy on it, set up by a script and deployed by another. See
-  [`deploy/digitalocean/README.md`](deploy/digitalocean/README.md).
-- **Render**: a Blueprint per tenant, each with its own Render Postgres. See
-  *A venue business's own copy*, below.
+The ready-made way to run it is one DigitalOcean Droplet with Postgres, the app
+and Caddy on it, set up by a script and deployed by another. See
+[`deploy/digitalocean/README.md`](deploy/digitalocean/README.md).
 
 ### Configuration
 
@@ -362,14 +358,10 @@ shows ABC's venues, under ABC's name, tagline, logo and colour, and nothing
 else. The platform owner sets one up under *Venues & staff → Storefront
 domains* — the domain, the name, and which venues it shows — and then:
 
-- **on a server of its own** (the DigitalOcean kit), points the domain's A
-  record at the server. Caddy gets the certificate on the first visit, once it
-  has asked the app (`/api/tls-check`) and been told the domain is a registered
-  storefront, so nobody can point domains of their own at the box and have it
-  request certificates for them;
-- **on Render**, adds the domain to the service (*Settings → Custom Domains*;
-  Render issues the certificate, but check its per-service limit if you expect
-  many), and points the domain's DNS where Render says.
+points the domain's A record at the server. Caddy gets the certificate on the
+first visit, once it has asked the app (`/api/tls-check`) and been told the
+domain is a registered storefront, so nobody can point domains of their own at
+the box and have it request certificates for them.
 
 What changes on a storefront is what the public pages show. The home page,
 search, classes and the venue list are only its venues; another venue's page,
@@ -392,7 +384,8 @@ Which storefront a request is for comes from the hostname alone, matched
 exactly against the registered ones, with `www.` ignored. Anything else is the
 marketplace. `X-Forwarded-Host` is ignored unless `MYSENAM_TRUST_FORWARDED_HOST=on`
 — set that only behind a proxy that rewrites the Host header and sets this one
-itself. Render passes Host through as it is, so leave it off there.
+itself. Caddy passes Host through as it is, so leave it off behind the
+DigitalOcean kit.
 
 ### A venue business's own copy
 
@@ -402,24 +395,11 @@ own database, so its customers, credit and money never sit beside anybody
 else's; its owner signs in as the platform owner and sees every one of their
 branches, and only theirs.
 
-On Render, each copy is a Blueprint made from its own file:
-
-```bash
-npm run new-tenant -- arena "Arena Sports Booking"
-git add deploy/render/arena.yaml && git commit -m "Add Arena" && git push
-```
-
-Then in Render: **New → Blueprint**, this repository, Blueprint path
-`deploy/render/arena.yaml`. Render asks for the admin email and password and
-the site's URL, and sets up the service with its own Render Postgres
-(`basic-256mb`; the free plan is deleted after 30 days), a 1 GB disk for the
-nightly backups, and a generated `MYSENAM_SECRET`. Each tenant gets its own file because a
-Blueprint applies itself to any existing service of the same name: two tenants
-sharing one file would be one service, overwritten.
-
-Every copy deploys from the same branch, so one push updates them all. Each
-restarts on deploy (a service with a disk runs as one instance), so push
-outside opening hours.
+Each copy is its own Droplet, set up with the same kit
+([`deploy/digitalocean`](deploy/digitalocean/README.md)) and with `SITE_NAME`
+set in its `/etc/mysenam/env`. Every copy deploys from the same repository, and
+`mysenam-deploy` on each puts the new version live; a deploy restarts the app
+for a second or two, so do it outside opening hours.
 
 ### What one box gives you
 
