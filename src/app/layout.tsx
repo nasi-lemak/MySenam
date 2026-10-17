@@ -29,7 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         )}
         <LanguageProvider locale={locale} site={site}>
           <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
-            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+            <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-x-2 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">
                 {storefront?.logoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- any https host, sized here
@@ -45,8 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <span>{site}</span>
                 )}
               </Link>
-              {/* Wraps to a second line on a phone rather than pushing the page sideways. */}
-              <SiteNav />
+              <SiteNav listVenue={isMarketplace() && !storefront} />
             </div>
           </header>
           <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
@@ -73,6 +72,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {t("footer.listVenue")}
                 </Link>
               )}
+              <Link
+                href="/admin"
+                className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
+              >
+                {t("footer.staff")}
+              </Link>
             </p>
             {storefront && (
               <p className="mt-1.5 text-xs text-slate-400">

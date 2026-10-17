@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { markDetailsChecked } from "@/lib/setup";
 import { updateVenue } from "@/lib/store";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
 
@@ -109,5 +110,7 @@ export async function PATCH(
       { error: result.error },
       { status: result.error === "Venue not found." ? 404 : 400 }
     );
+  // Saving the venue's details is the owner having looked at its hours.
+  await markDetailsChecked(venueId);
   return NextResponse.json({ venue: result.venue });
 }

@@ -6,7 +6,10 @@ import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
 import {
   countSearchCourts,
+  createCourt,
+  createVenue,
   listAreaCounts,
+  listAreas,
   listVenuePage,
   listVenues,
   SEARCH_COURT_LIMIT,
@@ -82,6 +85,19 @@ describe("the venue list", () => {
     const zone = (await listVenuePage({ area: "Zone 0", pageSize: 1 })).venues[0];
     expect(await sportsOfferedAt([zone.id])).toEqual(["badminton"]);
     expect((await sportsOfferedAt()).length).toBeGreaterThan(1);
+  });
+
+  it("leaves out a venue with nothing to book yet, until its first court", async () => {
+    const made = await createVenue({ name: "Not Ready Hall", area: "Empty Town", address: "Somewhere 1", phone: "0300000001" });
+    if (!made.ok) throw new Error("venue");
+    const listed = async () => (await listVenuePage({ pageSize: 100, area: "Empty Town" })).total;
+    expect(await listed()).toBe(0);
+    expect((await listAreaCounts()).some((a) => a.area === "Empty Town")).toBe(false);
+    expect(await listAreas()).not.toContain("Empty Town");
+
+    await createCourt({ venueId: made.venue.id, name: "Court 1", sport: "badminton", offPeakRate: 10, peakRate: 10 });
+    expect(await listed()).toBe(1);
+    expect(await listAreas()).toContain("Empty Town");
   });
 
   it("is what /api/venues answers, a page at a time", async () => {

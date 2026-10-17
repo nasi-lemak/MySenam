@@ -59,13 +59,15 @@ const EN = {
   "nav.find": "Find a court",
   "nav.classes": "Classes",
   "nav.myBooking": "My Booking",
-  "nav.admin": "Admin",
   "nav.signIn": "Sign in",
+  "nav.listVenue": "List your venue",
+  "nav.menu": "Menu",
   "footer.tagline":
     "{site} — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis, pickleball, futsal, gym & swimming.",
   "footer.privacy": "Privacy notice",
   "footer.terms": "Terms",
   "footer.listVenue": "List your venue",
+  "footer.staff": "Staff sign-in",
 
   // A venue applying to join the marketplace
   "apply.title": "List your venue on {site}",
@@ -604,13 +606,15 @@ const MS: Record<Phrase, string> = {
   "nav.find": "Cari gelanggang",
   "nav.classes": "Kelas",
   "nav.myBooking": "Tempahan Saya",
-  "nav.admin": "Admin",
   "nav.signIn": "Log masuk",
+  "nav.listVenue": "Senaraikan pusat anda",
+  "nav.menu": "Menu",
   "footer.tagline":
     "{site} — gelanggang, gim dan kelas, satu tempahan. Untuk badminton, tenis, pickleball, futsal, gim & renang.",
   "footer.privacy": "Notis privasi",
   "footer.terms": "Terma",
   "footer.listVenue": "Senaraikan pusat anda",
+  "footer.staff": "Log masuk kakitangan",
 
   // Pusat memohon untuk menyertai pasaran
   "apply.title": "Senaraikan pusat anda di {site}",

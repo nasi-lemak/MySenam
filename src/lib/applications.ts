@@ -190,7 +190,9 @@ export async function approveApplication(id: number, deciderId: number): Promise
     `${row.business_name} is on ${site}`,
     `Hi ${row.contact_name},\n\n${row.business_name} has been approved on ${site}.\n\n` +
       `Sign in at ${baseUrl()}/admin with ${row.email} and the password you chose when you applied, ` +
-      `then add your courts and opening hours under Venues & staff.\n\n${site}`
+      `then follow the setup steps at the top of the dashboard: add your courts and rates ` +
+      `(Courts & rates) and check your opening hours (Venue details). ` +
+      `Your venue appears to customers once it has its first court.\n\n${site}`
   );
   return { ok: true, application: (await applicationById(id))!, emailed };
 }

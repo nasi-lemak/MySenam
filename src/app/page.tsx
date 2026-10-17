@@ -149,9 +149,11 @@ export default async function HomePage({
                   <span className="text-slate-500">
                     {t.plural("home.courts", venue.courts.length)}
                   </span>
-                  <span className="font-semibold text-teal-700">
-                    {t("home.fromRate", { rate: minRate })}
-                  </span>
+                  {venue.courts.length > 0 && (
+                    <span className="font-semibold text-teal-700">
+                      {t("home.fromRate", { rate: minRate })}
+                    </span>
+                  )}
                 </div>
               </Link>
             );

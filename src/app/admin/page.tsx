@@ -10,6 +10,7 @@ import { FirstRun } from "@/components/admin/FirstRun";
 import { OccupancyTab } from "@/components/admin/OccupancyTab";
 import { ReportsTab } from "@/components/admin/ReportsTab";
 import { ScheduleTab } from "@/components/admin/ScheduleTab";
+import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 
@@ -168,6 +169,14 @@ export default function AdminPage() {
       </div>
 
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
+      {!isOwner && venues[0] && (
+        <SetupChecklist
+          venueId={venues[0].id}
+          // A string, so it changes only when a step might have: a new tab, or a court added.
+          refreshKey={`${tab}:${venues[0].courts.length}`}
+          onGo={setTab}
+        />
+      )}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (

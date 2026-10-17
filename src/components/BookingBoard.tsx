@@ -121,6 +121,27 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
     court: Court;
     hour: number;
   } | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // Open the grid on the first hour there is something to book (or on the
+  // hour already chosen, arriving from search), not on the venue's opening
+  // hour. On a phone only four hours fit; in the evening those four are the
+  // morning's, all past and greyed out, and the free ones are off to the right
+  // where a first-time visitor will not think to look.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || !availability || grid.scrollWidth <= grid.clientWidth) return;
+    const hours = availability[0]?.slots.map((s) => s.hour) ?? [];
+    const target =
+      selection?.hours[0] ??
+      hours.find((h) => availability.some((a) => a.slots.find((s) => s.hour === h)?.available));
+    if (target === undefined) return;
+    const column = grid.querySelector<HTMLElement>(`th[data-hour="${target}"]`);
+    const courtNames = grid.querySelector<HTMLElement>("th");
+    if (column && courtNames) grid.scrollLeft = Math.max(column.offsetLeft - courtNames.offsetWidth, 0);
+    // Only when a new day or sport is loaded, not on every tap of a slot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability]);
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -305,7 +326,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
           {t("board.loading")}
         </div>
       ) : availability && availability.length > 0 ? (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div ref={gridRef} className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[900px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left">
@@ -313,7 +334,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                   {t("board.court")}
                 </th>
                 {availability[0].slots.map((slot) => (
-                  <th key={slot.hour} className="px-1 py-2 text-center font-medium text-slate-500">
+                  <th key={slot.hour} data-hour={slot.hour} className="px-1 py-2 text-center font-medium text-slate-500">
                     {formatHour(slot.hour).replace(":00 ", "")}
                   </th>
                 ))}
@@ -590,7 +611,8 @@ function BookingForm({
   return (
     <form
       onSubmit={submit}
-      className="sticky bottom-4 rounded-xl border border-teal-200 bg-white p-4 shadow-lg"
+      // Above the grid's sticky court names, which would otherwise draw over it on a phone.
+      className="sticky bottom-4 z-20 rounded-xl border border-teal-200 bg-white p-4 shadow-lg"
     >
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[12rem] flex-1">

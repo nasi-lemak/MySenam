@@ -620,7 +620,10 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }
   sql: string;
   params: (string | number)[];
 } {
-  const clauses: string[] = [];
+  // A venue with nothing to book is not shown to the public yet: a newly
+  // approved one sets its courts up first, rather than appearing as
+  // "0 courts" to somebody looking for one.
+  const clauses: string[] = ["EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id)"];
   const params: (string | number)[] = [];
   if (opts.venueIds) {
     clauses.push(`v.id IN (${opts.venueIds.map(() => "?").join(",") || "NULL"})`);
@@ -634,7 +637,7 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }
     clauses.push("EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id AND c.sport = ?)");
     params.push(opts.sport);
   }
-  return { sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+  return { sql: `WHERE ${clauses.join(" AND ")}`, params };
 }
 
 /**
@@ -711,23 +714,15 @@ export async function countSearchCourts(input: { sport: Sport; area?: string; ve
   const filter = venueFilter({ area: input.area, venueIds: input.venueIds });
   const { n } = (await getDb()
     .prepare(
-      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql ? `${filter.sql} AND` : "WHERE"} c.sport = ?`
+      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql} AND c.sport = ?`
     )
     .get(...filter.params, input.sport)) as { n: number };
   return n;
 }
 
+/** The areas with something to book, for the search page's area list. */
 export async function listAreas(venueIds?: number[]): Promise<string[]> {
-  const rows = (
-    venueIds === undefined
-      ? await getDb().prepare("SELECT DISTINCT area FROM venues ORDER BY area").all()
-      : await getDb()
-          .prepare(
-            `SELECT DISTINCT area FROM venues WHERE id IN (${venueIds.map(() => "?").join(",") || "NULL"}) ORDER BY area`
-          )
-          .all(...venueIds)
-  ) as { area: string }[];
-  return rows.map((r) => r.area);
+  return (await listAreaCounts({ venueIds })).map((a) => a.area);
 }
 
 /**
