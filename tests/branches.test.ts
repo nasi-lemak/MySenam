@@ -17,15 +17,18 @@ import type { Admin } from "../src/lib/admin-auth";
 import { approveApplication, requestBranch, submitApplication } from "../src/lib/applications";
 import { registerUser } from "../src/lib/auth";
 import { groupIntoBusiness, listBusinesses } from "../src/lib/branches";
+import { issueDueInvoices, listInvoices, markInvoicePaid, setVenuePlan } from "../src/lib/billing";
 import { venueCreditLiability } from "../src/lib/reports";
 import {
   createBooking,
   createCourt,
   createVenue,
   getWalletBalance,
+  activeMembership,
   issuePass,
   payBookingFromWallet,
   payBookingWithPass,
+  sellMembership,
   topUpWallet,
   walletBalances,
 } from "../src/lib/store";
@@ -222,6 +225,78 @@ describe("credit and passes", () => {
     };
     expect((await payBookingWithPass(await at(branchB), sold.pass.code)).ok).toBe(true);
     expect((await payBookingWithPass(await at(elsewhere), sold.pass.code)).ok).toBe(false);
+  });
+});
+
+describe("the monthly invoice", () => {
+  it("is one for the whole business, with a line for each branch", async () => {
+    for (const [venue, fee] of [[branchA, 50], [branchB, 40], [elsewhere, 30]] as const)
+      expect((await setVenuePlan(venue, { monthlyFee: fee, billingStartsOn: "2020-01-01" })).ok).toBe(true);
+    await issueDueInvoices();
+
+    const mine = await listInvoices(manager.venueIds!);
+    const business = mine.filter((i) => i.businessId === manager.businessId);
+    expect(business).toHaveLength(1);
+    expect(business[0]).toMatchObject({ venueId: null, venueName: "Smash Chain Kelana", amount: 90 });
+    expect(business[0].lines.map((l) => [l.venueId, l.amount]).sort()).toEqual([[branchA, 50], [branchB, 40]].sort());
+    // Nobody else's invoice among a manager's.
+    expect(mine.some((i) => i.venueId === elsewhere)).toBe(false);
+
+    // A venue on its own is invoiced on its own, and nothing twice.
+    await issueDueInvoices();
+    const all = await listInvoices();
+    expect(all.filter((i) => i.venueId === elsewhere)).toHaveLength(1);
+    expect(all.filter((i) => i.businessId === manager.businessId)).toHaveLength(1);
+
+    expect((await markInvoicePaid(business[0].id)).ok).toBe(true);
+  });
+
+  it("is the business's managers' to pay, and nobody else's", async () => {
+    const [invoice] = (await listInvoices(manager.venueIds!)).filter((i) => i.businessId !== null);
+    const { POST } = await import("../src/app/api/admin/billing/route");
+    const pay = async (adminId: number) =>
+      POST(
+        new NextRequest("http://localhost/api/admin/billing", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie: await cookieFor(adminId) },
+          body: JSON.stringify({ action: "pay", invoiceId: invoice.id }),
+        })
+      );
+    const outsider = await createAdmin({ name: "Out", email: "out@else.my", password: "out-password-1", venueId: elsewhere });
+    if (!outsider.ok) throw new Error(outsider.error);
+    expect((await pay(outsider.admin.id)).status).toBe(403);
+    // Theirs: refused only because it is already paid.
+    expect((await pay(manager.id)).status).toBe(409);
+  });
+});
+
+describe("a membership", () => {
+  it("of one branch gets member rates at every branch, and is not sold twice", async () => {
+    const phone = "0197770000";
+    const sold = await sellMembership({
+      venueId: branchA,
+      holderName: "Mei",
+      holderPhone: phone,
+      startsOn: todayISO(),
+      expiresOn: addDays(todayISO(), 90),
+      price: 200,
+      adminId: manager.id,
+    });
+    expect(sold.ok).toBe(true);
+    expect(await activeMembership(branchB, phone)).not.toBeNull();
+    expect(await activeMembership(elsewhere, phone)).toBeNull();
+
+    const again = await sellMembership({
+      venueId: branchB,
+      holderName: "Mei",
+      holderPhone: phone,
+      startsOn: todayISO(),
+      expiresOn: addDays(todayISO(), 30),
+      price: 80,
+      adminId: manager.id,
+    });
+    expect(again.ok).toBe(false);
+    if (!again.ok) expect(again.error).toContain("Smash Chain Kelana");
   });
 });
 

@@ -67,8 +67,10 @@ export async function POST(req: NextRequest) {
   if (input.action === "pay") {
     const invoice = Number.isInteger(input.invoiceId) ? await invoiceById(input.invoiceId as number) : null;
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
-    if (!canAccessVenue(admin, invoice.venueId))
-      return NextResponse.json({ error: "You do not manage that venue." }, { status: 403 });
+    // A venue's invoice: its staff. A business's: its managers.
+    const theirs =
+      invoice.venueId !== null ? canAccessVenue(admin, invoice.venueId) : isOwner(admin) || invoice.businessId === admin.businessId;
+    if (!theirs) return NextResponse.json({ error: "That invoice is not yours to pay." }, { status: 403 });
     const result = await payInvoiceOnline(invoice.id, { name: admin.name, email: admin.email });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json({ url: result.url });

@@ -402,16 +402,20 @@ that venue as its first branch and the applicant as its manager.
 - **New branches** wait for the platform owner's approval, like the first
   one did, unless the install sets `MYSENAM_AUTO_APPROVE_BRANCHES=on` to
   approve branches of businesses it has already approved.
-- **Credit and passes** bought at any branch work at every branch of that
-  business, and nowhere else. A customer sees one balance under the
+- **Credit, passes and memberships** bought at any branch work at every
+  branch of that business, and nowhere else. A member pays each branch's
+  member rate wherever they play, and is not sold a second membership at
+  another branch while the first runs. A customer sees one balance under the
   business's name, and the business, not a single branch, is shown as owing
   it.
 - **Venues that joined one at a time**, before businesses existed, can be put
   together by the platform owner under *Venues & staff → Businesses*,
   choosing which of their staff become managers.
 
-Each branch is still invoiced for itself; a manager sees all of them in one
-list.
+**One invoice a month per business**, with a line for each branch and its
+fee. Its managers pay it, online or otherwise. A venue that is not in a
+business is still invoiced on its own, and invoices issued before a venue
+joined a business stay as they were.
 
 ### A venue business's own copy
 

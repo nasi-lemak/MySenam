@@ -191,7 +191,15 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
             <tbody className="divide-y divide-slate-100">
               {state.invoices.map((i) => (
                 <tr key={i.id}>
-                  <td className="px-3 py-2">{i.period}</td>
+                  <td className="px-3 py-2">
+                    {i.period}
+                    {/* A business's invoice: what each branch adds up to. */}
+                    {i.lines.length > 0 && (
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {i.lines.map((l) => `${l.venueName} RM${l.amount}`).join(" · ")}
+                      </div>
+                    )}
+                  </td>
                   {isOwner && <td className="px-3 py-2">{i.venueName}</td>}
                   <td className="px-3 py-2 text-right">RM{i.amount}</td>
                   <td className={`px-3 py-2 ${i.overdue ? "font-semibold text-red-700" : ""}`}>{i.dueOn}</td>

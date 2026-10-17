@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
-import { SAME_CREDIT, sameBusiness } from "./branches";
+import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
 import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -3427,6 +3427,9 @@ function membershipBlockedReason(m: Membership): string | null {
 /**
  * Is this phone number a live member of this venue on this date?
  *
+ * A membership of one branch is a membership of every branch of the same
+ * business: the member pays each branch's member rate, wherever they play.
+ *
  * Membership is held against the phone number, not an account, so someone who
  * booked as a guest still gets their rate. The date checked is the booking's,
  * not today's: a membership that lapses before the session does not discount it.
@@ -3440,7 +3443,7 @@ export async function activeMembership(
   if (digits.length < 6) return null;
   const date = onDate ?? todayISO();
   const rows = await getDb()
-    .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
+    .prepare(`${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active'`)
     .all(venueId) as MembershipRow[];
   const match = rows.find(
     (r) =>
@@ -3512,10 +3515,11 @@ export async function sellMembership(input: {
         error: `A membership may not run more than ${MAX_MEMBERSHIP_MONTHS} months.`,
       };
 
-    // Overlapping memberships at one venue would make "which rate?" ambiguous.
+    // Overlapping memberships would make "which rate?" ambiguous — at one
+    // venue, or anywhere in its business, where one membership covers all.
     const clash = (
       await db
-        .prepare(`${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND m.status = 'active'`)
+        .prepare(`${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active'`)
         .all(input.venueId) as MembershipRow[]
     ).find(
       (r) =>
@@ -3526,7 +3530,10 @@ export async function sellMembership(input: {
     if (clash)
       return {
         ok: false,
-        error: `That number already has a membership here until ${clash.expires_on}.`,
+        error:
+          clash.venue_id === input.venueId
+            ? `That number already has a membership here until ${clash.expires_on}.`
+            : `That number already has a membership at ${clash.venue_name}, which covers this venue too, until ${clash.expires_on}.`,
       };
 
     const info = await db

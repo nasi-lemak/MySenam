@@ -13,9 +13,17 @@ import { getDb } from "./db";
  * pot, because each entry keeps the branch it happened at and the pot is
  * whatever business that branch belongs to.
  */
-export const SAME_CREDIT = `venue_id IN (
+export const SAME_CREDIT = inSameBusiness("venue_id");
+
+/**
+ * `<column> IN (every venue that counts as the one given)`: its business's
+ * branches, or just itself. Takes the venue's id as its one parameter.
+ */
+export function inSameBusiness(column: string): string {
+  return `${column} IN (
   SELECT id FROM venues WHERE COALESCE(business_id, -id) = (SELECT COALESCE(business_id, -id) FROM venues WHERE id = ?)
 )`;
+}
 
 /** Are these two venues branches of the same business? */
 export async function sameBusiness(a: number, b: number): Promise<boolean> {
