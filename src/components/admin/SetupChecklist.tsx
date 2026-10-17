@@ -63,7 +63,7 @@ export function SetupChecklist({
     {
       done: setup.courts > 0,
       title: "Add your courts and rates",
-      body: "Customers can find your venue once it has its first court. Add each court, room or lane, with its off-peak and peak rate per hour.",
+      body: "Add each court, room or lane, with its off-peak and peak rate per hour.",
       actions: <Go onClick={() => onGo("courts")}>Courts &amp; rates</Go>,
     },
     {
@@ -82,7 +82,7 @@ export function SetupChecklist({
     {
       done: setup.testBooking,
       title: "Make a test booking",
-      body: "Book a slot on your own page to see what customers see. It then appears under Bookings, where you can cancel it.",
+      body: "Book a slot on your own page to see what customers see. It then appears under Bookings, where you can cancel it. Nobody is messaged about a test booking before your venue is live.",
       actions: (
         <a
           href={`/venue/${venueId}`}

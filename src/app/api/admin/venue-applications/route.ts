@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
-import { approveApplication, listApplications, rejectApplication } from "@/lib/applications";
+import { approveApplication, countDrafts, listApplications, rejectApplication } from "@/lib/applications";
 import { isMarketplace } from "@/lib/mode";
 
 export const dynamic = "force-dynamic";
 
-/** Venues waiting to join, for the platform owner alone. */
+/** Venues asking to go live, and how many drafts are being set up, for the platform owner alone. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
-  return NextResponse.json({ marketplace: isMarketplace(), applications: await listApplications() });
+  return NextResponse.json({
+    marketplace: isMarketplace(),
+    applications: await listApplications(),
+    drafts: await countDrafts(),
+  });
 }
 
 /** `{ id, decision: "approve" | "reject", checks?, reason? }`; approving needs every one of REVIEW_CHECKS in `checks`. */

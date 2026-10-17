@@ -12,6 +12,7 @@ import {
   payBookingWithPass,
 } from "@/lib/store";
 import { customerMayBook } from "@/lib/limits";
+import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
@@ -78,6 +79,7 @@ export async function POST(req: NextRequest) {
       phone,
       weeks: (weeks as number) ?? 1,
       signedIn: user !== null,
+      preview: (await mayShowVenue(venueOfBooking, req)).preview,
     });
     if (refused) return refusal(refused);
   }

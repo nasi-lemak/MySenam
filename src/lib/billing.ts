@@ -1,3 +1,4 @@
+import { applyPaymentHolds } from "./payment-holds";
 import { getDb, withTransaction } from "./db";
 import { BillplzAccount, createBill } from "./billplz";
 import { baseUrl } from "./outbox";
@@ -115,10 +116,15 @@ export function defaultFee(): number {
   return Number.isFinite(fee) && fee > 0 ? fee : 0;
 }
 
-/** Free months a newly approved venue gets before its first invoice. */
+/**
+ * Free months a venue gets from going live before its first invoice: one
+ * unless the install says otherwise. With the rest of the month it goes live
+ * in, also free, a venue has four weeks or more of real customers to judge
+ * by before it pays anything.
+ */
 export function freeMonths(): number {
-  const n = Number(process.env.MYSENAM_FREE_MONTHS ?? 0);
-  return Number.isInteger(n) && n >= 0 && n <= 24 ? n : 0;
+  const n = Number(process.env.MYSENAM_FREE_MONTHS ?? 1);
+  return Number.isInteger(n) && n >= 0 && n <= 24 ? n : 1;
 }
 
 export interface VenuePlan {
@@ -281,7 +287,7 @@ export type InvoiceResult = { ok: true; invoice: Invoice } | { ok: false; error:
 
 /** Paid some other way — a bank transfer, a cheque — and recorded by the owner. */
 export async function markInvoicePaid(id: number): Promise<InvoiceResult> {
-  return withTransaction(async () => {
+  return settled(await withTransaction(async (): Promise<InvoiceResult> => {
     const done = await getDb()
       .prepare(
         "UPDATE venue_invoices SET status = 'paid', paid_at = datetime('now'), paid_via = 'manual' WHERE id = ? AND status = 'due'"
@@ -289,17 +295,23 @@ export async function markInvoicePaid(id: number): Promise<InvoiceResult> {
       .run(id);
     if (done.changes === 0) return { ok: false, error: "That invoice is not waiting to be paid." };
     return { ok: true, invoice: (await invoiceById(id))! };
-  });
+  }));
+}
+
+/** Once an invoice is settled either way, a venue held for it comes back. */
+async function settled(result: InvoiceResult): Promise<InvoiceResult> {
+  if (result.ok) await applyPaymentHolds();
+  return result;
 }
 
 export async function voidInvoice(id: number): Promise<InvoiceResult> {
-  return withTransaction(async () => {
+  return settled(await withTransaction(async (): Promise<InvoiceResult> => {
     const done = await getDb()
       .prepare("UPDATE venue_invoices SET status = 'void' WHERE id = ? AND status = 'due'")
       .run(id);
     if (done.changes === 0) return { ok: false, error: "Only an unpaid invoice can be voided." };
     return { ok: true, invoice: (await invoiceById(id))! };
-  });
+  }));
 }
 
 // ------------------------------------------------------------ paying online
@@ -361,4 +373,5 @@ export async function settleInvoice(invoiceId: number): Promise<void> {
       "UPDATE venue_invoices SET status = 'paid', paid_at = datetime('now'), paid_via = 'online' WHERE id = ? AND status = 'due'"
     )
     .run(invoiceId);
+  await applyPaymentHolds();
 }

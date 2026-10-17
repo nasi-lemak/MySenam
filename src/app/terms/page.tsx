@@ -132,14 +132,18 @@ export default async function TermsPage() {
         <section id="venues" className="space-y-2 border-t border-slate-200 pt-6">
           <h2 className="text-lg font-bold text-slate-900">6. For venues</h2>
           <p>
-            <strong>Joining.</strong> We review each application and may decline one. Keep your
-            venue&apos;s details, prices and hours accurate; customers book on what you show.
+            <strong>Joining.</strong> Anyone may sign up and set a venue up. Customers see it once we
+            have checked it, and we may decline to put a venue live. A venue that never went live, and
+            that nobody has signed in to for 90 days, is deleted. Keep your venue&apos;s details, prices
+            and hours accurate; customers book on what you show.
           </p>
           <p>
-            <strong>Fees.</strong> Listing is charged monthly at the fee agreed with you. Each
-            month&apos;s invoice is shown in your admin panel and is due within 14 days. If an invoice
-            stays unpaid after we have reminded you, we may end your listing on 14 days&apos; notice;
-            bookings already made stand.
+            <strong>Fees.</strong> Nothing is charged while you set up. Once your venue is live, and
+            after any free period shown to you then, listing is charged monthly at the fee agreed with
+            you. Each month&apos;s invoice is shown in your admin panel and is due within 14 days. While
+            an invoice is more than 14 days overdue your venue is hidden from customers; bookings
+            already made stand. If it stays unpaid after we have reminded you, we may end your listing
+            on 14 days&apos; notice.
           </p>
           <p>
             <strong>Your customers&apos; money.</strong> Customers pay you — at your counter, or

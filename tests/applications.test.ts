@@ -7,8 +7,11 @@ vi.mock("nodemailer", () => ({ default: { createTransport: vi.fn(() => ({ sendMa
 
 import { NextRequest } from "next/server";
 import {
+  applicationById,
   approveApplication,
   confirmApplicationEmail,
+  goLiveStatus,
+  requestGoLive,
   listApplications,
   locationReport,
   rejectApplication,
@@ -24,7 +27,7 @@ import {
   ensureBootstrapAdmin,
   listAdmins,
 } from "../src/lib/admin-auth";
-import { createVenue, listVenues } from "../src/lib/store";
+import { createCourt, createVenue, listVenuePage, listVenues } from "../src/lib/store";
 import { getDb } from "../src/lib/db";
 
 /**
@@ -69,6 +72,23 @@ function linkToken(): string {
   return /token=([\w-]+)/.exec(mail.text)![1];
 }
 
+/**
+ * Signed up — confirmed by email, or not asked where the install cannot send
+ * any — with a court, and sent to go live.
+ */
+async function askToGoLive(over: Record<string, unknown> = {}) {
+  const applied = await apply(over);
+  if (!applied.ok) throw new Error(applied.error);
+  if (applied.emailSent) expect(await confirmApplicationEmail(linkToken())).toBe("confirmed");
+  const a = (await applicationById(applied.application.id))!;
+  const court = await createCourt({ venueId: a.venueId!, name: "Court 1", sport: "badminton", offPeakRate: 15, peakRate: 25 });
+  if (!court.ok) throw new Error("court");
+  const manager = (await authenticateAdmin(a.email, "a long enough password"))!;
+  const asked = await requestGoLive(manager, a.venueId!);
+  if (!asked.ok) throw new Error(asked.error);
+  return (await applicationById(a.id))!;
+}
+
 beforeAll(async () => {
   await ensureBootstrapAdmin();
   ownerId = (await listAdmins()).find((a) => a.venueId === null)!.id;
@@ -82,17 +102,28 @@ afterEach(() => {
   delete process.env.MAIL_FROM;
 });
 
-describe("applying", () => {
-  it("is written down, waiting, without the password readable", async () => {
+describe("signing up", () => {
+  it("opens an account with the venue as a draft, keeping no copy of the password", async () => {
     const result = await apply();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.application.status).toBe("pending");
+    expect(result.application.status).toBe("draft");
+    expect(result.application.venueId).not.toBeNull();
     expect(JSON.stringify(result.application)).not.toContain("a long enough password");
     const row = await getDb()
       .prepare("SELECT password_hash FROM venue_applications WHERE id = ?")
-      .get(result.application.id) as { password_hash: string };
-    expect(row.password_hash).not.toContain("a long enough password");
+      .get(result.application.id) as { password_hash: string | null };
+    expect(row.password_hash).toBeNull();
+
+    // They sign in with the password they chose, and manage their draft.
+    const manager = await authenticateAdmin(result.application.email, "a long enough password");
+    expect(manager?.businessName).toBe(result.application.businessName);
+    expect(manager?.venueIds).toEqual([result.application.venueId]);
+    // Nobody else can find it.
+    const page = await listVenuePage({ pageSize: 100 });
+    expect(page.venues.some((v) => v.id === result.application.venueId)).toBe(false);
+    // And the platform owner has nothing to decide yet.
+    expect((await listApplications()).some((a) => a.id === result.application.id)).toBe(false);
   });
 
   it("asks for a real password, email and phone", async () => {
@@ -109,44 +140,74 @@ describe("applying", () => {
   });
 });
 
-describe("approving", () => {
-  it("makes the venue and its operator, who signs in with the password they chose", async () => {
-    sendEmail();
+describe("going live", () => {
+  it("needs a court first", async () => {
     const applied = await apply();
     if (!applied.ok) throw new Error(applied.error);
-    expect(await confirmApplicationEmail(linkToken())).toBe("confirmed");
+    const manager = (await authenticateAdmin(applied.application.email, "a long enough password"))!;
+    const asked = await requestGoLive(manager, applied.application.venueId!);
+    expect(asked).toEqual({ ok: false, error: "Add at least one court, with its rates." });
+    expect((await goLiveStatus(applied.application.venueId!))?.missing).toEqual(["Add at least one court, with its rates."]);
+  });
 
-    const result = await approveApplication(applied.application.id, ownerId, ALL_CHECKS);
+  it("puts the venue in front of customers, and starts its free months", async () => {
+    sendEmail();
+    const asked = await askToGoLive();
+    expect(asked.status).toBe("pending");
+    // Confirming asked nobody anything; asking to go live told the owner.
+    expect(sendMail).toHaveBeenLastCalledWith(expect.objectContaining({ subject: `${asked.businessName} asks to go live` }));
+    expect((await listApplications())[0]).toMatchObject({
+      id: asked.id,
+      setup: { courts: 1, sports: "badminton", lowRate: 15, highRate: 25 },
+    });
+
+    const result = await approveApplication(asked.id, ownerId, ALL_CHECKS);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.emailed).toBe(true);
-    // Applying asked them to confirm, confirming told the platform owner, and
-    // approving tells the applicant.
-    expect(sendMail).toHaveBeenCalledTimes(3);
-    expect(sendMail).toHaveBeenLastCalledWith(expect.objectContaining({ to: applied.application.email }));
+    expect(sendMail).toHaveBeenLastCalledWith(
+      expect.objectContaining({ to: asked.email, subject: expect.stringContaining("is live") })
+    );
     expect(result.application.reviewChecks).toEqual(ALL_CHECKS);
+    expect((await goLiveStatus(asked.venueId!))?.state).toBe("live");
 
-    const venue = (await listVenues()).find((v) => v.id === result.application.venueId)!;
-    expect(venue.name).toBe(applied.application.businessName);
-    // Where it is, from the pin it applied with.
-    expect(
-      await getDb().prepare("SELECT lat, lng FROM venues WHERE id = ?").get(venue.id)
-    ).toEqual(applied.application.pin);
-    // They run a business of their own, with this as its first branch, so a
-    // second branch later is a request rather than a second account.
-    const operator = await authenticateAdmin(applied.application.email, "a long enough password");
-    expect(operator?.businessName).toBe(applied.application.businessName);
-    expect(operator?.venueIds).toEqual([venue.id]);
+    const venue = (await listVenues()).find((v) => v.id === asked.venueId)!;
+    expect(venue.name).toBe(asked.businessName);
+    expect((await listVenuePage({ pageSize: 100 })).venues.some((v) => v.id === venue.id)).toBe(true);
+    // Where it is, from its pin; and billing starting from today, not from
+    // the day it signed up.
+    const row = (await getDb().prepare("SELECT lat, lng, billing_starts_on FROM venues WHERE id = ?").get(venue.id)) as {
+      lat: number;
+      lng: number;
+      billing_starts_on: string | null;
+    };
+    expect({ lat: row.lat, lng: row.lng }).toEqual(asked.pin);
+    expect(row.billing_starts_on).not.toBeNull();
 
     // Once only.
-    expect((await approveApplication(applied.application.id, ownerId, ALL_CHECKS)).ok).toBe(false);
+    expect((await approveApplication(asked.id, ownerId, ALL_CHECKS)).ok).toBe(false);
   });
 
   it("says so when there is no email to tell them by", async () => {
+    const asked = await askToGoLive();
+    const result = await approveApplication(asked.id, ownerId, ALL_CHECKS);
+    expect(result.ok && result.emailed).toBe(false);
+  });
+
+  it("still lets in an application made before drafts", async () => {
     const applied = await apply();
     if (!applied.ok) throw new Error(applied.error);
-    const result = await approveApplication(applied.application.id, ownerId, ALL_CHECKS);
-    expect(result.ok && result.emailed).toBe(false);
+    // As it would have been: no venue, waiting, with the password to hand.
+    await getDb()
+      .prepare(
+        "INSERT INTO venue_applications (business_name, area, address, venue_phone, contact_name, email, password_hash, lat, lng, email_check) VALUES ('Old Way Hall', 'Cheras', '1 Jalan Lama', '0300000001', 'Lama', 'lama@example.my', 'x', 3.2, 101.7, 'not asked')"
+      )
+      .run();
+    const old = (await listApplications()).find((a) => a.email === "lama@example.my")!;
+    const result = await approveApplication(old.id, ownerId, ALL_CHECKS);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((await goLiveStatus(result.application.venueId!))?.state).toBe("live");
   });
 
   it("needs every check ticked", async () => {
@@ -242,24 +303,22 @@ describe("where the venue is", () => {
 });
 
 describe("confirming the email", () => {
-  it("keeps the application from the platform owner until the link is followed", async () => {
+  it("opens nothing until the link is followed", async () => {
     sendEmail();
     const applied = await apply();
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.emailSent).toBe(true);
     expect(applied.application.emailCheck).toBe("waiting");
-    const listed = async () => (await listApplications()).some((a) => a.id === applied.application.id);
-    expect(await listed()).toBe(false);
-    // Nobody has applied, as far as the platform owner knows.
+    expect(applied.application.venueId).toBeNull();
+    const signIn = () => authenticateAdmin(applied.application.email, "a long enough password");
+    expect(await signIn()).toBeNull();
     expect(sendMail).toHaveBeenCalledTimes(1);
-    expect((await approveApplication(applied.application.id, ownerId, ALL_CHECKS)).ok).toBe(false);
 
     const token = linkToken();
     expect(await confirmApplicationEmail(token)).toBe("confirmed");
-    expect(await listed()).toBe(true);
-    expect(sendMail).toHaveBeenLastCalledWith(
-      expect.objectContaining({ subject: `${applied.application.businessName} has applied to join` })
-    );
+    expect((await signIn())?.venueIds).toEqual([(await applicationById(applied.application.id))!.venueId]);
+    // A draft is nothing for the platform owner to hear about yet.
+    expect(sendMail).toHaveBeenCalledTimes(1);
     // The link works once.
     expect(await confirmApplicationEmail(token)).toBe("unknown");
     expect(await confirmApplicationEmail("")).toBe("unknown");
@@ -286,30 +345,36 @@ describe("confirming the email", () => {
     expect(rows.n).toBe(1);
   });
 
-  it("goes straight through, marked, where the install cannot email", async () => {
-    const applied = await apply();
-    if (!applied.ok) throw new Error(applied.error);
-    expect(applied.emailSent).toBe(false);
-    expect(applied.application.emailCheck).toBe("unsent");
-    expect((await listApplications()).some((a) => a.id === applied.application.id)).toBe(true);
+  it("is not asked for, and says so, where the install cannot email", async () => {
+    const asked = await askToGoLive();
+    expect(asked.emailCheck).toBe("unsent");
+    expect((await listApplications()).some((a) => a.id === asked.id)).toBe(true);
   });
 });
 
 describe("turning one down", () => {
-  it("keeps why, and drops the password", async () => {
-    const applied = await apply();
-    if (!applied.ok) throw new Error(applied.error);
-    const result = await rejectApplication(applied.application.id, ownerId, "We do not cover Cheras yet.");
+  it("keeps why, leaves the draft as it was, and lets them ask again", async () => {
+    const asked = await askToGoLive();
+    const result = await rejectApplication(asked.id, ownerId, "Add photos of the courts first.");
     expect(result.ok).toBe(true);
     const row = await getDb()
-      .prepare("SELECT status, reason, password_hash FROM venue_applications WHERE id = ?")
-      .get(applied.application.id) as { status: string; reason: string; password_hash: string };
-    expect(row).toEqual({ status: "rejected", reason: "We do not cover Cheras yet.", password_hash: "" });
-    expect(await authenticateAdmin(applied.application.email, "a long enough password")).toBeNull();
+      .prepare("SELECT status, reason FROM venue_applications WHERE id = ?")
+      .get(asked.id) as { status: string; reason: string };
+    expect(row).toEqual({ status: "rejected", reason: "Add photos of the courts first." });
+    expect(await goLiveStatus(asked.venueId!)).toMatchObject({
+      state: "draft",
+      request: { status: "rejected", reason: "Add photos of the courts first." },
+    });
+    // Their account is still theirs.
+    const manager = (await authenticateAdmin(asked.email, "a long enough password"))!;
+    expect(manager).not.toBeNull();
+
+    const again = await requestGoLive(manager, asked.venueId!);
+    expect(again).toEqual({ ok: true, live: false });
+    expect(await requestGoLive(manager, asked.venueId!)).toEqual({ ok: false, error: "It is waiting for approval already." });
     // Waiting ones are listed first, the newest at the top.
-    const pending = await apply();
     const listed = await listApplications();
-    expect(listed[0].id).toBe(pending.ok && pending.application.id);
+    expect(listed[0].id).toBe(asked.id);
     const firstDecided = listed.findIndex((a) => a.status !== "pending");
     expect(listed.slice(firstDecided).every((a) => a.status !== "pending")).toBe(true);
   });
@@ -376,8 +441,7 @@ describe("the routes", () => {
     expect((await mod.GET(get(asDesk))).status).toBe(403);
     expect((await mod.GET(get(asOwner))).status).toBe(200);
 
-    const applied = await apply();
-    if (!applied.ok) throw new Error(applied.error);
+    const asked = await askToGoLive();
     const decide = (body: object) =>
       mod.POST(
         new NextRequest("http://localhost/api/admin/venue-applications", {
@@ -386,8 +450,8 @@ describe("the routes", () => {
           body: JSON.stringify(body),
         })
       );
-    expect((await decide({ id: applied.application.id, decision: "approve" })).status).toBe(409);
-    const approved = await decide({ id: applied.application.id, decision: "approve", checks: ALL_CHECKS });
+    expect((await decide({ id: asked.id, decision: "approve" })).status).toBe(409);
+    const approved = await decide({ id: asked.id, decision: "approve", checks: ALL_CHECKS });
     expect(approved.status).toBe(200);
   });
 });

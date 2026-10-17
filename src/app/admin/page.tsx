@@ -7,6 +7,7 @@ import { ClassesTab } from "@/components/admin/ClassesTab";
 import { CourtsTab } from "@/components/admin/CourtsTab";
 import { CreditTab } from "@/components/admin/CreditTab";
 import { FirstRun } from "@/components/admin/FirstRun";
+import { GoLiveBanner } from "@/components/admin/GoLiveBanner";
 import { OccupancyTab } from "@/components/admin/OccupancyTab";
 import { ReportsTab } from "@/components/admin/ReportsTab";
 import { ScheduleTab } from "@/components/admin/ScheduleTab";
@@ -175,6 +176,19 @@ export default function AdminPage() {
 
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
+      {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. */}
+      {!isOwner &&
+        venues
+          .filter((venue) => venue.publishedAt === null || venue.suspendedAt !== null)
+          .map((venue) => (
+            <GoLiveBanner
+              key={`live-${venue.id}`}
+              venueId={venue.id}
+              venueName={venues.length > 1 ? venue.name : null}
+              refreshKey={`${tab}:${venue.courts.length}`}
+              onChange={refreshVenues}
+            />
+          ))}
       {!isOwner &&
         venues.map((venue, i) => (
           <SetupChecklist

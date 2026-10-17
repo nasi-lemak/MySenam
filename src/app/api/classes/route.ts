@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listClasses } from "@/lib/store";
+import { mayShowVenue } from "@/lib/listing";
 import { storefrontForRequest } from "@/lib/storefront";
 import { addDays, isValidDateString, todayISO } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
@@ -33,7 +34,11 @@ export async function GET(req: NextRequest) {
   }
 
   const venueId = venueParam ? Number(venueParam) : undefined;
+  // One venue's own page shows its classes to whoever may see the page; the
+  // classes listing shows only venues customers may reach.
+  if (venueId && !(await mayShowVenue(venueId, req)).show) return NextResponse.json({ classes: [] });
   const classes = await listClasses({
+    openOnly: !venueId,
     venueId,
     venueIds: (await storefrontForRequest(req))?.venueIds,
     sport: (sportParam as Sport) ?? undefined,

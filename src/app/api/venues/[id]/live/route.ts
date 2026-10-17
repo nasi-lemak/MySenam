@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLiveOccupancy, getVenue } from "@/lib/store";
+import { getLiveOccupancy } from "@/lib/store";
+import { mayShowVenue } from "@/lib/listing";
 
 export const dynamic = "force-dynamic";
 
@@ -8,14 +9,14 @@ export const dynamic = "force-dynamic";
  * check-ins, so it reflects people actually present rather than bookings held.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   const venueId = Number(id);
   if (!Number.isInteger(venueId) || venueId <= 0)
     return NextResponse.json({ error: "Invalid venue id." }, { status: 400 });
-  if (!await getVenue(venueId))
+  if (!(await mayShowVenue(venueId, req)).show)
     return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
   return NextResponse.json({

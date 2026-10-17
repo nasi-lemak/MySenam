@@ -69,10 +69,16 @@ async function toAdmin(r: AdminRow): Promise<Admin> {
 /**
  * Create the first platform owner if none exists, so a fresh install is
  * reachable. Credentials come from ADMIN_EMAIL / ADMIN_PASSWORD.
+ *
+ * An owner, not any account: on a marketplace a business can sign itself up
+ * before the owner has ever signed in, and its manager must not count as the
+ * install already having somebody in charge.
  */
 export async function ensureBootstrapAdmin(): Promise<void> {
   const db = getDb();
-  const existing = await db.prepare("SELECT COUNT(*) AS n FROM admins").get() as { n: number };
+  const existing = (await db
+    .prepare("SELECT COUNT(*) AS n FROM admins WHERE venue_id IS NULL AND business_id IS NULL")
+    .get()) as { n: number };
   if (existing.n > 0) return;
 
   await db.prepare(
@@ -103,6 +109,7 @@ export async function createAdminSession(adminId: number): Promise<{ token: stri
     adminId,
     expiresAt.toISOString()
   );
+  await markSeen(adminId);
   return { token, expiresAt };
 }
 
@@ -124,7 +131,23 @@ export async function getAdminByToken(token: string): Promise<Admin | null> {
 export async function getSessionAdmin(req: NextRequest): Promise<Admin | null> {
   const token = req.cookies.get(ADMIN_SESSION_COOKIE)?.value;
   if (!token) return null;
-  return await getAdminByToken(token);
+  const admin = await getAdminByToken(token);
+  if (admin) await markSeen(admin.id);
+  return admin;
+}
+
+/**
+ * Note that somebody is still using their account — at most once a day, so
+ * it is not a write on every request. A draft nobody comes back to is
+ * cleared away by it (lib/drafts.ts).
+ */
+async function markSeen(adminId: number): Promise<void> {
+  await getDb()
+    .prepare(
+      `UPDATE admins SET last_seen_at = datetime('now')
+        WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < datetime('now', '-1 day'))`
+    )
+    .run(adminId);
 }
 
 /**

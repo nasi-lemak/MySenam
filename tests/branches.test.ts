@@ -14,8 +14,9 @@ import {
   listAdmins,
 } from "../src/lib/admin-auth";
 import type { Admin } from "../src/lib/admin-auth";
-import { approveApplication, REVIEW_CHECKS, requestBranch, submitApplication } from "../src/lib/applications";
+import { addBranch, approveApplication, REVIEW_CHECKS, requestGoLive, submitApplication } from "../src/lib/applications";
 import { resetGeocoder } from "../src/lib/geo";
+import { getDb } from "../src/lib/db";
 import { registerUser } from "../src/lib/auth";
 import { groupIntoBusiness, listBusinesses } from "../src/lib/branches";
 import { issueDueInvoices, listInvoices, markInvoicePaid, setVenuePlan } from "../src/lib/billing";
@@ -63,6 +64,17 @@ async function court(venueId: number, sport = "badminton") {
   return c.court.id;
 }
 
+/** Courts, then asked to go live: true if it went live on its own. */
+async function askToGoLive(venueId: number): Promise<{ live: boolean; id: number }> {
+  await court(venueId);
+  const asked = await requestGoLive(manager, venueId);
+  if (!asked.ok) throw new Error(asked.error);
+  const row = (await getDb()
+    .prepare("SELECT id FROM venue_applications WHERE venue_id = ?")
+    .get(venueId)) as { id: number };
+  return { live: asked.live, id: row.id };
+}
+
 beforeAll(async () => {
   await ensureBootstrapAdmin();
   ownerId = (await listAdmins())[0].id;
@@ -78,10 +90,11 @@ beforeAll(async () => {
     lng: 101.59,
   });
   if (!applied.ok) throw new Error(applied.error);
-  const approved = await approveApplication(applied.application.id, ownerId, ALL_CHECKS);
-  if (!approved.ok) throw new Error(approved.error);
-  branchA = approved.application.venueId!;
+  branchA = applied.application.venueId!;
   manager = (await authenticateAdmin("lim@smashchain.my", "a long enough password"))!;
+  const asked = await askToGoLive(branchA);
+  const approved = await approveApplication(asked.id, ownerId, ALL_CHECKS);
+  if (!approved.ok) throw new Error(approved.error);
   const other = await createVenue({ name: "Someone Else Hall", area: "Klang", address: "Jalan Lain", phone: "0330000009" });
   if (!other.ok) throw new Error("venue");
   elsewhere = other.venue.id;
@@ -97,8 +110,8 @@ describe("a business's branches", () => {
     expect(manager.venueIds).toEqual([branchA]);
   });
 
-  it("grow by request, approved by the platform owner", async () => {
-    const asked = await requestBranch(manager, {
+  it("are added by the manager as drafts, and go live when the platform owner approves", async () => {
+    const added = await addBranch(manager, {
       name: "Smash Chain Subang",
       area: "Subang Jaya",
       address: "2 Jalan SS15, Subang",
@@ -106,15 +119,19 @@ describe("a business's branches", () => {
       lat: 3.08,
       lng: 101.58,
     });
-    if (!asked.ok) throw new Error(asked.error);
-    expect(asked.application.status).toBe("pending");
-    expect(asked.application.forBusiness).toBe("Smash Chain Kelana");
-
-    const approved = await approveApplication(asked.application.id, ownerId, ALL_CHECKS);
-    if (!approved.ok) throw new Error(approved.error);
-    branchB = approved.application.venueId!;
+    if (!added.ok) throw new Error(added.error);
+    expect(added.application.status).toBe("draft");
+    expect(added.application.forBusiness).toBe("Smash Chain Kelana");
+    branchB = added.venueId!;
+    // Theirs to set up at once.
     manager = await reload(manager);
     expect(manager.venueIds).toEqual([branchA, branchB]);
+
+    const asked = await askToGoLive(branchB);
+    expect(asked.live).toBe(false);
+    const approved = await approveApplication(asked.id, ownerId, ALL_CHECKS);
+    if (!approved.ok) throw new Error(approved.error);
+    expect(approved.application.venueId).toBe(branchB);
   });
 
   it("can be approved on their own where the install says so, if the map agrees", async () => {
@@ -132,18 +149,18 @@ describe("a business's branches", () => {
       )
     );
     try {
-      const asked = await requestBranch(manager, {
+      const added = await addBranch(manager, {
         name: "Smash Chain Puchong",
         area: "Puchong",
         address: "3 Jalan Puchong",
         phone: "0378000003",
         ...puchong,
       });
-      expect(asked.ok && asked.approved).toBe(true);
-      expect((await reload(manager)).venueIds).toHaveLength(3);
+      if (!added.ok) throw new Error(added.error);
+      expect((await askToGoLive(added.venueId!)).live).toBe(true);
 
       // A pin nowhere near the address it gave waits for a person.
-      const far = await requestBranch(manager, {
+      const far = await addBranch(manager, {
         name: "Smash Chain Far",
         area: "Puchong",
         address: "3 Jalan Puchong",
@@ -151,7 +168,8 @@ describe("a business's branches", () => {
         lat: 5.4,
         lng: 100.33,
       });
-      expect(far.ok && far.approved).toBe(false);
+      if (!far.ok) throw new Error(far.error);
+      expect((await askToGoLive(far.venueId!)).live).toBe(false);
     } finally {
       vi.unstubAllGlobals();
       process.env.MYSENAM_GEOCODER = "off";
@@ -161,7 +179,7 @@ describe("a business's branches", () => {
 
   it("are never approved on their own when nothing was looked up", async () => {
     process.env.MYSENAM_AUTO_APPROVE_BRANCHES = "on";
-    const asked = await requestBranch(manager, {
+    const added = await addBranch(manager, {
       name: "Smash Chain Unseen",
       area: "Puchong",
       address: "4 Jalan Puchong",
@@ -169,13 +187,14 @@ describe("a business's branches", () => {
       lat: 3.04,
       lng: 101.62,
     });
-    expect(asked.ok && asked.approved).toBe(false);
+    if (!added.ok) throw new Error(added.error);
+    expect((await askToGoLive(added.venueId!)).live).toBe(false);
   });
 
-  it("are asked for only by a manager", async () => {
+  it("are added only by a manager", async () => {
     const staff = await createAdmin({ name: "Desk", email: "desk-a@smashchain.my", password: "desk-password", venueId: branchA });
     if (!staff.ok) throw new Error(staff.error);
-    const asked = await requestBranch(staff.admin, {
+    const asked = await addBranch(staff.admin, {
       name: "Nope",
       area: "Nowhere",
       address: "Jalan Nope",

@@ -6,6 +6,7 @@ import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
 import { currentStorefront, shows } from "@/lib/storefront";
+import { mayShowVenue, pageAdmin } from "@/lib/listing";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,10 @@ export default async function VenuePage({
   const venue = Number.isInteger(venueId) ? await getVenue(venueId) : null;
   // On a storefront, a venue it does not show is not there.
   if (!venue || !shows(await currentStorefront(), venue.id)) notFound();
+  // A draft, or a venue taken off for an unpaid invoice, is there only for
+  // its own staff, as a preview.
+  const { show, preview } = await mayShowVenue(venue.id, await pageAdmin());
+  if (!show) notFound();
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
@@ -34,6 +39,14 @@ export default async function VenuePage({
 
   return (
     <div className="space-y-6">
+      {preview && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Preview.</span>{" "}
+          {venue.publishedAt === null
+            ? "Only your staff can see this page until your venue goes live. Bookings you make here are test bookings."
+            : "Customers cannot see this page while your venue is off the marketplace for an unpaid invoice."}
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-bold">{venue.name}</h1>
         <p className="mt-1 text-sm text-slate-600">

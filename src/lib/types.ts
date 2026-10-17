@@ -59,6 +59,10 @@ export interface Venue {
   /** Shown to anyone letting themselves in. */
   emergencyPhone: string | null;
   emergencyInfo: string | null;
+  /** When customers could first reach it; null for a draft (lib/listing.ts). */
+  publishedAt: string | null;
+  /** Taken off the marketplace for an invoice long overdue; null otherwise. */
+  suspendedAt: string | null;
 }
 
 /** True when nobody is behind the counter at this hour. */

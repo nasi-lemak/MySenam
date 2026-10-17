@@ -30,6 +30,7 @@ const EMAIL_CHECK: Record<EmailCheck, { text: string; ok: boolean }> = {
 export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   const [applications, setApplications] = useState<VenueApplication[] | null>(null);
   const [marketplace, setMarketplace] = useState(false);
+  const [drafts, setDrafts] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
       if (!res.ok) throw new Error(data.error ?? "Could not load applications");
       setApplications(data.applications);
       setMarketplace(data.marketplace);
+      setDrafts(data.drafts ?? 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load applications");
     }
@@ -59,14 +61,16 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   async function decide(a: VenueApplication, decision: "approve" | "reject") {
     let reason = "";
     if (decision === "reject") {
-      const given = window.prompt(`Turn down ${a.businessName}? A reason for them (optional):`, "");
+      const given = window.prompt(`Not putting ${a.businessName} live? A reason for them (optional):`, "");
       if (given === null) return;
       reason = given;
     } else if (
       !window.confirm(
         a.forBusiness
-          ? `Approve ${a.businessName} as a branch of ${a.forBusiness}?`
-          : `Approve ${a.businessName}? This creates the venue and ${a.email}'s account.`
+          ? `Put ${a.businessName} live as a branch of ${a.forBusiness}?`
+          : a.venueId === null
+            ? `Approve ${a.businessName}? This creates the venue and ${a.email}'s account.`
+            : `Put ${a.businessName} live? Customers can find, book and pay it from now, and its free months start.`
       )
     ) {
       return;
@@ -87,8 +91,8 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
         : `Email is not set up, so let them know yourself: ${a.email}, ${a.venuePhone}.`;
       setNotice(
         decision === "approve"
-          ? `${a.businessName} is in. ${told}`
-          : `${a.businessName} turned down. ${told}`
+          ? `${a.businessName} is live. ${told}`
+          : `${a.businessName} is not live. ${told}`
       );
       await load();
       if (decision === "approve") onChange();
@@ -106,10 +110,12 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   return (
     <section>
       <h2 className="text-lg font-bold">
-        Venue applications{pending.length > 0 && ` (${pending.length} waiting)`}
+        Going live{pending.length > 0 && ` (${pending.length} waiting)`}
       </h2>
       <p className="mt-1 text-sm text-slate-500">
-        Venues that asked to join at <span className="font-mono">/list-your-venue</span>.
+        Businesses sign up at <span className="font-mono">/list-your-venue</span> and set their venue up as a draft
+        nobody else sees, then ask to go live from their dashboard.{" "}
+        {drafts === 1 ? "1 draft is being set up now." : `${drafts} drafts are being set up now.`}
       </p>
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-3 text-sm font-medium text-emerald-700">{notice}</p>}
@@ -137,9 +143,25 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                     </a>
                   </div>
                   <div className="mt-1 text-sm text-slate-600">
-                    {a.contactName} · <span className="font-mono text-xs">{a.email}</span> · applied{" "}
+                    {a.contactName} · <span className="font-mono text-xs">{a.email}</span> · asked{" "}
                     {a.createdAt.slice(0, 10)}
                   </div>
+                  {a.setup && (
+                    <div className="mt-1 text-sm text-slate-600">
+                      {a.setup.courts === 1 ? "1 court" : `${a.setup.courts} courts`}
+                      {a.setup.sports && ` · ${a.setup.sports}`}
+                      {a.setup.lowRate !== null &&
+                        ` · RM${a.setup.lowRate}${a.setup.highRate !== a.setup.lowRate ? `–${a.setup.highRate}` : ""} an hour`}
+                      {a.venueId !== null && (
+                        <>
+                          {" · "}
+                          <a href={`/venue/${a.venueId}`} target="_blank" rel="noopener" className="underline">
+                            their page ↗
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {a.message && (
                     <p className="mt-2 whitespace-pre-line rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
                       {a.message}
@@ -160,7 +182,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                     onClick={() => decide(a, "reject")}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    Turn down
+                    Not yet
                   </button>
                 </div>
               </div>
@@ -193,9 +215,9 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
               {a.businessName} —{" "}
               {a.status === "approved"
                 ? a.reviewChecks.includes("auto")
-                  ? "approved on its own"
-                  : "approved"
-                : "turned down"}{" "}
+                  ? "live, on its own"
+                  : "live"
+                : "not live"}{" "}
               {a.decidedAt?.slice(0, 10)}
               {a.reason ? ` (${a.reason})` : ""}
             </li>

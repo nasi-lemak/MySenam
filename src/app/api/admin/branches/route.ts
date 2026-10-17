@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isManager, requireAdmin } from "@/lib/admin-auth";
-import { listBranchRequests, requestBranch } from "@/lib/applications";
+import { addBranch, listBranchRequests } from "@/lib/applications";
 
 export const dynamic = "force-dynamic";
 
-/** A business manager's branch requests, waiting and decided. */
+/** A business manager's branches: drafts, waiting to go live, and decided. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests: await listBranchRequests(admin.businessId!) });
 }
 
-/** `{ name, area, address, phone, lat, lng, message? }` — ask for another branch. */
+/** `{ name, area, address, phone, lat, lng, message? }` — add a branch, as a draft to set up. */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   }
   for (const field of ["name", "area", "address", "phone"])
     if (typeof body[field] !== "string") return NextResponse.json({ error: "Please fill in every field." }, { status: 400 });
-  const result = await requestBranch(admin, {
+  const result = await addBranch(admin, {
     name: body.name as string,
     area: body.area as string,
     address: body.address as string,
@@ -36,5 +36,5 @@ export async function POST(req: NextRequest) {
     lng: body.lng,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-  return NextResponse.json({ request: result.application, approved: result.approved === true }, { status: 201 });
+  return NextResponse.json({ request: result.application, venueId: result.venueId }, { status: 201 });
 }

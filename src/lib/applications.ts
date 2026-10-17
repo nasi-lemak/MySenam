@@ -10,30 +10,42 @@ import { tellOwners } from "./owner-alerts";
 import { RETENTION } from "./privacy";
 import { REVIEW_CHECKS } from "./review-checks";
 import type { Admin } from "./admin-auth";
+import { VENUE_CAPS } from "./limits";
+import { listingState, venueListing, type ListingState } from "./listing";
 import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inMalaysia, placeAt, readPoint, type Point } from "./geo";
 
 /**
- * Venues asking to join the marketplace.
+ * Businesses joining the marketplace, and their venues going live.
  *
- * Anybody can apply; nobody is in until the platform owner says so. An
- * application holds everything needed to set the venue up — its details and
- * the password its first operator chose, already hashed — so approving it is
- * one click that makes the venue and the account together, and nobody has to
- * send a password to anybody.
+ * Anybody can sign up, and is setting their venue up minutes later: once
+ * they confirm their email, their account opens with the venue as a draft
+ * (lib/listing.ts), which they and their staff can use and nobody else can
+ * see. Customers can reach it once the platform owner lets it go live. The
+ * application is the venue's record throughout — 'draft', then 'pending' when
+ * it asks to go live, then 'approved' or 'rejected' — and a further branch
+ * gets one of its own the same way.
  *
- * Before that click, three kinds of evidence that the venue is real:
+ * Before it goes live, three kinds of evidence that the venue is real:
  *
  *   - Where it is. The applicant drops a pin on a map. Their address is looked
  *     up (lib/geo.ts) and set beside the pin, along with what the map calls
  *     the place at the pin and any venue already listed right there.
- *   - That they can be reached. Nothing reaches the platform owner until the
- *     applicant has followed a link emailed to the address they gave.
+ *   - That they can be reached. No account opens until the person signing up
+ *     has followed a link emailed to the address they gave.
  *   - What the platform owner checked. Approving asks them to tick that they
  *     looked at the map, phoned the venue, and found the business somewhere
  *     besides this form — and records that they did.
  */
 
-export type ApplicationStatus = "pending" | "approved" | "rejected";
+export type ApplicationStatus = "draft" | "pending" | "approved" | "rejected";
+
+/** What a venue asking to go live has set up. */
+export interface SetupSummary {
+  courts: number;
+  sports: string;
+  lowRate: number | null;
+  highRate: number | null;
+}
 
 /** See db/migrations/0007_application_checks.sql. */
 export type EmailCheck = "waiting" | "confirmed" | "unsent" | "account" | "not asked";
@@ -83,6 +95,8 @@ export interface VenueApplication {
   reviewChecks: string[];
   /** For one still waiting: what the location checks found. */
   location?: LocationReport;
+  /** For one asking to go live: what it has set up. */
+  setup?: SetupSummary;
 }
 
 interface Row {
@@ -93,7 +107,7 @@ interface Row {
   venue_phone: string;
   contact_name: string;
   email: string;
-  password_hash: string;
+  password_hash: string | null;
   message: string | null;
   status: ApplicationStatus;
   reason: string | null;
@@ -176,9 +190,10 @@ export async function locationReport(a: VenueApplication): Promise<LocationRepor
     .prepare(
       `SELECT id, name, lat, lng FROM venues
         WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?
-          AND (?::int IS NULL OR business_id IS DISTINCT FROM ?::int)`
+          AND (?::int IS NULL OR business_id IS DISTINCT FROM ?::int)
+          AND id IS DISTINCT FROM ?::int`
     )
-    .all(a.pin.lat - box, a.pin.lat + box, a.pin.lng - box, a.pin.lng + box, a.businessId, a.businessId)) as {
+    .all(a.pin.lat - box, a.pin.lat + box, a.pin.lng - box, a.pin.lng + box, a.businessId, a.businessId, a.venueId)) as {
     id: number;
     name: string;
     lat: number;
@@ -202,10 +217,11 @@ export const MIN_PASSWORD = 10;
 export type SubmitResult = { ok: true; application: VenueApplication } | { ok: false; error: string };
 
 /**
- * Somebody applying. It is written down, and a link emailed to them; the
- * platform owner hears of it once they follow the link. On an install that
- * cannot send email nobody can be asked, so it goes straight through, marked
- * as unconfirmed.
+ * A business signing up. It is written down, and a link emailed to them;
+ * following it opens their account and a draft of their venue, which they
+ * set up straight away and nobody else sees until it goes live. On an
+ * install that cannot send email nobody can be asked, so the account opens
+ * at once, marked as unconfirmed.
  */
 export async function submitApplication(input: {
   businessName: string;
@@ -240,13 +256,13 @@ export async function submitApplication(input: {
     return { ok: false, error: "That email already has an account. Sign in at /admin." };
   if (
     await db
-      .prepare("SELECT id FROM venue_applications WHERE email = ? AND status = 'pending' AND email_check <> 'waiting'")
+      .prepare("SELECT id FROM venue_applications WHERE email = ? AND status = 'pending' AND venue_id IS NULL")
       .get(email)
   )
     return { ok: false, error: "There is already an application waiting for that email." };
   // One never confirmed — a lost email, a typo they have since fixed — gives
   // way to this one rather than locking them out until it expires.
-  await db.prepare("DELETE FROM venue_applications WHERE email = ? AND status = 'pending' AND email_check = 'waiting'").run(email);
+  await db.prepare("DELETE FROM venue_applications WHERE email = ? AND email_check = 'waiting'").run(email);
 
   const { found, place } = await lookUp(input.address.trim(), input.area.trim(), pinned.pin);
   const token = crypto.randomBytes(24).toString("base64url");
@@ -254,8 +270,8 @@ export async function submitApplication(input: {
     .prepare(`
       INSERT INTO venue_applications
         (business_name, area, address, venue_phone, contact_name, email, password_hash, message,
-         lat, lng, found_lat, found_lng, pin_place, email_check, email_token)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?)
+         lat, lng, found_lat, found_lng, pin_place, email_check, email_token, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, 'draft')
     `)
     .run(
       input.businessName.trim(),
@@ -278,63 +294,88 @@ export async function submitApplication(input: {
   const site = siteName();
   const emailSent = await sendPlainEmail(
     email,
-    `Confirm your application to ${site}`,
-    `Hi ${input.contactName.trim()},\n\nThanks for applying to list ${input.businessName.trim()} on ${site}. ` +
-      `Follow this link to confirm this is your email, and we will look at your application:\n\n` +
+    `Confirm your email for ${site}`,
+    `Hi ${input.contactName.trim()},\n\nThanks for signing ${input.businessName.trim()} up to ${site}. ` +
+      `Follow this link to confirm this is your email, and your account opens straight away:\n\n` +
       `${baseUrl()}/list-your-venue/confirm?token=${token}\n\n` +
-      `The link works for ${CONFIRM_DAYS} days. If you did not apply, ignore this email and nothing happens.\n\n${site}`
+      `The link works for ${CONFIRM_DAYS} days. If you did not sign up, ignore this email and nothing happens.\n\n${site}`
   );
   if (!emailSent) {
     await db.prepare("UPDATE venue_applications SET email_check = 'unsent', email_token = NULL WHERE id = ?").run(id);
-    await tellOwnersOfApplication(id);
+    const opened = await openAccount(id);
+    if (!opened.ok) return opened;
   }
   return { ok: true, application: (await applicationById(id))!, emailSent };
 }
 
-/** So an application is not left waiting for somebody to happen to look. */
-async function tellOwnersOfApplication(id: number): Promise<void> {
-  const a = (await applicationById(id))!;
-  const report = await locationReport(a);
-  await tellOwners(
-    `${a.businessName} has applied to join`,
-    `${a.contactName} (${a.email}) has applied to list ${a.businessName} in ${a.area}. ` +
-      (a.emailCheck === "confirmed" ? "They have confirmed their email. " : "Their email could not be confirmed: this install cannot send email. ") +
-      (report.warnings.length ? `Worth a look:\n- ${report.warnings.join("\n- ")}\n\n` : "") +
-      "Approve or turn it down under Venues & staff."
-  );
+/**
+ * Open a confirmed sign-up: a business, its first venue as a draft with the
+ * pin it signed up with, and the person who signed up as its manager, with
+ * the password they chose. The application stays as the venue's record.
+ */
+async function openAccount(id: number): Promise<{ ok: true; venueId: number } | { ok: false; error: string }> {
+  const db = getDb();
+  const row = (await db.prepare(`${APPLICATION_SELECT} WHERE va.id = ?`).get(id)) as Row;
+  if (await db.prepare("SELECT id FROM admins WHERE email = ?").get(row.email))
+    return { ok: false, error: "That email already has an account. Sign in at /admin." };
+  let venueId = 0;
+  try {
+    await db.transaction(async () => {
+      const venue = await createVenue({
+        name: row.business_name,
+        area: row.area,
+        address: row.address,
+        phone: row.venue_phone,
+        draft: true,
+      });
+      if (!venue.ok) throw new Error(venue.error);
+      venueId = venue.venue.id;
+      const business = await db.prepare("INSERT INTO businesses (name) VALUES (?)").run(row.business_name);
+      const businessId = business.lastInsertRowid as number;
+      await db
+        .prepare("UPDATE venues SET business_id = ?, lat = ?, lng = ? WHERE id = ?")
+        .run(businessId, row.lat, row.lng, venueId);
+      await db
+        .prepare("INSERT INTO admins (name, email, password_hash, business_id) VALUES (?, ?, ?, ?)")
+        .run(row.contact_name, row.email, row.password_hash, businessId);
+      // The password lives on the account now; the application needs no copy.
+      await db
+        .prepare("UPDATE venue_applications SET venue_id = ?, password_hash = NULL WHERE id = ?")
+        .run(venueId, id);
+    })();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not open the account." };
+  }
+  return { ok: true, venueId };
 }
 
 export type ConfirmResult = "confirmed" | "unknown";
 
-/** The applicant following the link in their email. */
+/** The person signing up following the link in their email: their account opens. */
 export async function confirmApplicationEmail(token: string): Promise<ConfirmResult> {
   if (!token || token.length > 100) return "unknown";
   const db = getDb();
   const row = (await db
     .prepare(
       `UPDATE venue_applications SET email_check = 'confirmed', email_token = NULL
-        WHERE email_token = ? AND email_check = 'waiting' AND status = 'pending'
+        WHERE email_token = ? AND email_check = 'waiting'
           AND created_at >= datetime('now', ?)
         RETURNING id`
     )
     .get(sha256(token), `-${CONFIRM_DAYS} days`)) as { id: number } | undefined;
   if (!row) return "unknown";
-  await tellOwnersOfApplication(row.id);
-  return "confirmed";
+  const opened = await openAccount(row.id);
+  return opened.ok ? "confirmed" : "unknown";
 }
 
 /**
- * A business already on the platform asking for another branch.
- *
- * Its manager already has an account, so this is only the branch's details.
- * It waits for the platform owner like any application — each location is
- * vetted — unless the install approves branches of approved businesses on
- * its own (MYSENAM_AUTO_APPROVE_BRANCHES=on).
+ * Another branch for a business already here, made by its manager there and
+ * then as a draft, to set up like the first and send to go live when ready.
  */
-export async function requestBranch(
+export async function addBranch(
   admin: Admin,
   input: { name: string; area: string; address: string; phone: string; message?: string; lat: unknown; lng: unknown }
-): Promise<SubmitResult & { approved?: boolean }> {
+): Promise<SubmitResult & { venueId?: number }> {
   if (admin.businessId === null) return { ok: false, error: "Only a business manager can add a branch." };
   const text = (v: string, min: number, max: number) => v.trim().length >= min && v.trim().length <= max;
   if (!text(input.name, 2, 100)) return { ok: false, error: "Give the branch's name." };
@@ -346,53 +387,198 @@ export async function requestBranch(
   const pinned = readPin(input.lat, input.lng);
   if (!pinned.ok) return pinned;
 
-  const { found, place } = await lookUp(input.address.trim(), input.area.trim(), pinned.pin);
-  const info = await getDb()
-    .prepare(`
-      INSERT INTO venue_applications
-        (business_name, area, address, venue_phone, contact_name, email, password_hash, message, business_id,
-         lat, lng, found_lat, found_lng, pin_place, email_check)
-      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'account')
-    `)
+  const db = getDb();
+  const { drafts } = (await db
+    .prepare("SELECT COUNT(*)::int AS drafts FROM venues WHERE business_id = ? AND published_at IS NULL")
+    .get(admin.businessId)) as { drafts: number };
+  if (drafts >= VENUE_CAPS.draftBranches)
+    return {
+      ok: false,
+      error: `You have ${drafts} branches being set up. Send one to go live, or finish one, before adding another.`,
+    };
+
+  let id = 0;
+  let venueId = 0;
+  try {
+    await db.transaction(async () => {
+      const venue = await createVenue({
+        name: input.name,
+        area: input.area,
+        address: input.address,
+        phone: input.phone,
+        draft: true,
+      });
+      if (!venue.ok) throw new Error(venue.error);
+      venueId = venue.venue.id;
+      await db
+        .prepare("UPDATE venues SET business_id = ?, lat = ?, lng = ? WHERE id = ?")
+        .run(admin.businessId, pinned.pin.lat, pinned.pin.lng, venueId);
+      const info = await db
+        .prepare(`
+          INSERT INTO venue_applications
+            (business_name, area, address, venue_phone, contact_name, email, password_hash, message, business_id,
+             venue_id, lat, lng, email_check, status)
+          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'account', 'draft')
+        `)
+        .run(
+          input.name.trim(),
+          input.area.trim(),
+          input.address.trim(),
+          input.phone.trim(),
+          admin.name,
+          admin.email,
+          input.message?.trim() || null,
+          admin.businessId,
+          venueId,
+          pinned.pin.lat,
+          pinned.pin.lng
+        );
+      id = info.lastInsertRowid as number;
+    })();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not add the branch." };
+  }
+  return { ok: true, application: (await applicationById(id))!, venueId };
+}
+
+/** What a draft still needs before it can ask to go live. */
+export async function goLiveMissing(venueId: number): Promise<string[]> {
+  const db = getDb();
+  const venue = (await db.prepare("SELECT lat, lng FROM venues WHERE id = ?").get(venueId)) as
+    | { lat: number | null; lng: number | null }
+    | undefined;
+  if (!venue) return ["The venue no longer exists."];
+  const missing: string[] = [];
+  const { courts } = (await db
+    .prepare("SELECT COUNT(*)::int AS courts FROM courts WHERE venue_id = ?")
+    .get(venueId)) as { courts: number };
+  if (courts === 0) return ["Add at least one court, with its rates."];
+  if (venue.lat === null || venue.lng === null) missing.push("Pin the venue on the map.");
+  return missing;
+}
+
+export interface GoLiveStatus {
+  state: ListingState;
+  /** Its request: 'draft' until it asks, then 'pending', 'approved' or 'rejected'. */
+  request: { status: ApplicationStatus; reason: string | null } | null;
+  missing: string[];
+}
+
+export async function goLiveStatus(venueId: number): Promise<GoLiveStatus | null> {
+  const listing = await venueListing(venueId);
+  if (!listing) return null;
+  const row = (await getDb()
+    .prepare("SELECT status, reason FROM venue_applications WHERE venue_id = ? ORDER BY id DESC LIMIT 1")
+    .get(venueId)) as { status: ApplicationStatus; reason: string | null } | undefined;
+  return {
+    state: listingState(listing),
+    request: row ?? null,
+    missing: listing.publishedAt === null ? await goLiveMissing(venueId) : [],
+  };
+}
+
+/**
+ * A draft asking to go live. Its details are taken afresh from the venue —
+ * what customers would see is what gets checked — and looked up again, and
+ * it goes to the platform owner; or, for a further branch of a business
+ * already live, on an install that allows it, straight live when nothing
+ * about where it is needs a second look.
+ */
+export async function requestGoLive(
+  admin: Admin,
+  venueId: number
+): Promise<{ ok: true; live: boolean } | { ok: false; error: string }> {
+  if (admin.businessId === null && admin.venueId !== null)
+    return { ok: false, error: "Ask your business's manager to send the venue to go live." };
+  const db = getDb();
+  const venue = (await db
+    .prepare("SELECT id, name, area, address, phone, lat, lng, published_at, business_id FROM venues WHERE id = ?")
+    .get(venueId)) as
+    | {
+        id: number;
+        name: string;
+        area: string;
+        address: string;
+        phone: string;
+        lat: number | null;
+        lng: number | null;
+        published_at: string | null;
+        business_id: number | null;
+      }
+    | undefined;
+  if (!venue) return { ok: false, error: "Venue not found." };
+  if (venue.published_at !== null) return { ok: false, error: "This venue is live already." };
+  const row = (await db
+    .prepare("SELECT id, status FROM venue_applications WHERE venue_id = ? ORDER BY id DESC LIMIT 1")
+    .get(venueId)) as { id: number; status: ApplicationStatus } | undefined;
+  if (!row) return { ok: false, error: "This venue has no sign-up to send. Ask the platform owner." };
+  if (row.status === "pending") return { ok: false, error: "It is waiting for approval already." };
+  const missing = await goLiveMissing(venueId);
+  if (missing.length > 0) return { ok: false, error: missing.join(" ") };
+
+  const { found, place } = await lookUp(venue.address, venue.area, { lat: venue.lat!, lng: venue.lng! });
+  await db
+    .prepare(
+      `UPDATE venue_applications
+          SET status = 'pending', reason = NULL, decided_at = NULL, decided_by = NULL,
+              business_name = ?, area = ?, address = ?, venue_phone = ?, lat = ?, lng = ?,
+              found_lat = ?, found_lng = ?, pin_place = ?, created_at = datetime('now')
+        WHERE id = ?`
+    )
     .run(
-      input.name.trim(),
-      input.area.trim(),
-      input.address.trim(),
-      input.phone.trim(),
-      admin.name,
-      admin.email,
-      input.message?.trim() || null,
-      admin.businessId,
-      pinned.pin.lat,
-      pinned.pin.lng,
+      venue.name,
+      venue.area,
+      venue.address,
+      venue.phone,
+      venue.lat,
+      venue.lng,
       found?.lat ?? null,
       found?.lng ?? null,
-      place
+      place,
+      row.id
     );
-  const id = info.lastInsertRowid as number;
-  const report = await locationReport((await applicationById(id))!);
+  const application = (await applicationById(row.id))!;
+  const report = await locationReport(application);
+  const live = await businessIsLive(venue.business_id, venueId);
 
   // On its own only when nothing about where it is needs a second look.
-  if (process.env.MYSENAM_AUTO_APPROVE_BRANCHES === "on" && report.warnings.length === 0) {
-    const approved = await approveApplication(id, admin.id, "auto");
+  if (
+    process.env.MYSENAM_AUTO_APPROVE_BRANCHES === "on" &&
+    application.businessId !== null &&
+    live &&
+    report.warnings.length === 0
+  ) {
+    const approved = await approveApplication(row.id, admin.id, "auto");
     if (!approved.ok) return approved;
     await tellOwners(
-      `${admin.businessName ?? "A business"} added a branch: ${input.name.trim()}`,
-      `${admin.email} added ${input.name.trim()} (${input.area.trim()}) to ${admin.businessName ?? "their business"}. ` +
-        "Branches of approved businesses are approved on their own on this install."
+      `${admin.businessName ?? "A business"} opened a branch: ${venue.name}`,
+      `${admin.email} opened ${venue.name} (${venue.area}) for ${admin.businessName ?? "their business"}. ` +
+        "Branches of businesses already live go live on their own on this install when their location checks pass."
     );
-    return { ok: true, application: approved.application, approved: true };
+    return { ok: true, live: true };
   }
   await tellOwners(
-    `${admin.businessName ?? "A business"} asks for a new branch: ${input.name.trim()}`,
-    `${admin.email} asks to add ${input.name.trim()} (${input.area.trim()}) to ${admin.businessName ?? "their business"}. ` +
+    `${venue.name} asks to go live`,
+    `${application.contactName} (${application.email}) asks for ${venue.name} in ${venue.area} to go live` +
+      (application.forBusiness ? `, as a branch of ${application.forBusiness}. ` : ". ") +
+      (application.emailCheck === "unsent" ? "Their email could not be confirmed: this install cannot send email. " : "") +
       (report.warnings.length ? `Worth a look:\n- ${report.warnings.join("\n- ")}\n\n` : "") +
       "Approve or turn it down under Venues & staff."
   );
-  return { ok: true, application: (await applicationById(id))!, approved: false };
+  return { ok: true, live: false };
 }
 
-/** A business's own branch requests, newest first. */
+/** Whether any other venue of this business is live. */
+async function businessIsLive(businessId: number | null, besides: number): Promise<boolean> {
+  if (businessId === null) return false;
+  return (
+    (await getDb()
+      .prepare("SELECT 1 FROM venues WHERE business_id = ? AND id <> ? AND published_at IS NOT NULL")
+      .get(businessId, besides)) !== undefined
+  );
+}
+
+/** A business's own branches, newest first, whatever state they are in. */
 export async function listBranchRequests(businessId: number): Promise<VenueApplication[]> {
   return (
     (await getDb()
@@ -406,22 +592,47 @@ export async function applicationById(id: number): Promise<VenueApplication | nu
   return row ? toApplication(row) : null;
 }
 
+/** What a venue asking to go live has set up, for whoever decides. */
+async function setupSummary(venueId: number): Promise<SetupSummary> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT COUNT(*)::int AS courts, string_agg(DISTINCT sport, ', ' ORDER BY sport) AS sports,
+              MIN(off_peak_rate)::float AS low, MAX(peak_rate)::float AS high
+         FROM courts WHERE venue_id = ?`
+    )
+    .get(venueId)) as { courts: number; sports: string | null; low: number | null; high: number | null };
+  return { courts: row.courts, sports: row.sports ?? "", lowRate: row.low, highRate: row.high };
+}
+
 /**
- * Waiting ones first, each with what its location checks found, then the
- * most recently decided. Not ones whose email is still to be confirmed: as
- * far as anybody here knows, nobody has applied yet.
+ * Venues asking to go live first, each with what its location checks found
+ * and what it has set up, then the most recently decided. Not drafts still
+ * being set up, nor sign-ups whose email is still to be confirmed.
  */
 export async function listApplications(limit = 100): Promise<VenueApplication[]> {
   const applications = (
     await getDb()
       .prepare(
-        `${APPLICATION_SELECT} WHERE va.email_check <> 'waiting'
+        `${APPLICATION_SELECT} WHERE va.status <> 'draft'
          ORDER BY va.status = 'pending' DESC, COALESCE(va.decided_at, va.created_at) DESC, va.id DESC LIMIT ?`
       )
       .all(limit) as Row[]
   ).map(toApplication);
-  for (const a of applications) if (a.status === "pending") a.location = await locationReport(a);
+  for (const a of applications) {
+    if (a.status !== "pending") continue;
+    a.location = await locationReport(a);
+    if (a.venueId !== null) a.setup = await setupSummary(a.venueId);
+  }
   return applications;
+}
+
+/** Businesses setting a venue up that has not asked to go live yet. */
+export async function countDrafts(): Promise<number> {
+  return (
+    (await getDb()
+      .prepare("SELECT COUNT(*)::int AS n FROM venue_applications WHERE status = 'draft' AND venue_id IS NOT NULL")
+      .get()) as { n: number }
+  ).n;
 }
 
 export type DecisionResult =
@@ -429,11 +640,15 @@ export type DecisionResult =
   | { ok: false; error: string };
 
 /**
- * Let a venue in: make the venue, and its first operator's account with the
- * password they chose when applying.
+ * Let a venue go live: customers can find it, book it and pay it, and its
+ * billing starts — after the install's free months, so a trial runs from
+ * here rather than from the day it signed up.
  *
  * Somebody approving says what they checked, and it has to be everything in
  * REVIEW_CHECKS; "auto" is a branch the install approved on its own.
+ *
+ * An application from before drafts, with no venue yet, makes the venue and
+ * its operator's account here, as approving always did.
  */
 export async function approveApplication(
   id: number,
@@ -447,6 +662,39 @@ export async function approveApplication(
   if (!row) return { ok: false, error: "Application not found." };
   if (row.status !== "pending") return { ok: false, error: "That application has already been decided." };
   if (row.email_check === "waiting") return { ok: false, error: "They have not confirmed their email yet." };
+  if (row.venue_id === null) return await approveFromBefore(row, deciderId, checks);
+
+  const venueId = row.venue_id;
+  await db.transaction(async () => {
+    await db
+      .prepare("UPDATE venues SET published_at = COALESCE(published_at, datetime('now')), lat = ?, lng = ? WHERE id = ?")
+      .run(row.lat, row.lng, venueId);
+    await db
+      .prepare(
+        "UPDATE venue_applications SET status = 'approved', review_checks = ?, decided_at = datetime('now'), decided_by = ? WHERE id = ?"
+      )
+      .run(checks === "auto" ? "auto" : REVIEW_CHECKS.map((c) => c.id).join(","), deciderId, id);
+    await startBilling(venueId);
+  })();
+
+  const site = siteName();
+  const { billing_starts_on: from } = (await db
+    .prepare("SELECT billing_starts_on FROM venues WHERE id = ?")
+    .get(venueId)) as { billing_starts_on: string | null };
+  const emailed = await sendPlainEmail(
+    row.email,
+    `${row.business_name} is live on ${site}`,
+    `Hi ${row.contact_name},\n\n${row.business_name} is live on ${site}: customers can find it, book it and pay it now.\n\n` +
+      `${baseUrl()}/venue/${venueId}\n\n` +
+      (from ? `It is free until ${from}; your first invoice comes after that.\n\n` : "") +
+      site
+  );
+  return { ok: true, application: (await applicationById(id))!, emailed };
+}
+
+/** Approving an application made before drafts: the venue and account are made now. */
+async function approveFromBefore(row: Row, deciderId: number, checks: readonly string[] | "auto"): Promise<DecisionResult> {
+  const db = getDb();
   const branch = row.business_id !== null;
   if (!branch && (await db.prepare("SELECT id FROM admins WHERE email = ?").get(row.email)))
     return { ok: false, error: "That email has an account already. Reject this one and add them by hand." };
@@ -464,12 +712,8 @@ export async function approveApplication(
       venueId = venue.venue.id;
       await db.prepare("UPDATE venues SET lat = ?, lng = ? WHERE id = ?").run(row.lat, row.lng, venueId);
       if (branch) {
-        // Another branch of a business already here: its managers have it now.
         await db.prepare("UPDATE venues SET business_id = ? WHERE id = ?").run(row.business_id, venueId);
       } else {
-        // A new business, with this as its first branch and the applicant as
-        // its manager — so adding a second branch later is a request, not a
-        // second account.
         const business = await db.prepare("INSERT INTO businesses (name) VALUES (?)").run(row.business_name);
         const businessId = business.lastInsertRowid as number;
         await db.prepare("UPDATE venues SET business_id = ? WHERE id = ?").run(businessId, venueId);
@@ -482,7 +726,7 @@ export async function approveApplication(
       }
       await db.prepare(
         "UPDATE venue_applications SET status = 'approved', venue_id = ?, review_checks = ?, decided_at = datetime('now'), decided_by = ? WHERE id = ?"
-      ).run(venueId, checks === "auto" ? "auto" : REVIEW_CHECKS.map((c) => c.id).join(","), deciderId, id);
+      ).run(venueId, checks === "auto" ? "auto" : REVIEW_CHECKS.map((c) => c.id).join(","), deciderId, row.id);
       await startBilling(venueId);
     })();
   } catch (err) {
@@ -490,28 +734,23 @@ export async function approveApplication(
   }
 
   const site = siteName();
-  if (branch) {
-    const emailed = await sendPlainEmail(
-      row.email,
-      `${row.business_name} is open on ${site}`,
-      `Hi ${row.contact_name},\n\n${row.business_name} has been added to ${row.for_business ?? "your business"} on ${site}.\n\n` +
-        `It is in your dashboard now: add its courts and rates, and check its opening hours. ` +
-        `It appears to customers once it has its first court.\n\n${site}`
-    );
-    return { ok: true, application: (await applicationById(id))!, emailed };
-  }
   const emailed = await sendPlainEmail(
     row.email,
     `${row.business_name} is on ${site}`,
     `Hi ${row.contact_name},\n\n${row.business_name} has been approved on ${site}.\n\n` +
-      `Sign in at ${baseUrl()}/admin with ${row.email} and the password you chose when you applied, ` +
-      `then follow the setup steps at the top of the dashboard: add your courts and rates ` +
-      `(Courts & rates) and check your opening hours (Venue details). ` +
-      `Your venue appears to customers once it has its first court.\n\n${site}`
+      (branch
+        ? `It is in your dashboard now: add its courts and rates, and check its opening hours. `
+        : `Sign in at ${baseUrl()}/admin with ${row.email} and the password you chose when you applied, ` +
+          `then follow the setup steps at the top of the dashboard. `) +
+      `It appears to customers once it has its first court.\n\n${site}`
   );
-  return { ok: true, application: (await applicationById(id))!, emailed };
+  return { ok: true, application: (await applicationById(row.id))!, emailed };
 }
 
+/**
+ * Not live, and why. A draft stays a draft, with everything its business
+ * set up, and may put things right and ask again.
+ */
 export async function rejectApplication(
   id: number,
   deciderId: number,
@@ -523,17 +762,21 @@ export async function rejectApplication(
   if (row.status !== "pending") return { ok: false, error: "That application has already been decided." };
   const why = reason.trim().slice(0, 500) || null;
   // Nothing they asked for was granted, so nothing of theirs needs keeping
-  // but the record that they asked and why not: the password goes.
+  // but the record that they asked and why not: any password goes.
   await db.prepare(
-    "UPDATE venue_applications SET status = 'rejected', reason = ?, password_hash = '', decided_at = datetime('now'), decided_by = ? WHERE id = ?"
+    "UPDATE venue_applications SET status = 'rejected', reason = ?, password_hash = NULL, decided_at = datetime('now'), decided_by = ? WHERE id = ?"
   ).run(why, deciderId, id);
 
   const site = siteName();
   const emailed = await sendPlainEmail(
     row.email,
-    `Your application to ${site}`,
-    `Hi ${row.contact_name},\n\nThank you for applying to list ${row.business_name} on ${site}. ` +
-      `We are not able to take it on at the moment.${why ? `\n\n${why}` : ""}\n\n${site}`
+    row.venue_id !== null ? `${row.business_name} is not live yet` : `Your application to ${site}`,
+    row.venue_id !== null
+      ? `Hi ${row.contact_name},\n\nWe have not put ${row.business_name} live on ${site} yet.` +
+          `${why ? `\n\n${why}` : ""}\n\nEverything you set up is still in your dashboard. ` +
+          `Once it is put right, send it to go live again from there.\n\n${site}`
+      : `Hi ${row.contact_name},\n\nThank you for applying to list ${row.business_name} on ${site}. ` +
+          `We are not able to take it on at the moment.${why ? `\n\n${why}` : ""}\n\n${site}`
   );
   return { ok: true, application: (await applicationById(id))!, emailed };
 }

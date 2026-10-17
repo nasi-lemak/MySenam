@@ -13,9 +13,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Where the link in an applicant's confirmation email leads. Opening it
- * confirms: a mail filter that follows links first confirms it too, which
- * still shows the inbox is real — all this check was ever meant to show.
+ * Where the link in a sign-up's confirmation email leads. Opening it confirms
+ * the email and opens the account: a mail filter that follows links first
+ * does that too, which still shows the inbox is real — all this check was
+ * ever meant to show — and signs nobody in.
  */
 export default async function ConfirmApplicationPage({
   searchParams,
@@ -32,11 +33,19 @@ export default async function ConfirmApplicationPage({
       <div className="text-4xl">{ok ? "✅" : "⌛"}</div>
       <h1 className="mt-2 text-xl font-bold">{t(ok ? "confirm.title" : "confirm.unknownTitle")}</h1>
       <p className="mt-2 text-sm text-slate-600">{t(ok ? "confirm.body" : "confirm.unknownBody")}</p>
-      {!ok && (
-        <Link href="/list-your-venue" className="mt-4 inline-block text-sm font-semibold text-teal-700 underline">
-          {t("confirm.again")}
+      <div className="mt-4 flex justify-center gap-4">
+        <Link
+          href="/admin"
+          className="inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          {t("apply.signIn")}
         </Link>
-      )}
+        {!ok && (
+          <Link href="/list-your-venue" className="inline-block py-2 text-sm font-semibold text-teal-700 underline">
+            {t("confirm.again")}
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

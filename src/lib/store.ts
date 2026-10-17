@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
+import { OPEN_TO_CUSTOMERS } from "./listing";
 import { creditScope } from "./mode";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -99,6 +100,8 @@ interface VenueRow {
   staffed_to: number | null;
   emergency_phone: string | null;
   emergency_info: string | null;
+  published_at: string | null;
+  suspended_at: string | null;
 }
 
 function toVenue(r: VenueRow): Venue {
@@ -115,6 +118,8 @@ function toVenue(r: VenueRow): Venue {
     staffedTo: r.staffed_to,
     emergencyPhone: r.emergency_phone,
     emergencyInfo: r.emergency_info,
+    publishedAt: r.published_at,
+    suspendedAt: r.suspended_at,
   };
 }
 
@@ -647,10 +652,9 @@ function venueFilter(opts: { area?: string; sport?: Sport; venueIds?: number[] }
   sql: string;
   params: (string | number)[];
 } {
-  // A venue with nothing to book is not shown to the public yet: a newly
-  // approved one sets its courts up first, rather than appearing as
-  // "0 courts" to somebody looking for one.
-  const clauses: string[] = ["EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id)"];
+  // Only venues customers may reach (lib/listing.ts), and of those not one
+  // with nothing to book yet, rather than "0 courts" to somebody looking.
+  const clauses: string[] = [OPEN_TO_CUSTOMERS, "EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id)"];
   const params: (string | number)[] = [];
   if (opts.venueIds) {
     clauses.push(`v.id IN (${opts.venueIds.map(() => "?").join(",") || "NULL"})`);
@@ -717,13 +721,14 @@ export async function listAreaCounts(
     .all(...filter.params)) as { area: string; venues: number }[];
 }
 
-/** The sports played at these venues, or anywhere. */
+/** The sports played at these venues, or anywhere — anywhere customers can reach. */
 export async function sportsOfferedAt(venueIds?: number[]): Promise<Sport[]> {
+  const from = `SELECT DISTINCT c.sport FROM courts c JOIN venues v ON v.id = c.venue_id WHERE ${OPEN_TO_CUSTOMERS}`;
   const rows = (
     venueIds === undefined
-      ? await getDb().prepare("SELECT DISTINCT sport FROM courts").all()
+      ? await getDb().prepare(from).all()
       : await getDb()
-          .prepare(`SELECT DISTINCT sport FROM courts WHERE venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"})`)
+          .prepare(`${from} AND c.venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"})`)
           .all(...venueIds)
   ) as { sport: Sport }[];
   const offered = new Set(rows.map((r) => r.sport));
@@ -778,9 +783,10 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.cancel_cutoff_hours AS v_cutoff,
            v.open_hour AS v_open, v.close_hour AS v_close,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
-           v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info
+           v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
+           v.published_at AS v_published_at, v.suspended_at AS v_suspended_at
     FROM courts c JOIN venues v ON v.id = c.venue_id
-    WHERE c.sport = ?
+    WHERE c.sport = ? AND ${OPEN_TO_CUSTOMERS}
   `;
   if (input.area) {
     sql += " AND v.area = ?";
@@ -806,6 +812,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_staffed_to: number | null;
     v_emergency_phone: string | null;
     v_emergency_info: string | null;
+    v_published_at: string | null;
+    v_suspended_at: string | null;
   })[];
   if (rows.length === 0) return [];
 
@@ -846,6 +854,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       staffedTo: row.v_staffed_to,
       emergencyPhone: row.v_emergency_phone,
       emergencyInfo: row.v_emergency_info,
+      publishedAt: row.v_published_at,
+      suspendedAt: row.v_suspended_at,
     };
     // A booking of `duration` hours must still finish by the venue's close.
     const fromHour = Math.max(wantFrom, venue.openHour);
@@ -1658,13 +1668,16 @@ export async function createVenue(input: {
   phone: string;
   openHour?: number;
   closeHour?: number;
+  /** A business setting itself up: nobody else sees it until it goes live. */
+  draft?: boolean;
 }): Promise<VenueEditResult> {
   const hours = normaliseHours(input.openHour, input.closeHour);
   if (!hours.ok) return hours;
   const db = getDb();
   const info = await db
     .prepare(
-      "INSERT INTO venues (name, area, address, phone, open_hour, close_hour) VALUES (?, ?, ?, ?, ?, ?)"
+      `INSERT INTO venues (name, area, address, phone, open_hour, close_hour, published_at)
+       VALUES (?, ?, ?, ?, ?, ?, ${input.draft ? "NULL" : "datetime('now')"})`
     )
     .run(
       input.name.trim(),
@@ -2876,9 +2889,12 @@ export async function listClasses(filter: {
   from?: string;
   to?: string;
   includeCancelled?: boolean;
+  /** Only at venues customers may reach: the public listing. */
+  openOnly?: boolean;
 } = {}): Promise<ClassSession[]> {
   const from = filter.from ?? todayISO();
   const clauses = ["cl.date >= ?"];
+  if (filter.openOnly) clauses.push(OPEN_TO_CUSTOMERS);
   const params: (string | number)[] = [from];
   if (!filter.includeCancelled) clauses.push("cl.status = 'scheduled'");
   if (filter.venueId) {

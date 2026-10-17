@@ -153,7 +153,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_MARKETPLACE` | — | `on` for the shared marketplace: venues apply to join, are invoiced monthly, and stored credit is per venue |
 | `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
 | `MYSENAM_VENUE_FEE` | `0` | On a marketplace, what a venue pays a month unless it has its own fee |
-| `MYSENAM_FREE_MONTHS` | `0` | Free months for a newly approved venue before its first invoice |
+| `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
 | `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
@@ -327,27 +327,43 @@ staff of its own unless told `--force`, which wipes them first.
 With `MYSENAM_MARKETPLACE=on`, the install is the shared MySenam marketplace:
 independent venues, players booking across them.
 
-- **Venues apply** at `/list-your-venue` (linked from the footer): their
-  details, and a password for their first operator account, held hashed. The
-  platform owner approves or turns them down under *Venues & staff → Venue
-  applications*. Approving makes the venue and the operator's account in one
-  step; nobody sends anybody a password. With email set up, the applicant is
-  told either way; without it, the panel says who to tell.
-- **Applications are checked before anyone sees them** — see *Checking a
-  venue is real*.
+- **Businesses sign themselves up** at `/list-your-venue` (linked from the
+  footer) and start straight away. Once they confirm their email, their
+  account opens with the venue as a **draft**: theirs to set up — courts,
+  rates, hours, staff, classes, passes, test bookings — and nobody else's to
+  see. A banner on their dashboard says it is a draft, lists anything missing
+  (a court, a pin), and sends it to **go live**.
+- **Going live is what the platform owner approves**, under *Venues & staff →
+  Going live*, with the evidence set out — see *Checking a venue is real*. Not
+  yet? They are told why, keep everything they set up, and can ask again.
+- **Nothing reaches the public before then.** A draft is not listed,
+  searched, or shown on the classes page; its page answers only its own staff,
+  as a preview; customers cannot book it, join its waitlist or pay it online;
+  and nobody is messaged about its bookings. One rule decides all of it
+  (`src/lib/listing.ts`).
+- **Drafts nobody comes back to go.** A business that never went live, and
+  that nobody has signed in to for 90 days, is deleted with what it set up —
+  unless it holds something of a customer's (a pass, a membership, credit, a
+  payment, an invoice), which is left for the owner to look at.
 - **Stored credit is per venue** — see *Whose credit it is*.
 - **Venues are invoiced monthly.** Each pays `MYSENAM_VENUE_FEE` a month, or
-  its own fee, from the date billing starts — set on approval, after
-  `MYSENAM_FREE_MONTHS`. Every full month from then is invoiced once, on the
+  its own fee, from the date billing starts — set when it goes live, after
+  `MYSENAM_FREE_MONTHS` (one, unless set). Setting up is free however long it
+  takes; the free months count from going live. Every full month from then is invoiced once, on the
   first; a venue joining on the 16th has the rest of that month free, and
   nothing is prorated or back-billed. Venues that predate billing are not
   billed until the owner gives them a start date. Invoices are due in 14 days.
   Venue staff see theirs under *Venues & staff → Billing* and can pay online
   into **the platform's own Billplz account** (`BILLPLZ_*`), which is never a
   venue's: this is the platform's income. The owner sets each venue's fee and
-  start date there, and marks a bank transfer paid or voids an invoice. Nothing
-  is switched off automatically for an unpaid invoice — the panel shows what is
-  overdue, and what to do about it is a conversation.
+  start date there, and marks a bank transfer paid or voids an invoice.
+- **An invoice more than 14 days overdue** (28 days after it was issued) takes
+  every venue on it off the marketplace until it is paid: not listed, not
+  bookable, not payable online. Its staff and the owner are emailed; the
+  dashboard keeps working and bookings already made stand. Paying it, or the
+  owner marking it paid or voiding it, puts the venue back at once. It is
+  worked out afresh from the invoices by the scheduler, and whenever anybody
+  opens *Billing* (`src/lib/payment-holds.ts`).
 - **Terms** live at `/terms`, for players and, on a marketplace, for venues.
   They are a starting draft written to match what the software does — who
   holds the money, who refunds it, whose credit is whose — and **not legal
@@ -357,9 +373,9 @@ independent venues, players booking across them.
 
 ### Checking a venue is real
 
-Nothing about an application is taken on trust, and nothing is decided
-automatically either: the platform owner decides, with the evidence in front
-of them.
+Nothing about a venue is taken on trust before customers see it, and nothing
+is decided automatically either: the platform owner decides whether it goes
+live, with the evidence in front of them.
 
 - **A pin on the map.** The applicant taps their entrance on a map
   (OpenStreetMap, through Leaflet), after the form has flown it to the
@@ -372,21 +388,25 @@ of them.
   know, and another business's venue listed within 150 m of the pin — and
   links to Google Maps and Street View at the pin. A new taman missing from
   OpenStreetMap is common; a flag is a reason to look, not to refuse.
-- **A confirmed email.** The applicant is emailed a link, good for 7 days, and
-  the platform owner neither sees the application nor hears of it until it is
-  followed. A second application from the same unconfirmed email replaces
-  the first, and an unconfirmed one is deleted after 7 days. An install that
-  cannot send email lets applications straight through, marked as
-  unconfirmed.
+- **A confirmed email.** Signing up emails a link, good for 7 days, and no
+  account opens until it is followed. Signing up again from the same
+  unconfirmed email replaces the first, and an unconfirmed one is deleted
+  after 7 days. An install that cannot send email opens the account at once,
+  and the go-live request says the email was never confirmed.
+- **What it has set up.** Each request shows its courts, sports and rates,
+  with a link to its page, which the owner can open while it is a draft.
+- **Looked up again when it asks.** The details checked are the venue's as
+  they are when it asks to go live, not as they were at sign-up.
 - **What the owner checked.** *Approve* stays greyed out until they tick
   that they looked at the map, phoned the venue's number, and found the
   business somewhere besides this form. What was ticked is recorded with the
   approval, and the venue keeps its pin.
-- **Branches** are asked for from a signed-in manager's account, so there is
-  no email to confirm, but they have a pin and the same checks. With
-  `MYSENAM_AUTO_APPROVE_BRANCHES=on`, a branch is approved on its own only
-  when none of the location checks flag anything; otherwise it waits like
-  any other, with the flags in the email to the owner.
+- **Branches** are added by a signed-in manager as drafts, so there is no
+  email to confirm, but they have a pin and the same checks when they ask to
+  go live. With `MYSENAM_AUTO_APPROVE_BRANCHES=on`, a branch of a business
+  that is already live goes live on its own only when none of the location
+  checks flag anything; otherwise it waits like any other, with the flags in
+  the email to the owner. A business may have 5 branches in draft at once.
 
 Lookups go to OpenStreetMap's public Nominatim server by default, at most
 one a second as its usage policy asks, cached, and rate limited per visitor.
@@ -438,13 +458,13 @@ that venue as its first branch and the applicant as its manager.
 - **Managers** sign in once for every branch. The day list, schedule,
   reports, classes, credit, messages and invoices cover all their branches,
   with a branch picker wherever a screen is about one. They add and remove
-  their business's staff, and ask for new branches under *Branches & staff →
-  Add a branch*.
+  their business's staff, and add branches under *Branches & staff → Add a
+  branch*.
 - **Branch staff** see their own branch and nothing else.
-- **New branches** wait for the platform owner's approval, like the first
-  one did, unless the install sets `MYSENAM_AUTO_APPROVE_BRANCHES=on` to
-  approve branches of businesses it has already approved — and then only
-  when the branch's pin and address agree (see *Checking a venue is real*).
+- **New branches** start as drafts the manager sets up, and go live like the
+  first one did — on the platform owner's approval, or on their own where the
+  install sets `MYSENAM_AUTO_APPROVE_BRANCHES=on` and the branch's pin and
+  address agree (see *Checking a venue is real*).
 - **Credit, passes and memberships** bought at any branch work at every
   branch of that business, and nowhere else. A member pays each branch's
   member rate wherever they play, and is not sold a second membership at
@@ -796,6 +816,7 @@ the account would destroy the only record of whose money the venue is holding.
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
+| Draft venues never live, nobody signed in | 90 days | deleted, unless they hold a customer's pass, membership, credit or payment |
 | Expired sessions | — | deleted |
 
 Door logs go first and shortest: they tie a named person to a time and a

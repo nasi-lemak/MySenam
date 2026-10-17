@@ -13,6 +13,7 @@ import {
   voidInvoice,
 } from "@/lib/billing";
 import { isMarketplace } from "@/lib/mode";
+import { applyPaymentHolds } from "@/lib/payment-holds";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,10 @@ export async function GET(req: NextRequest) {
   if (!isMarketplace()) return NextResponse.json({ marketplace: false, invoices: [] });
 
   // Lazily as well as on the schedule, so the first visit of the month is
-  // never looking at last month.
+  // never looking at last month, and an install without the scheduler still
+  // takes long-overdue venues off.
   await issueDueInvoices();
+  await applyPaymentHolds();
 
   if (isOwner(admin)) {
     return NextResponse.json({

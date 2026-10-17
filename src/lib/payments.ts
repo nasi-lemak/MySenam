@@ -1,3 +1,4 @@
+import { isOpen, venueIsOpen } from "./listing";
 import { getDb } from "./db";
 import { BillResult, BillplzAccount, createBill } from "./billplz";
 import { seal, unseal } from "./secrets";
@@ -97,7 +98,7 @@ export async function venueAccount(venueId: number): Promise<BillplzAccount | nu
 }
 
 export async function takesPaymentOnline(venueId: number): Promise<boolean> {
-  return await venueAccount(venueId) !== null;
+  return (await venueAccount(venueId)) !== null && (await venueIsOpen(venueId));
 }
 
 export type SettingsResult = { ok: true; settings: PaymentSettings } | { ok: false; error: string };
@@ -264,6 +265,9 @@ export async function startBookingPayment(input: {
     return { ok: false, error: "Bookings at different venues are paid separately.", status: 400 };
   const venueId = [...venueIds][0]!;
   const venue = (await getVenue(venueId))!;
+  // Not to a draft, nor a venue off the marketplace (lib/listing.ts).
+  if (!isOpen(venue))
+    return { ok: false, error: `${venue.name} is not taking payment online at the moment.`, status: 409 };
   const account = await venueAccount(venueId);
   if (!account)
     return { ok: false, error: `${venue.name} does not take payment online.`, status: 409 };

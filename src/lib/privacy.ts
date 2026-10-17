@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { addDays, todayISO } from "./time";
+import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -160,6 +161,12 @@ export async function retentionDue(): Promise<RetentionLine[]> {
       affected: await count(`SELECT COUNT(*) AS n FROM ${rule.table} WHERE ${rule.where}`, addDays(today, -rule.days)),
     });
   lines.push({
+    what: `Draft venues never live, nobody signed in for ${STALE_DRAFT_DAYS} days`,
+    days: STALE_DRAFT_DAYS,
+    action: "deleted",
+    affected: (await staleDrafts()).length,
+  });
+  lines.push({
     what: "Expired sign-in sessions",
     days: 0,
     action: "deleted",
@@ -199,6 +206,7 @@ export async function pruneOldData(): Promise<PruneResult> {
         )
         .run(cutoff);
     }
+    await deleteStaleDrafts();
     await db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
     await db.prepare(

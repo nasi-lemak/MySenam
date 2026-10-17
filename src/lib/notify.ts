@@ -1,3 +1,4 @@
+import { hasBeenLive } from "./listing";
 import { getDb } from "./db";
 import { getCourt, getVenue } from "./store";
 import { Booking } from "./types";
@@ -32,7 +33,9 @@ export async function notifyBookingConfirmed(
   const court = await getCourt(first.courtId);
   if (!court) return null;
   const venue = await getVenue(court.venueId);
-  if (!venue) return null;
+  // Nobody hears from a venue that has never been live: its bookings are
+  // its own staff trying it out, under whatever number they typed.
+  if (!venue || !hasBeenLive(venue)) return null;
 
   const series = bookings.length > 1;
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
@@ -69,7 +72,9 @@ export async function notifyBookingCancelled(
   const court = await getCourt(booking.courtId);
   if (!court) return null;
   const venue = await getVenue(court.venueId);
-  if (!venue) return null;
+  // Nobody hears from a venue that has never been live: its bookings are
+  // its own staff trying it out, under whatever number they typed.
+  if (!venue || !hasBeenLive(venue)) return null;
 
   return await enqueue({
     bookingId: booking.id,
@@ -98,7 +103,9 @@ export async function notifyClassEnrolled(
   const court = await getCourt(booking.courtId);
   if (!court) return null;
   const venue = await getVenue(court.venueId);
-  if (!venue) return null;
+  // Nobody hears from a venue that has never been live: its bookings are
+  // its own staff trying it out, under whatever number they typed.
+  if (!venue || !hasBeenLive(venue)) return null;
 
   return await enqueue({
     bookingId: booking.id,
@@ -139,7 +146,9 @@ export async function notifyWaitlistOffer(input: {
   token: string;
 }): Promise<OutboxMessage | null> {
   const venue = await getVenue(input.venueId);
-  if (!venue) return null;
+  // Nobody hears from a venue that has never been live: its bookings are
+  // its own staff trying it out, under whatever number they typed.
+  if (!venue || !hasBeenLive(venue)) return null;
   const { from } = hourRange(input.startHour, input.startHour + 1);
 
   return await enqueue({

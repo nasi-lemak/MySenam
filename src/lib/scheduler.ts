@@ -2,6 +2,7 @@ import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
+import { applyPaymentHolds } from "./payment-holds";
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -65,6 +66,13 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (issued.length > 0) result.invoices = issued.length;
   } catch (err) {
     console.error("[mysenam] issuing invoices failed:", err);
+  }
+
+  try {
+    // Off the marketplace when long overdue, back once paid.
+    await applyPaymentHolds(now);
+  } catch (err) {
+    console.error("[mysenam] checking for overdue invoices failed:", err);
   }
 
   try {

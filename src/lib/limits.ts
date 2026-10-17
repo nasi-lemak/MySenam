@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { venueIsOpen } from "./listing";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import type { Refusal } from "./types";
@@ -51,7 +52,10 @@ export async function customerMayBook(input: {
   phone: string;
   weeks?: number;
   signedIn: boolean;
+  /** Its own staff, trying out a venue customers cannot reach yet (lib/listing.ts). */
+  preview?: boolean;
 }): Promise<Refusal | null> {
+  if (!input.preview && !(await venueIsOpen(input.venueId))) return venueNotOpen();
   if ((input.weeks ?? 1) > 1 && !input.signedIn) return refuse("SERIES_NEEDS_ACCOUNT");
   if (await isBlocked(input.venueId, input.phone)) return phoneBlocked();
   const db = getDb();
@@ -63,6 +67,11 @@ export async function customerMayBook(input: {
   const everywhere = (await db.prepare(UNPAID_AHEAD).get(input.phone, today)) as { n: number };
   if (everywhere.n >= PHONE_LIMITS.platform) return refuse("PHONE_LIMIT_ALL", { n: everywhere.n });
   return null;
+}
+
+/** What a customer is told about a draft, or a venue off the marketplace. */
+export function venueNotOpen(): Refusal {
+  return refuse("VENUE_NOT_OPEN");
 }
 
 // ------------------------------------------------------------ blocked numbers
@@ -134,6 +143,8 @@ export const VENUE_CAPS = {
   courts: 50,
   /** Class sessions scheduled from today on: about 25 a week, twelve weeks out. */
   upcomingClassSessions: 300,
+  /** Branches a business may have in draft at once: room to plan, not to flood. */
+  draftBranches: 5,
 } as const;
 
 /** Every so many, the platform owner hears how big a venue has got. */

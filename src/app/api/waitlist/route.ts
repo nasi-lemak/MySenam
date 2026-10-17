@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
-import { isBlocked, phoneBlocked } from "@/lib/limits";
+import { isBlocked, phoneBlocked, venueNotOpen } from "@/lib/limits";
+import { venueIsOpen } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
     : (await getCourt(courtId as number))?.venueId;
   if (venueId !== undefined && (await isBlocked(venueId, person.phone)))
     return refusal(phoneBlocked());
+  if (venueId !== undefined && !(await venueIsOpen(venueId))) return refusal(venueNotOpen());
 
   const result = forClass
     ? await joinClassWaitlist({ classId: classId as number, ...person })

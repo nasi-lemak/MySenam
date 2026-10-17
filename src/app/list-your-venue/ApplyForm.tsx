@@ -73,6 +73,14 @@ export default function ApplyForm() {
         <p className="mt-2 text-sm text-slate-600">
           {t(sent.confirm ? "apply.checkBody" : "apply.doneBody", { email: sent.to })}
         </p>
+        {!sent.confirm && (
+          <Link
+            href="/admin"
+            className="mt-4 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+          >
+            {t("apply.signIn")}
+          </Link>
+        )}
       </div>
     );
 

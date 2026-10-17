@@ -12,16 +12,16 @@ interface BranchRequest {
   id: number;
   businessName: string;
   area: string;
-  status: "pending" | "approved" | "rejected";
+  status: "draft" | "pending" | "approved" | "rejected";
   reason: string | null;
   createdAt: string;
 }
 
 /**
- * A business manager asking for another branch. It waits for the platform
- * owner, like the business's first application did, unless the install
- * approves branches of approved businesses on its own and its pin and
- * address agree.
+ * A business manager adding another branch. It is theirs to set up at once,
+ * as a draft, and goes live like the first one did: sent from its banner on
+ * the dashboard, and approved by the platform owner — or on its own, where
+ * the install allows that and its pin and address agree.
  */
 export function BranchRequestPanel({ businessName, onChange }: { businessName: string; onChange: () => void }) {
   const [requests, setRequests] = useState<BranchRequest[]>([]);
@@ -43,6 +43,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
     setError(null);
     setNotice(null);
     if (!pin) return setError("Drop a pin on the map where the branch is.");
+    const name = form.name.trim();
     const res = await fetch("/api/admin/branches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -50,11 +51,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
     });
     const data = await res.json();
     if (!res.ok) return setError(data.error ?? "Could not send that.");
-    setNotice(
-      data.approved
-        ? `${form.name} is part of ${businessName} now. Add its courts to open it to customers.`
-        : `Asked for ${form.name}. You will get an email when it is approved.`
-    );
+    setNotice(`${name} is added as a draft. Set it up from its checklist above, then send it to go live.`);
     setForm({ name: "", area: "", address: "", phone: "", message: "" });
     setPin(null);
     await load();
@@ -65,7 +62,8 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
     <section>
       <h2 className="text-lg font-bold">Add a branch</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Another location for {businessName}. Credit and passes customers buy at any branch work at all of them.
+        Another location for {businessName}, yours to set up straight away. Customers see it once it goes live.
+        Credit and passes customers buy at any branch work at all of them.
       </p>
       <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4">
         <input required minLength={2} placeholder="Branch name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-52 ${input}`} />
@@ -81,7 +79,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
             text={PIN_TEXT_EN}
           />
         </div>
-        <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Ask for this branch</button>
+        <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Add this branch</button>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {notice && <p className="mt-2 text-sm text-emerald-700">{notice}</p>}
@@ -90,12 +88,14 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
           {requests.map((r) => (
             <li key={r.id}>
               <span className="font-medium">{r.businessName}</span> ({r.area}) ·{" "}
-              {r.status === "pending" ? (
-                <span className="text-amber-700">waiting for approval</span>
+              {r.status === "draft" ? (
+                <span className="text-slate-600">being set up</span>
+              ) : r.status === "pending" ? (
+                <span className="text-amber-700">waiting to go live</span>
               ) : r.status === "approved" ? (
-                <span className="text-emerald-700">approved</span>
+                <span className="text-emerald-700">live</span>
               ) : (
-                <span className="text-red-700">turned down{r.reason ? `: ${r.reason}` : ""}</span>
+                <span className="text-red-700">not live yet{r.reason ? `: ${r.reason}` : ""}</span>
               )}
             </li>
           ))}

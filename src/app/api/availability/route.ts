@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
 import { shows, storefrontForRequest } from "@/lib/storefront";
+import { mayShowVenue } from "@/lib/listing";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
 
@@ -27,7 +28,12 @@ export async function GET(req: NextRequest) {
     sport = sportParam as Sport;
   }
   // A storefront's pages do not show other venues, and neither does this.
-  if (!await getVenue(venueId) || !shows(await storefrontForRequest(req), venueId)) {
+  // Nor a venue customers may not reach yet, except to its own staff.
+  if (
+    !(await getVenue(venueId)) ||
+    !shows(await storefrontForRequest(req), venueId) ||
+    !(await mayShowVenue(venueId, req)).show
+  ) {
     return NextResponse.json({ error: "Venue not found." }, { status: 404 });
   }
 
