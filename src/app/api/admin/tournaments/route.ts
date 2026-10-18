@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format } from "@/lib/tournaments";
 import type { Level } from "@/lib/games";
+import type { Category } from "@/lib/who";
 import type { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
       sport: String(b.sport ?? "") as Sport,
       format: String(b.format ?? "") as Format,
       teamSize: Number(b.teamSize) === 2 ? 2 : 1,
+      category: typeof b.category === "string" ? (b.category as Category) : undefined,
       level: typeof b.level === "string" && b.level ? (b.level as Level) : null,
       entryFee: Number(b.entryFee ?? 0),
       maxEntries: Number(b.maxEntries),

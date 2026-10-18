@@ -30,6 +30,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     capacity: "12",
     price: "25",
     weeks: "1",
+    who: "anyone",
   });
 
   const venue = venues.find((v) => v.id === venueId);
@@ -72,6 +73,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           capacity: Number(form.capacity),
           price: Number(form.price),
           weeks: Number(form.weeks),
+          who: form.who,
         }),
       });
       const data = await res.json();
@@ -197,7 +199,10 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                       <span className="text-xs text-slate-300">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-2">RM{session.price}</td>
+                  <td className="px-3 py-2">
+                    RM{session.price}
+                    {session.who !== "anyone" && <span className="ml-1 text-xs text-fuchsia-700">{session.who} only</span>}
+                  </td>
                   <td className="px-3 py-2">
                     <span
                       className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -288,6 +293,16 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             onChange={(e) => setForm({ ...form, price: e.target.value })}
             title="Price per person (RM)" className={`w-20 ${inputClass}`}
           />
+          <select
+            value={form.who}
+            onChange={(e) => setForm({ ...form, who: e.target.value })}
+            title="Who can enrol"
+            className={inputClass}
+          >
+            <option value="anyone">Anyone</option>
+            <option value="women">Women only</option>
+            <option value="men">Men only</option>
+          </select>
           <select
             value={form.weeks}
             onChange={(e) => setForm({ ...form, weeks: e.target.value })}

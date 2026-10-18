@@ -7,6 +7,7 @@ import { baseUrl } from "./outbox";
 import { sendPlainEmail } from "./transports";
 import { addDays, formatHour, isPastSlot, todayISO } from "./time";
 import type { Near } from "./store";
+import { isWho, whoRefusal, type Who } from "./who";
 import type { Sport } from "./types";
 
 /**
@@ -66,6 +67,8 @@ export interface OpenGame {
   startHour: number;
   endHour: number;
   level: Level | null;
+  /** Anyone, women only, or men only (lib/who.ts). */
+  who: Who;
   spots: number;
   /** Accepted so far. */
   joined: number;
@@ -102,6 +105,7 @@ interface GameRow {
   start_hour: number;
   end_hour: number;
   level: Level | null;
+  who: Who;
   spots: number;
   joined: number;
   share: number;
@@ -116,7 +120,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 const GAME_SELECT = `
   SELECT g.id, g.booking_id, b.code AS booking_code, g.host_id, u.name AS host_name, hl.level AS host_level,
          v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, c.name AS court_name, c.sport,
-         b.date, b.start_hour, b.end_hour, g.level, g.spots,
+         b.date, b.start_hour, b.end_hour, g.level, g.who, g.spots,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') AS joined,
          g.share::float AS share, g.auto_accept, g.note, g.status,
          EXISTS (SELECT 1 FROM venue_payment_accounts a WHERE a.venue_id = v.id AND a.enabled = 1) AS pay_online
@@ -144,6 +148,7 @@ function toGame(r: GameRow): OpenGame {
     startHour: r.start_hour,
     endHour: r.end_hour,
     level: r.level,
+    who: r.who,
     spots: r.spots,
     joined: r.joined,
     share: Number(r.share),
@@ -183,7 +188,7 @@ export async function setPlayerLevel(userId: number, sport: Sport, level: Level 
 
 // ------------------------------------------------------------ hosting
 
-export type GameResult = { ok: true; game: OpenGame } | { ok: false; error: string; status?: number };
+export type GameResult = { ok: true; game: OpenGame } | { ok: false; error: string; status?: number; code?: string };
 
 /** A share that splits the court evenly among everybody playing, to the 50 sen. */
 export function suggestedShare(totalPrice: number, spots: number): number {
@@ -192,7 +197,7 @@ export function suggestedShare(totalPrice: number, spots: number): number {
 
 export async function openGame(
   hostId: number,
-  input: { bookingCode: string; spots: number; level: Level | null; share: number; autoAccept: boolean; note?: string }
+  input: { bookingCode: string; spots: number; level: Level | null; share: number; autoAccept: boolean; note?: string; who?: Who }
 ): Promise<GameResult> {
   const db = getDb();
   const booking = (await db
@@ -217,15 +222,22 @@ export async function openGame(
     return { ok: false, error: `Each share must be between RM0 and the court's RM${booking.total_price}.` };
   if (await db.prepare("SELECT 1 FROM open_games WHERE booking_id = ?").get(booking.id))
     return { ok: false, error: "That booking is already open to other players." };
+  const who = input.who ?? "anyone";
+  if (!isWho(who)) return { ok: false, error: "Anyone, women only or men only." };
+  // The host plays too: a women-only game is opened by a woman, so nobody can
+  // use the label to draw people in.
+  const notFor = await whoRefusal(hostId, who);
+  if (notFor) return { ok: false, error: notFor.error, code: notFor.code, status: 403 };
 
   const info = await db
     .prepare(
-      "INSERT INTO open_games (booking_id, host_id, level, spots, share, auto_accept, note) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO open_games (booking_id, host_id, level, who, spots, share, auto_accept, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       booking.id,
       hostId,
       input.level,
+      who,
       input.spots,
       Math.round(input.share * 100) / 100,
       input.autoAccept ? 1 : 0,
@@ -339,6 +351,8 @@ export async function askToJoin(user: { id: number; phone: string }, gameId: num
   if (game.status !== "open") return { ok: false, error: "That game is not taking players." };
   if (isPastSlot(game.date, game.startHour)) return { ok: false, error: "That game has started." };
   if (game.joined >= game.spots) return { ok: false, error: "That game is full." };
+  const notFor = await whoRefusal(user.id, game.who);
+  if (notFor) return { ok: false, error: notFor.error, code: notFor.code, status: 403 };
   if ((await recentNoShows(user.id)) >= MAX_NO_SHOWS)
     return {
       ok: false,
@@ -390,6 +404,8 @@ export async function findGames(filter: {
   area?: string;
   near?: Near;
   level?: Level;
+  /** Only games with this rule: `women` finds women-only games. */
+  who?: Who;
   venueIds?: number[];
   forUser?: number;
   limit?: number;
@@ -415,6 +431,10 @@ export async function findGames(filter: {
   if (filter.level) {
     clauses.push("(g.level IS NULL OR g.level = ?)");
     params.push(filter.level);
+  }
+  if (filter.who) {
+    clauses.push("g.who = ?");
+    params.push(filter.who);
   }
   if (filter.venueIds) {
     if (filter.venueIds.length === 0) return [];

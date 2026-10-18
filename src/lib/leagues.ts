@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
 import { parseScore, standings, type Standing } from "./brackets";
 import { LEVELS, type Level } from "./games";
+import { isWho, whoRefusal, type Who } from "./who";
 import { OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
@@ -54,6 +55,8 @@ export interface League {
   name: string;
   sport: Sport;
   teamSize: 1 | 2;
+  /** Anyone, women only or men only (lib/who.ts); a pair's partner is the same. */
+  who: Who;
   level: Level | null;
   boxSize: number;
   moves: number;
@@ -142,6 +145,7 @@ interface LRow {
   name: string;
   sport: Sport;
   team_size: number;
+  who: Who;
   level: Level | null;
   box_size: number;
   moves: number;
@@ -180,6 +184,7 @@ async function toLeague(r: LRow): Promise<League> {
     name: r.name,
     sport: r.sport,
     teamSize: r.team_size === 2 ? 2 : 1,
+    who: r.who ?? "anyone",
     level: r.level,
     boxSize: r.box_size,
     moves: r.moves,
@@ -338,13 +343,14 @@ function boxTable(places: Place[], matches: LeagueMatch[]): Standing[] {
 
 // ------------------------------------------------------------ setting one up
 
-export type Result<T = League> = { ok: true; value: T } | { ok: false; error: string };
+export type Result<T = League> = { ok: true; value: T } | { ok: false; error: string; code?: string };
 
 export interface LeagueInput {
   venueId: number;
   name: string;
   sport: Sport;
   teamSize: 1 | 2;
+  who?: Who;
   level: Level | null;
   boxSize?: number;
   moves?: number;
@@ -361,6 +367,8 @@ export async function createLeague(input: LeagueInput, adminId: number): Promise
   if (name.length < 3 || name.length > 100) return { ok: false, error: "Give it a name." };
   if (!SPORTS.includes(input.sport)) return { ok: false, error: "Unknown sport." };
   if (input.level !== null && !LEVELS.includes(input.level)) return { ok: false, error: "Unknown level." };
+  const who = input.who ?? "anyone";
+  if (!isWho(who)) return { ok: false, error: "Anyone, women only or men only." };
   const boxSize = input.boxSize ?? 4;
   if (!Number.isInteger(boxSize) || boxSize < 3 || boxSize > 6) return { ok: false, error: "A box holds 3 to 6." };
   const moves = input.moves ?? 1;
@@ -377,14 +385,15 @@ export async function createLeague(input: LeagueInput, adminId: number): Promise
   await db.transaction(async () => {
     const info = await db
       .prepare(
-        `INSERT INTO leagues (venue_id, name, sport, team_size, level, box_size, moves, season_days, fee, description, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO leagues (venue_id, name, sport, team_size, who, level, box_size, moves, season_days, fee, description, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.venueId,
         name,
         input.sport,
         input.teamSize === 2 ? 2 : 1,
+        who,
         input.level,
         boxSize,
         moves,
@@ -435,6 +444,8 @@ export async function join(user: { id: number; name: string }, leagueId: number,
   if (!league || league.status !== "running") return { ok: false, error: "That league is not taking players." };
   const open = (await db.prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`).get(league.venueId)) as { open: boolean };
   if (!open.open) return { ok: false, error: "That venue is not taking players at the moment." };
+  const notFor = await whoRefusal(user.id, league.who);
+  if (notFor) return { ok: false, error: notFor.error, code: notFor.code };
   const partner = input.partnerName?.trim() ?? "";
   if (league.teamSize === 2 && (partner.length < 2 || partner.length > 60)) return { ok: false, error: "Name your partner." };
   const name = (league.teamSize === 2 ? `${user.name.trim()} / ${partner}` : user.name.trim()).slice(0, 130);

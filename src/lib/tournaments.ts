@@ -22,6 +22,7 @@ import { sendPlainEmail } from "./transports";
 import { addDays, formatHour, isPastSlot, isValidDateString, todayISO } from "./time";
 import { SPORTS, type Sport } from "./types";
 import type { Level } from "./games";
+import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
 
 /**
  * Tournaments run by venues.
@@ -57,6 +58,8 @@ export interface Tournament {
   sport: Sport;
   format: Format;
   teamSize: 1 | 2;
+  /** Open, women's, men's, or mixed doubles (lib/who.ts). */
+  category: Category;
   level: Level | null;
   entryFee: number;
   maxEntries: number;
@@ -125,6 +128,7 @@ interface TRow {
   sport: Sport;
   format: Format;
   team_size: number;
+  category: Category;
   level: Level | null;
   entry_fee: number | string;
   max_entries: number;
@@ -152,6 +156,7 @@ function toTournament(r: TRow): Tournament {
     sport: r.sport,
     format: r.format,
     teamSize: r.team_size === 2 ? 2 : 1,
+    category: r.category ?? "open",
     level: r.level,
     entryFee: Number(r.entry_fee),
     maxEntries: r.max_entries,
@@ -281,7 +286,7 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
 
 // ------------------------------------------------------------ setting one up
 
-export type Result<T = Tournament> = { ok: true; value: T } | { ok: false; error: string; clashes?: number };
+export type Result<T = Tournament> = { ok: true; value: T } | { ok: false; error: string; clashes?: number; code?: string };
 
 export interface TournamentInput {
   venueId: number;
@@ -289,6 +294,7 @@ export interface TournamentInput {
   sport: Sport;
   format: Format;
   teamSize: 1 | 2;
+  category?: Category;
   level: Level | null;
   entryFee: number;
   maxEntries: number;
@@ -316,6 +322,9 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (name.length < 3 || name.length > 100) return { ok: false, error: "Give it a name." };
   if (!SPORTS.includes(input.sport)) return { ok: false, error: "Unknown sport." };
   if (input.format !== "knockout" && input.format !== "groups") return { ok: false, error: "Knockout, or groups then knockout." };
+  const category = input.category ?? "open";
+  if (!isCategory(category)) return { ok: false, error: "Open, women's, men's or mixed." };
+  if (category === "mixed" && input.teamSize !== 2) return { ok: false, error: "Mixed is doubles: one woman and one man." };
   if (!isValidDateString(input.startsOn) || !isValidDateString(input.endsOn) || input.endsOn < input.startsOn)
     return { ok: false, error: "Give the first and last day." };
   if (input.startsOn <= todayISO()) return { ok: false, error: "It has to start after today, so players can enter." };
@@ -366,9 +375,9 @@ export async function createTournament(input: TournamentInput, adminId: number):
   await db.transaction(async () => {
     const info = await db
       .prepare(
-        `INSERT INTO tournaments (venue_id, name, sport, format, team_size, level, entry_fee, max_entries, group_size, advance,
+        `INSERT INTO tournaments (venue_id, name, sport, format, team_size, category, level, entry_fee, max_entries, group_size, advance,
                                   starts_on, ends_on, start_hour, end_hour, description, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.venueId,
@@ -376,6 +385,7 @@ export async function createTournament(input: TournamentInput, adminId: number):
         input.sport,
         input.format,
         input.teamSize === 2 ? 2 : 1,
+        category,
         input.level,
         Math.round(input.entryFee * 100) / 100,
         input.maxEntries,
@@ -438,11 +448,15 @@ export async function cancelTournament(id: number): Promise<Result> {
 export async function enter(
   user: { id: number; name: string },
   tournamentId: number,
-  input: { partnerName?: string } = {}
+  input: { partnerName?: string; partnerGender?: string } = {}
 ): Promise<Result<Entry>> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
   if (!t || t.status !== "open") return { ok: false, error: "Entries are not open." };
+  // A women's event takes women; mixed doubles, a woman and a man.
+  const partnerGender = isPartnerGender(input.partnerGender) ? input.partnerGender : null;
+  const notFor = await categoryRefusal(user.id, t.category, t.teamSize === 2 ? { partnerGender } : null);
+  if (notFor) return { ok: false, error: notFor.error, code: notFor.code };
   const open = (await db
     .prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`)
     .get(t.venueId)) as { open: boolean };
@@ -454,8 +468,8 @@ export async function enter(
   const status: EntryStatus = t.entered >= t.maxEntries ? "waitlisted" : "entered";
   const name = t.teamSize === 2 ? `${user.name.trim()} / ${partner}` : user.name.trim();
   const info = await db
-    .prepare("INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, status) VALUES (?, ?, ?, ?, ?)")
-    .run(tournamentId, user.id, name.slice(0, 130), partner || null, status);
+    .prepare("INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(tournamentId, user.id, name.slice(0, 130), partner || null, t.teamSize === 2 ? partnerGender : null, status);
   await tellEntrant(
     user.id,
     t,

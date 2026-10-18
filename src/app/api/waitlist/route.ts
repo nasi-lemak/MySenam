@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { classRefusal } from "@/lib/who";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { isBlocked, phoneBlocked, venueNotOpen } from "@/lib/limits";
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, courtId, date, startHour, endHour, name, phone, email } = (body ??
+  const { classId, courtId, date, startHour, endHour, name, phone, email, confirmWho } = (body ??
     {}) as Record<string, unknown>;
 
   const forClass = classId !== undefined && classId !== null;
@@ -54,6 +55,13 @@ export async function POST(req: NextRequest) {
     // remembered now rather than read off that request.
     locale: await currentLocale(),
   };
+
+  // Nor does somebody a women-only or men-only class is not for.
+  if (forClass) {
+    const session = await getClass(classId as number);
+    const notFor = session ? await classRefusal(session.who, user?.id ?? null, confirmWho === true) : null;
+    if (notFor) return refusal(notFor, 403);
+  }
 
   // A number the venue has refused does not queue for it either.
   const venueId = forClass

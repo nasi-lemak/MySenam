@@ -66,6 +66,9 @@ export default async function LeaguesPage({ searchParams }: { searchParams: Prom
                 </div>
               )}
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {x.who !== "anyone" && (
+                  <span className="rounded-full bg-fuchsia-50 px-2 py-0.5 font-medium text-fuchsia-800">{t(`who.badge.${x.who}`)}</span>
+                )}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5">{x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")}</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5">{t("leag.boxesOf", { n: x.boxSize })}</span>
                 {x.level && <span className="rounded-full bg-slate-100 px-2 py-0.5">{t(`games.level.${x.level}`)}</span>}

@@ -68,6 +68,9 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
                 {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatHour(x.startHour), end: formatHour(x.endHour) })}
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {x.category !== "open" && (
+                  <span className="rounded-full bg-fuchsia-50 px-2 py-0.5 font-medium text-fuchsia-800">{t(`cat.${x.category}`)}</span>
+                )}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5">{x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")}</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5">{x.format === "groups" ? t("tour.groups") : t("tour.knockout")}</span>
                 {x.level && <span className="rounded-full bg-slate-100 px-2 py-0.5">{t(`games.level.${x.level}`)}</span>}

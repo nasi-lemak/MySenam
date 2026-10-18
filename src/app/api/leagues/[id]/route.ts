@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const noPhone = await phoneRefusal(user.id);
     if (noPhone) return refusal(noPhone, 403);
     const result = await join(user, league.id, { partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined });
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+    if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.code ? 403 : 409 });
     return NextResponse.json({ mine: await myLeague(user.id, league.id) }, { status: 201 });
   }
   if (body.action === "leave") {

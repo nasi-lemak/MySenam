@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { jsonBody } from "@/lib/league-access";
 import { createLeague, listLeagues } from "@/lib/leagues";
 import type { Level } from "@/lib/games";
+import type { Who } from "@/lib/who";
 import type { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
       name: String(b.name ?? ""),
       sport: String(b.sport ?? "") as Sport,
       teamSize: Number(b.teamSize) === 2 ? 2 : 1,
+      who: typeof b.who === "string" ? (b.who as Who) : undefined,
       level: typeof b.level === "string" && b.level ? (b.level as Level) : null,
       boxSize: b.boxSize !== undefined ? Number(b.boxSize) : undefined,
       moves: b.moves !== undefined ? Number(b.moves) : undefined,

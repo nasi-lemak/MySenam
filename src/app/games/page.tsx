@@ -1,6 +1,7 @@
 "use client";
 
-import { phoneDetour } from "@/lib/phone-detour";
+import { WHO, type Who } from "@/lib/who-shared";
+import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -39,6 +40,7 @@ export default function GamesPage() {
   const [sport, setSport] = useState<Sport | "">("");
   const [date, setDate] = useState("");
   const [level, setLevel] = useState<Level | "">("");
+  const [who, setWho] = useState<Who>("anyone");
   const [near, setNear] = useState<NearChoice | null>(null);
   const [games, setGames] = useState<OpenGame[] | null>(null);
   const [signedIn, setSignedIn] = useState(false);
@@ -52,6 +54,7 @@ export default function GamesPage() {
     if (sport) params.set("sport", sport);
     if (date) params.set("date", date);
     if (level) params.set("level", level);
+    if (who !== "anyone") params.set("who", who);
     if (near) {
       params.set("near", `${near.lat.toFixed(5)},${near.lng.toFixed(5)}`);
       params.set("km", String(near.km));
@@ -65,7 +68,7 @@ export default function GamesPage() {
       if (m.ok) setMine(await m.json());
       if (l.ok) setLevels((await l.json()).levels);
     }
-  }, [sport, date, level, near]);
+  }, [sport, date, level, who, near]);
 
   useEffect(() => {
     void load();
@@ -76,7 +79,7 @@ export default function GamesPage() {
     setNotice(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json();
-    if (!res.ok && phoneDetour(data)) return;
+    if (!res.ok && accountDetour(data)) return;
     if (!res.ok) return setError(translateError(t, data) || data.error);
     if (data.url) {
       window.location.href = data.url;
@@ -152,6 +155,13 @@ export default function GamesPage() {
             </button>
           ))}
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {WHO.map((w) => (
+            <button key={w} onClick={() => setWho(w)} className={chip(who === w)}>
+              {w === "anyone" ? t("who.all") : t(`who.${w}`)}
+            </button>
+          ))}
+        </div>
         <NearPicker value={near} onChange={setNear} />
         {signedIn && sport && (
           <label className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -194,6 +204,9 @@ export default function GamesPage() {
                     <span className="rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700">
                       {g.level ? levelLabel(t, g.level) : t("games.allLevels")}
                     </span>
+                    {g.who !== "anyone" && (
+                      <span className="rounded-full bg-fuchsia-50 px-2 py-0.5 font-medium text-fuchsia-800">{t(`who.badge.${g.who}`)}</span>
+                    )}
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800">
                       {t.plural("games.spotsLeft", g.spots - g.joined)}
                     </span>
@@ -380,6 +393,7 @@ function OpenOne({
   const [share, setShare] = useState("");
   const [autoAccept, setAutoAccept] = useState(false);
   const [note, setNote] = useState("");
+  const [whoCan, setWhoCan] = useState<Who>("anyone");
 
   useEffect(() => {
     fetch("/api/my/bookings", { cache: "no-store" })
@@ -418,6 +432,7 @@ function OpenOne({
                 share: share === "" ? suggested : Number(share),
                 autoAccept,
                 note,
+                who: whoCan,
               },
               t("games.opened")
             );
@@ -445,6 +460,16 @@ function OpenOne({
               {LEVELS.map((l) => (
                 <option key={l} value={l}>
                   {levelLabel(t, l)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col text-xs text-slate-500">
+            {t("games.whoCanJoin")}
+            <select value={whoCan} onChange={(e) => setWhoCan(e.target.value as Who)} className={input}>
+              {WHO.map((w) => (
+                <option key={w} value={w}>
+                  {t(`who.${w}`)}
                 </option>
               ))}
             </select>

@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
 }
 
-/** `{ action: "enter", partnerName? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`. */
+/** `{ action: "enter", partnerName?, partnerGender? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in to enter." }, { status: 401 });
@@ -51,8 +51,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (limited) return limited;
     const noPhone = await phoneRefusal(user.id);
     if (noPhone) return refusal(noPhone, 403);
-    const result = await enter(user, t.id, { partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined });
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+    const result = await enter(user, t.id, {
+      partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined,
+      partnerGender: typeof body.partnerGender === "string" ? body.partnerGender : undefined,
+    });
+    if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.code ? 403 : 409 });
     return NextResponse.json({ mine: result.value }, { status: 201 });
   }
   if (body.action === "withdraw") {

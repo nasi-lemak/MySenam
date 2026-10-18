@@ -1,6 +1,6 @@
 "use client";
 
-import { phoneDetour } from "@/lib/phone-detour";
+import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -22,6 +22,7 @@ export default function TournamentPage() {
   const [data, setData] = useState<{ tournament: TournamentDetail; mine: Entry | null; signedIn: boolean } | null>(null);
   const [missing, setMissing] = useState(false);
   const [partner, setPartner] = useState("");
+  const [partnerGender, setPartnerGender] = useState<"woman" | "man" | "">("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -44,7 +45,7 @@ export default function TournamentPage() {
       body: JSON.stringify(body),
     });
     const out = await res.json();
-    if (!res.ok && phoneDetour(out)) return;
+    if (!res.ok && accountDetour(out)) return;
     if (!res.ok) return setError(translateError(t, out) || out.error);
     if (out.url) {
       window.location.href = out.url;
@@ -76,6 +77,7 @@ export default function TournamentPage() {
           · {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatHour(x.startHour), end: formatHour(x.endHour) })}
         </p>
         <p className="mt-1 text-sm text-slate-500">
+          {x.category !== "open" && `${t(`cat.${x.category}`)} · `}
           {x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")} · {x.format === "groups" ? t("tour.groups") : t("tour.knockout")}
           {x.level && ` · ${t(`games.level.${x.level}`)}`} · {x.entryFee > 0 ? t("tour.fee", { amount: x.entryFee.toFixed(2) }) : t("tour.free")} ·{" "}
           {t(`tour.status.${x.status}`)}
@@ -85,7 +87,17 @@ export default function TournamentPage() {
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      <EnterBox t={t} x={x} mine={data.mine} signedIn={data.signedIn} partner={partner} setPartner={setPartner} act={act} />
+      <EnterBox
+        t={t}
+        x={x}
+        mine={data.mine}
+        signedIn={data.signedIn}
+        partner={partner}
+        setPartner={setPartner}
+        partnerGender={partnerGender}
+        setPartnerGender={setPartnerGender}
+        act={act}
+      />
 
       {x.groups.length > 0 && (
         <section className="grid gap-3 sm:grid-cols-2">
@@ -222,6 +234,8 @@ function EnterBox({
   signedIn,
   partner,
   setPartner,
+  partnerGender,
+  setPartnerGender,
   act,
 }: {
   t: T;
@@ -230,6 +244,8 @@ function EnterBox({
   signedIn: boolean;
   partner: string;
   setPartner: (p: string) => void;
+  partnerGender: "woman" | "man" | "";
+  setPartnerGender: (g: "woman" | "man" | "") => void;
   act: (body: object) => Promise<void>;
 }) {
   const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
@@ -267,7 +283,9 @@ function EnterBox({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void act({ action: "enter", partnerName: partner });
+        // In a women's or men's doubles the partner is the same as the event; in mixed, the entrant says.
+        const pg = x.category === "women" ? "woman" : x.category === "men" ? "man" : partnerGender || undefined;
+        void act({ action: "enter", partnerName: partner, partnerGender: pg });
       }}
       className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
     >
@@ -281,6 +299,21 @@ function EnterBox({
             onChange={(e) => setPartner(e.target.value)}
             className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
           />
+        </label>
+      )}
+      {x.teamSize === 2 && x.category === "mixed" && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("who.partner")}
+          <select
+            required
+            value={partnerGender}
+            onChange={(e) => setPartnerGender(e.target.value as "woman" | "man" | "")}
+            className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          >
+            <option value="">—</option>
+            <option value="woman">{t("who.partnerWoman")}</option>
+            <option value="man">{t("who.partnerMan")}</option>
+          </select>
         </label>
       )}
       <button className={button}>{t("tour.enter")}</button>

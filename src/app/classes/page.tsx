@@ -1,6 +1,6 @@
 "use client";
 
-import { phoneDetour } from "@/lib/phone-detour";
+import { accountDetour } from "@/lib/phone-detour";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
@@ -125,6 +125,11 @@ export default function ClassesPage() {
                       <div className="min-w-[12rem] flex-1">
                         <div className="font-medium">
                           {SPORT_ICONS[session.sport]} {session.name}
+                          {session.who !== "anyone" && (
+                            <span className="ml-2 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-800">
+                              {t(`who.badge.${session.who}`)}
+                            </span>
+                          )}
                         </div>
                         <div className="text-sm text-slate-500">
                           {t("classes.with", {
@@ -194,6 +199,8 @@ function EnrolModal({
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
   const [queued, setQueued] = useState<number | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const [confirmWho, setConfirmWho] = useState(false);
   const isFull = session.enrolled >= session.capacity;
 
   useEffect(() => {
@@ -201,6 +208,7 @@ function EnrolModal({
       .then((res) => res.json())
       .then((data) => {
         if (!data.user) return;
+        setSignedIn(true);
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
@@ -216,10 +224,10 @@ function EnrolModal({
       const res = await fetch(isFull ? "/api/waitlist" : "/api/classes/enrol", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classId: session.id, name, phone, email }),
+        body: JSON.stringify({ classId: session.id, name, phone, email, confirmWho }),
       });
       const data = await res.json();
-      if (!res.ok && phoneDetour(data)) return;
+      if (!res.ok && accountDetour(data)) return;
       if (!res.ok)
         throw new Error(
           translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
@@ -308,6 +316,13 @@ function EnrolModal({
                 {t("form.emailOptional")}
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
               </label>
+              {/* A guest says it for themselves; an account has said it already. */}
+              {session.who !== "anyone" && !signedIn && (
+                <label className="flex items-start gap-2 rounded-lg bg-fuchsia-50 p-3 text-sm text-fuchsia-900">
+                  <input type="checkbox" required checked={confirmWho} onChange={(e) => setConfirmWho(e.target.checked)} className="mt-0.5" />
+                  {t(`who.confirm.${session.who}`)}
+                </label>
+              )}
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2 pt-1">
                 <button

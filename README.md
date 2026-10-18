@@ -817,6 +817,37 @@ account.
 - Closing an account takes the player out of games to come, and calls off
   games they were hosting; the personal data export includes games and levels.
 
+## Women-only and men-only
+
+Open games, leagues and classes can be for anyone (the default), women only
+or men only; tournaments have badminton's categories — open, women's, men's,
+and mixed doubles. Women-only matters most: ladies' nights, muslimah
+sessions, and women who would not otherwise join strangers. Men-only exists
+too, for contact sports and those who keep apart, so the rule reads the same
+both ways.
+
+- **What a player says.** *Woman*, *man* or *prefer not to say*, asked the
+  first time it matters — never at sign-up — on *Women's and men's games*,
+  and then straight back to what asked. It can be changed on the account
+  page, is in the data export, and goes with the account. Nobody else sees it:
+  a game shows only its own rule. *Prefer not to say* joins everything open
+  to anyone.
+- **Open games.** The host chooses *Who can join*. A women-only game must be
+  opened by a woman (and a men-only game by a man), so the label cannot be
+  used to draw people in. Joining checks the player. *Games* has *Women only*
+  and *Men only* chips, and each such game carries a badge.
+- **Tournaments.** A women's or men's event takes entrants of that gender; in
+  doubles the partner is the same. Mixed doubles is doubles only, and the
+  entrant says whether their partner is a woman or a man — it must be one of
+  each.
+- **Leagues** take the same choice as games.
+- **Classes.** A signed-in customer is checked by their account. A guest
+  enrolling without one ticks "I am a woman: this class is for women only" —
+  the same self-declaration an account makes. The waiting list asks the same.
+- **It is self-declared**, like a player's level: nothing here can prove it.
+  A host can remove a player, and venue staff see who enrolled, and that is
+  the backstop.
+
 ## Tournaments
 
 Venues run them from the dashboard's *Tournaments* tab; players find them at

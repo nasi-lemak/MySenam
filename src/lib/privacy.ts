@@ -250,7 +250,16 @@ export async function pruneIfDue(): Promise<PruneResult | null> {
 
 export interface CustomerExport {
   takenAt: string;
-  account: { id: number; name: string; email: string; phone: string; createdAt: string | null; phoneCheckedAt: string | null };
+  account: {
+    id: number;
+    name: string;
+    email: string;
+    phone: string;
+    createdAt: string | null;
+    phoneCheckedAt: string | null;
+    /** Which games they said they play in: woman, man, or prefer not to say. */
+    playsIn: string | null;
+  };
   /** Ways of signing in besides a password: which provider, and the email it gave. */
   signIns: unknown[];
   bookings: unknown[];
@@ -278,9 +287,9 @@ export interface CustomerExport {
 export async function exportCustomerData(userId: number): Promise<CustomerExport | null> {
   const db = getDb();
   const account = await db
-    .prepare("SELECT id, name, email, phone, created_at, phone_verified_at FROM users WHERE id = ?")
+    .prepare("SELECT id, name, email, phone, created_at, phone_verified_at, gender FROM users WHERE id = ?")
     .get(userId) as
-    | { id: number; name: string; email: string; phone: string; created_at: string | null; phone_verified_at: string | null }
+    | { id: number; name: string; email: string; phone: string; created_at: string | null; phone_verified_at: string | null; gender: string | null }
     | undefined;
   if (!account) return null;
 
@@ -295,6 +304,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       phone: account.phone,
       createdAt: account.created_at ?? null,
       phoneCheckedAt: account.phone_verified_at ?? null,
+      playsIn: account.gender ?? null,
     },
     signIns: await all("SELECT provider, email, created_at FROM user_identities WHERE user_id = ?", userId),
     bookings: await all(

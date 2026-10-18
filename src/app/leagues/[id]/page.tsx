@@ -1,6 +1,6 @@
 "use client";
 
-import { phoneDetour } from "@/lib/phone-detour";
+import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -36,7 +36,7 @@ export default function LeaguePage() {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const out = await res.json();
-    if (!res.ok && phoneDetour(out)) return false;
+    if (!res.ok && accountDetour(out)) return false;
     if (!res.ok) {
       setError(translateError(t, out) || out.error);
       return false;
@@ -79,6 +79,7 @@ export default function LeaguePage() {
             }`}
         </p>
         <p className="mt-1 text-sm text-slate-500">
+          {x.who !== "anyone" && `${t(`who.badge.${x.who}`)} · `}
           {x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")} · {t("leag.boxesOf", { n: x.boxSize })}
           {x.level && ` · ${t(`games.level.${x.level}`)}`} · {x.fee > 0 ? t("leag.fee", { amount: x.fee.toFixed(2) }) : t("leag.free")} ·{" "}
           {t("leag.players", { n: x.players })}

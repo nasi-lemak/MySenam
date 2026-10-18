@@ -257,6 +257,8 @@ export interface ClassSession {
   status: ClassStatus;
   seriesCode: string | null;
   enrolled: number;
+  /** Anyone, women only or men only (lib/who.ts). */
+  who: "anyone" | "women" | "men";
 }
 
 export const MAX_CLASS_WEEKS = 12;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { classRefusal } from "@/lib/who";
 import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, name, phone, email, payFromWallet } = (body ?? {}) as Record<
+  const { classId, name, phone, email, payFromWallet, confirmWho } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
   }
   const forClass = await getClass(classId as number);
   if (forClass) {
+    // A women-only or men-only class: by the account, or a guest saying so.
+    const notFor = await classRefusal(forClass.who, user?.id ?? null, confirmWho === true);
+    if (notFor) return refusal(notFor, 403);
     const refused = await customerMayBook({
       venueId: forClass.venueId,
       phone,

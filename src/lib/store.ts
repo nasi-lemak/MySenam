@@ -3069,6 +3069,7 @@ interface ClassRow {
   venue_name: string;
   venue_area: string;
   enrolled: number;
+  who: ClassSession["who"];
 }
 
 const CLASS_SELECT = `
@@ -3100,6 +3101,7 @@ function toClass(r: ClassRow): ClassSession {
     status: r.status,
     seriesCode: r.series_code,
     enrolled: r.enrolled,
+    who: r.who ?? "anyone",
   };
 }
 
@@ -3167,9 +3169,13 @@ export async function createClassSessions(input: {
   capacity: number;
   price: number;
   weeks?: number;
+  /** Anyone, women only or men only. */
+  who?: ClassSession["who"];
 }): Promise<CreateClassResult> {
   const { courtId, date, startHour, endHour } = input;
   const weeks = input.weeks ?? 1;
+  const who = input.who ?? "anyone";
+  if (who !== "anyone" && who !== "women" && who !== "men") return { ok: false, error: "Anyone, women only or men only." };
 
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
@@ -3198,8 +3204,8 @@ export async function createClassSessions(input: {
       .join(",")})`
   );
   const insert = db.prepare(`
-    INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price, series_code)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price, series_code, who)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
@@ -3215,7 +3221,7 @@ export async function createClassSessions(input: {
 
         const id = (await insert.run(
           courtId, input.name.trim(), input.instructor.trim(), weekDate,
-          startHour, endHour, input.capacity, input.price, seriesCode
+          startHour, endHour, input.capacity, input.price, seriesCode, who
         )).lastInsertRowid as number;
         sessions.push((await getClass(id))!);
       }

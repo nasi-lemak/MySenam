@@ -22,6 +22,7 @@ export default function AccountPage() {
   const t = useT();
   const [user, setUser] = useState<User | null>(null);
   const [phone, setPhone] = useState<PhoneStatus | null>(null);
+  const [gender, setGender] = useState<string | null>(null);
   const [bookings, setBookings] = useState<UserBookingRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -36,6 +37,7 @@ export default function AccountPage() {
       }
       setUser(me.user);
       setPhone(me.phone ?? null);
+      setGender(me.gender ?? null);
       const res = await fetch("/api/my/bookings", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("acct.loadFailed"));
@@ -125,6 +127,15 @@ export default function AccountPage() {
               <Link href="/account/phone" className="font-medium text-teal-700 underline">
                 {t("phone.add")}
               </Link>
+            )}
+            {gender && (
+              <>
+                {" · "}
+                {t("about.label")}: {t(`about.${gender as "woman" | "man" | "unsaid"}`)}{" "}
+                <Link href="/account/about" className="text-teal-700 underline">
+                  {t("about.change")}
+                </Link>
+              </>
             )}
           </p>
         </div>

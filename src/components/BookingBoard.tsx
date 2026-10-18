@@ -1,6 +1,6 @@
 "use client";
 
-import { phoneDetour } from "@/lib/phone-detour";
+import { accountDetour } from "@/lib/phone-detour";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Booking,
@@ -604,10 +604,10 @@ function BookingForm({
       if (
         !res.ok &&
         court.id !== ANY_COURT &&
-        phoneDetour(data, `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${court.id}&hour=${hours[0]}&duration=${hours.length}`)
+        accountDetour(data, `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${court.id}&hour=${hours[0]}&duration=${hours.length}`)
       )
         return;
-      if (!res.ok && phoneDetour(data)) return;
+      if (!res.ok && accountDetour(data)) return;
       if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
       onBooked(data);
     } catch (err) {

@@ -113,6 +113,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
     name: "",
     sport: (sports[0] ?? "badminton") as Sport,
     teamSize: 1,
+    who: "anyone",
     level: "",
     boxSize: "4",
     moves: "1",
@@ -165,6 +166,14 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           <select value={f.teamSize} onChange={(e) => setF({ ...f, teamSize: Number(e.target.value) })} className={input}>
             <option value={1}>Singles</option>
             <option value={2}>Doubles pairs</option>
+          </select>
+        </label>
+        <label className={label}>
+          Who can play
+          <select value={f.who} onChange={(e) => setF({ ...f, who: e.target.value })} className={input}>
+            <option value="anyone">Anyone</option>
+            <option value="women">Women only</option>
+            <option value="men">Men only</option>
           </select>
         </label>
         <label className={label}>
@@ -240,7 +249,8 @@ function Manage({
           <div>
             <h2 className="text-lg font-semibold">{l.name}</h2>
             <p className="text-sm text-slate-500">
-              {l.sport} · {l.teamSize === 2 ? "doubles pairs" : "singles"} · boxes of {l.boxSize} · {l.moves} up and down ·{" "}
+              {l.sport} · {l.teamSize === 2 ? "doubles pairs" : "singles"}
+              {l.who !== "anyone" && ` · ${l.who} only`} · boxes of {l.boxSize} · {l.moves} up and down ·{" "}
               {l.seasonDays}-day seasons · {l.fee > 0 ? `RM${l.fee.toFixed(2)} a season` : "no fee"} · {l.players} players
               {l.status === "closed" && " · stopped"}
             </p>

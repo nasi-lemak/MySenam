@@ -102,6 +102,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
     sport: (sports[0] ?? "badminton") as Sport,
     format: "knockout",
     teamSize: 1,
+    category: "open",
     level: "",
     entryFee: "20",
     maxEntries: "16",
@@ -164,9 +165,22 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         </label>
         <label className={label}>
           Play
-          <select value={f.teamSize} onChange={(e) => setF({ ...f, teamSize: Number(e.target.value) })} className={input}>
+          <select
+            value={f.teamSize}
+            onChange={(e) => setF({ ...f, teamSize: Number(e.target.value), category: Number(e.target.value) === 1 && f.category === "mixed" ? "open" : f.category })}
+            className={input}
+          >
             <option value={1}>Singles</option>
             <option value={2}>Doubles</option>
+          </select>
+        </label>
+        <label className={label}>
+          Category
+          <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value, teamSize: e.target.value === "mixed" ? 2 : f.teamSize })} className={input}>
+            <option value="open">Open to all</option>
+            <option value="women">Women&apos;s</option>
+            <option value="men">Men&apos;s</option>
+            <option value="mixed">Mixed doubles</option>
           </select>
         </label>
         <label className={label}>
