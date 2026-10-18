@@ -183,7 +183,7 @@ describe("paying an invoice online", () => {
 });
 
 describe("the billing route", () => {
-  it("shows a venue's staff their own invoices only, and keeps plans to the owner", async () => {
+  it("shows a venue's staff their own invoices and plan only, and keeps other venues' plans to the owner", async () => {
     const mine = await venue();
     const theirs = await venue();
     await setVenuePlan(mine, { monthlyFee: 10, billingStartsOn: "2026-01-01" });
@@ -198,7 +198,8 @@ describe("the billing route", () => {
 
     const seen = await (await mod.GET(new NextRequest("http://localhost/api/admin/billing", { headers: { cookie: asDesk } }))).json();
     expect(seen.invoices.every((i: { venueId: number }) => i.venueId === mine)).toBe(true);
-    expect(seen.plans).toBeUndefined();
+    // Its own plan, so it can see why it pays what it pays; never another venue's.
+    expect(seen.plans.map((p: { venueId: number }) => p.venueId)).toEqual([mine]);
 
     const post = async (cookie: string, body: unknown) =>
       await mod.POST(

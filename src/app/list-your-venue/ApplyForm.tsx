@@ -88,7 +88,12 @@ export default function ApplyForm() {
     <div className="mx-auto max-w-lg space-y-5">
       <div>
         <h1 className="text-2xl font-bold">{t("apply.title")}</h1>
-        <p className="mt-1 text-sm text-slate-600">{t("apply.intro")}</p>
+        <p className="mt-1 text-sm text-slate-600">
+          {t("apply.intro")}{" "}
+          <Link href="/pricing" className="font-medium text-teal-700 underline">
+            {t("pricing.see")}
+          </Link>
+        </p>
       </div>
       <form onSubmit={submit} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         {field("businessName", t("apply.business"), { maxLength: 100 })}

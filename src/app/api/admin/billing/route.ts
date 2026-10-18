@@ -13,6 +13,7 @@ import {
   voidInvoice,
 } from "@/lib/billing";
 import { isMarketplace } from "@/lib/mode";
+import { planTiers, setPlanTiers, SUGGESTED_TIERS, type PlanTier } from "@/lib/plans";
 import { applyPaymentHolds } from "@/lib/payment-holds";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,8 @@ export async function GET(req: NextRequest) {
       invoices: await listInvoices(),
       plans: await venuePlans(),
       defaultFee: defaultFee(),
+      tiers: await planTiers(),
+      suggestedTiers: SUGGESTED_TIERS,
       canPayOnline: platformAccount() !== null,
     });
   }
@@ -45,6 +48,9 @@ export async function GET(req: NextRequest) {
     marketplace: true,
     // A business manager sees every branch's invoices together.
     invoices: await listInvoices(admin.venueIds ?? []),
+    // What each of its venues is on, and why: the tiers are no secret.
+    plans: await venuePlans(admin.venueIds ?? []),
+    tiers: await planTiers(),
     canPayOnline: platformAccount() !== null,
   });
 }
@@ -52,7 +58,8 @@ export async function GET(req: NextRequest) {
 /**
  * `{ action: "pay", invoiceId }` — the venue's own staff, or the owner.
  * `{ action: "markPaid" | "void", invoiceId }` and
- * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` — the owner.
+ * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` and
+ * `{ action: "setTiers", tiers: [{ name, upTo, monthlyFee }], extraEach }` — the owner.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -102,6 +109,18 @@ export async function POST(req: NextRequest) {
     const result = await setVenuePlan(input.venueId as number, { monthlyFee: fee, billingStartsOn: start });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({ plans: await venuePlans() });
+  }
+
+  if (input.action === "setTiers") {
+    if (!Array.isArray(input.tiers)) return NextResponse.json({ error: "tiers is required." }, { status: 400 });
+    const tiers: PlanTier[] = (input.tiers as Record<string, unknown>[]).map((t) => ({
+      name: typeof t?.name === "string" ? t.name : "",
+      upTo: t?.upTo === null || t?.upTo === "" || t?.upTo === undefined ? null : Number(t.upTo),
+      monthlyFee: Number(t?.monthlyFee),
+    }));
+    const result = await setPlanTiers({ tiers, extraEach: Number(input.extraEach ?? 0) });
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    return NextResponse.json({ tiers: result.plan, plans: await venuePlans() });
   }
 
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });

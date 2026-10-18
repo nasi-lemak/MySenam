@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Invoice, VenuePlan } from "@/lib/billing";
+import type { PlanTiers } from "@/lib/plans";
+import { PlanTiersEditor } from "./PlanTiersEditor";
 
 /**
  * What a marketplace venue owes the platform, month by month.
@@ -16,6 +18,8 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
     invoices: Invoice[];
     plans?: VenuePlan[];
     defaultFee?: number;
+    tiers?: PlanTiers;
+    suggestedTiers?: PlanTiers;
     canPayOnline: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,13 +91,48 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
         </div>
       )}
 
+      {isOwner && state.tiers && state.suggestedTiers && (
+        <PlanTiersEditor
+          plan={state.tiers}
+          suggested={state.suggestedTiers}
+          defaultFee={state.defaultFee ?? 0}
+          busy={busy}
+          onSave={(plan) => act({ action: "setTiers", ...plan }, "Tiers saved. They apply from the next invoice.")}
+        />
+      )}
+
+      {!isOwner && state.plans && state.plans.length > 0 && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+          {state.plans.map((p) => (
+            <p key={p.venueId}>
+              {state.plans!.length > 1 && <span className="font-medium">{p.venueName}: </span>}
+              <span className="font-semibold">RM{p.effectiveFee.toFixed(2)} a month</span>
+              {p.feeFrom === "tier" ? ` — ${p.tierName}, for ${p.resources} court${p.resources === 1 ? "" : "s"} or rooms` : p.feeFrom === "own" ? " — your agreed fee" : ""}
+              {p.billingStartsOn === null ? " (not billed yet)" : ""}
+            </p>
+          ))}
+          {state.tiers && state.tiers.tiers.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Counted when each month is invoiced; a court out of service all month is not counted.{" "}
+              {state.tiers.tiers
+                .map((t, i) => {
+                  const from = i === 0 ? 1 : (state.tiers!.tiers[i - 1].upTo ?? 0) + 1;
+                  return `${t.name} RM${t.monthlyFee.toFixed(2)} (${t.upTo === null ? `${from}+` : `${from}–${t.upTo}`})`;
+                })
+                .join(" · ")}
+              {state.tiers.extraEach > 0 && `, then RM${state.tiers.extraEach} each`}.
+            </p>
+          )}
+        </div>
+      )}
+
       {isOwner && state.plans && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-3 py-2">Venue</th>
-                <th className="px-3 py-2">Monthly fee</th>
+                <th className="px-3 py-2">Monthly fee · tier · courts</th>
                 <th className="px-3 py-2">Billed from</th>
                 <th className="px-3 py-2" />
               </tr>
@@ -107,7 +146,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                       <input
                         value={editing.fee}
                         onChange={(e) => setEditing({ ...editing, fee: e.target.value })}
-                        placeholder={`default RM${state.defaultFee ?? 0}`}
+                        placeholder={p.feeFrom === "own" ? "by size" : `RM${p.effectiveFee} by size`}
                         inputMode="decimal"
                         className="w-28 rounded-md border border-slate-300 px-2 py-1"
                       />
@@ -147,8 +186,10 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                   <tr key={p.venueId}>
                     <td className="px-3 py-2 font-medium">{p.venueName}</td>
                     <td className="px-3 py-2">
-                      RM{p.effectiveFee}
-                      {p.monthlyFee === null && <span className="text-xs text-slate-400"> (default)</span>}
+                      RM{p.effectiveFee.toFixed(2)}
+                      <span className="text-xs text-slate-400">
+                        {p.feeFrom === "tier" ? ` ${p.tierName} · ${p.resources}` : p.feeFrom === "own" ? " (agreed)" : " (default)"}
+                      </span>
                     </td>
                     <td className="px-3 py-2">{p.billingStartsOn ?? <span className="text-slate-400">not billed</span>}</td>
                     <td className="px-3 py-2 text-right">
@@ -193,10 +234,15 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                 <tr key={i.id}>
                   <td className="px-3 py-2">
                     {i.period}
+                    {i.planName && (
+                      <span className="ml-1 text-xs text-slate-500">
+                        {i.planName} · {i.resources}
+                      </span>
+                    )}
                     {/* A business's invoice: what each branch adds up to. */}
                     {i.lines.length > 0 && (
                       <div className="mt-0.5 text-xs text-slate-500">
-                        {i.lines.map((l) => `${l.venueName} RM${l.amount}`).join(" · ")}
+                        {i.lines.map((l) => `${l.venueName} RM${l.amount}${l.planName ? ` (${l.planName}, ${l.resources})` : ""}`).join(" · ")}
                       </div>
                     )}
                   </td>

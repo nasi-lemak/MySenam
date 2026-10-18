@@ -4,6 +4,7 @@ import { BillplzAccount, createBill } from "./billplz";
 import { baseUrl } from "./outbox";
 import { isMarketplace } from "./mode";
 import { siteName } from "./site";
+import { billableResources, planTiers, priceFor, type PlanTiers } from "./plans";
 import { getVenue } from "./store";
 
 /**
@@ -11,8 +12,9 @@ import { getVenue } from "./store";
  * venue on its own, or for a business, covering all its branches with a line
  * for each.
  *
- * Each venue has a monthly fee — its own, or the marketplace's default — and
- * a date billing starts from, set when it is approved (after any free months).
+ * Each venue has a monthly fee — its own agreed one; else its tier by how many
+ * courts it has (lib/plans.ts), when the owner has set tiers; else the
+ * marketplace's flat default — and a date billing starts from, set when it is approved (after any free months).
  * Every full calendar month from then is invoiced once: a venue that joins on
  * the 16th has the rest of that month free, and nothing is ever prorated or
  * back-billed by surprise.
@@ -33,7 +35,10 @@ export interface Invoice {
   /** Who it is addressed to: the venue's name, or the business's. */
   venueName: string;
   /** On a business's invoice, what each branch adds up to. */
-  lines: { venueId: number; venueName: string; amount: number }[];
+  lines: { venueId: number; venueName: string; amount: number; planName: string | null; resources: number | null }[];
+  /** The tier it was charged as, and the resources counted; null on older invoices and agreed fees. */
+  planName: string | null;
+  resources: number | null;
   /** YYYY-MM */
   period: string;
   amount: number;
@@ -57,6 +62,8 @@ interface InvoiceRow {
   due_on: string;
   paid_at: string | null;
   paid_via: "online" | "manual" | null;
+  plan_name: string | null;
+  resources: number | null;
 }
 
 export const PAYMENT_TERMS_DAYS = 14;
@@ -79,6 +86,8 @@ function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date()
     dueOn: r.due_on,
     paidAt: r.paid_at,
     paidVia: r.paid_via,
+    planName: r.plan_name ?? null,
+    resources: r.resources ?? null,
     overdue: r.status === "due" && r.due_on < today(now),
   };
 }
@@ -96,15 +105,22 @@ async function withLines(rows: InvoiceRow[], now = new Date()): Promise<Invoice[
   if (ids.length > 0) {
     const all = (await getDb()
       .prepare(
-        `SELECT l.invoice_id, l.venue_id, v.name AS venue_name, l.amount FROM invoice_lines l
+        `SELECT l.invoice_id, l.venue_id, v.name AS venue_name, l.amount, l.plan_name, l.resources FROM invoice_lines l
            JOIN venues v ON v.id = l.venue_id
           WHERE l.invoice_id IN (${ids.map(() => "?").join(",")}) ORDER BY v.name`
       )
-      .all(...ids)) as { invoice_id: number; venue_id: number; venue_name: string; amount: number }[];
+      .all(...ids)) as {
+      invoice_id: number;
+      venue_id: number;
+      venue_name: string;
+      amount: number;
+      plan_name: string | null;
+      resources: number | null;
+    }[];
     for (const l of all)
       lines.set(l.invoice_id, [
         ...(lines.get(l.invoice_id) ?? []),
-        { venueId: l.venue_id, venueName: l.venue_name, amount: l.amount },
+        { venueId: l.venue_id, venueName: l.venue_name, amount: l.amount, planName: l.plan_name, resources: l.resources },
       ]);
   }
   return rows.map((r) => toInvoice(r, lines.get(r.id) ?? [], now));
@@ -130,27 +146,59 @@ export function freeMonths(): number {
 export interface VenuePlan {
   venueId: number;
   venueName: string;
-  /** Its own fee, or null to pay the default. */
+  /** Its own agreed fee, or null to pay by its tier (or the default). */
   monthlyFee: number | null;
-  /** What it actually pays a month. */
+  /** What it pays a month at its size today. */
   effectiveFee: number;
+  /** Where that comes from. */
+  feeFrom: "own" | "tier" | "default";
+  /** Its tier at today's count; null without tiers. */
+  tierName: string | null;
+  /** Courts and rooms it would be billed for this month. */
+  resources: number;
   /** Null: not billed. */
   billingStartsOn: string | null;
 }
 
-export async function venuePlans(): Promise<VenuePlan[]> {
+/** A venue's fee for a month, and how it was arrived at. */
+function feeOf(
+  own: number | null,
+  resources: number,
+  plan: PlanTiers,
+  fallback: number
+): { fee: number; feeFrom: VenuePlan["feeFrom"]; tierName: string | null } {
+  const tier = priceFor(resources, plan);
+  if (own !== null) return { fee: Number(own), feeFrom: "own", tierName: tier?.name ?? null };
+  if (tier) return { fee: tier.fee, feeFrom: "tier", tierName: tier.name };
+  return { fee: fallback, feeFrom: "default", tierName: null };
+}
+
+/** What each venue pays (only these, when given). */
+export async function venuePlans(venueIds?: number[], now = new Date()): Promise<VenuePlan[]> {
+  if (venueIds && venueIds.length === 0) return [];
   const fallback = defaultFee();
-  return (
-    await getDb()
-      .prepare("SELECT id, name, monthly_fee, billing_starts_on FROM venues ORDER BY name")
-      .all() as { id: number; name: string; monthly_fee: number | null; billing_starts_on: string | null }[]
-  ).map((r) => ({
-    venueId: r.id,
-    venueName: r.name,
-    monthlyFee: r.monthly_fee,
-    effectiveFee: r.monthly_fee ?? fallback,
-    billingStartsOn: r.billing_starts_on,
-  }));
+  const rows = (await getDb()
+    .prepare(
+      `SELECT id, name, monthly_fee, billing_starts_on FROM venues
+        ${venueIds ? `WHERE id IN (${venueIds.map(() => "?").join(",")})` : ""} ORDER BY name`
+    )
+    .all(...(venueIds ?? []))) as { id: number; name: string; monthly_fee: number | null; billing_starts_on: string | null }[];
+  const plan = await planTiers();
+  const counts = await billableResources(rows.map((r) => r.id), today(now).slice(0, 7));
+  return rows.map((r) => {
+    const resources = counts.get(r.id) ?? 0;
+    const { fee, feeFrom, tierName } = feeOf(r.monthly_fee, resources, plan, fallback);
+    return {
+      venueId: r.id,
+      venueName: r.name,
+      monthlyFee: r.monthly_fee,
+      effectiveFee: fee,
+      feeFrom,
+      tierName,
+      resources,
+      billingStartsOn: r.billing_starts_on,
+    };
+  });
 }
 
 export async function setVenuePlan(
@@ -193,32 +241,41 @@ export async function issueDueInvoices(now = new Date()): Promise<Invoice[]> {
   const period = date.slice(0, 7);
   const firstOfMonth = `${period}-01`;
   const fallback = defaultFee();
+  const plan = await planTiers();
   const db = getDb();
   const issued = new Set<number>();
   const due = addDaysTo(date, PAYMENT_TERMS_DAYS);
   await db.transaction(async () => {
     // Read inside the transaction, so two callers at the start of a month
     // cannot both bill the same branch.
-    const owing = (await db
+    const candidates = (await db
       .prepare(`
-        SELECT id, business_id, COALESCE(monthly_fee, ?) AS fee FROM venues
+        SELECT id, business_id, monthly_fee FROM venues
          WHERE billing_starts_on IS NOT NULL AND billing_starts_on <= ?
-           AND COALESCE(monthly_fee, ?) > 0
            AND id NOT IN (SELECT venue_id FROM venue_invoices WHERE period = ? AND venue_id IS NOT NULL)
            AND id NOT IN (SELECT venue_id FROM invoice_lines WHERE period = ?)
          ORDER BY id
       `)
-      .all(fallback, firstOfMonth, fallback, period, period)) as { id: number; business_id: number | null; fee: number }[];
+      .all(firstOfMonth, period, period)) as { id: number; business_id: number | null; monthly_fee: number | null }[];
+    // Counted now, for the month being invoiced, and written on the invoice.
+    const counts = await billableResources(candidates.map((v) => v.id), period);
+    const owing = candidates
+      .map((v) => {
+        const resources = counts.get(v.id) ?? 0;
+        const { fee, feeFrom, tierName } = feeOf(v.monthly_fee, resources, plan, fallback);
+        return { ...v, fee, planName: feeFrom === "tier" ? tierName : null, resources: feeFrom === "tier" ? resources : null };
+      })
+      .filter((v) => v.fee > 0);
 
     for (const v of owing) {
       if (v.business_id === null) {
         // A venue on its own: its own invoice, as always.
         const info = await db
           .prepare(
-            `INSERT INTO venue_invoices (venue_id, period, amount, issued_on, due_on) VALUES (?, ?, ?, ?, ?)
+            `INSERT INTO venue_invoices (venue_id, period, amount, issued_on, due_on, plan_name, resources) VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (venue_id, period) DO NOTHING`
           )
-          .run(v.id, period, v.fee, date, due);
+          .run(v.id, period, v.fee, date, due, v.planName, v.resources);
         if (info.changes === 1) issued.add(info.lastInsertRowid as number);
         continue;
       }
@@ -238,14 +295,16 @@ export async function issueDueInvoices(now = new Date()): Promise<Invoice[]> {
       }
       if (invoice.status !== "due") {
         const info = await db
-          .prepare("INSERT INTO venue_invoices (venue_id, period, amount, issued_on, due_on) VALUES (?, ?, ?, ?, ?)")
-          .run(v.id, period, v.fee, date, due);
+          .prepare(
+            "INSERT INTO venue_invoices (venue_id, period, amount, issued_on, due_on, plan_name, resources) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          )
+          .run(v.id, period, v.fee, date, due, v.planName, v.resources);
         issued.add(info.lastInsertRowid as number);
         continue;
       }
       await db
-        .prepare("INSERT INTO invoice_lines (invoice_id, venue_id, period, amount) VALUES (?, ?, ?, ?)")
-        .run(invoice.id, v.id, period, v.fee);
+        .prepare("INSERT INTO invoice_lines (invoice_id, venue_id, period, amount, plan_name, resources) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(invoice.id, v.id, period, v.fee, v.planName, v.resources);
       await db.prepare("UPDATE venue_invoices SET amount = amount + ? WHERE id = ?").run(v.fee, invoice.id);
       issued.add(invoice.id);
     }

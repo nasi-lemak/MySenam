@@ -153,7 +153,7 @@ Everything is an environment variable; there is nothing else to configure.
 | -------- | ------- | ------------ |
 | `MYSENAM_MARKETPLACE` | — | `on` for the shared marketplace: venues apply to join, are invoiced monthly, and stored credit is per venue |
 | `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
-| `MYSENAM_VENUE_FEE` | `0` | On a marketplace, what a venue pays a month unless it has its own fee |
+| `MYSENAM_VENUE_FEE` | `0` | On a marketplace, what a venue pays a month unless it has its own fee, or the owner has set tiers by size (see *Plans by size*) |
 | `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
 | `MYSENAM_WHATSAPP_PACK` | `200` | On a marketplace, WhatsApp messages in a prepaid pack — see *What WhatsApp costs, and who pays* |
 | `MYSENAM_WHATSAPP_PACK_PRICE` | `20` | RM for a pack, paid before any of it is sent |
@@ -364,8 +364,9 @@ independent venues, players booking across them.
   unless it holds something of a customer's (a pass, a membership, credit, a
   payment, an invoice), which is left for the owner to look at.
 - **Stored credit is per venue** — see *Whose credit it is*.
-- **Venues are invoiced monthly.** Each pays `MYSENAM_VENUE_FEE` a month, or
-  its own fee, from the date billing starts — set when it goes live, after
+- **Venues are invoiced monthly.** Each pays its own agreed fee if it has
+  one; else its tier by size, once the owner has set tiers (see *Plans by
+  size*); else `MYSENAM_VENUE_FEE` a month — from the date billing starts — set when it goes live, after
   `MYSENAM_FREE_MONTHS` (one, unless set). Setting up is free however long it
   takes; the free months count from going live. Every full month from then is invoiced once, on the
   first; a venue joining on the 16th has the rest of that month free, and
@@ -375,6 +376,9 @@ independent venues, players booking across them.
   into **the platform's own Billplz account** (`BILLPLZ_*`), which is never a
   venue's: this is the platform's income. The owner sets each venue's fee and
   start date there, and marks a bank transfer paid or voids an invoice.
+- **Prices are published** at `/pricing` (linked from the footer and the
+  sign-up page), worked out from the same tiers and settings the invoices
+  use, so the page cannot say one thing and the bill another.
 - **An invoice more than 14 days overdue** (28 days after it was issued) takes
   every venue on it off the marketplace until it is paid: not listed, not
   bookable, not payable online. A week before that, its staff are emailed
@@ -397,6 +401,63 @@ independent venues, players booking across them.
   advice: have a Malaysian lawyer review them before relying on them.** Set
   `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS` and `OPERATOR_EMAIL`;
   until `OPERATOR_NAME` is set the page says it has not been completed.
+
+### Plans by size
+
+The owner can price venues by how many bookable resources they have —
+courts, pitches, rooms — under *Venues & staff → Billing → Plans by size*
+(`src/lib/plans.ts`). With no tiers set, every venue pays the flat
+`MYSENAM_VENUE_FEE`, as before; a venue's own agreed fee beats both.
+
+- **Every tier has every feature.** Recurring bookings, cancellations, rate
+  schedules, customers and reports are what a booking system is for, so none
+  is held back to make a venue upgrade. Only the count sets the price.
+- **The count is taken when each month is invoiced**, and written on the
+  invoice with the tier ("Growth · 8"), so a venue can see why it paid what it
+  paid and a later change of tiers does not rewrite an invoice already issued.
+  A court **out of service for the whole month** is not counted, so a hall
+  is not charged for a court it closed for repairs. A business's branches are
+  each priced by their own size, as lines on its one invoice.
+- **The last tier can have a limit** with a fee for each resource past it, so
+  a very large hall does not pay the same as a mid-sized one.
+- Staff see their venue's tier, its count and the whole tier list under
+  *Billing*; tiers take effect from the next invoice.
+
+*Use suggested tiers* fills in a starting point, from the pricing analysis
+below. They are a starting point to test with venues, not a finding.
+
+| Tier | Courts or rooms | RM a month |
+| ---- | --------------- | ---------- |
+| Starter | 1–5 | 19.90 |
+| Growth | 6–15 | 39.90 |
+| Large | 16–30 | 69.90 |
+| Arena | 31–50 | 99.90, then RM2 each |
+
+What a venue costs to serve, a month, at 40% utilisation and 1.5-hour
+bookings: about **RM3.35 fixed** (hosting at ~100 venues, RM2.00; collecting
+the invoice by FPX, RM1.35) plus about **RM1.07 per court**. Of that, the
+SMS phone codes cost RM0.69 (8% of bookings by a first-time customer, half
+of whom pick SMS at about RM0.135), urgent WhatsApp news RM0.23 (3% of
+bookings cancelled or moved by the venue) and email RM0.15. Checking a number
+on WhatsApp costs nothing: the customer sends the message, and nothing is
+sent back. So a 10-court hall costs about RM14 a month and a 30-court one
+about RM36. Those are assumptions, labelled as such, not measurements.
+
+| Courts | 1 | 5 | 10 | 15 | 20 | 30 | 40 | 60 |
+| ------ | - | - | -- | -- | -- | -- | -- | -- |
+| Cost to serve (RM) | 4.42 | 8.71 | 14.07 | 19.43 | 24.79 | 35.51 | 46.23 | 67.66 |
+| Suggested fee | 19.90 | 19.90 | 39.90 | 39.90 | 69.90 | 69.90 | 99.90 | 119.90 |
+| Margin | 78% | 56% | 65% | 51% | 65% | 49% | 54% | 44% |
+
+Without the Large and Arena tiers (Growth up to 15, then RM49.90 for any
+size) a 40-court hall leaves about RM4 a month and a 60-court one loses RM18.
+On an assumed mix of venue sizes, weighted to small badminton and futsal
+halls (2–12 courts), the suggested tiers average about RM37.90 a month and
+RM24.65 after costs: about 24 paying venues cover a founder-run install's
+own running costs (~RM600 a month), and about 330 would pay for a developer
+and a support person (~RM8,047). The biggest unknown is how many bookings
+come from first-time customers who choose SMS; the daily cap on codes
+(`MYSENAM_PHONE_CODES_PER_DAY`) bounds it.
 
 ### Checking a venue is real
 

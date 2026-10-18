@@ -139,8 +139,12 @@ export default async function TermsPage() {
           </p>
           <p>
             <strong>Fees.</strong> Nothing is charged while you set up. Once your venue is live, and
-            after any free period shown to you then, listing is charged monthly at the fee agreed with
-            you. Each month&apos;s invoice is shown in your admin panel and is due within 14 days. While
+            after any free period shown to you then, listing is charged monthly: at the fee agreed with
+            you, or else at the price for your venue&apos;s size on our{" "}
+            <Link href="/pricing" className="text-teal-700 underline">
+              prices page
+            </Link>{" "}
+            when the month is invoiced. Each month&apos;s invoice is shown in your admin panel and is due within 14 days. While
             an invoice is more than 14 days overdue your venue is hidden from customers; bookings
             already made stand. If it stays unpaid after we have reminded you, we may end your listing
             on 14 days&apos; notice.

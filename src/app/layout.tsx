@@ -72,6 +72,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {t("footer.listVenue")}
                 </Link>
               )}
+              {isMarketplace() && !storefront && (
+                <Link
+                  href="/pricing"
+                  className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
+                >
+                  {t("pricing.title")}
+                </Link>
+              )}
               <Link
                 href="/admin"
                 className="inline-flex min-h-9 items-center rounded-md px-2 hover:text-teal-700 hover:underline"
