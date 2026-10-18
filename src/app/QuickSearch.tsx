@@ -6,15 +6,10 @@ import { useT } from "@/components/Language";
 import { INTL_TAGS, sportLabel } from "@/lib/i18n";
 import { addDays, todayISO } from "@/lib/time";
 import { SPORT_ICONS, type Sport } from "@/lib/types";
+import { DAY_PARTS, type DayPart } from "@/lib/day-parts";
 
-/** Start hours for each part of the day, as the search takes them. */
-const TIMES = {
-  any: null,
-  morning: [6, 11],
-  afternoon: [12, 16],
-  evening: [17, 23],
-} as const;
-type Time = keyof typeof TIMES;
+const TIMES = DAY_PARTS;
+type Time = DayPart;
 
 /**
  * What most people come for — badminton, tonight, near me — in three taps
@@ -56,7 +51,7 @@ export function QuickSearch({ sports }: { sports: Sport[] }) {
     const q = new URLSearchParams({ date });
     if (sport) q.set("sport", sport);
     const hours = TIMES[time];
-    if (hours) {
+    if (time !== "any") {
       q.set("from", String(hours[0]));
       q.set("to", String(hours[1]));
     }

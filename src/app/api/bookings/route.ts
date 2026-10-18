@@ -20,6 +20,7 @@ import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, tickOutbox } from "@/lib/notify";
 import { takesPaymentOnline } from "@/lib/payments";
+import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -66,6 +67,9 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
+  const chosen = readChosen(addons);
+  if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
+
   const limited = rateLimit(req, "booking");
   if (limited) return limited;
 
@@ -88,6 +92,23 @@ export async function POST(req: NextRequest) {
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
     });
     if (refused) return refusal(refused);
+  }
+
+  // Extras are checked before anything is held, so a racket that has run out
+  // is said now, while the customer can still change their mind.
+  if (chosen.length > 0) {
+    if (typeof payWithPass === "string" && payWithPass.trim() !== "")
+      return refusal({ ok: false, error: "A pass pays for court time only. Pay for a booking with extras another way.", code: "PASS_NOT_FOR_EXTRAS" });
+    const court = anyCourt ? null : await getCourt(courtId as number);
+    if (venueOfBooking !== undefined && (anyCourt || court)) {
+      const priced = await priceChoice(chosen, {
+        venueId: venueOfBooking,
+        sport: anyCourt ? (sport as Sport) : court!.sport,
+        date,
+        hours: hours as number[],
+      });
+      if (!priced.ok) return refusal(priced);
+    }
   }
 
   const common = {
@@ -128,6 +149,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Extras go on after the code, which is for the court, and before paying,
+  // so credit and the counter charge them with it. A week of a series whose
+  // rackets have all gone out stands without extras, and says so.
+  let addonError: { error: string; code?: string; vars?: Record<string, string | number> } | null = null;
+  const addonLines: BookingAddon[] = [];
+  if (chosen.length > 0) {
+    for (const booking of result.bookings) {
+      const added = await attachAddons(booking.id, chosen);
+      if (!added.ok) {
+        if (!addonError) addonError = { error: added.error, code: added.code, vars: added.vars };
+      } else {
+        booking.totalPrice = Math.round((booking.totalPrice + added.total) * 100) / 100;
+        if (addonLines.length === 0) addonLines.push(...added.lines);
+      }
+    }
+  }
+
   // Settling is best-effort: an empty wallet or a spent pass leaves the
   // booking standing as unpaid rather than throwing it away.
   const payErrors: string[] = [];
@@ -163,6 +201,8 @@ export async function POST(req: NextRequest) {
       walletError: payErrors[0] ?? null,
       promoError,
       discount,
+      addons: addonLines,
+      addonError,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
       payOnline: await takesPaymentOnline(venue.id),
@@ -201,5 +241,6 @@ export async function GET(req: NextRequest) {
       cancelCutoffHours: venue.cancelCutoffHours,
     },
     payOnline: await takesPaymentOnline(venue.id),
+    addons: (await addonsFor([booking.id])).get(booking.id) ?? [],
   });
 }

@@ -14,6 +14,7 @@ interface Result {
   court: Court;
   venue: { name: string; area: string; address: string; cancelCutoffHours: number };
   payOnline?: boolean;
+  addons?: { name: string; quantity: number; unitPrice: number }[];
 }
 
 export default function MyBookingPage() {
@@ -177,6 +178,9 @@ export default function MyBookingPage() {
               [t("mine.date"), b.date],
               [t("mine.time"), `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
               [t("mine.bookedBy"), b.name],
+              ...(result.addons?.length
+                ? [[t("done.extras"), result.addons.map((a) => `${a.quantity} × ${a.name} (RM${a.unitPrice})`).join(", ")]]
+                : []),
               [
                 t("mine.total"),
                 b.paymentStatus === "paid"

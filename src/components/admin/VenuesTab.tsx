@@ -19,6 +19,7 @@ import PinPicker, { PIN_TEXT_EN } from "@/components/PinPicker";
 import { FacilitiesEditor } from "./FacilitiesEditor";
 import { PhotosEditor } from "./PhotosEditor";
 import { NoticesEditor } from "./NoticesEditor";
+import { AddonsEditor } from "./AddonsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -654,6 +655,7 @@ function VenueRow({
       <VenueStanding venue={venue} isOwner={isOwner} onSave={onSave} />
       <FacilitiesEditor key={venue.amenities.join(",")} venue={venue} onSave={onSave} />
       <PhotosEditor venue={venue} />
+      <AddonsEditor venue={venue} />
       <NoticesEditor
         venueId={venue.id}
         intro="A line for customers — an event, a promotion, a change of hours — on this venue's own page and storefront, for the days you choose. It never shows on the marketplace's front page or in search. A link can only go to a page on this site, like your tournament or league."

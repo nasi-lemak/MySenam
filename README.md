@@ -851,6 +851,51 @@ tournaments and leagues together, at `/play`) and *My Booking* — and a
 venue's page puts its booking grid straight after its photos, with its
 facilities, map and live crowd below.
 
+The search page works the same way: the time of day is one tap — *Any time*,
+*Morning*, *Afternoon*, *Evening* — and *Custom…* opens the from and until
+hours for anyone who wants an exact window. On a phone, *Area* and the
+must-haves (showers, parking and so on) fold under *More filters*, which says
+how many are on; *Near me* stays in view.
+
+**Returning guests.** After a booking, class or waiting-list place made without
+an account, the name, phone and email are kept in that browser only
+(`localStorage`), so the next booking on that device is filled in. *Not
+Aisyah? Clear* forgets them. Nothing is sent anywhere for this, nothing is
+kept on the server beyond the booking itself, and a browser that refuses
+storage (private windows, blocked site data) just asks again.
+
+## Extras: rentals and sales with a booking
+
+A venue lists what it hires out and sells — rackets, bibs, mats to hire;
+shuttles, grip, drinks to buy — under *Venue details → Extras for sale or
+hire*, each with a price and, for a rental, optionally how many it has. An
+extra can be for one sport only (bibs with futsal) or any. Up to 20 at a time;
+an extra is retired rather than deleted, so old bookings still say what they
+had.
+
+- **Offered, never chosen for the customer.** The booking bar and the class
+  enrolment form show *+ Add extras* only when the venue has some, folded until
+  tapped, with − / + for each. The price on the *Book* button includes them.
+- **Rentals cannot be over-promised.** Stock is per venue per hour across
+  confirmed bookings: with three rackets, a racket hired 8–10 pm is not there
+  for another court at 9. The list says how many are left when five or fewer,
+  and the server checks again before taking the booking, so a race ends in a
+  clear "only 1 racket left" rather than a promise the desk cannot keep. A
+  cancelled booking gives its rentals back.
+- **On the booking's own price.** Extras go onto `bookings.total_price`
+  (after any promo code, which is for the court), so they are paid online,
+  from credit or at the counter with the court, refunded with it, and in the
+  day's takings with no separate till. Each line is kept in `booking_addons`
+  with the name and price at the time. A weekly series carries the same extras
+  every week; a week whose rentals have all gone out stands without them and
+  says so.
+- **A pass is for court time.** Paying with a pass is refused for a booking
+  with extras (the booking bar hides the pass when extras are chosen), so a
+  ten-hour pass never quietly pays for drinks.
+- **At the desk.** The day's bookings show 🎒 *2 × Racket (hire), 1 × Shuttle
+  tube*, ready to hand over at check-in; the customer sees the same on their
+  confirmation and under *My Booking*.
+
 ## Women-only and men-only
 
 Open games, leagues and classes can be for anyone (the default), women only

@@ -18,12 +18,18 @@ import { translateError } from "@/lib/i18n";
 import { INTL_TAGS, sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { NearPicker, type NearChoice } from "@/components/NearPicker";
+import { DAY_PARTS, dayPartOf, type DayPart } from "@/lib/day-parts";
 import { Highlights } from "@/components/VenueFacilities";
 import { FILTER_CHIPS, FILTER_ICONS, highlights, type FilterChip } from "@/lib/facilities";
 import { photoAt, type Photo } from "@/lib/photos-shared";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
+const chipClass = (on: boolean) =>
+  `rounded-full px-4 py-1.5 text-sm font-medium transition ${
+    on ? "bg-teal-600 text-white shadow" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
+  }`;
+
 const HOURS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
 
 function dateLabel(t: T, date: string): string {
@@ -92,6 +98,11 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
   const [fromHour, setFromHour] = useState(start.fromHour ?? OPEN_HOUR);
   const [toHour, setToHour] = useState(start.toHour ?? CLOSE_HOUR - 1);
   const [duration, setDuration] = useState(1);
+  // Morning, afternoon or evening is one tap; "Custom" opens the hour pickers.
+  const [custom, setCustom] = useState(dayPartOf(fromHour, toHour) === null);
+  const part = custom ? null : dayPartOf(fromHour, toHour);
+  // On a phone the narrower filters fold away until asked for.
+  const [moreOpen, setMoreOpen] = useState(false);
   const [area, setArea] = useState("");
   const [near, setNear] = useState<NearChoice | null>(start.near ?? null);
   const [has, setHas] = useState<FilterChip[]>([]);
@@ -196,39 +207,60 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col text-xs font-medium text-slate-500">
-            {t("search.from")}
-            <select
-              value={fromHour}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setFromHour(v);
-                if (v > toHour) setToHour(v);
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.time")}>
+          {(Object.keys(DAY_PARTS) as DayPart[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={part === k}
+              onClick={() => {
+                setCustom(false);
+                setFromHour(DAY_PARTS[k][0]);
+                setToHour(DAY_PARTS[k][1]);
               }}
-              className={selectClass}
+              className={chipClass(part === k)}
             >
-              {HOURS.slice(0, -1).map((h) => (
-                <option key={h} value={h}>
-                  {formatHour(h)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col text-xs font-medium text-slate-500">
-            {t("search.until")}
-            <select
-              value={toHour}
-              onChange={(e) => setToHour(Number(e.target.value))}
-              className={selectClass}
-            >
-              {HOURS.filter((h) => h >= fromHour).map((h) => (
-                <option key={h} value={h}>
-                  {formatHour(h)}
-                </option>
-              ))}
-            </select>
-          </label>
+              {t(`quick.time.${k}`)}
+            </button>
+          ))}
+          <button type="button" aria-pressed={custom} onClick={() => setCustom(true)} className={chipClass(custom)}>
+            {t("search.customTime")}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          {custom && (
+            <>
+              <label className="flex flex-col text-xs font-medium text-slate-500">
+                {t("search.from")}
+                <select
+                  value={fromHour}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setFromHour(v);
+                    if (v > toHour) setToHour(v);
+                  }}
+                  className={selectClass}
+                >
+                  {HOURS.slice(0, -1).map((h) => (
+                    <option key={h} value={h}>
+                      {formatHour(h)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col text-xs font-medium text-slate-500">
+                {t("search.until")}
+                <select value={toHour} onChange={(e) => setToHour(Number(e.target.value))} className={selectClass}>
+                  {HOURS.filter((h) => h >= fromHour).map((h) => (
+                    <option key={h} value={h}>
+                      {formatHour(h)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
           <label className="flex flex-col text-xs font-medium text-slate-500">
             {t("search.for")}
             <select
@@ -243,7 +275,7 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
               ))}
             </select>
           </label>
-          <label className="flex flex-col text-xs font-medium text-slate-500">
+          <label className={`${moreOpen ? "flex" : "hidden sm:flex"} flex-col text-xs font-medium text-slate-500`}>
             {t("search.area")}
             <select value={area} onChange={(e) => setArea(e.target.value)} className={selectClass} disabled={near !== null}>
               <option value="">{t("search.anywhere")}</option>
@@ -256,7 +288,23 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
           </label>
         </div>
         <NearPicker value={near} onChange={setNear} />
-        <div className="flex flex-wrap items-center gap-2 text-sm" role="group" aria-label={t("fac.filterTitle")}>
+        <button
+          type="button"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen(!moreOpen)}
+          className="text-sm font-medium text-teal-700 underline sm:hidden"
+        >
+          {moreOpen
+            ? t("search.fewerFilters")
+            : (area && !near ? 1 : 0) + has.length > 0
+              ? t("search.moreFiltersOn", { n: (area && !near ? 1 : 0) + has.length })
+              : t("search.moreFilters")}
+        </button>
+        <div
+          className={`${moreOpen ? "flex" : "hidden sm:flex"} flex-wrap items-center gap-2 text-sm`}
+          role="group"
+          aria-label={t("fac.filterTitle")}
+        >
           <span className="text-slate-500">{t("fac.filterTitle")}:</span>
           {FILTER_CHIPS.map((f) => {
             const on = has.includes(f);

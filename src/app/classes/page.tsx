@@ -2,6 +2,8 @@
 
 import { accountDetour } from "@/lib/phone-detour";
 import { useCallback, useEffect, useState } from "react";
+import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
+import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import { formatHour } from "@/lib/time";
 import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
 import { useT } from "@/components/Language";
@@ -201,13 +203,27 @@ function EnrolModal({
   const [queued, setQueued] = useState<number | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [confirmWho, setConfirmWho] = useState(false);
+  const [remembered, setRemembered] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Picked>({});
+  const [offered, setOffered] = useState<OfferedAddon[]>([]);
+  const [extrasNote, setExtrasNote] = useState<string | null>(null);
   const isFull = session.enrolled >= session.capacity;
+  const total = Math.round((session.price + pickedTotal(offered, picked)) * 100) / 100;
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (!data.user) return;
+        if (!data.user) {
+          const guest = rememberedGuest();
+          if (guest) {
+            setName((v) => v || guest.name);
+            setPhone((v) => v || guest.phone);
+            setEmail((v) => v || guest.email);
+            setRemembered(guest.name);
+          }
+          return;
+        }
         setSignedIn(true);
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
@@ -224,7 +240,14 @@ function EnrolModal({
       const res = await fetch(isFull ? "/api/waitlist" : "/api/classes/enrol", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classId: session.id, name, phone, email, confirmWho }),
+        body: JSON.stringify({
+          classId: session.id,
+          name,
+          phone,
+          email,
+          confirmWho,
+          ...(isFull ? {} : { addons: pickedList(picked) }),
+        }),
       });
       const data = await res.json();
       if (!res.ok && accountDetour(data)) return;
@@ -232,8 +255,16 @@ function EnrolModal({
         throw new Error(
           translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
         );
+      if (!signedIn) rememberGuest({ name, phone, email });
       if (isFull) setQueued(data.position);
-      else setCode(data.booking.code);
+      else {
+        setCode(data.booking.code);
+        if (data.addonError) setExtrasNote(t("done.addonRejected", { reason: translateError(t, data.addonError) }));
+        else if (data.addons?.length)
+          setExtrasNote(
+            `${t("done.extras")}: ${(data.addons as { name: string; quantity: number }[]).map((a) => `${a.quantity} × ${a.name}`).join(", ")} · ${t("done.total")} RM${data.booking.totalPrice}`
+          );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.failed"));
     } finally {
@@ -277,6 +308,7 @@ function EnrolModal({
             <div className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">
               {code}
             </div>
+            {extrasNote && <p className="mt-2 text-xs text-slate-600">{extrasNote}</p>}
             <p className="mt-2 text-xs text-slate-500">
               {t("classes.enrolledNote")}
             </p>
@@ -304,6 +336,21 @@ function EnrolModal({
               </p>
             )}
             <form onSubmit={submit} className="mt-4 space-y-3">
+              {remembered && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    forgetGuest();
+                    setRemembered(null);
+                    setName("");
+                    setPhone("");
+                    setEmail("");
+                  }}
+                  className="text-xs text-slate-500 underline"
+                >
+                  {t("guest.notYou", { name: remembered })}
+                </button>
+              )}
               <label className="block text-sm font-medium text-slate-700">
                 {t("form.name")}
                 <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
@@ -322,6 +369,9 @@ function EnrolModal({
                   <input type="checkbox" required checked={confirmWho} onChange={(e) => setConfirmWho(e.target.checked)} className="mt-0.5" />
                   {t(`who.confirm.${session.who}`)}
                 </label>
+              )}
+              {!isFull && (
+                <AddonPicker t={t} query={`classId=${session.id}`} picked={picked} onChange={setPicked} onList={setOffered} />
               )}
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2 pt-1">
@@ -343,7 +393,7 @@ function EnrolModal({
                       : t("classes.enrolling")
                     : isFull
                       ? t("classes.joinWaitlist")
-                      : t("classes.enrolPrice", { price: session.price })}
+                      : t("classes.enrolPrice", { price: total })}
                 </button>
               </div>
             </form>

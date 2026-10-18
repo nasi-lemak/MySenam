@@ -16,6 +16,7 @@ import {
 } from "./facilities";
 import { creditScope } from "./mode";
 import { phoneNumber } from "./phone-check";
+import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import {
@@ -2039,6 +2040,8 @@ export interface AdminBookingRow extends Booking {
   hire: HireRecord | null;
   /** Booked from an account that has proved, by a code, that it holds this number. */
   phoneChecked: boolean;
+  /** Extras to hand over or sell with it. */
+  addons: BookingAddon[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -3029,6 +3032,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       .all(...rows.map((r) => r.id)) as HireRow[];
     for (const row of held) hires.set(row.booking_id, toHire(row));
   }
+  const extras = await addonsFor(rows.map((r) => r.id));
 
   const list: AdminBookingRow[] = [];
   for (const r of rows) {
@@ -3044,6 +3048,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       courtDeposit: r.court_deposit,
       hire: hires.get(booking.id) ?? null,
       phoneChecked: r.user_verified_phone !== null && phoneNumber(booking.phone) === r.user_verified_phone,
+      addons: extras.get(booking.id) ?? [],
     });
   }
   return list;
@@ -4345,6 +4350,9 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
   const booking = toBooking(row);
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.paymentStatus === "paid") return refuse("ALREADY_PAID");
+
+  // A pass is for court time; rackets and drinks on the booking are paid another way.
+  if (await hasAddons(booking.id)) return refuse("PASS_NOT_FOR_EXTRAS");
 
   const pass = await getPass(passCode);
   if (!pass) return refuse("PASS_NOT_FOUND");

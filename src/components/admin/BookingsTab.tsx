@@ -506,6 +506,7 @@ export function BookingsTab() {
                     {b.phone}
                   </a>
                   <CheckedPhone b={b} />
+                  <Extras b={b} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -548,6 +549,7 @@ export function BookingsTab() {
                     <td className="px-3 py-2">
                       {b.name}
                       <NoShowBadge b={b} />
+                      <Extras b={b} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -630,6 +632,16 @@ function CheckedPhone({ b }: { b: AdminBookingRow }) {
     <span title="Number checked: the customer proved it is theirs" className="ml-1 text-xs font-semibold text-emerald-700">
       ✓
     </span>
+  );
+}
+
+/** Rackets, shuttles or drinks to hand over with the booking. */
+function Extras({ b }: { b: AdminBookingRow }) {
+  if (!b.addons?.length) return null;
+  return (
+    <div className="mt-1 text-xs text-slate-600">
+      🎒 {b.addons.map((a) => `${a.quantity} × ${a.name}${a.kind === "rental" ? " (hire)" : ""}`).join(", ")}
+    </div>
   );
 }
 

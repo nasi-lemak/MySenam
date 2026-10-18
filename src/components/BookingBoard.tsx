@@ -24,6 +24,8 @@ import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 import PayOnline from "@/components/PayOnline";
+import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
+import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 
 interface Props {
   venueId: number;
@@ -53,6 +55,9 @@ interface Confirmation {
   promoError?: string | null;
   /** The venue takes payment online, so the unpaid part can be paid now. */
   payOnline?: boolean;
+  /** Extras on each booking, and why they could not go on. */
+  addons?: { name: string; quantity: number; unitPrice: number }[];
+  addonError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -542,13 +547,30 @@ function BookingForm({
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const [remembered, setRemembered] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Picked>({});
+  const [offered, setOffered] = useState<OfferedAddon[]>([]);
+  const extras = pickedTotal(offered, picked);
+  const withExtras = Math.round((totalPrice + extras) * 100) / 100;
+  const hasExtras = pickedList(picked).length > 0;
 
-  // Prefill contact details for signed-in users.
+  // Prefill contact details: from the account, or from this device's last booking.
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (!data.user) return;
+        if (!data.user) {
+          const guest = rememberedGuest();
+          if (guest) {
+            setName((v) => v || guest.name);
+            setPhone((v) => v || guest.phone);
+            setEmail((v) => v || guest.email);
+            setRemembered(guest.name);
+          }
+          return;
+        }
+        setSignedIn(true);
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
@@ -594,9 +616,10 @@ function BookingForm({
           email,
           weeks,
           skipConflicts,
-          payFromWallet: passCode.trim() === "" && payFromWallet,
-          payWithPass: passCode.trim() || undefined,
+          payFromWallet: (hasExtras || passCode.trim() === "") && payFromWallet,
+          payWithPass: (!hasExtras && passCode.trim()) || undefined,
           promoCode: promoCode.trim() || undefined,
+          addons: pickedList(picked),
         }),
       });
       const data = await res.json();
@@ -609,6 +632,7 @@ function BookingForm({
         return;
       if (!res.ok && accountDetour(data)) return;
       if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
+      if (!signedIn) rememberGuest({ name, phone, email });
       onBooked(data);
     } catch (err) {
       onError(err instanceof Error ? err.message : t("form.failed"));
@@ -628,8 +652,23 @@ function BookingForm({
           <div className="font-semibold text-teal-700">{court.name}</div>
           <div className="text-sm text-slate-600">
             {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + 1)} ·{" "}
-            <span className="font-semibold text-slate-900">RM{totalPrice}</span>
+            <span className="font-semibold text-slate-900">RM{withExtras}</span>
           </div>
+          {remembered && (
+            <button
+              type="button"
+              onClick={() => {
+                forgetGuest();
+                setRemembered(null);
+                setName("");
+                setPhone("");
+                setEmail("");
+              }}
+              className="text-xs text-slate-500 underline"
+            >
+              {t("guest.notYou", { name: remembered })}
+            </button>
+          )}
           {isHire(court) && (
             <div className="text-xs text-amber-700">
               {t("form.depositNote", { amount: court.deposit })}
@@ -690,11 +729,18 @@ function BookingForm({
           {submitting
             ? t("form.booking")
             : weeks > 1
-              ? t("form.bookWeeks", { weeks, amount: totalPrice })
-              : t("form.book", { amount: totalPrice })}
+              ? t("form.bookWeeks", { weeks, amount: withExtras })
+              : t("form.book", { amount: withExtras })}
         </button>
       </div>
-      {balance !== null && balance > 0 && passCode.trim() === "" && (
+      <AddonPicker
+        t={t}
+        query={`${court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`}&date=${date}&hours=${hours.join(",")}`}
+        picked={picked}
+        onChange={setPicked}
+        onList={setOffered}
+      />
+      {balance !== null && balance > 0 && (hasExtras || passCode.trim() === "") && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
@@ -720,7 +766,13 @@ function BookingForm({
         )}
       </div>
 
-      {/* A pass covers one entry per booked hour, so it settles the whole slot. */}
+      {/* A pass covers one entry per booked hour, so it settles the whole slot —
+          court time only, so not a booking with extras. */}
+      {hasExtras ? (
+        (myPasses.length > 0 || passCode.trim() !== "") && (
+          <p className="mt-2 text-xs text-slate-500">{t("err.PASS_NOT_FOR_EXTRAS")}</p>
+        )
+      ) : (
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
         <span>{t("form.passLabel")}</span>
         {myPasses.length > 0 ? (
@@ -755,6 +807,7 @@ function BookingForm({
           </span>
         )}
       </div>
+      )}
       {weeks > 1 && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input
@@ -819,6 +872,14 @@ function ConfirmationModal({
               ? ([] as [string, string][])
               : ([[t("done.date"), booking.date]] as [string, string][])),
             [t("done.time"), `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
+            ...(confirmation.addons?.length
+              ? ([
+                  [
+                    t("done.extras"),
+                    confirmation.addons.map((a) => `${a.quantity} × ${a.name} (RM${a.unitPrice})`).join(", "),
+                  ],
+                ] as [string, string][])
+              : ([] as [string, string][])),
             ...(confirmation.discount
               ? ([[t("done.promoDiscount"), `− RM${confirmation.discount}`]] as [string, string][])
               : ([] as [string, string][])),
@@ -841,6 +902,11 @@ function ConfirmationModal({
         {confirmation.promoError && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {t("done.promoRejected", { reason: confirmation.promoError })}
+          </p>
+        )}
+        {confirmation.addonError && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {t("done.addonRejected", { reason: translateError(t, confirmation.addonError) })}
           </p>
         )}
         {isSeries && (
@@ -928,7 +994,15 @@ function SlotWaitlistModal({
     fetch("/api/auth/me", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (!data.user) return;
+        if (!data.user) {
+          const guest = rememberedGuest();
+          if (guest) {
+            setName((v) => v || guest.name);
+            setPhone((v) => v || guest.phone);
+            setEmail((v) => v || guest.email);
+          }
+          return;
+        }
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);

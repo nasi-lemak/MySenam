@@ -9,6 +9,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
 import { notifyClassEnrolled, tickOutbox } from "@/lib/notify";
+import { attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, name, phone, email, payFromWallet, confirmWho } = (body ?? {}) as Record<
+  const { classId, name, phone, email, payFromWallet, confirmWho, addons } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -33,6 +34,9 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+
+  const chosen = readChosen(addons);
+  if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
 
   const limited = rateLimit(req, "booking");
   if (limited) return limited;
@@ -55,6 +59,16 @@ export async function POST(req: NextRequest) {
       preview: (await mayShowVenue(forClass.venueId, req)).preview,
     });
     if (refused) return refusal(refused);
+    // A mat or a towel that has run out is said before the place is taken.
+    if (chosen.length > 0) {
+      const priced = await priceChoice(chosen, {
+        venueId: forClass.venueId,
+        sport: forClass.sport,
+        date: forClass.date,
+        hours: Array.from({ length: forClass.endHour - forClass.startHour }, (_, i) => forClass.startHour + i),
+      });
+      if (!priced.ok) return refusal(priced);
+    }
   }
   const result = await enrolInClass({
     classId: classId as number,
@@ -64,6 +78,17 @@ export async function POST(req: NextRequest) {
     userId: user?.id,
   });
   if (!result.ok) return refusal(result);
+
+  // On the enrolment's price, before it is paid from credit.
+  let addonError: { error: string; code?: string; vars?: Record<string, string | number> } | null = null;
+  let addonLines: BookingAddon[] = [];
+  if (chosen.length > 0) {
+    const added = await attachAddons(result.booking.id, chosen);
+    if (added.ok) {
+      addonLines = added.lines;
+      result.booking.totalPrice = Math.round((result.booking.totalPrice + added.total) * 100) / 100;
+    } else addonError = { error: added.error, code: added.code, vars: added.vars };
+  }
 
   let walletError: string | null = null;
   if (payFromWallet === true && user) {
@@ -77,5 +102,5 @@ export async function POST(req: NextRequest) {
     await notifyClassEnrolled(result.booking, await currentLocale(), session);
   await tickOutbox();
 
-  return NextResponse.json({ booking: result.booking, session, walletError }, { status: 201 });
+  return NextResponse.json({ booking: result.booking, session, walletError, addons: addonLines, addonError }, { status: 201 });
 }
