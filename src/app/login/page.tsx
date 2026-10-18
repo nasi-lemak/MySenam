@@ -156,6 +156,11 @@ export default function LoginPage() {
           {busy ? t("auth.working") : mode === "login" ? t("auth.signIn") : t("auth.creating")}
         </button>
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {mode === "login" && (
+          <a href="/forgot-password" className="block text-center text-sm text-teal-700 underline">
+            {t("reset.forgot")}
+          </a>
+        )}
       </form>
     </div>
   );

@@ -563,6 +563,10 @@ Account endpoints (session cookie):
 | POST   | `/api/auth/login`         | `{email, password}`                             |
 | POST   | `/api/auth/logout`        | Ends the session                                |
 | GET    | `/api/auth/me`            | Current user or `null`                          |
+| POST   | `/api/auth/forgot`        | `{email}` → emails a reset link; always `{ok}`  |
+| POST   | `/api/auth/reset`         | `{token, password}` → new password + signed in  |
+| GET    | `/api/my/password`        | `{hasPassword}` (Google accounts may have none) |
+| POST   | `/api/my/password`        | `{current, next}` → change it; others signed out |
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
@@ -579,6 +583,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/auth/login`       | `{email, password}` → admin session                  |
 | POST   | `/api/admin/auth/logout`      | Ends the admin session                               |
 | GET    | `/api/admin/auth/me`          | Current admin + the venues they may manage           |
+| POST   | `/api/admin/auth/forgot`      | `{email}` → emails a reset link (no session needed)  |
+| POST   | `/api/admin/auth/reset`       | `{token, password}` → new password + admin session   |
+| GET/POST | `/api/admin/auth/password`  | Has a password? / `{current, next}` → change it      |
 | GET    | `/api/admin/bookings`         | `?date=` → bookings + expected/collected/outstanding |
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
 | GET    | `/api/admin/bookings/move`    | `?code=` → courts this booking could move to         |
@@ -2137,6 +2144,36 @@ proves it holds its number, once. *Verify your phone number* offers two ways:
   writes the wording of authentication templates itself; the code goes in as
   its one parameter.
 
+## Forgotten passwords
+
+*Forgot your password?* sits under both sign-in forms — the customer one at
+`/login` and the staff one at `/admin` — so a forgotten password is not a
+message to whoever runs the site (`src/lib/password-reset.ts`).
+
+- It emails a link to `/reset-password`. The link works **once**, for **30
+  minutes**; using it voids any other link still out for that account.
+- Only a keyed hash of the token is stored (`password_resets.token_hash`), so a
+  copy of the database cannot be used to take an account over. The reset page
+  sends no `Referer`, so the token in its address is not passed on.
+- Setting a new password **signs the account out everywhere**, then signs in
+  the browser that used the link. Whoever had the old password no longer has
+  a session.
+- The form never says whether an address has an account: the reply is the
+  same either way, and the email is sent without waiting on it so the timing
+  does not tell either. An account gets at most three links an hour, and the
+  endpoints share the sign-in rate limit.
+- Customers get the email in their language; staff emails are in English.
+
+Signed in, a password is changed from the account page (*Change password*,
+under *Sign out*) or the admin dashboard (under *Sign out*). The current
+password is needed, and every other session ends; this one stays. An account
+made with Google has no password, so it can set one without giving one —
+then it can sign in with email too.
+
+The links go out by email (`SMTP_URL` and `MAIL_FROM`). An install with no email set up cannot
+send them; with `MYSENAM_SEND=log` they are written to the server log instead,
+which is how to test it locally.
+
 ## Session cookies
 
 Both session cookies (`ms_session`, `ms_admin`) are `HttpOnly`, `SameSite=Lax`,
@@ -2146,9 +2183,9 @@ cookie at all, so the flag follows the connection rather than a build-time
 guess: the request's own protocol, or `x-forwarded-proto` behind a proxy.
 `SECURE_COOKIES=1` forces it on for a proxy that sets no such header.
 
-All three places that issue a session cookie go through one
-`sessionCookieOptions()` helper, so a fourth cannot quietly ship without the
-flags.
+Every place that issues a session cookie (signing in, Google, a password
+reset) goes through one `sessionCookieOptions()` helper, so another cannot
+quietly ship without the flags.
 
 ## Rate limiting
 
@@ -2158,6 +2195,7 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | Endpoint | Budget |
 | -------- | ------ |
 | Admin & customer sign-in | 10 per 10 min, per IP **and** per email |
+| Forgot / reset / change password | Same budget as signing in |
 | Registration | 5 per hour |
 | Booking lookup / cancel by code | 20 per 10 min |
 | Booking creation | 20 per hour |

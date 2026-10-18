@@ -13,6 +13,7 @@ import CheckInQr from "@/components/CheckInQr";
 import Wallet from "@/components/Wallet";
 import MyWaitlist from "@/components/MyWaitlist";
 import MyPasses from "@/components/MyPasses";
+import { ChangePassword } from "@/components/ChangePassword";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
@@ -146,6 +147,8 @@ export default function AccountPage() {
           {t("acct.signOut")}
         </button>
       </div>
+
+      <ChangePassword endpoint="/api/my/password" />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Admin } from "@/lib/admin-auth";
 import { BookingsTab } from "@/components/admin/BookingsTab";
+import { ChangePassword } from "@/components/ChangePassword";
 import { ClassesTab } from "@/components/admin/ClassesTab";
 import { CourtsTab } from "@/components/admin/CourtsTab";
 import { CreditTab } from "@/components/admin/CreditTab";
@@ -132,6 +133,9 @@ export default function AdminPage() {
             {busy ? "Checking…" : "Sign in"}
           </button>
           {error && <p className="text-sm text-red-600">{error}</p>}
+          <a href="/forgot-password?kind=admin" className="block text-center text-sm text-teal-700 underline">
+            Forgot your password?
+          </a>
         </form>
       </div>
     );
@@ -172,12 +176,15 @@ export default function AdminPage() {
             )}
           </p>
         </div>
-        <button
-          onClick={signOut}
-          className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-slate-500 underline hover:text-teal-700"
-        >
-          Sign out
-        </button>
+        <div className="flex flex-col items-end">
+          <button
+            onClick={signOut}
+            className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-slate-500 underline hover:text-teal-700"
+          >
+            Sign out
+          </button>
+          <ChangePassword endpoint="/api/admin/auth/password" />
+        </div>
       </div>
 
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
