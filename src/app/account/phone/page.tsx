@@ -7,8 +7,9 @@ import { translateError } from "@/lib/i18n";
 import type { PhoneStatus } from "@/lib/phone-check";
 
 /**
- * Add the account's phone number, and check it with a code sent to it on
- * WhatsApp; then back to whatever needed it. Where this install does not
+ * Add the account's phone number and check it — by sending us a message from
+ * it on WhatsApp (recommended: nothing to receive, nothing to type), or with a
+ * code by SMS — then back to whatever needed it. Where this install does not
  * check numbers, the number is simply saved.
  */
 export default function PhonePage() {
@@ -18,6 +19,7 @@ export default function PhonePage() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [wa, setWa] = useState<{ phone: string; link: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const next = (() => {
@@ -25,6 +27,21 @@ export default function PhonePage() {
     const n = new URLSearchParams(window.location.search).get("next");
     return n && n.startsWith("/") && !n.startsWith("//") ? n : "/account";
   })();
+
+  // Waiting for the customer's WhatsApp message: on as soon as it arrives.
+  useEffect(() => {
+    if (!wa) return;
+    const timer = setInterval(async () => {
+      const res = await fetch("/api/my/phone", { cache: "no-store" });
+      if (!res.ok) return;
+      const s = (await res.json()) as PhoneStatus;
+      if (s.verified) {
+        clearInterval(timer);
+        window.location.href = next;
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [wa, next]);
 
   useEffect(() => {
     void (async () => {
@@ -69,7 +86,7 @@ export default function PhonePage() {
   return (
     <div className="mx-auto max-w-sm space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">{t("phone.title")}</h1>
+        <h1 className="text-2xl font-bold">{status.checks && !done ? t("phone.chooseTitle") : t("phone.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">{status.checks ? t("phone.intro") : t("phone.introNoCheck")}</p>
       </div>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -86,15 +103,23 @@ export default function PhonePage() {
             {t("phone.change")}
           </button>
         </div>
+      ) : wa ? (
+        <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-600">{t("phone.waStep", { phone: wa.phone })}</p>
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-center font-mono text-sm">{wa.text}</p>
+          <a href={wa.link} target="_blank" rel="noopener noreferrer" className={`block text-center ${button} bg-[#25D366] hover:brightness-95`}>
+            💬 {t("phone.waOpen")}
+          </a>
+          <p className="text-center text-xs text-slate-500" aria-live="polite">{t("phone.waWaiting")}</p>
+          <button type="button" onClick={() => setWa(null)} className="text-sm text-slate-600 underline">
+            {t("phone.back")}
+          </button>
+        </div>
       ) : sentTo === null ? (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!status.checks) {
-              if (await post({ action: "save", phone })) window.location.href = next;
-              return;
-            }
-            if (await post({ action: "send", phone })) setSentTo(phone);
+            if (await post({ action: "save", phone })) window.location.href = next;
           }}
           className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
         >
@@ -111,9 +136,48 @@ export default function PhonePage() {
               className={input}
             />
           </label>
-          <button disabled={busy} className={button}>
-            {status.checks ? t("phone.send") : t("phone.save")}
-          </button>
+          {!status.checks ? (
+            <button disabled={busy} className={button}>
+              {t("phone.save")}
+            </button>
+          ) : (
+            <div className="space-y-2" role="group" aria-label={t("phone.chooseTitle")}>
+              {status.methods?.whatsapp && (
+                <button
+                  type="button"
+                  disabled={busy || phone.trim() === ""}
+                  onClick={async () => {
+                    const out = await post({ action: "whatsapp", phone });
+                    if (out) setWa({ phone, link: out.link, text: out.text });
+                  }}
+                  className="w-full rounded-lg border-2 border-teal-600 bg-teal-50 p-3 text-left hover:bg-teal-100 disabled:opacity-50"
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-900">💬 {t("phone.viaWhatsapp")}</span>
+                    <span className="rounded-full bg-teal-600 px-2 py-0.5 text-xs font-semibold text-white">{t("phone.recommended")}</span>
+                  </span>
+                  <span className="mt-1 block text-sm text-slate-600">{t("phone.viaWhatsappNote")}</span>
+                </button>
+              )}
+              {status.methods?.code !== false && (
+                <button
+                  type="button"
+                  disabled={busy || phone.trim() === ""}
+                  onClick={async () => {
+                    if (await post({ action: "send", phone })) setSentTo(phone);
+                  }}
+                  className="w-full rounded-lg border border-slate-300 p-3 text-left hover:border-teal-500 disabled:opacity-50"
+                >
+                  <span className="font-semibold text-slate-900">
+                    {status.methods?.codeBy === "whatsapp" ? `🔢 ${t("phone.viaCodeWhatsapp")}` : `✉️ ${t("phone.viaSms")}`}
+                  </span>
+                  <span className="mt-1 block text-sm text-slate-600">
+                    {status.methods?.codeBy === "whatsapp" ? t("phone.viaCodeWhatsappNote") : t("phone.viaSmsNote")}
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
         </form>
       ) : (
         <form
@@ -123,7 +187,9 @@ export default function PhonePage() {
           }}
           className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
         >
-          <p className="text-sm text-slate-600">{t("phone.sent", { phone: sentTo })}</p>
+          <p className="text-sm text-slate-600">
+            {status.methods?.codeBy === "whatsapp" ? t("phone.sent", { phone: sentTo }) : t("phone.smsSent", { phone: sentTo })}
+          </p>
           <label className="block text-sm font-medium text-slate-700">
             {t("phone.code")}
             <input

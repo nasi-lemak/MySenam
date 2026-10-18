@@ -180,7 +180,11 @@ Everything is an environment variable; there is nothing else to configure.
 | `WHATSAPP_TOKEN` | — | A WhatsApp Cloud API access token. With the next one, sends messages on WhatsApp |
 | `WHATSAPP_PHONE_NUMBER_ID` | — | The Cloud API phone number id messages are sent from |
 | `WHATSAPP_CODE_TEMPLATE` | `mysenam_login_code` | The WhatsApp *authentication* template that carries the code checking a customer's number |
-| `MYSENAM_PHONE_CHECK` | on when WhatsApp is set up | `off` to take customers' numbers as given; `on` to check them even without WhatsApp (with `MYSENAM_SEND=log`, codes go to the server log) |
+| `MYSENAM_PHONE_CHECK` | on when a way to check is set up | `off` to take customers' numbers as given; `on` to check them even without one (with `MYSENAM_SEND=log`, codes go to the server log) |
+| `MYSENAM_PHONE_CODES_PER_DAY` | `300` | Most verification codes (SMS or WhatsApp) the whole site sends in a day; the owner is emailed when it is reached |
+| `SMS_TWILIO_ACCOUNT_SID`, `SMS_TWILIO_AUTH_TOKEN`, `SMS_FROM` | — | Send verification codes by SMS through Twilio |
+| `SMS_HTTP_URL` | — | Or through any gateway that sends with one GET, e.g. `https://gateway.example.my/send?user=…&to={to}&text={text}` — `{to}` and `{text}` are filled in |
+| `SMS_PREFIX` | `RM0` | What every SMS starts with, as Malaysian rules ask of business texts; empty to leave it off |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | Customers can sign in with Google. The redirect to register with Google is `<MYSENAM_URL>/api/auth/google/callback` |
 | `WHATSAPP_TEMPLATE_PREFIX` | `mysenam` | Prefix of the approved template names, e.g. `mysenam_booking_confirmed` |
 | `WHATSAPP_COUNTRY_CODE` | `60` | Country code put in front of a number typed with a leading 0 |
@@ -2086,8 +2090,27 @@ account to configure it with.
 
 A venue rings the number on a booking, confirmations go to it, limits and
 blocks are kept by it, and league box-mates are given it — so an account
-proves it holds its number, once, with a six-digit code sent to it on
-WhatsApp.
+proves it holds its number, once. *Verify your phone number* offers two ways:
+
+- **Verify via WhatsApp** (recommended). The customer taps the button;
+  WhatsApp opens with *Verify my number: V-K7P2QX* ready to send to the
+  platform's number; they press send. The message arriving, through the
+  webhook, from the number being proved is the proof — stronger than a typed
+  code, since it can only come from that phone. Nothing is sent to the
+  customer, so it costs nothing and cannot be used to make the site message
+  strangers. The page carries on by itself once the message arrives (it checks
+  every few seconds); the token lasts 15 minutes. Needs
+  `WHATSAPP_CHAT_NUMBER` and `WHATSAPP_APP_SECRET` with the webhook subscribed
+  (see *Customers who ask on WhatsApp*).
+- **Verify via SMS.** A six-digit code by text, through Twilio or any
+  HTTP-GET gateway (`SMS_*`). Every text starts `RM0` and names the site. A
+  local Malaysian aggregator is usually several times cheaper per message than
+  Twilio for Malaysian numbers. Where no SMS gateway is set up but WhatsApp
+  sending is, this option sends the code on WhatsApp instead (an
+  authentication template, below).
+- **A ceiling on codes.** Codes cost money, so the whole site sends at most
+  `MYSENAM_PHONE_CODES_PER_DAY` (300) in a day; past that, customers are asked
+  to verify via WhatsApp, and the platform owner is emailed once that day.
 
 - **When.** Not at sign-in: before the first thing that needs it — booking,
   enrolling in a class, opening or joining a game, entering a tournament,
@@ -2095,8 +2118,8 @@ WhatsApp.
   straight back to the same court, day and hour. An account made with Google
   adds its number there.
 - **The code** lasts 10 minutes and allows 5 tries; an account may ask for 3
-  an hour and a number be sent 5 a day, so nobody can use it to flood a
-  phone. Only a keyed hash of the code is stored, and codes are gone within a
+  an hour (6 WhatsApp verifications) and a number be sent 5 a day, so nobody
+  can use it to flood a phone. Only a keyed hash of the code is stored, and codes are gone within a
   day.
 - **Checked stays checked** until the number on the account changes. If
   another account proves the same number, the first loses its check: only one
@@ -2105,10 +2128,10 @@ WhatsApp.
   account that proved that number.
 - **Guests** booking one court without an account are not asked, any more
   than at a counter; weekly series already need an account.
-- **On** whenever WhatsApp is set up (`MYSENAM_PHONE_CHECK=off` turns it off).
-  Without WhatsApp there is nothing to send a code with, and numbers are taken
+- **On** whenever either way is set up (`MYSENAM_PHONE_CHECK=off` turns it
+  off). With neither, there is nothing to check with, and numbers are taken
   as given, as before.
-- **The template.** In WhatsApp Manager create a template named
+- **The template**, only for codes on WhatsApp. In WhatsApp Manager create a template named
   `mysenam_login_code` (or set `WHATSAPP_CODE_TEMPLATE`), category
   *Authentication*, with the *Copy code* button, in English and Malay. Meta
   writes the wording of authentication templates itself; the code goes in as

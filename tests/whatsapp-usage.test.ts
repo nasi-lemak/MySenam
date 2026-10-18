@@ -453,7 +453,7 @@ describe("the customer opening the chat", () => {
     expect((await post(body, sign(body, "wrong"))).status).toBe(401);
     expect((await post("{", sign("{"))).status).toBe(400);
     const res = await post(body, sign(body));
-    expect(await res.json()).toEqual({ ok: true, answered: 1, reports: 0 });
+    expect(await res.json()).toEqual({ ok: true, answered: 1, reports: 0, verified: 0 });
     delete process.env.WHATSAPP_APP_SECRET;
     expect((await post(body, sign(body))).status).toBe(404);
   });

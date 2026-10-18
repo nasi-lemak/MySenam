@@ -228,7 +228,7 @@ describe("a phone number", () => {
     expect(await phoneRefusal(made.userId)).toMatchObject({ code: "PHONE_NEEDED" });
     expect(await savePhone(made.userId, "not a phone")).toMatchObject({ ok: false });
     expect(await savePhone(made.userId, "012-555 0101")).toEqual({ ok: true });
-    expect(await phoneStatus(made.userId)).toEqual({ phone: "012-555 0101", verified: false, checks: false });
+    expect(await phoneStatus(made.userId)).toMatchObject({ phone: "012-555 0101", verified: false, checks: false });
     expect(await phoneRefusal(made.userId)).toBeNull();
   });
 

@@ -4,7 +4,9 @@ import { errorText, translator, type ErrorCode } from "./i18n";
 import type { Locale } from "./i18n";
 import { keyedHash } from "./secrets";
 import { siteName } from "./site";
-import { toWhatsAppNumber, whatsappConfig } from "./transports";
+import { sendSms, smsConfig, smsText, toWhatsAppNumber, whatsappConfig } from "./transports";
+import { chatNumber } from "./outbox";
+import { tellOwners } from "./owner-alerts";
 import type { Refusal } from "./types";
 
 /**
@@ -13,14 +15,26 @@ import type { Refusal } from "./types";
  * Nothing else here can tell a number somebody holds from one they typed:
  * the venue rings it, confirmations go to it, limits and blocks are kept by
  * it, and league box-mates are given it. So an account proves its number
- * once, with a six-digit code sent to it on WhatsApp — which nearly every
- * phone in Malaysia has, and which this install already sends through — and
- * after that it counts as checked until the number on the account changes.
+ * once, and after that it counts as checked until the number changes. Two
+ * ways, as the customer prefers:
  *
- * On when WhatsApp is set up (or MYSENAM_PHONE_CHECK=on; MYSENAM_SEND=log
- * then writes the code to the server log). Without a way to send a code
- * there is nothing to check with, and a number is taken as given, as before.
- * MYSENAM_PHONE_CHECK=off turns it off regardless.
+ * - **Via WhatsApp** (recommended): the customer sends us a short message
+ *   from their own WhatsApp, a token in it, and the message arriving from
+ *   that number is the proof. Nothing is sent to them, so it costs nothing,
+ *   and it cannot be used to make us message strangers. Needs the platform's
+ *   number and its webhook (WHATSAPP_CHAT_NUMBER, WHATSAPP_APP_SECRET).
+ * - **Via SMS**: a six-digit code by text (lib/transports.ts, SMS_*). Where
+ *   there is no SMS gateway but WhatsApp sending is set up, the code goes on
+ *   WhatsApp instead, as an authentication template.
+ *
+ * Codes sent cost money, so the whole site sends at most
+ * MYSENAM_PHONE_CODES_PER_DAY (300) a day; the owner is told when that is
+ * reached, and WhatsApp verification carries on.
+ *
+ * On when either way is available (or MYSENAM_PHONE_CHECK=on; MYSENAM_SEND=log
+ * then writes codes to the server log). Without one there is nothing to check
+ * with, and a number is taken as given, as before. MYSENAM_PHONE_CHECK=off
+ * turns it off regardless.
  *
  * Guests booking without an account are not asked: one court, once, with a
  * name and a number, is what a counter takes too.
@@ -34,11 +48,38 @@ export const SENDS_PER_NUMBER_PER_DAY = 5;
 
 const ENGLISH = translator("en");
 
+/** Codes the whole site may send in a day, by SMS or WhatsApp. */
+export function codesPerDay(): number {
+  const n = Number(process.env.MYSENAM_PHONE_CODES_PER_DAY ?? 300);
+  return Number.isInteger(n) && n >= 0 ? n : 300;
+}
+
+/** The ways this install can check a number. */
+export interface PhoneMethods {
+  /** The customer sends us a message from their WhatsApp. */
+  whatsapp: boolean;
+  /** A code is sent to them: by SMS, or by WhatsApp where there is no SMS. */
+  code: boolean;
+  /** How the code goes. */
+  codeBy: "sms" | "whatsapp";
+}
+
+export function phoneMethods(): PhoneMethods {
+  const log = process.env.MYSENAM_SEND === "log";
+  const sms = smsConfig() !== null;
+  return {
+    whatsapp: chatNumber() !== null && !!process.env.WHATSAPP_APP_SECRET,
+    code: sms || whatsappConfig() !== null || log,
+    codeBy: sms || (log && whatsappConfig() === null) ? "sms" : "whatsapp",
+  };
+}
+
 export function phoneChecksOn(): boolean {
   const flag = process.env.MYSENAM_PHONE_CHECK;
   if (flag === "off") return false;
   if (flag === "on") return true;
-  return whatsappConfig() !== null;
+  const m = phoneMethods();
+  return m.whatsapp || smsConfig() !== null || whatsappConfig() !== null;
 }
 
 /** A number as WhatsApp takes it, or null if it does not look like one. */
@@ -53,6 +94,8 @@ export interface PhoneStatus {
   verified: boolean;
   /** Whether this install checks numbers at all. */
   checks: boolean;
+  /** The ways it can, for the page to offer. */
+  methods?: PhoneMethods;
 }
 
 export async function phoneStatus(userId: number): Promise<PhoneStatus | null> {
@@ -64,6 +107,7 @@ export async function phoneStatus(userId: number): Promise<PhoneStatus | null> {
     phone: row.phone,
     verified: row.verified_phone !== null && row.phone !== "" && phoneNumber(row.phone) === row.verified_phone,
     checks: phoneChecksOn(),
+    methods: phoneMethods(),
   };
 }
 
@@ -108,6 +152,27 @@ export async function sendPhoneCode(userId: number, phone: string, locale: Local
     .get(number)) as { toNumber: number };
   if (toNumber >= SENDS_PER_NUMBER_PER_DAY)
     return { ok: false, error: "That number has been sent enough codes for today. Try again tomorrow.", code: "PHONE_CODE_LIMIT" };
+  // A ceiling on what the whole site spends on codes in a day, whoever asks.
+  const { today } = (await db
+    .prepare("SELECT COUNT(*)::int AS today FROM phone_codes WHERE method = 'code' AND created_at > datetime('now', '-1 day')")
+    .get()) as { today: number };
+  if (today >= codesPerDay()) {
+    // Told once, the first time today a code is refused.
+    const told = await db.prepare("SELECT 1 FROM phone_codes WHERE method = 'refused' AND created_at > datetime('now', '-1 day')").get();
+    if (!told)
+      await tellOwners(
+        "Phone codes paused for today",
+        `${codesPerDay()} verification codes have been sent in the last day, the most MYSENAM_PHONE_CODES_PER_DAY allows. No more go out until the count falls; customers can still verify via WhatsApp. If this is real growth, raise the limit; if not, somebody may be asking for codes on purpose.`
+      );
+    await db
+      .prepare(`INSERT INTO phone_codes (user_id, phone, number, code_hash, expires_at, method) VALUES (?, ?, ?, '', datetime('now'), 'refused')`)
+      .run(userId, phone.trim(), number);
+    return {
+      ok: false,
+      error: "Codes are paused for now. Please verify via WhatsApp instead, or try again later.",
+      code: "PHONE_CODES_PAUSED",
+    };
+  }
 
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
   try {
@@ -135,7 +200,7 @@ export async function confirmPhoneCode(userId: number, code: string): Promise<Ch
   const pending = (await db
     .prepare(
       `SELECT id, phone, number, code_hash, attempts FROM phone_codes
-        WHERE user_id = ? AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1`
+        WHERE user_id = ? AND method = 'code' AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1`
     )
     .get(userId)) as { id: number; phone: string; number: string; code_hash: string; attempts: number } | undefined;
   if (!pending) return { ok: false, error: "That code has run out. Ask for a new one.", code: "PHONE_CODE_EXPIRED" };
@@ -147,14 +212,80 @@ export async function confirmPhoneCode(userId: number, code: string): Promise<Ch
     await db.prepare("UPDATE phone_codes SET attempts = attempts + 1 WHERE id = ?").run(pending.id);
     return { ok: false, error: "That is not the code. Check it and try again.", code: "PHONE_CODE_WRONG" };
   }
+  await markChecked(userId, pending.phone, pending.number);
+  return { ok: true };
+}
+
+/** The number is the account's, checked; any other account that had it loses it. */
+async function markChecked(userId: number, phone: string, number: string): Promise<void> {
+  const db = getDb();
   await db.transaction(async () => {
-    await db.prepare("UPDATE users SET verified_phone = NULL, phone_verified_at = NULL WHERE verified_phone = ? AND id <> ?").run(pending.number, userId);
+    await db.prepare("UPDATE users SET verified_phone = NULL, phone_verified_at = NULL WHERE verified_phone = ? AND id <> ?").run(number, userId);
     await db
       .prepare("UPDATE users SET phone = ?, verified_phone = ?, phone_verified_at = datetime('now') WHERE id = ?")
-      .run(pending.phone, pending.number, userId);
-    await db.prepare("DELETE FROM phone_codes WHERE user_id = ?").run(userId);
+      .run(phone, number, userId);
+    await db.prepare("DELETE FROM phone_codes WHERE user_id = ? AND method <> 'refused'").run(userId);
   })();
-  return { ok: true };
+}
+
+// ------------------------------------------------------------ via WhatsApp
+
+/** Minutes the customer has to send the message. */
+export const WHATSAPP_MINUTES = 15;
+const TOKEN = /\bV-([A-Z2-9]{6})\b/i;
+
+/**
+ * Start a check the other way round: the customer sends us a message, from
+ * the number they are proving, with this token in it — the link opens
+ * WhatsApp with the message ready, and they press send.
+ */
+export async function startWhatsappCheck(
+  userId: number,
+  phone: string,
+  locale: Locale = "en"
+): Promise<{ ok: true; token: string; link: string; text: string } | { ok: false; error: string; code?: string }> {
+  const methods = phoneMethods();
+  if (!methods.whatsapp) return { ok: false, error: "Verifying via WhatsApp is not set up here." };
+  const number = phoneNumber(phone);
+  if (!number) return { ok: false, error: "Please provide a valid phone number." };
+  const db = getDb();
+  await db.prepare("DELETE FROM phone_codes WHERE created_at < datetime('now', '-1 day')").run();
+  const { mine } = (await db
+    .prepare("SELECT COUNT(*)::int AS mine FROM phone_codes WHERE user_id = ? AND created_at > datetime('now', '-1 hour')")
+    .get(userId)) as { mine: number };
+  if (mine >= SENDS_PER_HOUR * 2) return { ok: false, error: "That is a few tries already. Try again in an hour.", code: "PHONE_CODE_LIMIT" };
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const token = Array.from({ length: 6 }, () => alphabet[crypto.randomInt(0, alphabet.length)]).join("");
+  await db
+    .prepare(
+      `INSERT INTO phone_codes (user_id, phone, number, code_hash, expires_at, method, token)
+       VALUES (?, ?, ?, '', datetime('now', '+${WHATSAPP_MINUTES} minutes'), 'whatsapp', ?)`
+    )
+    .run(userId, phone.trim(), number, token);
+  const t = translator(locale);
+  const text = t("phone.waMessage", { token: `V-${token}` });
+  return { ok: true, token: `V-${token}`, text, link: `https://wa.me/${chatNumber()}?text=${encodeURIComponent(text)}` };
+}
+
+/**
+ * A WhatsApp message to the platform's number: if it carries a token we
+ * handed out and comes from the number it was for, that number is checked.
+ * From any other number, it proves nothing and does nothing.
+ */
+export async function verifyFromWhatsapp(from: string, text: string): Promise<boolean> {
+  const token = text.match(TOKEN)?.[1]?.toUpperCase();
+  if (!token) return false;
+  const sender = phoneNumber(from);
+  if (!sender) return false;
+  const row = (await getDb()
+    .prepare(
+      `SELECT user_id, phone, number FROM phone_codes
+        WHERE method = 'whatsapp' AND token = ? AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1`
+    )
+    .get(token)) as { user_id: number; phone: string; number: string } | undefined;
+  if (!row || row.number !== sender) return false;
+  await markChecked(row.user_id, row.phone, row.number);
+  return true;
 }
 
 /**
@@ -167,6 +298,8 @@ async function deliver(number: string, code: string, locale: Locale): Promise<vo
     console.info(`[phone code] → +${number}: ${code} (${siteName()})`);
     return;
   }
+  const sms = smsConfig();
+  if (sms) return sendSms(sms, number, smsText(translator(locale)("phone.smsText", { site: siteName(), code })));
   const config = whatsappConfig();
   if (!config) throw new Error("WhatsApp is not set up here, so no code can be sent.");
   const res = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {

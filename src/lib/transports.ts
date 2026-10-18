@@ -231,3 +231,63 @@ export function emailTransport(config: EmailConfig): Transport {
     },
   };
 }
+
+// ----------------------------------------------------------------------- SMS
+
+/**
+ * Text messages, for one thing only: the code that checks a customer's phone
+ * number, for anybody who would rather not verify on WhatsApp.
+ *
+ * Twilio (SMS_TWILIO_ACCOUNT_SID, SMS_TWILIO_AUTH_TOKEN, SMS_FROM), or any
+ * gateway that sends with one HTTP GET (SMS_HTTP_URL, with {to} and {text}
+ * where the number and the message go) — which is how most Malaysian
+ * aggregators work, and they are cheaper for Malaysian numbers.
+ */
+export type SmsConfig =
+  | { kind: "twilio"; accountSid: string; authToken: string; from: string }
+  | { kind: "http"; url: string };
+
+export function smsConfig(): SmsConfig | null {
+  const sid = process.env.SMS_TWILIO_ACCOUNT_SID;
+  const token = process.env.SMS_TWILIO_AUTH_TOKEN;
+  const from = process.env.SMS_FROM;
+  if (sid && token && from) return { kind: "twilio", accountSid: sid, authToken: token, from };
+  const url = process.env.SMS_HTTP_URL;
+  if (url && url.includes("{to}") && url.includes("{text}")) return { kind: "http", url };
+  return null;
+}
+
+/**
+ * Malaysian rules want a text from a business to start with "RM0" — it costs
+ * the reader nothing — and say who it is from. SMS_PREFIX changes the first
+ * part; set it to an empty string to leave it off outside Malaysia.
+ */
+export function smsText(body: string): string {
+  const prefix = process.env.SMS_PREFIX ?? "RM0";
+  return prefix ? `${prefix} ${body}` : body;
+}
+
+/** One text. Throws with the gateway's reason when it is refused. */
+export async function sendSms(config: SmsConfig, to: string, text: string): Promise<void> {
+  const number = toWhatsAppNumber(to);
+  let res: Response;
+  if (config.kind === "twilio") {
+    res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Messages.json`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: `+${number}`, From: config.from, Body: text }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } else {
+    res = await fetch(config.url.replace("{to}", encodeURIComponent(number)).replace("{text}", encodeURIComponent(text)), {
+      signal: AbortSignal.timeout(15_000),
+    });
+  }
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 200);
+    throw new Error(`The SMS was not sent (${res.status})${detail ? `: ${detail}` : ""}.`);
+  }
+}

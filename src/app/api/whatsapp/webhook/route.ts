@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { answerChat } from "@/lib/whatsapp-chat";
 import { recordDelivery } from "@/lib/outbox";
+import { verifyFromWhatsapp } from "@/lib/phone-check";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
   // sends the same message again and again.
   let answered = 0;
   let reports = 0;
+  let verified = 0;
   for (const entry of delivery.entry ?? [])
     for (const change of entry.changes ?? []) {
       // Delivered, read, or failed after all, for what we sent.
@@ -69,11 +71,16 @@ export async function POST(req: NextRequest) {
       for (const m of change.value?.messages ?? []) {
         if (m.type !== "text" || !m.from || !m.text?.body) continue;
         try {
+          // A customer proving their number by messaging us from it.
+          if (await verifyFromWhatsapp(m.from, m.text.body.slice(0, 1000))) {
+            verified++;
+            continue;
+          }
           if ((await answerChat(m.from, m.text.body.slice(0, 1000))).answered) answered++;
         } catch (err) {
           console.error("[mysenam] answering a WhatsApp chat failed:", err);
         }
       }
     }
-  return NextResponse.json({ ok: true, answered, reports });
+  return NextResponse.json({ ok: true, answered, reports, verified });
 }
