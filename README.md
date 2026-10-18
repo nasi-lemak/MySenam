@@ -817,6 +817,40 @@ account.
 - Closing an account takes the player out of games to come, and calls off
   games they were hosting; the personal data export includes games and levels.
 
+## Notices, and keeping the front page fair
+
+The marketplace does not sell placement. No venue can pay, or post its way,
+to the top of the front page or of search: venues are listed in a fair order
+that changes by the day, or by distance when the customer asks for nearby.
+
+- **A venue's own notices.** Under *Venue details → Put up a notice*, its staff
+  put up a line for some days — an event, a promotion, a change of hours —
+  with an optional link to a page on this site (their tournament, league or
+  classes). It shows on the venue's own page, and on the home page of its
+  storefront domain (up to three, for a business with branches). It never
+  shows on the marketplace's front page or in search.
+- **The site-wide notice.** Only the platform owner can set the one notice on
+  the marketplace's front page (*Venues & staff → Site-wide notice*). It is
+  for what concerns every player — a government programme, a large
+  collaboration — never one venue's promotion.
+- **Text only, links only inward.** 160 characters, up to 60 days at a time,
+  and a link must be a path on this site, so a notice cannot send a customer
+  to a page that pretends to be the venue. Staff can take theirs down; the
+  platform owner can take down any.
+
+## Finding a court from the front page
+
+The home page starts the search: tap a sport, a day (today, tomorrow, or
+another), a time of day (morning, afternoon, evening) and, if wanted, *Near
+me*, then *Show free courts*. That opens the search with all of it filled in
+— `/search?sport=badminton&date=…&from=17&to=23&near=…` — so a search can be
+shared or bookmarked too. The venue list stays below for browsing.
+
+The menu is four items — *Find a court*, *Classes*, *Play* (open games,
+tournaments and leagues together, at `/play`) and *My Booking* — and a
+venue's page puts its booking grid straight after its photos, with its
+facilities, map and live crowd below.
+
 ## Women-only and men-only
 
 Open games, leagues and classes can be for anyone (the default), women only

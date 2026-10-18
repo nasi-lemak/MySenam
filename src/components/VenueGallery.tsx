@@ -27,7 +27,7 @@ export function VenueGallery({ photos, venueName, labels }: { photos: Photo[]; v
   const shown = open === null ? null : photos[open];
   return (
     <>
-      <div className="flex h-44 snap-x gap-1.5 overflow-x-auto rounded-xl sm:h-60">
+      <div className="flex h-36 snap-x gap-1.5 overflow-x-auto rounded-xl sm:h-56">
         {photos.map((p, i) => (
           <button
             key={p.id}

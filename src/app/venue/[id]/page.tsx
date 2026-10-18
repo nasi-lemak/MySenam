@@ -12,6 +12,8 @@ import { listOutages } from "@/lib/outages";
 import PinMap from "@/components/PinMap";
 import { VenueFacilities } from "@/components/VenueFacilities";
 import { VenueGallery } from "@/components/VenueGallery";
+import { NoticeBar } from "@/components/NoticeBar";
+import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +47,7 @@ export default async function VenuePage({
   // Courts out for a stretch that touches the booking window.
   const outages = (await listOutages([venue.id])).filter((o) => o.startsOn <= dates[dates.length - 1]);
   const photos = await venuePhotos(venue.id);
+  const [notice] = await showingFor([venue.id]);
   // Arrived from a search near somewhere: how far this is from there, as the crow flies.
   const one = (key: string) => (Array.isArray(query[key]) ? query[key][0] : query[key]);
   const near = readNear(one("near"));
@@ -101,6 +104,7 @@ export default async function VenuePage({
             : t("venue.cancelAnyTime")}
         </p>
       </div>
+      {notice && <NoticeBar notice={notice} more={t("notice.more")} />}
       <VenueGallery
         photos={photos}
         venueName={venue.name}
@@ -131,13 +135,14 @@ export default async function VenuePage({
             .join(" · ")}
         </div>
       )}
+      {/* Booking first: it is what nearly everybody came for. */}
+      <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
+      <LiveOccupancy venueId={venue.id} />
       {/* What it has, and where it is, side by side on a wide screen. */}
       <div className="grid gap-4 md:grid-cols-2">
         <VenueFacilities t={t} venue={venue} />
         {venue.lat !== null && venue.lng !== null && <PinMap pin={{ lat: venue.lat, lng: venue.lng }} height={180} />}
       </div>
-      <LiveOccupancy venueId={venue.id} />
-      <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
     </div>
   );
 }

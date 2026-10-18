@@ -2,6 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listAreaCounts, listVenuePage, readNear, sportsOfferedAt } from "@/lib/store";
 import { HomeNear } from "./HomeNear";
+import { QuickSearch } from "./QuickSearch";
+import { NoticeBar } from "@/components/NoticeBar";
+import { showingFor, siteNotice } from "@/lib/notices";
 import { serverT } from "@/lib/locale";
 import { currentStorefront } from "@/lib/storefront";
 import { Sport, SPORT_ICONS } from "@/lib/types";
@@ -47,6 +50,9 @@ export default async function HomePage({
   });
   // One small picture each, if the venue has one.
   const covers = await coversFor(venues.map((v) => v.id));
+  // On a venue's own storefront, its notices; on the marketplace, only the
+  // platform's own — no venue's promotion leads the front page.
+  const notices = storefront ? await showingFor(storefront.venueIds) : [await siteNotice()].filter((n) => n !== null);
   const t = await serverT();
   const sportsOffered = await sportsOfferedAt(venueIds);
   const link = (to: { area?: string; page?: number; has?: FilterChip[] }) => {
@@ -68,7 +74,7 @@ export default async function HomePage({
   return (
     <div className="space-y-10">
       <section
-        className={`rounded-2xl bg-gradient-to-br from-teal-600 px-6 py-12 text-white shadow-lg ${
+        className={`rounded-2xl bg-gradient-to-br from-teal-600 px-4 py-8 text-white shadow-lg sm:px-6 sm:py-10 ${
           storefront ? "to-teal-800" : "to-emerald-500"
         }`}
       >
@@ -76,22 +82,15 @@ export default async function HomePage({
         <p className="mt-3 max-w-xl text-teal-50">
           {storefront ? (storefront.tagline ?? t("home.heroTitle")) : t("home.heroBody")}
         </p>
-        <Link
-          href="/search"
-          className="mt-6 inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 font-semibold text-teal-700 shadow transition hover:bg-teal-50"
-        >
-          🔍 {t("home.heroCta")}
-        </Link>
-        <div className="mt-6 flex flex-wrap gap-3">
-          {sportsOffered.map((sport) => (
-            <span
-              key={sport}
-              className="rounded-full bg-white/15 px-4 py-1.5 text-sm font-medium backdrop-blur"
-            >
-              {SPORT_ICONS[sport]} {sportLabel(t, sport)}
-            </span>
-          ))}
-        </div>
+        {notices.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {notices.slice(0, 3).map((n) => (
+              <NoticeBar key={n.id} notice={n} more={t("notice.more")} tone="light" />
+            ))}
+          </div>
+        )}
+        {/* The search starts here: tap a sport, a day, a time — straight to what is free. */}
+        <QuickSearch sports={sportsOffered} />
       </section>
 
       <section>
