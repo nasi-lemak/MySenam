@@ -26,6 +26,7 @@ import CheckInQr from "@/components/CheckInQr";
 import PayOnline from "@/components/PayOnline";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
+import ChatLink from "@/components/ChatLink";
 
 interface Props {
   venueId: number;
@@ -58,6 +59,8 @@ interface Confirmation {
   /** Extras on each booking, and why they could not go on. */
   addons?: { name: string; quantity: number; unitPrice: number }[];
   addonError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
+  /** The platform's WhatsApp number, when customers can open the chat for their confirmation. */
+  chatNumber?: string | null;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -933,6 +936,7 @@ function ConfirmationModal({
         {confirmation.payOnline && unpaid.length > 0 && unpaidTotal > 0 && (
           <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} />
         )}
+        <ChatLink t={t} number={confirmation.chatNumber} code={seriesCode ?? booking.code} />
         {!isSeries && booking.checkInToken && <CheckInQr token={booking.checkInToken} />}
         <div className="mt-5 grid grid-cols-3 gap-2 text-xs font-medium">
           <a
@@ -941,7 +945,7 @@ function ConfirmationModal({
             rel="noopener noreferrer"
             className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
           >
-            💬 WhatsApp
+            📤 {t("done.share")}
           </a>
           <a
             href={googleCalendarUrl(shareInfo)}

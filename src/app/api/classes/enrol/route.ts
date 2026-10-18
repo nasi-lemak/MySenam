@@ -9,6 +9,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
 import { notifyClassEnrolled, tickOutbox } from "@/lib/notify";
+import { chatNumber, chatRepliesOn } from "@/lib/outbox";
 import { attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 
 export const dynamic = "force-dynamic";
@@ -102,5 +103,12 @@ export async function POST(req: NextRequest) {
     await notifyClassEnrolled(result.booking, await currentLocale(), session);
   await tickOutbox();
 
-  return NextResponse.json({ booking: result.booking, session, walletError, addons: addonLines, addonError }, { status: 201 });
+  return NextResponse.json({
+      booking: result.booking,
+      session,
+      walletError,
+      addons: addonLines,
+      addonError,
+      chatNumber: chatRepliesOn() ? chatNumber() : null,
+    }, { status: 201 });
 }

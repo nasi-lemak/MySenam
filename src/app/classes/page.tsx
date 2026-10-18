@@ -4,6 +4,7 @@ import { accountDetour } from "@/lib/phone-detour";
 import { useCallback, useEffect, useState } from "react";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
+import ChatLink from "@/components/ChatLink";
 import { formatHour } from "@/lib/time";
 import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
 import { useT } from "@/components/Language";
@@ -207,6 +208,7 @@ function EnrolModal({
   const [picked, setPicked] = useState<Picked>({});
   const [offered, setOffered] = useState<OfferedAddon[]>([]);
   const [extrasNote, setExtrasNote] = useState<string | null>(null);
+  const [chat, setChat] = useState<string | null>(null);
   const isFull = session.enrolled >= session.capacity;
   const total = Math.round((session.price + pickedTotal(offered, picked)) * 100) / 100;
 
@@ -259,6 +261,7 @@ function EnrolModal({
       if (isFull) setQueued(data.position);
       else {
         setCode(data.booking.code);
+        setChat(data.chatNumber ?? null);
         if (data.addonError) setExtrasNote(t("done.addonRejected", { reason: translateError(t, data.addonError) }));
         else if (data.addons?.length)
           setExtrasNote(
@@ -309,6 +312,7 @@ function EnrolModal({
               {code}
             </div>
             {extrasNote && <p className="mt-2 text-xs text-slate-600">{extrasNote}</p>}
+            <ChatLink t={t} number={chat} code={code} />
             <p className="mt-2 text-xs text-slate-500">
               {t("classes.enrolledNote")}
             </p>

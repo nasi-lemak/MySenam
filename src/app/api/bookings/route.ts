@@ -20,6 +20,7 @@ import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, tickOutbox } from "@/lib/notify";
 import { takesPaymentOnline } from "@/lib/payments";
+import { chatNumber, chatRepliesOn } from "@/lib/outbox";
 import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 
 export const dynamic = "force-dynamic";
@@ -203,6 +204,8 @@ export async function POST(req: NextRequest) {
       discount,
       addons: addonLines,
       addonError,
+      // The customer can open the chat themselves and have it there for free.
+      chatNumber: chatRepliesOn() ? chatNumber() : null,
       court,
       venue: { id: venue.id, name: venue.name, area: venue.area },
       payOnline: await takesPaymentOnline(venue.id),

@@ -56,6 +56,11 @@ export interface OutboxMessage {
   createdAt: string;
   nextAttemptAt: string;
   sentAt: string | null;
+  /**
+   * Sent as a plain reply in a chat the customer opened, which Meta does not
+   * charge for, rather than as a template, which it does.
+   */
+  free: boolean;
 }
 
 interface MessageRow {
@@ -76,6 +81,7 @@ interface MessageRow {
   next_attempt_at: string;
   sent_at: string | null;
   dedupe_key: string | null;
+  free: number;
 }
 
 function toMessage(r: MessageRow): OutboxMessage {
@@ -97,6 +103,7 @@ function toMessage(r: MessageRow): OutboxMessage {
     nextAttemptAt: r.next_attempt_at,
     sentAt: r.sent_at,
     dedupeKey: r.dedupe_key,
+    free: r.free === 1,
   };
 }
 
@@ -160,7 +167,7 @@ export const MESSAGES_PER_RECIPIENT_PER_DAY = 8;
 const RECIPIENT_KEY = "(CASE WHEN channel = 'email' THEN lower(recipient) ELSE phone_key(recipient) END)";
 
 /** Messages written for this recipient in the last day, sent or not. */
-async function sentToday(channel: Channel, recipient: string): Promise<number> {
+export async function sentToday(channel: Channel, recipient: string): Promise<number> {
   const { n } = (await getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM messages
@@ -182,14 +189,17 @@ async function sentToday(channel: Channel, recipient: string): Promise<number> {
 export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const t = translator(input.locale ?? "en");
   const db = getDb();
+  // A confirmation waits a few minutes for the customer to open the chat
+  // themselves, when they can: the same words as a reply cost nothing.
+  const hold = input.channel === "whatsapp" && HELD_KINDS.includes(input.kind) && chatRepliesOn() ? chatHoldMinutes() : 0;
   // Past the day's limit for this recipient, it is written down but never
   // sent, with the reason, where staff can see it.
   const capped = (await sentToday(input.channel, input.recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY;
   const info = await db
     .prepare(
       `INSERT INTO messages
-         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
        ON CONFLICT(dedupe_key) DO NOTHING`
     )
     .run(
@@ -204,7 +214,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       JSON.stringify(input.vars),
       input.dedupeKey ?? null,
       capped ? "abandoned" : "queued",
-      capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null
+      capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null,
+      `+${hold} minutes`
     );
   if (info.changes === 0 && input.dedupeKey) {
     const existing = await db
@@ -241,6 +252,38 @@ export function addressFor(
 ): { channel: Channel; recipient: string } {
   const channel = channelFor(phone, email);
   return { channel, recipient: channel === "email" ? (email ?? "").trim() : phone.trim() };
+}
+
+// ------------------------------------------------------------- chat replies
+
+/**
+ * The confirmations worth holding back a few minutes: the customer is looking
+ * at the confirmation screen, with a button that opens a chat with us. A
+ * waitlist offer or a cancellation is not held — nobody is waiting on a
+ * screen for those, and an offer is against the clock.
+ */
+const HELD_KINDS: MessageKind[] = ["booking_confirmed", "booking_series_confirmed", "class_enrolled"];
+
+/** The platform's WhatsApp number as customers message it, digits only (WHATSAPP_CHAT_NUMBER). */
+export function chatNumber(): string | null {
+  const digits = (process.env.WHATSAPP_CHAT_NUMBER ?? "").replace(/\D/g, "");
+  return digits.length >= 8 ? digits : null;
+}
+
+/**
+ * Whether customers can open the chat and be answered in it: there is a
+ * number to message, Meta's webhook can be checked (WHATSAPP_APP_SECRET), and
+ * something to reply through.
+ */
+export function chatRepliesOn(): boolean {
+  if (!chatNumber() || !process.env.WHATSAPP_APP_SECRET) return false;
+  return override !== null || process.env.MYSENAM_SEND === "log" || whatsappConfig() !== null;
+}
+
+/** Minutes a confirmation waits for the customer to open the chat (MYSENAM_WHATSAPP_CHAT_HOLD_MINUTES, default 3). */
+export function chatHoldMinutes(): number {
+  const n = Number(process.env.MYSENAM_WHATSAPP_CHAT_HOLD_MINUTES ?? 3);
+  return Number.isInteger(n) && n >= 0 && n <= 30 ? n : 3;
 }
 
 /** A booking's hours as they read in a message. */

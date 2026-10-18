@@ -488,6 +488,10 @@ const EN = {
   "addons.more": "One more {name}",
   "guest.notYou": "Not {name}? Clear",
   "done.extras": "Extras",
+  "chat.button": "Send it to my WhatsApp",
+  "done.share": "Share",
+  "chat.note": "From the phone you booked with. Just press send.",
+  "chat.prefill": "Hi! Please send me booking {code}.",
   "done.addonRejected": "Your extras were not added: {reason}",
 
   // Confirmation
@@ -1365,6 +1369,10 @@ const MS: Record<Phrase, string> = {
   "addons.more": "Tambah satu {name}",
   "guest.notYou": "Bukan {name}? Kosongkan",
   "done.extras": "Tambahan",
+  "chat.button": "Hantar ke WhatsApp saya",
+  "done.share": "Kongsi",
+  "chat.note": "Dari telefon yang anda gunakan untuk menempah. Tekan hantar sahaja.",
+  "chat.prefill": "Hai! Sila hantar tempahan {code} kepada saya.",
   "done.addonRejected": "Tambahan anda tidak dimasukkan: {reason}",
 
   // Pengesahan

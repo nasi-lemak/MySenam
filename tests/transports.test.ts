@@ -84,6 +84,7 @@ function message(over: Partial<OutboxMessage> = {}): OutboxMessage {
     createdAt: "",
     nextAttemptAt: "",
     sentAt: null,
+    free: false,
     ...over,
   };
 }
@@ -203,6 +204,20 @@ describe("sending on WhatsApp", () => {
     await expect(whatsappTransport(config).send(message())).rejects.toThrow(
       /WhatsApp refused it \(404\): .*Template name does not exist/
     );
+  });
+
+  it("answers a chat the customer opened with the finished text, not a template", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await whatsappTransport(config).send(message({ free: true, params: null }));
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body).toEqual({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "60123456789",
+      type: "text",
+      text: { body: "Hi Aina, booking ABC has been cancelled.", preview_url: false },
+    });
   });
 
   it("will not guess at a message written before templates", async () => {

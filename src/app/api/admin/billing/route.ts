@@ -6,6 +6,7 @@ import {
   issueDueInvoices,
   listInvoices,
   markInvoicePaid,
+  messageDefaults,
   payInvoiceOnline,
   platformAccount,
   setVenuePlan,
@@ -14,6 +15,8 @@ import {
 } from "@/lib/billing";
 import { isMarketplace } from "@/lib/mode";
 import { applyPaymentHolds } from "@/lib/payment-holds";
+import { monthOf, usageFor } from "@/lib/whatsapp-usage";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +41,25 @@ export async function GET(req: NextRequest) {
       invoices: await listInvoices(),
       plans: await venuePlans(),
       defaultFee: defaultFee(),
+      messageDefaults: messageDefaults(),
       canPayOnline: platformAccount() !== null,
     });
   }
+  // WhatsApp so far this month, for each venue they look after.
+  const ids = admin.venueIds ?? [];
+  const usage = await usageFor(monthOf(), ids);
+  const names = new Map(
+    ids.length === 0
+      ? []
+      : ((await getDb()
+          .prepare(`SELECT id, name FROM venues WHERE id IN (${ids.map(() => "?").join(",")})`)
+          .all(...ids)) as { id: number; name: string }[]).map((v) => [v.id, v.name])
+  );
   return NextResponse.json({
     marketplace: true,
     // A business manager sees every branch's invoices together.
-    invoices: await listInvoices(admin.venueIds ?? []),
+    invoices: await listInvoices(ids),
+    usage: ids.map((id) => ({ ...usage.get(id)!, venueName: names.get(id) ?? "" })).filter((u) => u.venueName),
     canPayOnline: platformAccount() !== null,
   });
 }
@@ -52,7 +67,7 @@ export async function GET(req: NextRequest) {
 /**
  * `{ action: "pay", invoiceId }` — the venue's own staff, or the owner.
  * `{ action: "markPaid" | "void", invoiceId }` and
- * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` — the owner.
+ * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn, whatsappIncluded?, whatsappPrice? }` — the owner.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -99,7 +114,13 @@ export async function POST(req: NextRequest) {
     const fee = input.monthlyFee === null || input.monthlyFee === "" ? null : Number(input.monthlyFee);
     const start =
       input.billingStartsOn === null || input.billingStartsOn === "" ? null : String(input.billingStartsOn);
-    const result = await setVenuePlan(input.venueId as number, { monthlyFee: fee, billingStartsOn: start });
+    const optional = (v: unknown) => (v === undefined ? undefined : v === null || v === "" ? null : Number(v));
+    const result = await setVenuePlan(input.venueId as number, {
+      monthlyFee: fee,
+      billingStartsOn: start,
+      whatsappIncluded: optional(input.whatsappIncluded),
+      whatsappPrice: optional(input.whatsappPrice),
+    });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({ plans: await venuePlans() });
   }

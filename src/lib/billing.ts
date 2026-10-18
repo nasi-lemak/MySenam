@@ -5,6 +5,7 @@ import { baseUrl } from "./outbox";
 import { isMarketplace } from "./mode";
 import { siteName } from "./site";
 import { getVenue } from "./store";
+import { defaultIncluded, defaultMessagePrice, monthBefore, monthOf, usageFor, type Usage } from "./whatsapp-usage";
 
 /**
  * What venues pay to be on the marketplace: one invoice a month — for a
@@ -43,6 +44,19 @@ export interface Invoice {
   paidAt: string | null;
   paidVia: "online" | "manual" | null;
   overdue: boolean;
+  /** WhatsApp messages from the month before, for each venue it covers. */
+  usage: InvoiceUsage[];
+}
+
+export interface InvoiceUsage {
+  venueId: number;
+  venueName: string;
+  /** YYYY-MM the messages were sent in. */
+  month: string;
+  messages: number;
+  included: number;
+  unitPrice: number;
+  amount: number;
 }
 
 interface InvoiceRow {
@@ -65,7 +79,7 @@ function today(now = new Date()): string {
   return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
 }
 
-function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date()): Invoice {
+function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date(), usage: InvoiceUsage[] = []): Invoice {
   return {
     id: r.id,
     venueId: r.venue_id,
@@ -80,6 +94,7 @@ function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date()
     paidAt: r.paid_at,
     paidVia: r.paid_via,
     overdue: r.status === "due" && r.due_on < today(now),
+    usage,
   };
 }
 
@@ -107,7 +122,38 @@ async function withLines(rows: InvoiceRow[], now = new Date()): Promise<Invoice[
         { venueId: l.venue_id, venueName: l.venue_name, amount: l.amount },
       ]);
   }
-  return rows.map((r) => toInvoice(r, lines.get(r.id) ?? [], now));
+  const usage = new Map<number, InvoiceUsage[]>();
+  if (rows.length > 0) {
+    const all = (await getDb()
+      .prepare(
+        `SELECT u.*, v.name AS venue_name FROM invoice_usage u JOIN venues v ON v.id = u.venue_id
+          WHERE u.invoice_id IN (${rows.map(() => "?").join(",")}) ORDER BY v.name`
+      )
+      .all(...rows.map((r) => r.id))) as {
+      invoice_id: number;
+      venue_id: number;
+      venue_name: string;
+      month: string;
+      messages: number;
+      included: number;
+      unit_price: number | string;
+      amount: number | string;
+    }[];
+    for (const u of all)
+      usage.set(u.invoice_id, [
+        ...(usage.get(u.invoice_id) ?? []),
+        {
+          venueId: u.venue_id,
+          venueName: u.venue_name,
+          month: u.month,
+          messages: u.messages,
+          included: u.included,
+          unitPrice: Number(u.unit_price),
+          amount: Number(u.amount),
+        },
+      ]);
+  }
+  return rows.map((r) => toInvoice(r, lines.get(r.id) ?? [], now, usage.get(r.id) ?? []));
 }
 
 /** The marketplace's fee for a venue with none of its own. */
@@ -136,35 +182,70 @@ export interface VenuePlan {
   effectiveFee: number;
   /** Null: not billed. */
   billingStartsOn: string | null;
+  /** WhatsApp messages its fee includes a month, and each one past that: its own, or null for the defaults. */
+  whatsappIncluded: number | null;
+  whatsappPrice: number | null;
+  /** This month so far. */
+  usage: Usage;
 }
 
 export async function venuePlans(): Promise<VenuePlan[]> {
   const fallback = defaultFee();
+  const usage = await usageFor(monthOf());
   return (
     await getDb()
-      .prepare("SELECT id, name, monthly_fee, billing_starts_on FROM venues ORDER BY name")
-      .all() as { id: number; name: string; monthly_fee: number | null; billing_starts_on: string | null }[]
+      .prepare("SELECT id, name, monthly_fee, billing_starts_on, whatsapp_included, whatsapp_price FROM venues ORDER BY name")
+      .all() as {
+      id: number;
+      name: string;
+      monthly_fee: number | null;
+      billing_starts_on: string | null;
+      whatsapp_included: number | null;
+      whatsapp_price: number | string | null;
+    }[]
   ).map((r) => ({
     venueId: r.id,
     venueName: r.name,
     monthlyFee: r.monthly_fee,
     effectiveFee: r.monthly_fee ?? fallback,
     billingStartsOn: r.billing_starts_on,
+    whatsappIncluded: r.whatsapp_included,
+    whatsappPrice: r.whatsapp_price === null ? null : Number(r.whatsapp_price),
+    usage: usage.get(r.id)!,
   }));
+}
+
+/** The marketplace's WhatsApp allowance and rate, for a venue with none of its own. */
+export function messageDefaults(): { included: number; unitPrice: number } {
+  return { included: defaultIncluded(), unitPrice: defaultMessagePrice() };
 }
 
 export async function setVenuePlan(
   venueId: number,
-  plan: { monthlyFee: number | null; billingStartsOn: string | null }
+  plan: {
+    monthlyFee: number | null;
+    billingStartsOn: string | null;
+    /** Left out: unchanged. Null: the marketplace's default. */
+    whatsappIncluded?: number | null;
+    whatsappPrice?: number | null;
+  }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!await getVenue(venueId)) return { ok: false, error: "Venue not found." };
   if (plan.monthlyFee !== null && (!Number.isFinite(plan.monthlyFee) || plan.monthlyFee < 0 || plan.monthlyFee > 100_000))
     return { ok: false, error: "The monthly fee must be RM0–100,000." };
   if (plan.billingStartsOn !== null && !/^\d{4}-\d{2}-\d{2}$/.test(plan.billingStartsOn))
     return { ok: false, error: "Billing starts on a date, YYYY-MM-DD." };
+  const included = plan.whatsappIncluded;
+  if (included !== undefined && included !== null && (!Number.isInteger(included) || included < 0 || included > 1_000_000))
+    return { ok: false, error: "WhatsApp messages included: a whole number, 0 or more." };
+  const price = plan.whatsappPrice;
+  if (price !== undefined && price !== null && (!Number.isFinite(price) || price < 0 || price > 5))
+    return { ok: false, error: "Each extra WhatsApp message: RM0–5." };
   await getDb()
     .prepare("UPDATE venues SET monthly_fee = ?, billing_starts_on = ? WHERE id = ?")
     .run(plan.monthlyFee, plan.billingStartsOn, venueId);
+  if (included !== undefined) await getDb().prepare("UPDATE venues SET whatsapp_included = ? WHERE id = ?").run(included, venueId);
+  if (price !== undefined) await getDb().prepare("UPDATE venues SET whatsapp_price = ? WHERE id = ?").run(price, venueId);
   return { ok: true };
 }
 
@@ -201,14 +282,40 @@ export async function issueDueInvoices(now = new Date()): Promise<Invoice[]> {
     // cannot both bill the same branch.
     const owing = (await db
       .prepare(`
-        SELECT id, business_id, COALESCE(monthly_fee, ?) AS fee FROM venues
+        SELECT id, business_id, COALESCE(monthly_fee, ?) AS fee, billing_starts_on FROM venues
          WHERE billing_starts_on IS NOT NULL AND billing_starts_on <= ?
            AND COALESCE(monthly_fee, ?) > 0
            AND id NOT IN (SELECT venue_id FROM venue_invoices WHERE period = ? AND venue_id IS NOT NULL)
            AND id NOT IN (SELECT venue_id FROM invoice_lines WHERE period = ?)
          ORDER BY id
       `)
-      .all(fallback, firstOfMonth, fallback, period, period)) as { id: number; business_id: number | null; fee: number }[];
+      .all(fallback, firstOfMonth, fallback, period, period)) as {
+      id: number;
+      business_id: number | null;
+      fee: number | string;
+      billing_starts_on: string;
+    }[];
+
+    // Last month's WhatsApp messages go on this month's invoice — counted only
+    // for a month the venue was billed for, so its free months stay free.
+    const lastMonth = monthBefore(period);
+    const usage = await usageFor(
+      lastMonth,
+      owing.filter((v) => v.billing_starts_on <= `${lastMonth}-01`).map((v) => v.id)
+    );
+    const charged = async (invoiceId: number, venueId: number): Promise<number> => {
+      const u = usage.get(venueId);
+      if (!u || u.paid + u.free === 0) return 0;
+      const info = await db
+        .prepare(
+          `INSERT INTO invoice_usage (invoice_id, venue_id, month, messages, included, unit_price, amount)
+           VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (venue_id, month) DO NOTHING`
+        )
+        .run(invoiceId, venueId, u.month, u.paid, u.included, u.unitPrice, u.amount);
+      if (info.changes === 0 || u.amount === 0) return 0;
+      await db.prepare("UPDATE venue_invoices SET amount = amount + ? WHERE id = ?").run(u.amount, invoiceId);
+      return u.amount;
+    };
 
     for (const v of owing) {
       if (v.business_id === null) {
@@ -219,7 +326,10 @@ export async function issueDueInvoices(now = new Date()): Promise<Invoice[]> {
              ON CONFLICT (venue_id, period) DO NOTHING`
           )
           .run(v.id, period, v.fee, date, due);
-        if (info.changes === 1) issued.add(info.lastInsertRowid as number);
+        if (info.changes === 1) {
+          issued.add(info.lastInsertRowid as number);
+          await charged(info.lastInsertRowid as number, v.id);
+        }
         continue;
       }
       // A branch: a line on its business's invoice for the month, made by the
@@ -241,12 +351,17 @@ export async function issueDueInvoices(now = new Date()): Promise<Invoice[]> {
           .prepare("INSERT INTO venue_invoices (venue_id, period, amount, issued_on, due_on) VALUES (?, ?, ?, ?, ?)")
           .run(v.id, period, v.fee, date, due);
         issued.add(info.lastInsertRowid as number);
+        await charged(info.lastInsertRowid as number, v.id);
         continue;
       }
       await db
         .prepare("INSERT INTO invoice_lines (invoice_id, venue_id, period, amount) VALUES (?, ?, ?, ?)")
         .run(invoice.id, v.id, period, v.fee);
       await db.prepare("UPDATE venue_invoices SET amount = amount + ? WHERE id = ?").run(v.fee, invoice.id);
+      // The branch's line carries its own messages too, so the lines add up to the total.
+      const extra = await charged(invoice.id, v.id);
+      if (extra > 0)
+        await db.prepare("UPDATE invoice_lines SET amount = amount + ? WHERE invoice_id = ? AND venue_id = ?").run(extra, invoice.id, v.id);
       issued.add(invoice.id);
     }
   })();

@@ -109,22 +109,19 @@ export function whatsappTransport(config: WhatsAppConfig): Transport {
   return {
     name: "whatsapp",
     async send(message: OutboxMessage) {
+      // A reply in a chat the customer opened goes as plain text, which is free;
+      // anything else has to be one of Meta's approved templates.
+      if (message.free) return await post(config, {
+        to: toWhatsAppNumber(message.recipient),
+        type: "text",
+        text: { body: message.body, preview_url: false },
+      });
       if (!message.params)
         throw new Error(
           "This message was written before WhatsApp templates were in use. Retry it to send it again."
         );
       const { name, language, params } = templateText(message.kind, message.locale);
-      const res = await fetch(
-        `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
+      await post(config, {
             to: toWhatsAppNumber(message.recipient),
             type: "template",
             template: {
@@ -140,19 +137,29 @@ export function whatsappTransport(config: WhatsAppConfig): Transport {
                 },
               ],
             },
-          }),
-          signal: AbortSignal.timeout(15_000),
-        }
-      );
-      if (!res.ok) {
-        const detail = (await res.json().catch(() => null)) as {
-          error?: { message?: string; error_data?: { details?: string } };
-        } | null;
-        const why = detail?.error?.error_data?.details || detail?.error?.message || res.statusText;
-        throw new Error(`WhatsApp refused it (${res.status}): ${why}`);
-      }
+      });
     },
   };
+}
+
+/** One message to Meta's Cloud API; throws with Meta's reason when it is refused. */
+async function post(config: WhatsAppConfig, message: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...message }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as {
+      error?: { message?: string; error_data?: { details?: string } };
+    } | null;
+    const why = detail?.error?.error_data?.details || detail?.error?.message || res.statusText;
+    throw new Error(`WhatsApp refused it (${res.status}): ${why}`);
+  }
 }
 
 // --------------------------------------------------------------------- email
