@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getCourt, getVenueIdForBookingCode, moveBooking, moveTargetsFor } from "@/lib/store";
 
+import { notifyMoved, tickOutbox } from "@/lib/notify";
+
 export const dynamic = "force-dynamic";
 
 /** Courts this booking could move to, for the staff picker. */
@@ -51,6 +53,8 @@ export async function POST(req: NextRequest) {
 
   const result = await moveBooking(code, courtId as number);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await notifyMoved(result.booking);
+  await tickOutbox();
   return NextResponse.json({
     booking: result.booking,
     from: result.fromCourt.name,

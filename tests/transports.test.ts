@@ -87,6 +87,9 @@ function message(over: Partial<OutboxMessage> = {}): OutboxMessage {
     sentAt: null,
     free: false,
     calendar: null,
+    deliveredAt: null,
+    readAt: null,
+    deliveryError: null,
     ...over,
   };
 }
@@ -95,7 +98,7 @@ describe("the templates Meta is asked to approve", () => {
   for (const kind of KINDS) {
     for (const locale of LOCALES) {
       it(`${kind} (${locale}) is one Meta will accept`, () => {
-        const phrase = DICTIONARIES[locale][TEMPLATE_PHRASES[kind]];
+        const phrase = DICTIONARIES[locale][TEMPLATE_PHRASES[kind]!];
         const t = templateText(kind, locale);
         // Neither starts nor ends on a parameter: Meta rejects a dangling one.
         expect(t.body.trimStart()).not.toMatch(/^\{\{/);

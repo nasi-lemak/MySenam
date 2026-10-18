@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { notifyBookingCancelled, tickOutbox } from "./notify";
+import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { adminCancelBooking, cancelClassSession } from "./store";
 import { addDays, isValidDateString, todayISO } from "./time";
 
@@ -166,15 +166,13 @@ export async function createOutage(input: {
   let cancelled = 0;
   for (const a of affected) {
     if (a.kind === "class") {
-      if ((await cancelClassSession(Number(a.ref))).ok) cancelled++;
+      if ((await cancelClassAndTell(Number(a.ref))).ok) cancelled++;
       continue;
     }
     const done = await adminCancelBooking(a.ref);
     if (!done.ok) continue;
     cancelled++;
-    // Bookings do not keep the language they were made in; English, as a
-    // staff cancellation's notice would be.
-    await notifyBookingCancelled(done.booking, "en");
+    await notifyVenueCancelled(done.booking);
   }
   if (cancelled > 0) await tickOutbox();
 

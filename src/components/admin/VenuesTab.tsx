@@ -348,14 +348,25 @@ function ClosuresRow({
     onError(null);
     onNotice(null);
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-      const data = await res.json();
+      let data = await res.json();
+      // A day with bookings on it: only with a yes, and then they are told.
+      if (res.status === 409 && typeof data.bookings === "number") {
+        if (!window.confirm(`${data.error}\n\nCancel them now? Each customer is sent the news, and you can see who has seen it under Bookings → Needs attention.`))
+          return;
+        res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...(body as object), cancelAffected: true }),
+        });
+        data = await res.json();
+      }
       if (!res.ok) throw new Error(data.error ?? "Request failed");
-      if (okMessage) onNotice(okMessage);
+      if (okMessage) onNotice(data.cancelled ? `${okMessage} ${data.cancelled} cancelled and told.` : okMessage);
       await load();
     } catch (err) {
       onError(err instanceof Error ? err.message : "Request failed");

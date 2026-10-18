@@ -104,7 +104,8 @@ describe("a court out of service", () => {
     const told = await getDb()
       .prepare("SELECT kind FROM messages WHERE booking_id = ?")
       .all(booked.booking.id) as { kind: string }[];
-    expect(told.map((m) => m.kind)).toContain("booking_cancelled");
+    // Told it was the venue, with a link to say they have seen it.
+    expect(told.map((m) => m.kind)).toContain("booking_cancelled_by_venue");
   });
 
   it("cancels a class in the stretch too, when told to", async () => {

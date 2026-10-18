@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { answerChat } from "@/lib/whatsapp-chat";
+import { recordDelivery } from "@/lib/outbox";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,14 @@ function signedBy(secret: string, raw: string, header: string | null): boolean {
 }
 
 interface Delivery {
-  entry?: { changes?: { value?: { messages?: { from?: string; type?: string; text?: { body?: string } }[] } }[] }[];
+  entry?: {
+    changes?: {
+      value?: {
+        messages?: { from?: string; type?: string; text?: { body?: string } }[];
+        statuses?: { id?: string; status?: string; timestamp?: string; errors?: { title?: string; message?: string }[] }[];
+      };
+    }[];
+  }[];
 }
 
 export async function POST(req: NextRequest) {
@@ -49,8 +57,15 @@ export async function POST(req: NextRequest) {
   // Answered here and now; Meta is told it arrived whatever happens, or it
   // sends the same message again and again.
   let answered = 0;
+  let reports = 0;
   for (const entry of delivery.entry ?? [])
-    for (const change of entry.changes ?? [])
+    for (const change of entry.changes ?? []) {
+      // Delivered, read, or failed after all, for what we sent.
+      for (const st of change.value?.statuses ?? []) {
+        if (!st.id || !st.status) continue;
+        const error = st.errors?.[0] ? st.errors[0].message || st.errors[0].title : undefined;
+        if (await recordDelivery({ id: st.id, status: st.status, timestamp: st.timestamp, error })) reports++;
+      }
       for (const m of change.value?.messages ?? []) {
         if (m.type !== "text" || !m.from || !m.text?.body) continue;
         try {
@@ -59,5 +74,6 @@ export async function POST(req: NextRequest) {
           console.error("[mysenam] answering a WhatsApp chat failed:", err);
         }
       }
-  return NextResponse.json({ ok: true, answered });
+    }
+  return NextResponse.json({ ok: true, answered, reports });
 }

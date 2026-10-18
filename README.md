@@ -1590,6 +1590,43 @@ on a message arriving. Messages are the copy they keep:
 - Messages wait in the queue until a channel is configured, and the
   dashboard says so.
 
+**What is sent, and when.** Each message is written the moment the thing
+happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
+
+| When | Message | Channels |
+|---|---|---|
+| A booking, a weekly series or a class place is made | Confirmation, with a calendar invite | email; WhatsApp if on |
+| The customer cancels | Cancelled | email; WhatsApp if on |
+| The venue cancels — at the desk, by closing the day, by taking the court out of service, or by calling off the class | **Cancelled by the venue**, with a *seen it* link (urgent) | email; WhatsApp if on |
+| The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp if on |
+| A waitlist place frees up | Offer, with a link to claim it | email; WhatsApp if on |
+| The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only if the venue ticks *Day-before reminders on WhatsApp too* |
+| A booking is paid later — online, or marked paid at the counter | Receipt | email only |
+
+Closing a day that has bookings or classes on it is refused until staff say
+to cancel them; then each customer is told, as above. Messages are written in
+the language the customer booked in.
+
+### Urgent news, and knowing it arrived
+
+A cancellation or a move by the venue is something a customer must not miss —
+otherwise they turn up to a court that is not theirs. Each one opens a notice
+that stays on **Bookings → Needs attention** until somebody knows the customer
+has it:
+
+- The message carries a link; the customer taps *I have seen this* on the
+  page it opens (opening the link alone does not count, since email scanners
+  open links by themselves), and the notice closes.
+- Until then the desk sees how far it got: *waiting to send*, *sent* (email
+  accepted by the mail server), *delivered to phone* and *read* (WhatsApp
+  reports both back through the webhook), *failed*, or *no email or
+  WhatsApp — call them*, with the number to ring. Soonest booking first.
+- *I have told them* closes it once staff have rung or spoken to them. Closed
+  notices stay visible for a week.
+
+The message list under *Venues & staff* shows the same delivered, read and
+not-delivered states for every WhatsApp message.
+
 Numbers are sent the way WhatsApp wants them, whatever was typed:
 `012-345 6789` becomes `60123456789`.
 
@@ -1643,7 +1680,9 @@ send.
 
 To switch it on, in the Meta app: *WhatsApp → Configuration → Webhook*, set
 the callback URL to `<MYSENAM_URL>/api/whatsapp/webhook` and the verify token
-to `WHATSAPP_VERIFY_TOKEN`, then subscribe to the `messages` field. The app
+to `WHATSAPP_VERIFY_TOKEN`, then subscribe to the `messages` field. The same
+subscription carries Meta's delivered, read and failed reports, which is what
+lets staff see whether urgent news reached a phone. The app
 secret is under *App settings → Basic*. A delivery without a valid signature
 is refused.
 
@@ -1791,6 +1830,82 @@ Kod: {{4}}
 Jumlah: {{7}}
 
 Tunjukkan kod ini di kaunter hadapan.
+```
+
+#### `mysenam_booking_cancelled_by_venue`
+
+English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+Hi {{1}}, we are sorry: {{2}} has had to cancel booking {{3}}.
+
+{{4}}
+{{5}}
+{{6}}
+
+Please tap {{7}} to let them know you have seen this.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+Hai {{1}}, kami memohon maaf: {{2}} terpaksa membatalkan tempahan {{3}}.
+
+{{4}}
+{{5}}
+{{6}}
+
+Sila tekan {{7}} untuk memberitahu mereka anda telah melihat mesej ini.
+```
+
+#### `mysenam_booking_moved`
+
+English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} ack
+
+```text
+Hi {{1}}, {{2}} has moved booking {{3}} to another court.
+
+Now: {{4}}
+{{5}}
+
+Same time, same price. Please tap {{6}} to let them know you have seen this.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} ack
+
+```text
+Hai {{1}}, {{2}} telah memindahkan tempahan {{3}} ke gelanggang lain.
+
+Kini: {{4}}
+{{5}}
+
+Masa dan harga yang sama. Sila tekan {{6}} untuk memberitahu mereka anda telah melihat mesej ini.
+```
+
+#### `mysenam_booking_reminder`
+
+English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
+
+```text
+Hi {{1}}, a reminder of your booking.
+
+Code: {{2}}
+{{3}}
+{{4}}
+
+Cannot make it? Cancel at {{5}} so somebody else can play.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
+
+```text
+Hai {{1}}, peringatan tentang tempahan anda.
+
+Kod: {{2}}
+{{3}}
+{{4}}
+
+Tidak dapat hadir? Batalkan di {{5}} supaya orang lain boleh bermain.
 ```
 
 ## Payments

@@ -24,12 +24,15 @@ import type { MessageKind, OutboxMessage, Transport } from "./outbox";
  * channels: change a phrase and the README's copy of its template, which is
  * what gets resubmitted to Meta, fails a test until it is brought up to date.
  */
-export const TEMPLATE_PHRASES: Record<MessageKind, Phrase> = {
+export const TEMPLATE_PHRASES: Partial<Record<MessageKind, Phrase>> = {
   booking_confirmed: "msg.confirmed",
   booking_series_confirmed: "msg.series",
   booking_cancelled: "msg.cancelled",
   waitlist_offer: "msg.offer",
   class_enrolled: "msg.enrolled",
+  booking_cancelled_by_venue: "msg.venueCancelled",
+  booking_moved: "msg.moved",
+  booking_reminder: "msg.reminder",
 };
 
 /** The language codes Meta files a template's translations under. */
@@ -49,7 +52,9 @@ export function templateText(kind: MessageKind, locale: Locale): {
   body: string;
   params: string[];
 } {
-  const phrase = DICTIONARIES[locale][TEMPLATE_PHRASES[kind]];
+  const key = TEMPLATE_PHRASES[kind];
+  if (!key) throw new Error(`A ${kind.replace(/_/g, " ")} message goes by email only.`);
+  const phrase = DICTIONARIES[locale][key];
   const params = placeholders(phrase);
   const body = phrase.replace(/\{(\w+)\}/g, (_, key: string) => `{{${params.indexOf(key) + 1}}}`);
   return { name: templateName(kind), language: WHATSAPP_LANGUAGE[locale], body, params };
@@ -121,7 +126,7 @@ export function whatsappTransport(config: WhatsAppConfig): Transport {
           "This message was written before WhatsApp templates were in use. Retry it to send it again."
         );
       const { name, language, params } = templateText(message.kind, message.locale);
-      await post(config, {
+      return await post(config, {
             to: toWhatsAppNumber(message.recipient),
             type: "template",
             template: {
@@ -143,7 +148,7 @@ export function whatsappTransport(config: WhatsAppConfig): Transport {
 }
 
 /** One message to Meta's Cloud API; throws with Meta's reason when it is refused. */
-async function post(config: WhatsAppConfig, message: Record<string, unknown>): Promise<void> {
+async function post(config: WhatsAppConfig, message: Record<string, unknown>): Promise<{ providerId?: string }> {
   const res = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {
     method: "POST",
     headers: {
@@ -160,6 +165,9 @@ async function post(config: WhatsAppConfig, message: Record<string, unknown>): P
     const why = detail?.error?.error_data?.details || detail?.error?.message || res.statusText;
     throw new Error(`WhatsApp refused it (${res.status}): ${why}`);
   }
+  // Meta's id for the message, which its delivery reports quote.
+  const sent = (await res.json().catch(() => null)) as { messages?: { id?: string }[] } | null;
+  return { providerId: sent?.messages?.[0]?.id };
 }
 
 // --------------------------------------------------------------------- email

@@ -59,6 +59,16 @@ export async function whatsappOn(venueId: number): Promise<boolean> {
   return row?.whatsapp_on === 1;
 }
 
+/** Day-before reminders on WhatsApp as well as email: each costs a message, so the venue chooses. */
+export async function whatsappReminders(venueId: number): Promise<boolean> {
+  const row = (await getDb().prepare("SELECT whatsapp_reminders FROM venues WHERE id = ?").get(venueId)) as { whatsapp_reminders: number } | undefined;
+  return row?.whatsapp_reminders === 1;
+}
+
+export async function setWhatsappReminders(venueId: number, on: boolean): Promise<void> {
+  await getDb().prepare("UPDATE venues SET whatsapp_reminders = ? WHERE id = ?").run(on ? 1 : 0, venueId);
+}
+
 export async function setWhatsappOn(venueId: number, on: boolean): Promise<void> {
   await getDb().prepare("UPDATE venues SET whatsapp_on = ? WHERE id = ?").run(on ? 1 : 0, venueId);
 }

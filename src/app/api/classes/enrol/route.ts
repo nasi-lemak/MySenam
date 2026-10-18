@@ -8,7 +8,7 @@ import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
-import { notifyClassEnrolled, tickOutbox } from "@/lib/notify";
+import { notifyClassEnrolled, rememberLocale, tickOutbox } from "@/lib/notify";
 import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
@@ -100,8 +100,9 @@ export async function POST(req: NextRequest) {
   }
 
   const session = await getClass(classId as number);
-  if (session)
-    await notifyClassEnrolled(result.booking, await currentLocale(), session);
+  const locale = await currentLocale();
+  await rememberLocale([result.booking.id], locale);
+  if (session) await notifyClassEnrolled(result.booking, locale, session);
   await tickOutbox();
 
   return NextResponse.json({

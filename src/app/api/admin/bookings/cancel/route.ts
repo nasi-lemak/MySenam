@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { adminCancelBooking, getVenueIdForBookingCode } from "@/lib/store";
+import { notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -25,5 +26,8 @@ export async function POST(req: NextRequest) {
 
   const result = await adminCancelBooking(code);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
-  return NextResponse.json({ booking: result.booking });
+  // The customer is told, and the desk sees until they have seen it.
+  const notice = await notifyVenueCancelled(result.booking);
+  await tickOutbox();
+  return NextResponse.json({ booking: result.booking, noticeId: notice });
 }

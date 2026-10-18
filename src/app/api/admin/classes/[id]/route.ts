@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import {
-  cancelClassSession,
   getClass,
   getClassRoster,
   listClassWaitlist,
 } from "@/lib/store";
+
+import { cancelClassAndTell, tickOutbox } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { error, session } = await resolve(req, params);
   if (error) return error;
 
-  const result = await cancelClassSession(session.id);
+  const result = await cancelClassAndTell(session.id);
+  await tickOutbox();
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ released: result.released });
 }

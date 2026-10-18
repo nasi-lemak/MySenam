@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canAccessVenue, denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { notifyPaid, notifyPaidSeries } from "@/lib/notify";
 import {
   getVenueIdForBookingCode,
   getVenueIdsForSeriesCode,
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
 
     const result = await paySeries(seriesCode);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+    await notifyPaidSeries(seriesCode, "counter");
     return NextResponse.json({ paid: result.paid });
   }
 
@@ -45,5 +47,6 @@ export async function POST(req: NextRequest) {
 
   const result = await setPaymentStatus(code, paid);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (paid) await notifyPaid([result.booking], "counter");
   return NextResponse.json({ booking: result.booking });
 }

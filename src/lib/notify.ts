@@ -1,6 +1,6 @@
 import { hasBeenLive } from "./listing";
 import { getDb } from "./db";
-import { getCourt, getVenue } from "./store";
+import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue } from "./store";
 import { Booking } from "./types";
 import { isLocale, Locale, translator } from "./i18n";
 import { drainOutbox, enqueue, hourRange } from "./outbox";
@@ -8,6 +8,7 @@ import type { Channel, Compose } from "./outbox";
 import { icsCalendar } from "./booking-links";
 import { siteName } from "./site";
 import { whatsappReady } from "./whatsapp-credit";
+import { createNotice } from "./urgent";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
@@ -38,12 +39,15 @@ import type { DrainResult, OutboxMessage } from "./outbox";
  */
 async function deliver(
   person: { phone: string; email?: string | null },
-  message: Omit<Compose, "channel" | "recipient">
+  message: Omit<Compose, "channel" | "recipient">,
+  /** False: by email only — a receipt, or a reminder the venue keeps off WhatsApp. */
+  whatsapp = true
 ) {
   const to: { channel: Channel; recipient: string }[] = [];
   const email = person.email?.trim();
   if (email) to.push({ channel: "email", recipient: email });
-  if (person.phone.trim() && (await whatsappReady(message.venueId))) to.push({ channel: "whatsapp", recipient: person.phone.trim() });
+  if (whatsapp && person.phone.trim() && (await whatsappReady(message.venueId)))
+    to.push({ channel: "whatsapp", recipient: person.phone.trim() });
   let first = null;
   for (const [i, address] of to.entries()) {
     const written = await enqueue({
@@ -300,6 +304,7 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
  */
 export async function tickOutbox(): Promise<DrainResult> {
   await notifyPendingOffers();
+  await notifyReminders();
   return await drainOutbox();
 }
 
@@ -337,4 +342,231 @@ async function totalLine(locale: Locale, amount: number, paid: boolean, venueId:
 /** "Nurul Hana" → "Nurul". A message is not a form. */
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name.trim();
+}
+
+// ------------------------------------------------------------- from the venue
+
+/** The language a booking was made in, or English for one made before that was kept. */
+async function localeOf(bookingId: number): Promise<Locale> {
+  const row = (await getDb().prepare("SELECT locale FROM bookings WHERE id = ?").get(bookingId)) as { locale: string | null } | undefined;
+  return row?.locale && isLocale(row.locale) ? row.locale : "en";
+}
+
+/** Remember the language a booking was made in, for what the venue tells them later. */
+export async function rememberLocale(bookingIds: number[], locale: Locale): Promise<void> {
+  if (bookingIds.length === 0) return;
+  await getDb()
+    .prepare(`UPDATE bookings SET locale = ? WHERE id IN (${bookingIds.map(() => "?").join(",")})`)
+    .run(locale, ...bookingIds);
+}
+
+/**
+ * The venue cancelled a booking — at the desk, by closing the day, by taking
+ * the court out of service, or by calling off the class. The customer is told
+ * on everything that reaches them, with a link to say they have seen it, and
+ * the notice stays on the staff's list until they have (lib/urgent.ts). With
+ * nothing to reach them on, the notice is there all the same, for a call.
+ */
+export async function notifyVenueCancelled(booking: Booking, what?: string): Promise<number | null> {
+  const court = await getCourt(booking.courtId);
+  if (!court) return null;
+  const venue = await getVenue(court.venueId);
+  if (!venue || !hasBeenLive(venue)) return null;
+  const locale = await localeOf(booking.id);
+  const t = translator(locale);
+  const place = what ? `${what} (${court.name})` : court.name;
+  const { where, when } = slot(locale, place, venue.name, booking);
+  const notice = await createNotice({
+    venueId: venue.id,
+    bookingId: booking.id,
+    kind: "cancelled",
+    name: booking.name,
+    phone: booking.phone,
+    email: booking.email ?? null,
+    date: booking.date,
+    startHour: booking.startHour,
+    summary: `${venue.name} cancelled booking ${booking.code}: ${where}, ${when}.`,
+  });
+  await deliver(booking, {
+    bookingId: booking.id,
+    venueId: venue.id,
+    kind: "booking_cancelled_by_venue",
+    locale,
+    subject: "msg.venueCancelledSubject",
+    body: "msg.venueCancelled",
+    dedupeKey: `vcancelled:${booking.code}`,
+    noticeId: notice.id,
+    vars: {
+      name: firstName(booking.name),
+      venue: venue.name,
+      code: booking.code,
+      where,
+      when,
+      money: t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed"),
+      ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
+    },
+  });
+  return notice.id;
+}
+
+/** The venue moved a booking to another court: same time, same price. */
+export async function notifyMoved(booking: Booking): Promise<number | null> {
+  const court = await getCourt(booking.courtId);
+  if (!court) return null;
+  const venue = await getVenue(court.venueId);
+  if (!venue || !hasBeenLive(venue)) return null;
+  const locale = await localeOf(booking.id);
+  const { where, when } = slot(locale, court.name, venue.name, booking);
+  const notice = await createNotice({
+    venueId: venue.id,
+    bookingId: booking.id,
+    kind: "moved",
+    name: booking.name,
+    phone: booking.phone,
+    email: booking.email ?? null,
+    date: booking.date,
+    startHour: booking.startHour,
+    summary: `${venue.name} moved booking ${booking.code} to ${where}, ${when}.`,
+  });
+  await deliver(booking, {
+    bookingId: booking.id,
+    venueId: venue.id,
+    kind: "booking_moved",
+    locale,
+    subject: "msg.movedSubject",
+    body: "msg.moved",
+    // Moved twice is told twice.
+    dedupeKey: `moved:${booking.code}:${notice.id}`,
+    noticeId: notice.id,
+    calendar: calendarFor([booking], court.name, venue),
+    vars: {
+      name: firstName(booking.name),
+      venue: venue.name,
+      code: booking.code,
+      where,
+      when,
+      ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
+    },
+  });
+  return notice.id;
+}
+
+/**
+ * A receipt, by email, when a booking is paid after it was made — online
+ * later, or at the counter. One paid as it was booked (credit, a pass) says
+ * so in its confirmation already.
+ */
+export async function notifyPaid(bookings: Booking[], how: "online" | "counter"): Promise<void> {
+  for (const booking of bookings) {
+    if (!booking.email || booking.totalPrice <= 0) continue;
+    const court = await getCourt(booking.courtId);
+    if (!court) continue;
+    const venue = await getVenue(court.venueId);
+    if (!venue || !hasBeenLive(venue)) continue;
+    const locale = await localeOf(booking.id);
+    await deliver(
+      booking,
+      {
+        bookingId: booking.id,
+        venueId: venue.id,
+        kind: "payment_received",
+        locale,
+        subject: "msg.receiptSubject",
+        body: "msg.receipt",
+        dedupeKey: `paid:${booking.code}`,
+        vars: {
+          name: firstName(booking.name),
+          venue: venue.name,
+          code: booking.code,
+          amount: booking.totalPrice,
+          how: translator(locale)(how === "online" ? "msg.howOnline" : "msg.howCounter"),
+          ...slot(locale, court.name, venue.name, booking),
+        },
+      },
+      false
+    );
+  }
+}
+
+/** The start of a booking, Malaysia time, as a moment. */
+function startsAt(date: string, hour: number): number {
+  const [y, m, d] = date.split("-").map(Number);
+  return Date.UTC(y, m - 1, d, hour - 8);
+}
+
+/**
+ * The day before: a reminder for every booking starting within the next 24
+ * hours that was made longer ago than that — somebody who booked this
+ * afternoon for tonight does not need reminding. By email always; on WhatsApp
+ * too only where the venue has chosen it, since each one costs a message.
+ * Once per booking, however often this runs.
+ */
+export async function notifyReminders(now = new Date()): Promise<number> {
+  const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const tomorrow = new Date(now.getTime() + 32 * 3_600_000).toISOString().slice(0, 10);
+  const rows = (await getDb()
+    .prepare(
+      `SELECT b.*, v.whatsapp_reminders FROM bookings b
+         JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE b.status = 'confirmed' AND b.demo = 0 AND b.date IN (?, ?)
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'reminder:' || b.code)`
+    )
+    .all(today, tomorrow)) as (Record<string, unknown> & { whatsapp_reminders: number })[];
+  let written = 0;
+  for (const r of rows) {
+    const start = startsAt(r.date as string, r.start_hour as number);
+    const made = Date.parse(`${(r.created_at as string).replace(" ", "T")}Z`);
+    if (start <= now.getTime() || start - now.getTime() > 24 * 3_600_000) continue;
+    if (start - made < 24 * 3_600_000) continue;
+    const court = await getCourt(r.court_id as number);
+    if (!court) continue;
+    const venue = await getVenue(court.venueId);
+    if (!venue || !hasBeenLive(venue)) continue;
+    const locale = r.locale && isLocale(r.locale as string) ? (r.locale as Locale) : "en";
+    const booking = { phone: r.phone as string, email: r.email as string | null };
+    const message = await deliver(
+      booking,
+      {
+        bookingId: r.id as number,
+        venueId: venue.id,
+        kind: "booking_reminder",
+        locale,
+        subject: "msg.reminderSubject",
+        body: "msg.reminder",
+        dedupeKey: `reminder:${r.code as string}`,
+        vars: {
+          name: firstName(r.name as string),
+          code: r.code as string,
+          ...slot(locale, court.name, venue.name, { date: r.date as string, startHour: r.start_hour as number, endHour: r.end_hour as number }),
+          link: `${await venueBaseUrl(venue.id)}/my-booking`,
+        },
+      },
+      r.whatsapp_reminders === 1
+    );
+    if (message) written++;
+  }
+  return written;
+}
+
+/** Call off a class and tell everybody enrolled in it, as a venue cancellation each. */
+export async function cancelClassAndTell(classId: number): Promise<{ ok: boolean; released: number; error?: string }> {
+  const session = await getClass(classId);
+  const enrolled = (await getClassRoster(classId)).filter((b) => b.status === "confirmed");
+  const result = await cancelClassSession(classId);
+  if (!result.ok || !session) return result;
+  for (const b of enrolled) await notifyVenueCancelled({ ...b, status: "cancelled" }, session.name);
+  return result;
+}
+
+/** Receipts for every week of a series just marked paid at the counter. */
+export async function notifyPaidSeries(seriesCode: string, how: "online" | "counter"): Promise<void> {
+  const rows = (await getDb()
+    .prepare("SELECT code, phone FROM bookings WHERE UPPER(series_code) = UPPER(?) AND status = 'confirmed' AND payment_status = 'paid'")
+    .all(seriesCode.trim())) as { code: string; phone: string }[];
+  const bookings: Booking[] = [];
+  for (const r of rows) {
+    const b = await findBooking(r.code, r.phone);
+    if (b) bookings.push(b);
+  }
+  await notifyPaid(bookings, how);
 }

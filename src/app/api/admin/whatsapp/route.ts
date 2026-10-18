@@ -13,6 +13,8 @@ import {
   packSize,
   payPackOnline,
   setWhatsappOn,
+  setWhatsappReminders,
+  whatsappReminders,
   settlePack,
   voidPack,
   whatsappAvailable,
@@ -25,6 +27,7 @@ export const dynamic = "force-dynamic";
 async function state(venueId: number) {
   return {
     on: await whatsappOn(venueId),
+    reminders: await whatsappReminders(venueId),
     available: whatsappAvailable(),
     prepaid: creditsApply(),
     balance: await creditBalance(venueId),
@@ -69,6 +72,10 @@ export async function POST(req: NextRequest) {
 
   if (b.action === "on" || b.action === "off") {
     await setWhatsappOn(venueId, b.action === "on");
+    return NextResponse.json(await state(venueId));
+  }
+  if (b.action === "remindersOn" || b.action === "remindersOff") {
+    await setWhatsappReminders(venueId, b.action === "remindersOn");
     return NextResponse.json(await state(venueId));
   }
   if (b.action === "buy") {

@@ -188,9 +188,18 @@ export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
                         STATUS_STYLES[m.status] ?? "bg-slate-100 text-slate-600"
                       }`}
                     >
-                      {m.status}
+                      {m.status === "sent" && m.channel === "whatsapp"
+                        ? m.readAt
+                          ? "read"
+                          : m.deliveredAt
+                            ? "delivered"
+                            : m.deliveryError
+                              ? "not delivered"
+                              : "sent"
+                        : m.status}
                       {m.attempts > 0 && m.status !== "sent" && ` · ${m.attempts} tries`}
                     </span>
+                    {m.deliveryError && <div className="mt-1 text-xs text-red-600">{m.deliveryError}</div>}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {m.status !== "sent" &&

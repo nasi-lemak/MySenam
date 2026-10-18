@@ -6,6 +6,7 @@ import type { Usage } from "@/lib/whatsapp-usage";
 
 interface State {
   on: boolean;
+  reminders: boolean;
   available: boolean;
   prepaid: boolean;
   balance: number;
@@ -91,6 +92,17 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                 <span className={`text-xs ${s.balance === 0 && s.on ? "font-semibold text-amber-700" : "text-slate-600"}`}>
                   {s.balance} messages left{s.balance === 0 && s.on ? " — nothing goes on WhatsApp until you buy more" : ""}
                 </span>
+              )}
+              {s.on && (
+                <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={s.reminders}
+                    disabled={busy}
+                    onChange={(e) => act({ action: e.target.checked ? "remindersOn" : "remindersOff" })}
+                  />
+                  Day-before reminders on WhatsApp too (one message each; email reminders always go)
+                </label>
               )}
               <span className="text-xs text-slate-500">
                 This month: {s.usage.paid} sent{s.usage.free > 0 ? `, ${s.usage.free} as replies in chats customers opened` : ""}

@@ -9,6 +9,7 @@ import { formatHour } from "./time";
 import { Booking } from "./types";
 import { platformAccount, settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
+import { notifyPaid } from "./notify";
 import { venueBaseUrl } from "./storefront";
 
 /**
@@ -507,6 +508,8 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
     const b = await bookingById(id);
     if (b) bookings.push(b);
   }
+  // A receipt, by email, for what was just paid.
+  await notifyPaid(bookings, "online");
   return { payment: await toPayment(fresh), newlyPaid: bookings };
 }
 

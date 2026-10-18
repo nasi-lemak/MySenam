@@ -489,6 +489,10 @@ const EN = {
   "guest.notYou": "Not {name}? Clear",
   "done.extras": "Extras",
   "chat.button": "Send it to my WhatsApp",
+  "ack.title": "News from the venue",
+  "ack.button": "I have seen this",
+  "ack.done": "Thank you. The venue knows you have seen it.",
+  "ack.unknown": "This link is not one we know.",
   "done.share": "Share",
   "chat.note": "From the phone you booked with. Just press send.",
   "chat.prefill": "Hi! Please send me booking {code}.",
@@ -809,6 +813,22 @@ const EN = {
   "msg.enrolledSubject": "Enrolled in {what} — {venue}",
   "msg.enrolled":
     "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{when}\nTotal: {total}\n\nShow the code at the front desk.",
+  "msg.venueCancelledSubject": "Booking {code} cancelled by {venue}",
+  "msg.venueCancelled":
+    "Hi {name}, we are sorry: {venue} has had to cancel booking {code}.\n\n{where}\n{when}\n{money}\n\nPlease tap {ack} to let them know you have seen this.",
+  "msg.refundOwed": "Anything you paid will be refunded by the venue.",
+  "msg.nothingOwed": "You owe nothing for it.",
+  "msg.movedSubject": "Booking {code} moved — {venue}",
+  "msg.moved":
+    "Hi {name}, {venue} has moved booking {code} to another court.\n\nNow: {where}\n{when}\n\nSame time, same price. Please tap {ack} to let them know you have seen this.",
+  "msg.reminderSubject": "Reminder: {where}, {when}",
+  "msg.reminder":
+    "Hi {name}, a reminder of your booking.\n\nCode: {code}\n{where}\n{when}\n\nCannot make it? Cancel at {link} so somebody else can play.",
+  "msg.receiptSubject": "Receipt: RM{amount} for {code} — {venue}",
+  "msg.receipt":
+    "Hi {name}, thank you. {venue} has received RM{amount} for booking {code}, {how}.\n\n{where}\n{when}\n\nKeep this email as your receipt.",
+  "msg.howOnline": "paid online",
+  "msg.howCounter": "paid at the counter",
 
   // Refusals a customer can be shown. The English here is the text the store
   // used to carry inline, so a code and its sentence cannot drift apart.
@@ -1370,6 +1390,10 @@ const MS: Record<Phrase, string> = {
   "guest.notYou": "Bukan {name}? Kosongkan",
   "done.extras": "Tambahan",
   "chat.button": "Hantar ke WhatsApp saya",
+  "ack.title": "Berita daripada pihak tempat",
+  "ack.button": "Saya telah melihat ini",
+  "ack.done": "Terima kasih. Pihak tempat tahu anda telah melihatnya.",
+  "ack.unknown": "Pautan ini tidak dikenali.",
   "done.share": "Kongsi",
   "chat.note": "Dari telefon yang anda gunakan untuk menempah. Tekan hantar sahaja.",
   "chat.prefill": "Hai! Sila hantar tempahan {code} kepada saya.",
@@ -1703,6 +1727,22 @@ const MS: Record<Phrase, string> = {
   "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
   "msg.enrolled":
     "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan.",
+  "msg.venueCancelledSubject": "Tempahan {code} dibatalkan oleh {venue}",
+  "msg.venueCancelled":
+    "Hai {name}, kami memohon maaf: {venue} terpaksa membatalkan tempahan {code}.\n\n{where}\n{when}\n{money}\n\nSila tekan {ack} untuk memberitahu mereka anda telah melihat mesej ini.",
+  "msg.refundOwed": "Apa-apa yang telah anda bayar akan dipulangkan oleh pihak tempat.",
+  "msg.nothingOwed": "Tiada apa-apa yang perlu anda bayar.",
+  "msg.movedSubject": "Tempahan {code} dipindahkan — {venue}",
+  "msg.moved":
+    "Hai {name}, {venue} telah memindahkan tempahan {code} ke gelanggang lain.\n\nKini: {where}\n{when}\n\nMasa dan harga yang sama. Sila tekan {ack} untuk memberitahu mereka anda telah melihat mesej ini.",
+  "msg.reminderSubject": "Peringatan: {where}, {when}",
+  "msg.reminder":
+    "Hai {name}, peringatan tentang tempahan anda.\n\nKod: {code}\n{where}\n{when}\n\nTidak dapat hadir? Batalkan di {link} supaya orang lain boleh bermain.",
+  "msg.receiptSubject": "Resit: RM{amount} untuk {code} — {venue}",
+  "msg.receipt":
+    "Hai {name}, terima kasih. {venue} telah menerima RM{amount} untuk tempahan {code}, {how}.\n\n{where}\n{when}\n\nSimpan e-mel ini sebagai resit anda.",
+  "msg.howOnline": "dibayar dalam talian",
+  "msg.howCounter": "dibayar di kaunter",
 
   // Penolakan yang boleh dilihat pelanggan.
   "err.COURT_NOT_FOUND": "Gelanggang tidak dijumpai.",

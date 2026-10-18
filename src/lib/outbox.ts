@@ -32,7 +32,12 @@ export type MessageKind =
   | "booking_series_confirmed"
   | "booking_cancelled"
   | "waitlist_offer"
-  | "class_enrolled";
+  | "class_enrolled"
+  | "booking_cancelled_by_venue"
+  | "booking_moved"
+  | "booking_reminder"
+  /** By email only: a receipt is a document to keep, not worth a WhatsApp message. */
+  | "payment_received";
 
 export interface OutboxMessage {
   id: number;
@@ -64,6 +69,10 @@ export interface OutboxMessage {
   free: boolean;
   /** A calendar file (iCalendar) sent with an email, so the booking is in the customer's diary. */
   calendar: string | null;
+  /** WhatsApp only: when Meta reported it on the phone, and opened; and why not, if it failed after leaving. */
+  deliveredAt: string | null;
+  readAt: string | null;
+  deliveryError: string | null;
 }
 
 interface MessageRow {
@@ -86,6 +95,9 @@ interface MessageRow {
   dedupe_key: string | null;
   free: number;
   calendar: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  delivery_error: string | null;
 }
 
 function toMessage(r: MessageRow): OutboxMessage {
@@ -109,6 +121,9 @@ function toMessage(r: MessageRow): OutboxMessage {
     dedupeKey: r.dedupe_key,
     free: r.free === 1,
     calendar: r.calendar,
+    deliveredAt: r.delivered_at ?? null,
+    readAt: r.read_at ?? null,
+    deliveryError: r.delivery_error ?? null,
   };
 }
 
@@ -158,6 +173,8 @@ export interface Compose {
   dedupeKey?: string;
   /** iCalendar text to attach to an email. */
   calendar?: string;
+  /** The urgent notice this carries (lib/urgent.ts). */
+  noticeId?: number;
 }
 
 /**
@@ -206,8 +223,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const info = await db
     .prepare(
       `INSERT INTO messages
-         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at, calendar)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), ?)
+         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at, calendar, notice_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), ?, ?)
        ON CONFLICT(dedupe_key) DO NOTHING`
     )
     .run(
@@ -224,7 +241,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       capped ? "abandoned" : "queued",
       capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null,
       `+${hold} minutes`,
-      input.channel === "email" ? (input.calendar ?? null) : null
+      input.channel === "email" ? (input.calendar ?? null) : null,
+      input.noticeId ?? null
     );
   if (info.changes === 0 && input.dedupeKey) {
     const existing = await db
@@ -325,8 +343,12 @@ export async function outboxSummary(venueId: number): Promise<OutboxSummary> {
 
 export interface Transport {
   name: string;
-  /** Throw to fail the attempt; the message is retried with backoff. */
-  send(message: OutboxMessage): Promise<void>;
+  /**
+   * Throw to fail the attempt; the message is retried with backoff. What it
+   * returns, WhatsApp's id for the message, is how delivery and reading are
+   * matched back to it later.
+   */
+  send(message: OutboxMessage): Promise<void | { providerId?: string }>;
 }
 
 let override: Transport | null = null;
@@ -366,7 +388,7 @@ export function transport(): Transport | null {
       async send(message) {
         const post = byChannel[message.channel];
         if (!post) throw new Error(`No ${message.channel} account is set up on this install.`);
-        await post.send(message);
+        return await post.send(message);
       },
     };
   }
@@ -435,10 +457,10 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       continue;
     }
     try {
-      await post.send(message);
+      const out = await post.send(message);
       await db.prepare(
-        "UPDATE messages SET status = 'sent', attempts = ?, sent_at = datetime('now'), last_error = NULL WHERE id = ?"
-      ).run(attempts, message.id);
+        "UPDATE messages SET status = 'sent', attempts = ?, sent_at = datetime('now'), last_error = NULL, provider_id = ? WHERE id = ?"
+      ).run(attempts, (out && out.providerId) || null, message.id);
       result.sent++;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -481,4 +503,27 @@ export async function retryMessage(id: number, recipient?: string): Promise<Outb
     )
     .run(recipient?.trim() || null, id);
   return await messageById(id);
+}
+
+/**
+ * What Meta later says about a WhatsApp message it accepted: delivered to the
+ * phone, read, or failed after all (a number not on WhatsApp, say). Matched by
+ * the id Meta gave it; one we never sent is ignored.
+ */
+export async function recordDelivery(report: { id: string; status: string; timestamp?: string; error?: string }): Promise<boolean> {
+  const at = report.timestamp && /^\d+$/.test(report.timestamp)
+    ? new Date(Number(report.timestamp) * 1000).toISOString().replace("T", " ").slice(0, 19)
+    : new Date().toISOString().replace("T", " ").slice(0, 19);
+  const db = getDb();
+  let done;
+  if (report.status === "delivered")
+    done = await db.prepare("UPDATE messages SET delivered_at = COALESCE(delivered_at, ?) WHERE provider_id = ?").run(at, report.id);
+  else if (report.status === "read")
+    done = await db
+      .prepare("UPDATE messages SET read_at = COALESCE(read_at, ?), delivered_at = COALESCE(delivered_at, ?) WHERE provider_id = ?")
+      .run(at, at, report.id);
+  else if (report.status === "failed")
+    done = await db.prepare("UPDATE messages SET delivery_error = ? WHERE provider_id = ?").run(report.error ?? "WhatsApp could not deliver it.", report.id);
+  else return false;
+  return done.changes > 0;
 }

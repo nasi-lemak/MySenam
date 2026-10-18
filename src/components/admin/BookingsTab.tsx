@@ -1,5 +1,6 @@
 "use client";
 
+import { AttentionPanel } from "./AttentionPanel";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, SPORT_ICONS } from "@/lib/types";
@@ -103,9 +104,10 @@ export function BookingsTab() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Move failed");
-      setNotice(`${code} moved from ${data.from} to ${data.to}. Same code, same price.`);
+      setNotice(`${code} moved from ${data.from} to ${data.to}. Same code, same price. The customer has been sent the news.`);
       setMoving(null);
       load();
+      window.dispatchEvent(new Event("attention:refresh"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Move failed");
     }
@@ -164,7 +166,7 @@ export function BookingsTab() {
   }
 
   async function cancelBooking(code: string) {
-    if (!window.confirm(`Cancel booking ${code}? Its slots will be released.`)) return;
+    if (!window.confirm(`Cancel booking ${code}? Its slots will be released, and the customer is told.`)) return;
     setError(null);
     try {
       const res = await fetch("/api/admin/bookings/cancel", {
@@ -175,6 +177,7 @@ export function BookingsTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
       load();
+      window.dispatchEvent(new Event("attention:refresh"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cancellation failed");
     }
@@ -282,6 +285,7 @@ export function BookingsTab() {
 
   return (
     <div className="space-y-4">
+      <AttentionPanel />
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm font-medium text-slate-600">
           <span className="sr-only">Day to show</span>

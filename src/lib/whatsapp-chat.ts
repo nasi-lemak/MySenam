@@ -83,8 +83,9 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
         await db.prepare("UPDATE messages SET free = 0, next_attempt_at = datetime('now') WHERE id = ?").run(held.id);
         return { answered: false, reason: "no WhatsApp credit" };
       }
+      let providerId: string | null = null;
       try {
-        await post.send(message);
+        providerId = ((await post.send(message)) || {}).providerId ?? null;
       } catch (err) {
         await refundCredit(message.venueId, message.id);
         // Back to the queue as the template it was.
@@ -95,9 +96,9 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
       }
       await db
         .prepare(
-          "UPDATE messages SET status = 'sent', attempts = attempts + 1, sent_at = datetime('now'), last_error = NULL WHERE id = ?"
+          "UPDATE messages SET status = 'sent', attempts = attempts + 1, sent_at = datetime('now'), last_error = NULL, provider_id = ? WHERE id = ?"
         )
-        .run(held.id);
+        .run(providerId, held.id);
       return { answered: true, message: (await messageById(held.id))! };
     }
   }
@@ -133,8 +134,9 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
     await db.prepare("UPDATE messages SET status = 'abandoned', last_error = 'Not sent: no WhatsApp credit left.' WHERE id = ?").run(id);
     return { answered: false, reason: "no WhatsApp credit" };
   }
+  let providerId: string | null = null;
   try {
-    await post.send((await messageById(id))!);
+    providerId = ((await post.send((await messageById(id))!)) || {}).providerId ?? null;
   } catch (err) {
     await refundCredit(original.venueId, id);
     await db
@@ -142,6 +144,6 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
       .run(err instanceof Error ? err.message : String(err), id);
     return { answered: false, reason: "the reply could not be sent" };
   }
-  await db.prepare("UPDATE messages SET status = 'sent', attempts = 1, sent_at = datetime('now') WHERE id = ?").run(id);
+  await db.prepare("UPDATE messages SET status = 'sent', attempts = 1, sent_at = datetime('now'), provider_id = ? WHERE id = ?").run(providerId, id);
   return { answered: true, message: (await messageById(id))! };
 }

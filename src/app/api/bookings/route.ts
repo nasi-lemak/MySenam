@@ -18,7 +18,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
-import { notifyBookingConfirmed, tickOutbox } from "@/lib/notify";
+import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
 import { takesPaymentOnline } from "@/lib/payments";
 import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
@@ -189,7 +189,9 @@ export async function POST(req: NextRequest) {
 
   // Queued after the money has settled, so the total in the message is the
   // total the customer will actually be asked for at the counter.
-  await notifyBookingConfirmed(result.bookings, await currentLocale(), result.seriesCode);
+  const locale = await currentLocale();
+  await rememberLocale(result.bookings.map((b) => b.id), locale);
+  await notifyBookingConfirmed(result.bookings, locale, result.seriesCode);
   await tickOutbox();
 
   const court = (await getCourt(result.bookings[0].courtId))!;
