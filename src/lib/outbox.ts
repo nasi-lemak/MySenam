@@ -3,6 +3,7 @@ import { formatHour } from "./time";
 import { Locale, isLocale, translator } from "./i18n";
 import type { Phrase, Vars } from "./i18n";
 import { emailConfig, emailTransport, whatsappConfig, whatsappTransport } from "./transports";
+import { chatOfferedFor, refundCredit, spendCredit } from "./whatsapp-credit";
 
 /**
  * Messages to customers, written down before they are sent.
@@ -61,6 +62,8 @@ export interface OutboxMessage {
    * charge for, rather than as a template, which it does.
    */
   free: boolean;
+  /** A calendar file (iCalendar) sent with an email, so the booking is in the customer's diary. */
+  calendar: string | null;
 }
 
 interface MessageRow {
@@ -82,6 +85,7 @@ interface MessageRow {
   sent_at: string | null;
   dedupe_key: string | null;
   free: number;
+  calendar: string | null;
 }
 
 function toMessage(r: MessageRow): OutboxMessage {
@@ -104,6 +108,7 @@ function toMessage(r: MessageRow): OutboxMessage {
     sentAt: r.sent_at,
     dedupeKey: r.dedupe_key,
     free: r.free === 1,
+    calendar: r.calendar,
   };
 }
 
@@ -151,6 +156,8 @@ export interface Compose {
    * one, which is what lets a sweep run as often as it likes.
    */
   dedupeKey?: string;
+  /** iCalendar text to attach to an email. */
+  calendar?: string;
 }
 
 /**
@@ -191,15 +198,16 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const db = getDb();
   // A confirmation waits a few minutes for the customer to open the chat
   // themselves, when they can: the same words as a reply cost nothing.
-  const hold = input.channel === "whatsapp" && HELD_KINDS.includes(input.kind) && chatRepliesOn() ? chatHoldMinutes() : 0;
+  const hold =
+    input.channel === "whatsapp" && HELD_KINDS.includes(input.kind) && (await chatOfferedFor(input.venueId)) ? chatHoldMinutes() : 0;
   // Past the day's limit for this recipient, it is written down but never
   // sent, with the reason, where staff can see it.
   const capped = (await sentToday(input.channel, input.recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY;
   const info = await db
     .prepare(
       `INSERT INTO messages
-         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
+         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at, calendar)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), ?)
        ON CONFLICT(dedupe_key) DO NOTHING`
     )
     .run(
@@ -215,7 +223,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       input.dedupeKey ?? null,
       capped ? "abandoned" : "queued",
       capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null,
-      `+${hold} minutes`
+      `+${hold} minutes`,
+      input.channel === "email" ? (input.calendar ?? null) : null
     );
   if (info.changes === 0 && input.dedupeKey) {
     const existing = await db
@@ -224,34 +233,6 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
     return toMessage(existing);
   }
   return (await messageById(info.lastInsertRowid as number))!;
-}
-
-/**
- * How a customer is best reached.
- *
- * A phone number is always there — it is what a booking is made with — and an
- * email address only sometimes. WhatsApp is how Malaysia actually talks, so it
- * is the first choice, and email is the fallback for anyone who gave one.
- *
- * An install that can send email but has no WhatsApp account emails anyone
- * who gave an address, rather than queuing a WhatsApp message that nothing
- * will ever send.
- */
-export function channelFor(phone: string, email?: string | null): Channel {
-  const hasPhone = phone.trim() !== "";
-  const hasEmail = !!email && email.trim() !== "";
-  const real = override === null && process.env.MYSENAM_SEND !== "log";
-  if (real && !whatsappConfig() && emailConfig() && hasEmail) return "email";
-  return hasPhone ? "whatsapp" : hasEmail ? "email" : "whatsapp";
-}
-
-/** The channel and the address on it, for a customer with a phone and maybe an email. */
-export function addressFor(
-  phone: string,
-  email?: string | null
-): { channel: Channel; recipient: string } {
-  const channel = channelFor(phone, email);
-  return { channel, recipient: channel === "email" ? (email ?? "").trim() : phone.trim() };
 }
 
 // ------------------------------------------------------------- chat replies
@@ -350,6 +331,11 @@ export interface Transport {
 
 let override: Transport | null = null;
 
+/** Whether a test has swapped the transport. */
+export function transportOverridden(): boolean {
+  return override !== null;
+}
+
 /** Swap the transport, for tests. Pass null to go back to the configured one. */
 export function setTransport(t: Transport | null): void {
   override = t;
@@ -438,6 +424,16 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
 
   for (const message of await dueMessages(limit)) {
     const attempts = message.attempts + 1;
+    // A WhatsApp message is paid for before it goes (lib/whatsapp-credit.ts);
+    // with nothing left to pay with, it does not go at all.
+    const paid = message.channel === "whatsapp";
+    if (paid && !(await spendCredit(message.venueId, message.id))) {
+      await db
+        .prepare("UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?")
+        .run(attempts, "Not sent: no WhatsApp credit left. The customer still had the booking code on screen, and any email.", message.id);
+      result.abandoned++;
+      continue;
+    }
     try {
       await post.send(message);
       await db.prepare(
@@ -446,6 +442,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       result.sent++;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      if (paid) await refundCredit(message.venueId, message.id);
       if (attempts >= MAX_ATTEMPTS) {
         await db.prepare(
           "UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?"

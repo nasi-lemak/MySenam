@@ -18,7 +18,8 @@ import {
   toWhatsAppNumber,
   whatsappTransport,
 } from "../src/lib/transports";
-import { addressFor, drainOutbox, messagesForBooking, transport } from "../src/lib/outbox";
+import { drainOutbox, messagesForBooking, transport } from "../src/lib/outbox";
+import { setWhatsappOn } from "../src/lib/whatsapp-credit";
 import type { MessageKind, OutboxMessage } from "../src/lib/outbox";
 import { notifyBookingConfirmed } from "../src/lib/notify";
 import { createBooking, listVenues } from "../src/lib/store";
@@ -85,6 +86,7 @@ function message(over: Partial<OutboxMessage> = {}): OutboxMessage {
     nextAttemptAt: "",
     sentAt: null,
     free: false,
+    calendar: null,
     ...over,
   };
 }
@@ -243,6 +245,15 @@ describe("sending by email", () => {
     });
   });
 
+  it("attaches the booking as a calendar invite", async () => {
+    await emailTransport(config).send(
+      message({ channel: "email", recipient: "aina@example.com", calendar: "BEGIN:VCALENDAR\r\nEND:VCALENDAR" })
+    );
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ icalEvent: { filename: "booking.ics", method: "PUBLISH", content: "BEGIN:VCALENDAR\r\nEND:VCALENDAR" } })
+    );
+  });
+
   it("refuses an address that is not one", async () => {
     await expect(
       emailTransport(config).send(message({ channel: "email", recipient: "0123456789" }))
@@ -252,26 +263,45 @@ describe("sending by email", () => {
 });
 
 describe("choosing how to reach a customer", () => {
-  it("prefers WhatsApp, which everybody books with", () => {
+  let venueId: number;
+  let courtId: number;
+  let hour = 9;
+  beforeAll(async () => {
+    const venue = (await listVenues())[0];
+    venueId = venue.id;
+    courtId = venue.courts.find((c) => c.capacity === 1)!.id;
+  });
+  afterEach(async () => await setWhatsappOn(venueId, false));
+
+  async function confirm(email?: string) {
+    const made = await createBooking({ courtId, date: addDays(todayISO(), 6), hours: [hour++], name: "Aina", phone: "0123456789", email });
+    if (!made.ok) throw new Error(made.error);
+    await notifyBookingConfirmed([made.booking], "en", null);
+    return (await messagesForBooking(made.booking.id)).map((m) => [m.channel, m.recipient, m.calendar !== null]);
+  }
+
+  it("emails anyone who gave an address, with the booking in a calendar file", async () => {
+    process.env.SMTP_URL = "smtp://x";
+    process.env.MAIL_FROM = "a@b.my";
     process.env.WHATSAPP_TOKEN = "t";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "1";
-    process.env.SMTP_URL = "smtp://x";
-    process.env.MAIL_FROM = "a@b.my";
-    expect(addressFor("0123456789", "aina@example.com")).toEqual({
-      channel: "whatsapp",
-      recipient: "0123456789",
-    });
+    // WhatsApp is set up on the site, but this venue has not switched it on.
+    expect(await confirm("aina@example.com")).toEqual([["email", "aina@example.com", true]]);
   });
 
-  it("emails anyone who gave an address when only email is set up", () => {
-    process.env.SMTP_URL = "smtp://x";
-    process.env.MAIL_FROM = "a@b.my";
-    expect(addressFor("0123456789", "aina@example.com")).toEqual({
-      channel: "email",
-      recipient: "aina@example.com",
-    });
-    // Somebody who gave no email still has their message written down.
-    expect(addressFor("0123456789", null).channel).toBe("whatsapp");
+  it("writes nothing for a phone-only customer while WhatsApp is off: the code is on their screen", async () => {
+    expect(await confirm()).toEqual([]);
+  });
+
+  it("adds WhatsApp when the venue has switched it on", async () => {
+    process.env.WHATSAPP_TOKEN = "t";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "1";
+    await setWhatsappOn(venueId, true);
+    expect(await confirm("aina@example.com")).toEqual([
+      ["email", "aina@example.com", true],
+      ["whatsapp", "0123456789", false],
+    ]);
+    expect(await confirm()).toEqual([["whatsapp", "0123456789", false]]);
   });
 
   it("names what is switched on", () => {
@@ -294,6 +324,9 @@ describe("a confirmation, end to end", () => {
   });
 
   it("keeps what filled the text, and sends it as the template's parameters", async () => {
+    process.env.WHATSAPP_TOKEN = "t";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "555";
+    await setWhatsappOn((await listVenues())[0].id, true);
     const made = await createBooking({
       courtId,
       date: addDays(todayISO(), 3),
@@ -307,8 +340,6 @@ describe("a confirmation, end to end", () => {
     expect(queued.params).toMatchObject({ name: "Aina", code: made.booking.code });
     expect(queued.params!.total).toBe(`RM${made.booking.totalPrice}, pay at the counter`);
 
-    process.env.WHATSAPP_TOKEN = "t";
-    process.env.WHATSAPP_PHONE_NUMBER_ID = "555";
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const result = await drainOutbox();
@@ -324,11 +355,14 @@ describe("a confirmation, end to end", () => {
     expect(texts).toContain(made.booking.code);
     // The finished text and the template say the same thing.
     for (const text of texts) expect(queued.body).toContain(text);
+    await setWhatsappOn((await listVenues())[0].id, false);
   });
 
   it("an email-only install sends no WhatsApp it cannot deliver", async () => {
     process.env.SMTP_URL = "smtp://x";
     process.env.MAIL_FROM = "a@b.my";
+    // Switched on, but there is no WhatsApp account on the site to send with yet.
+    await setWhatsappOn((await listVenues())[0].id, true);
     const made = await createBooking({
       courtId,
       date: addDays(todayISO(), 4),
@@ -343,5 +377,6 @@ describe("a confirmation, end to end", () => {
     // No email to send it to: it fails with a reason staff can act on.
     expect(msg.status).toBe("failed");
     expect(msg.lastError).toMatch(/No whatsapp account is set up/);
+    await setWhatsappOn((await listVenues())[0].id, false);
   });
 });

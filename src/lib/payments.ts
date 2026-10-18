@@ -8,6 +8,7 @@ import { toWhatsAppNumber } from "./transports";
 import { formatHour } from "./time";
 import { Booking } from "./types";
 import { platformAccount, settleInvoice } from "./billing";
+import { settlePack } from "./whatsapp-credit";
 import { venueBaseUrl } from "./storefront";
 
 /**
@@ -177,11 +178,12 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack";
   invoice_id: number | null;
   game_player_id: number | null;
   tournament_entry_id: number | null;
   league_place_id: number | null;
+  pack_id: number | null;
 }
 
 export interface OnlinePayment {
@@ -200,7 +202,7 @@ export interface OnlinePayment {
   refunded: number;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack";
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -363,7 +365,8 @@ export async function accountForBill(billId: string): Promise<BillplzAccount | n
     .get(billId) as { venue_id: number | null; purpose: string } | undefined;
   if (!row) return null;
   // A venue's fee was billed to the platform's account, and is checked with its key.
-  if (row.purpose === "invoice") return platformAccount();
+  // So was a venue's WhatsApp pack.
+  if (row.purpose === "invoice" || row.purpose === "pack") return platformAccount();
   if (row.venue_id === null) return null;
   // Checked even when the venue has since switched online payment off: a bill
   // it already sent can still be paid, and that money still arrived.
@@ -441,6 +444,17 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
       if (claimed.changes === 1) await settleShare(row);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "pack") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes === 1 && row.pack_id !== null) await settlePack(row.pack_id, "online");
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };

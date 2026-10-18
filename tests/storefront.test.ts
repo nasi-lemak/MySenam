@@ -179,7 +179,7 @@ describe("links back", () => {
 
   it("put the storefront in the confirmation a customer is sent", async () => {
     const court = (await listVenues()).find((v) => v.id === abcVenue)!.courts.find((c) => c.capacity === 1)!;
-    const made = await createBooking({ courtId: court.id, date: addDays(todayISO(), 3), hours: [9], name: "Aina", phone: "0123456780" });
+    const made = await createBooking({ courtId: court.id, date: addDays(todayISO(), 3), hours: [9], name: "Aina", phone: "0123456780", email: "aina@example.my" });
     if (!made.ok) throw new Error(made.error);
     await notifyBookingConfirmed([made.booking], "en", null);
     expect((await messagesForBooking(made.booking.id))[0].body).toContain("https://abcbadminton.com/my-booking");

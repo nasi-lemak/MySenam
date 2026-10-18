@@ -87,7 +87,7 @@ describe("a court out of service", () => {
 
   it("will not close over bookings unless told to cancel them, and then refunds and tells them", async () => {
     const courtId = await court();
-    const booked = await createBooking({ courtId, date: day(4), hours: [9, 10], name: "Siti", phone: "0125556666" });
+    const booked = await createBooking({ courtId, date: day(4), hours: [9, 10], name: "Siti", phone: "0125556666", email: "siti@example.my" });
     if (!booked.ok) throw new Error("booking");
 
     const refused = await createOutage({ courtId, startsOn: day(3), endsOn: day(5), adminId: ownerId });

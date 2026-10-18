@@ -63,7 +63,8 @@ function nextSlot(): { date: string; hour: number } {
 
 async function book(phone = PHONE) {
   const { date, hour } = nextSlot();
-  const made = await createBooking({ courtId, date, hours: [hour], name: "Aina Zahra", phone });
+  // With an email, so the confirmation is written for it.
+  const made = await createBooking({ courtId, date, hours: [hour], name: "Aina Zahra", phone, email: "aina@example.my" });
   if (!made.ok) throw new Error(made.error);
   return made.booking;
 }

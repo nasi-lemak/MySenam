@@ -1,42 +1,16 @@
 import { getDb } from "./db";
 
 /**
- * WhatsApp messages a venue's customers were sent, counted for its bill.
- *
- * Meta charges the platform for each template it delivers — a few sen in
- * Malaysia — so a flat fee with no ceiling would cost more than it brings in
- * at a busy hall. Each venue's fee includes a monthly allowance; past that,
- * each message is charged on the next month's invoice at a small rate. Both
- * have marketplace defaults and can be set per venue.
- *
- * What counts is what Meta charges for: a template sent. A reply in a chat
- * the customer opened (the "Send it to my WhatsApp" button) is free, and is
- * counted apart so a venue can see what it saved. Email is not counted at
- * all, and neither are the codes that check a customer's phone number, which
- * protect the whole marketplace rather than one venue.
+ * WhatsApp messages a venue's customers were sent, counted by month, for the
+ * venue to see what its credit went on (lib/whatsapp-credit.ts). Templates
+ * and replies in a chat the customer opened are counted apart. Email is not
+ * counted, and neither are the codes that check a customer's phone number,
+ * which are the platform's own cost.
  */
-
-/** Messages a month's fee includes unless the venue has its own number. */
-export function defaultIncluded(): number {
-  const n = Number(process.env.MYSENAM_WHATSAPP_INCLUDED ?? 300);
-  return Number.isInteger(n) && n >= 0 ? n : 300;
-}
-
-/** What each message past the allowance costs, in ringgit, unless the venue has its own. */
-export function defaultMessagePrice(): number {
-  const n = Number(process.env.MYSENAM_WHATSAPP_PRICE ?? 0.08);
-  return Number.isFinite(n) && n >= 0 && n <= 5 ? n : 0.08;
-}
 
 /** YYYY-MM, Malaysia time. */
 export function monthOf(now = new Date()): string {
   return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 7);
-}
-
-/** The month before a YYYY-MM. */
-export function monthBefore(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 }
 
 /**
@@ -53,28 +27,10 @@ export function monthBounds(month: string): [string, string] {
 export interface Usage {
   venueId: number;
   month: string;
-  /** Templates sent: what Meta charges for. */
+  /** Templates sent. */
   paid: number;
-  /** Replies in a chat the customer opened: free. */
+  /** Replies in a chat the customer opened. */
   free: number;
-  included: number;
-  unitPrice: number;
-  /** Past the allowance, and what that comes to. */
-  over: number;
-  amount: number;
-}
-
-interface PlanRow {
-  id: number;
-  whatsapp_included: number | null;
-  whatsapp_price: number | string | null;
-}
-
-function priced(row: PlanRow, month: string, paid: number, free: number): Usage {
-  const included = row.whatsapp_included ?? defaultIncluded();
-  const unitPrice = row.whatsapp_price === null ? defaultMessagePrice() : Number(row.whatsapp_price);
-  const over = Math.max(0, paid - included);
-  return { venueId: row.id, month, paid, free, included, unitPrice, over, amount: Math.round(over * unitPrice * 100) / 100 };
 }
 
 /** Each of these venues' use in a month (every venue's when none are named). */
@@ -91,20 +47,12 @@ export async function usageFor(month: string, venueIds?: number[]): Promise<Map<
         GROUP BY venue_id`
     )
     .all(from, to, ...(venueIds ?? []))) as { venue_id: number; paid: number; free: number }[];
-  const byVenue = new Map(counts.map((c) => [c.venue_id, c]));
-  const plans = (await getDb()
-    .prepare(
-      `SELECT id, whatsapp_included, whatsapp_price FROM venues${venueIds ? ` WHERE id IN (${venueIds.map(() => "?").join(",")})` : ""}`
-    )
-    .all(...(venueIds ?? []))) as PlanRow[];
-  for (const p of plans) {
-    const c = byVenue.get(p.id);
-    out.set(p.id, priced(p, month, c?.paid ?? 0, c?.free ?? 0));
-  }
+  for (const c of counts) out.set(c.venue_id, { venueId: c.venue_id, month, paid: c.paid, free: c.free });
+  for (const id of venueIds ?? []) if (!out.has(id)) out.set(id, { venueId: id, month, paid: 0, free: 0 });
   return out;
 }
 
 /** One venue's use in a month. */
-export async function usageOf(venueId: number, month = monthOf()): Promise<Usage | null> {
-  return (await usageFor(month, [venueId])).get(venueId) ?? null;
+export async function usageOf(venueId: number, month = monthOf()): Promise<Usage> {
+  return (await usageFor(month, [venueId])).get(venueId)!;
 }

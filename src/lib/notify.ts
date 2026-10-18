@@ -3,7 +3,11 @@ import { getDb } from "./db";
 import { getCourt, getVenue } from "./store";
 import { Booking } from "./types";
 import { isLocale, Locale, translator } from "./i18n";
-import { addressFor, drainOutbox, enqueue, hourRange } from "./outbox";
+import { drainOutbox, enqueue, hourRange } from "./outbox";
+import type { Channel, Compose } from "./outbox";
+import { icsCalendar } from "./booking-links";
+import { siteName } from "./site";
+import { whatsappReady } from "./whatsapp-credit";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
@@ -21,6 +25,53 @@ import type { DrainResult, OutboxMessage } from "./outbox";
  * and gets an English confirmation has been handed a worse experience than if
  * the site had never offered their language at all.
  */
+
+/**
+ * Write one message to every way this customer is reached, and return the
+ * first. Email whenever they gave an address — it is free and carries the
+ * calendar invite. WhatsApp as well when the venue has switched it on and,
+ * on a marketplace, has credit (lib/whatsapp-credit.ts). Neither: nothing is
+ * written, and the booking code on the confirmation screen is what they have.
+ *
+ * The first message keeps the given dedupe key, which is what other code
+ * looks messages up by; a second channel's copy has the channel added to it.
+ */
+async function deliver(
+  person: { phone: string; email?: string | null },
+  message: Omit<Compose, "channel" | "recipient">
+) {
+  const to: { channel: Channel; recipient: string }[] = [];
+  const email = person.email?.trim();
+  if (email) to.push({ channel: "email", recipient: email });
+  if (person.phone.trim() && (await whatsappReady(message.venueId))) to.push({ channel: "whatsapp", recipient: person.phone.trim() });
+  let first = null;
+  for (const [i, address] of to.entries()) {
+    const written = await enqueue({
+      ...message,
+      ...address,
+      dedupeKey: message.dedupeKey && i > 0 ? `${message.dedupeKey}:${address.channel}` : message.dedupeKey,
+    });
+    first ??= written;
+  }
+  return first;
+}
+
+/** The booking, or each week of a series, as a calendar file. */
+function calendarFor(bookings: Booking[], court: string, venue: { name: string; address: string }): string {
+  return icsCalendar(
+    bookings.map((b) => ({
+      siteName: siteName(),
+      code: b.code,
+      date: b.date,
+      startHour: b.startHour,
+      endHour: b.endHour,
+      courtName: court,
+      venueName: venue.name,
+      venueAddress: venue.address,
+      totalPrice: b.totalPrice,
+    }))
+  );
+}
 
 /** Tell a customer their booking stands. */
 export async function notifyBookingConfirmed(
@@ -41,11 +92,11 @@ export async function notifyBookingConfirmed(
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const code = seriesCode ?? first.code;
 
-  return await enqueue({
+  return await deliver(first, {
     bookingId: first.id,
     venueId: venue.id,
     kind: series ? "booking_series_confirmed" : "booking_confirmed",
-    ...addressFor(first.phone, first.email),
+    calendar: calendarFor(bookings, court.name, venue),
     locale,
     subject: series ? "msg.seriesSubject" : "msg.confirmedSubject",
     body: series ? "msg.series" : "msg.confirmed",
@@ -76,11 +127,10 @@ export async function notifyBookingCancelled(
   // its own staff trying it out, under whatever number they typed.
   if (!venue || !hasBeenLive(venue)) return null;
 
-  return await enqueue({
+  return await deliver(booking, {
     bookingId: booking.id,
     venueId: venue.id,
     kind: "booking_cancelled",
-    ...addressFor(booking.phone, booking.email),
     locale,
     subject: "msg.cancelledSubject",
     body: "msg.cancelled",
@@ -107,11 +157,11 @@ export async function notifyClassEnrolled(
   // its own staff trying it out, under whatever number they typed.
   if (!venue || !hasBeenLive(venue)) return null;
 
-  return await enqueue({
+  return await deliver(booking, {
     bookingId: booking.id,
     venueId: venue.id,
     kind: "class_enrolled",
-    ...addressFor(booking.phone, booking.email),
+    calendar: calendarFor([booking], `${session.name} (${court.name})`, venue),
     locale,
     subject: "msg.enrolledSubject",
     body: "msg.enrolled",
@@ -151,10 +201,9 @@ export async function notifyWaitlistOffer(input: {
   if (!venue || !hasBeenLive(venue)) return null;
   const { from } = hourRange(input.startHour, input.startHour + 1);
 
-  return await enqueue({
+  return await deliver(input, {
     venueId: venue.id,
     kind: "waitlist_offer",
-    ...addressFor(input.phone, input.email),
     locale: input.locale,
     subject: "msg.offerSubject",
     body: "msg.offer",

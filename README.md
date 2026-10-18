@@ -155,8 +155,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
 | `MYSENAM_VENUE_FEE` | `0` | On a marketplace, what a venue pays a month unless it has its own fee |
 | `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
-| `MYSENAM_WHATSAPP_INCLUDED` | `300` | On a marketplace, WhatsApp messages a venue's monthly fee includes, unless it has its own number — see *What WhatsApp costs, and who pays* |
-| `MYSENAM_WHATSAPP_PRICE` | `0.08` | RM for each WhatsApp message past that, on the next month's invoice |
+| `MYSENAM_WHATSAPP_PACK` | `200` | On a marketplace, WhatsApp messages in a prepaid pack — see *What WhatsApp costs, and who pays* |
+| `MYSENAM_WHATSAPP_PACK_PRICE` | `20` | RM for a pack, paid before any of it is sent |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
 | `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
@@ -1568,15 +1568,27 @@ to an outbox the moment the thing happens, then sent separately and retried
 with backoff — a mail server being down delays a confirmation; it never loses
 the court. Staff see every message, and why one failed, under *Venues*.
 
-Nothing leaves the machine until a channel is configured:
+The booking code is on the customer's screen the moment the booking is made,
+with *Add to Google Calendar* and a calendar file beside it, so nothing waits
+on a message arriving. Messages are the copy they keep:
 
-- **WhatsApp** (`WHATSAPP_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`) is the first
-  choice, because everybody books with a phone number.
-- **Email** (`SMTP_URL` + `MAIL_FROM`) works with any SMTP account — Gmail,
-  Zoho, Brevo, Amazon SES. With email alone, anyone who gave an address is
-  emailed; somebody who gave only a phone number has their message kept, and
-  the dashboard says it is waiting for WhatsApp.
-- Neither: messages queue, and the dashboard says so.
+- **Email first** (`SMTP_URL` + `MAIL_FROM`, any SMTP account — Gmail, Zoho,
+  Brevo, Amazon SES). Anyone who gives an address gets their confirmation by
+  email, with the booking attached as a calendar invite (each week of a
+  series, and a reminder an hour before), so it is in their diary in a tap.
+  It costs next to nothing. The booking form asks for the address as *Email
+  (for your code + calendar)*.
+- **WhatsApp, if the venue wants it** (`WHATSAPP_TOKEN` +
+  `WHATSAPP_PHONE_NUMBER_ID`). Off for every venue until its staff switch it
+  on under *Venue details → WhatsApp confirmations*; then the confirmation
+  goes to the customer's phone as well. On a marketplace it is paid for in
+  advance (below).
+- **SMS is not offered**: it costs more than WhatsApp and Malaysian sender
+  rules make it the harder of the two to run.
+- A customer who gave no email, at a venue without WhatsApp, gets no message:
+  they have the code on screen, the calendar buttons, and *My Booking*.
+- Messages wait in the queue until a channel is configured, and the
+  dashboard says so.
 
 Numbers are sent the way WhatsApp wants them, whatever was typed:
 `012-345 6789` becomes `60123456789`.
@@ -1585,44 +1597,49 @@ Numbers are sent the way WhatsApp wants them, whatever was typed:
 
 Meta charges the platform for each template it delivers to a customer — a
 few sen each in Malaysia, more for marketing, which MySenam never sends.
-Email costs next to nothing and is not counted. The codes that check a
+Email costs next to nothing and is the default. The codes that check a
 customer's phone number are the platform's own cost: they protect the whole
 marketplace, not one venue.
 
-- **An allowance in the fee.** On a marketplace, each venue's monthly fee
-  includes `MYSENAM_WHATSAPP_INCLUDED` messages (300 unless set). Past that,
-  each is `MYSENAM_WHATSAPP_PRICE` (RM0.08 unless set), charged on the next
-  month's invoice as its own line — *WhatsApp in 2026-10: 412 sent, 300
-  included → 112 × RM0.08 = RM8.96*. A business's invoice puts each branch's
-  on that branch's line. Messages in a venue's free months are free, and a
-  venue whose fee is RM0 is never charged for them.
-- **Set per venue.** The platform owner can give a venue its own allowance
-  and rate beside its fee, under *Billing* (blank means the defaults), and
-  sees every venue's count for the month there.
-- **A meter for staff.** Venue staff see *WhatsApp this month: 212 of 300
-  included* under *Billing*, with what it will add if they go past.
-- **Only what was sent counts.** A template Meta accepted, in Malaysia's
-  calendar month. Failed and abandoned messages do not.
+- **Prepaid, never billed afterwards.** On a marketplace a venue buys
+  WhatsApp messages in packs — `MYSENAM_WHATSAPP_PACK` (200) for
+  `MYSENAM_WHATSAPP_PACK_PRICE` (RM20) — paid online into the platform's
+  Billplz account, or by transfer and marked paid by the owner. Each message
+  sent spends one; one that fails to send is given back.
+- **At zero, WhatsApp stops; nothing else does.** Email and the on-screen
+  code carry on, and messages are not sent on credit. The venue's staff are
+  emailed at 20 left and again at none. So a venue that stops paying costs
+  the platform nothing.
+- **What staff see.** Under *Venue details → WhatsApp confirmations*: on or
+  off, messages left, *Buy 200 messages · RM20*, what this month went on,
+  and an estimate — bookings a month in, messages and packs out.
+- **The platform owner** can mark a pack paid or void it, and give messages
+  (a trial, goodwill).
+- A venue's own install (not a marketplace) pays Meta itself: switching
+  WhatsApp on is all it takes.
 
-**Free replies.** WhatsApp lets a business answer a customer who wrote first
-with plain text, and Meta does not charge for it. So, once
-`WHATSAPP_CHAT_NUMBER`, `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN` are
-set, the confirmation screen (bookings and class enrolments) shows a green
-*Send it to my WhatsApp* button. It opens a chat with the platform's number
+**Customers who ask on WhatsApp.** WhatsApp lets a business answer a customer
+who wrote first with plain text; starting the conversation takes an approved
+template. Meta's own pricing page says such replies are free, but resellers
+report charges for them from 1 October 2026, so each reply spends a message
+of the venue's credit like any other. Once `WHATSAPP_CHAT_NUMBER`,
+`WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN` are set, the confirmation
+screen of a venue with WhatsApp on and credit left shows a green *Send it to
+my WhatsApp* button. It opens a chat with the platform's number
 with *Hi! Please send me booking MS-XXXXXX.* typed in; the customer presses
 send.
 
 - The confirmation waits `MYSENAM_WHATSAPP_CHAT_HOLD_MINUTES` (3) before it
-  goes as a paid template. If the customer's message arrives first, the same
-  words go as the reply instead, free, and the template never goes.
-- Writing later — or again — gets the latest message about the booking, also
-  free.
+  goes as a template. If the customer's message arrives first, the same words
+  go as the reply instead, and the template never goes: one message either
+  way, whichever Meta charges less for.
+- Writing later — or again — gets the latest message about the booking.
 - Only to the number the booking was made with. A code from any other number
   gets no answer.
 - Waitlist offers and cancellations are never held; nobody is waiting on a
   screen for those.
-- Staff see these as *free reply* in the message list, and the meter counts
-  them apart.
+- Staff see these as *reply in chat* in the message list, counted apart
+  under *This month*.
 
 To switch it on, in the Meta app: *WhatsApp → Configuration → Webhook*, set
 the callback URL to `<MYSENAM_URL>/api/whatsapp/webhook` and the verify token

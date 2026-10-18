@@ -216,6 +216,9 @@ export function emailTransport(config: EmailConfig): Transport {
         to: message.recipient,
         subject: message.subject ?? undefined,
         text: message.body,
+        // The booking as a calendar invite: in the customer's diary in a tap,
+        // with its own reminder.
+        ...(message.calendar ? { icalEvent: { filename: "booking.ics", method: "PUBLISH", content: message.calendar } } : {}),
       });
     },
   };

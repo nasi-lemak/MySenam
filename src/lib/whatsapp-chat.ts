@@ -7,13 +7,15 @@ import {
   type OutboxMessage,
 } from "./outbox";
 import { phoneNumber } from "./phone-check";
+import { refundCredit, spendCredit } from "./whatsapp-credit";
 
 /**
  * A customer who opened the chat with us, from the confirmation screen.
  *
- * WhatsApp lets a business answer a customer who wrote first with plain text,
- * and Meta does not charge for it; starting the conversation takes an approved
- * template, which it does. So the confirmation screen offers "Send it to my
+ * WhatsApp lets a business answer a customer who wrote first with plain text;
+ * starting the conversation takes an approved template. Meta has charged for
+ * templates and not for replies — reportedly no longer always so — and a
+ * reply is paid for from the venue's credit like any other message. So the confirmation screen offers "Send it to my
  * WhatsApp", which opens a chat with the booking code typed in, and the
  * confirmation itself waits a few minutes (lib/outbox.ts). If the customer
  * sends it in that time, the confirmation goes as the reply, free, and the
@@ -76,9 +78,15 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
       .run(held.id);
     if (claimed.changes === 1) {
       const message = (await messageById(held.id))!;
+      // Paid for like any WhatsApp message: Meta may charge for a reply too.
+      if (!(await spendCredit(message.venueId, message.id))) {
+        await db.prepare("UPDATE messages SET free = 0, next_attempt_at = datetime('now') WHERE id = ?").run(held.id);
+        return { answered: false, reason: "no WhatsApp credit" };
+      }
       try {
         await post.send(message);
       } catch (err) {
+        await refundCredit(message.venueId, message.id);
         // Back to the queue as the template it was.
         await db
           .prepare("UPDATE messages SET free = 0, next_attempt_at = datetime('now'), last_error = ? WHERE id = ?")
@@ -121,9 +129,14 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
       original.params ? JSON.stringify(original.params) : null
     );
   const id = info.lastInsertRowid as number;
+  if (!(await spendCredit(original.venueId, id))) {
+    await db.prepare("UPDATE messages SET status = 'abandoned', last_error = 'Not sent: no WhatsApp credit left.' WHERE id = ?").run(id);
+    return { answered: false, reason: "no WhatsApp credit" };
+  }
   try {
     await post.send((await messageById(id))!);
   } catch (err) {
+    await refundCredit(original.venueId, id);
     await db
       .prepare("UPDATE messages SET status = 'abandoned', attempts = 1, last_error = ? WHERE id = ?")
       .run(err instanceof Error ? err.message : String(err), id);

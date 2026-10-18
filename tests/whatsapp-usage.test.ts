@@ -10,7 +10,6 @@ vi.mock("next/headers", () => ({
 import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
-import { issueDueInvoices, listInvoices, messageDefaults, setVenuePlan, venuePlans } from "../src/lib/billing";
 import { getDb } from "../src/lib/db";
 import {
   chatHoldMinutes,
@@ -22,25 +21,46 @@ import {
   setTransport,
   type OutboxMessage,
 } from "../src/lib/outbox";
+import { notifyBookingConfirmed } from "../src/lib/notify";
 import { createBooking, createVenue, listVenues } from "../src/lib/store";
 import { answerChat } from "../src/lib/whatsapp-chat";
-import { defaultIncluded, defaultMessagePrice, monthBefore, monthBounds, monthOf, usageFor, usageOf } from "../src/lib/whatsapp-usage";
+import {
+  LOW_CREDIT,
+  chatOfferedFor,
+  creditBalance,
+  grantCredit,
+  listPacks,
+  orderPack,
+  packPrice,
+  packSize,
+  payPackOnline,
+  setWhatsappOn,
+  settlePack,
+  spendCredit,
+  voidPack,
+  whatsappReady,
+} from "../src/lib/whatsapp-credit";
+import { monthBounds, monthOf, usageFor, usageOf } from "../src/lib/whatsapp-usage";
+import { settleBill } from "../src/lib/payments";
 import { addDays, todayISO } from "../src/lib/time";
 
-/** WhatsApp a venue's fee includes, what past that costs, and the free way round it. */
+/** WhatsApp only where a venue wants it, paid for before it is sent. */
 
 const ENV = [
   "MYSENAM_MARKETPLACE",
-  "MYSENAM_VENUE_FEE",
-  "MYSENAM_WHATSAPP_INCLUDED",
-  "MYSENAM_WHATSAPP_PRICE",
+  "MYSENAM_WHATSAPP_PACK",
+  "MYSENAM_WHATSAPP_PACK_PRICE",
   "WHATSAPP_CHAT_NUMBER",
   "WHATSAPP_APP_SECRET",
   "WHATSAPP_VERIFY_TOKEN",
   "MYSENAM_WHATSAPP_CHAT_HOLD_MINUTES",
+  "BILLPLZ_API_KEY",
+  "BILLPLZ_COLLECTION_ID",
+  "BILLPLZ_X_SIGNATURE_KEY",
 ];
 let n = 0;
 const sent: OutboxMessage[] = [];
+let ownerId: number;
 
 async function venue(): Promise<number> {
   const made = await createVenue({ name: `Chatty Venue ${++n}`, area: "PJ", address: "x", phone: "0300000000" });
@@ -59,146 +79,209 @@ async function sentAt(venueId: number, at: string, count: number, free = 0) {
       .run(venueId, at, free);
 }
 
-beforeAll(async () => await ensureBootstrapAdmin());
+beforeAll(async () => {
+  await ensureBootstrapAdmin();
+  ownerId = (await listAdmins()).find((a) => a.venueId === null && a.businessId === null)!.id;
+});
 beforeEach(() => {
   for (const k of ENV) delete process.env[k];
   process.env.MYSENAM_MARKETPLACE = "on";
-  process.env.MYSENAM_VENUE_FEE = "20";
   sent.length = 0;
   setTransport({ name: "test", send: async (m) => void sent.push(m) });
 });
 afterEach(() => {
   for (const k of ENV) delete process.env[k];
   setTransport(null);
+  vi.unstubAllGlobals();
 });
 
 describe("months", () => {
   it("are Malaysia's, counted in UTC", () => {
     expect(monthOf(new Date("2026-10-31T16:30:00Z"))).toBe("2026-11");
-    expect(monthBefore("2026-01")).toBe("2025-12");
-    expect(monthBefore("2026-11")).toBe("2026-10");
     expect(monthBounds("2026-10")).toEqual(["2026-09-30 16:00:00", "2026-10-31 16:00:00"]);
     expect(monthBounds("2026-12")).toEqual(["2026-11-30 16:00:00", "2026-12-31 16:00:00"]);
   });
 
-  it("have defaults the install can change", () => {
-    expect([defaultIncluded(), defaultMessagePrice()]).toEqual([300, 0.08]);
-    process.env.MYSENAM_WHATSAPP_INCLUDED = "500";
-    process.env.MYSENAM_WHATSAPP_PRICE = "0.1";
-    expect(messageDefaults()).toEqual({ included: 500, unitPrice: 0.1 });
-    process.env.MYSENAM_WHATSAPP_INCLUDED = "-3";
-    process.env.MYSENAM_WHATSAPP_PRICE = "lots";
-    expect(messageDefaults()).toEqual({ included: 300, unitPrice: 0.08 });
-  });
-});
-
-describe("a venue's WhatsApp", () => {
-  it("counts templates sent in the month, not free replies, email or the unsent", async () => {
+  it("count templates and chat replies apart, and nothing unsent", async () => {
     const id = await venue();
-    process.env.MYSENAM_WHATSAPP_INCLUDED = "3";
-    await sentAt(id, "2026-09-30 16:00:00", 4); // 1 Oct, just after midnight in KL
-    await sentAt(id, "2026-09-30 15:59:59", 5); // still September in KL
+    await sentAt(id, "2026-09-30 16:00:00", 4);
+    await sentAt(id, "2026-09-30 15:59:59", 5);
     await sentAt(id, "2026-10-10 10:00:00", 2, 1);
-    await getDb()
-      .prepare("INSERT INTO messages (venue_id, kind, channel, recipient, body, status, sent_at) VALUES (?, 'booking_confirmed', 'email', 'a@b.my', 'Hi', 'sent', '2026-10-10 10:00:00')")
-      .run(id);
     await getDb()
       .prepare("INSERT INTO messages (venue_id, kind, channel, recipient, body, status) VALUES (?, 'booking_confirmed', 'whatsapp', '0123', 'Hi', 'failed')")
       .run(id);
-    expect(await usageOf(id, "2026-10")).toEqual({ venueId: id, month: "2026-10", paid: 4, free: 2, included: 3, unitPrice: 0.08, over: 1, amount: 0.08 });
-    expect((await usageOf(id, "2026-09"))!.paid).toBe(5);
+    expect(await usageOf(id, "2026-10")).toEqual({ venueId: id, month: "2026-10", paid: 4, free: 2 });
+    expect((await usageOf(id, "2026-09")).paid).toBe(5);
     expect(await usageFor("2026-10", [])).toEqual(new Map());
-    expect(await usageOf(999999)).toBeNull();
-  });
-
-  it("can have its own allowance and rate", async () => {
-    const id = await venue();
-    expect(await setVenuePlan(id, { monthlyFee: null, billingStartsOn: null, whatsappIncluded: 1.5 })).toMatchObject({ ok: false });
-    expect(await setVenuePlan(id, { monthlyFee: null, billingStartsOn: null, whatsappPrice: 9 })).toMatchObject({ ok: false });
-    expect(await setVenuePlan(id, { monthlyFee: 15, billingStartsOn: null, whatsappIncluded: 1000, whatsappPrice: 0.05 })).toEqual({ ok: true });
-    let plan = (await venuePlans()).find((p) => p.venueId === id)!;
-    expect(plan).toMatchObject({ whatsappIncluded: 1000, whatsappPrice: 0.05, usage: { included: 1000, unitPrice: 0.05 } });
-    // Left out: unchanged. Null: back to the default.
-    await setVenuePlan(id, { monthlyFee: 15, billingStartsOn: null });
-    expect((await venuePlans()).find((p) => p.venueId === id)!.whatsappIncluded).toBe(1000);
-    await setVenuePlan(id, { monthlyFee: 15, billingStartsOn: null, whatsappIncluded: null, whatsappPrice: null });
-    plan = (await venuePlans()).find((p) => p.venueId === id)!;
-    expect(plan).toMatchObject({ whatsappIncluded: null, whatsappPrice: null, usage: { included: 300, unitPrice: 0.08 } });
+    expect((await usageFor("2026-10")).get(id)!.paid).toBe(4);
   });
 });
 
-describe("the invoice", () => {
-  it("charges last month's messages past the allowance, and never a free month's", async () => {
+describe("credit", () => {
+  it("is off and empty to begin with, and WhatsApp needs both", async () => {
     const id = await venue();
-    await setVenuePlan(id, { monthlyFee: null, billingStartsOn: "2026-10-01", whatsappIncluded: 100, whatsappPrice: 0.1 });
-    await sentAt(id, "2026-09-20 10:00:00", 500); // a free month
-    await sentAt(id, "2026-10-05 10:00:00", 130);
-    await sentAt(id, "2026-10-06 10:00:00", 20, 1);
-
-    const [oct] = (await issueDueInvoices(new Date("2026-10-01T01:00:00Z"))).filter((i) => i.venueId === id);
-    expect(oct).toMatchObject({ period: "2026-10", amount: 20, usage: [] });
-
-    const [nov] = (await issueDueInvoices(new Date("2026-11-01T01:00:00Z"))).filter((i) => i.venueId === id);
-    expect(nov.amount).toBe(23);
-    expect(nov.usage).toEqual([
-      { venueId: id, venueName: expect.any(String), month: "2026-10", messages: 130, included: 100, unitPrice: 0.1, amount: 3 },
-    ]);
-    // Issued once, however often it is asked.
-    expect((await issueDueInvoices(new Date("2026-11-02T01:00:00Z"))).filter((i) => i.venueId === id)).toEqual([]);
-    expect((await listInvoices(id)).find((i) => i.period === "2026-11")!.usage).toHaveLength(1);
+    expect(await creditBalance(id)).toBe(0);
+    expect(await whatsappReady(id)).toBe(false);
+    await setWhatsappOn(id, true);
+    expect(await whatsappReady(id)).toBe(false); // no credit on a marketplace
+    await grantCredit(id, 3, ownerId);
+    expect(await whatsappReady(id)).toBe(true);
+    // A venue's own install pays Meta itself: switched on is enough.
+    delete process.env.MYSENAM_MARKETPLACE;
+    const own = await venue();
+    await setWhatsappOn(own, true);
+    expect(await whatsappReady(own)).toBe(true);
+    expect(await spendCredit(own, null)).toBe(true);
+    expect(await creditBalance(own)).toBe(0);
   });
 
-  it("shows a month inside the allowance as nothing extra", async () => {
+  it("is spent one message at a time, never below zero", async () => {
     const id = await venue();
-    await setVenuePlan(id, { monthlyFee: null, billingStartsOn: "2026-10-01" });
-    await sentAt(id, "2026-10-05 10:00:00", 12);
-    const [nov] = (await issueDueInvoices(new Date("2026-11-01T01:00:00Z"))).filter((i) => i.venueId === id);
-    expect(nov).toMatchObject({ amount: 20, usage: [{ messages: 12, included: 300, amount: 0 }] });
+    await grantCredit(id, 2, ownerId);
+    expect(await spendCredit(id, null)).toBe(true);
+    expect(await spendCredit(id, null)).toBe(true);
+    expect(await spendCredit(id, null)).toBe(false);
+    expect(await creditBalance(id)).toBe(0);
+    expect(await grantCredit(id, 0, ownerId)).toMatchObject({ ok: false });
+    expect(await grantCredit(id, -1, ownerId)).toMatchObject({ ok: false });
+    expect(await grantCredit(id, 1.5, ownerId)).toMatchObject({ ok: false });
   });
 
-  it("puts each branch's messages on its line of the business's invoice", async () => {
-    const business = (await getDb().prepare("INSERT INTO businesses (name) VALUES ('Chatty Chain')").run()).lastInsertRowid as number;
-    const a = await venue();
-    const b = await venue();
-    for (const v of [a, b]) {
-      await getDb().prepare("UPDATE venues SET business_id = ? WHERE id = ?").run(business, v);
-      await setVenuePlan(v, { monthlyFee: null, billingStartsOn: "2026-10-01", whatsappIncluded: 10, whatsappPrice: 0.5 });
-    }
-    await sentAt(a, "2026-10-05 10:00:00", 14);
-    await sentAt(b, "2026-10-05 10:00:00", 3);
-    const [inv] = (await issueDueInvoices(new Date("2026-11-01T01:00:00Z"))).filter((i) => i.businessId === business);
-    expect(inv.amount).toBe(42);
-    expect(inv.lines.find((l) => l.venueId === a)!.amount).toBe(22);
-    expect(inv.lines.find((l) => l.venueId === b)!.amount).toBe(20);
-    expect(inv.usage.map((u) => [u.venueId, u.amount]).sort()).toEqual([[a, 2], [b, 0]].sort());
+  it("stops WhatsApp at zero, and the venue's staff are told", async () => {
+    const id = await venue();
+    const desk = await createAdmin({ name: "Desk", email: `low${id}@chat.my`, password: "desk-password", venueId: id });
+    if (!desk.ok) throw new Error(desk.error);
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    process.env.MYSENAM_SEND = "log";
+    await grantCredit(id, LOW_CREDIT + 1, ownerId);
+    await spendCredit(id, null);
+    expect(log.mock.calls.some((c) => String(c[0]).includes(`${LOW_CREDIT} WhatsApp messages left`))).toBe(true);
+    await grantCredit(id, -LOW_CREDIT + 1, ownerId);
+    await spendCredit(id, null);
+    expect(log.mock.calls.some((c) => String(c[0]).includes("WhatsApp credit used up"))).toBe(true);
+    delete process.env.MYSENAM_SEND;
+    log.mockRestore();
+  });
+
+  it("is checked when a WhatsApp message is about to go, and given back if it cannot", async () => {
+    const v = (await listVenues())[0];
+    await setWhatsappOn(v.id, true);
+    await grantCredit(v.id, 1, ownerId);
+    const court = v.courts.find((c) => c.capacity === 1)!;
+    const book = async (hour: number) => {
+      const made = await createBooking({ courtId: court.id, date: addDays(todayISO(), 9), hours: [hour], name: "Aisyah", phone: "0171230000" });
+      if (!made.ok) throw new Error(made.error);
+      await notifyBookingConfirmed([made.booking], "en", null);
+      return made.booking;
+    };
+    const first = await book(10);
+    // Credit was there when it was written; it goes, and spends it.
+    await drainOutbox();
+    expect((await messagesForBooking(first.id))[0].status).toBe("sent");
+    expect(await creditBalance(v.id)).toBe(0);
+
+    // None left: nothing is written for a phone-only customer at all...
+    const second = await book(11);
+    expect(await messagesForBooking(second.id)).toEqual([]);
+
+    // ...and a message written while there was credit, which then ran out, does not go.
+    await grantCredit(v.id, 1, ownerId);
+    const third = await book(12);
+    await spendCredit(v.id, null);
+    await drainOutbox();
+    expect((await messagesForBooking(third.id))[0]).toMatchObject({ status: "abandoned", lastError: expect.stringContaining("no WhatsApp credit") });
+
+    // A send that fails gives its message back.
+    await grantCredit(v.id, 1, ownerId);
+    const fourth = await book(13);
+    setTransport({ name: "down", send: async () => { throw new Error("down"); } });
+    await drainOutbox();
+    expect(await creditBalance(v.id)).toBe(1);
+    expect((await messagesForBooking(fourth.id))[0].status).toBe("failed");
+    await setWhatsappOn(v.id, false);
   });
 });
 
-describe("the billing route", () => {
-  it("shows staff their meter and lets the owner set the allowance", async () => {
+describe("packs", () => {
+  it("are ordered at today's price, one unpaid at a time, and credited once paid", async () => {
+    process.env.MYSENAM_WHATSAPP_PACK = "500";
+    process.env.MYSENAM_WHATSAPP_PACK_PRICE = "45";
+    expect([packSize(), packPrice()]).toEqual([500, 45]);
     const id = await venue();
-    await sentAt(id, new Date().toISOString().replace("T", " ").slice(0, 19), 2);
+    const pack = await orderPack(id, null);
+    expect(pack).toMatchObject({ messages: 500, amount: 45, status: "due" });
+    expect((await orderPack(id, null)).id).toBe(pack.id);
+    expect(await creditBalance(id)).toBe(0);
+    expect(await settlePack(pack.id, "manual", ownerId)).toBe(true);
+    expect(await settlePack(pack.id, "manual", ownerId)).toBe(false);
+    expect(await creditBalance(id)).toBe(500);
+    const next = await orderPack(id, null);
+    expect(await voidPack(next.id)).toBe(true);
+    expect(await voidPack(next.id)).toBe(false);
+    expect((await listPacks(id)).map((p) => p.status)).toEqual(["void", "paid"]);
+    process.env.MYSENAM_WHATSAPP_PACK = "nope";
+    process.env.MYSENAM_WHATSAPP_PACK_PRICE = "-5";
+    expect([packSize(), packPrice()]).toEqual([200, 20]);
+  });
+
+  it("are paid online into the platform's account, and credited by the gateway's word", async () => {
+    const id = await venue();
+    const pack = await orderPack(id, null);
+    expect(await payPackOnline(pack.id, { name: "Owner", email: "o@x.my" })).toMatchObject({ ok: false, status: 409 });
+    expect(await payPackOnline(999999, { name: "Owner", email: "o@x.my" })).toMatchObject({ ok: false, status: 404 });
+    process.env.BILLPLZ_API_KEY = "k";
+    process.env.BILLPLZ_COLLECTION_ID = "c";
+    process.env.BILLPLZ_X_SIGNATURE_KEY = "x";
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: `bill-pack-${pack.id}`, url: "https://billplz.example/pack" })));
+    const paid = await payPackOnline(pack.id, { name: "Owner", email: "o@x.my" });
+    expect(paid).toEqual({ ok: true, url: "https://billplz.example/pack" });
+    // Asked again: the same page, not a second bill.
+    expect(await payPackOnline(pack.id, { name: "Owner", email: "o@x.my" })).toEqual(paid);
+    await settleBill({ billId: `bill-pack-${pack.id}`, paid: true } as never);
+    expect(await creditBalance(id)).toBe(200);
+    await settleBill({ billId: `bill-pack-${pack.id}`, paid: true } as never);
+    expect(await creditBalance(id)).toBe(200);
+    expect(await payPackOnline(pack.id, { name: "Owner", email: "o@x.my" })).toMatchObject({ ok: false, status: 409 });
+  });
+});
+
+describe("the WhatsApp settings route", () => {
+  it("lets staff switch it on and buy, and only the owner give or mark paid", async () => {
+    const id = await venue();
+    const other = await venue();
     const desk = await createAdmin({ name: "Desk", email: `desk${id}@chat.my`, password: "desk-password", venueId: id });
     if (!desk.ok) throw new Error(desk.error);
     const deskCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
-    const owner = (await listAdmins()).find((x) => x.venueId === null)!;
-    const ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(owner.id)).token}`;
-    const mod = await import("../src/app/api/admin/billing/route");
-    const get = (cookie: string) => mod.GET(new NextRequest("http://localhost/api/admin/billing", { headers: { cookie } }));
-
-    const mine = await (await get(deskCookie)).json();
-    expect(mine.usage).toEqual([expect.objectContaining({ venueId: id, paid: 2, included: 300, venueName: expect.stringContaining("Chatty") })]);
-    expect(mine.plans).toBeUndefined();
-
+    const ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(ownerId)).token}`;
+    const mod = await import("../src/app/api/admin/whatsapp/route");
+    const get = (cookie: string, q: string) => mod.GET(new NextRequest(`http://localhost/api/admin/whatsapp?${q}`, { headers: { cookie } }));
     const post = (cookie: string, body: object) =>
-      mod.POST(new NextRequest("http://localhost/api/admin/billing", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) }));
-    expect((await post(deskCookie, { action: "setPlan", venueId: id, monthlyFee: 1, billingStartsOn: null })).status).toBe(403);
-    const set = await post(ownerCookie, { action: "setPlan", venueId: id, monthlyFee: "", billingStartsOn: "", whatsappIncluded: "50", whatsappPrice: "0.07" });
-    expect(set.status).toBe(200);
-    expect((await set.json()).plans.find((p: { venueId: number }) => p.venueId === id)).toMatchObject({ whatsappIncluded: 50, whatsappPrice: 0.07 });
-    expect((await post(ownerCookie, { action: "setPlan", venueId: id, monthlyFee: "", billingStartsOn: "", whatsappPrice: "-1" })).status).toBe(400);
-    const all = await (await get(ownerCookie)).json();
-    expect(all.messageDefaults).toEqual({ included: 300, unitPrice: 0.08 });
+      mod.POST(new NextRequest("http://localhost/api/admin/whatsapp", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+    expect((await get(deskCookie, `venueId=${other}`)).status).toBe(403);
+    expect((await get(deskCookie, "venueId=x")).status).toBe(400);
+    expect(await (await get(deskCookie, `venueId=${id}`)).json()).toMatchObject({ on: false, prepaid: true, balance: 0, pack: { messages: 200, price: 20 } });
+    expect(await (await post(deskCookie, { venueId: id, action: "on" })).json()).toMatchObject({ on: true });
+    const bought = await (await post(deskCookie, { venueId: id, action: "buy" })).json();
+    expect(bought.ordered).toMatchObject({ status: "due" });
+    expect((await post(deskCookie, { venueId: id, action: "grant", messages: 50 })).status).toBe(403);
+    expect((await post(deskCookie, { venueId: id, action: "markPaid", packId: bought.ordered.id })).status).toBe(403);
+    expect((await post(deskCookie, { venueId: id, action: "pay", packId: bought.ordered.id })).status).toBe(409);
+    expect((await post(deskCookie, { venueId: id, action: "pay", packId: 999999 })).status).toBe(404);
+    expect((await post(deskCookie, { venueId: id, action: "dance" })).status).toBe(403);
+
+    expect(await (await post(ownerCookie, { venueId: id, action: "markPaid", packId: bought.ordered.id })).json()).toMatchObject({ balance: 200 });
+    expect((await post(ownerCookie, { venueId: id, action: "markPaid", packId: bought.ordered.id })).status).toBe(409);
+    expect((await post(ownerCookie, { venueId: id, action: "void", packId: 999999 })).status).toBe(404);
+    expect(await (await post(ownerCookie, { venueId: id, action: "grant", messages: 50 })).json()).toMatchObject({ balance: 250 });
+    expect((await post(ownerCookie, { venueId: id, action: "grant", messages: 0 })).status).toBe(400);
+    expect((await post(ownerCookie, { venueId: id, action: "dance" })).status).toBe(400);
+    expect(await (await post(deskCookie, { venueId: id, action: "off" })).json()).toMatchObject({ on: false });
+    expect((await post(deskCookie, { action: "on" })).status).toBe(400);
+    expect((await mod.POST(new NextRequest("http://localhost/api/admin/whatsapp", { method: "POST", headers: { cookie: deskCookie }, body: "{" }))).status).toBe(400);
+
+    delete process.env.MYSENAM_MARKETPLACE;
+    expect((await post(deskCookie, { venueId: id, action: "buy" })).status).toBe(400);
   });
 });
 
@@ -213,11 +296,14 @@ describe("the customer opening the chat", () => {
     venueId = v.id;
     courtId = v.courts.find((c) => c.capacity === 1)!.id;
   });
+  afterEach(async () => await setWhatsappOn(venueId, false));
 
-  function chatOn() {
+  async function chatOn() {
     process.env.WHATSAPP_CHAT_NUMBER = "+60 11-2345 6789";
     process.env.WHATSAPP_APP_SECRET = "app-secret";
     process.env.WHATSAPP_VERIFY_TOKEN = "verify-me";
+    await setWhatsappOn(venueId, true);
+    if ((await creditBalance(venueId)) < 20) await grantCredit(venueId, 50, ownerId);
   }
 
   async function bookAndConfirm(phone: string) {
@@ -235,7 +321,7 @@ describe("the customer opening the chat", () => {
     return { booking: made.booking, message: m };
   }
 
-  it("is on only with a number to message and a secret to check Meta with", () => {
+  it("is on only with a number to message and a secret to check Meta with", async () => {
     expect(chatNumber()).toBeNull();
     expect(chatRepliesOn()).toBe(false);
     process.env.WHATSAPP_CHAT_NUMBER = "+60 11-2345 6789";
@@ -246,15 +332,21 @@ describe("the customer opening the chat", () => {
     expect(chatHoldMinutes()).toBe(3);
     process.env.MYSENAM_WHATSAPP_CHAT_HOLD_MINUTES = "99";
     expect(chatHoldMinutes()).toBe(3);
+    // And offered for a venue only when it sends WhatsApp and has credit.
+    expect(await chatOfferedFor(venueId)).toBe(false);
+    await setWhatsappOn(venueId, true);
+    await grantCredit(venueId, 5, ownerId);
+    expect(await chatOfferedFor(venueId)).toBe(true);
   });
 
   it("does not hold confirmations when it is off", async () => {
+    await setWhatsappOn(venueId, false);
     const { message } = await bookAndConfirm("0171110001");
     expect(Date.parse(message.nextAttemptAt + "Z")).toBeLessThanOrEqual(Date.now() + 1000);
   });
 
   it("answers in the chat for free, and the paid template is never sent", async () => {
-    chatOn();
+    await chatOn();
     const { booking, message } = await bookAndConfirm("0171110002");
     expect(Date.parse(message.nextAttemptAt + "Z")).toBeGreaterThan(Date.now() + 2 * 60_000);
     // Not due yet: nothing goes on its own.
@@ -271,11 +363,25 @@ describe("the customer opening the chat", () => {
     expect(again.message!.id).not.toBe(message.id);
     const all = await messagesForBooking(booking.id);
     expect(all.every((m) => m.free && m.status === "sent")).toBe(true);
-    expect((await usageOf(venueId))!.free).toBeGreaterThanOrEqual(2);
+    expect((await usageOf(venueId)).free).toBeGreaterThanOrEqual(2);
+  });
+
+  it("pays for each reply from the venue's credit, and stops when it is gone", async () => {
+    await chatOn();
+    const { booking } = await bookAndConfirm("0171110008");
+    const before = await creditBalance(venueId);
+    expect((await answerChat("60171110008", booking.code)).answered).toBe(true);
+    expect(await creditBalance(venueId)).toBe(before - 1);
+    await grantCredit(venueId, -(before - 1), ownerId);
+    expect(await answerChat("60171110008", booking.code)).toMatchObject({ answered: false, reason: "no WhatsApp credit" });
+    const other = await bookAndConfirm("0171110009");
+    expect(await answerChat("60171110009", other.booking.code)).toMatchObject({ answered: false, reason: "no WhatsApp credit" });
+    // Left for the template, which finds no credit either.
+    expect((await messagesForBooking(other.booking.id))[0]).toMatchObject({ free: false, status: "queued" });
   });
 
   it("tells nobody about a booking that is not theirs", async () => {
-    chatOn();
+    await chatOn();
     const { booking } = await bookAndConfirm("0171110003");
     expect(await answerChat("60199999999", booking.code)).toMatchObject({ answered: false });
     expect(await answerChat("60171110003", "hello?")).toMatchObject({ answered: false });
@@ -284,7 +390,7 @@ describe("the customer opening the chat", () => {
   });
 
   it("falls back to the template when the reply cannot go", async () => {
-    chatOn();
+    await chatOn();
     const { booking, message } = await bookAndConfirm("0171110004");
     setTransport({ name: "down", send: async () => { throw new Error("WhatsApp is down"); } });
     expect(await answerChat("60171110004", booking.code)).toMatchObject({ answered: false });
@@ -300,7 +406,7 @@ describe("the customer opening the chat", () => {
     const mod = await import("../src/app/api/whatsapp/webhook/route");
     const verify = (q: string) => mod.GET(new NextRequest(`http://localhost/api/whatsapp/webhook?${q}`));
     expect((await verify("hub.mode=subscribe&hub.verify_token=x&hub.challenge=42")).status).toBe(403);
-    chatOn();
+    await chatOn();
     const ok = await verify("hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=42");
     expect(await ok.text()).toBe("42");
 
@@ -324,7 +430,7 @@ describe("the customer opening the chat", () => {
   });
 
   it("offers the button on the confirmation", async () => {
-    chatOn();
+    await chatOn();
     const mod = await import("../src/app/api/bookings/route");
     const res = await mod.POST(
       new NextRequest("http://localhost/api/bookings", {

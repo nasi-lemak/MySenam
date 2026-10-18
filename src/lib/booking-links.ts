@@ -64,23 +64,36 @@ function fold(line: string): string {
   return parts.join("\r\n ");
 }
 
+/** One booking as a calendar file. */
 export function icsContent(b: BookingShareInfo): string {
-  const uid = `${b.code}@mysenam`;
+  return icsCalendar([b]);
+}
+
+/** Several bookings — each week of a series — as one calendar file. */
+export function icsCalendar(list: BookingShareInfo[]): string {
+  const site = list[0]?.siteName ?? DEFAULT_SITE_NAME;
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    `PRODID:-//${icsText(b.siteName ?? DEFAULT_SITE_NAME)}//Booking//EN`,
-    "BEGIN:VEVENT",
-    `UID:${uid}`,
-    `DTSTAMP:${toUtcStamp(b.date, b.startHour)}`,
-    `DTSTART:${toUtcStamp(b.date, b.startHour)}`,
-    `DTEND:${toUtcStamp(b.date, b.endHour)}`,
-    `SUMMARY:${icsText(`${b.courtName} @ ${b.venueName}`)}`,
-    `DESCRIPTION:${icsText(
-      `${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total RM${b.totalPrice}.`
-    )}`,
-    ...(b.venueAddress ? [`LOCATION:${icsText(b.venueAddress)}`] : []),
-    "END:VEVENT",
+    `PRODID:-//${icsText(site)}//Booking//EN`,
+    "METHOD:PUBLISH",
+    ...list.flatMap((b) => [
+      "BEGIN:VEVENT",
+      `UID:${b.code}@mysenam`,
+      `DTSTAMP:${toUtcStamp(b.date, b.startHour)}`,
+      `DTSTART:${toUtcStamp(b.date, b.startHour)}`,
+      `DTEND:${toUtcStamp(b.date, b.endHour)}`,
+      `SUMMARY:${icsText(`${b.courtName} @ ${b.venueName}`)}`,
+      `DESCRIPTION:${icsText(`${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total RM${b.totalPrice}.`)}`,
+      ...(b.venueAddress ? [`LOCATION:${icsText(b.venueAddress)}`] : []),
+      // A reminder an hour before, on whatever calendar it lands in.
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsText(`${b.courtName} @ ${b.venueName}`)}`,
+      "TRIGGER:-PT1H",
+      "END:VALARM",
+      "END:VEVENT",
+    ]),
     "END:VCALENDAR",
   ];
   return lines.map(fold).join("\r\n");

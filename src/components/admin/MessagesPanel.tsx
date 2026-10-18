@@ -166,8 +166,8 @@ export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
                       {KIND_LABELS[m.kind] ?? m.kind}
                     </button>
                     {m.free && (
-                      <span title="Sent as a reply in a chat the customer opened, which WhatsApp does not charge for" className="ml-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        free reply
+                      <span title="Sent as a reply in a chat the customer opened, instead of a template" className="ml-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        reply in chat
                       </span>
                     )}
                     {open === m.id && (

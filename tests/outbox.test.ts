@@ -27,6 +27,7 @@ import {
   listVenues,
 } from "../src/lib/store";
 import { getDb } from "../src/lib/db";
+import { setWhatsappOn } from "../src/lib/whatsapp-credit";
 import { addDays, todayISO } from "../src/lib/time";
 
 let courtId: number;
@@ -36,6 +37,8 @@ beforeAll(async () => {
   const venue = (await listVenues())[0];
   venueId = venue.id;
   courtId = venue.courts.find((c) => c.capacity === 1)!.id;
+  // These customers give a phone number only: they hear on WhatsApp, which the venue has on.
+  await setWhatsappOn(venueId, true);
 });
 
 afterEach(() => setTransport(null));

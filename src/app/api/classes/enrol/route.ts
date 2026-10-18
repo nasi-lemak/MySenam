@@ -9,7 +9,8 @@ import { rateLimit } from "@/lib/rate-limit";
 import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
 import { notifyClassEnrolled, tickOutbox } from "@/lib/notify";
-import { chatNumber, chatRepliesOn } from "@/lib/outbox";
+import { chatNumber } from "@/lib/outbox";
+import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 
 export const dynamic = "force-dynamic";
@@ -109,6 +110,6 @@ export async function POST(req: NextRequest) {
       walletError,
       addons: addonLines,
       addonError,
-      chatNumber: chatRepliesOn() ? chatNumber() : null,
+      chatNumber: session && (await chatOfferedFor(session.venueId)) ? chatNumber() : null,
     }, { status: 201 });
 }
