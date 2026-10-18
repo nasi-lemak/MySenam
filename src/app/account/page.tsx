@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatHour, todayISO } from "@/lib/time";
 import { SPORT_ICONS } from "@/lib/types";
 import type { User } from "@/lib/auth";
+import type { PhoneStatus } from "@/lib/phone-check";
 import type { UserBookingRow } from "@/lib/store";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
@@ -20,6 +21,7 @@ export default function AccountPage() {
   const router = useRouter();
   const t = useT();
   const [user, setUser] = useState<User | null>(null);
+  const [phone, setPhone] = useState<PhoneStatus | null>(null);
   const [bookings, setBookings] = useState<UserBookingRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -33,6 +35,7 @@ export default function AccountPage() {
         return;
       }
       setUser(me.user);
+      setPhone(me.phone ?? null);
       const res = await fetch("/api/my/bookings", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("acct.loadFailed"));
@@ -105,7 +108,24 @@ export default function AccountPage() {
         <div>
           <h1 className="text-2xl font-bold">{t("acct.greeting", { name: user.name })}</h1>
           <p className="mt-1 text-sm text-slate-600">
-            {user.email} · {user.phone}
+            {user.email}
+            {" · "}
+            {user.phone ? (
+              <>
+                {user.phone}{" "}
+                {phone?.verified ? (
+                  <span className="text-emerald-700">✓ {t("phone.checked")}</span>
+                ) : phone?.checks ? (
+                  <Link href="/account/phone" className="font-medium text-teal-700 underline">
+                    {t("phone.checkIt")}
+                  </Link>
+                ) : null}
+              </>
+            ) : (
+              <Link href="/account/phone" className="font-medium text-teal-700 underline">
+                {t("phone.add")}
+              </Link>
+            )}
           </p>
         </div>
         <button

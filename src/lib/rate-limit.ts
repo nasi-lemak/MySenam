@@ -23,6 +23,8 @@ export const POLICIES = {
   register: { limit: 5, windowMs: 60 * MINUTE },
   /** Each photo is drawn three times over; plenty for a venue, too few to keep a server busy. */
   photoUpload: { limit: 30, windowMs: 60 * MINUTE },
+  /** Sending or trying a code to check a phone number: a person needs a few, a script many. */
+  phoneCode: { limit: 10, windowMs: 10 * MINUTE },
   /** Booking codes are short, so lookup/cancel are guessable without this. */
   bookingLookup: { limit: 20, windowMs: 10 * MINUTE },
   /** Stops a script filling a venue's day with junk bookings. */

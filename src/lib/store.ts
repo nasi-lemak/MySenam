@@ -15,6 +15,7 @@ import {
   type Surface,
 } from "./facilities";
 import { creditScope } from "./mode";
+import { phoneNumber } from "./phone-check";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import {
@@ -2036,6 +2037,8 @@ export interface AdminBookingRow extends Booking {
   courtDeposit: number;
   /** The hire against this booking, open or settled. */
   hire: HireRecord | null;
+  /** Booked from an account that has proved, by a code, that it holds this number. */
+  phoneChecked: boolean;
 }
 
 export interface UserBookingRow extends Booking {
@@ -3000,11 +3003,13 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   const rows = await db
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
-             v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at
+             v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at,
+             u.verified_phone AS user_verified_phone
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
+      LEFT JOIN users u ON u.id = b.user_id
       WHERE b.date = ?${venue.sql}
       ORDER BY v.id, c.id, b.start_hour
     `)
@@ -3014,6 +3019,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     court_deposit: number;
     venue_id: number;
     venue_name: string;
+    user_verified_phone: string | null;
   })[];
   // One pass for the whole day rather than a lookup per row.
   const hires = new Map<number, HireRecord>();
@@ -3037,6 +3043,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       priorNoShows: (await countNoShows(booking.phone)) - (booking.noShow ? 1 : 0),
       courtDeposit: r.court_deposit,
       hire: hires.get(booking.id) ?? null,
+      phoneChecked: r.user_verified_phone !== null && phoneNumber(booking.phone) === r.user_verified_phone,
     });
   }
   return list;

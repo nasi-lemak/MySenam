@@ -505,6 +505,7 @@ export function BookingsTab() {
                   <a href={`tel:${b.phone}`} className="ml-2 text-slate-500 underline">
                     {b.phone}
                   </a>
+                  <CheckedPhone b={b} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -548,7 +549,10 @@ export function BookingsTab() {
                       {b.name}
                       <NoShowBadge b={b} />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">{b.phone}</td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {b.phone}
+                      <CheckedPhone b={b} />
+                    </td>
                     <td className="px-3 py-2 font-medium">RM{b.totalPrice}</td>
                     <td className="px-3 py-2">
                       <span
@@ -616,6 +620,16 @@ function SeriesChip({ b, act }: { b: AdminBookingRow; act: Act }) {
     >
       🔁
     </button>
+  );
+}
+
+/** Booked from an account that proved, with a code sent to it, that this number is theirs. */
+function CheckedPhone({ b }: { b: AdminBookingRow }) {
+  if (!b.phoneChecked) return null;
+  return (
+    <span title="Number checked: the customer proved it is theirs" className="ml-1 text-xs font-semibold text-emerald-700">
+      ✓
+    </span>
   );
 }
 

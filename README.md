@@ -177,6 +177,9 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_SEND` | — | `log` writes customer messages to the server log instead of sending them |
 | `WHATSAPP_TOKEN` | — | A WhatsApp Cloud API access token. With the next one, sends messages on WhatsApp |
 | `WHATSAPP_PHONE_NUMBER_ID` | — | The Cloud API phone number id messages are sent from |
+| `WHATSAPP_CODE_TEMPLATE` | `mysenam_login_code` | The WhatsApp *authentication* template that carries the code checking a customer's number |
+| `MYSENAM_PHONE_CHECK` | on when WhatsApp is set up | `off` to take customers' numbers as given; `on` to check them even without WhatsApp (with `MYSENAM_SEND=log`, codes go to the server log) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | Customers can sign in with Google. The redirect to register with Google is `<MYSENAM_URL>/api/auth/google/callback` |
 | `WHATSAPP_TEMPLATE_PREFIX` | `mysenam` | Prefix of the approved template names, e.g. `mysenam_booking_confirmed` |
 | `WHATSAPP_COUNTRY_CODE` | `60` | Country code put in front of a number typed with a leading 0 |
 | `WHATSAPP_API_VERSION` | `v23.0` | Graph API version |
@@ -1741,6 +1744,66 @@ date, and customers see the reason both as an upcoming-closures banner on the
 venue page and on the grid itself. Staff still see the day in the schedule,
 marked with the closure reason rather than blank, so bookings taken before the
 closure was declared remain visible for them to handle.
+
+## Signing in with Google
+
+With `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set, the sign-in page
+offers *Continue with Google* above the email and password form, which stays.
+
+- **The flow** is OpenID Connect's authorisation code with PKCE, a `state`
+  tying the answer to the browser that asked (kept for ten minutes in an
+  HTTP-only cookie) and a `nonce` tying the ID token to the request. The token
+  comes straight from Google's token endpoint over TLS; its issuer, audience,
+  expiry and nonce are checked. Nothing of Google's but the person's id, email
+  and name is kept, and no Google token at all.
+- **Which account.** Google's id for the person, which never changes, finds
+  it. The first time, an existing account with the same email is joined to it
+  only if Google says it has verified that email — otherwise anybody could
+  create a Google account with somebody else's address and walk into theirs.
+  Failing both, a new account is made, with no password and no phone number.
+- **Only at the main address.** Google sends people back to the one redirect
+  registered with it, so the button is not shown on a venue's own storefront
+  domain, where the session would land on another site.
+- **Staff** still sign in with email and password, so a venue's dashboard is
+  never tied to somebody's personal Google account.
+
+Set it up in Google Cloud: *APIs & Services → Credentials → Create OAuth
+client ID → Web application*, with the redirect URI above, and the consent
+screen published. Apple's *Sign in with Apple* fits the same shape
+(`user_identities` already allows `apple`) once there is an Apple developer
+account to configure it with.
+
+## Checking a customer's phone number
+
+A venue rings the number on a booking, confirmations go to it, limits and
+blocks are kept by it, and league box-mates are given it — so an account
+proves it holds its number, once, with a six-digit code sent to it on
+WhatsApp.
+
+- **When.** Not at sign-in: before the first thing that needs it — booking,
+  enrolling in a class, opening or joining a game, entering a tournament,
+  joining a league — the account is sent to *Your phone number*, and then
+  straight back to the same court, day and hour. An account made with Google
+  adds its number there.
+- **The code** lasts 10 minutes and allows 5 tries; an account may ask for 3
+  an hour and a number be sent 5 a day, so nobody can use it to flood a
+  phone. Only a keyed hash of the code is stored, and codes are gone within a
+  day.
+- **Checked stays checked** until the number on the account changes. If
+  another account proves the same number, the first loses its check: only one
+  of them can be holding that phone now.
+- **Staff see** a ✓ beside a booking's number when it was booked from an
+  account that proved that number.
+- **Guests** booking one court without an account are not asked, any more
+  than at a counter; weekly series already need an account.
+- **On** whenever WhatsApp is set up (`MYSENAM_PHONE_CHECK=off` turns it off).
+  Without WhatsApp there is nothing to send a code with, and numbers are taken
+  as given, as before.
+- **The template.** In WhatsApp Manager create a template named
+  `mysenam_login_code` (or set `WHATSAPP_CODE_TEMPLATE`), category
+  *Authentication*, with the *Copy code* button, in English and Malay. Meta
+  writes the wording of authentication templates itself; the code goes in as
+  its one parameter.
 
 ## Session cookies
 

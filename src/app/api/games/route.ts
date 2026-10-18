@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneRefusal } from "@/lib/phone-check";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { findGames, LEVELS, openGame, type Level } from "@/lib/games";
 import { rateLimit } from "@/lib/rate-limit";
@@ -38,6 +40,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  {
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
+  }
   const limited = rateLimit(req, "booking");
   if (limited) return limited;
   let body: Record<string, unknown>;

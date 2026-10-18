@@ -1,5 +1,6 @@
 "use client";
 
+import { phoneDetour } from "@/lib/phone-detour";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
@@ -218,6 +219,7 @@ function EnrolModal({
         body: JSON.stringify({ classId: session.id, name, phone, email }),
       });
       const data = await res.json();
+      if (!res.ok && phoneDetour(data)) return;
       if (!res.ok)
         throw new Error(
           translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))

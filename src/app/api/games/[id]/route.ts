@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneRefusal } from "@/lib/phone-check";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { askToJoin, closeGame, leaveGame } from "@/lib/games";
 import { startSharePayment } from "@/lib/payments";
@@ -32,6 +34,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (body.action === "join") {
     const limited = rateLimit(req, "booking");
     if (limited) return limited;
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
   }
   const result =
     body.action === "join"

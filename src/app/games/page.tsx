@@ -1,5 +1,6 @@
 "use client";
 
+import { phoneDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -75,6 +76,7 @@ export default function GamesPage() {
     setNotice(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json();
+    if (!res.ok && phoneDetour(data)) return;
     if (!res.ok) return setError(translateError(t, data) || data.error);
     if (data.url) {
       window.location.href = data.url;

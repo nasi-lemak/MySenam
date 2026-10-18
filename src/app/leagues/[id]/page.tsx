@@ -1,5 +1,6 @@
 "use client";
 
+import { phoneDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -35,6 +36,7 @@ export default function LeaguePage() {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const out = await res.json();
+    if (!res.ok && phoneDetour(out)) return false;
     if (!res.ok) {
       setError(translateError(t, out) || out.error);
       return false;

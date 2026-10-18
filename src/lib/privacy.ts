@@ -250,7 +250,9 @@ export async function pruneIfDue(): Promise<PruneResult | null> {
 
 export interface CustomerExport {
   takenAt: string;
-  account: { id: number; name: string; email: string; phone: string; createdAt: string | null };
+  account: { id: number; name: string; email: string; phone: string; createdAt: string | null; phoneCheckedAt: string | null };
+  /** Ways of signing in besides a password: which provider, and the email it gave. */
+  signIns: unknown[];
   bookings: unknown[];
   wallet: { balance: number; entries: unknown[] };
   passes: unknown[];
@@ -276,9 +278,9 @@ export interface CustomerExport {
 export async function exportCustomerData(userId: number): Promise<CustomerExport | null> {
   const db = getDb();
   const account = await db
-    .prepare("SELECT id, name, email, phone, created_at FROM users WHERE id = ?")
+    .prepare("SELECT id, name, email, phone, created_at, phone_verified_at FROM users WHERE id = ?")
     .get(userId) as
-    | { id: number; name: string; email: string; phone: string; created_at: string | null }
+    | { id: number; name: string; email: string; phone: string; created_at: string | null; phone_verified_at: string | null }
     | undefined;
   if (!account) return null;
 
@@ -292,7 +294,9 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       email: account.email,
       phone: account.phone,
       createdAt: account.created_at ?? null,
+      phoneCheckedAt: account.phone_verified_at ?? null,
     },
+    signIns: await all("SELECT provider, email, created_at FROM user_identities WHERE user_id = ?", userId),
     bookings: await all(
       `SELECT b.code, b.date, b.start_hour, b.end_hour, b.total_price, b.status,
               b.payment_status, b.created_at, c.name AS court, v.name AS venue

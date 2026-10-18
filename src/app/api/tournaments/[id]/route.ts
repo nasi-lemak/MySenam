@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneRefusal } from "@/lib/phone-check";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { mayShowVenue } from "@/lib/listing";
 import { startEntryPayment } from "@/lib/payments";
@@ -47,6 +49,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (body.action === "enter") {
     const limited = rateLimit(req, "booking");
     if (limited) return limited;
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
     const result = await enter(user, t.id, { partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({ mine: result.value }, { status: 201 });

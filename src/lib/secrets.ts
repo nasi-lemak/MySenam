@@ -84,3 +84,12 @@ export function unseal(sealed: string): string | null {
 export function resetSecretKey(): void {
   cached = null;
 }
+
+/**
+ * A keyed hash, for something that must be checked later but never read
+ * back — a one-time code. Without the key, the stored hash of a six-digit
+ * code cannot simply be tried a million times over.
+ */
+export function keyedHash(purpose: string, data: string): string {
+  return crypto.createHmac("sha256", key()).update(`${purpose}:${data}`).digest("hex");
+}

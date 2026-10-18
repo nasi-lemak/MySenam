@@ -1,5 +1,6 @@
 "use client";
 
+import { phoneDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -43,6 +44,7 @@ export default function TournamentPage() {
       body: JSON.stringify(body),
     });
     const out = await res.json();
+    if (!res.ok && phoneDetour(out)) return;
     if (!res.ok) return setError(translateError(t, out) || out.error);
     if (out.url) {
       window.location.href = out.url;

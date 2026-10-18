@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import {
@@ -69,6 +70,11 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const user = await getSessionUser(req);
+  // An account books with a number the venue can reach, checked where numbers are.
+  if (user) {
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
+  }
 
   // Not too many unpaid bookings ahead on one number, no weekly series
   // without an account, and not from a number this venue has refused.

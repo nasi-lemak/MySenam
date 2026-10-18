@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneRefusal } from "@/lib/phone-check";
+import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { jsonBody } from "@/lib/league-access";
 import { join, leagueById, leagueDetail, leave, myLeague } from "@/lib/leagues";
@@ -45,6 +47,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (body.action === "join") {
     const limited = rateLimit(req, "booking");
     if (limited) return limited;
+    // Box-mates are given this number to arrange matches: it had better be theirs.
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
     const result = await join(user, league.id, { partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({ mine: await myLeague(user.id, league.id) }, { status: 201 });

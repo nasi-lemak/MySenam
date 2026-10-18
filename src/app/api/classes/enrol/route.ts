@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { customerMayBook } from "@/lib/limits";
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const user = await getSessionUser(req);
+  // An account enrols with a number the venue can reach, checked where numbers are.
+  if (user) {
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
+  }
   const forClass = await getClass(classId as number);
   if (forClass) {
     const refused = await customerMayBook({
