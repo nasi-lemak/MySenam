@@ -27,8 +27,10 @@ export function monthBounds(month: string): [string, string] {
 export interface Usage {
   venueId: number;
   month: string;
-  /** Templates sent. */
+  /** Templates sent from the venue's credit. */
   paid: number;
+  /** Urgent news — the venue's cancellations and moves, waitlist offers — which the platform pays for. */
+  urgent: number;
   /** Replies in a chat the customer opened. */
   free: number;
 }
@@ -41,14 +43,17 @@ export async function usageFor(month: string, venueIds?: number[]): Promise<Map<
   const only = venueIds ? ` AND venue_id IN (${venueIds.map(() => "?").join(",")})` : "";
   const counts = (await getDb()
     .prepare(
-      `SELECT venue_id, SUM(CASE WHEN free = 0 THEN 1 ELSE 0 END)::int AS paid, SUM(free)::int AS free
+      `SELECT venue_id,
+              SUM(CASE WHEN free = 0 AND kind NOT IN ('booking_cancelled_by_venue', 'booking_moved', 'waitlist_offer') THEN 1 ELSE 0 END)::int AS paid,
+              SUM(CASE WHEN free = 0 AND kind IN ('booking_cancelled_by_venue', 'booking_moved', 'waitlist_offer') THEN 1 ELSE 0 END)::int AS urgent,
+              SUM(free)::int AS free
          FROM messages
         WHERE channel = 'whatsapp' AND status = 'sent' AND sent_at >= ? AND sent_at < ?${only}
         GROUP BY venue_id`
     )
-    .all(from, to, ...(venueIds ?? []))) as { venue_id: number; paid: number; free: number }[];
-  for (const c of counts) out.set(c.venue_id, { venueId: c.venue_id, month, paid: c.paid, free: c.free });
-  for (const id of venueIds ?? []) if (!out.has(id)) out.set(id, { venueId: id, month, paid: 0, free: 0 });
+    .all(from, to, ...(venueIds ?? []))) as { venue_id: number; paid: number; urgent: number; free: number }[];
+  for (const c of counts) out.set(c.venue_id, { venueId: c.venue_id, month, paid: c.paid, urgent: c.urgent, free: c.free });
+  for (const id of venueIds ?? []) if (!out.has(id)) out.set(id, { venueId: id, month, paid: 0, urgent: 0, free: 0 });
   return out;
 }
 

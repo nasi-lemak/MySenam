@@ -7,15 +7,17 @@ import { siteName } from "./site";
 import { sendPlainEmail, whatsappConfig } from "./transports";
 
 /**
- * WhatsApp, for the venues that want it, paid for before it is sent.
+ * WhatsApp: urgent news for everybody, everything else paid for before it is sent.
  *
  * Email is the default: it costs next to nothing, it carries a calendar
  * invite, and the booking code is on the screen the moment a booking is made
- * anyway. A venue can switch WhatsApp on as well. Meta charges the platform
- * for every message, so on a marketplace a venue buys messages in packs
- * first, and each one sent spends one. At zero, nothing more goes on
- * WhatsApp — the customer still has the email and the code on screen — and
- * the venue is told. The platform never sends a message it has not been paid
+ * anyway. News a customer must not miss — the venue cancelled or moved their
+ * booking, a waitlist place is theirs — also goes on WhatsApp unless the
+ * venue switches it off, and the platform pays: it is a few sen a message and
+ * few messages. A venue can choose everything on WhatsApp; Meta charges the
+ * platform for every message, so on a marketplace the rest is bought in packs
+ * first, and each one sent spends one. At zero, those stop — the customer
+ * still has the email and the code on screen — and the venue is told. The platform never sends a message it has not been paid
  * for, so a venue that stops paying costs nothing.
  *
  * A venue's own install has no marketplace to pay: it pays Meta itself, and
@@ -54,9 +56,27 @@ export async function creditBalance(venueId: number): Promise<number> {
   return n;
 }
 
-export async function whatsappOn(venueId: number): Promise<boolean> {
-  const row = (await getDb().prepare("SELECT whatsapp_on FROM venues WHERE id = ?").get(venueId)) as { whatsapp_on: number } | undefined;
-  return row?.whatsapp_on === 1;
+export type WhatsappMode = "off" | "urgent" | "all";
+
+/**
+ * News a customer must not miss: the venue cancelled or moved their booking,
+ * or a waitlist place is theirs for a short while. On WhatsApp by default,
+ * paid for by the platform — a few sen each, and few of them.
+ */
+export const URGENT_KINDS: string[] = ["booking_cancelled_by_venue", "booking_moved", "waitlist_offer"];
+
+export async function whatsappMode(venueId: number): Promise<WhatsappMode> {
+  const row = (await getDb().prepare("SELECT whatsapp_mode FROM venues WHERE id = ?").get(venueId)) as { whatsapp_mode: WhatsappMode } | undefined;
+  return row?.whatsapp_mode ?? "off";
+}
+
+export async function setWhatsappMode(venueId: number, mode: WhatsappMode): Promise<void> {
+  await getDb().prepare("UPDATE venues SET whatsapp_mode = ? WHERE id = ?").run(mode, venueId);
+}
+
+/** Whether the venue pays for this kind of message from its credit: everything but urgent news. */
+export function paidByVenue(kind: string): boolean {
+  return !URGENT_KINDS.includes(kind);
 }
 
 /** Day-before reminders on WhatsApp as well as email: each costs a message, so the venue chooses. */
@@ -69,18 +89,27 @@ export async function setWhatsappReminders(venueId: number, on: boolean): Promis
   await getDb().prepare("UPDATE venues SET whatsapp_reminders = ? WHERE id = ?").run(on ? 1 : 0, venueId);
 }
 
-export async function setWhatsappOn(venueId: number, on: boolean): Promise<void> {
-  await getDb().prepare("UPDATE venues SET whatsapp_on = ? WHERE id = ?").run(on ? 1 : 0, venueId);
+/**
+ * Whether a message of this kind is written for WhatsApp at this venue.
+ *
+ * Urgent news: unless the venue has switched WhatsApp off and — on urgent
+ * only, the default — only where the site can send WhatsApp at all, so that
+ * otherwise the desk is asked to ring them.
+ * Anything else: only with everything switched on and, on a marketplace,
+ * credit left; written before the site's account is connected, it waits in
+ * the queue with the reason, like any other.
+ */
+export async function whatsappFor(venueId: number, kind: string): Promise<boolean> {
+  const mode = await whatsappMode(venueId);
+  if (mode === "off") return false;
+  if (!paidByVenue(kind)) return mode === "all" || whatsappAvailable();
+  if (mode !== "all") return false;
+  return !creditsApply() || (await creditBalance(venueId)) > 0;
 }
 
-/**
- * Whether this venue's messages are written for WhatsApp: switched on and, on
- * a marketplace, with credit left. One written before the site's WhatsApp
- * account is connected waits in the queue, with the reason, like any other.
- */
+/** Everything on WhatsApp, with something to pay for it. */
 export async function whatsappReady(venueId: number): Promise<boolean> {
-  if (!(await whatsappOn(venueId))) return false;
-  return !creditsApply() || (await creditBalance(venueId)) > 0;
+  return whatsappFor(venueId, "booking_confirmed");
 }
 
 /** The "Send it to my WhatsApp" button, for this venue's confirmations. */
@@ -130,7 +159,7 @@ async function warnVenue(venueId: number, left: number): Promise<void> {
       : `${venue?.name ?? "Your venue"}: ${left} WhatsApp messages left`;
   const text =
     (left === 0
-      ? "Your customers' confirmations now go by email only, and the booking code is still shown on screen. "
+      ? "Your customers' confirmations and reminders now go by email only, and the booking code is still shown on screen. Urgent news — your cancellations and moves, waitlist offers — still goes on WhatsApp. "
       : `Only ${left} WhatsApp messages are left. When they run out, confirmations go by email only. `) +
     `Buy more under Venue details → WhatsApp at ${baseUrl()}/admin.`;
   for (const s of staff) await sendPlainEmail(s.email, subject, text);

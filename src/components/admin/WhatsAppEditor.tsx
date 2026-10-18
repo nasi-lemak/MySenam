@@ -4,8 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { Pack } from "@/lib/whatsapp-credit";
 import type { Usage } from "@/lib/whatsapp-usage";
 
+type Mode = "off" | "urgent" | "all";
+
+const MODES: { value: Mode; label: string; note: string }[] = [
+  { value: "urgent", label: "Urgent only", note: "If you cancel or move a booking, or a waitlist place opens, the customer hears on WhatsApp. Included — no credit needed." },
+  { value: "all", label: "Everything", note: "Confirmations too, and reminders if you tick them. Urgent news stays included; the rest uses prepaid credit." },
+  { value: "off", label: "Off", note: "Email only. Anyone without an email who you cancel or move shows under Needs attention for a call." },
+];
+
 interface State {
-  on: boolean;
+  mode: Mode;
   reminders: boolean;
   available: boolean;
   prepaid: boolean;
@@ -18,8 +26,8 @@ interface State {
 }
 
 /**
- * WhatsApp confirmations for one venue: off unless the venue wants them, and
- * on a marketplace paid for in advance, a pack at a time. Email and the code
+ * WhatsApp for one venue: urgent news only (the default, included), everything
+ * (the rest from prepaid credit on a marketplace), or off. Email and the code
  * on screen are always there whatever this says.
  */
 export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner: boolean }) {
@@ -65,35 +73,51 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
   return (
     <div className="w-full border-t border-slate-100 pt-2 text-sm">
       <button onClick={() => setOpen(!open)} className="text-xs font-medium text-teal-700 underline">
-        {open ? "Close WhatsApp" : s?.on ? `WhatsApp confirmations: on${s.prepaid ? ` (${s.balance} left)` : ""}` : "WhatsApp confirmations (optional)"}
+        {open
+          ? "Close WhatsApp"
+          : s
+            ? `WhatsApp: ${MODES.find((m) => m.value === s.mode)!.label.toLowerCase()}${s.mode === "all" && s.prepaid ? ` (${s.balance} left)` : ""}`
+            : "WhatsApp messages"}
       </button>
       {open && s && (
         <div className="mt-2 space-y-3">
           <p className="text-xs text-slate-500">
             Customers always see their booking code on screen, and get it by email with a calendar invite when they give an address — free.
-            WhatsApp is extra: the confirmation also goes to their phone.
             {s.prepaid &&
-              ` It is paid for in advance: ${s.pack.messages} messages for RM${s.pack.price}, one message per confirmation, cancellation or waitlist offer. When they run out, WhatsApp simply stops and email carries on; you are emailed at 20 left and at none.`}
+              ` With everything on, the extra messages are paid for in advance: ${s.pack.messages} for RM${s.pack.price}. When they run out, those stop and email carries on; urgent news still goes, and you are emailed at 20 left and at none.`}
           </p>
           {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
           {!s.available ? (
             <p className="text-xs text-amber-700">WhatsApp is not set up on this site yet.</p>
           ) : (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                disabled={busy}
-                onClick={() => act({ action: s.on ? "off" : "on" })}
-                aria-pressed={s.on}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold ${s.on ? "bg-teal-600 text-white" : "border border-slate-300 text-slate-700"} disabled:opacity-50`}
-              >
-                {s.on ? "On — turn off" : "Turn on"}
-              </button>
-              {s.prepaid && (
-                <span className={`text-xs ${s.balance === 0 && s.on ? "font-semibold text-amber-700" : "text-slate-600"}`}>
-                  {s.balance} messages left{s.balance === 0 && s.on ? " — nothing goes on WhatsApp until you buy more" : ""}
+            <div className="space-y-2">
+              <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="WhatsApp messages">
+                {MODES.map((m) => (
+                  <label
+                    key={m.value}
+                    className={`cursor-pointer rounded-lg border p-2.5 text-xs ${s.mode === m.value ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}
+                  >
+                    <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+                      <input
+                        type="radio"
+                        name={`wa-mode-${venueId}`}
+                        checked={s.mode === m.value}
+                        disabled={busy}
+                        onChange={() => act({ action: "mode", mode: m.value })}
+                      />
+                      {m.label}
+                      {m.value === "urgent" && <span className="font-normal text-slate-500">(default)</span>}
+                    </span>
+                    <span className="mt-1 block text-slate-500">{m.note}</span>
+                  </label>
+                ))}
+              </div>
+              {s.mode === "all" && s.prepaid && (
+                <span className={`text-xs ${s.balance === 0 ? "font-semibold text-amber-700" : "text-slate-600"}`}>
+                  {s.balance} messages left{s.balance === 0 ? " — confirmations and reminders go by email only until you buy more" : ""}
                 </span>
               )}
-              {s.on && (
+              {s.mode === "all" && (
                 <label className="flex items-center gap-1.5 text-xs text-slate-600">
                   <input
                     type="checkbox"
@@ -104,13 +128,15 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                   Day-before reminders on WhatsApp too (one message each; email reminders always go)
                 </label>
               )}
-              <span className="text-xs text-slate-500">
-                This month: {s.usage.paid} sent{s.usage.free > 0 ? `, ${s.usage.free} as replies in chats customers opened` : ""}
+              <span className="block text-xs text-slate-500">
+                This month: {s.usage.urgent} urgent (included)
+                {s.usage.paid > 0 || s.mode === "all" ? `, ${s.usage.paid} from credit` : ""}
+                {s.usage.free > 0 ? `, ${s.usage.free} as replies in chats customers opened` : ""}
               </span>
             </div>
           )}
 
-          {s.prepaid && s.available && (
+          {s.prepaid && s.available && s.mode === "all" && (
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <button

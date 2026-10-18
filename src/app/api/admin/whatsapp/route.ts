@@ -12,13 +12,14 @@ import {
   packPrice,
   packSize,
   payPackOnline,
-  setWhatsappOn,
+  setWhatsappMode,
   setWhatsappReminders,
   whatsappReminders,
   settlePack,
   voidPack,
   whatsappAvailable,
-  whatsappOn,
+  whatsappMode,
+  type WhatsappMode,
 } from "@/lib/whatsapp-credit";
 import { usageOf } from "@/lib/whatsapp-usage";
 
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 async function state(venueId: number) {
   return {
-    on: await whatsappOn(venueId),
+    mode: await whatsappMode(venueId),
     reminders: await whatsappReminders(venueId),
     available: whatsappAvailable(),
     prepaid: creditsApply(),
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * `{ venueId, action }`:
- * - `"on"` / `"off"` — the venue's staff;
+ * - `"mode", mode: "off" | "urgent" | "all"` — the venue's staff;
  * - `"buy"` — order a pack, then `"pay", packId` to pay it online;
  * - `"grant", messages` / `"markPaid" | "void", packId` — the platform owner.
  */
@@ -70,8 +71,10 @@ export async function POST(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  if (b.action === "on" || b.action === "off") {
-    await setWhatsappOn(venueId, b.action === "on");
+  if (b.action === "mode") {
+    if (b.mode !== "off" && b.mode !== "urgent" && b.mode !== "all")
+      return NextResponse.json({ error: "Off, urgent only, or everything." }, { status: 400 });
+    await setWhatsappMode(venueId, b.mode as WhatsappMode);
     return NextResponse.json(await state(venueId));
   }
   if (b.action === "remindersOn" || b.action === "remindersOff") {

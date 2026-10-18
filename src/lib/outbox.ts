@@ -3,7 +3,7 @@ import { formatHour } from "./time";
 import { Locale, isLocale, translator } from "./i18n";
 import type { Phrase, Vars } from "./i18n";
 import { emailConfig, emailTransport, whatsappConfig, whatsappTransport } from "./transports";
-import { chatOfferedFor, refundCredit, spendCredit } from "./whatsapp-credit";
+import { chatOfferedFor, paidByVenue, refundCredit, spendCredit } from "./whatsapp-credit";
 
 /**
  * Messages to customers, written down before they are sent.
@@ -446,9 +446,10 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
 
   for (const message of await dueMessages(limit)) {
     const attempts = message.attempts + 1;
-    // A WhatsApp message is paid for before it goes (lib/whatsapp-credit.ts);
-    // with nothing left to pay with, it does not go at all.
-    const paid = message.channel === "whatsapp";
+    // A WhatsApp message the venue pays for is paid before it goes
+    // (lib/whatsapp-credit.ts); with nothing left to pay with, it does not go
+    // at all. Urgent news is the platform's to pay.
+    const paid = message.channel === "whatsapp" && paidByVenue(message.kind);
     if (paid && !(await spendCredit(message.venueId, message.id))) {
       await db
         .prepare("UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?")

@@ -21,7 +21,7 @@ import {
   setTransport,
   type OutboxMessage,
 } from "../src/lib/outbox";
-import { notifyBookingConfirmed } from "../src/lib/notify";
+import { notifyBookingConfirmed, notifyVenueCancelled } from "../src/lib/notify";
 import { createBooking, createVenue, listVenues } from "../src/lib/store";
 import { answerChat } from "../src/lib/whatsapp-chat";
 import {
@@ -34,7 +34,7 @@ import {
   packPrice,
   packSize,
   payPackOnline,
-  setWhatsappOn,
+  setWhatsappMode,
   settlePack,
   spendCredit,
   voidPack,
@@ -110,7 +110,7 @@ describe("months", () => {
     await getDb()
       .prepare("INSERT INTO messages (venue_id, kind, channel, recipient, body, status) VALUES (?, 'booking_confirmed', 'whatsapp', '0123', 'Hi', 'failed')")
       .run(id);
-    expect(await usageOf(id, "2026-10")).toEqual({ venueId: id, month: "2026-10", paid: 4, free: 2 });
+    expect(await usageOf(id, "2026-10")).toEqual({ venueId: id, month: "2026-10", paid: 4, urgent: 0, free: 2 });
     expect((await usageOf(id, "2026-09")).paid).toBe(5);
     expect(await usageFor("2026-10", [])).toEqual(new Map());
     expect((await usageFor("2026-10")).get(id)!.paid).toBe(4);
@@ -122,14 +122,14 @@ describe("credit", () => {
     const id = await venue();
     expect(await creditBalance(id)).toBe(0);
     expect(await whatsappReady(id)).toBe(false);
-    await setWhatsappOn(id, true);
+    await setWhatsappMode(id, "all");
     expect(await whatsappReady(id)).toBe(false); // no credit on a marketplace
     await grantCredit(id, 3, ownerId);
     expect(await whatsappReady(id)).toBe(true);
     // A venue's own install pays Meta itself: switched on is enough.
     delete process.env.MYSENAM_MARKETPLACE;
     const own = await venue();
-    await setWhatsappOn(own, true);
+    await setWhatsappMode(own, "all");
     expect(await whatsappReady(own)).toBe(true);
     expect(await spendCredit(own, null)).toBe(true);
     expect(await creditBalance(own)).toBe(0);
@@ -165,7 +165,7 @@ describe("credit", () => {
 
   it("is checked when a WhatsApp message is about to go, and given back if it cannot", async () => {
     const v = (await listVenues())[0];
-    await setWhatsappOn(v.id, true);
+    await setWhatsappMode(v.id, "all");
     await grantCredit(v.id, 1, ownerId);
     const court = v.courts.find((c) => c.capacity === 1)!;
     const book = async (hour: number) => {
@@ -198,7 +198,35 @@ describe("credit", () => {
     await drainOutbox();
     expect(await creditBalance(v.id)).toBe(1);
     expect((await messagesForBooking(fourth.id))[0].status).toBe("failed");
-    await setWhatsappOn(v.id, false);
+    await setWhatsappMode(v.id, "urgent");
+  });
+});
+
+describe("urgent news", () => {
+  it("goes on WhatsApp by default, without credit, and is counted apart", async () => {
+    const v = (await listVenues())[0];
+    await setWhatsappMode(v.id, "urgent");
+    const court = v.courts.find((c) => c.capacity === 1)!;
+    const made = await createBooking({ courtId: court.id, date: addDays(todayISO(), 11), hours: [10], name: "Aisyah", phone: "0171239999" });
+    if (!made.ok) throw new Error(made.error);
+    // A confirmation is not urgent: nothing on WhatsApp without "everything".
+    await notifyBookingConfirmed([made.booking], "en", null);
+    expect(await messagesForBooking(made.booking.id)).toEqual([]);
+    const before = await creditBalance(v.id);
+    await notifyVenueCancelled(made.booking);
+    await drainOutbox();
+    const [m] = await messagesForBooking(made.booking.id);
+    expect(m).toMatchObject({ kind: "booking_cancelled_by_venue", channel: "whatsapp", status: "sent" });
+    expect(await creditBalance(v.id)).toBe(before);
+    expect((await usageOf(v.id)).urgent).toBeGreaterThanOrEqual(1);
+
+    // Off: nothing, and the desk is asked to ring them.
+    await setWhatsappMode(v.id, "off");
+    const other = await createBooking({ courtId: court.id, date: addDays(todayISO(), 11), hours: [11], name: "Mei", phone: "0171238888" });
+    if (!other.ok) throw new Error(other.error);
+    await notifyVenueCancelled(other.booking);
+    expect(await messagesForBooking(other.booking.id)).toEqual([]);
+    await setWhatsappMode(v.id, "urgent");
   });
 });
 
@@ -260,8 +288,9 @@ describe("the WhatsApp settings route", () => {
 
     expect((await get(deskCookie, `venueId=${other}`)).status).toBe(403);
     expect((await get(deskCookie, "venueId=x")).status).toBe(400);
-    expect(await (await get(deskCookie, `venueId=${id}`)).json()).toMatchObject({ on: false, prepaid: true, balance: 0, pack: { messages: 200, price: 20 } });
-    expect(await (await post(deskCookie, { venueId: id, action: "on" })).json()).toMatchObject({ on: true });
+    expect(await (await get(deskCookie, `venueId=${id}`)).json()).toMatchObject({ mode: "urgent", prepaid: true, balance: 0, pack: { messages: 200, price: 20 } });
+    expect(await (await post(deskCookie, { venueId: id, action: "mode", mode: "all" })).json()).toMatchObject({ mode: "all" });
+    expect((await post(deskCookie, { venueId: id, action: "mode", mode: "loud" })).status).toBe(400);
     const bought = await (await post(deskCookie, { venueId: id, action: "buy" })).json();
     expect(bought.ordered).toMatchObject({ status: "due" });
     expect((await post(deskCookie, { venueId: id, action: "grant", messages: 50 })).status).toBe(403);
@@ -276,8 +305,8 @@ describe("the WhatsApp settings route", () => {
     expect(await (await post(ownerCookie, { venueId: id, action: "grant", messages: 50 })).json()).toMatchObject({ balance: 250 });
     expect((await post(ownerCookie, { venueId: id, action: "grant", messages: 0 })).status).toBe(400);
     expect((await post(ownerCookie, { venueId: id, action: "dance" })).status).toBe(400);
-    expect(await (await post(deskCookie, { venueId: id, action: "off" })).json()).toMatchObject({ on: false });
-    expect((await post(deskCookie, { action: "on" })).status).toBe(400);
+    expect(await (await post(deskCookie, { venueId: id, action: "mode", mode: "off" })).json()).toMatchObject({ mode: "off" });
+    expect((await post(deskCookie, { action: "mode", mode: "all" })).status).toBe(400);
     expect((await mod.POST(new NextRequest("http://localhost/api/admin/whatsapp", { method: "POST", headers: { cookie: deskCookie }, body: "{" }))).status).toBe(400);
 
     delete process.env.MYSENAM_MARKETPLACE;
@@ -296,13 +325,13 @@ describe("the customer opening the chat", () => {
     venueId = v.id;
     courtId = v.courts.find((c) => c.capacity === 1)!.id;
   });
-  afterEach(async () => await setWhatsappOn(venueId, false));
+  afterEach(async () => await setWhatsappMode(venueId, "urgent"));
 
   async function chatOn() {
     process.env.WHATSAPP_CHAT_NUMBER = "+60 11-2345 6789";
     process.env.WHATSAPP_APP_SECRET = "app-secret";
     process.env.WHATSAPP_VERIFY_TOKEN = "verify-me";
-    await setWhatsappOn(venueId, true);
+    await setWhatsappMode(venueId, "all");
     if ((await creditBalance(venueId)) < 20) await grantCredit(venueId, 50, ownerId);
   }
 
@@ -334,13 +363,13 @@ describe("the customer opening the chat", () => {
     expect(chatHoldMinutes()).toBe(3);
     // And offered for a venue only when it sends WhatsApp and has credit.
     expect(await chatOfferedFor(venueId)).toBe(false);
-    await setWhatsappOn(venueId, true);
+    await setWhatsappMode(venueId, "all");
     await grantCredit(venueId, 5, ownerId);
     expect(await chatOfferedFor(venueId)).toBe(true);
   });
 
   it("does not hold confirmations when it is off", async () => {
-    await setWhatsappOn(venueId, false);
+    await setWhatsappMode(venueId, "urgent");
     const { message } = await bookAndConfirm("0171110001");
     expect(Date.parse(message.nextAttemptAt + "Z")).toBeLessThanOrEqual(Date.now() + 1000);
   });

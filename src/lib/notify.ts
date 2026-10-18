@@ -7,7 +7,7 @@ import { drainOutbox, enqueue, hourRange } from "./outbox";
 import type { Channel, Compose } from "./outbox";
 import { icsCalendar } from "./booking-links";
 import { siteName } from "./site";
-import { whatsappReady } from "./whatsapp-credit";
+import { whatsappFor } from "./whatsapp-credit";
 import { createNotice } from "./urgent";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
@@ -30,7 +30,8 @@ import type { DrainResult, OutboxMessage } from "./outbox";
 /**
  * Write one message to every way this customer is reached, and return the
  * first. Email whenever they gave an address — it is free and carries the
- * calendar invite. WhatsApp as well when the venue has switched it on and,
+ * calendar invite. WhatsApp as well for urgent news unless the venue has
+ * switched it off, and for everything else where the venue has chosen it and,
  * on a marketplace, has credit (lib/whatsapp-credit.ts). Neither: nothing is
  * written, and the booking code on the confirmation screen is what they have.
  *
@@ -46,7 +47,7 @@ async function deliver(
   const to: { channel: Channel; recipient: string }[] = [];
   const email = person.email?.trim();
   if (email) to.push({ channel: "email", recipient: email });
-  if (whatsapp && person.phone.trim() && (await whatsappReady(message.venueId)))
+  if (whatsapp && person.phone.trim() && (await whatsappFor(message.venueId, message.kind)))
     to.push({ channel: "whatsapp", recipient: person.phone.trim() });
   let first = null;
   for (const [i, address] of to.entries()) {

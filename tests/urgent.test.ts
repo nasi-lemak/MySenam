@@ -14,7 +14,7 @@ import { notifyPaid, notifyReminders, rememberLocale } from "../src/lib/notify";
 import { drainOutbox, messagesForBooking, recordDelivery, setTransport, type OutboxMessage } from "../src/lib/outbox";
 import { createBooking, createBookingSeries, createClassSessions, enrolInClass, listVenues } from "../src/lib/store";
 import { acknowledge, noticeById, noticeByToken, openNotices } from "../src/lib/urgent";
-import { setWhatsappOn, setWhatsappReminders } from "../src/lib/whatsapp-credit";
+import { setWhatsappMode, setWhatsappReminders } from "../src/lib/whatsapp-credit";
 import { addDays, todayISO } from "../src/lib/time";
 import type { Court } from "../src/lib/types";
 
@@ -69,7 +69,7 @@ beforeAll(async () => {
 afterEach(async () => {
   setTransport(null);
   sent.length = 0;
-  await setWhatsappOn(venueId, false);
+  await setWhatsappMode(venueId, "urgent");
   await setWhatsappReminders(venueId, false);
 });
 
@@ -127,7 +127,7 @@ describe("a booking the venue cancels", () => {
   });
 
   it("follows WhatsApp to the phone: sent, delivered, read — or failed after all", async () => {
-    await setWhatsappOn(venueId, true);
+    await setWhatsappMode(venueId, "all");
     let n = 0;
     setTransport({ name: "test", send: async (m) => (sent.push(m), m.channel === "whatsapp" ? { providerId: `wamid.${++n}` } : undefined) });
     const b = await book({ email: "nurul@example.my", phone: "0177000001" });
@@ -227,7 +227,7 @@ describe("the day before", () => {
     const late = new Date(Date.UTC(y, m - 1, d, 21 - 8) - 2 * 3_600_000).toISOString().replace("T", " ").slice(0, 19);
     await getDb().prepare("UPDATE bookings SET created_at = ? WHERE id = ?").run(late, lastMinute.id);
     const at = new Date(Date.UTC(y, m - 1, d, 20 - 8) - 10 * 3_600_000);
-    await setWhatsappOn(venueId, true);
+    await setWhatsappMode(venueId, "all");
 
     // WhatsApp reminders off: email only, and nothing for the phone-only customer.
     expect(await notifyReminders(at)).toBe(1);
@@ -256,7 +256,7 @@ describe("a receipt", () => {
     expect((await messagesForBooking(b.id)).filter((m) => m.kind === "payment_received")).toHaveLength(1);
 
     // No email, no receipt; and never on WhatsApp.
-    await setWhatsappOn(venueId, true);
+    await setWhatsappMode(venueId, "all");
     const c = await book();
     await mod.POST(req("/api/admin/payments", "POST", { code: c.code, paid: true }));
     expect(await messagesForBooking(c.id)).toEqual([]);

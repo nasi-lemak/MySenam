@@ -1578,11 +1578,17 @@ on a message arriving. Messages are the copy they keep:
   series, and a reminder an hour before), so it is in their diary in a tap.
   It costs next to nothing. The booking form asks for the address as *Email
   (for your code + calendar)*.
-- **WhatsApp, if the venue wants it** (`WHATSAPP_TOKEN` +
-  `WHATSAPP_PHONE_NUMBER_ID`). Off for every venue until its staff switch it
-  on under *Venue details → WhatsApp confirmations*; then the confirmation
-  goes to the customer's phone as well. On a marketplace it is paid for in
-  advance (below).
+- **WhatsApp for what must not be missed** (`WHATSAPP_TOKEN` +
+  `WHATSAPP_PHONE_NUMBER_ID`). Each venue chooses under *Venue details →
+  WhatsApp messages*:
+  - **Urgent only** (the default): the venue's own cancellations and moves,
+    and waitlist offers, go to the customer's phone as well — included, the
+    platform pays.
+  - **Everything**: confirmations too, and day-before reminders if ticked;
+    urgent news is still included, the rest comes from prepaid credit
+    (below).
+  - **Off**: email only; anyone who cannot be reached shows under *Needs
+    attention* for a call.
 - **SMS is not offered**: it costs more than WhatsApp and Malaysian sender
   rules make it the harder of the two to run.
 - A customer who gave no email, at a venue without WhatsApp, gets no message:
@@ -1595,12 +1601,12 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 
 | When | Message | Channels |
 |---|---|---|
-| A booking, a weekly series or a class place is made | Confirmation, with a calendar invite | email; WhatsApp if on |
-| The customer cancels | Cancelled | email; WhatsApp if on |
-| The venue cancels — at the desk, by closing the day, by taking the court out of service, or by calling off the class | **Cancelled by the venue**, with a *seen it* link (urgent) | email; WhatsApp if on |
-| The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp if on |
-| A waitlist place frees up | Offer, with a link to claim it | email; WhatsApp if on |
-| The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only if the venue ticks *Day-before reminders on WhatsApp too* |
+| A booking, a weekly series or a class place is made | Confirmation, with a calendar invite | email; WhatsApp on *everything* |
+| The customer cancels | Cancelled | email; WhatsApp on *everything* |
+| The venue cancels — at the desk, by closing the day, by taking the court out of service, or by calling off the class | **Cancelled by the venue**, with a *seen it* link (urgent) | email; WhatsApp unless *off* |
+| The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp unless *off* |
+| A waitlist place frees up | Offer, with a link to claim it (urgent: it expires) | email; WhatsApp unless *off* |
+| The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only on *everything* with *Day-before reminders on WhatsApp too* ticked |
 | A booking is paid later — online, or marked paid at the counter | Receipt | email only |
 
 Closing a day that has bookings or classes on it is refused until staff say
@@ -1638,22 +1644,28 @@ Email costs next to nothing and is the default. The codes that check a
 customer's phone number are the platform's own cost: they protect the whole
 marketplace, not one venue.
 
-- **Prepaid, never billed afterwards.** On a marketplace a venue buys
+- **Urgent news is included.** A venue's own cancellations and moves, and
+  waitlist offers, are few — at an assumed 2% of bookings each and one
+  surprise closure a month, roughly RM0.60 a month for a 1-court venue and
+  RM11 for 20 courts at a few sen a message — so the platform pays for them
+  and no venue needs credit to be sure its customers are told.
+- **Prepaid, never billed afterwards,** for everything else. On a marketplace a venue buys
   WhatsApp messages in packs — `MYSENAM_WHATSAPP_PACK` (200) for
   `MYSENAM_WHATSAPP_PACK_PRICE` (RM20) — paid online into the platform's
   Billplz account, or by transfer and marked paid by the owner. Each message
   sent spends one; one that fails to send is given back.
-- **At zero, WhatsApp stops; nothing else does.** Email and the on-screen
-  code carry on, and messages are not sent on credit. The venue's staff are
+- **At zero, those messages stop; nothing else does.** Email, the on-screen
+  code and urgent news on WhatsApp carry on, and nothing is sent on credit. The venue's staff are
   emailed at 20 left and again at none. So a venue that stops paying costs
   the platform nothing.
-- **What staff see.** Under *Venue details → WhatsApp confirmations*: on or
-  off, messages left, *Buy 200 messages · RM20*, what this month went on,
+- **What staff see.** Under *Venue details → WhatsApp messages*: off, urgent
+  only or everything; this month's urgent messages (included) and those from
+  credit; and on *everything*, messages left, *Buy 200 messages · RM20*, what this month went on,
   and an estimate — bookings a month in, messages and packs out.
 - **The platform owner** can mark a pack paid or void it, and give messages
   (a trial, goodwill).
-- A venue's own install (not a marketplace) pays Meta itself: switching
-  WhatsApp on is all it takes.
+- A venue's own install (not a marketplace) pays Meta itself: choosing
+  *everything* is all it takes.
 
 **Customers who ask on WhatsApp.** WhatsApp lets a business answer a customer
 who wrote first with plain text; starting the conversation takes an approved

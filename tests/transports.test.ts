@@ -19,7 +19,7 @@ import {
   whatsappTransport,
 } from "../src/lib/transports";
 import { drainOutbox, messagesForBooking, transport } from "../src/lib/outbox";
-import { setWhatsappOn } from "../src/lib/whatsapp-credit";
+import { setWhatsappMode } from "../src/lib/whatsapp-credit";
 import type { MessageKind, OutboxMessage } from "../src/lib/outbox";
 import { notifyBookingConfirmed } from "../src/lib/notify";
 import { createBooking, listVenues } from "../src/lib/store";
@@ -274,7 +274,7 @@ describe("choosing how to reach a customer", () => {
     venueId = venue.id;
     courtId = venue.courts.find((c) => c.capacity === 1)!.id;
   });
-  afterEach(async () => await setWhatsappOn(venueId, false));
+  afterEach(async () => await setWhatsappMode(venueId, "urgent"));
 
   async function confirm(email?: string) {
     const made = await createBooking({ courtId, date: addDays(todayISO(), 6), hours: [hour++], name: "Aina", phone: "0123456789", email });
@@ -299,7 +299,7 @@ describe("choosing how to reach a customer", () => {
   it("adds WhatsApp when the venue has switched it on", async () => {
     process.env.WHATSAPP_TOKEN = "t";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "1";
-    await setWhatsappOn(venueId, true);
+    await setWhatsappMode(venueId, "all");
     expect(await confirm("aina@example.com")).toEqual([
       ["email", "aina@example.com", true],
       ["whatsapp", "0123456789", false],
@@ -329,7 +329,7 @@ describe("a confirmation, end to end", () => {
   it("keeps what filled the text, and sends it as the template's parameters", async () => {
     process.env.WHATSAPP_TOKEN = "t";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "555";
-    await setWhatsappOn((await listVenues())[0].id, true);
+    await setWhatsappMode((await listVenues())[0].id, "all");
     const made = await createBooking({
       courtId,
       date: addDays(todayISO(), 3),
@@ -358,14 +358,14 @@ describe("a confirmation, end to end", () => {
     expect(texts).toContain(made.booking.code);
     // The finished text and the template say the same thing.
     for (const text of texts) expect(queued.body).toContain(text);
-    await setWhatsappOn((await listVenues())[0].id, false);
+    await setWhatsappMode((await listVenues())[0].id, "urgent");
   });
 
   it("an email-only install sends no WhatsApp it cannot deliver", async () => {
     process.env.SMTP_URL = "smtp://x";
     process.env.MAIL_FROM = "a@b.my";
     // Switched on, but there is no WhatsApp account on the site to send with yet.
-    await setWhatsappOn((await listVenues())[0].id, true);
+    await setWhatsappMode((await listVenues())[0].id, "all");
     const made = await createBooking({
       courtId,
       date: addDays(todayISO(), 4),
@@ -380,6 +380,6 @@ describe("a confirmation, end to end", () => {
     // No email to send it to: it fails with a reason staff can act on.
     expect(msg.status).toBe("failed");
     expect(msg.lastError).toMatch(/No whatsapp account is set up/);
-    await setWhatsappOn((await listVenues())[0].id, false);
+    await setWhatsappMode((await listVenues())[0].id, "urgent");
   });
 });
