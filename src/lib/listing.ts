@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, canAccessVenue, getAdminByToken, getSessionAdmin, type Admin } from "./admin-auth";
 import { getDb } from "./db";
+import { SESSION_COOKIE, getSessionUser, getUserByToken } from "./auth";
+import { eligible } from "./access";
 
 /**
  * Who may reach a venue.
@@ -17,8 +19,24 @@ import { getDb } from "./db";
  * read, `mayShowVenue` for a page or route that a venue's staff may preview.
  */
 
-/** In SQL, for a venue aliased `v`: customers may find and book it. */
+/** In SQL, for a venue aliased `v`: live — customers (those it is for) may book it. */
 export const OPEN_TO_CUSTOMERS = "v.published_at IS NOT NULL AND v.suspended_at IS NULL";
+
+/**
+ * In SQL: live, and in public lists — search, the map, the classes, games,
+ * tournaments and leagues pages. A private venue never is; a members-only one
+ * is unless it asked not to be (lib/access.ts).
+ */
+export const LISTED_PUBLICLY = `${OPEN_TO_CUSTOMERS} AND (v.access = 'public' OR (v.access = 'members' AND v.access_listed = 1))`;
+
+/**
+ * The rule for a list: the public one, or — on a storefront, which names its
+ * own venues — every live one of those but a private one, which is reached
+ * from its residents' account pages and its own link, never from a list.
+ */
+export function listRule(venueIds?: number[]): string {
+  return venueIds ? `${OPEN_TO_CUSTOMERS} AND v.access <> 'private'` : LISTED_PUBLICLY;
+}
 
 export interface Listing {
   publishedAt: string | null;
@@ -60,19 +78,52 @@ export async function pageAdmin(): Promise<Admin | null> {
   return token ? await getAdminByToken(token) : null;
 }
 
+/** Who is looking: staff, a signed-in customer, both or neither. */
+export interface Viewer {
+  admin: Admin | null;
+  userId: number | null;
+}
+
+/** The staff member and the customer signed in on this page's request. */
+export async function pageViewer(): Promise<Viewer> {
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
+  const adminToken = jar.get(ADMIN_SESSION_COOKIE)?.value;
+  const userToken = jar.get(SESSION_COOKIE)?.value;
+  return {
+    admin: adminToken ? await getAdminByToken(adminToken) : null,
+    userId: userToken ? ((await getUserByToken(userToken))?.id ?? null) : null,
+  };
+}
+
+async function viewerOf(who: Admin | null | NextRequest | Viewer): Promise<Viewer> {
+  if (who && "cookies" in who) return { admin: await getSessionAdmin(who), userId: (await getSessionUser(who))?.id ?? null };
+  if (who && "userId" in who) return who;
+  return { admin: who, userId: null };
+}
+
 /**
  * Whether this request may see this venue: anybody, if it is open; its own
- * staff, as a preview, if not. `admin` is whoever is signed in, or a request
- * to find them from.
+ * staff, as a preview, if not. A private venue, open or not, only its staff
+ * and the people on its list — and `signIn` says when somebody nobody has
+ * signed in as is looking, so a page can ask them to rather than say nothing
+ * is there. `who` is whoever is signed in, or a request to find them from.
  */
 export async function mayShowVenue(
   venueId: number,
-  admin: Admin | null | NextRequest
-): Promise<{ show: boolean; preview: boolean }> {
-  const listing = await venueListing(venueId);
-  if (!listing) return { show: false, preview: false };
-  if (isOpen(listing)) return { show: true, preview: false };
-  const who = admin && "cookies" in admin ? await getSessionAdmin(admin) : admin;
-  const staff = who !== null && canAccessVenue(who, venueId);
-  return { show: staff, preview: staff };
+  who: Admin | null | NextRequest | Viewer
+): Promise<{ show: boolean; preview: boolean; signIn: boolean }> {
+  const row = (await getDb()
+    .prepare("SELECT published_at, suspended_at, access FROM venues WHERE id = ?")
+    .get(venueId)) as { published_at: string | null; suspended_at: string | null; access: string } | undefined;
+  if (!row) return { show: false, preview: false, signIn: false };
+  const listing = { publishedAt: row.published_at, suspendedAt: row.suspended_at };
+  if (isOpen(listing) && row.access !== "private") return { show: true, preview: false, signIn: false };
+  const viewer = await viewerOf(who);
+  const staff = viewer.admin !== null && canAccessVenue(viewer.admin, venueId);
+  if (!isOpen(listing)) return { show: staff, preview: staff, signIn: false };
+  // Open, and private: its staff, and the people on its list.
+  if (staff) return { show: true, preview: false, signIn: false };
+  if (viewer.userId === null) return { show: false, preview: false, signIn: true };
+  return { show: await eligible(venueId, viewer.userId, "private"), preview: false, signIn: false };
 }

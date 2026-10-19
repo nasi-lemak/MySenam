@@ -4,6 +4,7 @@ import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { isBlocked, phoneBlocked, venueNotOpen } from "@/lib/limits";
 import { venueIsOpen } from "@/lib/listing";
+import { accessRefusal } from "@/lib/access";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
   if (venueId !== undefined && (await isBlocked(venueId, person.phone)))
     return refusal(phoneBlocked());
   if (venueId !== undefined && !(await venueIsOpen(venueId))) return refusal(venueNotOpen());
+  // Members only, or private: nobody else queues for it either.
+  if (venueId !== undefined) {
+    const notHere = await accessRefusal(venueId, user?.id ?? null);
+    if (notHere) return refusal(notHere, 403);
+  }
 
   const result = forClass
     ? await joinClassWaitlist({ classId: classId as number, ...person })

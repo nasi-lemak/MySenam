@@ -73,6 +73,8 @@ export interface Venue {
   lng: number | null;
   /** What it offers besides its courts, from a fixed list (lib/facilities.ts). */
   amenities: Amenity[];
+  /** Who it is for: anybody, members, or a private list (lib/access.ts). */
+  access?: "public" | "members" | "private";
 }
 
 /** True when nobody is behind the counter at this hour. */

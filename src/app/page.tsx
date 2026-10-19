@@ -209,7 +209,14 @@ export default async function HomePage({
                   )}
                 </div>
                 <div className="flex flex-1 flex-col p-5">
-                <div className="text-lg font-semibold group-hover:text-teal-700">{venue.name}</div>
+                <div className="text-lg font-semibold group-hover:text-teal-700">
+                  {venue.name}
+                  {venue.access === "members" && (
+                    <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 align-middle text-xs font-semibold text-violet-700">
+                      🎟️ {t("access.membersBadge")}
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 text-sm text-slate-500">
                   📍 {venue.area}
                   {venue.distanceKm !== undefined && ` · ${t("near.away", { km: venue.distanceKm })}`}

@@ -215,6 +215,8 @@ export async function pruneOldData(): Promise<PruneResult> {
     await deleteStaleDrafts(photoKeys);
     await db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
+    // A guest let into a private venue until a date is not on its list after it.
+    await db.prepare("DELETE FROM venue_access_list WHERE expires_on IS NOT NULL AND expires_on < ?").run(todayISO());
     await db.prepare(
       "INSERT INTO settings (key, value) VALUES ('retention_last_run', datetime('now'))" +
         " ON CONFLICT(key) DO UPDATE SET value = datetime('now')"

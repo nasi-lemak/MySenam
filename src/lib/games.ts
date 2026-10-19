@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { isBlocked } from "./limits";
-import { OPEN_TO_CUSTOMERS } from "./listing";
+import { accessRefusal } from "./access";
+import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { siteName } from "./site";
 import { distanceM } from "./geo";
 import { baseUrl } from "./outbox";
@@ -359,6 +360,8 @@ export async function askToJoin(user: { id: number; phone: string }, gameId: num
       error: `You missed ${MAX_NO_SHOWS} games you joined in the last ${NO_SHOW_DAYS} days, so you cannot join games for now.`,
     };
   if (await isBlocked(game.venueId, user.phone)) return { ok: false, error: "This venue is not taking bookings from your number." };
+  const notHere = await accessRefusal(game.venueId, user.id);
+  if (notHere) return { ok: false, error: notHere.error, code: notHere.code, status: 403 };
 
   const db = getDb();
   const existing = (await db
@@ -414,7 +417,7 @@ export async function findGames(filter: {
   const clauses = [
     "g.status = 'open'",
     "b.status = 'confirmed'",
-    OPEN_TO_CUSTOMERS,
+    listRule(filter.venueIds),
     "b.date >= ?",
     "b.date <= ?",
     "(SELECT COUNT(*) FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') < g.spots",

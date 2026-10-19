@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
-import { OPEN_TO_CUSTOMERS } from "./listing";
+import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { distanceM, inMalaysia, readPoint } from "./geo";
 import {
   amenitiesFor,
@@ -128,6 +128,7 @@ interface VenueRow {
   lat: number | null;
   lng: number | null;
   amenities: string[] | null;
+  access?: "public" | "members" | "private";
 }
 
 function toVenue(r: VenueRow): Venue {
@@ -151,6 +152,7 @@ function toVenue(r: VenueRow): Venue {
     lat: r.lat,
     lng: r.lng,
     amenities: cleanAmenities(r.amenities),
+    access: r.access ?? "public",
   };
 }
 
@@ -773,9 +775,13 @@ function venueFilter(opts: {
   sql: string;
   params: (string | number)[];
 } {
-  // Only venues customers may reach (lib/listing.ts), and of those not one
-  // with nothing to book yet, rather than "0 courts" to somebody looking.
-  const clauses: string[] = [OPEN_TO_CUSTOMERS, "EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id)"];
+  // Only venues customers may reach (lib/listing.ts) — in public lists, or
+  // just these, for a storefront that named them — and of those not one with
+  // nothing to book yet, rather than "0 courts" to somebody looking.
+  const clauses: string[] = [
+    listRule(opts.venueIds),
+    "EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id)",
+  ];
   const params: (string | number)[] = [];
   if (opts.venueIds) {
     clauses.push(`v.id IN (${opts.venueIds.map(() => "?").join(",") || "NULL"})`);
@@ -882,7 +888,9 @@ export async function listAreaCounts(
 
 /** The sports played at these venues, or anywhere — anywhere customers can reach. */
 export async function sportsOfferedAt(venueIds?: number[]): Promise<Sport[]> {
-  const from = `SELECT DISTINCT c.sport FROM courts c JOIN venues v ON v.id = c.venue_id WHERE ${OPEN_TO_CUSTOMERS}`;
+  const from = `SELECT DISTINCT c.sport FROM courts c JOIN venues v ON v.id = c.venue_id WHERE ${
+    listRule(venueIds)
+  }`;
   const rows = (
     venueIds === undefined
       ? await getDb().prepare(from).all()
@@ -948,9 +956,10 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.open_hour AS v_open, v.close_hour AS v_close,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
-           v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities
+           v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
+           v.access AS v_access
     FROM courts c JOIN venues v ON v.id = c.venue_id
-    WHERE c.sport = ? AND ${OPEN_TO_CUSTOMERS}
+    WHERE c.sport = ? AND ${listRule(input.venueIds)}
   `;
   if (input.area) {
     sql += " AND v.area = ?";
@@ -989,6 +998,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_lat: number | null;
     v_lng: number | null;
     v_amenities: string[] | null;
+    v_access: "public" | "members" | "private";
   })[];
   if (rows.length === 0) return [];
 
@@ -1037,6 +1047,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       lat: row.v_lat,
       lng: row.v_lng,
       amenities: cleanAmenities(row.v_amenities),
+      access: row.v_access,
     };
     // Inside the box, but is it inside the circle?
     let distanceKm: number | undefined;
@@ -3401,7 +3412,9 @@ export async function listClasses(filter: {
 } = {}): Promise<ClassSession[]> {
   const from = filter.from ?? todayISO();
   const clauses = ["cl.date >= ?"];
-  if (filter.openOnly) clauses.push(OPEN_TO_CUSTOMERS);
+  // One venue's own classes (its page has already been let in) need only be
+  // live; the public classes page needs venues in public lists.
+  if (filter.openOnly) clauses.push(filter.venueId ? OPEN_TO_CUSTOMERS : listRule(filter.venueIds));
   const params: (string | number)[] = [from];
   if (!filter.includeCancelled) clauses.push("cl.status = 'scheduled'");
   if (filter.venueId) {

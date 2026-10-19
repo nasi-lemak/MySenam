@@ -7,7 +7,9 @@ import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
 import { currentStorefront, shows } from "@/lib/storefront";
-import { mayShowVenue, pageAdmin } from "@/lib/listing";
+import { mayShowVenue, pageViewer } from "@/lib/listing";
+import { accessSettings, eligible } from "@/lib/access";
+import Link from "next/link";
 import { listOutages } from "@/lib/outages";
 import PinMap from "@/components/PinMap";
 import { VenueFacilities } from "@/components/VenueFacilities";
@@ -34,8 +36,28 @@ export default async function VenuePage({
   if (!venue || !shows(await currentStorefront(), venue.id)) notFound();
   // A draft, or a venue taken off for an unpaid invoice, is there only for
   // its own staff, as a preview.
-  const { show, preview } = await mayShowVenue(venue.id, await pageAdmin());
+  // A private venue: only its staff and the people on its list. Somebody not
+  // signed in is asked to, without being told whose venue it is.
+  const viewer = await pageViewer();
+  const { show, preview, signIn } = await mayShowVenue(venue.id, viewer);
+  if (signIn)
+    return (
+      <div className="mx-auto max-w-md space-y-3 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <div className="text-4xl">🔒</div>
+        <h1 className="text-xl font-bold">{t("access.privateTitle")}</h1>
+        <p className="text-sm text-slate-600">{t("access.privateBody")}</p>
+        <Link
+          href={`/login?next=${encodeURIComponent(`/venue/${venue.id}`)}`}
+          className="inline-block rounded-lg bg-teal-600 px-5 py-2.5 font-semibold text-white hover:bg-teal-700"
+        >
+          {t("access.signIn")}
+        </Link>
+      </div>
+    );
   if (!show) notFound();
+  const access = await accessSettings(venue.id);
+  const member =
+    access.access === "members" && viewer.userId !== null ? await eligible(venue.id, viewer.userId, "members") : false;
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
@@ -104,6 +126,32 @@ export default async function VenuePage({
             : t("venue.cancelAnyTime")}
         </p>
       </div>
+      {access.access === "members" &&
+        (member ? (
+          <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+            🎟️ {t("access.youAreMember")}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+            <p className="font-semibold">🎟️ {t("access.membersBadge")}</p>
+            <p className="mt-0.5">{t("access.membersBody")}</p>
+            {access.note && <p className="mt-1 whitespace-pre-line">{access.note}</p>}
+            {viewer.userId === null && (
+              <Link
+                href={`/login?next=${encodeURIComponent(`/venue/${venue.id}`)}`}
+                className="mt-2 inline-block font-semibold text-violet-800 underline"
+              >
+                {t("access.signIn")}
+              </Link>
+            )}
+          </div>
+        ))}
+      {access.access === "private" && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          🔒 {t("access.privateBadge")}
+          {access.note && <p className="mt-1 whitespace-pre-line">{access.note}</p>}
+        </div>
+      )}
       {notice && <NoticeBar notice={notice} more={t("notice.more")} />}
       <VenueGallery
         photos={photos}

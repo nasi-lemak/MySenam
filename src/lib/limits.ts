@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { accessRefusal } from "./access";
 import { venueIsOpen } from "./listing";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -52,10 +53,16 @@ export async function customerMayBook(input: {
   phone: string;
   weeks?: number;
   signedIn: boolean;
+  /** The account booking, for a members-only or private venue (lib/access.ts). */
+  userId?: number | null;
   /** Its own staff, trying out a venue customers cannot reach yet (lib/listing.ts). */
   preview?: boolean;
 }): Promise<Refusal | null> {
   if (!input.preview && !(await venueIsOpen(input.venueId))) return venueNotOpen();
+  if (!input.preview) {
+    const notHere = await accessRefusal(input.venueId, input.userId ?? null);
+    if (notHere) return notHere;
+  }
   if ((input.weeks ?? 1) > 1 && !input.signedIn) return refuse("SERIES_NEEDS_ACCOUNT");
   if (await isBlocked(input.venueId, input.phone)) return phoneBlocked();
   const db = getDb();

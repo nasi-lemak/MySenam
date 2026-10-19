@@ -108,8 +108,8 @@ describe("a draft", () => {
 
   it("shows its own staff a preview, and nobody else", async () => {
     const { venueId, manager, cookie } = await signUp();
-    expect(await mayShowVenue(venueId, null)).toEqual({ show: false, preview: false });
-    expect(await mayShowVenue(venueId, manager)).toEqual({ show: true, preview: true });
+    expect(await mayShowVenue(venueId, null)).toEqual({ show: false, preview: false, signIn: false });
+    expect(await mayShowVenue(venueId, manager)).toEqual({ show: true, preview: true, signIn: false });
 
     const { GET } = await import("../src/app/api/availability/route");
     const ask = (headers: Record<string, string> = {}) =>

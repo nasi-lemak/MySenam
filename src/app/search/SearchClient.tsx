@@ -383,7 +383,14 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
                         />
                       )}
                       <div className="min-w-[12rem] flex-1">
-                        <div className="font-medium">{g.venueName}</div>
+                        <div className="font-medium">
+                          {g.venueName}
+                          {cheapest.venue.access === "members" && (
+                          <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                            🎟️ {t("access.membersBadge")}
+                          </span>
+                        )}
+                        </div>
                         <div className="text-sm text-slate-500">
                           📍 {g.area}
                           {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
@@ -489,7 +496,14 @@ function VenueResults({
                   />
                 )}
                 <div className="min-w-[12rem] flex-1">
-                  <div className="font-medium">{first.venue.name}</div>
+                  <div className="font-medium">
+                    {first.venue.name}
+                    {first.venue.access === "members" && (
+                          <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                            🎟️ {t("access.membersBadge")}
+                          </span>
+                        )}
+                  </div>
                   <div className="text-sm text-slate-500">
                     📍 {first.venue.area}
                     {first.distanceKm !== undefined && ` · ${t("near.away", { km: first.distanceKm })}`}

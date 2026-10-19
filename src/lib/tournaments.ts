@@ -14,7 +14,8 @@ import {
   type Standing,
   type ToSchedule,
 } from "./brackets";
-import { OPEN_TO_CUSTOMERS } from "./listing";
+import { accessRefusal } from "./access";
+import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
 import { offerSlotPlace } from "./store";
@@ -192,7 +193,7 @@ export async function listTournaments(venueIds: number[]): Promise<Tournament[]>
 
 /** Tournaments the public can see: coming up, or just played, at venues customers can reach. */
 export async function publicTournaments(filter: { sport?: Sport; venueIds?: number[] } = {}): Promise<Tournament[]> {
-  const clauses = [OPEN_TO_CUSTOMERS, "t.status <> 'cancelled'", "t.ends_on >= ?"];
+  const clauses = [listRule(filter.venueIds), "t.status <> 'cancelled'", "t.ends_on >= ?"];
   const params: (string | number)[] = [addDays(todayISO(), -7)];
   if (filter.sport) {
     clauses.push("t.sport = ?");
@@ -461,6 +462,8 @@ export async function enter(
     .prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`)
     .get(t.venueId)) as { open: boolean };
   if (!open.open) return { ok: false, error: "That venue is not taking entries at the moment." };
+  const notHere = await accessRefusal(t.venueId, user.id);
+  if (notHere) return { ok: false, error: notHere.error, code: notHere.code };
   const partner = input.partnerName?.trim() ?? "";
   if (t.teamSize === 2 && (partner.length < 2 || partner.length > 60)) return { ok: false, error: "Name your partner." };
   if (await db.prepare("SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND user_id = ? AND status <> 'withdrawn'").get(tournamentId, user.id))

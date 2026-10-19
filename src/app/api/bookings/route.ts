@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
       phone,
       weeks: (weeks as number) ?? 1,
       signedIn: user !== null,
+      userId: user?.id ?? null,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
     });
     if (refused) return refusal(refused);

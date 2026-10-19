@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { mayShowVenue, pageAdmin } from "@/lib/listing";
+import { mayShowVenue, pageViewer } from "@/lib/listing";
 import { siteName } from "@/lib/site";
 import { getVenue } from "@/lib/store";
 import { venueBookingUrl, venueQrSvg } from "@/lib/venue-link";
@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: "Booking poster", robots: { index: fa
  */
 export default async function PosterPage({ params }: { params: Promise<{ id: string }> }) {
   const id = Number((await params).id);
-  if (!Number.isInteger(id) || !(await mayShowVenue(id, await pageAdmin())).show) notFound();
+  if (!Number.isInteger(id) || !(await mayShowVenue(id, await pageViewer())).show) notFound();
   const venue = await getVenue(id);
   if (!venue) notFound();
   const url = await venueBookingUrl(id);

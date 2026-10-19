@@ -638,6 +638,7 @@ Account endpoints (session cookie):
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 | GET    | `/api/bookings/reschedule` | `?code&phone&date` → free start times that day |
 | POST   | `/api/bookings/reschedule` | `{code, phone, date, startHour}` → change it   |
+| GET    | `/api/my/venues`          | Private and members-only venues this account is on the list of |
 | GET    | `/api/bookings/again`     | `?code` (own, signed in) or `?code&phone` → `{url}` |
 
 Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
@@ -657,6 +658,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
 | POST   | `/api/admin/bookings/reschedule` | `{code, date, startHour, courtId?}` → change it; customer told |
 | GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
+| GET    | `/api/admin/access`           | `?venueId` → who it is for, and its list             |
+| POST   | `/api/admin/access`           | `{venueId, action: settings | add | import | remove}` |
 | POST   | `/api/admin/payments`         | `{code, paid, via?}` or `{seriesCode, via?}`; `via` is cash, qr, transfer or card |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
@@ -2153,6 +2156,41 @@ while the customer rebooks.
   *Needs attention* panel until they see it). Changed by the customer, it is an
   email with the new calendar invite. The time it left goes to whoever is
   waiting for it.
+
+## Who a venue is for: public, members only, private
+
+Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`):
+
+| Mode | Found in search and lists | Who can book | For example |
+| ---- | ------------------------- | ------------ | ----------- |
+| **Public** (default) | Yes | Anybody | A commercial badminton centre or futsal hall |
+| **Members only** | Yes, unless the venue turns that off | Signed-in customers with an active membership here, or on the venue's list | A private club taking new members |
+| **Private** | Never | Signed-in customers on the venue's list, and its staff | A condominium's courts, pool or gym |
+
+- **The list** is phone numbers, with a name, a unit or membership number,
+  and whether each is a resident, a member or a guest. Staff add people one at
+  a time or paste a spreadsheet (`phone, name, unit` a line); a number already
+  on the list is updated, not doubled. **Guests** need an end date and drop
+  off after it (the daily housekeeping removes them). Up to 5,000 people.
+- **Matching is by the phone number on the customer's account** — and, where
+  this site checks numbers (*Checking a customer's phone number*), only once
+  the customer has checked it, because a number is not identity until
+  somebody shows they hold it. Without phone checks, anyone who types a
+  number on the list gets in; the editor says so.
+- **Members only**: the venue page says *Members only* with the venue's own
+  note (how to join, who to ask), and search results carry the badge. Booking,
+  enrolling in a class, joining its waitlist, an open game, a tournament or a
+  league all need an account that is eligible. Staff still book anyone at the
+  counter.
+- **Private**: in no search, list, map, classes, games, tournaments or leagues
+  page — not even on its own storefront's lists. Its page, availability and
+  QR poster answer only its staff and the people on its list; somebody not
+  signed in is asked to sign in, without being told whose venue it is, and
+  anybody else gets *not found*. Residents find it under *Your private venues*
+  on their account page, or from the QR poster on the noticeboard.
+- One rule decides what lists show (`LISTED_PUBLICLY` / `listRule` in
+  `src/lib/listing.ts`) and one decides who may book (`accessRefusal`), so a
+  new page or endpoint has one place to ask.
 
 ## Booking again
 

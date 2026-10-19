@@ -3,7 +3,8 @@ import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
 import { parseScore, standings, type Standing } from "./brackets";
 import { LEVELS, type Level } from "./games";
 import { isWho, whoRefusal, type Who } from "./who";
-import { OPEN_TO_CUSTOMERS } from "./listing";
+import { accessRefusal } from "./access";
+import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
@@ -214,7 +215,7 @@ export async function listLeagues(venueIds: number[]): Promise<League[]> {
 
 /** Leagues the public can see and join: still running, at venues customers can reach. */
 export async function publicLeagues(filter: { sport?: Sport; venueIds?: number[] } = {}): Promise<League[]> {
-  const clauses = [OPEN_TO_CUSTOMERS, "l.status = 'running'"];
+  const clauses = [listRule(filter.venueIds), "l.status = 'running'"];
   const params: (string | number)[] = [];
   if (filter.sport) {
     clauses.push("l.sport = ?");
@@ -444,6 +445,8 @@ export async function join(user: { id: number; name: string }, leagueId: number,
   if (!league || league.status !== "running") return { ok: false, error: "That league is not taking players." };
   const open = (await db.prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`).get(league.venueId)) as { open: boolean };
   if (!open.open) return { ok: false, error: "That venue is not taking players at the moment." };
+  const notHere = await accessRefusal(league.venueId, user.id);
+  if (notHere) return { ok: false, error: notHere.error, code: notHere.code };
   const notFor = await whoRefusal(user.id, league.who);
   if (notFor) return { ok: false, error: notFor.error, code: notFor.code };
   const partner = input.partnerName?.trim() ?? "";
