@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { accessRefusal } from "./access";
+import { houseRuleRefusal } from "./house-rules";
 import { venueIsOpen } from "./listing";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -42,7 +43,7 @@ const UNPAID_AHEAD = `
   SELECT COUNT(DISTINCT COALESCE(b.series_code, b.code)) AS n
     FROM bookings b JOIN courts c ON c.id = b.court_id
    WHERE b.phone_key = phone_key(?) AND b.date >= ?
-     AND b.status = 'confirmed' AND b.payment_status = 'unpaid'`;
+     AND b.status = 'confirmed' AND b.payment_status = 'unpaid' AND b.total_price > 0`;
 
 /**
  * May this number book here, online, now? null when it may; the reason when
@@ -55,6 +56,8 @@ export async function customerMayBook(input: {
   signedIn: boolean;
   /** The account booking, for a members-only or private venue (lib/access.ts). */
   userId?: number | null;
+  /** The dates being booked, for the venue's house rules (lib/house-rules.ts). */
+  dates?: string[];
   /** Its own staff, trying out a venue customers cannot reach yet (lib/listing.ts). */
   preview?: boolean;
 }): Promise<Refusal | null> {
@@ -62,6 +65,10 @@ export async function customerMayBook(input: {
   if (!input.preview) {
     const notHere = await accessRefusal(input.venueId, input.userId ?? null);
     if (notHere) return notHere;
+    if (input.dates) {
+      const tooMany = await houseRuleRefusal({ venueId: input.venueId, phone: input.phone, userId: input.userId, dates: input.dates });
+      if (tooMany) return tooMany;
+    }
   }
   if ((input.weeks ?? 1) > 1 && !input.signedIn) return refuse("SERIES_NEEDS_ACCOUNT");
   if (await isBlocked(input.venueId, input.phone)) return phoneBlocked();

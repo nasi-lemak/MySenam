@@ -255,7 +255,7 @@ export default function AccountPage() {
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatHour(b.startHour)} – {formatHour(b.endHour)}
                     </td>
-                    <td className="px-3 py-2">RM{b.totalPrice}</td>
+                    <td className="px-3 py-2">{b.totalPrice === 0 ? t("price.free") : `RM${b.totalPrice}`}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -435,8 +435,8 @@ function BookingCard({
           📅 {b.date} · {formatHour(b.startHour)} – {formatHour(b.endHour)}
         </div>
         <div className="font-medium">
-          RM{b.totalPrice}{" "}
-          {b.paymentStatus === "paid" ? (
+          {b.totalPrice === 0 ? t("price.free") : `RM${b.totalPrice}`}{" "}
+          {b.totalPrice === 0 ? null : b.paymentStatus === "paid" ? (
             <span className="text-emerald-700">{t("acct.paid")}</span>
           ) : (
             <span className="text-slate-500">{t("acct.payAtCounter")}</span>

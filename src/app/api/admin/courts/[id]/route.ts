@@ -85,8 +85,8 @@ export async function PATCH(
   }
   for (const [key, rate] of [["offPeakRate", offPeakRate], ["peakRate", peakRate]] as const) {
     if (rate !== undefined) {
-      if (!Number.isInteger(rate) || (rate as number) < 1 || (rate as number) > MAX_RATE)
-        return NextResponse.json({ error: `${key} must be RM1–${MAX_RATE}.` }, { status: 400 });
+      if (!Number.isInteger(rate) || (rate as number) < 0 || (rate as number) > MAX_RATE)
+        return NextResponse.json({ error: `${key} must be RM0–${MAX_RATE}. RM0 makes it free.` }, { status: 400 });
       changes[key] = rate as number;
     }
   }

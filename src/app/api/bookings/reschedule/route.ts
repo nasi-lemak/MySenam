@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
-import { findBooking, rescheduleBooking, rescheduleOptions } from "@/lib/store";
+import { findBooking, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
+import { houseRuleRefusal } from "@/lib/house-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest) {
   // The code and the phone number together, as for cancelling.
   const booking = await findBooking(code, phone);
   if (!booking) return NextResponse.json({ error: "Booking not found. Check the code and phone number.", code: "BOOKING_NOT_FOUND_CODE" }, { status: 404 });
+  // The venue's house rules hold for the new day as for a new booking.
+  const venueId = await getVenueIdForBookingCode(booking.code);
+  if (venueId !== null) {
+    const tooMany = await houseRuleRefusal({ venueId, phone: booking.phone, dates: [date], excluding: booking.id });
+    if (tooMany) return refusal(tooMany);
+  }
   const result = await rescheduleBooking(booking.code, { date, startHour: startHour as number }, "customer");
   if (!result.ok) return refusal(result);
   await notifyRescheduled(result.booking, "customer", result.priceChange);

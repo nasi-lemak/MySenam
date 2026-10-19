@@ -54,7 +54,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
   };
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/admin/access?venueId=${venueId}`, { cache: "no-store" });
+    const res = await fetch(`/api/admin/venue-access?venueId=${venueId}`, { cache: "no-store" });
     if (res.ok) take(await res.json());
   }, [venueId]);
 
@@ -67,7 +67,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/admin/access", {
+      const res = await fetch("/api/admin/venue-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...body }),

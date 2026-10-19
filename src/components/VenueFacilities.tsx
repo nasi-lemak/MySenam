@@ -32,7 +32,7 @@ export function VenueFacilities({ t, venue }: { t: T; venue: Venue & { courts: C
                 </span>{" "}
                 <span className="text-slate-500">· {parts.join(" · ")}</span>
               </span>
-              <span className="font-medium text-teal-700">{t("home.fromRate", { rate: s.from })}</span>
+              <span className="font-medium text-teal-700">{s.from === 0 ? t("price.free") : t("home.fromRate", { rate: s.from })}</span>
             </li>
           );
         })}

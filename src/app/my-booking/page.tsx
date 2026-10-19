@@ -192,7 +192,9 @@ export default function MyBookingPage() {
                 : []),
               [
                 t("mine.total"),
-                b.paymentStatus === "paid"
+                b.totalPrice === 0
+                  ? t("price.free")
+                  : b.paymentStatus === "paid"
                   ? b.paidOnline
                     ? `${t("mine.paid", { amount: b.totalPrice })} · ${t("pay.paidOnline")}`
                     : t("mine.paid", { amount: b.totalPrice })

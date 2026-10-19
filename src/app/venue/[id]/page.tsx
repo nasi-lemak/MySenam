@@ -9,6 +9,7 @@ import { serverT } from "@/lib/locale";
 import { currentStorefront, shows } from "@/lib/storefront";
 import { mayShowVenue, pageViewer } from "@/lib/listing";
 import { accessSettings, eligible } from "@/lib/access";
+import { hasRules, houseRules } from "@/lib/house-rules";
 import Link from "next/link";
 import { listOutages } from "@/lib/outages";
 import PinMap from "@/components/PinMap";
@@ -61,7 +62,10 @@ export default async function VenuePage({
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
-  const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
+  // As far ahead as this venue takes bookings, within the site's window.
+  const rules = await houseRules(venue.id);
+  const ahead = Math.min(rules.aheadDays ?? MAX_ADVANCE_DAYS, MAX_ADVANCE_DAYS);
+  const dates = Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i));
 
   const initial = parseInitialSelection(query, sports, dates);
   // Only closures inside the booking window are worth warning about.
@@ -151,6 +155,24 @@ export default async function VenuePage({
           🔒 {t("access.privateBadge")}
           {access.note && <p className="mt-1 whitespace-pre-line">{access.note}</p>}
         </div>
+      )}
+      {hasRules(rules) && (
+        <p className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700">
+          <span className="font-semibold">📋 {t("rules.title")}:</span>{" "}
+          {[
+            rules.upcoming !== null && t("rules.upcoming", { n: rules.upcoming }),
+            rules.perWeek !== null && t("rules.week", { n: rules.perWeek }),
+            rules.perDay !== null && t("rules.day", { n: rules.perDay }),
+          ]
+            .filter(Boolean)
+            .join(", ")}
+          {(rules.upcoming !== null || rules.perWeek !== null || rules.perDay !== null) && ` ${t("rules.who")}`}
+          {rules.aheadDays !== null &&
+            `${rules.upcoming !== null || rules.perWeek !== null || rules.perDay !== null ? "; " : ""}${
+              rules.aheadDays === 0 ? t("rules.today") : t("rules.ahead", { n: rules.aheadDays })
+            }`}
+          .
+        </p>
       )}
       {notice && <NoticeBar notice={notice} more={t("notice.more")} />}
       <VenueGallery

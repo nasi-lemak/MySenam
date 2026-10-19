@@ -658,8 +658,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
 | POST   | `/api/admin/bookings/reschedule` | `{code, date, startHour, courtId?}` → change it; customer told |
 | GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
-| GET    | `/api/admin/access`           | `?venueId` → who it is for, and its list             |
-| POST   | `/api/admin/access`           | `{venueId, action: settings | add | import | remove}` |
+| GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays}` |
+| GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
+| POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import or remove}` |
 | POST   | `/api/admin/payments`         | `{code, paid, via?}` or `{seriesCode, via?}`; `via` is cash, qr, transfer or card |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
@@ -2191,6 +2192,37 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
 - One rule decides what lists show (`LISTED_PUBLICLY` / `listRule` in
   `src/lib/listing.ts`) and one decides who may book (`accessRefusal`), so a
   new page or endpoint has one place to ask.
+
+## Free courts and house rules
+
+**A court can be free.** Rates may be RM0 — a condominium's tennis court, a
+club's member-only pool lane. A booking that comes to RM0 owes nothing: it
+shows as *Free* to the customer and the desk, is never offered online
+payment, and does not count towards the cap on unpaid bookings a number may
+hold.
+
+**House rules** (*Venues & staff → House rules*, `src/lib/house-rules.ts`) are a
+venue's fair-use limits for online bookings, each blank for none:
+
+| Rule | Example |
+| ---- | ------- |
+| Bookings coming up at once | 2 — a third waits until one is played or cancelled |
+| Bookings a week (Monday to Sunday) | 3 |
+| Bookings a day | 1 |
+| Days ahead they may book | 7 (0 is today only; the site's own window is 14) |
+
+- **Counted per household.** Everybody the venue's list gives the same unit
+  (*Who a venue is for*) shares one allowance: a family in B-07-2 gets two
+  bookings a week between them, not two each. Anybody else is counted by the
+  number on the booking **and** the account making it, so typing a different
+  number does not buy another booking.
+- Only court bookings count; a class place is limited by the class.
+- Checked when a customer books (every week of a weekly series), and when
+  they move a booking to another day. Staff at the counter are not held to
+  them.
+- The venue page shows them (*House rules: up to 2 a week for each person or
+  household; book up to 7 days ahead*), and its dates stop at the last day
+  the venue takes bookings for.
 
 ## Booking again
 

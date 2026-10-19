@@ -240,7 +240,7 @@ export default async function HomePage({
                   </span>
                   {venue.courts.length > 0 && (
                     <span className="font-semibold text-teal-700">
-                      {t("home.fromRate", { rate: minRate })}
+                      {minRate === 0 ? t("price.free") : t("home.fromRate", { rate: minRate })}
                     </span>
                   )}
                 </div>

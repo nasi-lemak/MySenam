@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
   if (typeof sport !== "string" || !SPORTS.includes(sport as Sport))
     return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   for (const [label, rate] of [["offPeakRate", offPeakRate], ["peakRate", peakRate]] as const) {
-    if (!Number.isInteger(rate) || (rate as number) < 1 || (rate as number) > MAX_RATE)
-      return NextResponse.json({ error: `${label} must be RM1–${MAX_RATE}.` }, { status: 400 });
+    if (!Number.isInteger(rate) || (rate as number) < 0 || (rate as number) > MAX_RATE)
+      return NextResponse.json({ error: `${label} must be RM0–${MAX_RATE}. RM0 makes it free.` }, { status: 400 });
   }
 
   if (capacity !== undefined &&

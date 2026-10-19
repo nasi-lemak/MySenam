@@ -720,6 +720,9 @@ function NoShowBadge({ b }: { b: AdminBookingRow }) {
 
 function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
+  // Nothing to take: a free court (a condominium's, say) owes nothing.
+  if (b.totalPrice === 0 && b.paymentStatus !== "paid")
+    return <span className={`${CHIP} bg-slate-100 text-slate-500`}>free</span>;
   const paid = b.paymentStatus === "paid";
   // The money is in the venue's gateway account, not the till: undoing it is
   // a refund there, not a click here.

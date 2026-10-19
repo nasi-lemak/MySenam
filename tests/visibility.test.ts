@@ -24,7 +24,7 @@ import { mayShowVenue } from "../src/lib/listing";
 import { createCourt, createVenue, listVenuePage, searchAvailability, sellMembership } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as book } from "../src/app/api/bookings/route";
-import { GET as accessGet, POST as accessPost } from "../src/app/api/admin/access/route";
+import { GET as accessGet, POST as accessPost } from "../src/app/api/admin/venue-access/route";
 import { GET as myVenues } from "../src/app/api/my/venues/route";
 import { GET as availability } from "../src/app/api/availability/route";
 
@@ -201,7 +201,7 @@ describe("the list", () => {
     if (!desk.ok) throw new Error(desk.error);
     const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
     const post = (body: unknown, as = cookie) =>
-      accessPost(new NextRequest("http://localhost/api/admin/access", { method: "POST", headers: { cookie: as }, body: JSON.stringify(body) }));
+      accessPost(new NextRequest("http://localhost/api/admin/venue-access", { method: "POST", headers: { cookie: as }, body: JSON.stringify(body) }));
 
     expect((await post({ venueId: privateVenue, action: "add", phone: "0123456789" })).status).toBe(403);
     const imported = await post({ venueId: members, action: "import", text: "0123000001, A\n0123000002, B", kind: "member" });
@@ -209,7 +209,11 @@ describe("the list", () => {
     const saved = await post({ venueId: members, action: "settings", access: "members", listed: false, note: "RM150 a year" });
     expect((await saved.json()).settings).toEqual({ access: "members", listed: false, note: "RM150 a year" });
     expect((await post({ venueId: members, action: "settings", access: "secret" })).status).toBe(400);
-    const got = await accessGet(new NextRequest(`http://localhost/api/admin/access?venueId=${members}`, { headers: { cookie: ownerCookie } }));
+    const got = await accessGet(new NextRequest(`http://localhost/api/admin/venue-access?venueId=${members}`, { headers: { cookie: ownerCookie } }));
     expect((await got.json()).list.length).toBeGreaterThanOrEqual(3);
+    // The door-code log keeps its own address: this list must not take it over.
+    const { GET: doorLog } = await import("../src/app/api/admin/access/route");
+    const reveals = await doorLog(new NextRequest(`http://localhost/api/admin/access?venueId=${members}`, { headers: { cookie: ownerCookie } }));
+    expect(await reveals.json()).toHaveProperty("reveals");
   });
 });

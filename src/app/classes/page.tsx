@@ -143,7 +143,7 @@ export default function ClassesPage() {
                         </div>
                       </div>
                       <div className="text-right text-sm">
-                        <div className="font-bold">RM{session.price}</div>
+                        <div className="font-bold">{session.price === 0 ? t("price.free") : `RM${session.price}`}</div>
                         <div className={left === 0 ? "text-xs text-red-600" : "text-xs text-slate-400"}>
                           {left === 0
                             ? t("classes.full")

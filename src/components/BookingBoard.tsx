@@ -382,7 +382,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                                 : "bg-teal-100 text-teal-800 hover:bg-teal-200"
                           }`}
                         >
-                          {slot.available ? slot.rate : "—"}
+                          {slot.available ? (slot.rate === 0 ? t("price.free") : slot.rate) : "—"}
                         </button>
                       </td>
                     );
@@ -394,7 +394,9 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 font-medium">
                     {court.name}
                     <div className="text-xs font-normal text-slate-400">
-                      RM{court.offPeakRate}–{court.peakRate}/hr
+                      {court.offPeakRate === 0 && court.peakRate === 0
+                        ? t("price.free")
+                        : `RM${court.offPeakRate}–${court.peakRate}/hr`}
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
@@ -446,7 +448,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                                   : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           }`}
                         >
-                          {!slot.available ? (canQueue(slot, date) ? "+" : "—") : shared ? left : slot.rate}
+                          {!slot.available ? (canQueue(slot, date) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : slot.rate}
                         </button>
                       </td>
                     );
@@ -655,7 +657,7 @@ function BookingForm({
           <div className="font-semibold text-teal-700">{court.name}</div>
           <div className="text-sm text-slate-600">
             {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + 1)} ·{" "}
-            <span className="font-semibold text-slate-900">RM{withExtras}</span>
+            <span className="font-semibold text-slate-900">{withExtras === 0 ? t("price.free") : `RM${withExtras}`}</span>
           </div>
           {remembered && (
             <button
@@ -888,7 +890,9 @@ function ConfirmationModal({
               : ([] as [string, string][])),
             [
               t("done.total"),
-              t("done.totalValue", { amount: isSeries ? seriesTotal : booking.totalPrice }),
+              (isSeries ? seriesTotal : booking.totalPrice) === 0
+                ? t("price.free")
+                : t("done.totalValue", { amount: isSeries ? seriesTotal : booking.totalPrice }),
             ],
             ...(isHire(court)
               ? ([
@@ -920,7 +924,7 @@ function ConfirmationModal({
                 <li key={b.id} className="flex justify-between">
                   <span>📅 {b.date}</span>
                   <span className="font-mono text-xs text-slate-500">
-                    {b.code} · RM{b.totalPrice}
+                    {b.code} · {b.totalPrice === 0 ? t("price.free") : `RM${b.totalPrice}`}
                   </span>
                 </li>
               ))}

@@ -432,7 +432,7 @@ export function CourtsTab({
         <input
           required
           type="number"
-          min={1}
+          min={0}
           value={newCourt.offPeak}
           onChange={(e) => setNewCourt({ ...newCourt, offPeak: e.target.value })}
           placeholder="Off-peak RM"
@@ -441,7 +441,7 @@ export function CourtsTab({
         <input
           required
           type="number"
-          min={1}
+          min={0}
           value={newCourt.peak}
           onChange={(e) => setNewCourt({ ...newCourt, peak: e.target.value })}
           placeholder="Peak RM"
@@ -524,7 +524,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
-          min={1}
+          min={0}
           value={offPeak}
           onChange={(e) => setOffPeak(e.target.value)}
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
@@ -533,7 +533,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
-          min={1}
+          min={0}
           value={peak}
           onChange={(e) => setPeak(e.target.value)}
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"

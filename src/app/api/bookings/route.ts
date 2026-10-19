@@ -15,7 +15,7 @@ import {
 import { customerMayBook } from "@/lib/limits";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { isValidDateString } from "@/lib/time";
+import { addDays, isValidDateString } from "@/lib/time";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
@@ -92,6 +92,10 @@ export async function POST(req: NextRequest) {
       weeks: (weeks as number) ?? 1,
       signedIn: user !== null,
       userId: user?.id ?? null,
+      dates:
+        typeof date === "string" && isValidDateString(date)
+          ? Array.from({ length: Math.min(Math.max(1, Number(weeks) || 1), 52) }, (_, i) => addDays(date, i * 7))
+          : undefined,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
     });
     if (refused) return refusal(refused);

@@ -332,6 +332,7 @@ function slot(
 /** The total and how it is settled: paid, or still to pay — online too, where the venue takes it. */
 async function totalLine(locale: Locale, amount: number, paid: boolean, venueId: number): Promise<string> {
   const t = translator(locale);
+  if (amount === 0) return t("msg.totalFree");
   const payment = paid
     ? "msg.paid"
     : await takesPaymentOnline(venueId)
