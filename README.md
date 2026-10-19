@@ -658,6 +658,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
 | POST   | `/api/admin/bookings/reschedule` | `{code, date, startHour, courtId?}` → change it; customer told |
 | GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
+| GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
 | POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import or remove}` |
@@ -2044,6 +2045,28 @@ state on `/account` and in the `/my-booking` lookup. The daily view splits
 **expected** vs **collected** vs **outstanding** revenue so a shift can be
 reconciled at closing.
 
+### Paying online to hold a booking
+
+For venues losing slots to people who never come: under *Venues & staff →
+Online payments → Pay online to hold a booking* (`src/lib/holds.ts`), a booking
+made online must be paid online within a few minutes (15 unless set, 5–60), or
+it is let go for somebody else and the customer is charged nothing.
+
+- The customer sees *Held for you: pay to confirm* and the time it is held
+  until, with the button to pay. Paid, it stands and the usual confirmation
+  goes out, calendar invite and all; until then nobody is told it is theirs.
+- Opening the payment page holds it 20 minutes more from then, so somebody
+  part-way through FPX is not undercut. A payment that still lands after it
+  was let go is listed under *Refunds owed*, as for any booking cancelled after
+  paying.
+- A held slot comes free on time: holds are let go on the scheduler's tick,
+  and on the way past whenever anybody books, searches or opens a day's
+  availability. The waitlist is offered it.
+- Staff see *held till 3:45 PM* on the booking, and *released (unpaid)* after.
+  Bookings staff make at the counter, ones paid at once from credit or a
+  pass, and free ones are never held. It needs the venue's Billplz account;
+  without one it cannot be turned on.
+
 ### Paying online
 
 A venue can let customers pay by FPX online banking or card through
@@ -2491,6 +2514,4 @@ push and pull request (Node 22, `npm ci`).
   one credential, one body. Software can attribute an entry; it cannot stop
   five people walking in behind one of them
 - Online top-ups, so credit can be bought without visiting a counter
-- Requiring payment online to hold a booking, with unpaid holds released after a few minutes
-- Reminders the day before a booking, on the same outbox and templates
 - Set strong `ADMIN_EMAIL` / `ADMIN_PASSWORD` values before deploying

@@ -15,10 +15,13 @@ export default function PayOnline({
   codes,
   phone,
   amount,
+  held = false,
 }: {
   codes: string[];
   phone: string;
   amount: number;
+  /** Held until paid online: the counter is not an option. */
+  held?: boolean;
 }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
@@ -53,7 +56,7 @@ export default function PayOnline({
       >
         {busy ? t("pay.opening") : t("pay.button", { amount })}
       </button>
-      <p className="mt-1.5 text-center text-xs text-slate-600">{t("pay.how")}</p>
+      <p className="mt-1.5 text-center text-xs text-slate-600">{t(held ? "hold.how" : "pay.how")}</p>
       {error && <p className="mt-1.5 text-center text-xs font-medium text-red-700">{error}</p>}
     </div>
   );

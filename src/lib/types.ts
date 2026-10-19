@@ -244,6 +244,10 @@ export interface Booking {
   paidOnline?: boolean;
   /** How it was paid, when that was recorded; see PAID_VIA. */
   paidVia?: PaidVia | null;
+  /** Held unpaid until then, at a venue asking for payment online to hold it (lib/holds.ts). */
+  holdUntil?: string | null;
+  /** Let go because it was not paid in time. */
+  releasedUnpaid?: boolean;
   /** Set by staff after the slot passes and nobody turned up. */
   noShow: boolean;
   /** When the customer arrived at the desk, if they did. */

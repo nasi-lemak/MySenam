@@ -3,12 +3,15 @@ import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/
 import { getSessionUser } from "@/lib/auth";
 import { shows, storefrontForRequest } from "@/lib/storefront";
 import { mayShowVenue } from "@/lib/listing";
+import { releaseExpiredHolds } from "@/lib/holds";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { Sport, SPORTS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  // A slot held for somebody who never paid shows free on time, scheduler or not.
+  await releaseExpiredHolds();
   const params = req.nextUrl.searchParams;
   const venueId = Number(params.get("venueId"));
   const date = params.get("date") ?? todayISO();

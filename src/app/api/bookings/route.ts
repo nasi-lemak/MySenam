@@ -13,6 +13,7 @@ import {
   payBookingWithPass,
 } from "@/lib/store";
 import { customerMayBook } from "@/lib/limits";
+import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isValidDateString } from "@/lib/time";
@@ -27,6 +28,8 @@ import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } f
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  // Holds nobody paid for are let go first, so their slots can be booked now.
+  await releaseExpiredHolds();
   let body: unknown;
   try {
     body = await req.json();
@@ -192,15 +195,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Queued after the money has settled, so the total in the message is the
-  // total the customer will actually be asked for at the counter.
-  const locale = await currentLocale();
-  await rememberLocale(result.bookings.map((b) => b.id), locale);
-  await notifyBookingConfirmed(result.bookings, locale, result.seriesCode);
-  await tickOutbox();
-
   const court = (await getCourt(result.bookings[0].courtId))!;
   const venue = (await getVenue(court.venueId))!;
+
+  // A venue asking for payment online to hold a booking: what is still
+  // unpaid is held for a few minutes, and confirmed once it is paid.
+  const policy = await holdPolicy(venue.id);
+  const holdUntil = policy.active
+    ? await holdNewBookings(
+        result.bookings.filter((b) => b.paymentStatus === "unpaid").map((b) => b.id),
+        policy.minutes
+      )
+    : null;
+  if (holdUntil) for (const b of result.bookings) if (b.paymentStatus === "unpaid" && b.totalPrice > 0) b.holdUntil = holdUntil;
+
+  // Queued after the money has settled, so the total in the message is the
+  // total the customer will actually be asked for at the counter. A held
+  // booking is told about once it is paid (lib/payments.ts).
+  const locale = await currentLocale();
+  await rememberLocale(result.bookings.map((b) => b.id), locale);
+  if (!holdUntil) await notifyBookingConfirmed(result.bookings, locale, result.seriesCode);
+  await tickOutbox();
   return NextResponse.json(
     {
       booking: result.bookings[0],
@@ -208,6 +223,8 @@ export async function POST(req: NextRequest) {
       skipped: result.skipped,
       seriesCode: result.seriesCode,
       walletError: payErrors[0] ?? null,
+      // Pay online by then, or the booking is let go.
+      holdUntil,
       promoError,
       discount,
       addons: addonLines,

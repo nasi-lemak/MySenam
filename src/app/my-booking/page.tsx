@@ -176,9 +176,27 @@ export default function MyBookingPage() {
                   : "bg-slate-100 text-slate-500"
               }`}
             >
-              {b.status === "confirmed" ? t("mine.confirmed") : t("mine.cancelled")}
+              {b.status === "confirmed"
+                ? b.holdUntil && b.paymentStatus === "unpaid"
+                  ? t("hold.pill")
+                  : t("mine.confirmed")
+                : t("mine.cancelled")}
             </span>
           </div>
+          {b.releasedUnpaid && (
+            <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("hold.released")}</p>
+          )}
+          {b.status === "confirmed" && b.paymentStatus === "unpaid" && b.holdUntil && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+              {t("hold.pending", {
+                time: new Date(`${b.holdUntil.replace(" ", "T")}Z`).toLocaleTimeString("en-MY", {
+                  timeZone: "Asia/Kuala_Lumpur",
+                  hour: "numeric",
+                  minute: "2-digit",
+                }),
+              })}
+            </p>
+          )}
           <dl className="mt-4 space-y-1.5 text-sm">
             {[
               [t("mine.venue"), `${result.venue.name} (${result.venue.area})`],
@@ -194,7 +212,9 @@ export default function MyBookingPage() {
                 t("mine.total"),
                 b.totalPrice === 0
                   ? t("price.free")
-                  : b.paymentStatus === "paid"
+                  : b.holdUntil && b.paymentStatus === "unpaid"
+                    ? t("hold.total", { amount: b.totalPrice })
+                    : b.paymentStatus === "paid"
                   ? b.paidOnline
                     ? `${t("mine.paid", { amount: b.totalPrice })} · ${t("pay.paidOnline")}`
                     : t("mine.paid", { amount: b.totalPrice })
@@ -215,7 +235,7 @@ export default function MyBookingPage() {
           {b.status === "confirmed" && (
             <>
               {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && (
-                <PayOnline codes={[b.code]} phone={phone} amount={b.totalPrice} />
+                <PayOnline codes={[b.code]} phone={phone} amount={b.totalPrice} held={!!b.holdUntil} />
               )}
               {result.venue.cancelCutoffHours > 0 && (
                 <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">

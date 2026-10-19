@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { countSearchCourts, listAreas, readNear, SEARCH_COURT_LIMIT, SEARCH_SORTS, searchAvailability, type SearchSort } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
+import { releaseExpiredHolds } from "@/lib/holds";
 import { readFacilityFilters } from "@/lib/facilities";
 import { coversFor } from "@/lib/photos";
 import { isValidDateString, todayISO } from "@/lib/time";
@@ -16,6 +17,7 @@ function parseHour(value: string | null, fallback: number): number | null {
 }
 
 export async function GET(req: NextRequest) {
+  await releaseExpiredHolds();
   const params = req.nextUrl.searchParams;
   const sport = params.get("sport");
   const date = params.get("date") ?? todayISO();

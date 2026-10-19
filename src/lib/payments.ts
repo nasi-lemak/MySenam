@@ -9,7 +9,8 @@ import { formatHour } from "./time";
 import { Booking } from "./types";
 import { platformAccount, settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
-import { notifyPaid } from "./notify";
+import { notifyBookingConfirmed, notifyPaid } from "./notify";
+import { extendHolds } from "./holds";
 import { venueBaseUrl } from "./storefront";
 
 /**
@@ -289,6 +290,8 @@ export async function startBookingPayment(input: {
   // Pressing the button twice, or coming back to it, should not make a second
   // bill for the same thing.
   const ids = due.map((b) => b.id).sort((a, b) => a - b);
+  // A held booking stays held while they are on the payment page.
+  await extendHolds(ids);
   const reusable = await pendingPaymentFor(ids, amount);
   if (reusable) return { ok: true, url: reusable.url, amount, reused: true };
 
@@ -508,8 +511,27 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
     const b = await bookingById(id);
     if (b) bookings.push(b);
   }
-  // A receipt, by email, for what was just paid.
-  await notifyPaid(bookings, "online");
+  // Held until paid: it stands now, and this is the confirmation the
+  // customer was waiting for, calendar invite and all. Anything else gets a
+  // receipt, by email, for what was just paid.
+  const held = bookings.filter((b) => b.holdUntil);
+  if (held.length > 0) {
+    await db
+      .prepare(`UPDATE bookings SET hold_until = NULL WHERE id IN (${held.map(() => "?").join(",")})`)
+      .run(...held.map((b) => b.id));
+    for (const group of Map.groupBy(held, (b) => b.seriesCode ?? b.code).values()) {
+      const stored = (await db.prepare("SELECT locale FROM bookings WHERE id = ?").get(group[0].id)) as { locale: string | null };
+      await notifyBookingConfirmed(
+        group.map((b) => ({ ...b, holdUntil: null })),
+        stored.locale === "ms" ? "ms" : "en",
+        group.length > 1 ? group[0].seriesCode : null
+      );
+    }
+  }
+  await notifyPaid(
+    bookings.filter((b) => !b.holdUntil),
+    "online"
+  );
   return { payment: await toPayment(fresh), newlyPaid: bookings };
 }
 

@@ -577,6 +577,13 @@ const EN = {
   // Confirmation
   "done.seriesTitle": "{n} weekly sessions booked!",
   "done.title": "Booking confirmed!",
+  "hold.title": "Held for you: pay to confirm",
+  "hold.body": "Pay online by {time} to keep this booking. Not paid by then, it is let go for somebody else and you are not charged.",
+  "hold.released": "This booking was let go because it was not paid in time. Nothing was charged.",
+  "hold.pending": "Held until {time} while you pay online. Not paid by then, it is let go.",
+  "hold.pill": "Held",
+  "hold.total": "RM{amount}: pay online to keep it",
+  "hold.how": "FPX online banking or card, through Billplz.",
   "done.body":
     "Show this code at the counter. Save it — you'll need it (with your phone number) to view or cancel {what}.",
   "done.theSeries": "the series",
@@ -1598,6 +1605,13 @@ const MS: Record<Phrase, string> = {
   // Pengesahan
   "done.seriesTitle": "{n} sesi mingguan telah ditempah!",
   "done.title": "Tempahan disahkan!",
+  "hold.title": "Disimpan untuk anda: bayar untuk mengesahkan",
+  "hold.body": "Bayar dalam talian sebelum {time} untuk mengekalkan tempahan ini. Jika tidak dibayar, ia dilepaskan untuk orang lain dan anda tidak dicaj.",
+  "hold.released": "Tempahan ini dilepaskan kerana tidak dibayar tepat pada masanya. Tiada caj dikenakan.",
+  "hold.pending": "Disimpan sehingga {time} semasa anda membayar dalam talian. Jika tidak dibayar, ia dilepaskan.",
+  "hold.pill": "Disimpan",
+  "hold.total": "RM{amount}: bayar dalam talian untuk mengekalkannya",
+  "hold.how": "Perbankan dalam talian FPX atau kad, melalui Billplz.",
   "done.body":
     "Tunjukkan kod ini di kaunter. Simpan ia — anda perlukannya (bersama nombor telefon anda) untuk melihat atau membatalkan {what}.",
   "done.theSeries": "siri ini",

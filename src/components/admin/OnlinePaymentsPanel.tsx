@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { OnlinePayment, PaymentSettings } from "@/lib/payments";
 import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
+import { HoldPolicyEditor } from "./HoldPolicyEditor";
 
 /**
  * A venue's own online payment account, and what came through it.
@@ -218,6 +219,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
           )}
         </div>
       </form>
+
+      <HoldPolicyEditor venueId={venueId} canPayOnline={settings?.configured === true && settings.enabled} />
 
       {owed.length > 0 && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">

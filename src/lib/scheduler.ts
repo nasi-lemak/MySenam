@@ -4,6 +4,7 @@ import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
 import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
+import { releaseExpiredHolds } from "./holds";
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -59,6 +60,13 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (drained.transport) result.outbox = { sent: drained.sent, failed: drained.failed };
   } catch (err) {
     console.error("[mysenam] sending messages failed:", err);
+  }
+
+  try {
+    // Bookings held for payment that never came: free for somebody else.
+    await releaseExpiredHolds();
+  } catch (err) {
+    console.error("[mysenam] letting go of unpaid holds failed:", err);
   }
 
   try {

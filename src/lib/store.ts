@@ -283,6 +283,8 @@ interface BookingRow {
   user_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
+  hold_until?: string | null;
+  released_unpaid?: number;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -324,6 +326,8 @@ function toBooking(r: BookingRow): Booking {
     paidAt: r.paid_at,
     paidOnline: r.paid_via === "online",
     paidVia: (r.paid_via as PaidVia | null | undefined) ?? null,
+    holdUntil: r.hold_until ?? null,
+    releasedUnpaid: r.released_unpaid === 1,
     noShow: r.no_show === 1,
     checkedInAt: r.checked_in_at ?? null,
     checkedOutAt: r.checked_out_at ?? null,

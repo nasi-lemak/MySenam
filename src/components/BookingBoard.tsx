@@ -80,6 +80,15 @@ function canQueue(slot: CourtAvailability["slots"][number], date: string): boole
   return !isPastSlotClient(date, slot.hour);
 }
 
+/** A UTC "YYYY-MM-DD HH:MM:SS" as Malaysia-time HH:MM, for the customer. */
+function localTimeOf(utc: string): string {
+  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString("en-MY", {
+    timeZone: "Asia/Kuala_Lumpur",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Past-slot check in Malaysia time, for the browser. */
 function isPastSlotClient(date: string, hour: number): boolean {
   const now = new Date();
@@ -842,6 +851,8 @@ function ConfirmationModal({
   const seriesTotal = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const unpaid = bookings.filter((b) => b.paymentStatus === "unpaid");
   const unpaidTotal = unpaid.reduce((sum, b) => sum + b.totalPrice, 0);
+  // Held until paid, at a venue that asks for payment online to hold it.
+  const holdUntil = bookings.find((b) => b.holdUntil)?.holdUntil ?? null;
   const shareInfo = {
     siteName: t.site,
     code: seriesCode ?? booking.code,
@@ -856,15 +867,21 @@ function ConfirmationModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
         <div className="text-center">
-          <div className="text-4xl">✅</div>
+          <div className="text-4xl">{holdUntil ? "⏳" : "✅"}</div>
           <h2 className="mt-2 text-xl font-bold">
-            {isSeries ? t("done.seriesTitle", { n: bookings.length }) : t("done.title")}
+            {holdUntil ? t("hold.title") : isSeries ? t("done.seriesTitle", { n: bookings.length }) : t("done.title")}
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            {t("done.body", {
-              what: isSeries ? t("done.theSeries") : t("done.theBooking"),
-            })}
-          </p>
+          {holdUntil ? (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+              {t("hold.body", { time: localTimeOf(holdUntil) })}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-slate-600">
+              {t("done.body", {
+                what: isSeries ? t("done.theSeries") : t("done.theBooking"),
+              })}
+            </p>
+          )}
           <div className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
             {seriesCode ?? booking.code}
           </div>
@@ -892,7 +909,9 @@ function ConfirmationModal({
               t("done.total"),
               (isSeries ? seriesTotal : booking.totalPrice) === 0
                 ? t("price.free")
-                : t("done.totalValue", { amount: isSeries ? seriesTotal : booking.totalPrice }),
+                : holdUntil
+                  ? t("hold.total", { amount: isSeries ? seriesTotal : booking.totalPrice })
+                  : t("done.totalValue", { amount: isSeries ? seriesTotal : booking.totalPrice }),
             ],
             ...(isHire(court)
               ? ([
@@ -938,7 +957,7 @@ function ConfirmationModal({
           </div>
         )}
         {confirmation.payOnline && unpaid.length > 0 && unpaidTotal > 0 && (
-          <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} />
+          <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} held={holdUntil !== null} />
         )}
         <ChatLink t={t} number={confirmation.chatNumber} code={seriesCode ?? booking.code} />
         {!isSeries && booking.checkInToken && <CheckInQr token={booking.checkInToken} />}

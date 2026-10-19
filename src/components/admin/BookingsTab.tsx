@@ -552,7 +552,7 @@ export function BookingsTab() {
                   <div className="text-right">
                     <div className="font-semibold">RM{b.totalPrice}</div>
                     {b.status !== "confirmed" && (
-                      <span className="text-xs font-semibold text-slate-400">{b.status}</span>
+                      <span className="text-xs font-semibold text-slate-400">{b.releasedUnpaid ? "released (unpaid)" : b.status}</span>
                     )}
                   </div>
                 </div>
@@ -622,7 +622,7 @@ export function BookingsTab() {
                             : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {b.status}
+                        {b.releasedUnpaid ? "released (unpaid)" : b.status}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -720,6 +720,16 @@ function NoShowBadge({ b }: { b: AdminBookingRow }) {
 
 function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
+  // Held for payment online: it goes by itself if not paid in time.
+  if (b.paymentStatus === "unpaid" && b.holdUntil)
+    return (
+      <span
+        title="The customer is paying online. Not paid by then, the booking is let go."
+        className={`${CHIP} bg-amber-50 text-amber-700 ring-1 ring-amber-200`}
+      >
+        held till {localTime(b.holdUntil)}
+      </span>
+    );
   // Nothing to take: a free court (a condominium's, say) owes nothing.
   if (b.totalPrice === 0 && b.paymentStatus !== "paid")
     return <span className={`${CHIP} bg-slate-100 text-slate-500`}>free</span>;
