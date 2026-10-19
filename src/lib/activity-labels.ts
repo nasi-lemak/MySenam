@@ -37,4 +37,5 @@ export const ACTION_LABELS: Record<string, string> = {
   "staff.removed": "Removed staff",
   "staff.role": "Changed a role",
   "settings.changed": "Changed settings",
+  export: "Downloaded a spreadsheet",
 };

@@ -481,6 +481,14 @@ every admin route, so a new route cannot forget it; `tests/roles.test.ts`
 checks each line names a real route, that front desk is refused there and a
 manager is not.
 
+**Spreadsheets for the accountant.** *Reports* has *Bookings (CSV)* and
+*Online payments (CSV)* for the period shown (`src/lib/export.ts`): every
+booking with its price, whether and how it was paid, promo discount, extras,
+check-in and no-show; and every payment taken online with what is owed back.
+They open straight in Excel (byte-order mark, quoted cells, and a cell that
+would start a formula is kept as text). Managers only, and each download is
+in the activity log, since customers' names and numbers leave with it.
+
 **The staff activity log** (*Reports → Staff activity*, `src/lib/activity.ts`)
 writes down who did what, when, at which venue and to which booking:
 payments marked at the desk and how, bookings cancelled, moved or changed,

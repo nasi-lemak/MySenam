@@ -440,6 +440,19 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
           </div>
         </>
       ) : null}
+      {/* For the accountant: every booking, and every payment taken online, as a spreadsheet. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+        <span className="font-semibold">Download for your accountant ({range.from} to {range.to}):</span>
+        {(["bookings", "payments"] as const).map((kind) => (
+          <a
+            key={kind}
+            href={`/api/admin/export?venueId=${venueId}&from=${range.from}&to=${range.to}&kind=${kind}`}
+            className="rounded-md border border-slate-300 px-3 py-1 font-medium text-teal-700 hover:border-teal-500"
+          >
+            {kind === "bookings" ? "Bookings (CSV)" : "Online payments (CSV)"}
+          </a>
+        ))}
+      </div>
       <ActivityPanel venueId={venueId} from={range.from} to={range.to} />
     </div>
   );
