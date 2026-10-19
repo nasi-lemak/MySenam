@@ -3938,11 +3938,12 @@ interface MembershipRow {
   expires_on: string;
   price: number;
   status: MembershipStatus;
+  plan_id: number | null;
 }
 
 const MEMBERSHIP_SELECT = `
   SELECT m.id, m.code, m.venue_id, v.name AS venue_name, m.holder_name, m.holder_phone,
-         m.starts_on, m.expires_on, m.price, m.status
+         m.starts_on, m.expires_on, m.price, m.status, m.plan_id
   FROM memberships m JOIN venues v ON v.id = m.venue_id
 `;
 
@@ -3958,6 +3959,7 @@ function toMembership(r: MembershipRow): Membership {
     expiresOn: r.expires_on,
     price: r.price,
     status: r.status,
+    online: r.plan_id !== null,
   };
   const reason = membershipBlockedReason(m);
   return reason ? { ...m, unusableReason: reason } : m;
@@ -4029,7 +4031,7 @@ export type MembershipResult =
   | { ok: true; membership: Membership }
   | Refusal;
 
-/** Sell a membership at the counter. */
+/** Sell a membership, at the counter or (with no `adminId`) once paid for online. */
 export async function sellMembership(input: {
   venueId: number;
   holderName: string;
@@ -4037,8 +4039,10 @@ export async function sellMembership(input: {
   startsOn: string;
   expiresOn: string;
   price: number;
-  adminId: number;
+  /** Absent when it was bought online. */
+  adminId?: number;
   userId?: number;
+  planId?: number;
 }): Promise<MembershipResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -4087,12 +4091,12 @@ export async function sellMembership(input: {
     const info = await db
       .prepare(`
         INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
-                                 starts_on, expires_on, price, admin_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 starts_on, expires_on, price, admin_id, plan_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
-        input.startsOn, input.expiresOn, input.price, input.adminId
+        input.startsOn, input.expiresOn, input.price, input.adminId ?? null, input.planId ?? null
       );
     return { ok: true, membership: (await membershipById(Number(info.lastInsertRowid)))! };
   });
@@ -4690,7 +4694,7 @@ function nullIfBlank(value: string | null): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
-function normalisePhone(phone: string): string {
+export function normalisePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return digits.startsWith("60") && digits.length >= 10 ? `0${digits.slice(2)}` : digits;
 }

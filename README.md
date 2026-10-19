@@ -17,7 +17,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
-- **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in
+- **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in; clubs can sell and renew memberships online
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
 - **Multi-visit passes** — sell a block of entries up front ("10 hours of badminton at PJ"); one entry covers one booked hour, the holder picks the pass on the booking form or quotes its code, and cancelling returns the entries
 - **Personal data you can see and remove** — a signed-in customer downloads everything held against their account as one file, or closes the account: upcoming bookings are cancelled and their name comes off past ones, while the hour and the price stay as the venue's accounting record. Old records age out on a published retention schedule that applies itself daily, and a privacy notice at `/privacy` says all of it in plain terms
@@ -1572,6 +1572,33 @@ with a 20% code pays RM16.
 
 Cancelling a membership stops future discounts; bookings already made keep the
 price they were given.
+
+### Joining online
+
+A club that takes payment online can list up to six **membership plans** (a
+name, 1–12 months, a fee of at least RM1) under *Credit & passes → Memberships →
+Join online*. Adding and retiring plans is a manager's job. The plans show on
+the venue page, inside the members-only notice where there is one. A
+signed-in customer picks a plan and pays the venue through its own Billplz
+account, and the membership is made **when the payment settles**, against the
+account's phone number (the checked one, where phone checks are on). It then
+works like one sold at the counter: member rates, and booking at a members-only
+venue. Staff see it in the list tagged *online*.
+
+- **Joining** starts today and runs the plan's calendar months (31 January plus
+  one month ends on the last day of February).
+- **Renewing** opens 45 days before the current membership (here, or at any
+  branch of the same business) ends, and the new one starts the day after it.
+  The dates are worked out when the money comes in, not when the payment page
+  was opened.
+- **A payment that buys nothing**, such as a second payment for the same months
+  or an account deleted while paying, is marked as owed back to the customer,
+  the same as a paid booking that was cancelled.
+- **A plan retired** while someone was paying still gives them what they paid
+  for. Nobody new can start on it.
+- **Private venues** do not sell membership online: their access list is the
+  only way in, and a fee does not put anyone on it. Free memberships are
+  given at the counter.
 
 ## Promo codes
 

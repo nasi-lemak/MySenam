@@ -77,7 +77,7 @@ export async function setAccessSettings(
 }
 
 /** The account's number as it counts for a list: checked, where numbers are checked. */
-async function phoneOf(userId: number): Promise<string | null> {
+export async function accountPhone(userId: number): Promise<string | null> {
   const row = (await getDb().prepare("SELECT phone, verified_phone FROM users WHERE id = ?").get(userId)) as
     | { phone: string; verified_phone: string | null }
     | undefined;
@@ -88,7 +88,7 @@ async function phoneOf(userId: number): Promise<string | null> {
 
 /** Is this account on the venue's list, today? */
 export async function onAccessList(venueId: number, userId: number): Promise<boolean> {
-  const phone = await phoneOf(userId);
+  const phone = await accountPhone(userId);
   if (!phone) return false;
   return (
     (await getDb()
@@ -105,7 +105,7 @@ export async function eligible(venueId: number, userId: number, mode?: VenueAcce
   if (access === "public") return true;
   if (await onAccessList(venueId, userId)) return true;
   if (access === "members") {
-    const phone = await phoneOf(userId);
+    const phone = await accountPhone(userId);
     return phone !== null && (await activeMembership(venueId, phone)) !== null;
   }
   return false;
@@ -125,7 +125,7 @@ export async function accessRefusal(venueId: number, userId: number | null): Pro
 
 /** Private venues this account is on the list of, for its account page. */
 export async function myPrivateVenues(userId: number): Promise<{ id: number; name: string; area: string }[]> {
-  const phone = await phoneOf(userId);
+  const phone = await accountPhone(userId);
   if (!phone) return [];
   return (await getDb()
     .prepare(

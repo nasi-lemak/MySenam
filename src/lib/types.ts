@@ -388,6 +388,8 @@ export interface Membership {
   expiresOn: string;
   price: number;
   status: MembershipStatus;
+  /** Bought online on one of the venue's plans, rather than sold at the counter. */
+  online?: boolean;
   /** Why it is not giving member rates today, if it is not. */
   unusableReason?: string;
 }

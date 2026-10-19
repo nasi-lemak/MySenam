@@ -18,6 +18,9 @@ import { VenueGallery } from "@/components/VenueGallery";
 import { NoticeBar } from "@/components/NoticeBar";
 import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
+import { joinTerms, listPlans } from "@/lib/membership-plans";
+import { takesPaymentOnline } from "@/lib/payments";
+import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +62,20 @@ export default async function VenuePage({
   const access = await accessSettings(venue.id);
   const member =
     access.access === "members" && viewer.userId !== null ? await eligible(venue.id, viewer.userId, "members") : false;
+
+  // Membership plans sold online, and where this visitor stands with them.
+  const plans = (await takesPaymentOnline(venue.id)) ? await listPlans(venue.id) : [];
+  let standing: JoinStanding = { kind: "signIn" };
+  if (plans.length > 0 && viewer.userId !== null) {
+    const terms = await joinTerms(viewer.userId, plans[0].id);
+    standing = terms.ok
+      ? terms.terms.renewing
+        ? { kind: "renew", until: addDays(terms.terms.startsOn, -1) }
+        : { kind: "join" }
+      : terms.code === "JOIN_TOO_EARLY"
+        ? { kind: "early", until: String(terms.vars?.until), from: String(terms.vars?.from) }
+        : { kind: "noPhone" };
+  }
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
@@ -140,7 +157,7 @@ export default async function VenuePage({
             <p className="font-semibold">🎟️ {t("access.membersBadge")}</p>
             <p className="mt-0.5">{t("access.membersBody")}</p>
             {access.note && <p className="mt-1 whitespace-pre-line">{access.note}</p>}
-            {viewer.userId === null && (
+            {viewer.userId === null && plans.length === 0 && (
               <Link
                 href={`/login?next=${encodeURIComponent(`/venue/${venue.id}`)}`}
                 className="mt-2 inline-block font-semibold text-violet-800 underline"
@@ -150,6 +167,9 @@ export default async function VenuePage({
             )}
           </div>
         ))}
+      {plans.length > 0 && access.access !== "private" && (
+        <JoinMembership venueId={venue.id} plans={plans} standing={standing} />
+      )}
       {access.access === "private" && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           🔒 {t("access.privateBadge")}

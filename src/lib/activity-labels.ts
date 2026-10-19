@@ -29,6 +29,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "credit.changed": "Changed stored credit",
   "membership.sold": "Sold a membership",
   "membership.voided": "Voided a membership",
+  "membership.plan_added": "Added a membership plan",
+  "membership.plan_retired": "Retired a membership plan",
   "pass.sold": "Sold a pass",
   "pass.voided": "Voided a pass",
   "promo.created": "Made a promo code",

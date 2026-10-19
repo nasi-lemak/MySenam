@@ -948,6 +948,8 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         </button>
       </form>
 
+      {venueId > 0 && <MembershipPlans venueId={venueId} />}
+
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[700px] border-collapse text-sm">
           <thead>
@@ -972,7 +974,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {m.startsOn} → {m.expiresOn}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 font-semibold">RM{m.price}</td>
+                <td className="whitespace-nowrap px-3 py-2 font-semibold">
+                  RM{m.price}
+                  {m.online && <span className="ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700">online</span>}
+                </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
                   {m.unusableReason ? (
                     <span className="text-xs text-slate-400">{m.unusableReason}</span>
@@ -998,5 +1003,130 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         </table>
       </div>
     </section>
+  );
+}
+
+interface Plan {
+  id: number;
+  name: string;
+  months: number;
+  price: number;
+}
+
+/** Membership plans customers can join or renew on online, paid to the venue. */
+function MembershipPlans({ venueId }: { venueId: number }) {
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [online, setOnline] = useState(true);
+  const [form, setForm] = useState({ name: "", months: "12", price: "" });
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/admin/membership-plans?venueId=${venueId}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setPlans(data.plans);
+    setOnline(data.online);
+  }, [venueId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const res = await fetch("/api/admin/membership-plans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, name: form.name, months: Number(form.months), price: Number(form.price) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(data.error ?? "Could not add the plan");
+    setForm({ name: "", months: "12", price: "" });
+    await load();
+  }
+
+  async function retire(plan: Plan) {
+    setError(null);
+    const res = await fetch(`/api/admin/membership-plans?venueId=${venueId}&id=${plan.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(data.error ?? "Could not retire the plan");
+    await load();
+  }
+
+  const inputClass = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+  return (
+    <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+      <h3 className="font-semibold">Join online</h3>
+      <p className="mt-0.5 text-sm text-slate-600">
+        Plans shown on your venue page. A signed-in customer pays you through your own online payment account and the
+        membership is made when the money is in, against their account&apos;s phone number. A member renews from{" "}
+        45 days before theirs ends, and the new one runs on from the old.
+      </p>
+      {!online && (
+        <p className="mt-2 text-sm font-medium text-amber-700">
+          Not showing yet: set up Online payment under Venue details first.
+        </p>
+      )}
+      {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
+      {plans.length > 0 && (
+        <ul className="mt-3 divide-y divide-violet-100 text-sm">
+          {plans.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 py-1.5">
+              <span>
+                <span className="font-medium">{p.name}</span>{" "}
+                <span className="text-slate-500">
+                  · {p.months} month{p.months === 1 ? "" : "s"} · RM{p.price}
+                </span>
+              </span>
+              <button
+                onClick={() => retire(p)}
+                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white"
+              >
+                Stop offering
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Plan
+          <input
+            required
+            placeholder="Annual"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className={`mt-1 w-40 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Months
+          <input
+            type="number"
+            min={1}
+            max={12}
+            required
+            value={form.months}
+            onChange={(e) => setForm({ ...form, months: e.target.value })}
+            className={`mt-1 w-20 ${inputClass}`}
+          />
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Fee (RM)
+          <input
+            type="number"
+            min={1}
+            required
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
+            className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        <button type="submit" className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700">
+          Add plan
+        </button>
+      </form>
+    </div>
   );
 }

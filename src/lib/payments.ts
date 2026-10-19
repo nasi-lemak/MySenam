@@ -3,7 +3,9 @@ import { creditScope, isMarketplace } from "./mode";
 import { getDb } from "./db";
 import { BillResult, BillplzAccount, createBill } from "./billplz";
 import { seal, unseal } from "./secrets";
-import { findBooking, getCourt, getVenue } from "./store";
+import { findBooking, getCourt, getVenue, membershipById, sellMembership } from "./store";
+import { joinTerms } from "./membership-plans";
+import { accessSettings } from "./access";
 import { baseUrl } from "./outbox";
 import { toWhatsAppNumber } from "./transports";
 import { formatHour } from "./time";
@@ -13,6 +15,7 @@ import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
 import { extendHolds } from "./holds";
 import { venueBaseUrl } from "./storefront";
+import { errorText, translator, type ErrorCode } from "./i18n";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -181,13 +184,16 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership";
   invoice_id: number | null;
   game_player_id: number | null;
   tournament_entry_id: number | null;
   league_place_id: number | null;
   pack_id: number | null;
   topup_user_id?: number | null;
+  member_user_id?: number | null;
+  membership_plan_id?: number | null;
+  membership_id?: number | null;
 }
 
 export interface OnlinePayment {
@@ -206,7 +212,9 @@ export interface OnlinePayment {
   refunded: number;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership";
+  /** The membership a paid membership fee made. */
+  membership?: { code: string; venueId: number; venueName: string; startsOn: string; expiresOn: string };
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -230,7 +238,13 @@ async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
     refunded: r.refunded,
     bookingCodes: codes.map((c) => c.code),
     purpose: r.purpose,
+    ...(r.membership_id ? { membership: await membershipSummary(r.membership_id) } : {}),
   };
+}
+
+async function membershipSummary(id: number): Promise<OnlinePayment["membership"]> {
+  const m = await membershipById(id);
+  return m ? { code: m.code, venueId: m.venueId, venueName: m.venueName, startsOn: m.startsOn, expiresOn: m.expiresOn } : undefined;
 }
 
 export async function paymentByBill(billId: string): Promise<OnlinePayment | null> {
@@ -242,7 +256,7 @@ export async function paymentByBill(billId: string): Promise<OnlinePayment | nul
 
 export type StartResult =
   | { ok: true; url: string; amount: number; reused: boolean }
-  | { ok: false; error: string; status: number };
+  | { ok: false; error: string; status: number; code?: ErrorCode; vars?: Record<string, string | number> };
 
 /**
  * Send a customer to pay for one or more of their bookings.
@@ -450,6 +464,22 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
       if (claimed.changes === 1) await settleShare(row);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "membership") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes !== 1) return;
+      const made = await makePaidMembership(row);
+      if (made !== null) await db.prepare("UPDATE online_payments SET membership_id = ? WHERE id = ?").run(made, row.id);
+      // The plan went, the account went, or a second payment for the same
+      // months came in: nothing to give for it, so it is owed back.
+      else await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -820,6 +850,76 @@ export async function startTopUpPayment(
     )
     .run(bill.id, bill.url, venueId, amount, user.name, user.phone, user.id);
   return { ok: true, url: bill.url, amount, reused: false };
+}
+
+// ------------------------------------------------------------ memberships
+
+const ENGLISH = translator("en");
+
+/** A customer joining, or renewing, on one of the venue's membership plans. */
+export async function startMembershipPayment(
+  user: { id: number; name: string; email: string },
+  planId: number
+): Promise<StartResult> {
+  const joining = await joinTerms(user.id, planId);
+  if (!joining.ok) return { ok: false, error: joining.error, code: joining.code, vars: joining.vars, status: 409 };
+  const { plan, phone, startsOn, expiresOn, renewing } = joining.terms;
+  // A private venue's door is its list, which a fee does not put anyone on.
+  if ((await accessSettings(plan.venueId)).access === "private")
+    return { ok: false, error: errorText(ENGLISH, "JOIN_NO_PLAN"), code: "JOIN_NO_PLAN", status: 409 };
+  const venue = await getVenue(plan.venueId);
+  const account = venue && isOpen(venue) ? await venueAccount(plan.venueId) : null;
+  if (!venue || !account)
+    return { ok: false, error: errorText(ENGLISH, "JOIN_OFFLINE"), code: "JOIN_OFFLINE", status: 409 };
+  let bill;
+  try {
+    bill = await createBill(account, {
+      amount: plan.price,
+      name: user.name,
+      email: user.email,
+      mobile: toWhatsAppNumber(phone),
+      description: `${venue.name}: ${plan.name}, ${startsOn} to ${expiresOn}${renewing ? " (renewal)" : ""}`,
+      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
+      redirectUrl: `${await venueBaseUrl(plan.venueId)}/payments/return`,
+      reference: { label: "Membership", value: `U${user.id}` },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await getDb()
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, member_user_id, membership_plan_id)
+       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'membership', ?, ?)`
+    )
+    .run(bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id);
+  return { ok: true, url: bill.url, amount: plan.price, reused: false };
+}
+
+/**
+ * The membership a settled fee buys, its dates worked out now rather than
+ * when the page was opened, so a renewal paid late still runs on from the
+ * old one. Null when there is nothing it can buy any more.
+ */
+async function makePaidMembership(row: PaymentRow): Promise<number | null> {
+  if (!row.member_user_id || !row.membership_plan_id) return null;
+  // A plan retired while they paid still gives what they paid for.
+  const joining = await joinTerms(row.member_user_id, row.membership_plan_id, { retired: true });
+  if (!joining.ok) return null;
+  const { plan, phone, startsOn, expiresOn } = joining.terms;
+  const user = (await getDb().prepare("SELECT name FROM users WHERE id = ?").get(row.member_user_id)) as { name: string } | undefined;
+  if (!user) return null;
+  const sold = await sellMembership({
+    venueId: plan.venueId,
+    holderName: user.name,
+    holderPhone: phone,
+    startsOn,
+    expiresOn,
+    // What they paid, which a plan's later price change does not rewrite.
+    price: Math.round(row.amount),
+    userId: row.member_user_id,
+    planId: plan.id,
+  });
+  return sold.ok ? sold.membership.id : null;
 }
 
 // ------------------------------------------------------------ league fees

@@ -109,6 +109,32 @@ export default async function PaymentReturnPage({
       </div>
     );
 
+  // A membership fee: the membership it made, or why there is none.
+  if (payment?.purpose === "membership") {
+    const m = payment.membership;
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">{m ? "🎟️" : payment.status === "paid" ? "⚠️" : "↩️"}</div>
+          <h1 className="mt-2 text-xl font-bold">{m ? t("member.welcomeTitle") : payment.status === "paid" ? t("member.notMadeTitle") : t("pay.notPaidTitle")}</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {m
+              ? t("member.welcomeBody", { code: m.code, venue: m.venueName, from: m.startsOn, until: m.expiresOn })
+              : payment.status === "paid"
+                ? t("member.notMadeBody", { amount: payment.amount })
+                : t("member.notPaidBody")}
+          </p>
+          <Link
+            href={payment.venueId ? `/venue/${payment.venueId}` : "/account"}
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            {t("member.back")}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // Stored credit bought online: back to the account it landed on.
   if (payment?.purpose === "topup")
     return (
