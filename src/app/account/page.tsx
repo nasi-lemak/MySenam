@@ -14,6 +14,7 @@ import Wallet from "@/components/Wallet";
 import MyWaitlist from "@/components/MyWaitlist";
 import MyPasses from "@/components/MyPasses";
 import { ChangePassword } from "@/components/ChangePassword";
+import { BookAgain } from "@/components/BookAgain";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
@@ -104,6 +105,13 @@ export default function AccountPage() {
   const today = todayISO();
   const upcoming = (bookings ?? []).filter((b) => b.status === "confirmed" && b.date >= today);
   const past = (bookings ?? []).filter((b) => b.status !== "confirmed" || b.date < today);
+  // What they usually play: the latest few distinct court-and-time pairs they
+  // turned up for, newest first.
+  const regulars = past
+    .filter((b) => b.status === "confirmed" && b.classId === null)
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .filter((b, i, all) => all.findIndex((x) => x.courtId === b.courtId && x.startHour === b.startHour && x.endHour === b.endHour) === i)
+    .slice(0, 3);
 
   return (
     <div className="space-y-8">
@@ -149,6 +157,27 @@ export default function AccountPage() {
       </div>
 
       <ChangePassword endpoint="/api/my/password" />
+
+      {regulars.length > 0 && (
+        <section>
+          <h2 className="text-lg font-bold">{t("again.title")}</h2>
+          <ul className="mt-3 grid gap-3 sm:grid-cols-3">
+            {regulars.map((b) => (
+              <li key={b.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="min-w-0 text-sm">
+                  <p className="truncate font-semibold">
+                    {SPORT_ICONS[b.sport]} {b.venueName}
+                  </p>
+                  <p className="truncate text-slate-600">
+                    {b.courtName} · {formatHour(b.startHour)}–{formatHour(b.endHour)}
+                  </p>
+                </div>
+                <BookAgain code={b.code} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -209,6 +238,7 @@ export default function AccountPage() {
                       {t(h)}
                     </th>
                   ))}
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -236,6 +266,7 @@ export default function AccountPage() {
                           : t("acct.cancelledLower")}
                       </span>
                     </td>
+                    <td className="px-3 py-2 text-right">{b.classId === null && <BookAgain code={b.code} />}</td>
                   </tr>
                 ))}
               </tbody>

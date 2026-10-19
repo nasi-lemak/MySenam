@@ -7,6 +7,7 @@ import {
   paySeries,
   setPaymentStatus,
 } from "@/lib/store";
+import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, seriesCode, paid } = (body ?? {}) as Record<string, unknown>;
+  const { code, seriesCode, paid, via } = (body ?? {}) as Record<string, unknown>;
+  // How the desk took the money: cash, DuitNow QR, a transfer or a card terminal.
+  if (via !== undefined && via !== null && !COUNTER_METHODS.includes(via as CounterMethod))
+    return NextResponse.json({ error: `via must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
+  const method = (via ?? null) as CounterMethod | null;
 
   if (typeof seriesCode === "string" && seriesCode.trim() !== "") {
     const venueIds = await getVenueIdsForSeriesCode(seriesCode);
@@ -29,7 +34,7 @@ export async function POST(req: NextRequest) {
     if (!venueIds.every((id) => canAccessVenue(admin, id)))
       return NextResponse.json({ error: "You do not manage that venue." }, { status: 403 });
 
-    const result = await paySeries(seriesCode);
+    const result = await paySeries(seriesCode, method);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     await notifyPaidSeries(seriesCode, "counter");
     return NextResponse.json({ paid: result.paid });
@@ -45,7 +50,7 @@ export async function POST(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  const result = await setPaymentStatus(code, paid);
+  const result = await setPaymentStatus(code, paid, method);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   if (paid) await notifyPaid([result.booking], "counter");
   return NextResponse.json({ booking: result.booking });

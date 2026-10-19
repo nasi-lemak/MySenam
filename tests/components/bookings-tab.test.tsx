@@ -33,6 +33,7 @@ const booking = {
   noShow: false,
   priorNoShows: 0,
   hire: null,
+  classId: null,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -56,7 +57,7 @@ describe("a booking at the counter", () => {
     const card = screen.getByRole("list").querySelector("li")!;
     const row = screen.getByRole("table").querySelector("tbody tr")!;
 
-    for (const name of ["✓ paid", "check in", "no-show?", "Move", "Cancel"]) {
+    for (const name of ["✓ paid", "check in", "no-show?", "Move", "Change time", "Cancel"]) {
       expect(within(card as HTMLElement).getByText(name), `card is missing "${name}"`).toBeTruthy();
       expect(within(row as HTMLElement).getByText(name), `row is missing "${name}"`).toBeTruthy();
     }
@@ -76,13 +77,28 @@ describe("a booking at the counter", () => {
     expect(screen.getByRole("table").parentElement!.className).toContain("lg:block");
   });
 
-  it("marks a booking paid from either one", async () => {
+  it("marks a booking unpaid from either one, once staff confirm", async () => {
+    vi.stubGlobal("confirm", () => true);
     await show();
     const card = screen.getByRole("list").querySelector("li")!;
     await act(async () => within(card as HTMLElement).getByText("✓ paid").click());
     const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
     expect(posts).toHaveLength(1);
     expect(JSON.parse(posts[0][1].body)).toMatchObject({ code: "MS-59FNSZ", paid: false });
+  });
+
+  it("asks how an unpaid booking was paid: cash, QR, transfer or card", async () => {
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ bookings: [{ ...booking, paymentStatus: "unpaid" }], revenue: 25, collected: 0, outstanding: 25 }),
+    }));
+    await show();
+    const row = screen.getByRole("table").querySelector("tbody tr")! as HTMLElement;
+    await act(async () => within(row).getByText("unpaid").click());
+    for (const m of ["cash", "QR", "transfer", "card"]) expect(within(row).getByText(m)).toBeTruthy();
+    await act(async () => within(row).getByText("QR").click());
+    const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
+    expect(JSON.parse(posts[0][1].body)).toEqual({ code: "MS-59FNSZ", paid: true, via: "qr" });
   });
 
   it("says plainly when a day has nothing on it", async () => {

@@ -453,6 +453,88 @@ export async function notifyMoved(booking: Booking): Promise<number | null> {
 }
 
 /**
+ * Tell a customer their booking is at a new date or time. Changed by the
+ * venue, it is urgent news they are asked to acknowledge, like a move;
+ * changed by the customer, it is an email with the calendar invite updated.
+ */
+export async function notifyRescheduled(
+  booking: Booking,
+  by: "staff" | "customer",
+  priceChange: number
+): Promise<number | null> {
+  const court = await getCourt(booking.courtId);
+  if (!court) return null;
+  const venue = await getVenue(court.venueId);
+  if (!venue || !hasBeenLive(venue)) return null;
+  const locale = await localeOf(booking.id);
+  const t = translator(locale);
+  const { where, when } = slot(locale, court.name, venue.name, booking);
+  const money =
+    priceChange !== 0 && booking.paymentStatus !== "paid"
+      ? t("msg.priceNow", { total: booking.totalPrice.toFixed(2) })
+      : t("msg.priceSame");
+  const calendar = calendarFor([booking], court.name, venue);
+  if (by === "customer") {
+    await deliver(
+      booking,
+      {
+        bookingId: booking.id,
+        venueId: venue.id,
+        kind: "booking_rescheduled",
+        locale,
+        subject: "msg.changedSubject",
+        body: "msg.changed",
+        dedupeKey: `changed:${booking.code}:${booking.date}:${booking.startHour}:${booking.courtId}`,
+        calendar,
+        vars: {
+          name: firstName(booking.name),
+          venue: venue.name,
+          code: booking.code,
+          where,
+          when,
+          money,
+          link: `${await venueBaseUrl(venue.id)}/my-booking`,
+        },
+      },
+      false
+    );
+    return null;
+  }
+  const notice = await createNotice({
+    venueId: venue.id,
+    bookingId: booking.id,
+    kind: "moved",
+    name: booking.name,
+    phone: booking.phone,
+    email: booking.email ?? null,
+    date: booking.date,
+    startHour: booking.startHour,
+    summary: `${venue.name} changed booking ${booking.code} to ${where}, ${when}.`,
+  });
+  await deliver(booking, {
+    bookingId: booking.id,
+    venueId: venue.id,
+    kind: "booking_rescheduled",
+    locale,
+    subject: "msg.rescheduledSubject",
+    body: "msg.rescheduled",
+    dedupeKey: `rescheduled:${booking.code}:${notice.id}`,
+    noticeId: notice.id,
+    calendar,
+    vars: {
+      name: firstName(booking.name),
+      venue: venue.name,
+      code: booking.code,
+      where,
+      when,
+      money,
+      ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
+    },
+  });
+  return notice.id;
+}
+
+/**
  * A receipt, by email, when a booking is paid after it was made — online
  * later, or at the counter. One paid as it was booked (credit, a pass) says
  * so in its confirmation already.

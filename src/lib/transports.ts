@@ -32,6 +32,7 @@ export const TEMPLATE_PHRASES: Partial<Record<MessageKind, Phrase>> = {
   class_enrolled: "msg.enrolled",
   booking_cancelled_by_venue: "msg.venueCancelled",
   booking_moved: "msg.moved",
+  booking_rescheduled: "msg.rescheduled",
   booking_reminder: "msg.reminder",
 };
 

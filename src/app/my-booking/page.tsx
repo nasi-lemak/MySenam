@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Booking, Court } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
+import { ChangeTime } from "@/components/ChangeTime";
+import { BookAgain } from "@/components/BookAgain";
 import PayOnline from "@/components/PayOnline";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -33,6 +35,13 @@ export default function MyBookingPage() {
     presentNow: number;
   } | null>(null);
   const [doorError, setDoorError] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
+  const [changed, setChanged] = useState<string | null>(null);
+  const optionsUrl = useCallback(
+    (date: string) =>
+      `/api/bookings/reschedule?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}&date=${date}`,
+    [code, phone]
+  );
 
   async function lookup(e: React.FormEvent) {
     e.preventDefault();
@@ -196,6 +205,11 @@ export default function MyBookingPage() {
               </div>
             ))}
           </dl>
+          {b.classId === null && (
+            <div className="mt-3">
+              <BookAgain code={b.code} phone={phone} />
+            </div>
+          )}
           {b.status === "confirmed" && (
             <>
               {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && (
@@ -313,6 +327,45 @@ export default function MyBookingPage() {
                   );
                 })()}
               </div>
+              {changed && <p role="status" className="mt-3 text-sm font-medium text-teal-700">{changed}</p>}
+              {b.classId === null &&
+                (changing ? (
+                  <div className="mt-3">
+                    <ChangeTime
+                      booking={b}
+                      optionsUrl={optionsUrl}
+                      submit={(o, date) =>
+                        fetch("/api/bookings/reschedule", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ code, phone, date, startHour: o.startHour }),
+                        })
+                      }
+                      onDone={async (_booking, message) => {
+                        setChanging(false);
+                        setChanged(message);
+                        // Read it back whole: the court, the price and the check-in code go with it.
+                        const res = await fetch(
+                          `/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`,
+                          { cache: "no-store" }
+                        );
+                        if (res.ok) setResult(await res.json());
+                      }}
+                      onClose={() => setChanging(false)}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setChanging(true);
+                      setChanged(null);
+                    }}
+                    disabled={busy}
+                    className="mt-3 w-full rounded-lg border border-teal-300 py-2.5 font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                  >
+                    {t("resched.button")}
+                  </button>
+                ))}
               <button
                 onClick={cancel}
                 disabled={busy}

@@ -295,9 +295,9 @@ describe("claiming a payment", () => {
     const made = await book(user.id, user.phone, 4, 14);
     if (!made.ok) return;
 
-    expect(await claimPayment(made.booking.id)).toBe(true);
-    expect(await claimPayment(made.booking.id)).toBe(false);
-    expect(await claimPayment(made.booking.id)).toBe(false);
+    expect(await claimPayment(made.booking.id, "credit")).toBe(true);
+    expect(await claimPayment(made.booking.id, "credit")).toBe(false);
+    expect(await claimPayment(made.booking.id, "credit")).toBe(false);
   });
 
   it("will not claim a booking somebody already settled", async () => {
@@ -305,15 +305,15 @@ describe("claiming a payment", () => {
     const made = await book(user.id, user.phone, 4, 15);
     if (!made.ok) return;
     await setPaymentStatus(made.booking.code, true);
-    expect(await claimPayment(made.booking.id)).toBe(false);
+    expect(await claimPayment(made.booking.id, "credit")).toBe(false);
   });
 
   it("claims again once a refund puts it back to unpaid", async () => {
     const user = await customer(500);
     const made = await book(user.id, user.phone, 4, 16);
     if (!made.ok) return;
-    expect(await claimPayment(made.booking.id)).toBe(true);
+    expect(await claimPayment(made.booking.id, "credit")).toBe(true);
     await setPaymentStatus(made.booking.code, false);
-    expect(await claimPayment(made.booking.id)).toBe(true);
+    expect(await claimPayment(made.booking.id, "credit")).toBe(true);
   });
 });

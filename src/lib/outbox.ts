@@ -35,6 +35,8 @@ export type MessageKind =
   | "class_enrolled"
   | "booking_cancelled_by_venue"
   | "booking_moved"
+  /** A booking's date or time changed: by staff (urgent), or by the customer (email only). */
+  | "booking_rescheduled"
   | "booking_reminder"
   /** By email only: a receipt is a document to keep, not worth a WhatsApp message. */
   | "payment_received";

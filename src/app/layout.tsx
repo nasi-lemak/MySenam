@@ -28,7 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <style dangerouslySetInnerHTML={{ __html: accentCss(storefront.accentColor) }} />
         )}
         <LanguageProvider locale={locale} site={site}>
-          <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+          <header className="sticky top-0 print:hidden z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-x-2 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">
                 {storefront?.logoUrl ? (
@@ -49,7 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </header>
           <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-          <footer className="border-t border-slate-200 py-6 text-center text-sm text-slate-500">
+          <footer className="print:hidden border-t border-slate-200 py-6 text-center text-sm text-slate-500">
             <p>{t("footer.tagline")}</p>
             <p className="mt-1.5">
               <Link

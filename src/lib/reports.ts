@@ -67,6 +67,8 @@ export interface VenueReport {
   closedDays: number;
   bookings: { confirmed: number; cancelled: number; noShows: number; hours: number };
   revenue: RevenueLine;
+  /** What was collected, by how it was paid; "unrecorded" for counter payments marked before methods were asked. */
+  collectedBy: { via: string; amount: number; bookings: number }[];
   /**
    * Split, because one number across both would be meaningless. A forty-place
    * gym floor offers more place-hours in a fortnight than every court in the
@@ -162,6 +164,20 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
 
   const expected = counts.expected ?? 0;
   const collected = counts.collected ?? 0;
+
+  const collectedBy = (
+    (await db
+      .prepare(`
+        SELECT COALESCE(b.paid_via, 'unrecorded') AS via, SUM(b.total_price) AS amount, COUNT(*) AS bookings
+        FROM bookings b
+        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
+          AND b.status = 'confirmed' AND b.payment_status = 'paid'
+        GROUP BY COALESCE(b.paid_via, 'unrecorded')
+      `)
+      .all(venueId, from, to)) as { via: string; amount: number | string; bookings: number | string }[]
+  )
+    .map((r) => ({ via: r.via, amount: Number(r.amount), bookings: Number(r.bookings) }))
+    .sort((a, b) => b.amount - a.amount);
 
   // --- place-hours sold ----------------------------------------------------
   const { soldHours } = await db
@@ -356,6 +372,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       hours: soldHours,
     },
     revenue: { expected, collected, outstanding: expected - collected },
+    collectedBy,
     utilisation: {
       courts: split(byCourt.filter((c) => exclusive.includes(c.courtId))),
       shared: split(byCourt.filter((c) => !exclusive.includes(c.courtId))),

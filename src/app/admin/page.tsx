@@ -15,6 +15,7 @@ import { ScheduleTab } from "@/components/admin/ScheduleTab";
 import { LeaguesTab } from "@/components/admin/LeaguesTab";
 import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
+import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 
@@ -214,6 +215,17 @@ export default function AdminPage() {
             onGo={setTab}
           />
         ))}
+
+      {/* Where customers book: to copy, share or print, for each venue that is live. */}
+      {!isOwner && tab === "bookings" && (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {venues
+            .filter((venue) => venue.publishedAt !== null && venue.suspendedAt === null)
+            .map((venue) => (
+              <BookingLinkCard key={`link-${venue.id}`} venueId={venue.id} venueName={venues.length > 1 ? venue.name : null} />
+            ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (

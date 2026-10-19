@@ -29,6 +29,9 @@ import {
   CLOSE_HOUR,
   DEFAULT_OPEN_HOUR,
   DEFAULT_CLOSE_HOUR,
+  MAX_ADVANCE_DAYS,
+  type CounterMethod,
+  type PaidVia,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
@@ -318,6 +321,7 @@ function toBooking(r: BookingRow): Booking {
     paymentStatus: r.payment_status,
     paidAt: r.paid_at,
     paidOnline: r.paid_via === "online",
+    paidVia: (r.paid_via as PaidVia | null | undefined) ?? null,
     noShow: r.no_show === 1,
     checkedInAt: r.checked_in_at ?? null,
     checkedOutAt: r.checked_out_at ?? null,
@@ -1617,6 +1621,268 @@ export async function adminCancelBooking(code: string): Promise<CancelResult> {
   return { ok: true, booking: { ...booking, status: "cancelled" } };
 }
 
+export type RescheduleResult =
+  | {
+      ok: true;
+      booking: Booking;
+      from: { date: string; startHour: number; endHour: number; courtId: number };
+      /** What the price went up (or down) by; 0 when it stayed as it was. */
+      priceChange: number;
+      /** What the new time costs against the old at today's rates, when the price was left as paid. */
+      unchargedDifference: number;
+    }
+  | Refusal;
+
+/**
+ * Move a booking to another date or time — the same length, at the same
+ * venue, for the same sport — keeping its code, how it was paid, its extras
+ * and any promo. The alternative is cancel-and-book-again, which is a new
+ * code, a refund to sort out and, for the customer, the risk the slot they
+ * had goes while they rebook.
+ *
+ * It stays on its court when that is free then, and otherwise goes to
+ * another court of the same sport (or to `courtId`, for staff choosing one).
+ *
+ * Customers may change a booking up to the same cutoff as cancelling it, to a
+ * time inside the booking window. Staff may change it at any time before it
+ * has finished.
+ *
+ * The price follows the court time: an unpaid booking is repriced at the new
+ * time's rate, up or down. A paid one keeps what was paid — a customer may not
+ * move it somewhere dearer (they would be playing peak hours for an off-peak
+ * price), and staff who do so have chosen not to charge the difference.
+ */
+export async function rescheduleBooking(
+  code: string,
+  to: { date: string; startHour: number; courtId?: number },
+  by: "staff" | "customer"
+): Promise<RescheduleResult> {
+  const db = getDb();
+  const row = (await db
+    .prepare(
+      "SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)"
+    )
+    .get(code.trim())) as BookingRow | undefined;
+  if (!row) return refuse("BOOKING_NOT_FOUND");
+  const booking = toBooking(row);
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  if (booking.classId !== null) return refuse("RESCHEDULE_CLASS");
+  if (booking.checkedInAt) return refuse("RESCHEDULE_CHECKED_IN");
+  if (await db.prepare("SELECT 1 AS n FROM open_games WHERE booking_id = ?").get(booking.id))
+    return refuse("RESCHEDULE_GAME");
+  if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
+
+  const length = booking.endHour - booking.startHour;
+  const oldHours = Array.from({ length }, (_, i) => booking.startHour + i);
+  if (by === "customer") {
+    const cutoff = await cancelCutoffForBooking(booking.id);
+    if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
+      return cutoff === 0 ? refuse("RESCHEDULE_STARTED") : refuse("RESCHEDULE_CUTOFF", { n: cutoff });
+  } else if (isPastSlot(booking.date, oldHours[oldHours.length - 1])) {
+    return { ok: false, error: "That booking has already finished." };
+  }
+
+  const fromCourt = await getCourt(booking.courtId);
+  if (!fromCourt) return refuse("COURT_NOT_FOUND");
+  if (!Number.isInteger(to.startHour) || !/^\d{4}-\d{2}-\d{2}$/.test(to.date)) return refuse("SLOT_PAST");
+  const hours = Array.from({ length }, (_, i) => to.startHour + i);
+  if (!isBookableDate(to.date)) return refuse("DATE_OUT_OF_WINDOW");
+  if (isPastSlot(to.date, hours[0])) return refuse("SLOT_PAST");
+  const { openHour, closeHour } = await courtVenueHours(fromCourt.id);
+  if (hours[0] < openHour || hours[hours.length - 1] >= closeHour) return refuse("HOURS_OUTSIDE_OPENING");
+  if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
+
+  // The courts it could go to, its own first.
+  let candidates: Court[];
+  if (to.courtId !== undefined) {
+    const chosen = await getCourt(to.courtId);
+    if (!chosen) return refuse("COURT_NOT_FOUND");
+    if (chosen.venueId !== fromCourt.venueId)
+      return { ok: false, error: "A booking can only move within the same venue." };
+    if (chosen.sport !== fromCourt.sport)
+      return {
+        ok: false,
+        error: `${chosen.name} is for ${SPORT_LABELS[chosen.sport]}, not ${SPORT_LABELS[fromCourt.sport]}.`,
+      };
+    candidates = [chosen];
+  } else {
+    candidates = [
+      fromCourt,
+      ...(
+        (await db
+          .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
+          .all(fromCourt.venueId, fromCourt.sport, fromCourt.id)) as CourtRow[]
+      ).map(toCourt),
+    ];
+  }
+  const sameSlot = to.date === booking.date && to.startHour === booking.startHour;
+  if (sameSlot && candidates.length === 1 && candidates[0].id === fromCourt.id) return refuse("RESCHEDULE_SAME");
+  if (sameSlot && to.courtId === undefined) return refuse("RESCHEDULE_SAME");
+
+  const classHours = await classHoursOn(to.date, fromCourt.venueId);
+  const takenAt = db.prepare(
+    "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ? AND booking_id != ?"
+  );
+  /** Room on this court for the whole new time, not counting this booking's own places? */
+  const fits = async (court: Court): Promise<boolean> => {
+    if (hours.some((h) => classHours.has(`${court.id}:${h}`))) return false;
+    const blocked = await blockedPlacesFor(court.id, to.date, hours);
+    for (const hour of hours) {
+      const taken = Number(((await takenAt.get(court.id, to.date, hour, booking.id)) as { n: number }).n);
+      if (taken + (blocked.get(hour) ?? 0) >= court.capacity) return false;
+    }
+    return true;
+  };
+
+  const member = async (date: string) => (await activeMembership(fromCourt.venueId, booking.phone, date)) !== null;
+  const oldCourtPrice = computePrice(fromCourt, booking.date, oldHours, await member(booking.date));
+  const newMember = await member(to.date);
+
+  const seatsTaken = db.prepare(
+    "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ? AND booking_id != ?"
+  );
+  for (const court of candidates) {
+    if (!(await fits(court))) continue;
+    const delta = Math.round((computePrice(court, to.date, hours, newMember) - oldCourtPrice) * 100) / 100;
+    const paid = booking.paymentStatus === "paid";
+    if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
+    const priceChange = paid ? 0 : Math.max(-booking.totalPrice, delta);
+    try {
+      await db.transaction(async () => {
+        await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+        const insert = db.prepare(
+          "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
+        );
+        for (const hour of hours) {
+          const used = new Set(
+            ((await seatsTaken.all(court.id, to.date, hour, booking.id)) as { seat: number }[]).map((r) => r.seat)
+          );
+          let seat: number | null = null;
+          for (let s = 0; s < court.capacity; s++) {
+            if (!used.has(s)) {
+              seat = s;
+              break;
+            }
+          }
+          if (seat === null) throw new Error("FULL");
+          // The unique index is the real guard; a racing insert fails here.
+          await insert.run(booking.id, court.id, to.date, hour, seat);
+        }
+        await db
+          .prepare(
+            "UPDATE bookings SET court_id = ?, date = ?, start_hour = ?, end_hour = ?, total_price = total_price + ? WHERE id = ?"
+          )
+          .run(court.id, to.date, hours[0], hours[hours.length - 1] + 1, priceChange, booking.id);
+      })();
+    } catch (err) {
+      if ((err instanceof Error && err.message === "FULL") || isUniqueViolation(err)) return refuse("RESCHEDULE_TAKEN");
+      throw err;
+    }
+    // The time it left may now be free for somebody waiting on it.
+    await offerSlotPlace(fromCourt.id, booking.date);
+    return {
+      ok: true,
+      booking: (await getBookingById(booking.id))!,
+      from: { date: booking.date, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id },
+      priceChange,
+      unchargedDifference: paid ? delta : 0,
+    };
+  }
+  return refuse("RESCHEDULE_TAKEN");
+}
+
+/**
+ * The start times a booking could be changed to on a date: one for each hour
+ * a court of its sport is free for its whole length, its own court first,
+ * with what the court time would cost and how that compares with now.
+ */
+export interface RescheduleOption {
+  startHour: number;
+  courtId: number;
+  courtName: string;
+  /** The court time at the new slot. */
+  price: number;
+  /** That, less what the court time costs where it is now. */
+  difference: number;
+}
+
+export async function rescheduleOptions(code: string, date: string): Promise<RescheduleOption[]> {
+  const booking = await bookingByCode(code);
+  if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
+  const court = await getCourt(booking.courtId);
+  if (!court || !isBookableDate(date) || (await getVenueClosure(court.venueId, date))) return [];
+  const length = booking.endHour - booking.startHour;
+  const member = (await activeMembership(court.venueId, booking.phone, date)) !== null;
+  const now = computePrice(
+    court,
+    booking.date,
+    Array.from({ length }, (_, i) => booking.startHour + i),
+    (await activeMembership(court.venueId, booking.phone, booking.date)) !== null
+  );
+  const grid = await getAvailability(court.venueId, date, court.sport, member);
+  grid.sort((a, b) => (a.court.id === court.id ? -1 : b.court.id === court.id ? 1 : a.court.id - b.court.id));
+  /** Free for one more, counting this booking's own places as free. */
+  const free = (c: CourtAvailability, hour: number) => {
+    const slot = c.slots.find((s) => s.hour === hour);
+    if (!slot || slot.className || slot.blocked) return false;
+    if (slot.available) return true;
+    const own = c.court.id === booking.courtId && date === booking.date && hour >= booking.startHour && hour < booking.endHour;
+    return own && slot.booked - 1 + (slot.blockedPlaces ?? 0) < slot.capacity;
+  };
+  const options: RescheduleOption[] = [];
+  const hoursOf = grid[0]?.slots.map((s) => s.hour) ?? [];
+  for (const start of hoursOf) {
+    if (date === booking.date && start === booking.startHour) continue;
+    const hours = Array.from({ length }, (_, i) => start + i);
+    if (isPastSlot(date, start)) continue;
+    const fitting = grid.find((c) => hours.every((h) => free(c, h)));
+    if (fitting) {
+      const price = computePrice(fitting.court, date, hours, member);
+      options.push({
+        startHour: start,
+        courtId: fitting.court.id,
+        courtName: fitting.court.name,
+        price,
+        difference: Math.round((price - now) * 100) / 100,
+      });
+    }
+  }
+  return options;
+}
+
+/**
+ * Where "Book again" takes a customer: the same court and hours on the next
+ * day they are free — the same weekday first, since most regulars play the
+ * same night each week — else another court of the same sport, else just the
+ * venue. Only a link: the customer still sees the price and taps Book.
+ */
+export async function bookAgainLink(code: string): Promise<string | null> {
+  const booking = await bookingByCode(code);
+  if (!booking || booking.classId !== null) return null;
+  const court = await getCourt(booking.courtId);
+  if (!court) return null;
+  const length = booking.endHour - booking.startHour;
+  const today = todayISO();
+  // After the booking itself: "again" from one still to come means another time.
+  const days = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i)).filter((d) => d > booking.date);
+  const sameWeekday = (d: string) =>
+    new Date(`${d}T00:00:00Z`).getUTCDay() === new Date(`${booking.date}T00:00:00Z`).getUTCDay();
+  const ordered = [...days.filter(sameWeekday), ...days.filter((d) => !sameWeekday(d))];
+  const hours = Array.from({ length }, (_, i) => booking.startHour + i);
+  const link = (date: string, courtId: number) =>
+    `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${courtId}&hour=${booking.startHour}&duration=${length}`;
+  for (const date of ordered) {
+    if (isPastSlot(date, hours[0]) || (await getVenueClosure(court.venueId, date))) continue;
+    const grid = await getAvailability(court.venueId, date, court.sport);
+    const free = (c: CourtAvailability) => hours.every((h) => c.slots.find((s) => s.hour === h)?.available);
+    const own = grid.find((c) => c.court.id === court.id);
+    if (own && free(own)) return link(date, court.id);
+    const other = grid.find(free);
+    if (other) return link(date, other.court.id);
+  }
+  return `/venue/${court.venueId}?sport=${court.sport}`;
+}
+
 export type MoveResult =
   | { ok: true; booking: Booking; fromCourt: Court; toCourt: Court }
   | Refusal;
@@ -2112,7 +2378,7 @@ export async function cancelUserBooking(userId: number, bookingId: number): Prom
 export type PaymentResult = { ok: true; booking: Booking } | Refusal;
 
 /** Front-desk payment toggle for a single booking (admin only). */
-export async function setPaymentStatus(code: string, paid: boolean): Promise<PaymentResult> {
+export async function setPaymentStatus(code: string, paid: boolean, via: CounterMethod | null = null): Promise<PaymentResult> {
   return withTransaction(async () => {
     const db = getDb();
     const row = await db
@@ -2125,23 +2391,28 @@ export async function setPaymentStatus(code: string, paid: boolean): Promise<Pay
     if ((booking.paymentStatus === "paid") === paid)
       return { ok: false, error: `This booking is already marked ${paid ? "paid" : "unpaid"}.` };
 
-    // Marked by hand, so whatever it was paid with, it was not the gateway.
+    // Marked by hand: whatever the desk says it was paid with, never the gateway.
     await db.prepare(
-      "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = NULL WHERE id = ?"
-    ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, booking.id);
+      "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = ? WHERE id = ?"
+    ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, paid ? via : null, booking.id);
     return {
       ok: true,
       booking: {
         ...booking,
         paymentStatus: paid ? "paid" : "unpaid",
         paidAt: paid ? new Date().toISOString() : null,
+        paidVia: paid ? via : null,
+        paidOnline: false,
       },
     };
   });
 }
 
 /** Mark every confirmed session in a series paid at once. */
-export async function paySeries(seriesCode: string): Promise<{ ok: boolean; paid: number; error?: string }> {
+export async function paySeries(
+  seriesCode: string,
+  via: CounterMethod | null = null
+): Promise<{ ok: boolean; paid: number; error?: string }> {
   const db = getDb();
   const rows = await db
     .prepare(
@@ -2154,8 +2425,9 @@ export async function paySeries(seriesCode: string): Promise<{ ok: boolean; paid
   const now = new Date().toISOString();
   await db.transaction(async () => {
     for (const row of rows) {
-      await db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ? WHERE id = ?").run(
+      await db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ? WHERE id = ?").run(
         now,
+        via,
         row.id
       );
     }
@@ -3487,13 +3759,13 @@ export async function topUpWallet(input: {
  * ledger entry back with them. The same shape promo codes already get from
  * their UNIQUE constraint.
  */
-export async function claimPayment(bookingId: number): Promise<boolean> {
+export async function claimPayment(bookingId: number, via: "pass" | "credit"): Promise<boolean> {
   return (
     (await getDb()
       .prepare(
-        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ? AND payment_status = 'unpaid'"
+        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now'), paid_via = ? WHERE id = ? AND payment_status = 'unpaid'"
       )
-      .run(bookingId)).changes === 1
+      .run(via, bookingId)).changes === 1
   );
 }
 
@@ -3536,7 +3808,7 @@ export async function payBookingFromWallet(bookingId: number): Promise<WalletRes
           first ??= id;
         }
       }
-      if (!await claimPayment(booking.id)) throw new Error("RACED");
+      if (!await claimPayment(booking.id, "credit")) throw new Error("RACED");
       return first!;
     })();
 
@@ -4377,7 +4649,7 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
       await db.prepare(
         "INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)"
       ).run(pass.id, -hours, `Booking ${booking.code}`, booking.id);
-      if (!await claimPayment(booking.id)) throw new Error("RACED");
+      if (!await claimPayment(booking.id, "pass")) throw new Error("RACED");
     })();
   } catch (err) {
     if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");

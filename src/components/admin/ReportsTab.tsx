@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import { PAID_VIA_LABELS, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import type { PaidVia } from "@/lib/types";
 import type { VenueReport } from "@/lib/reports";
 import { percent, todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
@@ -147,6 +148,16 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               <div className="mt-0.5 text-xs text-slate-500">
                 of {ringgit(report.revenue.expected)} booked
               </div>
+              {report.collectedBy.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
+                  {report.collectedBy.map((c) => (
+                    <li key={c.via} className="flex justify-between gap-2">
+                      <span>{c.via in PAID_VIA_LABELS ? PAID_VIA_LABELS[c.via as PaidVia] : "Not recorded"}</span>
+                      <span className="font-medium">{ringgit(c.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">

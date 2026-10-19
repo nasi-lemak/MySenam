@@ -1,9 +1,11 @@
 "use client";
 
 import { AttentionPanel } from "./AttentionPanel";
+import { ChangeTime } from "@/components/ChangeTime";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, SPORT_ICONS } from "@/lib/types";
+import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, PAID_VIA_LABELS, SPORT_ICONS } from "@/lib/types";
+import type { CounterMethod } from "@/lib/types";
 import type { Court, HireCondition, Venue } from "@/lib/types";
 import type { AdminBookingRow } from "@/lib/store";
 import { localTime, todayLocal } from "./shared";
@@ -31,6 +33,14 @@ export function BookingsTab() {
   const [notice, setNotice] = useState<string | null>(null);
   // The booking being moved, and the courts it could go to.
   const [moving, setMoving] = useState<{ code: string; courts: Court[] } | null>(null);
+  // The booking (or `series:` code) whose payment method is being asked for.
+  const [paying, setPaying] = useState<string | null>(null);
+  // The booking being changed to another day or time.
+  const [changing, setChanging] = useState<AdminBookingRow | null>(null);
+  const changeOptionsUrl = useCallback(
+    (day: string) => `/api/admin/bookings/reschedule?code=${encodeURIComponent(changing?.code ?? "")}&date=${day}`,
+    [changing?.code]
+  );
   // The hire being handed over or taken back at the desk.
   const [kit, setKit] = useState<{
     code: string;
@@ -113,6 +123,13 @@ export function BookingsTab() {
     }
   }
 
+  function openChange(b: AdminBookingRow) {
+    setError(null);
+    setNotice(null);
+    setMoving(null);
+    setChanging(b);
+  }
+
   function openKit(b: AdminBookingRow, mode: "take" | "return") {
     setError(null);
     setNotice(null);
@@ -183,13 +200,15 @@ export function BookingsTab() {
     }
   }
 
-  async function togglePaid(code: string, paid: boolean) {
+  async function togglePaid(code: string, paid: boolean, via?: CounterMethod) {
     setError(null);
+    setPaying(null);
+    if (!paid && !window.confirm(`Mark ${code} unpaid?`)) return;
     try {
       const res = await fetch("/api/admin/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, paid }),
+        body: JSON.stringify({ code, paid, via }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Payment update failed");
@@ -255,14 +274,19 @@ export function BookingsTab() {
     }
   }
 
-  async function paySeries(seriesCode: string) {
-    if (!window.confirm(`Mark all unpaid sessions in series ${seriesCode} as paid?`)) return;
+  async function paySeries(seriesCode: string, via?: CounterMethod) {
+    setPaying(null);
+    if (!via) {
+      // Ask how first, as for one booking.
+      setPaying(`series:${seriesCode}`);
+      return;
+    }
     setError(null);
     try {
       const res = await fetch("/api/admin/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seriesCode }),
+        body: JSON.stringify({ seriesCode, via }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Payment update failed");
@@ -273,11 +297,14 @@ export function BookingsTab() {
   }
 
   const act: Act = {
+    paying,
+    setPaying,
     togglePaid,
     toggleCheckIn,
     toggleNoShow,
     openKit,
     openMove,
+    openChange,
     cancelBooking,
     paySeries,
     blockNumber,
@@ -358,6 +385,33 @@ export function BookingsTab() {
             </button>
           </div>
         </div>
+      )}
+
+      {changing && (
+        <ChangeTime
+          key={changing.code}
+          booking={changing}
+          staff
+          optionsUrl={changeOptionsUrl}
+          submit={(o, day) =>
+            fetch("/api/admin/bookings/reschedule", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code: changing.code, date: day, startHour: o.startHour, courtId: o.courtId }),
+            })
+          }
+          onDone={(booking) => {
+            setChanging(null);
+            setNotice(
+              `${booking.code} is now ${booking.date}, ${formatHour(booking.startHour)}–${formatHour(booking.endHour)}. Same code; ${
+                booking.paymentStatus === "paid" ? "the price stays as paid" : `RM${booking.totalPrice.toFixed(2)} to pay`
+              }. The customer has been sent the news.`
+            );
+            load();
+            window.dispatchEvent(new Event("attention:refresh"));
+          }}
+          onClose={() => setChanging(null)}
+        />
       )}
 
       {kit && kit.mode === "take" && (
@@ -604,13 +658,16 @@ export function BookingsTab() {
  * button below is the same button.
  */
 interface Act {
-  togglePaid: (code: string, paid: boolean) => void;
+  paying: string | null;
+  setPaying: (key: string | null) => void;
+  togglePaid: (code: string, paid: boolean, via?: CounterMethod) => void;
   toggleCheckIn: (code: string, out: boolean) => void;
   toggleNoShow: (code: string, noShow: boolean) => void;
   openKit: (b: AdminBookingRow, mode: "take" | "return") => void;
   openMove: (code: string) => void;
+  openChange: (b: AdminBookingRow) => void;
   cancelBooking: (code: string) => void;
-  paySeries: (seriesCode: string) => void;
+  paySeries: (seriesCode: string, via?: CounterMethod) => void;
   blockNumber: (b: AdminBookingRow) => void;
 }
 
@@ -675,12 +732,21 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         ✓ online
       </span>
     );
+  const asking = act.paying === b.code || (b.seriesCode !== null && act.paying === `series:${b.seriesCode}`);
+  if (!paid && asking) {
+    const series = act.paying !== b.code;
+    return <MethodPicker
+      label={series ? `Series ${b.seriesCode} paid by` : "Paid by"}
+      onPick={(via) => (series ? act.paySeries(b.seriesCode!, via) : act.togglePaid(b.code, true, via))}
+      onCancel={() => act.setPaying(null)}
+    />;
+  }
   return (
     <button
-      onClick={() => act.togglePaid(b.code, !paid)}
+      onClick={() => (paid ? act.togglePaid(b.code, false) : act.setPaying(b.code))}
       title={
         (b.sharesPaid > 0 ? `RM${b.sharesPaid} paid online by other players in its open game. ` : "") +
-        (paid ? "Click to mark unpaid" : "Click to mark paid")
+        (paid ? `${b.paidVia ? `${PAID_VIA_LABELS[b.paidVia]}. ` : ""}Click to mark unpaid` : "Click to mark paid")
       }
       className={`${CHIP} ${
         paid
@@ -688,8 +754,52 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
           : "bg-amber-100 text-amber-700 hover:bg-amber-200"
       }`}
     >
-      {paid ? "✓ paid" : b.sharesPaid > 0 ? `RM${b.totalPrice - b.sharesPaid} due` : "unpaid"}
+      {paid
+        ? `✓ ${b.paidVia ? SHORT_VIA[b.paidVia] : "paid"}`
+        : b.sharesPaid > 0
+          ? `RM${b.totalPrice - b.sharesPaid} due`
+          : "unpaid"}
     </button>
+  );
+}
+
+const SHORT_VIA: Record<NonNullable<AdminBookingRow["paidVia"]>, string> = {
+  cash: "cash",
+  qr: "QR",
+  transfer: "transfer",
+  card: "card",
+  online: "online",
+  pass: "pass",
+  credit: "credit",
+};
+
+/** How the desk took the money: one tap each, so the till and the bank can be reconciled later. */
+function MethodPicker({
+  label,
+  onPick,
+  onCancel,
+}: {
+  label: string;
+  onPick: (via: CounterMethod) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span className="text-xs text-slate-500">{label}</span>
+      {COUNTER_METHODS.map((m) => (
+        <button
+          key={m}
+          onClick={() => onPick(m)}
+          title={PAID_VIA_LABELS[m]}
+          className={`${CHIP} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100`}
+        >
+          {SHORT_VIA[m]}
+        </button>
+      ))}
+      <button onClick={onCancel} aria-label="Cancel" className="px-1 text-xs text-slate-400 hover:text-slate-600">
+        ✕
+      </button>
+    </span>
   );
 }
 
@@ -788,6 +898,15 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
       >
         Move
       </button>
+      {b.classId === null && !b.checkedInAt && (
+        <button
+          onClick={() => act.openChange(b)}
+          title="Move this booking to another day or time, keeping its code and payment"
+          className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+        >
+          Change time
+        </button>
+      )}
       <button
         onClick={() => act.cancelBooking(b.code)}
         className="inline-flex min-h-7 items-center rounded-md border border-red-300 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"

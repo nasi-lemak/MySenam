@@ -204,6 +204,24 @@ export function isShared(court: Pick<Court, "capacity">): boolean {
 export type BookingStatus = "confirmed" | "cancelled";
 export type PaymentStatus = "unpaid" | "paid";
 
+/**
+ * How a booking was paid. Staff pick one of COUNTER_METHODS when they take
+ * the money; the rest are recorded by the payment itself. Older bookings
+ * marked paid before this was asked have none.
+ */
+export const COUNTER_METHODS = ["cash", "qr", "transfer", "card"] as const;
+export type CounterMethod = (typeof COUNTER_METHODS)[number];
+export type PaidVia = CounterMethod | "online" | "pass" | "credit";
+export const PAID_VIA_LABELS: Record<PaidVia, string> = {
+  cash: "Cash",
+  qr: "DuitNow QR / e-wallet",
+  transfer: "Bank transfer",
+  card: "Card terminal",
+  online: "Online (FPX / card)",
+  pass: "Pass",
+  credit: "Stored credit",
+};
+
 export interface Booking {
   id: number;
   code: string;
@@ -222,6 +240,8 @@ export interface Booking {
   paidAt: string | null;
   /** Paid through the venue's online gateway: the money is there, not in the till. */
   paidOnline?: boolean;
+  /** How it was paid, when that was recorded; see PAID_VIA. */
+  paidVia?: PaidVia | null;
   /** Set by staff after the slot passes and nobody turned up. */
   noShow: boolean;
   /** When the customer arrived at the desk, if they did. */

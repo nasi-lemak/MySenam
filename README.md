@@ -636,6 +636,9 @@ Account endpoints (session cookie):
 | GET    | `/api/my/data`            | Everything held against this account, as a file |
 | POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account        |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
+| GET    | `/api/bookings/reschedule` | `?code&phone&date` → free start times that day |
+| POST   | `/api/bookings/reschedule` | `{code, phone, date, startHour}` → change it   |
+| GET    | `/api/bookings/again`     | `?code` (own, signed in) or `?code&phone` → `{url}` |
 
 Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
 
@@ -651,7 +654,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
 | GET    | `/api/admin/bookings/move`    | `?code=` → courts this booking could move to         |
 | POST   | `/api/admin/bookings/move`    | `{code, courtId}` → move it, keeping code and payment |
-| POST   | `/api/admin/payments`         | `{code, paid}` or `{seriesCode}` → payment tracking  |
+| GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
+| POST   | `/api/admin/bookings/reschedule` | `{code, date, startHour, courtId?}` → change it; customer told |
+| GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
+| POST   | `/api/admin/payments`         | `{code, paid, via?}` or `{seriesCode, via?}`; `via` is cash, qr, transfer or card |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure         |
 | GET    | `/api/admin/access`           | `?venueId=` → who has been given a door code         |
@@ -1966,6 +1972,34 @@ Kini: {{4}}
 Masa dan harga yang sama. Sila tekan {{6}} untuk memberitahu mereka anda telah melihat mesej ini.
 ```
 
+#### `mysenam_booking_rescheduled`
+
+Sent when staff change a booking's date or time (a customer who changes their own is emailed instead).
+
+English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+Hi {{1}}, {{2}} has changed the time of booking {{3}}.
+
+Now: {{4}}
+{{5}}
+{{6}}
+
+Please tap {{7}} to let them know you have seen this.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+Hai {{1}}, {{2}} telah menukar masa tempahan {{3}}.
+
+Kini: {{4}}
+{{5}}
+{{6}}
+
+Sila tekan {{7}} untuk memberitahu mereka anda telah melihat mesej ini.
+```
+
 #### `mysenam_booking_reminder`
 
 English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
@@ -1995,8 +2029,13 @@ Tidak dapat hadir? Batalkan di {{5}} supaya orang lain boleh bermain.
 ## Payments
 
 Every booking starts `unpaid` and stands whether or not it is ever paid
-online. Front-desk staff toggle it to `paid` from the admin Bookings tab (a
-whole recurring series can be settled in one click). Customers see the payment
+online. Front-desk staff mark it `paid` from the admin Bookings tab, picking
+**how** in one tap: cash, DuitNow QR / e-wallet, bank transfer or card
+terminal (a whole recurring series can be settled the same way). Online
+payments, passes and stored credit record themselves. The Reports tab splits
+what was collected by method, so the till and the bank account can be squared
+at the end of the month; counter payments marked before methods were asked
+show as *not recorded*. Customers see the payment
 state on `/account` and in the `/my-booking` lookup. The daily view splits
 **expected** vs **collected** vs **outstanding** revenue so a shift can be
 reconciled at closing.
@@ -2087,6 +2126,52 @@ offered to anyone waiting on it.
 Staff pick from a list of courts that are genuinely free for the whole booking
 (`moveTargetsFor`), so the refusals above are mostly unreachable from the UI —
 they exist because the API is reachable without it.
+
+### Changing the date or time
+
+`rescheduleBooking(code, { date, startHour, courtId? }, by)` moves a booking to
+another day or hour — the same length, at the same venue, for the same sport —
+keeping its code, its payment, its extras and any promo. It is the step that
+otherwise means cancel, refund and book again, with the risk the slot goes
+while the customer rebooks.
+
+- **Customers** change their own from `/my-booking` (*Change date or time*),
+  with the code and phone number, up to the venue's cancellation cutoff and
+  within the booking window. **Staff** use *Change time* on any booking in the
+  Bookings tab, at any time before it has finished.
+- Only times free for the whole length are offered (`rescheduleOptions`), its
+  own court first, then another court of the same sport. The booking's own
+  places count as free, so it can slide by an hour.
+- **The price follows the court time.** Unpaid, it is repriced at the new
+  time's rate, up or down. Paid, it keeps what was paid: a customer cannot move
+  it somewhere dearer (that would be peak hours at an off-peak price), and
+  staff who do have chosen not to charge the difference.
+- Refused for a class place (it moves with its class), an open game with
+  players in it, a checked-in booking, or kit still out.
+- The customer is told. Changed by the venue, it is urgent news with an
+  acknowledge link (`mysenam_booking_rescheduled` on WhatsApp, in the venue's
+  *Needs attention* panel until they see it). Changed by the customer, it is an
+  email with the new calendar invite. The time it left goes to whoever is
+  waiting for it.
+
+## Booking again
+
+Past bookings on `/account` have *Book again*, and the account page opens with
+*Play again*: the last few courts and times a customer actually played. One tap
+opens the venue page with the same court and hours picked on the **next day
+they are free** — the same weekday first, since most regulars play the same
+night each week — else another court of the same sport. It is a link, not a
+booking: the customer still sees the price and taps *Book*. `/my-booking` has
+the same button for a booking looked up by code and phone.
+
+## Your booking link and QR poster
+
+Venue staff see **their booking link** on the Bookings tab, with *Copy link*,
+*Share on WhatsApp* and *Print QR poster*. The link is the venue's page on its
+storefront domain if it has one. The poster (`/venue/<id>/poster`) prints the QR
+code, the link and three steps in English and Malay, for the counter, the door
+or the noticeboard. The QR code is also an image at `/api/venues/<id>/qr`. A
+draft venue's link, code and poster are for its own staff only.
 
 ## Cancellation and no-shows
 

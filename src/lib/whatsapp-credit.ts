@@ -63,7 +63,7 @@ export type WhatsappMode = "off" | "urgent" | "all";
  * or a waitlist place is theirs for a short while. On WhatsApp by default,
  * paid for by the platform — a few sen each, and few of them.
  */
-export const URGENT_KINDS: string[] = ["booking_cancelled_by_venue", "booking_moved", "waitlist_offer"];
+export const URGENT_KINDS: string[] = ["booking_cancelled_by_venue", "booking_moved", "booking_rescheduled", "waitlist_offer"];
 
 export async function whatsappMode(venueId: number): Promise<WhatsappMode> {
   const row = (await getDb().prepare("SELECT whatsapp_mode FROM venues WHERE id = ?").get(venueId)) as { whatsapp_mode: WhatsappMode } | undefined;
