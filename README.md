@@ -153,6 +153,7 @@ Everything is an environment variable; there is nothing else to configure.
 | -------- | ------- | ------------ |
 | `MYSENAM_MARKETPLACE` | — | `on` for the shared marketplace: venues apply to join, are invoiced monthly, and stored credit is per venue |
 | `MYSENAM_CREDIT_SCOPE` | `platform`, or `venue` on a marketplace | Whose stored credit is — see *Whose credit it is* |
+| `MYSENAM_ALERT_WEBHOOK` | — | A Slack, Discord or Google Chat incoming-webhook URL; alerts are posted there as `{"text": ...}` as well as emailed to the platform owners |
 | `MYSENAM_VENUE_FEE` | `0` | On a marketplace, what a venue pays a month unless it has its own fee, or the owner has set tiers by size (see *Plans by size*) |
 | `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
 | `MYSENAM_WHATSAPP_PACK` | `200` | On a marketplace, WhatsApp messages in a prepaid pack — see *What WhatsApp costs, and who pays* |
@@ -263,6 +264,30 @@ A platform owner can see the same list under *Venues & staff → Backups*, take
 one by hand before a risky change, and is told in red when the newest snapshot
 is more than two days old. Venue operators cannot: a backup is every venue's
 data, not one venue's.
+
+### Being told when something breaks
+
+A failure the owner never hears about is found out from a venue's complaint.
+So the platform owners are told (`src/lib/alerts.ts`) when:
+
+- a page or API request ends in a **server error** (Next's `onRequestError`);
+- any of the **scheduled work** fails: sending messages, letting go of unpaid
+  holds, invoices, overdue checks, league housekeeping, the backup;
+- the **nightly backup** or its **off-site copy** fails;
+- **messages to customers stop going out**: five or more failed in an hour and
+  none sent (one bad address is not news; a rejected SMTP login is).
+
+Each kind is told once, then again only after six hours if it is still
+happening, with how many times it has. It goes by email to every platform
+owner and, with `MYSENAM_ALERT_WEBHOOK` set, to a Slack, Discord or Google
+Chat channel, which still arrives when email is what broke. The owner's
+dashboard shows *System health* while anything is outstanding, with the
+latest detail and a *Dealt with* button.
+
+**A stopped scheduler** cannot email about itself, so `/api/health` answers
+`503` when it has not ticked for ten minutes. Point an uptime monitor
+(UptimeRobot, Better Stack, the host's own) at `/api/health` and it covers
+both the app being down and the scheduler being stuck.
 
 ### Off-site copies
 

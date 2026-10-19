@@ -20,3 +20,15 @@ export async function register(): Promise<void> {
     await startNode();
   }
 }
+
+/**
+ * Any request that ends in a server error: the platform owner is told
+ * (lib/alerts.ts), once every few hours with how many there have been, so a
+ * page failing for every customer is not found out from a complaint.
+ */
+export async function onRequestError(err: unknown, request: { path: string; method: string }): Promise<void> {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { noteRequestError } = await import("./lib/alerts");
+    await noteRequestError(err, `${request.method} ${request.path}`);
+  }
+}

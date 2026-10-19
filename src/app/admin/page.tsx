@@ -16,6 +16,7 @@ import { LeaguesTab } from "@/components/admin/LeaguesTab";
 import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
+import { SystemHealth } from "@/components/admin/SystemHealth";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 
@@ -191,6 +192,7 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {isOwner && <SystemHealth />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
       {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. */}

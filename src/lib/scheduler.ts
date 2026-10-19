@@ -5,6 +5,7 @@ import { issueDueInvoices } from "./billing";
 import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { releaseExpiredHolds } from "./holds";
+import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -54,12 +55,17 @@ export interface TickResult {
 /** Do whatever is due now. Never throws: one failure must not stop the next tick. */
 export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   const result: TickResult = { backup: null, outbox: null };
+  // Stamped first, so a scheduler that has stopped shows on /api/health.
+  await heartbeat().catch(() => undefined);
 
   try {
     const drained = await tickOutbox();
     if (drained.transport) result.outbox = { sent: drained.sent, failed: drained.failed };
+    // Several failing and none getting through: the account, not one address.
+    if (drained.failed > 0) await checkMessages();
   } catch (err) {
     console.error("[mysenam] sending messages failed:", err);
+    await raiseAlert("scheduler:sending-messages-failed", "Scheduled work failed: sending messages", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -67,6 +73,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await releaseExpiredHolds();
   } catch (err) {
     console.error("[mysenam] letting go of unpaid holds failed:", err);
+    await raiseAlert("scheduler:letting-go-of-unpaid-holds-failed", "Scheduled work failed: letting go of unpaid holds", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -75,6 +82,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (issued.length > 0) result.invoices = issued.length;
   } catch (err) {
     console.error("[mysenam] issuing invoices failed:", err);
+    await raiseAlert("scheduler:issuing-invoices-failed", "Scheduled work failed: issuing invoices", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -82,6 +90,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await applyPaymentHolds(now);
   } catch (err) {
     console.error("[mysenam] checking for overdue invoices failed:", err);
+    await raiseAlert("scheduler:checking-for-overdue-invoices-failed", "Scheduled work failed: checking for overdue invoices", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -89,6 +98,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await leagueHousekeeping();
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
+    await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -97,6 +107,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
       if (!taken.ok) {
         result.backup = { ok: false, error: taken.error };
         console.error(`[mysenam] scheduled backup failed: ${taken.error}`);
+        await raiseAlert("backup", "The nightly backup failed", taken.error);
       } else {
         const offsite = await copyOffsite(taken.file);
         result.backup = {
@@ -104,12 +115,15 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
           name: taken.file.name,
           offsite: offsite && (offsite.ok ? { ok: true } : { ok: false, error: offsite.error }),
         };
-        if (offsite && !offsite.ok)
+        if (offsite && !offsite.ok) {
           console.error(`[mysenam] off-site copy of ${taken.file.name} failed: ${offsite.error}`);
+          await raiseAlert("offsite", "The off-site copy of the backup failed", `${taken.file.name}: ${offsite.error}`);
+        }
       }
     }
   } catch (err) {
     console.error("[mysenam] scheduled backup failed:", err);
+    await raiseAlert("scheduler:scheduled-backup-failed", "Scheduled work failed: scheduled backup", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   return result;

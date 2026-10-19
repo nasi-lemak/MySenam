@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { schedulerAlive } from "@/lib/alerts";
+import { schedulerEnabled } from "@/lib/scheduler";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     await getDb().prepare("SELECT 1").get();
+    // A scheduler that has stopped ticking is down too: no backups, no
+    // messages, no holds let go. An uptime monitor pointed here sees it.
+    if (schedulerEnabled() && !(await schedulerAlive()))
+      return NextResponse.json({ ok: false }, { status: 503, headers: { "Cache-Control": "no-store" } });
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ ok: false }, { status: 503, headers: { "Cache-Control": "no-store" } });
