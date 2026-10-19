@@ -2325,6 +2325,33 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
   `src/lib/listing.ts`) and one decides who may book (`accessRefusal`), so a
   new page or endpoint has one place to ask.
 
+### Residents inviting their own guests
+
+A members-only or private venue can let the **residents and members on its
+list** add their own guests from their account page (*Your guests*), rather
+than asking the management office each time. The venue sets two numbers in
+the same editor: **guests each at a time** (0 to 10; 0, the default, turns it
+off) and **for up to how many days** (1 to 14). Changing them is a manager's job
+(`src/lib/guest-invites.ts`).
+
+- A guest goes on the list as a *guest* with an end date (today plus the days
+  chosen), and drops off after it like any other guest. The resident can take
+  them off early.
+- **A guest takes the host's unit.** Their bookings count towards that
+  household's house rules, so inviting a friend does not double a unit's
+  allowance. This applies even where the host has no unit label, because
+  the household also follows who invited whom.
+- **Removing a resident removes their guests.** Staff see *Guest of Hafiz* on
+  the list. A number staff add themselves becomes staff's entry, not the
+  resident's guest.
+- A number already on the list stays as it is: a resident, a member, or
+  another resident's guest whose visit is still running cannot be taken over.
+  Re-inviting one's own guest extends the visit and uses no extra place. A
+  guest whose visit has ended can be invited by anyone.
+- Guests cannot invite guests, and nobody can invite their own number.
+- The guest needs an account with that number (checked, where phone checks
+  are on). The resident is shown the venue link to send them.
+
 ## Free courts and house rules
 
 **A court can be free.** Rates may be RM0 — a condominium's tennis court, a

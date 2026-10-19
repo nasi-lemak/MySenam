@@ -16,6 +16,7 @@ import MyPasses from "@/components/MyPasses";
 import { ChangePassword } from "@/components/ChangePassword";
 import { BookAgain } from "@/components/BookAgain";
 import { MyVenues } from "@/components/MyVenues";
+import { GuestInvites } from "@/components/GuestInvites";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
@@ -160,6 +161,7 @@ export default function AccountPage() {
       <ChangePassword endpoint="/api/my/password" />
 
       <MyVenues />
+      <GuestInvites />
 
       {regulars.length > 0 && (
         <section>

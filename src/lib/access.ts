@@ -49,6 +49,8 @@ export interface AccessEntry {
   createdAt: string;
   /** Whether an account with this (checked) number exists yet. */
   hasAccount: boolean;
+  /** A guest a resident invited: who, by name or unit. */
+  invitedBy?: string;
 }
 
 const ENGLISH = translator("en");
@@ -141,8 +143,9 @@ export async function myPrivateVenues(userId: number): Promise<{ id: number; nam
 
 const SELECT_ENTRY = `
   SELECT a.id, a.phone, a.name, a.label, a.kind, a.expires_on, a.created_at,
-         EXISTS (SELECT 1 FROM users u WHERE phone_key(COALESCE(u.verified_phone, u.phone)) = a.phone_key) AS has_account
-    FROM venue_access_list a`;
+         EXISTS (SELECT 1 FROM users u WHERE phone_key(COALESCE(u.verified_phone, u.phone)) = a.phone_key) AS has_account,
+         COALESCE(i.name, i.phone) AS inviter
+    FROM venue_access_list a LEFT JOIN venue_access_list i ON i.id = a.invited_by`;
 
 type EntryRow = {
   id: number;
@@ -153,6 +156,7 @@ type EntryRow = {
   expires_on: string | null;
   created_at: string;
   has_account: boolean | number;
+  inviter: string | null;
 };
 const toEntry = (r: EntryRow): AccessEntry => ({
   id: r.id,
@@ -163,6 +167,7 @@ const toEntry = (r: EntryRow): AccessEntry => ({
   expiresOn: r.expires_on,
   createdAt: r.created_at,
   hasAccount: r.has_account === true || r.has_account === 1,
+  ...(r.inviter ? { invitedBy: r.inviter } : {}),
 });
 
 export async function accessList(venueId: number): Promise<AccessEntry[]> {
@@ -183,7 +188,7 @@ export interface AccessInput {
   expiresOn?: string | null;
 }
 
-function clean(input: AccessInput): { ok: true; row: Required<AccessInput> } | { ok: false; error: string } {
+export function cleanAccess(input: AccessInput): { ok: true; row: Required<AccessInput> } | { ok: false; error: string } {
   const phone = input.phone.trim();
   const digits = phone.replace(/[^0-9]/g, "");
   if (digits.length < 9 || digits.length > 15) return { ok: false, error: `${phone || "(blank)"} is not a phone number.` };
@@ -212,7 +217,7 @@ export async function addAccess(
 ): Promise<{ ok: true; added: number; updated: number } | { ok: false; error: string }> {
   const rows: Required<AccessInput>[] = [];
   for (const [i, p] of people.entries()) {
-    const c = clean(p);
+    const c = cleanAccess(p);
     if (!c.ok) return { ok: false, error: people.length > 1 ? `Line ${i + 1}: ${c.error}` : c.error };
     rows.push(c.row);
   }
@@ -227,7 +232,8 @@ export async function addAccess(
         .prepare(
           `INSERT INTO venue_access_list (venue_id, phone, name, label, kind, expires_on, added_by) VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (venue_id, phone_key) DO UPDATE SET name = COALESCE(excluded.name, venue_access_list.name),
-             label = COALESCE(excluded.label, venue_access_list.label), kind = excluded.kind, expires_on = excluded.expires_on
+             label = COALESCE(excluded.label, venue_access_list.label), kind = excluded.kind, expires_on = excluded.expires_on,
+             invited_by = NULL
            RETURNING (xmax = 0) AS inserted`
         )
         .get(venueId, r.phone, r.name, r.label, r.kind, r.expiresOn, adminId)) as { inserted: boolean };

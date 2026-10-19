@@ -107,12 +107,14 @@ export async function houseRuleRefusal(input: {
     ? ((await db.prepare("SELECT phone FROM users WHERE id = ?").get(input.userId)) as { phone: string } | undefined)?.phone
     : undefined;
   const phones = [input.phone, ...(account ? [account] : [])];
-  // Everybody on the venue's list in the same unit as either number.
+  // Everybody on the venue's list in the same unit as either number, and a
+  // resident's own guests, who share the resident's allowance.
   const household = (await db
     .prepare(
       `SELECT DISTINCT b.phone_key AS key FROM venue_access_list a
-         JOIN venue_access_list b ON b.venue_id = a.venue_id AND b.label = a.label
-        WHERE a.venue_id = ? AND a.label IS NOT NULL AND a.phone_key IN (${phones.map(() => "phone_key(?)").join(",")})`
+         JOIN venue_access_list b ON b.venue_id = a.venue_id
+          AND (b.label = a.label OR COALESCE(b.invited_by, b.id) = COALESCE(a.invited_by, a.id))
+        WHERE a.venue_id = ? AND a.phone_key IN (${phones.map(() => "phone_key(?)").join(",")})`
     )
     .all(input.venueId, ...phones)) as { key: string }[];
   const keys = [...new Set([...phones.map((p) => p.replace(/[^0-9]/g, "").replace(/^60/, "0")), ...household.map((h) => h.key)])];

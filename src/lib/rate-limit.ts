@@ -46,6 +46,8 @@ export const POLICIES = {
    * one a second in all.
    */
   geocode: { limit: 20, windowMs: 10 * MINUTE },
+  /** A resident putting guests on a venue's list: a few a day, not a list import. */
+  guestInvite: { limit: 20, windowMs: 60 * MINUTE },
 } satisfies Record<string, Policy>;
 
 export type PolicyName = keyof typeof POLICIES;

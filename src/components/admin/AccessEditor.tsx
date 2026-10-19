@@ -27,6 +27,7 @@ interface State {
   settings: AccessSettings;
   list: AccessEntry[];
   phoneChecks: boolean;
+  guests?: { perResident: number; days: number };
 }
 
 /**
@@ -42,12 +43,14 @@ export function AccessEditor({ venueId }: { venueId: number }) {
   const [note, setNote] = useState("");
   const [person, setPerson] = useState({ phone: "", name: "", label: "", kind: "resident" as AccessKind, expiresOn: "" });
   const [paste, setPaste] = useState("");
+  const [guests, setGuests] = useState({ perResident: "0", days: "3" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const take = (data: State) => {
     setS((old) => ({ ...data, phoneChecks: data.phoneChecks ?? old?.phoneChecks ?? false }));
+    if (data.guests) setGuests({ perResident: String(data.guests.perResident), days: String(data.guests.days) });
     setMode(data.settings.access);
     setListed(data.settings.access !== "members" || data.settings.listed);
     setNote(data.settings.note ?? "");
@@ -133,6 +136,50 @@ export function AccessEditor({ venueId }: { venueId: number }) {
             </button>
           </fieldset>
 
+          {current !== "public" && (
+            <fieldset className="space-y-2 border-t border-slate-100 pt-3">
+              <legend className="text-sm font-semibold">Residents&apos; own guests</legend>
+              <p className="text-xs text-slate-500">
+                Let residents and members on the list add guests themselves, from their account page, instead of asking you. A guest
+                takes their host&apos;s unit, so their bookings count towards that unit&apos;s house rules, and goes when the host is
+                removed. 0 turns it off.
+              </p>
+              <div className="flex flex-wrap items-end gap-2 text-sm">
+                <label className="text-xs text-slate-600">
+                  Guests each at a time
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={guests.perResident}
+                    onChange={(e) => setGuests({ ...guests, perResident: e.target.value })}
+                    className={`mt-0.5 block w-20 ${input}`}
+                  />
+                </label>
+                <label className="text-xs text-slate-600">
+                  For up to (days)
+                  <input
+                    type="number"
+                    min={1}
+                    max={14}
+                    value={guests.days}
+                    onChange={(e) => setGuests({ ...guests, days: e.target.value })}
+                    className={`mt-0.5 block w-20 ${input}`}
+                  />
+                </label>
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    post({ action: "guests", perResident: Number(guests.perResident), days: Number(guests.days) }, "Saved.")
+                  }
+                  className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+            </fieldset>
+          )}
+
           {(current !== "public" || s.list.length > 0) && (
             <div className="space-y-3 border-t border-slate-100 pt-3">
               <p className="text-sm font-semibold">
@@ -163,7 +210,10 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                           <td className="px-2 py-1 font-mono">{e.phone}</td>
                           <td className="px-2 py-1">{e.name ?? ""}</td>
                           <td className="px-2 py-1">{e.label ?? ""}</td>
-                          <td className="px-2 py-1">{KIND_LABELS[e.kind]}</td>
+                          <td className="px-2 py-1">
+                            {KIND_LABELS[e.kind]}
+                            {e.invitedBy && <span className="block text-xs text-slate-500">of {e.invitedBy}</span>}
+                          </td>
                           <td className="px-2 py-1">{e.expiresOn ?? "—"}</td>
                           <td className="px-2 py-1">{e.hasAccount ? "✓" : ""}</td>
                           <td className="px-2 py-1 text-right">

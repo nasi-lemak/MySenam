@@ -13,6 +13,7 @@ import {
 } from "@/lib/access";
 import { phoneChecksOn } from "@/lib/phone-check";
 import { logFromRequest } from "@/lib/activity";
+import { guestPolicy, setGuestPolicy } from "@/lib/guest-invites";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
     list: await accessList(venueId),
     // Whether a number on the list has to be checked before it counts.
     phoneChecks: phoneChecksOn(),
+    guests: await guestPolicy(venueId),
   });
 }
 
@@ -36,7 +38,8 @@ export async function GET(req: NextRequest) {
  * `{ venueId, action: "settings", access, listed, note }`,
  * `{ venueId, action: "add", phone, name, label, kind, expiresOn }`,
  * `{ venueId, action: "import", text, kind, expiresOn }` (one `phone, name, unit` a line),
- * `{ venueId, action: "remove", id }`.
+ * `{ venueId, action: "remove", id }`,
+ * `{ venueId, action: "guests", perResident, days }` (residents inviting their own guests).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -74,6 +77,9 @@ export async function POST(req: NextRequest) {
     const result = await addAccess(venueId, people, admin.id);
     if (!result.ok) return NextResponse.json(result, { status: 400 });
     return NextResponse.json({ ...result, settings: await accessSettings(venueId), list: await accessList(venueId) });
+  } else if (body.action === "guests") {
+    const result = await setGuestPolicy(venueId, { perResident: body.perResident, days: body.days });
+    if (!result.ok) return NextResponse.json(result, { status: 400 });
   } else if (body.action === "remove") {
     if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
     await removeAccess(venueId, body.id as number);
@@ -83,7 +89,15 @@ export async function POST(req: NextRequest) {
   await logFromRequest(req, {
     venueId,
     action: "settings.changed",
-    detail: body.action === "settings" ? `Who it is for: ${String(body.access)}` : `Access list: ${String(body.action)}${typeof body.phone === "string" ? ` ${body.phone}` : ""}`,
+    detail: body.action === "settings"
+      ? `Who it is for: ${String(body.access)}`
+      : body.action === "guests"
+        ? `Residents' guests: ${String(body.perResident)} at a time, up to ${String(body.days)} days`
+        : `Access list: ${String(body.action)}${typeof body.phone === "string" ? ` ${body.phone}` : ""}`,
   });
-  return NextResponse.json({ settings: await accessSettings(venueId), list: await accessList(venueId) });
+  return NextResponse.json({
+    settings: await accessSettings(venueId),
+    list: await accessList(venueId),
+    guests: await guestPolicy(venueId),
+  });
 }
