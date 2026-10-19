@@ -23,7 +23,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Personal data you can see and remove** — a signed-in customer downloads everything held against their account as one file, or closes the account: upcoming bookings are cancelled and their name comes off past ones, while the hour and the price stay as the venue's accounting record. Old records age out on a published retention schedule that applies itself daily, and a privacy notice at `/privacy` says all of it in plain terms
 - **Unstaffed hours** — a venue says when somebody is behind the counter, and a resource says whether it may be used outside that window. Out of hours, a customer who is *inducted* and *paid* is shown the door code an hour before their slot; every reveal is logged against the booking, opening the door counts as checking in, and the entry screen carries the venue's emergency number and who else is inside. Pools can never be left unmanned, and neither can anything hired out against a deposit
 - **Equipment hire** — a resource that leaves the building (a kayak, a paddle set) carries a deposit; the desk hands the kit over against it, and the return records condition, any damage note and anything kept back, with the rest given straight back
-- **Stored credit** — customers buy credit at any counter and pay for bookings and classes from the balance; cancelling refunds it automatically
+- **Stored credit** — customers buy credit at any counter or online and pay for bookings and classes from the balance; cancelling refunds it automatically
 - **Customer accounts** — register/sign in (`/login`, scrypt-hashed passwords, HTTP-only session cookies, no external auth service); bookings made while signed in appear on `/account` with upcoming/past views, one-click cancel, and prefilled booking forms
 - **Operating hours & closed days** — each venue sets its own opening and closing hour (a pool can open at 7 AM, a club shut at 10 PM); whole days can be closed for a public holiday, a private hire or a refit, which blocks booking, enrolment and waitlist joins for that date and drops the venue out of cross-venue search
 - **Cancellation policy** — each venue sets how many hours before a slot customers may still cancel (default 2); the window is shown up front on the venue page and in the booking lookup, and staff can always override from the dashboard
@@ -1680,6 +1680,21 @@ Switching from `platform` to `venue` shrinks nobody's balance: credit bought
 before the switch stays spendable anywhere. A booking is paid from the venue's
 own credit first and then from that older pot, a ledger line for each, and a
 refund puts each line back where it came from.
+
+### Topping up online
+
+A signed-in customer can also buy credit from their account page, through
+Billplz into the **venue's own account** (FPX or card, RM10–RM1,000 in whole
+ringgit). The account page offers the venues they have booked at or hold credit
+at that take payment online. The credit is written to the ledger as *Online
+top-up* only when the payment is settled (by callback or the signed return
+address, whichever comes first, and only once). If the account is deleted while
+they pay, the payment is marked as owed back instead.
+
+Online top-ups are only allowed where the money lands with whoever owes the
+credit: per-venue credit on a marketplace, or any credit on a single business's
+own copy. On a marketplace with `MYSENAM_CREDIT_SCOPE=platform` they are not
+offered, since one venue would take money for credit that other venues honour.
 
 ## Check-in and live crowd levels
 

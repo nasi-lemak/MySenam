@@ -1,4 +1,5 @@
 import { isOpen, venueIsOpen } from "./listing";
+import { creditScope, isMarketplace } from "./mode";
 import { getDb } from "./db";
 import { BillResult, BillplzAccount, createBill } from "./billplz";
 import { seal, unseal } from "./secrets";
@@ -6,7 +7,7 @@ import { findBooking, getCourt, getVenue } from "./store";
 import { baseUrl } from "./outbox";
 import { toWhatsAppNumber } from "./transports";
 import { formatHour } from "./time";
-import { Booking } from "./types";
+import { Booking, MAX_TOP_UP } from "./types";
 import { platformAccount, settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
@@ -180,12 +181,13 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup";
   invoice_id: number | null;
   game_player_id: number | null;
   tournament_entry_id: number | null;
   league_place_id: number | null;
   pack_id: number | null;
+  topup_user_id?: number | null;
 }
 
 export interface OnlinePayment {
@@ -204,7 +206,7 @@ export interface OnlinePayment {
   refunded: number;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup";
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -448,6 +450,26 @@ export async function settleBill(result: BillResult): Promise<Settled | null> {
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
       if (claimed.changes === 1) await settleShare(row);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "topup") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes === 1 && row.topup_user_id) {
+        // The credit is the venue's to honour where credit is per venue;
+        // spendable anywhere on a single business's own copy.
+        await db
+          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Online top-up', ?)")
+          .run(row.topup_user_id, row.amount, creditScope() === "venue" ? row.venue_id : null);
+      } else if (claimed.changes === 1) {
+        // The account went away while they paid: owed back.
+        await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+      }
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -747,6 +769,57 @@ export async function startEntryPayment(user: { id: number; name: string; phone:
     )
     .run(bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
   return { ok: true, url: bill.url, amount: row.fee, reused: false };
+}
+
+// ------------------------------------------------------------ credit top-ups
+
+export const MIN_ONLINE_TOP_UP = 10;
+
+/**
+ * Whether credit can be bought online at this venue: where credit is the
+ * venue's own (a marketplace), or on a single business's own copy. Never
+ * where credit bought at one venue is spent at others on a marketplace —
+ * that money would be the platform holding other venues' takings.
+ */
+export function onlineTopUpsAllowed(): boolean {
+  return creditScope() === "venue" || !isMarketplace();
+}
+
+/** A customer buying credit online, into the venue's own account. */
+export async function startTopUpPayment(
+  user: { id: number; name: string; phone: string; email: string },
+  venueId: number,
+  amount: number
+): Promise<StartResult> {
+  if (!onlineTopUpsAllowed()) return { ok: false, error: "Credit is bought at the counter here.", status: 409 };
+  if (!Number.isInteger(amount) || amount < MIN_ONLINE_TOP_UP || amount > MAX_TOP_UP)
+    return { ok: false, error: `Top up RM${MIN_ONLINE_TOP_UP}–${MAX_TOP_UP}, in whole ringgit.`, status: 400 };
+  const venue = await getVenue(venueId);
+  if (!venue || !isOpen(venue)) return { ok: false, error: "That venue is not taking payment online at the moment.", status: 409 };
+  const account = await venueAccount(venueId);
+  if (!account) return { ok: false, error: `${venue.name} does not take payment online. Top up at the counter.`, status: 409 };
+  let bill;
+  try {
+    bill = await createBill(account, {
+      amount,
+      name: user.name,
+      email: user.email,
+      mobile: toWhatsAppNumber(user.phone),
+      description: `${venue.name}: credit top-up`,
+      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
+      redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
+      reference: { label: "Top-up", value: `U${user.id}` },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await getDb()
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, topup_user_id)
+       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'topup', ?)`
+    )
+    .run(bill.id, bill.url, venueId, amount, user.name, user.phone, user.id);
+  return { ok: true, url: bill.url, amount, reused: false };
 }
 
 // ------------------------------------------------------------ league fees
