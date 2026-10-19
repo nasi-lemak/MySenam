@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteAdmin, isManager, isOwner, listAdminsFor, requireAdmin } from "@/lib/admin-auth";
+import { deleteAdmin, isManager, isOwner, listAdminsFor, requireAdmin, setStaffRole, type Admin } from "@/lib/admin-auth";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,33 @@ export async function DELETE(
   if (!isOwner(admin) && !(await listAdminsFor(admin)).some((a) => a.id === adminId))
     return NextResponse.json({ error: "That account is not part of your business." }, { status: 403 });
 
+  const target = (await listAdminsFor(admin)).find((a) => a.id === adminId);
   const result = await deleteAdmin(adminId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (target) await logAction(admin, { venueId: target.venueId, action: "staff.removed", detail: `${target.name} (${target.email})` });
+  return NextResponse.json({ ok: true });
+}
+
+/** `{ role: "manager" | "desk" }` for a member of branch staff. */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
+  if (!isOwner(admin) && !isManager(admin))
+    return NextResponse.json({ error: "Only a business manager or the platform owner can do that." }, { status: 403 });
+  const adminId = Number((await params).id);
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (body.role !== "manager" && body.role !== "desk")
+    return NextResponse.json({ error: "A manager or front desk." }, { status: 400 });
+  const target: Admin | undefined = (await listAdminsFor(admin)).find((a) => a.id === adminId);
+  if (!target) return NextResponse.json({ error: "That account is not part of your business." }, { status: 403 });
+  if (target.venueId === null)
+    return NextResponse.json({ error: "Only branch staff have a role; business managers always manage." }, { status: 409 });
+  await setStaffRole(adminId, body.role);
+  await logAction(admin, { venueId: target.venueId, action: "staff.role", detail: `${target.name}: ${target.role} → ${body.role}` });
   return NextResponse.json({ ok: true });
 }

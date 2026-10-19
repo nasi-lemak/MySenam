@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, issuePass, listPassesForVenue } from "@/lib/store";
 import { MAX_PASS_ENTRIES, Sport, SPORTS } from "@/lib/types";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -81,5 +82,10 @@ export async function POST(req: NextRequest) {
     userId,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  await logAction(admin, {
+    venueId: result.pass.venueId,
+    action: "pass.sold",
+    detail: `${input.holderName as string}, ${input.entries as number} entries, RM${input.price as number}`,
+  });
   return NextResponse.json({ pass: result.pass }, { status: 201 });
 }

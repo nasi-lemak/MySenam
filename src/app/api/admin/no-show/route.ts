@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getVenueIdForBookingCode, setNoShow } from "@/lib/store";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -27,5 +28,6 @@ export async function POST(req: NextRequest) {
 
   const result = await setNoShow(code, noShow);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, { venueId, action: "booking.no_show", bookingCode: result.booking.code, detail: noShow ? "no-show" : "cleared" });
   return NextResponse.json({ booking: result.booking });
 }

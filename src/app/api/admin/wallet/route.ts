@@ -4,6 +4,7 @@ import type { Admin } from "@/lib/admin-auth";
 import { creditScope } from "@/lib/mode";
 import { findUserForWallet, listWalletEntries, topUpWallet } from "@/lib/store";
 import { MAX_TOP_UP } from "@/lib/types";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -69,5 +70,10 @@ export async function POST(req: NextRequest) {
     venueId,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId: venueId ?? null,
+    action: "credit.changed",
+    detail: `RM${amount} for customer ${userId}${typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : ""}`,
+  });
   return NextResponse.json({ balance: result.balance, entry: result.entry }, { status: 201 });
 }

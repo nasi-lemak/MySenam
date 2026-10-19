@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createOutage, endOutage, listOutages, outageById } from "@/lib/outages";
 import { getCourt } from "@/lib/store";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,11 @@ export async function POST(req: NextRequest) {
   });
   if (!result.ok)
     return NextResponse.json({ error: result.error, affected: result.affected }, { status: result.affected ? 409 : 400 });
+  await logFromRequest(req, {
+    venueId: court.venueId,
+    action: "settings.changed",
+    detail: `${court.name} out of service ${body.startsOn as string}${body.endsOn ? ` to ${body.endsOn as string}` : ", until further notice"}`,
+  });
   return NextResponse.json({ outage: result.outage, cancelled: result.cancelled }, { status: 201 });
 }
 

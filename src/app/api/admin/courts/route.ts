@@ -4,6 +4,7 @@ import { ALERT_EVERY, courtCount, crossed, VENUE_CAPS } from "@/lib/limits";
 import { tellOwners } from "@/lib/owner-alerts";
 import { createCourt, getVenue } from "@/lib/store";
 import { MAX_CAPACITY, MAX_DEPOSIT, Sport, SPORTS } from "@/lib/types";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -73,5 +74,10 @@ export async function POST(req: NextRequest) {
       `${admin.email} has added courts to ${venue?.name ?? `venue ${venueId}`}; it now has ${before + 1}.`
     );
   }
+  await logAction(admin, {
+    venueId: venueId as number,
+    action: "court.created",
+    detail: `${result.court.name}, RM${result.court.offPeakRate} off-peak / RM${result.court.peakRate} peak`,
+  });
   return NextResponse.json({ court: result.court }, { status: 201 });
 }

@@ -1,0 +1,40 @@
+/**
+ * The staff activity log's shape and its words, apart from the code that
+ * reads and writes it (lib/activity.ts), so the dashboard can show it.
+ */
+
+export interface StaffAction {
+  id: number;
+  adminId: number | null;
+  adminName: string;
+  venueId: number | null;
+  bookingCode: string | null;
+  action: string;
+  detail: string | null;
+  createdAt: string;
+}
+
+/** Plain words for each kind of entry, for the log's reader. */
+export const ACTION_LABELS: Record<string, string> = {
+  "booking.created": "Booked",
+  "booking.cancelled": "Cancelled a booking",
+  "booking.moved": "Moved a booking",
+  "booking.rescheduled": "Changed a booking's time",
+  "booking.no_show": "Marked a no-show",
+  "payment.paid": "Marked paid",
+  "payment.unpaid": "Marked unpaid",
+  "payment.refunded": "Recorded a refund",
+  "court.created": "Added a court",
+  "court.changed": "Changed a court",
+  "credit.changed": "Changed stored credit",
+  "membership.sold": "Sold a membership",
+  "membership.voided": "Voided a membership",
+  "pass.sold": "Sold a pass",
+  "pass.voided": "Voided a pass",
+  "promo.created": "Made a promo code",
+  "promo.voided": "Voided a promo code",
+  "staff.added": "Added staff",
+  "staff.removed": "Removed staff",
+  "staff.role": "Changed a role",
+  "settings.changed": "Changed settings",
+};

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/lib/store";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -68,5 +69,10 @@ export async function POST(req: NextRequest) {
     userId,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  await logAction(admin, {
+    venueId: venueId as number,
+    action: "membership.sold",
+    detail: `${input.holderName as string}, RM${input.price as number}, ${input.startsOn as string} to ${input.expiresOn as string}`,
+  });
   return NextResponse.json({ membership: result.membership }, { status: 201 });
 }

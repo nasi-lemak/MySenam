@@ -144,11 +144,13 @@ export default function AdminPage() {
 
   const isOwner = admin.venueId === null && admin.businessId === null;
   const isManager = admin.businessId !== null;
+  // Front desk runs the day; the money totals and the staff log are a manager's.
+  const desk = admin.role === "desk";
   const tabs: [Tab, string][] = [
     ["bookings", "Bookings"],
     ["schedule", "Court schedule"],
     ["occupancy", "Occupancy"],
-    ["reports", "Reports"],
+    ...(desk ? [] : ([["reports", "Reports"]] as [Tab, string][])),
     ["courts", "Courts & rates"],
     ["classes", "Classes"],
     ["tournaments", "Tournaments"],
@@ -173,6 +175,7 @@ export default function AdminPage() {
             ) : (
               <span className="font-medium text-teal-700">
                 {venues[0]?.name ?? "Your venue"}
+                {desk && <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">Front desk</span>}
               </span>
             )}
           </p>

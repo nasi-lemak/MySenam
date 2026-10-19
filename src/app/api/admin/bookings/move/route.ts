@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getCourt, getVenueIdForBookingCode, moveBooking, moveTargetsFor } from "@/lib/store";
 
 import { notifyMoved, tickOutbox } from "@/lib/notify";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,12 @@ export async function POST(req: NextRequest) {
 
   const result = await moveBooking(code, courtId as number);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId,
+    action: "booking.moved",
+    bookingCode: result.booking.code,
+    detail: `${result.fromCourt.name} → ${result.toCourt.name}`,
+  });
   await notifyMoved(result.booking);
   await tickOutbox();
   return NextResponse.json({

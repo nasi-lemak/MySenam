@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, withTransaction } from "./db";
 import { hashPassword, verifyPassword } from "./auth";
+import { deskRefusal, type StaffRole } from "./roles";
 
 export const ADMIN_SESSION_COOKIE = "ms_admin";
 const SESSION_DAYS = 7;
@@ -24,6 +25,8 @@ export interface Admin {
   businessName: string | null;
   /** The venues this admin may manage; null for the platform owner, who may manage all. */
   venueIds: number[] | null;
+  /** Branch staff: a manager, or front desk (lib/roles.ts). Everybody else manages. */
+  role: StaffRole;
 }
 
 interface AdminRow {
@@ -34,10 +37,11 @@ interface AdminRow {
   business_id: number | null;
   business_name: string | null;
   password_hash: string;
+  role?: StaffRole;
 }
 
 /** Columns every admin read takes, with the business's name. */
-const ADMIN_COLUMNS = `a.id, a.name, a.email, a.venue_id, a.business_id, b.name AS business_name`;
+const ADMIN_COLUMNS = `a.id, a.name, a.email, a.venue_id, a.business_id, b.name AS business_name, a.role`;
 const ADMIN_FROM = `admins a LEFT JOIN businesses b ON b.id = a.business_id`;
 
 /** Rows to admins, with the venues each may manage, in one more query at most. */
@@ -59,6 +63,7 @@ async function toAdmins(rows: AdminRow[]): Promise<Admin[]> {
     businessName: r.business_name,
     venueIds:
       r.business_id !== null ? (branches.get(r.business_id) ?? []) : r.venue_id !== null ? [r.venue_id] : null,
+    role: r.venue_id !== null && r.role === "desk" ? "desk" : "manager",
   }));
 }
 
@@ -158,7 +163,8 @@ async function markSeen(adminId: number): Promise<void> {
 export async function requireAdmin(req: NextRequest): Promise<Admin | NextResponse> {
   const admin = await getSessionAdmin(req);
   if (!admin) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  return admin;
+  // Front desk is turned away from what only a manager does, here, for every route.
+  return deskRefusal(admin.role, req.method, req.nextUrl.pathname) ?? admin;
 }
 
 export function isOwner(admin: Pick<Admin, "venueId" | "businessId">): boolean {
@@ -195,6 +201,8 @@ export async function createAdmin(input: {
   venueId: number | null;
   /** A manager of this whole business. Neither: another platform owner. */
   businessId?: number | null;
+  /** Branch staff only: a manager (the default), or front desk. */
+  role?: StaffRole;
 }): Promise<CreateAdminResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -202,19 +210,25 @@ export async function createAdmin(input: {
     if (clash) return { ok: false, error: "An admin with this email already exists." };
 
     const info = await db
-      .prepare("INSERT INTO admins (name, email, password_hash, venue_id, business_id) VALUES (?, ?, ?, ?, ?)")
+      .prepare("INSERT INTO admins (name, email, password_hash, venue_id, business_id, role) VALUES (?, ?, ?, ?, ?, ?)")
       .run(
         input.name.trim(),
         input.email.trim(),
         hashPassword(input.password),
         input.venueId,
-        input.venueId === null ? (input.businessId ?? null) : null
+        input.venueId === null ? (input.businessId ?? null) : null,
+        input.venueId !== null && input.role === "desk" ? "desk" : "manager"
       );
     const row = await db
       .prepare(`SELECT ${ADMIN_COLUMNS} FROM ${ADMIN_FROM} WHERE a.id = ?`)
       .get(info.lastInsertRowid) as AdminRow;
     return { ok: true, admin: await toAdmin(row) };
   });
+}
+
+/** Make a member of branch staff a manager or front desk. */
+export async function setStaffRole(adminId: number, role: StaffRole): Promise<void> {
+  await getDb().prepare("UPDATE admins SET role = ? WHERE id = ? AND venue_id IS NOT NULL").run(role, adminId);
 }
 
 /** Platform owners first, then business managers, then branch staff. */

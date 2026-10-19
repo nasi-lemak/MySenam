@@ -46,7 +46,7 @@ export function VenuesTab({
   const [newVenue, setNewVenue] = useState({ name: "", area: "", address: "", phone: "" });
   // "" is another platform owner, "business" a manager of the whole business, an id that branch.
   const staffDefault = admin.venueId === null && admin.businessId !== null ? "business" : "";
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: staffDefault });
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: staffDefault, role: "desk" });
 
   const loadAdmins = useCallback(async () => {
     if (!managesStaff) return;
@@ -235,8 +235,23 @@ export function VenuesTab({
                               platform owner
                             </span>
                           ) : (
-                            <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700">
-                              {venues.find((v) => v.id === a.venueId)?.name ?? `Venue ${a.venueId}`}
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700">
+                                {venues.find((v) => v.id === a.venueId)?.name ?? `Venue ${a.venueId}`}
+                              </span>
+                              {/* What they may do there: run the day, or set the venue up too. */}
+                              <select
+                                aria-label={`Role of ${a.name}`}
+                                value={a.role}
+                                disabled={a.id === admin.id}
+                                onChange={(e) =>
+                                  send(`/api/admin/admins/${a.id}`, "PATCH", { role: e.target.value }, "Role changed.", loadAdmins)
+                                }
+                                className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs"
+                              >
+                                <option value="manager">Manager</option>
+                                <option value="desk">Front desk</option>
+                              </select>
                             </span>
                           )}
                         </td>
@@ -271,7 +286,7 @@ export function VenuesTab({
                     : { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
                   `Added ${newStaff.email}.`,
                   () => {
-                    setNewStaff({ name: "", email: "", password: "", venueId: staffDefault });
+                    setNewStaff({ name: "", email: "", password: "", venueId: staffDefault, role: "desk" });
                     loadAdmins();
                   }
                 );
@@ -308,6 +323,18 @@ export function VenuesTab({
                   <option key={v.id} value={v.id}>{v.name}</option>
                 ))}
               </select>
+              {newStaff.venueId !== "" && newStaff.venueId !== "business" && (
+                <select
+                  aria-label="Role"
+                  value={newStaff.role}
+                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
+                  title="Front desk runs the day: bookings, payments, check-in. A manager also sets the venue up, prices, refunds and reports."
+                  className={inputClass}
+                >
+                  <option value="desk">Front desk</option>
+                  <option value="manager">Manager</option>
+                </select>
+              )}
               <button
                 type="submit"
                 className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"

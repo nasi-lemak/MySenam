@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdmin, isManager, isOwner, listAdminsFor, requireAdmin } from "@/lib/admin-auth";
 import { getVenue } from "@/lib/store";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, email, password, venueId, businessId } = (body ?? {}) as Record<string, unknown>;
+  const { name, email, password, venueId, businessId, role } = (body ?? {}) as Record<string, unknown>;
 
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Name is required." }, { status: 400 });
@@ -73,7 +74,13 @@ export async function POST(req: NextRequest) {
     password,
     venueId: hasVenue ? (venueId as number) : null,
     businessId: hasBusiness ? (businessId as number) : null,
+    role: role === "desk" ? "desk" : "manager",
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId: hasVenue ? (venueId as number) : null,
+    action: "staff.added",
+    detail: `${result.admin.name} (${result.admin.email})${hasVenue ? `, ${result.admin.role === "desk" ? "front desk" : "manager"}` : ", business manager"}`,
+  });
   return NextResponse.json({ admin: result.admin }, { status: 201 });
 }

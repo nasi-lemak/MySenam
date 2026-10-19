@@ -7,7 +7,8 @@ import {
   paySeries,
   setPaymentStatus,
 } from "@/lib/store";
-import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
+import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,12 @@ export async function POST(req: NextRequest) {
 
     const result = await paySeries(seriesCode, method);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+    await logAction(admin, {
+      venueId: venueIds[0],
+      action: "payment.paid",
+      bookingCode: seriesCode,
+      detail: `${result.paid} sessions of a series${method ? `, by ${PAID_VIA_LABELS[method]}` : ""}`,
+    });
     await notifyPaidSeries(seriesCode, "counter");
     return NextResponse.json({ paid: result.paid });
   }
@@ -52,6 +59,12 @@ export async function POST(req: NextRequest) {
 
   const result = await setPaymentStatus(code, paid, method);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId,
+    action: paid ? "payment.paid" : "payment.unpaid",
+    bookingCode: result.booking.code,
+    detail: `RM${result.booking.totalPrice}${paid && method ? `, by ${PAID_VIA_LABELS[method]}` : ""}`,
+  });
   if (paid) await notifyPaid([result.booking], "counter");
   return NextResponse.json({ booking: result.booking });
 }

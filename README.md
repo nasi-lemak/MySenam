@@ -459,6 +459,38 @@ and a support person (~RM8,047). The biggest unknown is how many bookings
 come from first-time customers who choose SMS; the daily cap on codes
 (`MYSENAM_PHONE_CODES_PER_DAY`) bounds it.
 
+### Managers and front desk
+
+Branch staff are a **manager** or **front desk** (`src/lib/roles.ts`), chosen
+when they are added under *Venues & staff* and changeable there by a business
+manager or the platform owner. Staff who were there before this existed are
+managers, so nobody lost anything; new ones default to front desk.
+
+| | Front desk | Manager |
+| - | :-: | :-: |
+| Bookings: make, mark paid (and how), check in, move, change, cancel, no-show | ✓ | ✓ |
+| Kit hire, passes, memberships and credit sold at the counter, blocking an hour | ✓ | ✓ |
+| Courts and prices, classes, leagues and tournaments set up | | ✓ |
+| Venue details, closures, outages, who it is for, house rules, pay to hold | | ✓ |
+| Payment account, refunds, voiding passes, memberships and promo codes | | ✓ |
+| Promo codes, notices, photos, WhatsApp, the marketplace invoice | | ✓ |
+| Reports and the staff activity log | | ✓ |
+
+The rule is one table of addresses and methods, applied in `requireAdmin` for
+every admin route, so a new route cannot forget it; `tests/roles.test.ts`
+checks each line names a real route, that front desk is refused there and a
+manager is not.
+
+**The staff activity log** (*Reports → Staff activity*, `src/lib/activity.ts`)
+writes down who did what, when, at which venue and to which booking:
+payments marked at the desk and how, bookings cancelled, moved or changed,
+no-shows, court and price changes (as they were and as they are), refunds,
+credit, passes and memberships sold or voided, promo codes, settings, and
+staff added, removed or given another role. It squares the till at the end
+of a shift and answers "who cancelled my booking?"; search it by booking code
+for one booking's history. Entries keep the person's name, so they read right
+after an account is removed, and are kept two years.
+
 ### Checking a venue is real
 
 Nothing about a venue is taken on trust before customers see it, and nothing
@@ -658,6 +690,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
 | POST   | `/api/admin/bookings/reschedule` | `{code, date, startHour, courtId?}` → change it; customer told |
 | GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
+| GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
+| PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |

@@ -6,6 +6,7 @@ import { PAID_VIA_LABELS, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
 import type { PaidVia } from "@/lib/types";
 import type { VenueReport } from "@/lib/reports";
 import { percent, todayLocal } from "./shared";
+import { ActivityPanel } from "./ActivityPanel";
 import type { ManagedVenue } from "./shared";
 
 /* ---------------- Reports tab ---------------- */
@@ -439,6 +440,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
           </div>
         </>
       ) : null}
+      <ActivityPanel venueId={venueId} from={range.from} to={range.to} />
     </div>
   );
 }

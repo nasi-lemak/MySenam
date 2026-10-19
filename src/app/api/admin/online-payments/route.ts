@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { listOnlinePayments, markRefunded, refundsOwed } from "@/lib/payments";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -36,5 +37,6 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const result = await markRefunded(paymentId as number, venueId as number);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, { venueId: venueId as number, action: "payment.refunded", detail: `Online payment ${paymentId}` });
   return NextResponse.json({ payment: result.payment });
 }

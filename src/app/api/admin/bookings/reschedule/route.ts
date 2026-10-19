@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { getCourt, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,14 @@ export async function POST(req: NextRequest) {
     "staff"
   );
   if (!result.ok) return NextResponse.json(result, { status: 409 });
+  await logAction(admin, {
+    venueId,
+    action: "booking.rescheduled",
+    bookingCode: result.booking.code,
+    detail: `${result.from.date} ${result.from.startHour}:00 → ${result.booking.date} ${result.booking.startHour}:00${
+      result.priceChange !== 0 ? `, price ${result.priceChange > 0 ? "+" : ""}RM${result.priceChange}` : ""
+    }`,
+  });
   await notifyRescheduled(result.booking, "staff", result.priceChange);
   await tickOutbox();
   return NextResponse.json({

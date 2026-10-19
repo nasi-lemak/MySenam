@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { paymentSettings, removePaymentSettings, savePaymentSettings } from "@/lib/payments";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     enabled: enabled !== false,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  await logFromRequest(req, { venueId, action: "settings.changed", detail: "Online payment account saved" });
   return NextResponse.json({ settings: result.settings });
 }
 

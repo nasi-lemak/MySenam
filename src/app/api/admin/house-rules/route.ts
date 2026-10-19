@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { houseRules, setHouseRules } from "@/lib/house-rules";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +32,6 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const result = await setHouseRules(venueId, body);
   if (!result.ok) return NextResponse.json(result, { status: 400 });
+  await logFromRequest(req, { venueId, action: "settings.changed", detail: `House rules: ${JSON.stringify(result.rules)}` });
   return NextResponse.json({ rules: result.rules });
 }

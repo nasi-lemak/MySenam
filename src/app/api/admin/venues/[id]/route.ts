@@ -7,6 +7,7 @@ import { isAmenity } from "@/lib/facilities";
 import { formatDistance, inMalaysia, readPoint } from "@/lib/geo";
 import { FAR_FROM_ADDRESS_M } from "@/lib/applications";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +127,8 @@ export async function PATCH(
 
   const before = await getVenue(venueId);
   const result = await updateVenue(venueId, changes);
+  if (result.ok)
+    await logFromRequest(req, { venueId, action: "settings.changed", detail: `Venue details: ${Object.keys(changes).join(", ")}` });
   if (!result.ok)
     return NextResponse.json(
       { error: result.error },

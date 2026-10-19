@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { courtAccess, getCourt, setCourtFeatures, updateCourt } from "@/lib/store";
 import { isSurface, type CourtFeatures } from "@/lib/facilities";
 import { MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, MIN_ACCESS_CODE } from "@/lib/types";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +174,14 @@ export async function PATCH(
       { error: result.error },
       { status: result.error === "Court not found." ? 404 : 409 }
     );
+  // What changed, as it was and as it is: prices above all.
+  await logAction(admin, {
+    venueId: court.venueId,
+    action: "court.changed",
+    detail: `${court.name}: ${Object.entries(changes)
+      .map(([k, v]) => `${k} ${String((court as unknown as Record<string, unknown>)[k] ?? "—")} → ${String(v ?? "—")}`)
+      .join(", ")}`,
+  });
   // Only once the rest has been accepted, so a refused change changes nothing.
   const saved = Object.keys(features).length > 0 ? ((await setCourtFeatures(courtId, features)) ?? result.court) : result.court;
   return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { membershipById, voidMembership } from "@/lib/store";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -23,5 +24,6 @@ export async function POST(
 
   const result = await voidMembership(membershipId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, { venueId: existing.venueId, action: "membership.voided", detail: `Membership ${membershipId}` });
   return NextResponse.json({ membership: result.membership });
 }

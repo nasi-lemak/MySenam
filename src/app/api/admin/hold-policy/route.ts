@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { holdPolicy, setHoldPolicy } from "@/lib/holds";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +32,10 @@ export async function POST(req: NextRequest) {
   if (venueId instanceof NextResponse) return venueId;
   const result = await setHoldPolicy(venueId, { on: body.on === true, minutes: body.minutes === undefined ? undefined : Number(body.minutes) });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
+  await logFromRequest(req, {
+    venueId,
+    action: "settings.changed",
+    detail: `Pay online to hold: ${result.policy.on ? `on, ${result.policy.minutes} minutes` : "off"}`,
+  });
   return NextResponse.json({ policy: result.policy });
 }

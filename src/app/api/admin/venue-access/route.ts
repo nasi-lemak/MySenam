@@ -12,6 +12,7 @@ import {
   type VenueAccess,
 } from "@/lib/access";
 import { phoneChecksOn } from "@/lib/phone-check";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -79,5 +80,10 @@ export async function POST(req: NextRequest) {
   } else {
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   }
+  await logFromRequest(req, {
+    venueId,
+    action: "settings.changed",
+    detail: body.action === "settings" ? `Who it is for: ${String(body.access)}` : `Access list: ${String(body.action)}${typeof body.phone === "string" ? ` ${body.phone}` : ""}`,
+  });
   return NextResponse.json({ settings: await accessSettings(venueId), list: await accessList(venueId) });
 }
