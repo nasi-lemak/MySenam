@@ -158,6 +158,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
 | `MYSENAM_WHATSAPP_PACK` | `200` | On a marketplace, WhatsApp messages in a prepaid pack — see *What WhatsApp costs, and who pays* |
 | `MYSENAM_WHATSAPP_PACK_PRICE` | `20` | RM for a pack, paid before any of it is sent |
+| `MYSENAM_PAYMENT_PROVIDERS` | `billplz` | The payment gateways venues may connect, comma-separated — see *Payment gateways* |
+| `MYSENAM_PAYMENT_PROVIDER` | the first of those | The gateway the platform's own account is at, for venues paying invoices and WhatsApp packs online |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
 | `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
@@ -2206,6 +2208,37 @@ and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
 when that is unset, one generated into `secret.key` in the data folder —
 never in the database. A backup restored onto another machine without that key asks
 for the venue's payment keys to be entered again instead of handing them over.
+
+### Payment gateways
+
+Billplz is the first gateway, not the only one the code can have. Everything
+gateway-specific sits behind one interface in `src/lib/gateways/`; the rest of
+MySenam (what a payment is for, settling it once, money owed back, holds)
+never knows which gateway a payment went through.
+
+- **A gateway** implements `PaymentGateway` (`src/lib/gateways/types.ts`): the
+  fields a venue types in to connect (and which are secret), a check on them,
+  opening a hosted payment page, reading its server-to-server callback (raw
+  body and headers, so JSON webhooks with a signature header fit as well as
+  Billplz's signed form), reading the customer's redirect back, and the
+  platform's own account from environment variables. Adding one is a file
+  beside `billplz.ts` and a line in `src/lib/gateways/index.ts`.
+- **Callbacks** arrive at `/api/payments/<gateway>/callback`. Billplz's address
+  is unchanged, so payment pages already out keep reporting.
+- **A report is checked only by the gateway the payment was made through**,
+  under the key of the account it was made with. A Billplz page reported as if
+  from another gateway is not checked at all.
+- **A venue's account** is stored as that gateway's own fields in one JSON
+  column, each secret sealed on its own. *Online payment* in the admin shows
+  whatever fields the chosen gateway asks for, with a choice of gateway when
+  the install offers more than one (`MYSENAM_PAYMENT_PROVIDERS`). Switching
+  gateway means entering the new one's keys. Migration 0034 moved existing
+  Billplz accounts across without unsealing anything.
+- **Not yet country-neutral**: amounts are still ringgit (`RM` in the
+  interface, sen at Billplz), dates run on Malaysian time, phone numbers
+  default to +60, and the customer-facing text that names FPX and Billplz is
+  Malaysian copy. Those are install settings still to come; a gateway lists the
+  currencies it takes (`currencies`) for when they are.
 
 ## Booking without naming a court
 

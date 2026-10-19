@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { platformAccount } from "@/lib/gateways";
 import { canAccessVenue, denyVenue, isOwner, requireAdmin, requireOwner } from "@/lib/admin-auth";
 import {
   defaultFee,
@@ -7,7 +8,6 @@ import {
   listInvoices,
   markInvoicePaid,
   payInvoiceOnline,
-  platformAccount,
   setVenuePlan,
   venuePlans,
   voidInvoice,

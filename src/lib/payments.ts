@@ -1,16 +1,25 @@
 import { isOpen, venueIsOpen } from "./listing";
 import { creditScope, isMarketplace } from "./mode";
 import { getDb } from "./db";
-import { BillResult, BillplzAccount, createBill } from "./billplz";
+import {
+  gatewayFor,
+  offeredGateways,
+  openCheckout,
+  platformAccount,
+  type CredentialField,
+  type GatewayAccount,
+  type PaymentGateway,
+  type PaymentResult,
+  type ProviderId,
+} from "./gateways";
 import { seal, unseal } from "./secrets";
 import { findBooking, getCourt, getVenue, membershipById, sellMembership } from "./store";
 import { joinTerms } from "./membership-plans";
 import { accessSettings } from "./access";
-import { baseUrl } from "./outbox";
 import { toWhatsAppNumber } from "./transports";
 import { formatHour } from "./time";
 import { Booking, MAX_TOP_UP } from "./types";
-import { platformAccount, settleInvoice } from "./billing";
+import { settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
 import { extendHolds } from "./holds";
@@ -36,23 +45,36 @@ import { errorText, translator, type ErrorCode } from "./i18n";
 interface AccountRow {
   venue_id: number;
   provider: string;
-  api_key: string;
-  collection_id: string;
-  x_signature_key: string;
+  /** JSON: each field the gateway asks for, its secrets sealed one by one. */
+  credentials: string;
   sandbox: number;
   enabled: number;
   updated_at: string;
 }
 
+/** A gateway a venue can connect, as the settings form shows it. */
+export interface GatewayChoice {
+  id: ProviderId;
+  name: string;
+  methods: string;
+  fields: CredentialField[];
+  setup?: string;
+}
+
 /** What staff see of a venue's gateway account. The keys never leave. */
 export interface PaymentSettings {
-  provider: "billplz";
+  provider: ProviderId;
+  providerName: string;
+  /** The gateways this install offers, to connect or switch to. */
+  choices: GatewayChoice[];
   configured: boolean;
   enabled: boolean;
   sandbox: boolean;
-  collectionId: string | null;
-  /** The last four characters of the API key, to tell which one is in. */
-  apiKeyEnding: string | null;
+  /**
+   * Each field as it may be shown: a plain one in full, a secret by its last
+   * four characters (to tell which key is in), null when not set.
+   */
+  details: Record<string, string | null>;
   /**
    * The keys are stored but cannot be read: this install was restored onto
    * another machine, or its secret changed. They need entering again.
@@ -67,41 +89,88 @@ async function accountRow(venueId: number): Promise<AccountRow | undefined> {
     | undefined;
 }
 
+function storedFields(row: AccountRow): Record<string, string> {
+  try {
+    const parsed = JSON.parse(row.credentials) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(parsed).filter((e): e is [string, string] => typeof e[1] === "string"));
+  } catch {
+    return {};
+  }
+}
+
+/** The row's credentials in the clear, or null if any is missing or cannot be unsealed here. */
+function readAccount(row: AccountRow): GatewayAccount | null {
+  const gateway = gatewayFor(row.provider);
+  if (!gateway) return null;
+  const stored = storedFields(row);
+  const credentials: Record<string, string> = {};
+  for (const f of gateway.fields) {
+    const value = stored[f.key] === undefined ? null : f.secret ? unseal(stored[f.key]) : stored[f.key];
+    if (!value) return null;
+    credentials[f.key] = value;
+  }
+  return { provider: gateway.id, sandbox: row.sandbox === 1, credentials };
+}
+
+const choice = (g: PaymentGateway): GatewayChoice => ({
+  id: g.id,
+  name: g.name,
+  methods: g.methods,
+  fields: g.fields,
+  ...(g.setup ? { setup: g.setup } : {}),
+});
+
 export async function paymentSettings(venueId: number): Promise<PaymentSettings> {
   const row = await accountRow(venueId);
+  const choices = offeredGateways().map(choice);
+  const gateway = (row && gatewayFor(row.provider)) || offeredGateways()[0];
   if (!row)
     return {
-      provider: "billplz",
+      provider: gateway.id,
+      providerName: gateway.name,
+      choices,
       configured: false,
       enabled: false,
       sandbox: false,
-      collectionId: null,
-      apiKeyEnding: null,
+      details: Object.fromEntries(gateway.fields.map((f) => [f.key, null])),
       unreadable: false,
       updatedAt: null,
     };
-  const apiKey = unseal(row.api_key);
-  const signatureKey = unseal(row.x_signature_key);
+  const stored = storedFields(row);
+  const details: Record<string, string | null> = {};
+  let unreadable = false;
+  for (const f of gateway.fields) {
+    if (stored[f.key] === undefined) {
+      details[f.key] = null;
+      continue;
+    }
+    if (!f.secret) {
+      details[f.key] = stored[f.key];
+      continue;
+    }
+    const value = unseal(stored[f.key]);
+    if (value === null) unreadable = true;
+    details[f.key] = value ? value.slice(-4) : null;
+  }
   return {
-    provider: "billplz",
+    provider: gateway.id,
+    providerName: gateway.name,
+    // A venue on a gateway this install no longer offers still sees it.
+    choices: choices.some((c) => c.id === gateway.id) ? choices : [...choices, choice(gateway)],
     configured: true,
     enabled: row.enabled === 1,
     sandbox: row.sandbox === 1,
-    collectionId: row.collection_id,
-    apiKeyEnding: apiKey ? apiKey.slice(-4) : null,
-    unreadable: apiKey === null || signatureKey === null,
+    details,
+    unreadable,
     updatedAt: row.updated_at,
   };
 }
 
-/** The account to bill through, or null when the venue takes no payment online. */
-export async function venueAccount(venueId: number): Promise<BillplzAccount | null> {
+/** The account to take payment through, or null when the venue takes no payment online. */
+export async function venueAccount(venueId: number): Promise<GatewayAccount | null> {
   const row = await accountRow(venueId);
   if (!row || row.enabled !== 1) return null;
-  const apiKey = unseal(row.api_key);
-  const xSignatureKey = unseal(row.x_signature_key);
-  if (!apiKey || !xSignatureKey) return null;
-  return { apiKey, collectionId: row.collection_id, xSignatureKey, sandbox: row.sandbox === 1 };
+  return readAccount(row);
 }
 
 export async function takesPaymentOnline(venueId: number): Promise<boolean> {
@@ -111,15 +180,19 @@ export async function takesPaymentOnline(venueId: number): Promise<boolean> {
 export type SettingsResult = { ok: true; settings: PaymentSettings } | { ok: false; error: string };
 
 /**
- * Set a venue's gateway account. The keys may be left out to keep the ones
+ * Connect a venue's gateway account. A field may be left out to keep the one
  * already stored, so turning it off or switching to sandbox does not mean
- * finding them again.
+ * finding the keys again; switching gateway means entering the new one's.
+ * Billplz's three fields may also be given at the top level, as they were
+ * before there was a choice of gateway.
  */
 export async function savePaymentSettings(
   venueId: number,
   input: {
+    provider?: string;
+    credentials?: Record<string, unknown>;
     apiKey?: string;
-    collectionId: string;
+    collectionId?: string;
     xSignatureKey?: string;
     sandbox: boolean;
     enabled: boolean;
@@ -127,40 +200,50 @@ export async function savePaymentSettings(
 ): Promise<SettingsResult> {
   if (!await getVenue(venueId)) return { ok: false, error: "Venue not found." };
   const existing = await accountRow(venueId);
-  const apiKey = input.apiKey?.trim();
-  const signatureKey = input.xSignatureKey?.trim();
-  const collectionId = input.collectionId.trim();
-  if (!/^[\w-]{3,40}$/.test(collectionId))
-    return { ok: false, error: "That does not look like a Billplz collection ID." };
-  if (!existing && (!apiKey || !signatureKey))
-    return { ok: false, error: "The API key and the X Signature key are both needed the first time." };
-  if (existing && (!unseal(existing.api_key) || !unseal(existing.x_signature_key)) && (!apiKey || !signatureKey))
-    return {
-      ok: false,
-      error: "The stored keys cannot be read on this install. Enter both keys again.",
-    };
+  const gateway = gatewayFor(input.provider ?? existing?.provider ?? offeredGateways()[0].id);
+  if (!gateway || (!offeredGateways().includes(gateway) && gateway.id !== existing?.provider))
+    return { ok: false, error: "That payment gateway is not offered here." };
+
+  const given: Record<string, unknown> = { ...(input.credentials ?? {}) };
+  if (gateway.id === "billplz")
+    for (const key of ["apiKey", "collectionId", "xSignatureKey"] as const)
+      if (input[key] !== undefined && given[key] === undefined) given[key] = input[key];
+
+  // Kept fields count only when they belong to the same gateway.
+  const stored = existing && existing.provider === gateway.id ? storedFields(existing) : {};
+  const plain: Record<string, string> = {};
+  const sealed: Record<string, string> = {};
+  for (const f of gateway.fields) {
+    const typed = typeof given[f.key] === "string" ? (given[f.key] as string).trim() : "";
+    if (typed !== "") {
+      if (typed.length > 200) return { ok: false, error: `${f.label} is too long.` };
+      plain[f.key] = typed;
+      sealed[f.key] = f.secret ? seal(typed) : typed;
+      continue;
+    }
+    if (stored[f.key] === undefined)
+      return { ok: false, error: `${f.label} is needed${existing?.provider === gateway.id ? "" : " the first time"}.` };
+    const kept = f.secret ? unseal(stored[f.key]) : stored[f.key];
+    if (!kept)
+      return { ok: false, error: "The stored keys cannot be read on this install. Enter them again." };
+    plain[f.key] = kept;
+    sealed[f.key] = stored[f.key];
+  }
+  const wrong = gateway.checkCredentials(plain);
+  if (wrong) return { ok: false, error: wrong };
 
   await getDb()
     .prepare(`
-      INSERT INTO venue_payment_accounts
-        (venue_id, provider, api_key, collection_id, x_signature_key, sandbox, enabled, updated_at)
-      VALUES (?, 'billplz', ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO venue_payment_accounts (venue_id, provider, credentials, sandbox, enabled, updated_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(venue_id) DO UPDATE SET
-        api_key = excluded.api_key,
-        collection_id = excluded.collection_id,
-        x_signature_key = excluded.x_signature_key,
+        provider = excluded.provider,
+        credentials = excluded.credentials,
         sandbox = excluded.sandbox,
         enabled = excluded.enabled,
         updated_at = excluded.updated_at
     `)
-    .run(
-      venueId,
-      apiKey ? seal(apiKey) : existing!.api_key,
-      collectionId,
-      signatureKey ? seal(signatureKey) : existing!.x_signature_key,
-      input.sandbox ? 1 : 0,
-      input.enabled ? 1 : 0
-    );
+    .run(venueId, gateway.id, JSON.stringify(sealed), input.sandbox ? 1 : 0, input.enabled ? 1 : 0);
   return { ok: true, settings: await paymentSettings(venueId) };
 }
 
@@ -320,14 +403,13 @@ export async function startBookingPayment(input: {
 
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount,
       name: first.name,
       email: first.email,
       mobile: first.phone ? toWhatsAppNumber(first.phone) : null,
       description: `${venue.name}: ${what} (${first.seriesCode && due.length > 1 ? first.seriesCode : first.code})`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
-      // The customer comes back to the site they paid on; Billplz reports to ours.
+      // The customer comes back to the site they paid on; the gateway reports to ours.
       redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
       reference: { label: "Booking", value: due.map((b) => b.code).join(" ") },
     });
@@ -344,9 +426,9 @@ export async function startBookingPayment(input: {
     const info = await db
       .prepare(
         `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone)
-         VALUES ('billplz', ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(bill.id, bill.url, venueId, amount, first.name, first.phone);
+      .run(account.provider, bill.id, bill.url, venueId, amount, first.name, first.phone);
     const link = db.prepare(
       "INSERT INTO online_payment_bookings (payment_id, booking_id) VALUES (?, ?)"
     );
@@ -378,24 +460,28 @@ async function pendingPaymentFor(bookingIds: number[], amount: number): Promise<
   return null;
 }
 
-/** Whose key checks a callback or redirect for this bill. */
-export async function accountForBill(billId: string): Promise<BillplzAccount | null> {
+/**
+ * Whose key checks a callback or redirect for this payment page, at this
+ * gateway. A report that names a page made through another gateway is not
+ * checked at all.
+ */
+export async function accountForBill(provider: string, billId: string): Promise<GatewayAccount | null> {
   const row = await getDb()
-    .prepare("SELECT venue_id, purpose FROM online_payments WHERE bill_id = ?")
-    .get(billId) as { venue_id: number | null; purpose: string } | undefined;
-  if (!row) return null;
+    .prepare("SELECT venue_id, purpose, provider FROM online_payments WHERE bill_id = ?")
+    .get(billId) as { venue_id: number | null; purpose: string; provider: string } | undefined;
+  if (!row || row.provider !== provider) return null;
   // A venue's fee was billed to the platform's account, and is checked with its key.
   // So was a venue's WhatsApp pack.
-  if (row.purpose === "invoice" || row.purpose === "pack") return platformAccount();
+  if (row.purpose === "invoice" || row.purpose === "pack") {
+    const platform = platformAccount();
+    return platform?.provider === provider ? platform : null;
+  }
   if (row.venue_id === null) return null;
-  // Checked even when the venue has since switched online payment off: a bill
+  // Checked even when the venue has since switched online payment off: a page
   // it already sent can still be paid, and that money still arrived.
   const account = await accountRow(row.venue_id);
-  if (!account) return null;
-  const apiKey = unseal(account.api_key);
-  const xSignatureKey = unseal(account.x_signature_key);
-  if (!apiKey || !xSignatureKey) return null;
-  return { apiKey, collectionId: account.collection_id, xSignatureKey, sandbox: account.sandbox === 1 };
+  if (!account || account.provider !== provider) return null;
+  return readAccount(account);
 }
 
 export interface Settled {
@@ -407,12 +493,12 @@ export interface Settled {
 /**
  * Record what the gateway said about a bill, once.
  *
- * Billplz tells us by callback and by redirect, in either order, and retries a
+ * A gateway tells us by callback and by redirect, in either order, and retries a
  * callback it thinks failed — so this is safe to call any number of times. A
  * booking cancelled, or paid some other way, before the money arrived is not
  * marked paid twice: the amount is written down as owed back instead.
  */
-export async function settleBill(result: BillResult): Promise<Settled | null> {
+export async function settleBill(result: PaymentResult): Promise<Settled | null> {
   const db = getDb();
   const row = await db.prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(result.billId) as
     | PaymentRow
@@ -692,13 +778,12 @@ export async function startSharePayment(user: { id: number; name: string; phone:
 
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount: row.share,
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(user.phone),
       description: `${venue.name}: share of ${row.court_name}, ${row.date} ${formatHour(row.start_hour)}-${formatHour(row.end_hour)} (${row.code})`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
       reference: { label: "Booking", value: row.code },
     });
@@ -708,9 +793,9 @@ export async function startSharePayment(user: { id: number; name: string; phone:
   await db
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, game_player_id)
-       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'share', ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'share', ?)`
     )
-    .run(bill.id, bill.url, row.venue_id, row.share, user.name, user.phone, row.player_id);
+    .run(account.provider, bill.id, bill.url, row.venue_id, row.share, user.name, user.phone, row.player_id);
   return { ok: true, url: bill.url, amount: row.share, reused: false };
 }
 
@@ -779,13 +864,12 @@ export async function startEntryPayment(user: { id: number; name: string; phone:
 
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount: row.fee,
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(user.phone),
       description: `${venue.name}: entry, ${row.name} (${row.starts_on})`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
       reference: { label: "Entry", value: `T${tournamentId}-${row.id}` },
     });
@@ -795,9 +879,9 @@ export async function startEntryPayment(user: { id: number; name: string; phone:
   await db
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, tournament_entry_id)
-       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'entry', ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'entry', ?)`
     )
-    .run(bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
+    .run(account.provider, bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
   return { ok: true, url: bill.url, amount: row.fee, reused: false };
 }
 
@@ -830,13 +914,12 @@ export async function startTopUpPayment(
   if (!account) return { ok: false, error: `${venue.name} does not take payment online. Top up at the counter.`, status: 409 };
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount,
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(user.phone),
       description: `${venue.name}: credit top-up`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
       reference: { label: "Top-up", value: `U${user.id}` },
     });
@@ -846,9 +929,9 @@ export async function startTopUpPayment(
   await getDb()
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, topup_user_id)
-       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'topup', ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'topup', ?)`
     )
-    .run(bill.id, bill.url, venueId, amount, user.name, user.phone, user.id);
+    .run(account.provider, bill.id, bill.url, venueId, amount, user.name, user.phone, user.id);
   return { ok: true, url: bill.url, amount, reused: false };
 }
 
@@ -873,13 +956,12 @@ export async function startMembershipPayment(
     return { ok: false, error: errorText(ENGLISH, "JOIN_OFFLINE"), code: "JOIN_OFFLINE", status: 409 };
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount: plan.price,
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(phone),
       description: `${venue.name}: ${plan.name}, ${startsOn} to ${expiresOn}${renewing ? " (renewal)" : ""}`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${await venueBaseUrl(plan.venueId)}/payments/return`,
       reference: { label: "Membership", value: `U${user.id}` },
     });
@@ -889,9 +971,9 @@ export async function startMembershipPayment(
   await getDb()
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, member_user_id, membership_plan_id)
-       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'membership', ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'membership', ?, ?)`
     )
-    .run(bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id);
+    .run(account.provider, bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id);
   return { ok: true, url: bill.url, amount: plan.price, reused: false };
 }
 
@@ -957,13 +1039,12 @@ export async function startLeaguePayment(user: { id: number; name: string; phone
 
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount: row.fee,
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(user.phone),
       description: `${venue.name}: ${row.name}, season ${row.number}`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
       reference: { label: "League", value: `L${leagueId}-${row.id}` },
     });
@@ -973,8 +1054,8 @@ export async function startLeaguePayment(user: { id: number; name: string; phone
   await db
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, league_place_id)
-       VALUES ('billplz', ?, ?, ?, ?, ?, ?, 'league', ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'league', ?)`
     )
-    .run(bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
+    .run(account.provider, bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
   return { ok: true, url: bill.url, amount: row.fee, reused: false };
 }

@@ -169,10 +169,10 @@ describe("paying an invoice online", () => {
 
     const billId = `inv-bill-${inv.id}`;
     const fields: Record<string, string> = { id: billId, paid: "true", paid_at: "2026-11-02 10:00:00 +0800" };
-    const account = (await accountForBill(billId))!;
+    const account = (await accountForBill("billplz", billId))!;
     // Signed by the venue's key, it is not believed; by the platform's, it is.
-    expect(verifyCallback({ ...fields, x_signature: xSignature(fields, "venue-key") }, account.xSignatureKey)).toBeNull();
-    const verified = verifyCallback({ ...fields, x_signature: xSignature(fields, PLATFORM_KEY) }, account.xSignatureKey);
+    expect(verifyCallback({ ...fields, x_signature: xSignature(fields, "venue-key") }, account.credentials.xSignatureKey)).toBeNull();
+    const verified = verifyCallback({ ...fields, x_signature: xSignature(fields, PLATFORM_KEY) }, account.credentials.xSignatureKey);
     expect(verified).not.toBeNull();
     await settleBill(verified!);
 

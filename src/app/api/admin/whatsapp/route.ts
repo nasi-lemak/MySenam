@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
-import { platformAccount } from "@/lib/billing";
+import { platformAccount } from "@/lib/gateways";
 import { chatRepliesOn } from "@/lib/outbox";
 import {
   creditBalance,

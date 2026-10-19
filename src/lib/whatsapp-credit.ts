@@ -1,6 +1,5 @@
 import { getDb } from "./db";
-import { createBill } from "./billplz";
-import { platformAccount } from "./billing";
+import { openCheckout, platformAccount } from "./gateways";
 import { isMarketplace } from "./mode";
 import { baseUrl, chatRepliesOn, transportOverridden } from "./outbox";
 import { siteName } from "./site";
@@ -277,12 +276,11 @@ export async function payPackOnline(packId: number, payer: { name: string; email
   const venue = (await db.prepare("SELECT name FROM venues WHERE id = ?").get(pack.venueId)) as { name: string };
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount: pack.amount,
       name: payer.name,
       email: payer.email,
       description: `${siteName()}: ${pack.messages} WhatsApp messages for ${venue.name}`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${baseUrl()}/payments/return`,
       reference: { label: "WhatsApp", value: `${venue.name} pack ${pack.id}` },
     });
@@ -292,8 +290,8 @@ export async function payPackOnline(packId: number, payer: { name: string; email
   await db
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, purpose, pack_id)
-       VALUES ('billplz', ?, ?, ?, ?, ?, 'pack', ?)`
+       VALUES (?, ?, ?, ?, ?, ?, 'pack', ?)`
     )
-    .run(bill.id, bill.url, pack.venueId, pack.amount, payer.name, packId);
+    .run(account.provider, bill.id, bill.url, pack.venueId, pack.amount, payer.name, packId);
   return { ok: true, url: bill.url };
 }

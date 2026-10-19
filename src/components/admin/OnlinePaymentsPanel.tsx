@@ -10,9 +10,10 @@ import { HoldPolicyEditor } from "./HoldPolicyEditor";
  * A venue's own online payment account, and what came through it.
  *
  * The keys are typed in once and never shown again — not even to the person
- * who typed them. What staff see is whether it is on, which collection it
- * pays into, and the last four characters of the key, which is enough to tell
- * which account is set without making the page worth stealing.
+ * who typed them. What staff see is whether it is on, the gateway's plain
+ * settings (a Billplz collection, say), and the last four characters of each
+ * key, which is enough to tell which account is set without making the page
+ * worth stealing. The fields are whatever the chosen gateway asks for.
  */
 export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
@@ -20,9 +21,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [payments, setPayments] = useState<OnlinePayment[]>([]);
   const [owed, setOwed] = useState<OnlinePayment[]>([]);
   const [form, setForm] = useState({
-    collectionId: "",
-    apiKey: "",
-    xSignatureKey: "",
+    provider: "",
+    credentials: {} as Record<string, string>,
     sandbox: false,
     enabled: true,
   });
@@ -44,9 +44,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       const current: PaymentSettings = settingsData.settings;
       setSettings(current);
       setForm({
-        collectionId: current.collectionId ?? "",
-        apiKey: "",
-        xSignatureKey: "",
+        provider: current.provider,
+        credentials: plainFields(current, current.provider),
         sandbox: current.sandbox,
         enabled: current.configured ? current.enabled : true,
       });
@@ -84,11 +83,17 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
 
   const input =
     "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
-  const keyHint = settings?.configured
-    ? settings.unreadable
-      ? "Stored key cannot be read on this install — enter it again"
-      : `Saved (ends ${settings.apiKeyEnding}) — leave blank to keep`
-    : "";
+  const gateway = settings?.choices.find((c) => c.id === form.provider) ?? settings?.choices[0];
+  // Keys already stored count only for the gateway they were stored for.
+  const sameGateway = settings?.configured && settings.provider === form.provider;
+  const keyHint = (key: string) =>
+    !sameGateway
+      ? ""
+      : settings!.unreadable
+        ? "Stored key cannot be read on this install — enter it again"
+        : settings!.details[key]
+          ? `Saved (ends ${settings!.details[key]}) — leave blank to keep`
+          : "";
 
   return (
     <section>
@@ -109,12 +114,9 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        Let customers pay by FPX online banking or card, into the venue&apos;s own{" "}
-        <a href="https://www.billplz.com" target="_blank" rel="noopener noreferrer" className="underline">
-          Billplz
-        </a>{" "}
-        account. The money goes straight to the venue. Paying online is optional for the
-        customer: an unpaid booking still stands, and the counter works as before.
+        Let customers pay {gateway ? `by ${gateway.methods.toLowerCase()}, ` : ""}into the venue&apos;s own
+        {gateway ? ` ${gateway.name}` : ""} account. The money goes straight to the venue. Paying online is optional for
+        the customer: an unpaid booking still stands, and the counter works as before.
       </p>
 
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
@@ -123,7 +125,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       {settings?.unreadable && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <strong>Online payment is off.</strong> The saved keys cannot be read on this install —
-          it was moved or restored, or its secret changed. Enter both keys again.
+          it was moved or restored, or its secret changed. Enter the keys again.
         </div>
       )}
 
@@ -139,38 +141,39 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         }}
         className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2"
       >
-        <label className="text-sm font-medium text-slate-700">
-          Collection ID
-          <input
-            required
-            value={form.collectionId}
-            onChange={(e) => setForm({ ...form, collectionId: e.target.value })}
-            placeholder="e.g. inbmmepb"
-            className={`mt-1 ${input} font-mono`}
-          />
-        </label>
-        <label className="text-sm font-medium text-slate-700">
-          API secret key
-          <input
-            type="password"
-            autoComplete="off"
-            value={form.apiKey}
-            onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-            placeholder={keyHint}
-            className={`mt-1 ${input} font-mono`}
-          />
-        </label>
-        <label className="text-sm font-medium text-slate-700">
-          X Signature key
-          <input
-            type="password"
-            autoComplete="off"
-            value={form.xSignatureKey}
-            onChange={(e) => setForm({ ...form, xSignatureKey: e.target.value })}
-            placeholder={settings?.configured && !settings.unreadable ? "Saved — leave blank to keep" : ""}
-            className={`mt-1 ${input} font-mono`}
-          />
-        </label>
+        {settings && settings.choices.length > 1 && (
+          <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+            Payment gateway
+            <select
+              value={form.provider}
+              onChange={(e) =>
+                setForm({ ...form, provider: e.target.value, credentials: plainFields(settings, e.target.value) })
+              }
+              className={`mt-1 ${input}`}
+            >
+              {settings.choices.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.methods}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {gateway?.fields.map((f) => (
+          <label key={f.key} className="text-sm font-medium text-slate-700">
+            {f.label}
+            <input
+              type={f.secret ? "password" : "text"}
+              autoComplete="off"
+              required={!f.secret || !sameGateway}
+              value={form.credentials[f.key] ?? ""}
+              onChange={(e) => setForm({ ...form, credentials: { ...form.credentials, [f.key]: e.target.value } })}
+              placeholder={f.secret ? keyHint(f.key) : ""}
+              className={`mt-1 ${input} font-mono`}
+            />
+            {f.help && <span className="mt-0.5 block text-xs font-normal text-slate-500">{f.help}</span>}
+          </label>
+        ))}
         <div className="flex flex-col justify-end gap-1.5 text-sm text-slate-700">
           <label className="flex items-center gap-2">
             <input
@@ -191,11 +194,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             Sandbox (test payments, no real money)
           </label>
         </div>
-        <p className="text-xs text-slate-500 sm:col-span-2">
-          All three are under <em>Settings → Keys &amp; Integration</em> and{" "}
-          <em>Billing → Collections</em> in Billplz. Nothing needs setting up on the Billplz side:
-          each bill tells Billplz where to report back.
-        </p>
+        {gateway?.setup && <p className="text-xs text-slate-500 sm:col-span-2">{gateway.setup}</p>}
         <div className="flex gap-2 sm:col-span-2">
           <button
             type="submit"
@@ -226,7 +225,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h3 className="text-sm font-bold text-amber-900">Refunds owed</h3>
           <p className="mt-0.5 text-xs text-amber-800">
-            Paid online, then cancelled — or paid twice. Refund these in Billplz, then mark them done.
+            Paid online, then cancelled — or paid twice. Refund these in {settings?.providerName ?? "your gateway"}, then mark them done.
           </p>
           <ul className="mt-2 space-y-1.5 text-sm">
             {owed.map((p) => (
@@ -289,4 +288,11 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       )}
     </section>
   );
+}
+
+/** The fields of a gateway that may be shown back in full, to prefill the form. */
+function plainFields(settings: PaymentSettings, provider: string): Record<string, string> {
+  if (!settings.configured || settings.provider !== provider) return {};
+  const fields = settings.choices.find((c) => c.id === provider)?.fields ?? [];
+  return Object.fromEntries(fields.filter((f) => !f.secret).map((f) => [f.key, settings.details[f.key] ?? ""]));
 }

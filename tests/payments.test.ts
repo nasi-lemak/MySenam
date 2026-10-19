@@ -181,9 +181,11 @@ describe("Billplz's signatures", () => {
 
 describe("a venue's keys", () => {
   it("are never stored readable", async () => {
-    const row = await getDb()
-      .prepare("SELECT api_key, x_signature_key FROM venue_payment_accounts WHERE venue_id = ?")
-      .get(venueId) as { api_key: string; x_signature_key: string };
+    const stored = (await getDb()
+      .prepare("SELECT credentials FROM venue_payment_accounts WHERE venue_id = ?")
+      .get(venueId)) as { credentials: string };
+    const keys = JSON.parse(stored.credentials) as { apiKey: string; xSignatureKey: string };
+    const row = { api_key: keys.apiKey, x_signature_key: keys.xSignatureKey };
     expect(row.api_key).not.toContain("api-key-1234");
     expect(row.x_signature_key).not.toContain(SIGNATURE_KEY);
     expect(unseal(row.api_key)).toBe("api-key-1234");
@@ -193,13 +195,13 @@ describe("a venue's keys", () => {
     const shown = await paymentSettings(venueId);
     expect(JSON.stringify(shown)).not.toContain("api-key-1234");
     expect(JSON.stringify(shown)).not.toContain(SIGNATURE_KEY);
-    expect(shown).toMatchObject({ configured: true, enabled: true, sandbox: true, apiKeyEnding: "1234" });
+    expect(shown).toMatchObject({ provider: "billplz", configured: true, enabled: true, sandbox: true, details: { apiKey: "1234" } });
   });
 
   it("can be left blank on a later save to keep them", async () => {
     const again = await savePaymentSettings(venueId, { collectionId: "col456", sandbox: false, enabled: true });
     expect(again.ok).toBe(true);
-    expect(await paymentSettings(venueId)).toMatchObject({ collectionId: "col456", apiKeyEnding: "1234" });
+    expect(await paymentSettings(venueId)).toMatchObject({ details: { collectionId: "col456", apiKey: "1234" } });
   });
 
   it("must both be given the first time", async () => {
@@ -396,7 +398,10 @@ describe("being told it was paid", () => {
 });
 
 describe("the routes", () => {
-  const callback = () => import("../src/app/api/payments/billplz/callback/route");
+  const route = () => import("../src/app/api/payments/[provider]/callback/route");
+  const callback = async (provider = "billplz") => ({
+    POST: async (req: NextRequest) => (await route()).POST(req, { params: Promise.resolve({ provider }) }),
+  });
   const pay = () => import("../src/app/api/payments/route");
 
   function form(fields: Record<string, string>) {

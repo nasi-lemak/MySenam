@@ -84,17 +84,19 @@ describe("changing a booking's time", () => {
   });
 
   it("goes to another court of the sport when its own is taken, and refuses when none is free", async () => {
+    // weekday(6) can be the same day as the tests above (weekends are skipped),
+    // so this one keeps to hours they do not use.
     const date = weekday(6);
     const courts = await badminton();
-    const b = await book(courts[0].id, [9], date);
-    await book(courts[0].id, [15], date);
-    const moved = await rescheduleBooking(b.code, { date, startHour: 15 }, "customer");
+    const b = await book(courts[0].id, [8], date);
+    await book(courts[0].id, [20], date);
+    const moved = await rescheduleBooking(b.code, { date, startHour: 20 }, "customer");
     expect(moved).toMatchObject({ ok: true });
     if (moved.ok) expect(moved.booking.courtId).not.toBe(courts[0].id);
 
-    for (const c of courts) await book(c.id, [16], date).catch(() => undefined);
-    expect(await rescheduleBooking(b.code, { date, startHour: 16 }, "customer")).toMatchObject({ ok: false, code: "RESCHEDULE_TAKEN" });
-    expect((await rescheduleOptions(b.code, date)).some((o) => o.startHour === 16)).toBe(false);
+    for (const c of courts) await book(c.id, [21], date).catch(() => undefined);
+    expect(await rescheduleBooking(b.code, { date, startHour: 21 }, "customer")).toMatchObject({ ok: false, code: "RESCHEDULE_TAKEN" });
+    expect((await rescheduleOptions(b.code, date)).some((o) => o.startHour === 21)).toBe(false);
   });
 
   it("reprices an unpaid booking at the new time's rate", async () => {

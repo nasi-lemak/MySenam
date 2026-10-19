@@ -34,28 +34,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { apiKey, collectionId, xSignatureKey, sandbox, enabled } = (body ?? {}) as Record<
+  // `{ provider, credentials: { … }, sandbox, enabled }`; Billplz's three keys
+  // may also come at the top level, as they did before there was a choice.
+  const { provider, credentials, apiKey, collectionId, xSignatureKey, sandbox, enabled } = (body ?? {}) as Record<
     string,
     unknown
   >;
-  if (typeof collectionId !== "string")
-    return NextResponse.json({ error: "collectionId is required." }, { status: 400 });
-  for (const [name, value] of [
-    ["apiKey", apiKey],
-    ["xSignatureKey", xSignatureKey],
-  ] as const)
-    if (value !== undefined && value !== "" && (typeof value !== "string" || value.length > 200))
-      return NextResponse.json({ error: `${name} must be text.` }, { status: 400 });
+  if (provider !== undefined && typeof provider !== "string")
+    return NextResponse.json({ error: "provider must be text." }, { status: 400 });
+  if (credentials !== undefined && (typeof credentials !== "object" || credentials === null || Array.isArray(credentials)))
+    return NextResponse.json({ error: "credentials must be an object." }, { status: 400 });
+  const text = (v: unknown) => (typeof v === "string" ? v : undefined);
 
   const result = await savePaymentSettings(venueId, {
-    apiKey: typeof apiKey === "string" && apiKey !== "" ? apiKey : undefined,
-    collectionId,
-    xSignatureKey: typeof xSignatureKey === "string" && xSignatureKey !== "" ? xSignatureKey : undefined,
+    provider,
+    credentials: credentials as Record<string, unknown> | undefined,
+    apiKey: text(apiKey),
+    collectionId: text(collectionId),
+    xSignatureKey: text(xSignatureKey),
     sandbox: sandbox === true,
     enabled: enabled !== false,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-  await logFromRequest(req, { venueId, action: "settings.changed", detail: "Online payment account saved" });
+  await logFromRequest(req, { venueId, action: "settings.changed", detail: `Online payment account saved (${result.settings.providerName})` });
   return NextResponse.json({ settings: result.settings });
 }
 

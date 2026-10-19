@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirectBillId, verifyRedirect } from "@/lib/billplz";
+import { allGateways, type PaymentResult } from "@/lib/gateways";
 import { accountForBill, paymentByBill, settleBill } from "@/lib/payments";
 import { serverT } from "@/lib/locale";
 
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  * Where the gateway sends the customer back.
  *
  * The result in the address is signed, and is believed only when the
- * signature checks out under the venue's key — then it settles the booking
- * exactly as the server-to-server callback would, since either may arrive
+ * signature checks out under the key of the account it was paid through —
+ * then it settles the booking exactly as the server-to-server callback would, since either may arrive
  * first and the callback may be late. An address without a good signature
  * changes nothing, whatever it says.
  */
@@ -24,9 +24,15 @@ export default async function PaymentReturnPage({
   const query = new URLSearchParams();
   for (const [k, v] of Object.entries(raw)) if (typeof v === "string") query.set(k, v);
 
-  const billId = redirectBillId(query);
-  const account = billId ? await accountForBill(billId) : null;
-  const result = account ? verifyRedirect(query, account.xSignatureKey) : null;
+  // Whichever gateway's address this is: each knows its own.
+  let result: PaymentResult | null = null;
+  for (const gateway of allGateways()) {
+    const inbound = gateway.readRedirect(query);
+    if (!inbound?.billId) continue;
+    const account = await accountForBill(gateway.id, inbound.billId);
+    result = account ? inbound.verify(account) : null;
+    break;
+  }
   if (result) await settleBill(result);
   const payment = result ? await paymentByBill(result.billId) : null;
 

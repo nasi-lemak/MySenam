@@ -100,7 +100,7 @@ export function SetupChecklist({
       done: setup.onlinePayment,
       optional: true,
       title: "Take payment online",
-      body: "Optional. Customers can pay at the counter as they are. To take FPX and cards, connect your Billplz account under Venue details.",
+      body: "Optional. Customers can pay at the counter as they are. To take payment online, connect your payment gateway account under Venue details.",
       actions: <Go onClick={() => onGo("venues")}>Venue details</Go>,
     },
     {

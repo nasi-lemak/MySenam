@@ -1,6 +1,6 @@
 import { applyPaymentHolds } from "./payment-holds";
 import { getDb, withTransaction } from "./db";
-import { BillplzAccount, createBill } from "./billplz";
+import { openCheckout, platformAccount } from "./gateways";
 import { baseUrl } from "./outbox";
 import { isMarketplace } from "./mode";
 import { siteName } from "./site";
@@ -19,7 +19,7 @@ import { getVenue } from "./store";
  * the 16th has the rest of that month free, and nothing is ever prorated or
  * back-billed by surprise.
  *
- * Paying online goes to the platform's own Billplz account (BILLPLZ_*), which
+ * Paying online goes to the platform's own gateway account (lib/gateways), which
  * is a different account from every venue's: this is the platform's income,
  * where a booking payment is the venue's.
  */
@@ -375,15 +375,6 @@ export async function voidInvoice(id: number): Promise<InvoiceResult> {
 
 // ------------------------------------------------------------ paying online
 
-/** The platform's own Billplz account, where venues' fees go. */
-export function platformAccount(): BillplzAccount | null {
-  const apiKey = process.env.BILLPLZ_API_KEY;
-  const collectionId = process.env.BILLPLZ_COLLECTION_ID;
-  const xSignatureKey = process.env.BILLPLZ_X_SIGNATURE_KEY;
-  if (!apiKey || !collectionId || !xSignatureKey) return null;
-  return { apiKey, collectionId, xSignatureKey, sandbox: process.env.BILLPLZ_SANDBOX === "on" };
-}
-
 export type PayInvoiceResult = { ok: true; url: string } | { ok: false; error: string; status: number };
 
 export async function payInvoiceOnline(invoiceId: number, payer: { name: string; email: string }): Promise<PayInvoiceResult> {
@@ -403,7 +394,7 @@ export async function payInvoiceOnline(invoiceId: number, payer: { name: string;
 
   let bill;
   try {
-    bill = await createBill(account, {
+    bill = await openCheckout(account, {
       amount: invoice.amount,
       name: payer.name,
       email: payer.email,
@@ -411,7 +402,6 @@ export async function payInvoiceOnline(invoiceId: number, payer: { name: string;
         invoice.lines.length > 0
           ? `${siteName()}: ${invoice.venueName}, ${invoice.period} (${invoice.lines.length} branches)`
           : `${siteName()}: ${invoice.venueName}, ${invoice.period}`,
-      callbackUrl: `${baseUrl()}/api/payments/billplz/callback`,
       redirectUrl: `${baseUrl()}/payments/return`,
       reference: { label: "Invoice", value: `${invoice.venueName} ${invoice.period}` },
     });
@@ -420,8 +410,8 @@ export async function payInvoiceOnline(invoiceId: number, payer: { name: string;
   }
   await db.prepare(
     `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, purpose, invoice_id)
-     VALUES ('billplz', ?, ?, ?, ?, ?, 'invoice', ?)`
-  ).run(bill.id, bill.url, invoice.venueId, invoice.amount, payer.name, invoiceId);
+     VALUES (?, ?, ?, ?, ?, ?, 'invoice', ?)`
+  ).run(account.provider, bill.id, bill.url, invoice.venueId, invoice.amount, payer.name, invoiceId);
   return { ok: true, url: bill.url };
 }
 

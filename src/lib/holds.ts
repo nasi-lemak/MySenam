@@ -13,7 +13,7 @@ import { offerSlotPlace } from "./store";
  * with its calendar invite; until then nobody is told it is theirs.
  *
  * Opening the payment page holds it for 20 minutes more from then, so a
- * customer part-way through FPX is not undercut. A payment that still lands
+ * customer part-way through paying is not undercut. A payment that still lands
  * after the booking was let go is recorded as owed back, as for any booking
  * cancelled after paying (lib/payments.ts).
  *
@@ -46,7 +46,7 @@ export async function setHoldPolicy(
   const minutes = input.minutes ?? 15;
   if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60) return { ok: false, error: "Hold a booking for 5 to 60 minutes." };
   if (input.on && !(await takesPaymentOnline(venueId)))
-    return { ok: false, error: "Set up taking payment online (Billplz) first: there is no way to pay without it." };
+    return { ok: false, error: "Set up taking payment online first: there is no way to pay without it." };
   await getDb().prepare("UPDATE venues SET pay_to_hold = ?, hold_minutes = ? WHERE id = ?").run(input.on ? 1 : 0, minutes, venueId);
   return { ok: true, policy: await holdPolicy(venueId) };
 }
