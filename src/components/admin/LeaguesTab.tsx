@@ -204,7 +204,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         </label>
         <label className={label}>
           Fee a season ({currencySymbol()})
-          <input type="number" min={0} step={1} value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} className={`w-24 ${input}`} />
+          <input type="number" min={0} step={0.01} value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} className={`w-24 ${input}`} />
         </label>
         <label className={label}>
           First season starts

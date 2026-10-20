@@ -82,7 +82,7 @@ describe("taking kit out", () => {
 
     const silly = await takeHire((await bookRunningNow(court.id, "0150000004")).code, MAX_DEPOSIT + 1);
     expect(silly).toEqual({ ok: false, error: `A deposit cannot be more than RM${MAX_DEPOSIT}.` });
-    const fractional = await takeHire((await bookRunningNow(court.id, "0150000005")).code, 12.5);
+    const fractional = await takeHire((await bookRunningNow(court.id, "0150000005")).code, 12.505);
     expect(fractional.ok).toBe(false);
     const negative = await takeHire((await bookRunningNow(court.id, "0150000006")).code, -10);
     expect(negative.ok).toBe(false);

@@ -24,8 +24,10 @@ export interface Region {
     /** Written before an amount: RM12, S$12. */
     symbol: string;
     minorUnits: number;
-    /** The unit in words, for "a whole number of …". */
+    /** The unit in words: ringgit, dollars. */
     major: string;
+    /** Its smallest part in words: sen, cent. */
+    minor: string;
   };
   timeZone: string;
   /**
@@ -70,7 +72,7 @@ const REGIONS: Record<CountryCode, Region> = {
   MY: {
     country: "MY",
     name: "Malaysia",
-    currency: { code: "MYR", symbol: "RM", minorUnits: 2, major: "ringgit" },
+    currency: { code: "MYR", symbol: "RM", minorUnits: 2, major: "ringgit", minor: "sen" },
     timeZone: "Asia/Kuala_Lumpur",
     utcOffsetHours: 8,
     phone: { countryCode: "60", trunk: "0", minDigits: 9, example: "012-345 6789" },
@@ -91,7 +93,7 @@ const REGIONS: Record<CountryCode, Region> = {
   SG: {
     country: "SG",
     name: "Singapore",
-    currency: { code: "SGD", symbol: "S$", minorUnits: 2, major: "dollars" },
+    currency: { code: "SGD", symbol: "S$", minorUnits: 2, major: "dollars", minor: "cent" },
     timeZone: "Asia/Singapore",
     utcOffsetHours: 8,
     phone: { countryCode: "65", trunk: "", minDigits: 8, example: "9123 4567" },
@@ -133,9 +135,35 @@ export function setBrowserCountry(code: string): void {
   if (typeof window !== "undefined") window.__MYSENAM_COUNTRY__ = code;
 }
 
-/** An amount as it is shown: RM12, S$18.5. The number is written as given. */
+/**
+ * An amount as it is shown: RM12, S$18.50. A whole amount has no decimals;
+ * any other is shown to the cent, and arithmetic noise (4.8 × 3 =
+ * 14.399999…) is rounded away. A string is written as given.
+ */
 export function money(amount: number | string): string {
-  return `${region().currency.symbol}${amount}`;
+  return `${region().currency.symbol}${typeof amount === "number" ? plainAmount(amount) : amount}`;
+}
+
+/** The number alone, as `money()` writes it: 12, 18.50. */
+export function plainAmount(amount: number): string {
+  const r = roundMoney(amount);
+  return Number.isInteger(r) ? String(r) : r.toFixed(region().currency.minorUnits);
+}
+
+/** Rounded to the currency's smallest unit: to the sen or the cent. */
+export function roundMoney(amount: number): number {
+  const scale = 10 ** region().currency.minorUnits;
+  return Math.round(amount * scale) / scale;
+}
+
+/**
+ * A price as staff may enter it: a number from `min` to `max`, to the sen
+ * or the cent at most (18.50 is a price, 18.505 is not).
+ */
+export function isAmount(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): value is number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) return false;
+  const scale = 10 ** region().currency.minorUnits;
+  return Math.abs(value * scale - Math.round(value * scale)) < 1e-6;
 }
 
 /** The currency symbol on its own, for a column heading: "Price (RM)". */

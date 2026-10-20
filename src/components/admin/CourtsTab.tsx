@@ -433,6 +433,7 @@ export function CourtsTab({
         <input
           required
           type="number"
+            step={0.01}
           min={0}
           value={newCourt.offPeak}
           onChange={(e) => setNewCourt({ ...newCourt, offPeak: e.target.value })}
@@ -442,6 +443,7 @@ export function CourtsTab({
         <input
           required
           type="number"
+            step={0.01}
           min={0}
           value={newCourt.peak}
           onChange={(e) => setNewCourt({ ...newCourt, peak: e.target.value })}
@@ -461,6 +463,7 @@ export function CourtsTab({
         />
         <input
           type="number"
+            step={0.01}
           min={0}
           max={MAX_DEPOSIT}
           value={newCourt.deposit}
@@ -525,6 +528,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
+            step={0.01}
           min={0}
           value={offPeak}
           onChange={(e) => setOffPeak(e.target.value)}
@@ -534,6 +538,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
+            step={0.01}
           min={0}
           value={peak}
           onChange={(e) => setPeak(e.target.value)}
@@ -543,6 +548,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
+            step={0.01}
           min={0}
           value={memberOffPeak}
           onChange={(e) => setMemberOffPeak(e.target.value)}
@@ -554,6 +560,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
+            step={0.01}
           min={0}
           value={memberPeak}
           onChange={(e) => setMemberPeak(e.target.value)}
@@ -576,6 +583,7 @@ function CourtRow({
       <td className="px-3 py-2">
         <input
           type="number"
+            step={0.01}
           min={0}
           max={MAX_DEPOSIT}
           value={deposit}

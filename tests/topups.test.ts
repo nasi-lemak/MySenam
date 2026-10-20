@@ -150,7 +150,7 @@ describe("online credit top-ups", () => {
     const restore = withModes({ marketplace: "on" });
     try {
       fakeBillplz();
-      for (const amount of [5, 10.5, 5000, Number.NaN])
+      for (const amount of [5, 10.505, 5000, Number.NaN])
         expect(await startTopUpPayment(user, venueId, amount)).toMatchObject({ ok: false, status: 400 });
       expect(await startTopUpPayment(user, otherVenueId, 50)).toMatchObject({ ok: false, status: 409 });
       expect((await topUp(asUser("POST", { amount: 50 }))).status).toBe(400);

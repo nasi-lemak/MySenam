@@ -109,7 +109,7 @@ export default function Wallet() {
                   type="number"
                   min={10}
                   max={1000}
-                  step={10}
+                  step={0.01}
                   value={topUp.amount}
                   onChange={(e) => setTopUp({ ...topUp, amount: e.target.value })}
                   className="mt-0.5 block w-28 rounded-md border border-slate-300 px-2 py-1 text-sm"

@@ -125,7 +125,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
               Price ({currencySymbol()})
-              <input required type="number" min={0} max={1000} step="0.5" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} className={`w-24 ${input}`} />
+              <input required type="number" min={0} max={1000} step={0.01} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} className={`w-24 ${input}`} />
             </label>
             {f.kind === "rental" && (
               <label className="flex flex-col text-xs font-medium text-slate-500">

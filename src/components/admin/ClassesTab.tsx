@@ -290,7 +290,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             title="Seats" className={`w-20 ${inputClass}`}
           />
           <input
-            required type="number" min={0} value={form.price}
+            required type="number"
+            step={0.01} min={0} value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })}
             title={`Price per person (${currencySymbol()})`} className={`w-20 ${inputClass}`}
           />

@@ -97,12 +97,12 @@ describe("creating a promo code", () => {
 });
 
 describe("quoting a code against a booking", () => {
-  it("takes a percentage, rounded down, never below zero", async () => {
+  it("takes a percentage, to the sen, never below zero", async () => {
     const p = await makeCode({ code: "PC15", kind: "percent", value: 15 });
     const q = await quotePromo({
       venueId: (await venue()).id, code: p.code, sport: "badminton", date: future(), hours: 1, price: 17,
     });
-    expect(q).toMatchObject({ ok: true, discount: 2 }); // floor(17 * 0.15)
+    expect(q).toMatchObject({ ok: true, discount: 2.55 }); // 17 * 0.15, to the sen
   });
 
   it("never discounts more than the price", async () => {

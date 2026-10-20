@@ -27,7 +27,9 @@ describe("Malaysia, the default", () => {
 describe("Singapore", () => {
   it("is dollars, Stripe and English, on Singapore's map and clock", () => {
     process.env.MYSENAM_COUNTRY = "SG";
-    expect(money(18.5)).toBe("S$18.5");
+    expect(money(18.5)).toBe("S$18.50");
+    expect(money(4.8 * 3)).toBe("S$14.40");
+    expect(money(20)).toBe("S$20");
     expect(currencySymbol()).toBe("S$");
     expect(offeredLocales()).toEqual(["en"]);
     const t = translator("en");

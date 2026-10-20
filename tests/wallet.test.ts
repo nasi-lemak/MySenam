@@ -76,7 +76,7 @@ describe("the ledger", () => {
 
   it("rejects a nonsensical top-up or an unknown customer", async () => {
     const user = await customer();
-    for (const amount of [0, -20, 1.5, MAX_TOP_UP + 1]) {
+    for (const amount of [0, -20, 1.505, MAX_TOP_UP + 1]) {
       expect(await topUpWallet({ userId: user.id, amount, adminId: ADMIN_ID }), String(amount)).toMatchObject({
         ok: false,
       });

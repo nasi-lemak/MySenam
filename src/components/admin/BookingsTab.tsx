@@ -428,6 +428,7 @@ export function BookingsTab() {
             <label className="text-xs font-medium text-slate-600">Deposit held ({currencySymbol()})</label>
             <input
               type="number"
+            step={0.01}
               min={0}
               max={MAX_DEPOSIT}
               value={deposit}
@@ -478,6 +479,7 @@ export function BookingsTab() {
               <label className="block text-xs font-medium text-slate-600">Kept back ({currencySymbol()})</label>
               <input
                 type="number"
+            step={0.01}
                 min={0}
                 max={kit.deposit}
                 value={withheld}

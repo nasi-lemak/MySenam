@@ -87,7 +87,7 @@ import {
   slotStartsAt,
   todayISO,
 } from "./time";
-import { money, region } from "./region";
+import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 
 interface CourtRow {
@@ -1134,14 +1134,17 @@ export function computePrice(
   hours: number[],
   member = false
 ): number {
-  return hours.reduce((sum, h) => {
-    const peak = isPeak(date, h);
-    if (member) {
-      const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
-      if (rate !== null) return sum + rate;
-    }
-    return sum + (peak ? court.peakRate : court.offPeakRate);
-  }, 0);
+  // To the sen or cent: rates with cents add up with floating-point noise.
+  return roundMoney(
+    hours.reduce((sum, h) => {
+      const peak = isPeak(date, h);
+      if (member) {
+        const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
+        if (rate !== null) return sum + rate;
+      }
+      return sum + (peak ? court.peakRate : court.offPeakRate);
+    }, 0)
+  );
 }
 
 /** Does this court charge members less, at any hour? */
@@ -2968,8 +2971,8 @@ export async function takeHire(code: string, deposit?: number): Promise<HireResu
     };
 
   const held = deposit ?? court.deposit;
-  if (!Number.isInteger(held) || held < 0)
-    return { ok: false, error: `A deposit must be a whole number of ${region().currency.major}.` };
+  if (!isAmount(held))
+    return { ok: false, error: `A deposit must be ${money(0)} or more, to the ${region().currency.minor}.` };
   if (held > MAX_DEPOSIT)
     return { ok: false, error: `A deposit cannot be more than ${money(MAX_DEPOSIT)}.` };
 
@@ -3019,8 +3022,8 @@ export async function returnHire(
     return { ok: false, error: "Unknown condition." };
 
   const withheld = input.withheld ?? 0;
-  if (!Number.isInteger(withheld) || withheld < 0)
-    return { ok: false, error: "An amount withheld must be a whole number of ringgit." };
+  if (!isAmount(withheld))
+    return { ok: false, error: `An amount withheld must be ${money(0)} or more, to the ${region().currency.minor}.` };
   if (withheld > hire.deposit)
     return {
       ok: false,
@@ -3734,7 +3737,7 @@ export async function topUpWallet(input: {
   venueId?: number;
 }): Promise<WalletResult> {
   return withTransaction(async () => {
-    if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_TOP_UP)
+    if (!isAmount(input.amount, 1, MAX_TOP_UP))
       return { ok: false, error: `Top-up must be ${money(1)}–${MAX_TOP_UP}.` };
     const db = getDb();
     const user = await db.prepare("SELECT id FROM users WHERE id = ?").get(input.userId);
@@ -4055,8 +4058,8 @@ export async function sellMembership(input: {
     const holderPhone = input.holderPhone.trim();
     if (holderName.length < 2 || holderPhone.length < 6)
       return { ok: false, error: "A holder name and phone number are required." };
-    if (!Number.isInteger(input.price) || input.price < 0)
-      return { ok: false, error: "Price must be a whole number of ringgit." };
+    if (!isAmount(input.price))
+      return { ok: false, error: `Price must be ${money(0)} or more, to the ${region().currency.minor}.` };
     if (!isValidDateString(input.startsOn) || !isValidDateString(input.expiresOn))
       return { ok: false, error: "Invalid dates." };
     if (input.expiresOn < input.startsOn)
@@ -4172,7 +4175,9 @@ function promoBlockedReason(p: PromoCode): string | null {
 
 /** What a code takes off a price. Never more than the price itself. */
 function promoDiscount(p: Pick<PromoCode, "kind" | "value">, price: number): number {
-  const off = p.kind === "percent" ? Math.floor((price * p.value) / 100) : p.value;
+  // A percentage comes off to the sen or cent, rounded in the venue's favour.
+  const scale = 10 ** region().currency.minorUnits;
+  const off = p.kind === "percent" ? Math.floor(roundMoney((price * p.value) / 100) * scale + 1e-6) / scale : p.value;
   return Math.max(0, Math.min(off, price));
 }
 
@@ -4549,8 +4554,8 @@ export async function issuePass(input: {
       return { ok: false, error: "A holder name and phone number are required." };
     if (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_ENTRIES)
       return { ok: false, error: `Entries must be 1–${MAX_PASS_ENTRIES}.` };
-    if (!Number.isInteger(input.price) || input.price < 0)
-      return { ok: false, error: "Price must be a whole number of ringgit." };
+    if (!isAmount(input.price))
+      return { ok: false, error: `Price must be ${money(0)} or more, to the ${region().currency.minor}.` };
     if (!isValidDateString(input.expiresOn))
       return { ok: false, error: "Invalid expiry date." };
     if (input.expiresOn < todayISO())

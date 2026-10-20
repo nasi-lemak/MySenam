@@ -5,7 +5,7 @@ import { tellOwners } from "@/lib/owner-alerts";
 import { createCourt, getVenue } from "@/lib/store";
 import { MAX_CAPACITY, MAX_DEPOSIT, Sport, SPORTS } from "@/lib/types";
 import { logAction } from "@/lib/activity";
-import { money } from "@/lib/region";
+import { money, isAmount } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   if (typeof sport !== "string" || !SPORTS.includes(sport as Sport))
     return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   for (const [label, rate] of [["offPeakRate", offPeakRate], ["peakRate", peakRate]] as const) {
-    if (!Number.isInteger(rate) || (rate as number) < 0 || (rate as number) > MAX_RATE)
+    if (!isAmount(rate, 0, MAX_RATE))
       return NextResponse.json({ error: `${label} must be ${money(0)}–${MAX_RATE}. ${money(0)} makes it free.` }, { status: 400 });
   }
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     );
 
   if (deposit !== undefined &&
-      (!Number.isInteger(deposit) || (deposit as number) < 0 || (deposit as number) > MAX_DEPOSIT))
+      !isAmount(deposit, 0, MAX_DEPOSIT))
     return NextResponse.json({ error: `A deposit must be ${money(0)}–${MAX_DEPOSIT}.` }, { status: 400 });
 
   // A venue's own staff can add so many; past that, the platform owner does.

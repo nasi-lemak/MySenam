@@ -196,7 +196,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         </label>
         <label className={label}>
           Entry fee ({currencySymbol()})
-          <input type="number" min={0} step={1} value={f.entryFee} onChange={(e) => setF({ ...f, entryFee: e.target.value })} className={`w-24 ${input}`} />
+          <input type="number" min={0} step={0.01} value={f.entryFee} onChange={(e) => setF({ ...f, entryFee: e.target.value })} className={`w-24 ${input}`} />
         </label>
         <label className={label}>
           Most entries

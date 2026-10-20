@@ -154,6 +154,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
               Top up ({currencySymbol()})
               <input
                 type="number"
+            step={0.01}
                 min={1}
                 max={MAX_TOP_UP}
                 value={amount}
@@ -363,6 +364,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           Price ({currencySymbol()})
           <input
             type="number"
+            step={0.01}
             min={0}
             required
             value={form.price}
@@ -924,6 +926,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           Fee ({currencySymbol()})
           <input
             type="number"
+            step={0.01}
             min={0}
             required
             value={form.price}
@@ -1117,6 +1120,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
           Fee ({currencySymbol()})
           <input
             type="number"
+            step={0.01}
             min={1}
             required
             value={form.price}

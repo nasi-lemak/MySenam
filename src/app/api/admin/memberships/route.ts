@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/lib/store";
 import { logAction } from "@/lib/activity";
-import { money, region } from "@/lib/region";
+import { money, region, isAmount } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
     if (typeof input[field] !== "string" || (input[field] as string).trim() === "")
       return NextResponse.json({ error: `A valid ${field} is required.` }, { status: 400 });
   }
-  if (!Number.isInteger(input.price) || (input.price as number) < 0)
-    return NextResponse.json({ error: `Price must be a whole number of ${region().currency.major}.` }, { status: 400 });
+  if (!isAmount(input.price))
+    return NextResponse.json({ error: `Price must be ${money(0)} or more, to the ${region().currency.minor}.` }, { status: 400 });
 
 
   // Optionally tie the sale to an account, so it shows on that customer's own
