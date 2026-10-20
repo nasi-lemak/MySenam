@@ -30,7 +30,7 @@ export default async function PaymentReturnPage({
     const inbound = gateway.readRedirect(query);
     if (!inbound?.billId) continue;
     const account = await accountForBill(gateway.id, inbound.billId);
-    result = account ? inbound.verify(account) : null;
+    result = account ? await inbound.verify(account) : null;
     break;
   }
   if (result) await settleBill(result);

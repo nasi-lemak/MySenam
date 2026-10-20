@@ -1,5 +1,7 @@
 import { baseUrl } from "../outbox";
+import { region } from "../region";
 import { billplz } from "./billplz";
+import { stripe } from "./stripe";
 import type { CheckoutPage, CheckoutRequest, GatewayAccount, PaymentGateway, ProviderId } from "./types";
 
 export type * from "./types";
@@ -12,20 +14,24 @@ export type * from "./types";
  * through: it opens pages with `openCheckout`, and callbacks arrive at
  * `/api/payments/<provider>/callback`.
  */
-const GATEWAYS: Record<ProviderId, PaymentGateway> = { billplz };
+const GATEWAYS: Record<ProviderId, PaymentGateway> = { billplz, stripe };
 
 export function gatewayFor(id: string): PaymentGateway | null {
   return Object.hasOwn(GATEWAYS, id) ? GATEWAYS[id as ProviderId] : null;
 }
 
-/** What venues on this install may connect: `MYSENAM_PAYMENT_PROVIDERS`, comma-separated, Billplz by default. */
+/**
+ * What venues on this install may connect: `MYSENAM_PAYMENT_PROVIDERS`,
+ * comma-separated, or the country's usual one (lib/region.ts).
+ */
 export function offeredGateways(): PaymentGateway[] {
-  const named = (process.env.MYSENAM_PAYMENT_PROVIDERS ?? "billplz")
+  const fallback = GATEWAYS[region().gateway];
+  const named = (process.env.MYSENAM_PAYMENT_PROVIDERS ?? fallback.id)
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   const offered = named.map(gatewayFor).filter((g): g is PaymentGateway => g !== null);
-  return offered.length > 0 ? offered : [billplz];
+  return offered.length > 0 ? offered : [fallback];
 }
 
 export function allGateways(): PaymentGateway[] {
@@ -45,12 +51,15 @@ export function platformAccount(): GatewayAccount | null {
 /** Open a payment page through the account's gateway, reporting back to our callback for it. */
 export async function openCheckout(
   account: GatewayAccount,
-  request: Omit<CheckoutRequest, "callbackUrl">
+  request: Omit<CheckoutRequest, "callbackUrl" | "currency">
 ): Promise<CheckoutPage> {
   const gateway = gatewayFor(account.provider);
   if (!gateway) throw new Error(`No payment gateway called ${account.provider}.`);
+  const { code, minorUnits } = region().currency;
+  if (!gateway.currencies.includes(code)) throw new Error(`${gateway.name} does not take ${code}.`);
   return gateway.createCheckout(account, {
     ...request,
+    currency: { code, minorUnits },
     callbackUrl: `${baseUrl()}/api/payments/${gateway.id}/callback`,
   });
 }

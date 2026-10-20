@@ -10,7 +10,7 @@
  * is the same for every gateway and lives in lib/payments.ts.
  */
 
-export type ProviderId = "billplz";
+export type ProviderId = "billplz" | "stripe";
 
 /** A venue's (or the platform's) account at one gateway, its secrets unsealed. */
 export interface GatewayAccount {
@@ -19,9 +19,18 @@ export interface GatewayAccount {
   credentials: Record<string, string>;
 }
 
+/** The install's currency, as a gateway needs it. */
+export interface Currency {
+  /** ISO 4217, upper case: MYR, SGD. */
+  code: string;
+  /** Digits after the point the gateway counts in: 2 for cents and sen. */
+  minorUnits: number;
+}
+
 export interface CheckoutRequest {
-  /** In the install's currency, as prices are held: ringgit, not sen. */
+  /** In major units, as prices are held: ringgit or dollars, not sen or cents. */
   amount: number;
+  currency: Currency;
   name: string;
   email?: string | null;
   /** Digits with the country code, e.g. 60123456789. */
@@ -54,7 +63,14 @@ export interface PaymentResult {
  */
 export interface Inbound {
   billId: string | null;
-  verify(account: GatewayAccount): PaymentResult | null;
+  /**
+   * A report the gateway sends that is about nothing MySenam made (another
+   * kind of event on the venue's account): answered OK and otherwise ignored,
+   * so the gateway does not keep retrying it.
+   */
+  ignored?: boolean;
+  /** Checked against the account: its signature, or the gateway's own API. */
+  verify(account: GatewayAccount): Promise<PaymentResult | null>;
 }
 
 /** One thing a venue types in to connect its account. */
@@ -77,6 +93,11 @@ export interface PaymentGateway {
   fields: CredentialField[];
   /** Anything to do on the gateway's own side, for the settings form. */
   setup?: string;
+  /**
+   * The venue registers our callback address in the gateway's dashboard (it
+   * is not sent with each payment), so the form shows it to copy.
+   */
+  webhook?: boolean;
   /** Why these credentials cannot be right, or null. Every field is filled in. */
   checkCredentials(credentials: Record<string, string>): string | null;
   createCheckout(account: GatewayAccount, request: CheckoutRequest): Promise<CheckoutPage>;

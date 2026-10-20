@@ -18,7 +18,8 @@ export const billplz: PaymentGateway = {
     return /^[\w-]{3,40}$/.test(c.collectionId) ? null : "That does not look like a Billplz collection ID.";
   },
 
-  createCheckout(account, request) {
+  async createCheckout(account, request) {
+    if (request.currency.code !== "MYR") throw new Error("Billplz takes ringgit only.");
     return createBill(toBillplz(account), request);
   },
 
@@ -27,14 +28,14 @@ export const billplz: PaymentGateway = {
     for (const [k, v] of new URLSearchParams(body)) fields[k] = v;
     return {
       billId: fields.id || null,
-      verify: (account) => verifyCallback(fields, account.credentials.xSignatureKey),
+      verify: async (account) => verifyCallback(fields, account.credentials.xSignatureKey),
     };
   },
 
   readRedirect(query) {
     const billId = redirectBillId(query);
     if (!billId) return null;
-    return { billId, verify: (account) => verifyRedirect(query, account.credentials.xSignatureKey) };
+    return { billId, verify: async (account) => verifyRedirect(query, account.credentials.xSignatureKey) };
   },
 
   platformAccount(env) {

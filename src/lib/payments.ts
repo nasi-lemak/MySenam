@@ -17,6 +17,7 @@ import { findBooking, getCourt, getVenue, membershipById, sellMembership } from 
 import { joinTerms } from "./membership-plans";
 import { accessSettings } from "./access";
 import { toWhatsAppNumber } from "./transports";
+import { baseUrl } from "./outbox";
 import { formatHour } from "./time";
 import { Booking, MAX_TOP_UP } from "./types";
 import { settleInvoice } from "./billing";
@@ -59,6 +60,8 @@ export interface GatewayChoice {
   methods: string;
   fields: CredentialField[];
   setup?: string;
+  /** Where the gateway should send its reports, when the venue sets that up itself. */
+  callbackUrl?: string;
 }
 
 /** What staff see of a venue's gateway account. The keys never leave. */
@@ -118,6 +121,7 @@ const choice = (g: PaymentGateway): GatewayChoice => ({
   methods: g.methods,
   fields: g.fields,
   ...(g.setup ? { setup: g.setup } : {}),
+  ...(g.webhook ? { callbackUrl: `${baseUrl()}/api/payments/${g.id}/callback` } : {}),
 });
 
 export async function paymentSettings(venueId: number): Promise<PaymentSettings> {

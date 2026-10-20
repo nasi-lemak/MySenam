@@ -195,6 +195,12 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
           </label>
         </div>
         {gateway?.setup && <p className="text-xs text-slate-500 sm:col-span-2">{gateway.setup}</p>}
+        {gateway?.callbackUrl && (
+          <p className="text-xs text-slate-600 sm:col-span-2">
+            Webhook address:{" "}
+            <code className="select-all rounded bg-slate-100 px-1.5 py-0.5 font-mono">{gateway.callbackUrl}</code>
+          </p>
+        )}
         <div className="flex gap-2 sm:col-span-2">
           <button
             type="submit"

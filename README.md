@@ -158,8 +158,9 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
 | `MYSENAM_WHATSAPP_PACK` | `200` | On a marketplace, WhatsApp messages in a prepaid pack — see *What WhatsApp costs, and who pays* |
 | `MYSENAM_WHATSAPP_PACK_PRICE` | `20` | RM for a pack, paid before any of it is sent |
-| `MYSENAM_PAYMENT_PROVIDERS` | `billplz` | The payment gateways venues may connect, comma-separated — see *Payment gateways* |
+| `MYSENAM_PAYMENT_PROVIDERS` | the country's usual one | The payment gateways venues may connect, comma-separated — see *Payment gateways* |
 | `MYSENAM_PAYMENT_PROVIDER` | the first of those | The gateway the platform's own account is at, for venues paying invoices and WhatsApp packs online |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | — | The platform's own Stripe account, when `MYSENAM_PAYMENT_PROVIDER=stripe` |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
 | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
 | `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
@@ -2234,11 +2235,44 @@ never knows which gateway a payment went through.
   the install offers more than one (`MYSENAM_PAYMENT_PROVIDERS`). Switching
   gateway means entering the new one's keys. Migration 0034 moved existing
   Billplz accounts across without unsealing anything.
-- **Not yet country-neutral**: amounts are still ringgit (`RM` in the
-  interface, sen at Billplz), dates run on Malaysian time, phone numbers
-  default to +60, and the customer-facing text that names FPX and Billplz is
-  Malaysian copy. Those are install settings still to come; a gateway lists the
-  currencies it takes (`currencies`) for when they are.
+- **The currency** comes from the install's country (`MYSENAM_COUNTRY`, see
+  *Countries*), and a gateway that does not take it refuses to open a page
+  (Billplz takes ringgit only).
+- **Verification may ask the gateway.** A report's check can be a signature or
+  a call to the gateway's own API, which is how a return address that carries
+  no signature is checked.
+
+#### Stripe
+
+The usual gateway for Singapore (cards, PayNow and the wallets a venue turns on
+in its Stripe dashboard), through Stripe Checkout, into **the venue's own
+Stripe account**.
+
+- **Connecting**: the venue creates a *restricted key* in Stripe with Checkout
+  Sessions set to Write, and a *webhook endpoint* pointing at the address the
+  settings form shows (`/api/payments/stripe/callback`) for the
+  `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.async_payment_failed` and `checkout.session.expired`
+  events, and pastes the key (`rk_live_…`) and the endpoint's signing secret
+  (`whsec_…`). Unlike Billplz, Stripe has to be told where to report: a
+  payment does not carry that.
+- **Reports** are believed only with a valid `Stripe-Signature` under that
+  venue's signing secret, no more than five minutes old. Other events on the
+  venue's account are answered OK and ignored, so Stripe does not retry them.
+- **Paid** means Stripe says the session's payment is `paid`. A method that
+  confirms later (PayNow can) settles on
+  `checkout.session.async_payment_succeeded`.
+- **Coming back**: the customer returns to `/payments/return?stripe_session=…`.
+  Nothing in that address is signed, so the page asks Stripe for the session
+  with the venue's key rather than believing it.
+- **The platform's own account** (venues' fees on a marketplace) is
+  `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, with
+  `MYSENAM_PAYMENT_PROVIDER=stripe`.
+
+Stripe Connect, where a venue presses *Connect with Stripe* instead of
+creating a key and a webhook, would be easier for venues; it needs the platform
+registered as a Connect platform, and would replace the two fields with a
+connected account id.
 
 ## Booking without naming a court
 

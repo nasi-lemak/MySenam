@@ -19,8 +19,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   if (!gateway) return NextResponse.json({ error: "No such payment gateway." }, { status: 404 });
   const body = await req.text().catch(() => "");
   const inbound = gateway.readCallback(body, req.headers);
+  if (inbound.ignored) return new NextResponse("OK", { status: 200 });
   const account = inbound.billId ? await accountForBill(gateway.id, inbound.billId) : null;
-  const result = account ? inbound.verify(account) : null;
+  const result = account ? await inbound.verify(account) : null;
   if (!result) return NextResponse.json({ error: "Unknown payment or bad signature." }, { status: 400 });
 
   await settleBill(result);
