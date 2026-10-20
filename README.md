@@ -158,6 +158,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_FREE_MONTHS` | `1` | Free months from going live before a venue's first invoice |
 | `MYSENAM_WHATSAPP_PACK` | `200` | On a marketplace, WhatsApp messages in a prepaid pack — see *What WhatsApp costs, and who pays* |
 | `MYSENAM_WHATSAPP_PACK_PRICE` | `20` | RM for a pack, paid before any of it is sent |
+| `MYSENAM_TAX_RATE`, `MYSENAM_TAX_REG_NO` | — | The platform operator's own SST or GST, once registered: the rate (%) added to venues' invoices and the registration number printed on them. Both, or no tax. See *Tax* |
+| `MYSENAM_TAX_NAME` | the country's (`SST`, `GST`) | What the operator's tax is called on invoices |
 | `MYSENAM_PAYMENT_PROVIDERS` | the country's usual one | The payment gateways venues may connect, comma-separated — see *Payment gateways* |
 | `MYSENAM_PAYMENT_PROVIDER` | the first of those | The gateway the platform's own account is at, for venues paying invoices and WhatsApp packs online |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | — | The platform's own Stripe account, when `MYSENAM_PAYMENT_PROVIDER=stripe` |
@@ -2187,6 +2189,57 @@ table in `src/lib/region.ts`:
   numbers in its country's shape.
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).
+
+## Tax (SST and GST)
+
+Two different taxes pass through MySenam, and neither is MySenam's to decide
+(`src/lib/tax.ts`). Rates and numbers are settings, so an accountant's answers
+drop in without code.
+
+**A venue's own**, on what customers pay it. A venue registered for SST or
+GST sets the tax's name, its rate and its registration number under *Venue
+details → Tax* (managers only).
+
+- **Prices stay what customers pay, tax included.** Singapore requires
+  GST-inclusive prices to consumers, and Malaysians are used to "RM20 incl.
+  SST", so tax never changes what anybody pays, only how it is broken down:
+  the tax inside RM21.20 at 6% is RM1.20.
+- **Each booking keeps the rate it was taken at.** A trigger sets it on every
+  new booking, however it is made (migration 0036), so a later change of
+  rate, or deregistering, does not rewrite what was charged.
+- **Receipts.** A paid booking has a receipt page, `/receipt/<code>?t=…`,
+  behind a link signed with the install's secret rather than the customer's
+  phone number. Where the venue charges tax it is titled *Tax invoice* and
+  shows the amount before tax, the tax at its rate, the total and the venue's
+  registration number. The receipt email links to it and says how much tax
+  the payment included; My Booking links to it too.
+- **Reports and exports.** The Collected figure says how much tax is inside
+  it, at each booking's own rate, and the bookings spreadsheet has each
+  booking's rate and tax.
+- One rate covers the whole booking, add-ons included.
+
+**The platform's own**, on what it invoices venues. Set `MYSENAM_TAX_RATE`
+and `MYSENAM_TAX_REG_NO` once the operator is registered:
+
+- Invoices from then on add the tax on top of the fee (tier prices are before
+  tax, as is usual between businesses); `amount` is what the venue pays,
+  including it. A business's invoice is taxed on its whole net, worked out
+  again as each branch's line is added.
+- The rate, name and number are kept on each invoice as they were on the day.
+  An invoice issued before registration stays without tax.
+- *Billing* links each invoice to a printable page, `/admin/invoices/<id>`,
+  for that venue's or business's staff and the platform's owners: a *Tax
+  invoice* with the operator's details (`OPERATOR_*`), its tax number, the
+  venue's own tax number if it has one, the lines, the total before tax, the
+  tax and the total.
+
+**Not built: e-invoicing.** Malaysia's MyInvois exempts businesses under RM3
+million in annual sales (from 1 September 2026; they may still opt in), and
+any single invoice over RM10,000 needs one regardless. Singapore requires
+InvoiceNow from the start for anybody registering for GST voluntarily from
+1 April 2026, and from 2028 for others. Either is an API integration with the
+tax authority, worth building when the operator is in scope. Until then the
+printable invoices and the CSV exports are what an accountant works from.
 
 ## Payments
 

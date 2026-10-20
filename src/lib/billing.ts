@@ -7,6 +7,7 @@ import { siteName } from "./site";
 import { billableResources, planTiers, priceFor, type PlanTiers } from "./plans";
 import { getVenue } from "./store";
 import { money, offsetMs } from "./region";
+import { platformTax, taxOnTop } from "./tax";
 
 /**
  * What venues pay to be on the marketplace: one invoice a month — for a
@@ -42,7 +43,12 @@ export interface Invoice {
   resources: number | null;
   /** YYYY-MM */
   period: string;
+  /** What the venue pays, tax included. */
   amount: number;
+  /** Before the platform's tax: what the tiers and agreed fees come to. */
+  net: number;
+  /** The platform's SST or GST on it, as it was when issued; null with none. */
+  tax: { name: string; rate: number; amount: number; regNo: string | null } | null;
   status: InvoiceStatus;
   issuedOn: string;
   dueOn: string;
@@ -65,6 +71,10 @@ interface InvoiceRow {
   paid_via: "online" | "manual" | null;
   plan_name: string | null;
   resources: number | null;
+  tax_amount?: number | string | null;
+  tax_rate?: number | string | null;
+  tax_name?: string | null;
+  tax_reg_no?: string | null;
 }
 
 export const PAYMENT_TERMS_DAYS = 14;
@@ -82,6 +92,11 @@ function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date()
     lines,
     period: r.period,
     amount: r.amount,
+    net: Math.round((Number(r.amount) - Number(r.tax_amount ?? 0)) * 100) / 100,
+    tax:
+      r.tax_rate === null || r.tax_rate === undefined
+        ? null
+        : { name: r.tax_name ?? "Tax", rate: Number(r.tax_rate), amount: Number(r.tax_amount ?? 0), regNo: r.tax_reg_no ?? null },
     status: r.status,
     issuedOn: r.issued_on,
     dueOn: r.due_on,
@@ -309,10 +324,37 @@ export async function issueDueInvoices(now = new Date()): Promise<Invoice[]> {
       await db.prepare("UPDATE venue_invoices SET amount = amount + ? WHERE id = ?").run(v.fee, invoice.id);
       issued.add(invoice.id);
     }
+    for (const id of issued) await applyPlatformTax(id);
   })();
   const invoices: Invoice[] = [];
   for (const id of issued) invoices.push((await invoiceById(id, now))!);
   return invoices;
+}
+
+/**
+ * Put the platform's SST or GST on an invoice, on top of its fees: worked out
+ * again from the net whenever a branch's line is added, at the rate, name and
+ * number the invoice was first issued with (lib/tax.ts). An invoice issued
+ * before the operator was registered stays without it.
+ */
+async function applyPlatformTax(invoiceId: number): Promise<void> {
+  const db = getDb();
+  const row = (await db
+    .prepare("SELECT amount, tax_amount, tax_rate, status FROM venue_invoices WHERE id = ?")
+    .get(invoiceId)) as { amount: number | string; tax_amount: number | string; tax_rate: number | string | null; status: string } | undefined;
+  if (!row || row.status !== "due") return;
+  const net = Number(row.amount) - Number(row.tax_amount);
+  let rate = row.tax_rate === null ? null : Number(row.tax_rate);
+  if (rate === null) {
+    const platform = platformTax();
+    if (!platform) return;
+    rate = platform.rate;
+    await db
+      .prepare("UPDATE venue_invoices SET tax_rate = ?, tax_name = ?, tax_reg_no = ? WHERE id = ?")
+      .run(platform.rate, platform.name, platform.regNo, invoiceId);
+  }
+  const tax = taxOnTop(net, rate);
+  await db.prepare("UPDATE venue_invoices SET tax_amount = ?, amount = ? WHERE id = ?").run(tax, Math.round((net + tax) * 100) / 100, invoiceId);
 }
 
 export async function invoiceById(id: number, now = new Date()): Promise<Invoice | null> {

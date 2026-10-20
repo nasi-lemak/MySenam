@@ -248,7 +248,14 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                     )}
                   </td>
                   {isOwner && <td className="px-3 py-2">{i.venueName}</td>}
-                  <td className="px-3 py-2 text-right">{money(i.amount)}</td>
+                  <td className="px-3 py-2 text-right">
+                    {money(i.amount)}
+                    {i.tax && (
+                      <span className="block text-xs text-slate-500">
+                        incl. {i.tax.name} {money(i.tax.amount)}
+                      </span>
+                    )}
+                  </td>
                   <td className={`px-3 py-2 ${i.overdue ? "font-semibold text-red-700" : ""}`}>{i.dueOn}</td>
                   <td className="px-3 py-2">
                     {i.status === "paid"
@@ -260,6 +267,9 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                           : "Due"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
+                    <a href={`/admin/invoices/${i.id}`} target="_blank" rel="noopener" className="text-xs font-semibold text-teal-700 hover:underline">
+                      {i.tax ? "Tax invoice" : "Invoice"}
+                    </a>{" "}
                     {i.status === "due" && state.canPayOnline && (
                       <button
                         disabled={busy}
