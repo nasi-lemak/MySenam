@@ -140,6 +140,9 @@ export const stripe: PaymentGateway = {
       success_url: returnTo(request.redirectUrl),
       cancel_url: returnTo(request.redirectUrl),
     });
+    // Stripe closes a page no sooner than 30 minutes, and by default after a day.
+    if (request.expiresInMinutes)
+      form.set("expires_at", String(Math.floor(Date.now() / 1000) + Math.max(30, request.expiresInMinutes) * 60));
     if (request.email) form.set("customer_email", request.email);
     if (request.reference) {
       form.set("client_reference_id", request.reference.value.slice(0, 200));

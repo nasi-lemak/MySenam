@@ -18,7 +18,7 @@ import {
 import { registerUser } from "./auth";
 import { Court } from "./types";
 import { addDays, todayISO } from "./time";
-import { money } from "./region";
+import { money, region } from "./region";
 
 /**
  * A fortnight of plausible trading, for showing somebody what this does.
@@ -57,8 +57,12 @@ const NAMES = [
   "Yap Su Lin", "Amirul Asyraf", "Kavitha Menon", "Ong Chee Keong", "Zulaikha Aziz",
 ];
 
-/** 01x-xxx xxxx, in the shape a Malaysian number really takes. */
+/**
+ * A mobile number in the shape the install's country really writes one:
+ * 01x-xxx xxxx in Malaysia, eight digits starting 8 or 9 in Singapore.
+ */
 function phoneFor(index: number): string {
+  if (region().country === "SG") return `${index % 2 ? "8" : "9"}${String(3000000 + index * 137911).slice(0, 7)}`;
   const prefixes = ["012", "013", "016", "017", "019"];
   return `${prefixes[index % prefixes.length]}${String(3000000 + index * 137911).slice(0, 7)}`;
 }

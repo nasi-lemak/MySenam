@@ -2162,11 +2162,14 @@ table in `src/lib/region.ts`:
 | SMS prefix | `RM0` | none |
 | Terms cite | the laws of Malaysia, the Consumer Protection Act 1999, the Personal Data Protection Act 2010 | the laws of Singapore, the Consumer Protection (Fair Trading) Act 2003, the Personal Data Protection Act 2012 |
 | Starter venues on a fresh install | four, in the Klang Valley | none |
+| Suggested plan tiers (*Plans by size*) | RM19.90 / 39.90 / 69.90 / 99.90, RM2 a resource past 50 | S$29 / 59 / 99 / 149, S$3 a resource past 50 — a starting point to set, not researched |
 
 - **Money** is shown with `money()` and, in phrases, `{cur}`; nothing writes
-  a currency symbol by hand. Amounts are kept in major units with two decimal
-  places, as both currencies count; a gateway is given the currency with each
-  payment and refuses one it does not take.
+  a currency symbol by hand. Amounts are kept in major units to the sen or
+  cent (S$4.80, RM18.50; a whole amount shows bare, S$20), prices are checked
+  with `isAmount()` and totals rounded with `roundMoney()`, so 4.80 × 3 is
+  14.40. A gateway is given the currency with each payment and refuses one it
+  does not take.
 - **The browser** learns the country from the language provider in the root
   layout, so a client component formats money and phone numbers as the
   server does.
@@ -2178,9 +2181,10 @@ table in `src/lib/region.ts`:
   and the database's `phone_key()`, migration 0035): `+60 12-345 6789` and
   `012-345 6789` are one number, `+65 9123 4567` and `9123 4567` another, and
   a Singapore landline that begins 60 or 65 stays itself.
-- **Not covered by the setting**: the brand name (`SITE_NAME`), the privacy
-  notice, which still needs a lawyer for each country, and the demo data
-  (`src/lib/demo.ts`), which is Malaysian.
+- **Not covered by the setting**: the brand name (`SITE_NAME`), and the
+  privacy notice and terms, which need a lawyer in each country. Demo data
+  (`src/lib/demo.ts`) fills whatever venues the install has, with phone
+  numbers in its country's shape.
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).
 
@@ -2208,10 +2212,12 @@ it is let go for somebody else and the customer is charged nothing.
 - The customer sees *Held for you: pay to confirm* and the time it is held
   until, with the button to pay. Paid, it stands and the usual confirmation
   goes out, calendar invite and all; until then nobody is told it is theirs.
-- Opening the payment page holds it 20 minutes more from then, so somebody
-  part-way through FPX is not undercut. A payment that still lands after it
-  was let go is listed under *Refunds owed*, as for any booking cancelled after
-  paying.
+- Opening the payment page holds it 30 minutes more from then, so somebody
+  part-way through paying is not undercut. On Stripe the page itself closes
+  then too, so a slot already let go cannot be paid for; a page opened earlier
+  is sent again only while it has time left. Billplz pages cannot be closed: a
+  payment that still lands after the hold was let go is listed under *Refunds
+  owed*, as for any booking cancelled after paying.
 - A held slot comes free on time: holds are let go on the scheduler's tick,
   and on the way past whenever anybody books, searches or opens a day's
   availability. The waitlist is offered it.

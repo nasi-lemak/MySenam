@@ -12,7 +12,7 @@ import { offerSlotPlace } from "./store";
  * somebody else if they do not. Paid, it stands and is confirmed by email
  * with its calendar invite; until then nobody is told it is theirs.
  *
- * Opening the payment page holds it for 20 minutes more from then, so a
+ * Opening the payment page holds it for 30 minutes more from then, so a
  * customer part-way through paying is not undercut. A payment that still lands
  * after the booking was let go is recorded as owed back, as for any booking
  * cancelled after paying (lib/payments.ts).
@@ -21,7 +21,12 @@ import { offerSlotPlace } from "./store";
  * bookings paid at once from credit or a pass, and free ones are not.
  */
 
-export const PAYMENT_PAGE_MINUTES = 20;
+/**
+ * How long a held booking waits on its payment page, and how long the page
+ * stays open where the gateway can close it (Stripe: 30 minutes at the least),
+ * so nobody pays for a slot already let go.
+ */
+export const PAYMENT_PAGE_MINUTES = 30;
 
 export interface HoldPolicy {
   /** Asked for, by the venue. */

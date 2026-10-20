@@ -18,6 +18,8 @@ import { paymentByBill, paymentSettings, savePaymentSettings, startBookingPaymen
 import { createBooking, createCourt, createVenue } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as callback } from "../src/app/api/payments/[provider]/callback/route";
+import { POST as book } from "../src/app/api/bookings/route";
+import { setHoldPolicy } from "../src/lib/holds";
 
 /**
  * Stripe Checkout for a Singapore install: the venue's own Stripe account,
@@ -218,18 +220,59 @@ describe("paying", () => {
   });
 });
 
+describe("a booking held while it is paid for", () => {
+  it("gets a page that closes with the hold, and a fresh one once that has run down", async () => {
+    expect(await setHoldPolicy(venueId, { on: true, minutes: 15 })).toMatchObject({ ok: true });
+    const courtId = (await getDb().prepare("SELECT id FROM courts WHERE venue_id = ?").get(venueId) as { id: number }).id;
+    const res = await book(
+      new NextRequest("http://localhost/api/bookings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ courtId, date: addDays(todayISO(), 4), hours: [14], name: "Mei", phone: "93456789", email: "mei@example.sg" }),
+      })
+    );
+    expect(res.status).toBe(201);
+    const { booking } = await res.json();
+    expect(booking.holdUntil).toBeTruthy();
+
+    fakeStripe();
+    const first = await startBookingPayment({ codes: [booking.code], phone: "93456789" });
+    if (!first.ok) throw new Error(first.error);
+    const expiresAt = Number(sent[0].form!.get("expires_at"));
+    expect(Math.abs(expiresAt - (Date.now() / 1000 + 30 * 60))).toBeLessThan(60);
+
+    // Pressed again soon after: the same page.
+    expect(await startBookingPayment({ codes: [booking.code], phone: "93456789" })).toMatchObject({ reused: true, url: first.url });
+    // Pressed again with the page nearly gone: a new one.
+    await getDb().prepare("UPDATE online_payments SET created_at = datetime('now', '-26 minutes') WHERE url = ?").run(first.url);
+    const again = await startBookingPayment({ codes: [booking.code], phone: "93456789" });
+    expect(again).toMatchObject({ ok: true, reused: false });
+    expect(again.ok && again.url).not.toBe(first.url);
+    await setHoldPolicy(venueId, { on: false });
+  });
+
+  it("does not close a page for a booking that is not held", async () => {
+    fakeStripe();
+    const courtId = (await getDb().prepare("SELECT id FROM courts WHERE venue_id = ?").get(venueId) as { id: number }).id;
+    const b = await createBooking({ courtId, date: addDays(todayISO(), 5), hours: [15], name: "Raj", phone: "94567890", email: "raj@example.sg" });
+    if (!b.ok) throw new Error(b.error);
+    expect((await startBookingPayment({ codes: [b.booking.code], phone: "94567890" })).ok).toBe(true);
+    expect(sent[0].form!.get("expires_at")).toBeNull();
+  });
+});
+
 describe("coming back from Stripe", () => {
   it("is checked with Stripe, not believed", async () => {
     fakeStripe();
     expect(stripe.readRedirect(new URLSearchParams("billplz[id]=x"))).toBeNull();
     expect(stripe.readRedirect(new URLSearchParams("stripe_session=not-a-session"))).toBeNull();
-    const inbound = stripe.readRedirect(new URLSearchParams("stripe_session=cs_test_session3"))!;
+    const inbound = stripe.readRedirect(new URLSearchParams("stripe_session=cs_test_returning1"))!;
     const account = { provider: "stripe" as const, sandbox: true, credentials: { secretKey: KEY, webhookSecret: SECRET } };
     // Unknown to Stripe: nothing.
     expect(await inbound.verify(account)).toBeNull();
-    sessions.set("cs_test_session3", { payment_status: "paid", status: "complete" });
-    expect(await inbound.verify(account)).toEqual({ billId: "cs_test_session3", paid: true, paidAt: null });
-    expect(sent.at(-1)).toMatchObject({ method: "GET", url: "https://api.stripe.com/v1/checkout/sessions/cs_test_session3", auth: `Bearer ${KEY}` });
+    sessions.set("cs_test_returning1", { payment_status: "paid", status: "complete" });
+    expect(await inbound.verify(account)).toEqual({ billId: "cs_test_returning1", paid: true, paidAt: null });
+    expect(sent.at(-1)).toMatchObject({ method: "GET", url: "https://api.stripe.com/v1/checkout/sessions/cs_test_returning1", auth: `Bearer ${KEY}` });
   });
 });
 

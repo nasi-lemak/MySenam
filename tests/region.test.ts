@@ -35,6 +35,8 @@ describe("Singapore", () => {
     const t = translator("en");
     expect(t("pay.how")).toBe("Card or PayNow, through Stripe. Or pay at the counter as usual.");
     expect(t("home.fromRate", { rate: 15 })).toContain("S$15");
+    expect(t("home.fromRate", { rate: 4.8 })).toContain("S$4.80");
+    expect(t("footer.tagline")).toContain("courts, gyms and classes, one booking");
     expect(t("auth.phonePlaceholder")).toBe("9123 4567");
     expect(t("near.placeholder")).toContain("Tampines");
     expect(PAID_VIA_LABELS.qr).toBe("PayNow QR / e-wallet");
@@ -48,5 +50,14 @@ describe("Singapore", () => {
   it("falls back to Malaysia for a country it does not know", () => {
     process.env.MYSENAM_COUNTRY = "XX";
     expect(region().country).toBe("MY");
+  });
+});
+
+describe("the pricing suggestion", () => {
+  it("is in the install's own currency", async () => {
+    const { suggestedTiers } = await import("../src/lib/plans");
+    expect(suggestedTiers().tiers[0].monthlyFee).toBe(19.9);
+    process.env.MYSENAM_COUNTRY = "SG";
+    expect(suggestedTiers().tiers.map((t) => t.monthlyFee)).toEqual([29, 59, 99, 149]);
   });
 });

@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { money as shown } from "./region";
+import { money as shown, region } from "./region";
 
 /**
  * What a venue pays by its size: tiers by the number of bookable resources
@@ -31,7 +31,7 @@ export const MAX_TIERS = 8;
 
 /**
  * A starting point the owner can adopt and change: the tiers the pricing
- * analysis settled on (README, "Plans by size").
+ * analysis settled on (README, "Plans by size"), in ringgit.
  */
 export const SUGGESTED_TIERS: PlanTiers = {
   tiers: [
@@ -42,6 +42,27 @@ export const SUGGESTED_TIERS: PlanTiers = {
   ],
   extraEach: 2,
 };
+
+/**
+ * The same tiers for a Singapore install, in Singapore dollars: what it costs
+ * to run a venue is much the same, but rents, wages and the booking software
+ * venues already pay for are priced in dollars, not ringgit. A starting point
+ * for the owner to set, not a researched price.
+ */
+const SUGGESTED_TIERS_SG: PlanTiers = {
+  tiers: [
+    { name: "Starter", upTo: 5, monthlyFee: 29 },
+    { name: "Growth", upTo: 15, monthlyFee: 59 },
+    { name: "Large", upTo: 30, monthlyFee: 99 },
+    { name: "Arena", upTo: 50, monthlyFee: 149 },
+  ],
+  extraEach: 3,
+};
+
+/** The suggestion for this install's country. */
+export function suggestedTiers(): PlanTiers {
+  return region().country === "SG" ? SUGGESTED_TIERS_SG : SUGGESTED_TIERS;
+}
 
 export async function planTiers(): Promise<PlanTiers> {
   const rows = (await getDb()

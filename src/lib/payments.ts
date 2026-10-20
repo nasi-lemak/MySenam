@@ -23,7 +23,7 @@ import { Booking, MAX_TOP_UP } from "./types";
 import { settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
-import { extendHolds } from "./holds";
+import { extendHolds, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
@@ -404,9 +404,12 @@ export async function startBookingPayment(input: {
   // Pressing the button twice, or coming back to it, should not make a second
   // bill for the same thing.
   const ids = due.map((b) => b.id).sort((a, b) => a - b);
-  // A held booking stays held while they are on the payment page.
+  // A held booking stays held while they are on the payment page, and the
+  // page closes when the hold does; one opened earlier is used again only
+  // while it has time left.
+  const held = due.some((b) => b.holdUntil);
   await extendHolds(ids);
-  const reusable = await pendingPaymentFor(ids, amount);
+  const reusable = await pendingPaymentFor(ids, amount, held ? PAYMENT_PAGE_MINUTES - 5 : 23 * 60);
   if (reusable) return { ok: true, url: reusable.url, amount, reused: true };
 
   const first = due[0];
@@ -427,6 +430,7 @@ export async function startBookingPayment(input: {
       // The customer comes back to the site they paid on; the gateway reports to ours.
       redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
       reference: { label: "Booking", value: due.map((b) => b.code).join(" ") },
+      ...(held ? { expiresInMinutes: PAYMENT_PAGE_MINUTES } : {}),
     });
   } catch (err) {
     return {
@@ -452,13 +456,17 @@ export async function startBookingPayment(input: {
   return { ok: true, url: bill.url, amount, reused: false };
 }
 
-/** A bill already made for exactly these bookings, still unpaid and recent. */
-async function pendingPaymentFor(bookingIds: number[], amount: number): Promise<PaymentRow | null> {
+/**
+ * A bill already made for exactly these bookings, still unpaid, and made
+ * within `maxAgeMinutes` (so its page is still open: a day at most, which is
+ * as long as Stripe keeps one).
+ */
+async function pendingPaymentFor(bookingIds: number[], amount: number, maxAgeMinutes: number): Promise<PaymentRow | null> {
   const candidates = await getDb()
     .prepare(`
       SELECT p.* FROM online_payments p
        WHERE p.status = 'pending' AND p.purpose = 'booking' AND p.amount = ?
-         AND p.created_at > datetime('now', '-1 day')
+         AND p.created_at > datetime('now', '-${Math.round(maxAgeMinutes)} minutes')
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
        ORDER BY p.id DESC
     `)

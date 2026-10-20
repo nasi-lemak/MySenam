@@ -13,7 +13,7 @@ import {
   voidInvoice,
 } from "@/lib/billing";
 import { isMarketplace } from "@/lib/mode";
-import { planTiers, setPlanTiers, SUGGESTED_TIERS, type PlanTier } from "@/lib/plans";
+import { planTiers, setPlanTiers, suggestedTiers, type PlanTier } from "@/lib/plans";
 import { applyPaymentHolds } from "@/lib/payment-holds";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       plans: await venuePlans(),
       defaultFee: defaultFee(),
       tiers: await planTiers(),
-      suggestedTiers: SUGGESTED_TIERS,
+      suggestedTiers: suggestedTiers(),
       canPayOnline: platformAccount() !== null,
     });
   }

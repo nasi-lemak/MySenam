@@ -42,6 +42,11 @@ export interface CheckoutRequest {
   redirectUrl: string;
   /** Shown to the payer and on the venue's statement. */
   reference?: { label: string; value: string };
+  /**
+   * Close the page after this long, where the gateway can (a held booking is
+   * let go then, and should not be paid for after). Left open otherwise.
+   */
+  expiresInMinutes?: number;
 }
 
 /** A hosted payment page: the gateway's id for it, and where to send the payer. */

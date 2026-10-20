@@ -15,7 +15,7 @@
  */
 
 import { siteName } from "./site";
-import { currencySymbol, region } from "./region";
+import { currencySymbol, plainAmount, region } from "./region";
 
 export const LOCALES = ["en", "ms"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -234,7 +234,7 @@ const EN = {
   "pay.shareBody": "Thank you. {cur}{amount} has gone to the venue towards the court.",
   "pay.shareBack": "Back to games",
   "footer.tagline":
-    "{site} — gelanggang, gim dan kelas, satu tempahan. Built for badminton, tennis, pickleball, futsal, gym & swimming.",
+    "{site} — {tagline}. Built for badminton, tennis, pickleball, futsal, gym & swimming.",
   "footer.privacy": "Privacy notice",
   "footer.terms": "Terms",
   "footer.listVenue": "List your venue",
@@ -1314,7 +1314,7 @@ const MS: Record<Phrase, string> = {
   "pay.shareBody": "Terima kasih. {cur}{amount} telah dibayar kepada pusat untuk gelanggang.",
   "pay.shareBack": "Kembali ke permainan",
   "footer.tagline":
-    "{site} — gelanggang, gim dan kelas, satu tempahan. Untuk badminton, tenis, pickleball, futsal, gim & renang.",
+    "{site} — {tagline}. Untuk badminton, tenis, pickleball, futsal, gim & renang.",
   "footer.privacy": "Notis privasi",
   "footer.terms": "Terma",
   "footer.listVenue": "Senaraikan pusat anda",
@@ -2230,9 +2230,12 @@ export type Vars = Record<string, string | number>;
 
 function fill(text: string, vars?: Vars): string {
   if (!vars) return text;
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) =>
-    name in vars ? String(vars[name]) : whole
-  );
+  return text
+    // An amount after the currency is written as money() writes it: 4.80, not 4.8.
+    .replace(/\{cur\}\{(\w+)\}/g, (whole, name: string) =>
+      "cur" in vars && typeof vars[name] === "number" ? `${vars.cur}${plainAmount(vars[name] as number)}` : whole
+    )
+    .replace(/\{(\w+)\}/g, (whole, name: string) => (name in vars ? String(vars[name]) : whole));
 }
 
 export interface T {
@@ -2280,6 +2283,7 @@ export function translator(locale: Locale, site: string = siteName()): T {
     gateway: GATEWAY_NAMES[r.gateway],
     payMethods: dict[`gw.${r.gateway}.methods` as Phrase] ?? "",
     placeEx: r.placeExample,
+    tagline: r.tagline,
     dataAct: r.legal.dataAct,
   };
   const t = ((phrase: Phrase, vars?: Vars) =>

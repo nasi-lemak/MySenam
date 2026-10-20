@@ -27,7 +27,7 @@ import PayOnline from "@/components/PayOnline";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
-import { money, intlTag, region } from "@/lib/region";
+import { money, intlTag, region, plainAmount } from "@/lib/region";
 
 interface Props {
   venueId: number;
@@ -392,7 +392,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                                 : "bg-teal-100 text-teal-800 hover:bg-teal-200"
                           }`}
                         >
-                          {slot.available ? (slot.rate === 0 ? t("price.free") : slot.rate) : "—"}
+                          {slot.available ? (slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)) : "—"}
                         </button>
                       </td>
                     );
@@ -406,7 +406,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     <div className="text-xs font-normal text-slate-400">
                       {court.offPeakRate === 0 && court.peakRate === 0
                         ? t("price.free")
-                        : `${money(court.offPeakRate)}–${court.peakRate}/hr`}
+                        : `${money(court.offPeakRate)}–${plainAmount(court.peakRate)}/hr`}
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
@@ -458,7 +458,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                                   : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           }`}
                         >
-                          {!slot.available ? (canQueue(slot, date) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : slot.rate}
+                          {!slot.available ? (canQueue(slot, date) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)}
                         </button>
                       </td>
                     );
