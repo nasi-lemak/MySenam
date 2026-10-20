@@ -5,6 +5,7 @@ import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PROMO_AMOUNT, MAX_PROMO_PE
 import type { Membership, Pass, PromoCode, Venue, WalletEntry } from "@/lib/types";
 import { percent, todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
+import { money, currencySymbol } from "@/lib/region";
 
 /* ---------------- Credit tab ---------------- */
 
@@ -60,7 +61,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Top-up failed");
-      setNotice(`Added RM${amount}. New balance RM${data.balance}.`);
+      setNotice(`Added ${money(amount)}. New balance ${money(data.balance)}.`);
       setCustomer({ ...customer, balance: data.balance });
       setEntries([data.entry, ...entries]);
     } catch (err) {
@@ -134,7 +135,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
               </div>
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-teal-700">RM{customer.balance}</div>
+              <div className="text-2xl font-bold text-teal-700">{money(customer.balance)}</div>
               {scope === "venue" && (
                 <div className="text-xs text-slate-500">
                   spendable at {venues.find((v) => v.id === creditVenueId)?.name ?? "this venue"}
@@ -150,7 +151,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
 
           <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4">
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Top up (RM)
+              Top up ({currencySymbol()})
               <input
                 type="number"
                 min={1}
@@ -166,7 +167,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
                 onClick={() => setAmount(String(preset))}
                 className="rounded-md border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-teal-500"
               >
-                RM{preset}
+                {money(preset)}
               </button>
             ))}
             <button
@@ -187,7 +188,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
                       entry.amount >= 0 ? "text-emerald-700" : "text-slate-700"
                     }`}
                   >
-                    {entry.amount >= 0 ? "+" : "−"}RM{Math.abs(entry.amount)}
+                    {entry.amount >= 0 ? "+" : "−"}{money(Math.abs(entry.amount))}
                   </span>
                 </li>
               ))}
@@ -359,7 +360,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Price (RM)
+          Price ({currencySymbol()})
           <input
             type="number"
             min={0}
@@ -624,7 +625,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-28 ${inputClass}`}
           >
             <option value="percent">% off</option>
-            <option value="amount">RM off</option>
+            <option value="amount">{currencySymbol()} off</option>
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
@@ -732,7 +733,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">
-                  {p.kind === "percent" ? `${p.value}%` : `RM${p.value}`}
+                  {p.kind === "percent" ? `${p.value}%` : `${money(p.value)}`}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   {p.used}
@@ -920,7 +921,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Fee (RM)
+          Fee ({currencySymbol()})
           <input
             type="number"
             min={0}
@@ -975,7 +976,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                   {m.startsOn} → {m.expiresOn}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">
-                  RM{m.price}
+                  {money(m.price)}
                   {m.online && <span className="ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700">online</span>}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
@@ -1076,7 +1077,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
               <span>
                 <span className="font-medium">{p.name}</span>{" "}
                 <span className="text-slate-500">
-                  · {p.months} month{p.months === 1 ? "" : "s"} · RM{p.price}
+                  · {p.months} month{p.months === 1 ? "" : "s"} · {money(p.price)}
                 </span>
               </span>
               <button
@@ -1113,7 +1114,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Fee (RM)
+          Fee ({currencySymbol()})
           <input
             type="number"
             min={1}

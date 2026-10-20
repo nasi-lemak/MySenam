@@ -1,25 +1,30 @@
 import { MAX_ADVANCE_DAYS } from "./types";
+import { region } from "./region";
 
-const TZ = "Asia/Kuala_Lumpur";
-
-// Built once. Constructing a formatter costs far more than using one, and
-// isPastSlot asks for the date and hour once per court per hour — a search
-// across every venue builds tens of thousands of them otherwise.
-const DATE_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: TZ });
-const HOUR_FORMAT = new Intl.DateTimeFormat("en-GB", {
-  timeZone: TZ,
-  hour: "2-digit",
-  hour12: false,
-});
-
-/** Today's date (YYYY-MM-DD) in Malaysia time. */
-export function todayISO(): string {
-  return DATE_FORMAT.format(new Date());
+// Built once per zone. Constructing a formatter costs far more than using
+// one, and isPastSlot asks for the date and hour once per court per hour — a
+// search across every venue builds tens of thousands of them otherwise. Built
+// on first use rather than at load, so the browser has its country by then.
+let formats: { zone: string; date: Intl.DateTimeFormat; hour: Intl.DateTimeFormat } | null = null;
+function formatters() {
+  const zone = region().timeZone;
+  if (formats?.zone !== zone)
+    formats = {
+      zone,
+      date: new Intl.DateTimeFormat("en-CA", { timeZone: zone }),
+      hour: new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", hour12: false }),
+    };
+  return formats;
 }
 
-/** Current hour (0-23) in Malaysia time. */
+/** Today's date (YYYY-MM-DD) in the install's time zone. */
+export function todayISO(): string {
+  return formatters().date.format(new Date());
+}
+
+/** Current hour (0-23) in the install's time zone. */
 export function currentHour(): number {
-  return parseInt(HOUR_FORMAT.format(new Date()), 10) % 24;
+  return parseInt(formatters().hour.format(new Date()), 10) % 24;
 }
 
 export function isValidDateString(date: string): boolean {
@@ -53,7 +58,7 @@ export function isBookableDate(date: string): boolean {
   return date >= today && date <= addDays(today, MAX_ADVANCE_DAYS);
 }
 
-/** Has this slot already started (or passed) in Malaysia time? */
+/** Has this slot already started (or passed), local time? */
 export function isPastSlot(date: string, hour: number): boolean {
   const today = todayISO();
   if (date < today) return true;
@@ -61,12 +66,10 @@ export function isPastSlot(date: string, hour: number): boolean {
   return hour <= currentHour();
 }
 
-const MYT_OFFSET_HOURS = 8;
-
-/** The UTC instant at which a Malaysia-time slot begins. */
+/** The UTC instant at which a slot (local time) begins. */
 export function slotStartsAt(date: string, hour: number): Date {
   const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, hour - MYT_OFFSET_HOURS));
+  return new Date(Date.UTC(y, m - 1, d, hour - region().utcOffsetHours));
 }
 
 /** Hours from now until a slot starts; negative once it has begun. */

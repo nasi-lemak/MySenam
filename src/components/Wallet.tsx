@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { WalletBalance, WalletEntry } from "@/lib/types";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
+import { money } from "@/lib/region";
 
 /** The customer's stored credit and recent movements. */
 export default function Wallet() {
@@ -68,7 +69,7 @@ export default function Wallet() {
             {perVenue ? t("wallet.introVenue") : t("wallet.intro")}
           </p>
         </div>
-        <div className="text-2xl font-bold text-teal-700">RM{balance}</div>
+        <div className="text-2xl font-bold text-teal-700">{money(balance)}</div>
       </div>
 
       {perVenue && balances.length > 0 && (
@@ -76,7 +77,7 @@ export default function Wallet() {
           {balances.map((b) => (
             <li key={b.venueId ?? "any"} className="flex justify-between gap-3">
               <span className="text-slate-600">{b.venueName ?? t("wallet.anyVenue")}</span>
-              <span className="font-semibold">RM{b.balance}</span>
+              <span className="font-semibold">{money(b.balance)}</span>
             </li>
           ))}
         </ul>
@@ -155,7 +156,7 @@ export default function Wallet() {
                       entry.amount >= 0 ? "text-emerald-700" : "text-slate-700"
                     }`}
                   >
-                    {entry.amount >= 0 ? "+" : "−"}RM{Math.abs(entry.amount)}
+                    {entry.amount >= 0 ? "+" : "−"}{money(Math.abs(entry.amount))}
                   </span>
                 </li>
               ))}

@@ -19,7 +19,7 @@ import {
 import { formatHour } from "@/lib/time";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
-import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import { sportLabel } from "@/lib/i18n";
 import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
@@ -27,6 +27,7 @@ import PayOnline from "@/components/PayOnline";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
+import { money, intlTag, region } from "@/lib/region";
 
 interface Props {
   venueId: number;
@@ -82,22 +83,22 @@ function canQueue(slot: CourtAvailability["slots"][number], date: string): boole
 
 /** A UTC "YYYY-MM-DD HH:MM:SS" as Malaysia-time HH:MM, for the customer. */
 function localTimeOf(utc: string): string {
-  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
+  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
+    timeZone: region().timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
-/** Past-slot check in Malaysia time, for the browser. */
+/** Past-slot check in the install's time zone, for the browser. */
 function isPastSlotClient(date: string, hour: number): boolean {
   const now = new Date();
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(now);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: region().timeZone }).format(now);
   if (date < today) return true;
   if (date > today) return false;
   const currentHour = Number(
     new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Kuala_Lumpur",
+      timeZone: region().timeZone,
       hour: "2-digit",
       hour12: false,
     }).format(now)
@@ -107,7 +108,7 @@ function isPastSlotClient(date: string, hour: number): boolean {
 
 function formatDateLabel(t: T, date: string): { day: string; num: string } {
   const d = new Date(`${date}T00:00:00Z`);
-  const tag = INTL_TAGS[t.locale];
+  const tag = intlTag(t.locale);
   return {
     day: d.toLocaleDateString(tag, { weekday: "short", timeZone: "UTC" }),
     num: d.toLocaleDateString(tag, { day: "numeric", month: "short", timeZone: "UTC" }),
@@ -405,7 +406,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     <div className="text-xs font-normal text-slate-400">
                       {court.offPeakRate === 0 && court.peakRate === 0
                         ? t("price.free")
-                        : `RM${court.offPeakRate}–${court.peakRate}/hr`}
+                        : `${money(court.offPeakRate)}–${court.peakRate}/hr`}
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
@@ -666,7 +667,7 @@ function BookingForm({
           <div className="font-semibold text-teal-700">{court.name}</div>
           <div className="text-sm text-slate-600">
             {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + 1)} ·{" "}
-            <span className="font-semibold text-slate-900">{withExtras === 0 ? t("price.free") : `RM${withExtras}`}</span>
+            <span className="font-semibold text-slate-900">{withExtras === 0 ? t("price.free") : `${money(withExtras)}`}</span>
           </div>
           {remembered && (
             <button
@@ -898,12 +899,12 @@ function ConfirmationModal({
               ? ([
                   [
                     t("done.extras"),
-                    confirmation.addons.map((a) => `${a.quantity} × ${a.name} (RM${a.unitPrice})`).join(", "),
+                    confirmation.addons.map((a) => `${a.quantity} × ${a.name} (${money(a.unitPrice)})`).join(", "),
                   ],
                 ] as [string, string][])
               : ([] as [string, string][])),
             ...(confirmation.discount
-              ? ([[t("done.promoDiscount"), `− RM${confirmation.discount}`]] as [string, string][])
+              ? ([[t("done.promoDiscount"), `− ${money(confirmation.discount)}`]] as [string, string][])
               : ([] as [string, string][])),
             [
               t("done.total"),
@@ -943,7 +944,7 @@ function ConfirmationModal({
                 <li key={b.id} className="flex justify-between">
                   <span>📅 {b.date}</span>
                   <span className="font-mono text-xs text-slate-500">
-                    {b.code} · {b.totalPrice === 0 ? t("price.free") : `RM${b.totalPrice}`}
+                    {b.code} · {b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}
                   </span>
                 </li>
               ))}

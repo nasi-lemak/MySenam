@@ -24,6 +24,7 @@ import { addDays, formatHour, isPastSlot, isValidDateString, todayISO } from "./
 import { SPORTS, type Sport } from "./types";
 import type { Level } from "./games";
 import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
+import { money } from "./region";
 
 /**
  * Tournaments run by venues.
@@ -479,7 +480,7 @@ export async function enter(
     status === "entered" ? `You're entered: ${t.name}` : `You're on the waiting list: ${t.name}`,
     status === "entered"
       ? `You're entered in ${t.name} at ${t.venueName}, ${t.startsOn}.` +
-          (t.entryFee > 0 ? ` The entry fee is RM${t.entryFee.toFixed(2)}${t.payOnline ? "; pay it from the tournament's page" : ", paid at the venue"}.` : "") +
+          (t.entryFee > 0 ? ` The entry fee is ${money(t.entryFee.toFixed(2))}${t.payOnline ? "; pay it from the tournament's page" : ", paid at the venue"}.` : "") +
           " You'll hear your first match once the draw is made."
       : `${t.name} is full, so you're on its waiting list. If somebody withdraws, you're in, and we'll tell you.`
   );

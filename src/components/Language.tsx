@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo } from "react";
+import { setBrowserCountry } from "@/lib/region";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, LOCALES, Locale, translator, T } from "@/lib/i18n";
 
 const LanguageContext = createContext<Locale>(DEFAULT_LOCALE);
@@ -25,13 +26,17 @@ const TContext = createContext<T>(translator(DEFAULT_LOCALE));
 export function LanguageProvider({
   locale,
   site,
+  country,
   children,
 }: {
   locale: Locale;
   /** The install's name, which only the server knows. */
   site?: string;
+  /** The install's country (lib/region.ts), which only the server knows. */
+  country?: string;
   children: React.ReactNode;
 }) {
+  if (country) setBrowserCountry(country);
   const t = useMemo(() => translator(locale, site), [locale, site]);
   return (
     <LanguageContext.Provider value={locale}>

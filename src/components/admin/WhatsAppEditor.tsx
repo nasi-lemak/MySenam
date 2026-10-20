@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Pack } from "@/lib/whatsapp-credit";
 import type { Usage } from "@/lib/whatsapp-usage";
+import { money } from "@/lib/region";
 
 type Mode = "off" | "urgent" | "all";
 
@@ -84,7 +85,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
           <p className="text-xs text-slate-500">
             Customers always see their booking code on screen, and get it by email with a calendar invite when they give an address — free.
             {s.prepaid &&
-              ` With everything on, the extra messages are paid for in advance: ${s.pack.messages} for RM${s.pack.price}. When they run out, those stop and email carries on; urgent news still goes, and you are emailed at 20 left and at none.`}
+              ` With everything on, the extra messages are paid for in advance: ${s.pack.messages} for ${money(s.pack.price)}. When they run out, those stop and email carries on; urgent news still goes, and you are emailed at 20 left and at none.`}
           </p>
           {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
           {!s.available ? (
@@ -144,7 +145,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                   onClick={() => act({ action: "buy" })}
                   className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                 >
-                  Buy {s.pack.messages} messages · RM{s.pack.price}
+                  Buy {s.pack.messages} messages · {money(s.pack.price)}
                 </button>
                 <label className="flex items-center gap-1 text-xs text-slate-500">
                   Bookings a month
@@ -159,8 +160,8 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                 </label>
                 {perMonth > 0 && (
                   <span className="text-xs text-slate-600" data-testid="estimate">
-                    ≈ {perMonth} messages a month: {packsNeeded} pack{packsNeeded === 1 ? "" : "s"}, about RM
-                    {(packsNeeded * s.pack.price).toFixed(2)}
+                    ≈ {perMonth} messages a month: {packsNeeded} pack{packsNeeded === 1 ? "" : "s"}, about{" "}
+                    {money((packsNeeded * s.pack.price).toFixed(2))}
                   </span>
                 )}
               </div>
@@ -169,7 +170,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                   {s.packs.map((p) => (
                     <li key={p.id} className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs">
                       <span className="flex-1">
-                        {p.messages} messages · RM{p.amount} · {p.createdAt.slice(0, 10)} ·{" "}
+                        {p.messages} messages · {money(p.amount)} · {p.createdAt.slice(0, 10)} ·{" "}
                         {p.status === "paid" ? `paid${p.paidVia === "online" ? " online" : ""}` : p.status === "void" ? "void" : "waiting for payment"}
                       </span>
                       {p.status === "due" && s.canPayOnline && (

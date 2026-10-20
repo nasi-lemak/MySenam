@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Addon } from "@/lib/addons";
 import { SPORT_LABELS, type Sport } from "@/lib/types";
 import type { ManagedVenue } from "./shared";
+import { money, currencySymbol } from "@/lib/region";
 
 const BLANK = { name: "", kind: "rental" as "rental" | "sale", price: "", stock: "", sport: "" };
 
@@ -68,7 +69,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
                 className={`flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs ${a.active ? "bg-slate-50" : "bg-slate-50 text-slate-400"}`}
               >
                 <span className="flex-1">
-                  {a.kind === "rental" ? "🎒" : "🛒"} <span className="font-medium">{a.name}</span> · RM{a.price}
+                  {a.kind === "rental" ? "🎒" : "🛒"} <span className="font-medium">{a.name}</span> · {money(a.price)}
                   {a.kind === "rental" ? ` to hire${a.stock !== null ? `, ${a.stock} in stock` : ""}` : " to buy"}
                   {a.sport && ` · ${SPORT_LABELS[a.sport]} only`}
                   {!a.active && " · retired"}
@@ -123,7 +124,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
               </select>
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Price (RM)
+              Price ({currencySymbol()})
               <input required type="number" min={0} max={1000} step="0.5" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} className={`w-24 ${input}`} />
             </label>
             {f.kind === "rental" && (

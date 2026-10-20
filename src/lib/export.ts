@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
+import { currencySymbol } from "./region";
 
 /**
  * A venue's bookings and online payments as spreadsheets (CSV), for the
@@ -41,7 +42,7 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
   return toCsv(
     [
       "Code", "Series", "Date", "Start", "End", "Court", "Sport", "Customer", "Phone", "Email", "Status",
-      "Price (RM)", "Payment", "Paid by", "Paid at", "Promo discount (RM)", "Extras", "Checked in", "No-show", "Class", "Booked at",
+      `Price (${currencySymbol()})`, "Payment", "Paid by", "Paid at", `Promo discount (${currencySymbol()})`, "Extras", "Checked in", "No-show", "Class", "Booked at",
     ],
     rows.map((r) => [
       r.code,
@@ -81,7 +82,7 @@ export async function paymentsCsv(venueId: number, from: string, to: string): Pr
     )
     .all(venueId, `${from} 00:00:00`, `${to} 23:59:59`)) as Record<string, unknown>[];
   return toCsv(
-    ["Bill", "For", "Bookings", "Status", "Amount (RM)", "Owed back (RM)", "Refunded (RM)", "Payer", "Phone", "Opened at", "Paid at"],
+    ["Bill", "For", "Bookings", "Status", `Amount (${currencySymbol()})`, `Owed back (${currencySymbol()})`, `Refunded (${currencySymbol()})`, "Payer", "Phone", "Opened at", "Paid at"],
     rows.map((r) => [
       r.bill_id,
       r.purpose,

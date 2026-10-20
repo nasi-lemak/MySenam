@@ -9,11 +9,12 @@ import { formatHour } from "@/lib/time";
 import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
-import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import { sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
+import { money, intlTag } from "@/lib/region";
 
 function dateLabel(t: T, date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString(INTL_TAGS[t.locale], {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(intlTag(t.locale), {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -143,7 +144,7 @@ export default function ClassesPage() {
                         </div>
                       </div>
                       <div className="text-right text-sm">
-                        <div className="font-bold">{session.price === 0 ? t("price.free") : `RM${session.price}`}</div>
+                        <div className="font-bold">{session.price === 0 ? t("price.free") : `${money(session.price)}`}</div>
                         <div className={left === 0 ? "text-xs text-red-600" : "text-xs text-slate-400"}>
                           {left === 0
                             ? t("classes.full")
@@ -265,7 +266,7 @@ function EnrolModal({
         if (data.addonError) setExtrasNote(t("done.addonRejected", { reason: translateError(t, data.addonError) }));
         else if (data.addons?.length)
           setExtrasNote(
-            `${t("done.extras")}: ${(data.addons as { name: string; quantity: number }[]).map((a) => `${a.quantity} × ${a.name}`).join(", ")} · ${t("done.total")} RM${data.booking.totalPrice}`
+            `${t("done.extras")}: ${(data.addons as { name: string; quantity: number }[]).map((a) => `${a.quantity} × ${a.name}`).join(", ")} · ${t("done.total")} ${money(data.booking.totalPrice)}`
           );
       }
     } catch (err) {

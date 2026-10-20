@@ -8,6 +8,7 @@ import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
 import { SURFACES, SURFACE_SPORTS, type CourtFeatures } from "@/lib/facilities";
 import { DICTIONARIES } from "@/lib/i18n";
+import { currencySymbol } from "@/lib/region";
 
 const SURFACE_LABEL = (x: string) => (DICTIONARIES.en as Record<string, string>)[`surface.${x}`] ?? x;
 
@@ -243,8 +244,8 @@ export function CourtsTab({
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 {[
-                  "Court", "Sport", "Off-peak (RM/hr)", "Peak (RM/hr)",
-                  "Member off-peak", "Member peak", "Capacity", "Deposit (RM)", "Door", "",
+                  "Court", "Sport", `Off-peak (${currencySymbol()}/hr)`, `Peak (${currencySymbol()}/hr)`,
+                  "Member off-peak", "Member peak", "Capacity", `Deposit (${currencySymbol()})`, "Door", "",
                 ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
                     {h}
@@ -435,7 +436,7 @@ export function CourtsTab({
           min={0}
           value={newCourt.offPeak}
           onChange={(e) => setNewCourt({ ...newCourt, offPeak: e.target.value })}
-          placeholder="Off-peak RM"
+          placeholder={`Off-peak ${currencySymbol()}`}
           className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input
@@ -444,7 +445,7 @@ export function CourtsTab({
           min={0}
           value={newCourt.peak}
           onChange={(e) => setNewCourt({ ...newCourt, peak: e.target.value })}
-          placeholder="Peak RM"
+          placeholder={`Peak ${currencySymbol()}`}
           className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input

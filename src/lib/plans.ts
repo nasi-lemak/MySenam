@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { money as shown } from "./region";
 
 /**
  * What a venue pays by its size: tiers by the number of bookable resources
@@ -75,7 +76,7 @@ export async function setPlanTiers(input: PlanTiers): Promise<{ ok: true; plan: 
     if (names.has(name.toLowerCase())) return { ok: false, error: `Two tiers are called ${name}.` };
     names.add(name.toLowerCase());
     if (!Number.isFinite(t.monthlyFee) || t.monthlyFee < 0 || t.monthlyFee > 100_000)
-      return { ok: false, error: `${name}: the monthly fee must be RM0–100,000.` };
+      return { ok: false, error: `${name}: the monthly fee must be ${shown(0)}–100,000.` };
     const last = i === tiers.length - 1;
     if (t.upTo === null) {
       if (!last) return { ok: false, error: `${name}: only the last tier can have no limit.` };
@@ -85,7 +86,7 @@ export async function setPlanTiers(input: PlanTiers): Promise<{ ok: true; plan: 
   }
   const extraEach = Number(input.extraEach ?? 0);
   if (!Number.isFinite(extraEach) || extraEach < 0 || extraEach > 10_000)
-    return { ok: false, error: "The fee for each extra resource must be RM0–10,000." };
+    return { ok: false, error: `The fee for each extra resource must be ${shown(0)}–10,000.` };
   if (extraEach > 0 && tiers.length > 0 && tiers[tiers.length - 1].upTo === null)
     return { ok: false, error: "The last tier has no limit, so nothing is extra: give it a limit, or set the extra fee to 0." };
   const db = getDb();

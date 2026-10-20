@@ -6,6 +6,7 @@ import type { ManagedVenue } from "./shared";
 import { addDays } from "@/lib/time";
 import { SPORTS, type Sport } from "@/lib/types";
 import type { League, LeagueDetail, LeagueMatch } from "@/lib/leagues";
+import { money, currencySymbol } from "@/lib/region";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
@@ -202,7 +203,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           <input type="number" min={14} max={62} value={f.seasonDays} onChange={(e) => setF({ ...f, seasonDays: e.target.value })} className={`w-20 ${input}`} />
         </label>
         <label className={label}>
-          Fee a season (RM)
+          Fee a season ({currencySymbol()})
           <input type="number" min={0} step={1} value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} className={`w-24 ${input}`} />
         </label>
         <label className={label}>
@@ -251,7 +252,7 @@ function Manage({
             <p className="text-sm text-slate-500">
               {l.sport} · {l.teamSize === 2 ? "doubles pairs" : "singles"}
               {l.who !== "anyone" && ` · ${l.who} only`} · boxes of {l.boxSize} · {l.moves} up and down ·{" "}
-              {l.seasonDays}-day seasons · {l.fee > 0 ? `RM${l.fee.toFixed(2)} a season` : "no fee"} · {l.players} players
+              {l.seasonDays}-day seasons · {l.fee > 0 ? `${money(l.fee.toFixed(2))} a season` : "no fee"} · {l.players} players
               {l.status === "closed" && " · stopped"}
             </p>
           </div>

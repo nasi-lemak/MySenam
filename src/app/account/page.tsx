@@ -20,6 +20,7 @@ import { GuestInvites } from "@/components/GuestInvites";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
+import { money } from "@/lib/region";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -257,7 +258,7 @@ export default function AccountPage() {
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatHour(b.startHour)} – {formatHour(b.endHour)}
                     </td>
-                    <td className="px-3 py-2">{b.totalPrice === 0 ? t("price.free") : `RM${b.totalPrice}`}</td>
+                    <td className="px-3 py-2">{b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -437,7 +438,7 @@ function BookingCard({
           📅 {b.date} · {formatHour(b.startHour)} – {formatHour(b.endHour)}
         </div>
         <div className="font-medium">
-          {b.totalPrice === 0 ? t("price.free") : `RM${b.totalPrice}`}{" "}
+          {b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}{" "}
           {b.totalPrice === 0 ? null : b.paymentStatus === "paid" ? (
             <span className="text-emerald-700">{t("acct.paid")}</span>
           ) : (

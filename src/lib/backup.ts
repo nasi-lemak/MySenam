@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { dataDirectory, databaseTarget, getDb } from "./db.ts";
+import { isoOffset, region } from "./region";
 
 const run = promisify(execFile);
 
@@ -29,7 +30,7 @@ export interface BackupFile {
   name: string;
   path: string;
   bytes: number;
-  /** When the snapshot was taken, from its own filename, in Malaysia time. */
+  /** When the snapshot was taken, from its own filename, in local time. */
   takenAt: string;
 }
 
@@ -37,10 +38,10 @@ export function backupDir(): string {
   return process.env.MYSENAM_BACKUP_DIR || path.join(dataDirectory(), "backups");
 }
 
-/** `mysenam-2026-09-26-021400.dump`, in Malaysia time, so the name sorts and reads. */
+/** `mysenam-2026-09-26-021400.dump`, in local time, so the name sorts and reads. */
 function snapshotName(extension: string, now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kuala_Lumpur",
+    timeZone: region().timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -224,7 +225,7 @@ export async function createBackup(opts: { dir?: string; keep?: number } = {}): 
 export function hoursSinceLastBackup(dir = backupDir()): number | null {
   const [newest] = listBackups(dir);
   if (!newest || newest.takenAt === "") return null;
-  // takenAt is Malaysia time; UTC+8 is fixed, so no DST to reason about.
-  const taken = Date.parse(`${newest.takenAt.replace(" ", "T")}+08:00`);
+  // takenAt is local time; the offset is fixed (no DST), so nothing to reason about.
+  const taken = Date.parse(`${newest.takenAt.replace(" ", "T")}${isoOffset()}`);
   return Number.isNaN(taken) ? null : (Date.now() - taken) / 3_600_000;
 }

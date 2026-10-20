@@ -18,6 +18,7 @@ import {
 import { registerUser } from "./auth";
 import { Court } from "./types";
 import { addDays, todayISO } from "./time";
+import { money } from "./region";
 
 /**
  * A fortnight of plausible trading, for showing somebody what this does.
@@ -412,7 +413,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
   if (account.ok) {
     customers++;
     await topUpWallet({ userId: account.user.id, amount: 80, adminId: opts.adminId, reason: "Counter top-up" });
-    extras.push("a customer holding RM80 of credit");
+    extras.push(`a customer holding ${money(80)} of credit`);
   }
 
   const pass = await issuePass({

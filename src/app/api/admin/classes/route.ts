@@ -5,6 +5,7 @@ import { tellOwners } from "@/lib/owner-alerts";
 import { createClassSessions, getCourt, getVenue, listClasses, listClassWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(capacity) || (capacity as number) < 1)
     return NextResponse.json({ error: "Capacity must be at least 1." }, { status: 400 });
   if (!Number.isInteger(price) || (price as number) < 0)
-    return NextResponse.json({ error: "Price must be RM0 or more." }, { status: 400 });
+    return NextResponse.json({ error: `Price must be ${money(0)} or more.` }, { status: 400 });
   if (weeks !== undefined &&
       (!Number.isInteger(weeks) || (weeks as number) < 1 || (weeks as number) > MAX_CLASS_WEEKS))
     return NextResponse.json(

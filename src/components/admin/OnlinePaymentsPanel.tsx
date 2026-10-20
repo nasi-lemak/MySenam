@@ -5,6 +5,7 @@ import type { OnlinePayment, PaymentSettings } from "@/lib/payments";
 import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
+import { money } from "@/lib/region";
 
 /**
  * A venue's own online payment account, and what came through it.
@@ -237,7 +238,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             {owed.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  <strong>RM{p.refundOwed}</strong> to {p.payerName} ({p.payerPhone}) ·{" "}
+                  <strong>{money(p.refundOwed)}</strong> to {p.payerName} ({p.payerPhone}) ·{" "}
                   <span className="font-mono text-xs">{p.bookingCodes.join(", ")}</span> · bill{" "}
                   <span className="font-mono text-xs">{p.billId}</span>
                 </span>
@@ -276,7 +277,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{p.bookingCodes.join(", ")}</td>
                   <td className="px-3 py-2">{p.payerName}</td>
-                  <td className="px-3 py-2 text-right">RM{p.amount}</td>
+                  <td className="px-3 py-2 text-right">{money(p.amount)}</td>
                   <td className="px-3 py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-semibold ${

@@ -4,6 +4,7 @@ import { courtAccess, getCourt, setCourtFeatures, updateCourt } from "@/lib/stor
 import { isSurface, type CourtFeatures } from "@/lib/facilities";
 import { MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, MIN_ACCESS_CODE } from "@/lib/types";
 import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,7 @@ export async function PATCH(
   for (const [key, rate] of [["offPeakRate", offPeakRate], ["peakRate", peakRate]] as const) {
     if (rate !== undefined) {
       if (!Number.isInteger(rate) || (rate as number) < 0 || (rate as number) > MAX_RATE)
-        return NextResponse.json({ error: `${key} must be RM0–${MAX_RATE}. RM0 makes it free.` }, { status: 400 });
+        return NextResponse.json({ error: `${key} must be ${money(0)}–${MAX_RATE}. ${money(0)} makes it free.` }, { status: 400 });
       changes[key] = rate as number;
     }
   }
@@ -102,7 +103,7 @@ export async function PATCH(
       continue;
     }
     if (!Number.isInteger(rate) || (rate as number) < 0 || (rate as number) > MAX_RATE)
-      return NextResponse.json({ error: `${key} must be RM0–${MAX_RATE}, or blank.` }, { status: 400 });
+      return NextResponse.json({ error: `${key} must be ${money(0)}–${MAX_RATE}, or blank.` }, { status: 400 });
     changes[key] = rate as number;
   }
 
@@ -117,7 +118,7 @@ export async function PATCH(
 
   if (deposit !== undefined) {
     if (!Number.isInteger(deposit) || (deposit as number) < 0 || (deposit as number) > MAX_DEPOSIT)
-      return NextResponse.json({ error: `A deposit must be RM0–${MAX_DEPOSIT}.` }, { status: 400 });
+      return NextResponse.json({ error: `A deposit must be ${money(0)}–${MAX_DEPOSIT}.` }, { status: 400 });
     changes.deposit = deposit as number;
   }
 

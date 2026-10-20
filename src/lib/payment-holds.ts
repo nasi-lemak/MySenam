@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { isMarketplace } from "./mode";
 import { tellOwners, tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
+import { money, offsetMs } from "./region";
 
 /**
  * A venue whose invoice is long overdue comes off the marketplace until it
@@ -25,7 +26,7 @@ export const WARN_AFTER_DAYS = 7;
 
 /** Malaysia's date, `days` before now. */
 function daysAgo(now: Date, days: number): string {
-  const d = new Date(now.getTime() + 8 * 3600_000);
+  const d = new Date(now.getTime() + offsetMs());
   d.setUTCDate(d.getUTCDate() - days);
   return d.toISOString().slice(0, 10);
 }
@@ -125,7 +126,7 @@ async function warnOverdue(now: Date): Promise<void> {
     await tellVenueStaff(
       venues[0].id,
       `Your ${siteName()} invoice is overdue`,
-      `The invoice for ${invoice.period}, RM${Number(invoice.amount).toFixed(2)}, was due on ${invoice.due_on}. ` +
+      `The invoice for ${invoice.period}, ${money(Number(invoice.amount).toFixed(2))}, was due on ${invoice.due_on}. ` +
         `If it is still unpaid on ${offOn}, ${names} will be hidden from customers until it is paid. ` +
         `Bookings already made will stand.\n\nPay it under Venues & staff → Billing.`
     );

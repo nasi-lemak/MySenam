@@ -5,6 +5,7 @@ import { inSameBusiness } from "./branches";
 import { normalisePhone } from "./store";
 import { addDays, todayISO } from "./time";
 import type { Refusal } from "./types";
+import { money, region } from "./region";
 
 /**
  * Memberships a club sells online.
@@ -76,7 +77,7 @@ export async function createPlan(venueId: number, input: { name: unknown; months
   if (!Number.isInteger(input.months) || (input.months as number) < 1 || (input.months as number) > MAX_PLAN_MONTHS)
     return { ok: false, error: `A plan runs 1–${MAX_PLAN_MONTHS} months.` };
   if (!Number.isInteger(input.price) || (input.price as number) < 1 || (input.price as number) > 100000)
-    return { ok: false, error: "The fee is a whole number of ringgit, at least RM1. Free memberships are given at the counter." };
+    return { ok: false, error: `The fee is a whole number of ${region().currency.major}, at least ${money(1)}. Free memberships are given at the counter.` };
   if ((await listPlans(venueId)).length >= MAX_PLANS_PER_VENUE)
     return { ok: false, error: `A venue offers up to ${MAX_PLANS_PER_VENUE} plans. Retire one first.` };
   const info = await getDb()

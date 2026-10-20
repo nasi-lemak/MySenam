@@ -26,6 +26,7 @@ import { notifyBookingConfirmed, notifyPaid } from "./notify";
 import { extendHolds } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, translator, type ErrorCode } from "./i18n";
+import { money, region } from "./region";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -911,7 +912,7 @@ export async function startTopUpPayment(
 ): Promise<StartResult> {
   if (!onlineTopUpsAllowed()) return { ok: false, error: "Credit is bought at the counter here.", status: 409 };
   if (!Number.isInteger(amount) || amount < MIN_ONLINE_TOP_UP || amount > MAX_TOP_UP)
-    return { ok: false, error: `Top up RM${MIN_ONLINE_TOP_UP}–${MAX_TOP_UP}, in whole ringgit.`, status: 400 };
+    return { ok: false, error: `Top up ${money(MIN_ONLINE_TOP_UP)}–${MAX_TOP_UP}, in whole ${region().currency.major}.`, status: 400 };
   const venue = await getVenue(venueId);
   if (!venue || !isOpen(venue)) return { ok: false, error: "That venue is not taking payment online at the moment.", status: 409 };
   const account = await venueAccount(venueId);

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { T } from "@/lib/i18n";
+import { money } from "@/lib/region";
 
 /** One extra as the public list gives it. */
 export interface OfferedAddon {
@@ -96,7 +97,7 @@ export default function AddonPicker({
                 <span className="min-w-0">
                   <span className="font-medium text-slate-800">{a.name}</span>{" "}
                   <span className="text-slate-500">
-                    RM{a.price}
+                    {money(a.price)}
                     {a.kind === "rental" ? ` ${t("addons.toHire")}` : ""}
                     {a.left !== null && a.left <= 5 && ` · ${a.left === 0 ? t("addons.noneLeft") : t("addons.left", { n: a.left })}`}
                   </span>

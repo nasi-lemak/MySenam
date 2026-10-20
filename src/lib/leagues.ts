@@ -11,6 +11,7 @@ import { siteName } from "./site";
 import { sendPlainEmail, toWhatsAppNumber } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { SPORTS, type Sport } from "./types";
+import { money } from "./region";
 
 /**
  * Box leagues run by venues.
@@ -482,7 +483,7 @@ export async function join(user: { id: number; name: string }, leagueId: number,
         : next?.status === "running"
           ? ` A season is being played now, so you'll go into a box when the next one starts, after ${next.endsOn}.`
           : "") +
-      (league.fee > 0 ? ` The fee is RM${league.fee.toFixed(2)} a season.` : "")
+      (league.fee > 0 ? ` The fee is ${money(league.fee.toFixed(2))} a season.` : "")
   );
   return { ok: true, value: (await playerById(id))! };
 }
@@ -669,7 +670,7 @@ export async function startSeason(leagueId: number, opts: { startsOn?: string; e
         `Season ${season.number} of ${league.name} runs from ${startsOn} to ${endsOn}. You're in box ${i + 1} with ${others}.\n\n` +
           "Play each of them once before the season ends: arrange it between you — their numbers are on the league's page — and book a court as usual. " +
           "Whoever wins or loses, either of you reports the score there, and the other confirms it." +
-          (league.fee > 0 ? `\n\nThe fee is RM${league.fee.toFixed(2)}${league.payOnline ? "; pay it on the league's page or at the venue" : ", paid at the venue"}.` : "")
+          (league.fee > 0 ? `\n\nThe fee is ${money(league.fee.toFixed(2))}${league.payOnline ? "; pay it on the league's page or at the venue" : ", paid at the venue"}.` : "")
       );
     }
   return { ok: true, value: (await leagueDetail(leagueId, { forStaff: true }))! };

@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Busyness, LiveOccupancy as Live, SPORT_ICONS } from "@/lib/types";
 import { useT } from "@/components/Language";
-import { INTL_TAGS } from "@/lib/i18n";
 import type { Phrase } from "@/lib/i18n";
+import { intlTag, region } from "@/lib/region";
 
 const REFRESH_MS = 30_000;
 
@@ -57,10 +57,10 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
         {asOf && (
           <span className="text-xs text-slate-400">
             {t("live.updated", {
-              time: new Date(asOf).toLocaleTimeString(INTL_TAGS[t.locale], {
+              time: new Date(asOf).toLocaleTimeString(intlTag(t.locale), {
                 hour: "2-digit",
                 minute: "2-digit",
-                timeZone: "Asia/Kuala_Lumpur",
+                timeZone: region().timeZone,
               }),
             })}
           </span>

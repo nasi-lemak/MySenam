@@ -9,6 +9,7 @@ import {
 } from "@/lib/store";
 import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
 import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
     venueId,
     action: paid ? "payment.paid" : "payment.unpaid",
     bookingCode: result.booking.code,
-    detail: `RM${result.booking.totalPrice}${paid && method ? `, by ${PAID_VIA_LABELS[method]}` : ""}`,
+    detail: `${money(result.booking.totalPrice)}${paid && method ? `, by ${PAID_VIA_LABELS[method]}` : ""}`,
   });
   if (paid) await notifyPaid([result.booking], "counter");
   return NextResponse.json({ booking: result.booking });

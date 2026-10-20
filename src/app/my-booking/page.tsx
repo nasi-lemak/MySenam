@@ -10,6 +10,7 @@ import { BookAgain } from "@/components/BookAgain";
 import PayOnline from "@/components/PayOnline";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
+import { money, intlTag, region } from "@/lib/region";
 
 interface Result {
   booking: Booking;
@@ -189,8 +190,8 @@ export default function MyBookingPage() {
           {b.status === "confirmed" && b.paymentStatus === "unpaid" && b.holdUntil && (
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
               {t("hold.pending", {
-                time: new Date(`${b.holdUntil.replace(" ", "T")}Z`).toLocaleTimeString("en-MY", {
-                  timeZone: "Asia/Kuala_Lumpur",
+                time: new Date(`${b.holdUntil.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
+                  timeZone: region().timeZone,
                   hour: "numeric",
                   minute: "2-digit",
                 }),
@@ -206,7 +207,7 @@ export default function MyBookingPage() {
               [t("mine.time"), `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
               [t("mine.bookedBy"), b.name],
               ...(result.addons?.length
-                ? [[t("done.extras"), result.addons.map((a) => `${a.quantity} × ${a.name} (RM${a.unitPrice})`).join(", ")]]
+                ? [[t("done.extras"), result.addons.map((a) => `${a.quantity} × ${a.name} (${money(a.unitPrice)})`).join(", ")]]
                 : []),
               [
                 t("mine.total"),

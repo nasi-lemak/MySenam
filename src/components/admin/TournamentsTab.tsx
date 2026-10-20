@@ -6,6 +6,7 @@ import type { ManagedVenue } from "./shared";
 import { addDays, formatHour } from "@/lib/time";
 import { SPORTS, type Sport } from "@/lib/types";
 import type { Match, Tournament, TournamentDetail } from "@/lib/tournaments";
+import { currencySymbol, money } from "@/lib/region";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
@@ -194,7 +195,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           </select>
         </label>
         <label className={label}>
-          Entry fee (RM)
+          Entry fee ({currencySymbol()})
           <input type="number" min={0} step={1} value={f.entryFee} onChange={(e) => setF({ ...f, entryFee: e.target.value })} className={`w-24 ${input}`} />
         </label>
         <label className={label}>
@@ -297,8 +298,8 @@ function Manage({
           <p className="text-sm text-slate-500">
             {t.startsOn}
             {t.endsOn !== t.startsOn && ` to ${t.endsOn}`}, {formatHour(t.startHour)}–{formatHour(t.endHour)} ·{" "}
-            {t.format === "groups" ? "groups, then knockout" : "knockout"} · {t.teamSize === 2 ? "doubles" : "singles"} · RM
-            {t.entryFee} · <a href={`/tournaments/${t.id}`} target="_blank" rel="noopener" className="underline">public page ↗</a>
+            {t.format === "groups" ? "groups, then knockout" : "knockout"} · {t.teamSize === 2 ? "doubles" : "singles"} ·{" "}
+            {money(t.entryFee)} · <a href={`/tournaments/${t.id}`} target="_blank" rel="noopener" className="underline">public page ↗</a>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useT } from "@/components/Language";
-import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import { sportLabel } from "@/lib/i18n";
 import { addDays, todayISO } from "@/lib/time";
 import { SPORT_ICONS, type Sport } from "@/lib/types";
 import { DAY_PARTS, type DayPart } from "@/lib/day-parts";
+import { intlTag } from "@/lib/region";
 
 const TIMES = DAY_PARTS;
 type Time = DayPart;
@@ -28,7 +29,7 @@ export function QuickSearch({ sports }: { sports: Sport[] }) {
   const [noLocation, setNoLocation] = useState(false);
   const later = Array.from({ length: 5 }, (_, i) => addDays(today, i + 2));
   const dayName = (d: string) =>
-    new Date(`${d}T00:00:00Z`).toLocaleDateString(INTL_TAGS[t.locale], { weekday: "short", day: "numeric", timeZone: "UTC" });
+    new Date(`${d}T00:00:00Z`).toLocaleDateString(intlTag(t.locale), { weekday: "short", day: "numeric", timeZone: "UTC" });
 
   function locate() {
     if (near) return setNear(null);

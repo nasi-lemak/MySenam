@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { EmailCheck, VenueApplication } from "@/lib/applications";
 import { REVIEW_CHECKS } from "@/lib/review-checks";
 import { googleMapsLink, streetViewLink } from "@/components/PinMap";
+import { money } from "@/lib/region";
 
 const PinMap = dynamic(() => import("@/components/PinMap"), { ssr: false });
 
@@ -151,7 +152,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                       {a.setup.courts === 1 ? "1 court" : `${a.setup.courts} courts`}
                       {a.setup.sports && ` · ${a.setup.sports}`}
                       {a.setup.lowRate !== null &&
-                        ` · RM${a.setup.lowRate}${a.setup.highRate !== a.setup.lowRate ? `–${a.setup.highRate}` : ""} an hour`}
+                        ` · ${money(a.setup.lowRate)}${a.setup.highRate !== a.setup.lowRate ? `–${a.setup.highRate}` : ""} an hour`}
                       {a.venueId !== null && (
                         <>
                           {" · "}

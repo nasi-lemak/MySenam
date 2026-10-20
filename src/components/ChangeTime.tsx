@@ -7,6 +7,7 @@ import type { RescheduleOption } from "@/lib/store";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import type { Booking } from "@/lib/types";
 import { MAX_ADVANCE_DAYS } from "@/lib/types";
+import { money } from "@/lib/region";
 
 /**
  * Pick a new day and start time for a booking: only times free for its
@@ -100,8 +101,8 @@ export function ChangeTime({
           >
             {formatHour(o.startHour)}–{formatHour(o.startHour + length)}
             <span className="block font-normal text-slate-500">
-              {o.courtId !== booking.courtId || staff ? `${o.courtName} · ` : ""}RM{o.price.toFixed(2)}
-              {o.difference !== 0 && ` (${o.difference > 0 ? "+" : "−"}RM${Math.abs(o.difference).toFixed(2)})`}
+              {o.courtId !== booking.courtId || staff ? `${o.courtName} · ` : ""}{money(o.price.toFixed(2))}
+              {o.difference !== 0 && ` (${o.difference > 0 ? "+" : "−"}${money(Math.abs(o.difference).toFixed(2))})`}
             </span>
           </button>
         ))}

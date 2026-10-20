@@ -6,6 +6,7 @@ import { isMarketplace } from "./mode";
 import { siteName } from "./site";
 import { billableResources, planTiers, priceFor, type PlanTiers } from "./plans";
 import { getVenue } from "./store";
+import { money, offsetMs } from "./region";
 
 /**
  * What venues pay to be on the marketplace: one invoice a month — for a
@@ -69,7 +70,7 @@ interface InvoiceRow {
 export const PAYMENT_TERMS_DAYS = 14;
 
 function today(now = new Date()): string {
-  return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  return new Date(now.getTime() + offsetMs()).toISOString().slice(0, 10);
 }
 
 function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date()): Invoice {
@@ -207,7 +208,7 @@ export async function setVenuePlan(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!await getVenue(venueId)) return { ok: false, error: "Venue not found." };
   if (plan.monthlyFee !== null && (!Number.isFinite(plan.monthlyFee) || plan.monthlyFee < 0 || plan.monthlyFee > 100_000))
-    return { ok: false, error: "The monthly fee must be RM0–100,000." };
+    return { ok: false, error: `The monthly fee must be ${money(0)}–100,000.` };
   if (plan.billingStartsOn !== null && !/^\d{4}-\d{2}-\d{2}$/.test(plan.billingStartsOn))
     return { ok: false, error: "Billing starts on a date, YYYY-MM-DD." };
   await getDb()

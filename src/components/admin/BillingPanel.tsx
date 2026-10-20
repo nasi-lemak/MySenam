@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Invoice, VenuePlan } from "@/lib/billing";
 import type { PlanTiers } from "@/lib/plans";
 import { PlanTiersEditor } from "./PlanTiersEditor";
+import { money } from "@/lib/region";
 
 /**
  * What a marketplace venue owes the platform, month by month.
@@ -106,7 +107,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
           {state.plans.map((p) => (
             <p key={p.venueId}>
               {state.plans!.length > 1 && <span className="font-medium">{p.venueName}: </span>}
-              <span className="font-semibold">RM{p.effectiveFee.toFixed(2)} a month</span>
+              <span className="font-semibold">{money(p.effectiveFee.toFixed(2))} a month</span>
               {p.feeFrom === "tier" ? ` — ${p.tierName}, for ${p.resources} court${p.resources === 1 ? "" : "s"} or rooms` : p.feeFrom === "own" ? " — your agreed fee" : ""}
               {p.billingStartsOn === null ? " (not billed yet)" : ""}
             </p>
@@ -117,10 +118,10 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
               {state.tiers.tiers
                 .map((t, i) => {
                   const from = i === 0 ? 1 : (state.tiers!.tiers[i - 1].upTo ?? 0) + 1;
-                  return `${t.name} RM${t.monthlyFee.toFixed(2)} (${t.upTo === null ? `${from}+` : `${from}–${t.upTo}`})`;
+                  return `${t.name} ${money(t.monthlyFee.toFixed(2))} (${t.upTo === null ? `${from}+` : `${from}–${t.upTo}`})`;
                 })
                 .join(" · ")}
-              {state.tiers.extraEach > 0 && `, then RM${state.tiers.extraEach} each`}.
+              {state.tiers.extraEach > 0 && `, then ${money(state.tiers.extraEach)} each`}.
             </p>
           )}
         </div>
@@ -146,7 +147,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                       <input
                         value={editing.fee}
                         onChange={(e) => setEditing({ ...editing, fee: e.target.value })}
-                        placeholder={p.feeFrom === "own" ? "by size" : `RM${p.effectiveFee} by size`}
+                        placeholder={p.feeFrom === "own" ? "by size" : `${money(p.effectiveFee)} by size`}
                         inputMode="decimal"
                         className="w-28 rounded-md border border-slate-300 px-2 py-1"
                       />
@@ -186,7 +187,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                   <tr key={p.venueId}>
                     <td className="px-3 py-2 font-medium">{p.venueName}</td>
                     <td className="px-3 py-2">
-                      RM{p.effectiveFee.toFixed(2)}
+                      {money(p.effectiveFee.toFixed(2))}
                       <span className="text-xs text-slate-400">
                         {p.feeFrom === "tier" ? ` ${p.tierName} · ${p.resources}` : p.feeFrom === "own" ? " (agreed)" : " (default)"}
                       </span>
@@ -242,12 +243,12 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                     {/* A business's invoice: what each branch adds up to. */}
                     {i.lines.length > 0 && (
                       <div className="mt-0.5 text-xs text-slate-500">
-                        {i.lines.map((l) => `${l.venueName} RM${l.amount}${l.planName ? ` (${l.planName}, ${l.resources})` : ""}`).join(" · ")}
+                        {i.lines.map((l) => `${l.venueName} ${money(l.amount)}${l.planName ? ` (${l.planName}, ${l.resources})` : ""}`).join(" · ")}
                       </div>
                     )}
                   </td>
                   {isOwner && <td className="px-3 py-2">{i.venueName}</td>}
-                  <td className="px-3 py-2 text-right">RM{i.amount}</td>
+                  <td className="px-3 py-2 text-right">{money(i.amount)}</td>
                   <td className={`px-3 py-2 ${i.overdue ? "font-semibold text-red-700" : ""}`}>{i.dueOn}</td>
                   <td className="px-3 py-2">
                     {i.status === "paid"

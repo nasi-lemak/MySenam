@@ -7,6 +7,7 @@ import { accentCss, currentStorefront } from "@/lib/storefront";
 import { baseUrl } from "@/lib/outbox";
 import { DEFAULT_SITE_NAME, siteName } from "@/lib/site";
 import { isMarketplace } from "@/lib/mode";
+import { region } from "@/lib/region";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -27,7 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           // Validated as #rrggbb when saved, and again when written out.
           <style dangerouslySetInnerHTML={{ __html: accentCss(storefront.accentColor) }} />
         )}
-        <LanguageProvider locale={locale} site={site}>
+        <LanguageProvider locale={locale} site={site} country={region().country}>
           <header className="sticky top-0 print:hidden z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-x-2 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">

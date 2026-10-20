@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { PlanTiers } from "@/lib/plans";
+import { money, currencySymbol } from "@/lib/region";
 
 type Row = { name: string; upTo: string; monthlyFee: string };
 
@@ -69,7 +70,7 @@ export function PlanTiersEditor({
 
       {!editing ? (
         plan.tiers.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-600">No tiers: every venue pays the flat default, RM{defaultFee}.</p>
+          <p className="mt-2 text-sm text-slate-600">No tiers: every venue pays the flat default, {money(defaultFee)}.</p>
         ) : (
           <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {plan.tiers.map((t, i) => {
@@ -77,10 +78,10 @@ export function PlanTiersEditor({
               return (
                 <li key={t.name} className="rounded-lg border border-slate-200 px-3 py-2">
                   <p className="font-semibold">{t.name}</p>
-                  <p className="text-lg font-bold text-teal-700">RM{t.monthlyFee.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-teal-700">{money(t.monthlyFee.toFixed(2))}</p>
                   <p className="text-xs text-slate-500">
                     {t.upTo === null ? `${from} or more` : from === t.upTo ? `${from}` : `${from}–${t.upTo}`} courts or rooms
-                    {i === plan.tiers.length - 1 && plan.extraEach > 0 && `, then RM${plan.extraEach} for each one more`}
+                    {i === plan.tiers.length - 1 && plan.extraEach > 0 && `, then ${money(plan.extraEach)} for each one more`}
                   </p>
                 </li>
               );
@@ -95,7 +96,7 @@ export function PlanTiersEditor({
                 <tr>
                   <th className="py-1 pr-2">Name</th>
                   <th className="py-1 pr-2">Up to (courts)</th>
-                  <th className="py-1 pr-2">RM / month</th>
+                  <th className="py-1 pr-2">{currencySymbol()} / month</th>
                   <th />
                 </tr>
               </thead>
@@ -135,7 +136,7 @@ export function PlanTiersEditor({
             + Add a tier
           </button>
           <label className="block text-sm text-slate-700">
-            Past the last tier's limit, each extra court or room adds RM{" "}
+            Past the last tier's limit, each extra court or room adds {money(" ")}
             <input aria-label="Each extra" value={extra} inputMode="decimal" onChange={(e) => setExtra(e.target.value)} className={`${input} w-20`} />
           </label>
           <div className="flex gap-3">

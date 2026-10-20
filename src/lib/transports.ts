@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { DICTIONARIES, Locale, Phrase } from "./i18n";
 import type { MessageKind, OutboxMessage, Transport } from "./outbox";
+import { region } from "./region";
 
 /**
  * The real ways a message leaves the machine: WhatsApp and email.
@@ -264,7 +265,7 @@ export function smsConfig(): SmsConfig | null {
  * part; set it to an empty string to leave it off outside Malaysia.
  */
 export function smsText(body: string): string {
-  const prefix = process.env.SMS_PREFIX ?? "RM0";
+  const prefix = process.env.SMS_PREFIX ?? region().smsPrefix;
   return prefix ? `${prefix} ${body}` : body;
 }
 

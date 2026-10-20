@@ -11,6 +11,7 @@ import type { T } from "@/lib/i18n";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import { SPORT_ICONS, SPORTS, type Sport } from "@/lib/types";
 import type { GamePlayer, Level, OpenGame } from "@/lib/games";
+import { intlTag, isoOffset } from "@/lib/region";
 
 const LEVELS: Level[] = ["beginner", "intermediate", "advanced", "competitive"];
 const levelLabel = (t: T, level: Level) => t(`games.level.${level}`);
@@ -103,7 +104,7 @@ export default function GamesPage() {
       on ? "bg-teal-600 text-white shadow" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
     }`;
   const dayLabel = (d: string) =>
-    new Date(`${d}T00:00:00Z`).toLocaleDateString(t.locale === "ms" ? "ms-MY" : "en-MY", {
+    new Date(`${d}T00:00:00Z`).toLocaleDateString(intlTag(t.locale), {
       weekday: "short",
       day: "numeric",
       month: "short",
@@ -281,8 +282,8 @@ function MyGames({
   act: (url: string, body: object, done?: string) => Promise<void>;
 }) {
   const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
-  // Malaysia time, whatever the phone's own clock is set to.
-  const started = (g: OpenGame) => new Date(`${g.date}T${String(g.startHour).padStart(2, "0")}:00:00+08:00`) <= new Date();
+  // Local time, whatever the phone's own clock is set to.
+  const started = (g: OpenGame) => new Date(`${g.date}T${String(g.startHour).padStart(2, "0")}:00:00${isoOffset()}`) <= new Date();
   const small = "rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium hover:border-teal-500";
   return (
     <section className="space-y-3 rounded-xl border border-teal-200 bg-teal-50/50 p-4">
@@ -407,7 +408,7 @@ function OpenOne({
       b.status === "confirmed" &&
       b.classId === null &&
       !hosted.includes(b.code) &&
-      new Date(`${b.date}T${String(b.startHour).padStart(2, "0")}:00:00+08:00`) > now
+      new Date(`${b.date}T${String(b.startHour).padStart(2, "0")}:00:00${isoOffset()}`) > now
   );
   const chosen = upcoming.find((b) => b.code === code) ?? upcoming[0];
   // Split the court evenly among everybody playing, to the 50 sen.

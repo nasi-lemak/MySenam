@@ -8,6 +8,7 @@ import type { VenueReport } from "@/lib/reports";
 import { percent, todayLocal } from "./shared";
 import { ActivityPanel } from "./ActivityPanel";
 import type { ManagedVenue } from "./shared";
+import { money, intlTag } from "@/lib/region";
 
 /* ---------------- Reports tab ---------------- */
 
@@ -37,7 +38,7 @@ const RANGES: [string, () => { from: string; to: string }][] = [
   ["Last 3 months", () => ({ from: monthStart(2), to: todayLocal() })],
 ];
 
-const ringgit = (n: number) => `RM${n.toLocaleString("en-MY")}`;
+const ringgit = (n: number) => money(n.toLocaleString(intlTag("en")));
 
 /**
  * What the owner asks at the end of a month.
@@ -184,8 +185,8 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
                 courts —{" "}
-                {report.utilisation.courts.soldHours.toLocaleString("en-MY")} of{" "}
-                {report.utilisation.courts.sellableHours.toLocaleString("en-MY")} hours
+                {report.utilisation.courts.soldHours.toLocaleString(intlTag("en"))} of{" "}
+                {report.utilisation.courts.sellableHours.toLocaleString(intlTag("en"))} hours
               </div>
               {report.utilisation.shared.sellableHours > 0 && (
                 <div className="mt-1 text-xs text-slate-500">

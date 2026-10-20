@@ -1,12 +1,13 @@
-// Client-safe helpers for sharing/exporting a booking. Court times are in
-// Malaysia time (UTC+8); calendar formats want UTC.
+// Client-safe helpers for sharing/exporting a booking. Court times are local
+// to the install (lib/region.ts); calendar formats want UTC.
 import { DEFAULT_SITE_NAME } from "./site";
+import { money, region } from "./region";
 
 export interface BookingShareInfo {
   /** What the install is called, for the text that names it. */
   siteName?: string;
   code: string;
-  date: string; // YYYY-MM-DD (MYT)
+  date: string; // YYYY-MM-DD, local
   startHour: number;
   endHour: number;
   courtName: string;
@@ -15,11 +16,9 @@ export interface BookingShareInfo {
   totalPrice: number;
 }
 
-const MYT_OFFSET_HOURS = 8;
-
-function toUtcStamp(date: string, hourMYT: number): string {
+function toUtcStamp(date: string, localHour: number): string {
   const [y, m, d] = date.split("-").map(Number);
-  const utc = new Date(Date.UTC(y, m - 1, d, hourMYT - MYT_OFFSET_HOURS));
+  const utc = new Date(Date.UTC(y, m - 1, d, localHour - region().utcOffsetHours));
   return utc.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
@@ -84,7 +83,7 @@ export function icsCalendar(list: BookingShareInfo[]): string {
       `DTSTART:${toUtcStamp(b.date, b.startHour)}`,
       `DTEND:${toUtcStamp(b.date, b.endHour)}`,
       `SUMMARY:${icsText(`${b.courtName} @ ${b.venueName}`)}`,
-      `DESCRIPTION:${icsText(`${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total RM${b.totalPrice}.`)}`,
+      `DESCRIPTION:${icsText(`${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total ${money(b.totalPrice)}.`)}`,
       ...(b.venueAddress ? [`LOCATION:${icsText(b.venueAddress)}`] : []),
       // A reminder an hour before, on whatever calendar it lands in.
       "BEGIN:VALARM",
@@ -114,7 +113,7 @@ export function googleCalendarUrl(b: BookingShareInfo): string {
     action: "TEMPLATE",
     text: `${b.courtName} @ ${b.venueName}`,
     dates: `${toUtcStamp(b.date, b.startHour)}/${toUtcStamp(b.date, b.endHour)}`,
-    details: `${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total RM${b.totalPrice}.`,
+    details: `${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total ${money(b.totalPrice)}.`,
     ...(b.venueAddress ? { location: b.venueAddress } : {}),
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -132,7 +131,7 @@ export function whatsappShareUrl(b: BookingShareInfo): string {
     `🏸 Court booked on ${b.siteName ?? DEFAULT_SITE_NAME}!\n\n` +
     `${b.courtName} @ ${b.venueName}\n` +
     `📅 ${b.date}, ${formatHour12(b.startHour)} – ${formatHour12(b.endHour)}\n` +
-    `💰 RM${b.totalPrice}\n` +
+    `💰 ${money(b.totalPrice)}\n` +
     `🎟️ Code: ${b.code}\n\nSee you there!`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }

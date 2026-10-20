@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createPlan, listPlans, retirePlan } from "@/lib/membership-plans";
 import { takesPaymentOnline } from "@/lib/payments";
 import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: venueId as number,
     action: "membership.plan_added",
-    detail: `${made.plan.name}: ${made.plan.months} months, RM${made.plan.price}`,
+    detail: `${made.plan.name}: ${made.plan.months} months, ${money(made.plan.price)}`,
   });
   return NextResponse.json({ plan: made.plan }, { status: 201 });
 }

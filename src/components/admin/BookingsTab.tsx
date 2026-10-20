@@ -9,6 +9,7 @@ import type { CounterMethod } from "@/lib/types";
 import type { Court, HireCondition, Venue } from "@/lib/types";
 import type { AdminBookingRow } from "@/lib/store";
 import { localTime, todayLocal } from "./shared";
+import { money, currencySymbol } from "@/lib/region";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -170,10 +171,10 @@ export function BookingsTab() {
       if (!res.ok) throw new Error(data.error ?? "Could not update the hire");
       setNotice(
         kit.mode === "take"
-          ? `${kit.courtName} out on ${kit.code}, RM${data.hire.deposit} held.`
+          ? `${kit.courtName} out on ${kit.code}, ${money(data.hire.deposit)} held.`
           : data.hire.withheld > 0
-            ? `${kit.code} settled — RM${data.hire.withheld} kept back, RM${data.hire.deposit - data.hire.withheld} returned.`
-            : `${kit.code} settled — RM${data.hire.deposit} returned in full.`
+            ? `${kit.code} settled — ${money(data.hire.withheld)} kept back, ${money(data.hire.deposit - data.hire.withheld)} returned.`
+            : `${kit.code} settled — ${money(data.hire.deposit)} returned in full.`
       );
       setKit(null);
       load();
@@ -332,11 +333,11 @@ export function BookingsTab() {
             </div>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
               <span className="text-slate-500">Expected:</span>{" "}
-              <span className="font-bold text-teal-700">RM{revenue}</span>
+              <span className="font-bold text-teal-700">{money(revenue)}</span>
             </div>
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm shadow-sm">
               <span className="text-emerald-700">Collected:</span>{" "}
-              <span className="font-bold text-emerald-700">RM{collected}</span>
+              <span className="font-bold text-emerald-700">{money(collected)}</span>
             </div>
             <div
               className={`rounded-lg border px-4 py-1.5 text-sm shadow-sm ${
@@ -346,7 +347,7 @@ export function BookingsTab() {
               }`}
             >
               <span>Outstanding:</span>{" "}
-              <span className="font-bold">RM{outstanding}</span>
+              <span className="font-bold">{money(outstanding)}</span>
             </div>
           </>
         )}
@@ -404,7 +405,7 @@ export function BookingsTab() {
             setChanging(null);
             setNotice(
               `${booking.code} is now ${booking.date}, ${formatHour(booking.startHour)}–${formatHour(booking.endHour)}. Same code; ${
-                booking.paymentStatus === "paid" ? "the price stays as paid" : `RM${booking.totalPrice.toFixed(2)} to pay`
+                booking.paymentStatus === "paid" ? "the price stays as paid" : `${money(booking.totalPrice.toFixed(2))} to pay`
               }. The customer has been sent the news.`
             );
             load();
@@ -424,7 +425,7 @@ export function BookingsTab() {
             customer in.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">Deposit held (RM)</label>
+            <label className="text-xs font-medium text-slate-600">Deposit held ({currencySymbol()})</label>
             <input
               type="number"
               min={0}
@@ -455,7 +456,7 @@ export function BookingsTab() {
             Take {kit.courtName} back in on {kit.code}
           </p>
           <p className="mt-0.5 text-xs text-slate-600">
-            RM{kit.deposit} is held. Anything kept back needs a note saying why — the customer is
+            {money(kit.deposit)} is held. Anything kept back needs a note saying why — the customer is
             about to be told.
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -474,7 +475,7 @@ export function BookingsTab() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600">Kept back (RM)</label>
+              <label className="block text-xs font-medium text-slate-600">Kept back ({currencySymbol()})</label>
               <input
                 type="number"
                 min={0}
@@ -550,7 +551,7 @@ export function BookingsTab() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold">RM{b.totalPrice}</div>
+                    <div className="font-semibold">{money(b.totalPrice)}</div>
                     {b.status !== "confirmed" && (
                       <span className="text-xs font-semibold text-slate-400">{b.releasedUnpaid ? "released (unpaid)" : b.status}</span>
                     )}
@@ -613,7 +614,7 @@ export function BookingsTab() {
                       {b.phone}
                       <CheckedPhone b={b} />
                     </td>
-                    <td className="px-3 py-2 font-medium">RM{b.totalPrice}</td>
+                    <td className="px-3 py-2 font-medium">{money(b.totalPrice)}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -758,7 +759,7 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
     <button
       onClick={() => (paid ? act.togglePaid(b.code, false) : act.setPaying(b.code))}
       title={
-        (b.sharesPaid > 0 ? `RM${b.sharesPaid} paid online by other players in its open game. ` : "") +
+        (b.sharesPaid > 0 ? `${money(b.sharesPaid)} paid online by other players in its open game. ` : "") +
         (paid ? `${b.paidVia ? `${PAID_VIA_LABELS[b.paidVia]}. ` : ""}Click to mark unpaid` : "Click to mark paid")
       }
       className={`${CHIP} ${
@@ -770,7 +771,7 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
       {paid
         ? `✓ ${b.paidVia ? SHORT_VIA[b.paidVia] : "paid"}`
         : b.sharesPaid > 0
-          ? `RM${b.totalPrice - b.sharesPaid} due`
+          ? `${money(b.totalPrice - b.sharesPaid)} due`
           : "unpaid"}
     </button>
   );
@@ -866,7 +867,7 @@ function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
     return (
       <button
         onClick={() => act.openKit(b, "take")}
-        title={`Hand ${b.courtName} over against an RM${b.courtDeposit} deposit`}
+        title={`Hand ${b.courtName} over against an ${money(b.courtDeposit)} deposit`}
         className={`${CHIP} bg-amber-50 text-amber-700 hover:bg-amber-100`}
       >
         hand out
@@ -876,16 +877,16 @@ function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
     return (
       <button
         onClick={() => act.openKit(b, "return")}
-        title={`Out since ${localTime(b.hire.takenAt)}, RM${b.hire.deposit} held — click to take it back`}
+        title={`Out since ${localTime(b.hire.takenAt)}, ${money(b.hire.deposit)} held — click to take it back`}
         className={`${CHIP} bg-amber-100 text-amber-800 hover:bg-amber-200`}
       >
-        out · RM{b.hire.deposit}
+        out · {money(b.hire.deposit)}
       </button>
     );
   return (
     <span
       title={
-        (b.hire.note ?? "No note.") + (b.hire.withheld ? ` RM${b.hire.withheld} kept back.` : "")
+        (b.hire.note ?? "No note.") + (b.hire.withheld ? ` ${money(b.hire.withheld)} kept back.` : "")
       }
       className={`${CHIP} ${
         b.hire.condition === "ok" ? "bg-slate-100 text-slate-500" : "bg-red-100 text-red-700"
@@ -894,7 +895,7 @@ function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
       {b.hire.condition === "ok"
         ? "back"
         : `${HIRE_CONDITION_LABELS[b.hire.condition!].toLowerCase()}${
-            b.hire.withheld ? ` · RM${b.hire.withheld}` : ""
+            b.hire.withheld ? ` · ${money(b.hire.withheld)}` : ""
           }`}
     </span>
   );

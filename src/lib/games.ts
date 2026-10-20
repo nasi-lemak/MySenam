@@ -10,6 +10,7 @@ import { addDays, formatHour, isPastSlot, todayISO } from "./time";
 import type { Near } from "./store";
 import { isWho, whoRefusal, type Who } from "./who";
 import type { Sport } from "./types";
+import { money } from "./region";
 
 /**
  * Player matching: open games.
@@ -220,7 +221,7 @@ export async function openGame(
     return { ok: false, error: `Look for 1 to ${MAX_SPOTS} players.` };
   if (input.level !== null && !LEVELS.includes(input.level)) return { ok: false, error: "Unknown level." };
   if (!Number.isFinite(input.share) || input.share < 0 || input.share > booking.total_price)
-    return { ok: false, error: `Each share must be between RM0 and the court's RM${booking.total_price}.` };
+    return { ok: false, error: `Each share must be between ${money(0)} and the court's ${money(booking.total_price)}.` };
   if (await db.prepare("SELECT 1 FROM open_games WHERE booking_id = ?").get(booking.id))
     return { ok: false, error: "That booking is already open to other players." };
   const who = input.who ?? "anyone";
@@ -578,8 +579,8 @@ async function tellPlayer(userId: number, g: OpenGame, what: "accepted" | "decli
       `${g.hostName} has you in their game: ${game}. The court is booked under ${g.bookingCode}.` +
         (g.share > 0
           ? g.payOnline
-            ? ` Your share is RM${g.share.toFixed(2)}; pay it from My games.`
-            : ` Your share is RM${g.share.toFixed(2)}, paid at the venue.`
+            ? ` Your share is ${money(g.share.toFixed(2))}; pay it from My games.`
+            : ` Your share is ${money(g.share.toFixed(2))}, paid at the venue.`
           : ""),
     ],
     declined: [`Not this time: ${g.venueName}, ${when(g)}`, `${g.hostName}'s game (${game}) is full or not the right fit this time.`],

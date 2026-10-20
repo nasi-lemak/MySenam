@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { MembershipPlan } from "@/lib/membership-plans";
+import { money } from "@/lib/region";
 
 /** Where this visitor stands, worked out on the server. */
 export type JoinStanding =
@@ -75,7 +76,7 @@ export default function JoinMembership({
                 {t(standing.kind === "renew" ? "member.renew" : "member.join", { price: p.price })}
               </button>
             ) : (
-              <span className="font-semibold">RM{p.price}</span>
+              <span className="font-semibold">{money(p.price)}</span>
             )}
           </li>
         ))}

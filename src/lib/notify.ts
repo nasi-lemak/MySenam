@@ -12,6 +12,7 @@ import { createNotice } from "./urgent";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
+import { offsetMs, region } from "./region";
 
 /**
  * What MySenam tells a customer, and when.
@@ -572,10 +573,10 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
   }
 }
 
-/** The start of a booking, Malaysia time, as a moment. */
+/** The start of a booking (local time) as a moment. */
 function startsAt(date: string, hour: number): number {
   const [y, m, d] = date.split("-").map(Number);
-  return Date.UTC(y, m - 1, d, hour - 8);
+  return Date.UTC(y, m - 1, d, hour - region().utcOffsetHours);
 }
 
 /**
@@ -586,7 +587,7 @@ function startsAt(date: string, hour: number): number {
  * Once per booking, however often this runs.
  */
 export async function notifyReminders(now = new Date()): Promise<number> {
-  const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const today = new Date(now.getTime() + offsetMs()).toISOString().slice(0, 10);
   const tomorrow = new Date(now.getTime() + 32 * 3_600_000).toISOString().slice(0, 10);
   const rows = (await getDb()
     .prepare(

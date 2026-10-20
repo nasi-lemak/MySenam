@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AccessEntry, AccessKind, AccessSettings, VenueAccess } from "@/lib/access";
+import { money, region } from "@/lib/region";
 
 const MODES: { value: VenueAccess; label: string; note: string }[] = [
   {
@@ -122,7 +123,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}
                   maxLength={500}
-                  placeholder={mode === "members" ? "e.g. Membership RM150 a year — ask at the counter or WhatsApp 012-345 6789." : "e.g. Residents of Taman Indah only. Not on the list? Contact the management office."}
+                  placeholder={mode === "members" ? `e.g. Membership ${money(150)} a year — ask at the counter or WhatsApp ${region().phone.example}.` : "e.g. Residents of Taman Indah only. Not on the list? Contact the management office."}
                   className={`mt-1 w-full ${input}`}
                 />
               </label>

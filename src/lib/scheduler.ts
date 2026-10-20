@@ -6,6 +6,7 @@ import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { releaseExpiredHolds } from "./holds";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
+import { region } from "./region";
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -25,14 +26,14 @@ import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 
 const MINUTE = 60_000;
 
-/** The hour, Malaysia time, the nightly backup is taken at. */
+/** The hour, local time, the nightly backup is taken at. */
 export function backupHour(): number {
   const hour = Number(process.env.MYSENAM_BACKUP_HOUR ?? 3);
   return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 3;
 }
 
 function malaysiaHour(now: Date): number {
-  return (now.getUTCHours() + 8) % 24;
+  return (now.getUTCHours() + region().utcOffsetHours) % 24;
 }
 
 /**

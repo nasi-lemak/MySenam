@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { intlTag, isoOffset, region } from "@/lib/region";
 
 /* ---------------- First run ---------------- */
 
@@ -14,11 +15,11 @@ interface DemoState {
 
 /** A yyyy-mm-dd as a Malaysian would read it. */
 function readable(date: string): string {
-  return new Date(`${date}T00:00:00+08:00`).toLocaleDateString("en-MY", {
+  return new Date(`${date}T00:00:00${isoOffset()}`).toLocaleDateString(intlTag("en"), {
     day: "numeric",
     month: "short",
     year: "numeric",
-    timeZone: "Asia/Kuala_Lumpur",
+    timeZone: region().timeZone,
   });
 }
 

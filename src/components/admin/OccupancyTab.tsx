@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SPORT_ICONS } from "@/lib/types";
 import type { Court, Venue } from "@/lib/types";
 import type { OccupancyReport } from "@/lib/store";
+import { intlTag } from "@/lib/region";
 
 /* ---------------- Occupancy tab ---------------- */
 
@@ -71,7 +72,7 @@ export function OccupancyTab({
                 <th className="px-3 py-2 font-semibold">Court</th>
                 {report.days.map((d) => (
                   <th key={d.date} className="px-2 py-2 text-center font-medium text-slate-500">
-                    {new Date(`${d.date}T00:00:00Z`).toLocaleDateString("en-MY", {
+                    {new Date(`${d.date}T00:00:00Z`).toLocaleDateString(intlTag("en"), {
                       weekday: "short",
                       day: "numeric",
                       timeZone: "UTC",

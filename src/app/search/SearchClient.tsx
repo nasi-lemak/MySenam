@@ -15,13 +15,14 @@ import {
 import type { SearchResult, SearchSort } from "@/lib/store";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
-import { INTL_TAGS, sportLabel } from "@/lib/i18n";
+import { sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { NearPicker, type NearChoice } from "@/components/NearPicker";
 import { DAY_PARTS, dayPartOf, type DayPart } from "@/lib/day-parts";
 import { Highlights } from "@/components/VenueFacilities";
 import { FILTER_CHIPS, FILTER_ICONS, highlights, type FilterChip } from "@/lib/facilities";
 import { photoAt, type Photo } from "@/lib/photos-shared";
+import { money, intlTag } from "@/lib/region";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
@@ -34,7 +35,7 @@ const HOURS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR
 
 function dateLabel(t: T, date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
-  return d.toLocaleDateString(INTL_TAGS[t.locale], {
+  return d.toLocaleDateString(intlTag(t.locale), {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -405,7 +406,7 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
                         <Highlights t={t} items={highlights([cheapest.court], cheapest.venue.amenities ?? [])} />
                       </div>
                       <div className="text-right">
-                        <div className="font-bold">RM{cheapest.totalPrice}</div>
+                        <div className="font-bold">{money(cheapest.totalPrice)}</div>
                         {others > 0 && cheapest.pricesVary && (
                           <div className="text-xs text-slate-400">{t("search.fromPrice")}</div>
                         )}
@@ -511,7 +512,7 @@ function VenueResults({
                   <Highlights t={t} items={highlights([first.court], first.venue.amenities ?? [])} />
                 </div>
                 <div className="text-right text-sm">
-                  <span className="text-slate-400">{t("search.fromPrice")}</span> <span className="font-bold">RM{from}</span>
+                  <span className="text-slate-400">{t("search.fromPrice")}</span> <span className="font-bold">{money(from)}</span>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -521,7 +522,7 @@ function VenueResults({
                     href={bookHref(r)}
                     className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-sm font-medium text-teal-800 hover:border-teal-500"
                   >
-                    {formatHour(r.startHour)} <span className="font-normal text-teal-700">· RM{r.totalPrice}</span>
+                    {formatHour(r.startHour)} <span className="font-normal text-teal-700">· {money(r.totalPrice)}</span>
                   </Link>
                 ))}
               </div>

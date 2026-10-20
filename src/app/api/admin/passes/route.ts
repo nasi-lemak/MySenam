@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, issuePass, listPassesForVenue } from "@/lib/store";
 import { MAX_PASS_ENTRIES, Sport, SPORTS } from "@/lib/types";
 import { logAction } from "@/lib/activity";
+import { money, region } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(input.entries) || (input.entries as number) < 1 || (input.entries as number) > MAX_PASS_ENTRIES)
     return NextResponse.json({ error: `Entries must be 1–${MAX_PASS_ENTRIES}.` }, { status: 400 });
   if (!Number.isInteger(input.price) || (input.price as number) < 0)
-    return NextResponse.json({ error: "Price must be a whole number of ringgit." }, { status: 400 });
+    return NextResponse.json({ error: `Price must be a whole number of ${region().currency.major}.` }, { status: 400 });
 
   let sport: Sport | null = null;
   if (input.sport !== undefined && input.sport !== null && input.sport !== "") {
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: result.pass.venueId,
     action: "pass.sold",
-    detail: `${input.holderName as string}, ${input.entries as number} entries, RM${input.price as number}`,
+    detail: `${input.holderName as string}, ${input.entries as number} entries, ${money(input.price as number)}`,
   });
   return NextResponse.json({ pass: result.pass }, { status: 201 });
 }

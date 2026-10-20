@@ -5,8 +5,12 @@ import type { ProviderId } from "./gateways/types";
  *
  * MySenam runs one install per country, so everything that differs between
  * them — the currency, phone numbers, the clock, the languages, the map, the
- * gateway venues connect by default — is read from here rather than written
- * into the code.
+ * gateway venues connect by default, the laws the terms cite — is read from
+ * here rather than written into the code.
+ *
+ * It works in the browser too: the root layout hands the country code to
+ * the language provider, which records it (`setBrowserCountry`) before any
+ * client component renders, so the browser formats money as the server does.
  */
 
 export type CountryCode = "MY" | "SG";
@@ -20,30 +24,135 @@ export interface Region {
     /** Written before an amount: RM12, S$12. */
     symbol: string;
     minorUnits: number;
+    /** The unit in words, for "a whole number of …". */
+    major: string;
   };
   timeZone: string;
-  /** The gateway a venue connects unless the install offers others. */
+  /**
+   * Hours ahead of UTC. Every country MySenam runs in keeps one offset all
+   * year (no daylight saving), so arithmetic on it is safe; a country that
+   * changes its clocks would need the zone itself instead.
+   */
+  utcOffsetHours: number;
+  phone: {
+    /** Without the plus. */
+    countryCode: string;
+    /** The local trunk prefix written before a national number, if any. */
+    trunk: string;
+    /** The fewest digits a phone number can have here, as typed locally. */
+    minDigits: number;
+    /** How a mobile number is written locally, for placeholders. */
+    example: string;
+  };
+  /** The languages offered, the first the default. */
+  locales: ("en" | "ms")[];
+  map: {
+    bounds: { south: number; north: number; west: number; east: number };
+    center: [number, number];
+    zoom: number;
+  };
   gateway: ProviderId;
+  /** What the national QR payment scheme is called, for the counter. */
+  qrName: string;
+  /** What every business SMS must start with here, if anything. */
+  smsPrefix: string;
+  legal: {
+    /** "the laws of Malaysia" */
+    governingLaw: string;
+    consumerAct: string;
+    dataAct: string;
+  };
 }
 
 const REGIONS: Record<CountryCode, Region> = {
   MY: {
     country: "MY",
     name: "Malaysia",
-    currency: { code: "MYR", symbol: "RM", minorUnits: 2 },
+    currency: { code: "MYR", symbol: "RM", minorUnits: 2, major: "ringgit" },
     timeZone: "Asia/Kuala_Lumpur",
+    utcOffsetHours: 8,
+    phone: { countryCode: "60", trunk: "0", minDigits: 9, example: "012-345 6789" },
+    locales: ["en", "ms"],
+    // Perlis to Sabah, Johor to the Thai border.
+    map: { bounds: { south: 0.85, north: 7.4, west: 99.6, east: 119.3 }, center: [4.2, 108], zoom: 5 },
     gateway: "billplz",
+    qrName: "DuitNow QR",
+    // Malaysian rules want a text from a business to start with "RM0".
+    smsPrefix: "RM0",
+    legal: {
+      governingLaw: "the laws of Malaysia",
+      consumerAct: "the Consumer Protection Act 1999",
+      dataAct: "the Personal Data Protection Act 2010",
+    },
   },
   SG: {
     country: "SG",
     name: "Singapore",
-    currency: { code: "SGD", symbol: "S$", minorUnits: 2 },
+    currency: { code: "SGD", symbol: "S$", minorUnits: 2, major: "dollars" },
     timeZone: "Asia/Singapore",
+    utcOffsetHours: 8,
+    phone: { countryCode: "65", trunk: "", minDigits: 8, example: "9123 4567" },
+    locales: ["en"],
+    map: { bounds: { south: 1.15, north: 1.48, west: 103.59, east: 104.1 }, center: [1.352, 103.82], zoom: 11 },
     gateway: "stripe",
+    qrName: "PayNow QR",
+    smsPrefix: "",
+    legal: {
+      governingLaw: "the laws of Singapore",
+      consumerAct: "the Consumer Protection (Fair Trading) Act 2003",
+      dataAct: "the Personal Data Protection Act 2012",
+    },
   },
 };
 
+declare global {
+  interface Window {
+    __MYSENAM_COUNTRY__?: string;
+  }
+}
+
+function countryCode(): string {
+  if (typeof window !== "undefined") return window.__MYSENAM_COUNTRY__ ?? "MY";
+  return (process.env.MYSENAM_COUNTRY ?? "MY").trim().toUpperCase();
+}
+
 export function region(): Region {
-  const code = (process.env.MYSENAM_COUNTRY ?? "MY").trim().toUpperCase();
+  const code = countryCode();
   return Object.hasOwn(REGIONS, code) ? REGIONS[code as CountryCode] : REGIONS.MY;
+}
+
+/**
+ * In the browser: which country the server said this install is. Called by
+ * the language provider as it renders, before anything below it does.
+ */
+export function setBrowserCountry(code: string): void {
+  if (typeof window !== "undefined") window.__MYSENAM_COUNTRY__ = code;
+}
+
+/** An amount as it is shown: RM12, S$18.5. The number is written as given. */
+export function money(amount: number | string): string {
+  return `${region().currency.symbol}${amount}`;
+}
+
+/** The currency symbol on its own, for a column heading: "Price (RM)". */
+export function currencySymbol(): string {
+  return region().currency.symbol;
+}
+
+/** The install's offset from UTC as ISO 8601 writes it: +08:00. */
+export function isoOffset(): string {
+  const h = region().utcOffsetHours;
+  const sign = h < 0 ? "-" : "+";
+  const abs = Math.abs(h);
+  return `${sign}${String(Math.floor(abs)).padStart(2, "0")}:${String(Math.round((abs % 1) * 60)).padStart(2, "0")}`;
+}
+
+/** The install's offset from UTC, in milliseconds. */
+export function offsetMs(): number {
+  return region().utcOffsetHours * 3_600_000;
+}
+
+/** A BCP 47 tag for Intl formatting in this language and country: en-MY, en-SG. */
+export function intlTag(locale: string): string {
+  return `${locale}-${region().country}`;
 }

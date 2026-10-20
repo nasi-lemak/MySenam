@@ -2,6 +2,7 @@ import Link from "next/link";
 import { allGateways, type PaymentResult } from "@/lib/gateways";
 import { accountForBill, paymentByBill, settleBill } from "@/lib/payments";
 import { serverT } from "@/lib/locale";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export default async function PaymentReturnPage({
           </h1>
           <p className="mt-2 text-sm text-slate-600">
             {payment.status === "paid"
-              ? `Thank you. RM${payment.amount} has been received.`
+              ? `Thank you. ${money(payment.amount)} has been received.`
               : "Nothing was taken. You can try again from Billing."}
           </p>
           <Link

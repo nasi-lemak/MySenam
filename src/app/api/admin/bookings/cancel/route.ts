@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { adminCancelBooking, getVenueIdForBookingCode } from "@/lib/store";
 import { notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     venueId,
     action: "booking.cancelled",
     bookingCode: result.booking.code,
-    detail: `${result.booking.date} ${result.booking.startHour}:00, ${result.booking.name}, RM${result.booking.totalPrice}${
+    detail: `${result.booking.date} ${result.booking.startHour}:00, ${result.booking.name}, ${money(result.booking.totalPrice)}${
       result.booking.paymentStatus === "paid" ? " (was paid)" : ""
     }`,
   });

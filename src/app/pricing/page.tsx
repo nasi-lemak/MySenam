@@ -7,6 +7,7 @@ import { isMarketplace } from "@/lib/mode";
 import { planTiers } from "@/lib/plans";
 import { whatsappConfig } from "@/lib/transports";
 import { packPrice, packSize } from "@/lib/whatsapp-credit";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ export default async function PricingPage() {
             return (
               <li key={tier.name} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="font-semibold text-slate-700">{tier.name}</h2>
-                <p className="mt-2 text-3xl font-bold text-teal-700">RM{tier.monthlyFee.toFixed(2)}</p>
+                <p className="mt-2 text-3xl font-bold text-teal-700">{money(tier.monthlyFee.toFixed(2))}</p>
                 <p className="text-sm text-slate-500">{t("pricing.month")}</p>
                 <p className="mt-2 text-sm text-slate-600">{span(from, tier.upTo)}</p>
                 {last && plan.extraEach > 0 && (

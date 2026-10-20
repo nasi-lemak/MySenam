@@ -5,6 +5,7 @@ import { creditScope } from "@/lib/mode";
 import { findUserForWallet, listWalletEntries, topUpWallet } from "@/lib/store";
 import { MAX_TOP_UP } from "@/lib/types";
 import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(userId) || (userId as number) <= 0)
     return NextResponse.json({ error: "userId is required." }, { status: 400 });
   if (!Number.isInteger(amount) || (amount as number) < 1 || (amount as number) > MAX_TOP_UP)
-    return NextResponse.json({ error: `Top-up must be RM1–${MAX_TOP_UP}.` }, { status: 400 });
+    return NextResponse.json({ error: `Top-up must be ${money(1)}–${MAX_TOP_UP}.` }, { status: 400 });
 
   const result = await topUpWallet({
     userId: userId as number,
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: venueId ?? null,
     action: "credit.changed",
-    detail: `RM${amount} for customer ${userId}${typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : ""}`,
+    detail: `${money(amount as number)} for customer ${userId}${typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : ""}`,
   });
   return NextResponse.json({ balance: result.balance, entry: result.entry }, { status: 201 });
 }

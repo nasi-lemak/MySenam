@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { offsetMs } from "./region";
 
 /**
  * WhatsApp messages a venue's customers were sent, counted by month, for the
@@ -8,9 +9,9 @@ import { getDb } from "./db";
  * which are the platform's own cost.
  */
 
-/** YYYY-MM, Malaysia time. */
+/** YYYY-MM, local time. */
 export function monthOf(now = new Date()): string {
-  return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 7);
+  return new Date(now.getTime() + offsetMs()).toISOString().slice(0, 7);
 }
 
 /**
@@ -20,7 +21,7 @@ export function monthOf(now = new Date()): string {
 export function monthBounds(month: string): [string, string] {
   const [y, m] = month.split("-").map(Number);
   const utc = (year: number, mon: number) =>
-    new Date(Date.UTC(year, mon - 1, 1) - 8 * 3_600_000).toISOString().replace("T", " ").slice(0, 19);
+    new Date(Date.UTC(year, mon - 1, 1) - offsetMs()).toISOString().replace("T", " ").slice(0, 19);
   return [utc(y, m), m === 12 ? utc(y + 1, 1) : utc(y, m + 1)];
 }
 

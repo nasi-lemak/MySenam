@@ -87,6 +87,7 @@ import {
   slotStartsAt,
   todayISO,
 } from "./time";
+import { money, region } from "./region";
 
 interface CourtRow {
   id: number;
@@ -2967,9 +2968,9 @@ export async function takeHire(code: string, deposit?: number): Promise<HireResu
 
   const held = deposit ?? court.deposit;
   if (!Number.isInteger(held) || held < 0)
-    return { ok: false, error: "A deposit must be a whole number of ringgit." };
+    return { ok: false, error: `A deposit must be a whole number of ${region().currency.major}.` };
   if (held > MAX_DEPOSIT)
-    return { ok: false, error: `A deposit cannot be more than RM${MAX_DEPOSIT}.` };
+    return { ok: false, error: `A deposit cannot be more than ${money(MAX_DEPOSIT)}.` };
 
   if (!booking.checkedInAt) {
     const windowError = checkInWindowError(booking);
@@ -3022,7 +3023,7 @@ export async function returnHire(
   if (withheld > hire.deposit)
     return {
       ok: false,
-      error: `Only RM${hire.deposit} is held on this booking, so RM${withheld} cannot be kept back.`,
+      error: `Only ${money(hire.deposit)} is held on this booking, so ${money(withheld)} cannot be kept back.`,
     };
 
   const note = (input.note ?? "").trim();
@@ -3209,7 +3210,7 @@ export async function updateCourt(
   const deposit = changes.deposit ?? court.deposit;
   if (deposit < 0) return { ok: false, error: "A deposit cannot be negative." };
   if (deposit > MAX_DEPOSIT)
-    return { ok: false, error: `A deposit cannot be more than RM${MAX_DEPOSIT}.` };
+    return { ok: false, error: `A deposit cannot be more than ${money(MAX_DEPOSIT)}.` };
   // Dropping the deposit to nothing while kit is out would leave those holds
   // unsettleable, so let them come back first.
   if (deposit === 0 && court.deposit > 0 && await openHireCountForCourt(courtId) > 0)
@@ -3733,7 +3734,7 @@ export async function topUpWallet(input: {
 }): Promise<WalletResult> {
   return withTransaction(async () => {
     if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_TOP_UP)
-      return { ok: false, error: `Top-up must be RM1–${MAX_TOP_UP}.` };
+      return { ok: false, error: `Top-up must be ${money(1)}–${MAX_TOP_UP}.` };
     const db = getDb();
     const user = await db.prepare("SELECT id FROM users WHERE id = ?").get(input.userId);
     if (!user) return { ok: false, error: "Customer not found." };
@@ -4220,7 +4221,7 @@ export async function createPromoCode(input: {
     if (input.kind === "percent" && input.value > MAX_PROMO_PERCENT)
       return { ok: false, error: `A percentage cannot exceed ${MAX_PROMO_PERCENT}.` };
     if (input.kind === "amount" && input.value > MAX_PROMO_AMOUNT)
-      return { ok: false, error: `A fixed discount cannot exceed RM${MAX_PROMO_AMOUNT}.` };
+      return { ok: false, error: `A fixed discount cannot exceed ${money(MAX_PROMO_AMOUNT)}.` };
 
     const minHours = input.minHours ?? 1;
     if (!Number.isInteger(minHours) || minHours < 1 || minHours > MAX_HOURS_PER_BOOKING)

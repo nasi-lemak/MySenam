@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Court } from "@/lib/types";
+import { offsetMs } from "@/lib/region";
 
 interface Outage {
   id: number;
@@ -21,7 +22,7 @@ interface Affected {
 }
 
 const input = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
-const today = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+const today = () => new Date(Date.now() + offsetMs()).toISOString().slice(0, 10);
 
 /**
  * Courts out of service for days at a time. Taking one out shows whatever

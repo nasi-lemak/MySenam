@@ -5,6 +5,7 @@ import { bookingCancelled, forgetPlayer } from "./games";
 import { withdraw } from "./tournaments";
 import { forgetLeaguePlayer } from "./leagues";
 import { removeVenuePhotoFiles } from "./photos";
+import { money } from "./region";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -428,7 +429,7 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
   if (balance > 0)
     return {
       ok: false,
-      error: `You still hold RM${balance} in credit. Spend it, or ask a venue to refund it, and then close the account.`,
+      error: `You still hold ${money(balance)} in credit. Spend it, or ask a venue to refund it, and then close the account.`,
     };
 
   const today = todayISO();

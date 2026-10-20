@@ -6,6 +6,7 @@ import { MAX_CLASS_WEEKS, SPORT_ICONS } from "@/lib/types";
 import type { Booking, ClassSession } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
+import { money, currencySymbol } from "@/lib/region";
 
 /* ---------------- Classes tab ---------------- */
 
@@ -200,7 +201,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    RM{session.price}
+                    {money(session.price)}
                     {session.who !== "anyone" && <span className="ml-1 text-xs text-fuchsia-700">{session.who} only</span>}
                   </td>
                   <td className="px-3 py-2">
@@ -291,7 +292,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           <input
             required type="number" min={0} value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })}
-            title="Price per person (RM)" className={`w-20 ${inputClass}`}
+            title={`Price per person (${currencySymbol()})`} className={`w-20 ${inputClass}`}
           />
           <select
             value={form.who}

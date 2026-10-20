@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/lib/store";
 import { logAction } from "@/lib/activity";
+import { money, region } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `A valid ${field} is required.` }, { status: 400 });
   }
   if (!Number.isInteger(input.price) || (input.price as number) < 0)
-    return NextResponse.json({ error: "Price must be a whole number of ringgit." }, { status: 400 });
+    return NextResponse.json({ error: `Price must be a whole number of ${region().currency.major}.` }, { status: 400 });
 
 
   // Optionally tie the sale to an account, so it shows on that customer's own
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: venueId as number,
     action: "membership.sold",
-    detail: `${input.holderName as string}, RM${input.price as number}, ${input.startsOn as string} to ${input.expiresOn as string}`,
+    detail: `${input.holderName as string}, ${money(input.price as number)}, ${input.startsOn as string} to ${input.expiresOn as string}`,
   });
   return NextResponse.json({ membership: result.membership }, { status: 201 });
 }

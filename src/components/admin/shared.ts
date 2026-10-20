@@ -1,4 +1,5 @@
 import { CLOSE_HOUR, Court, OPEN_HOUR, Venue } from "@/lib/types";
+import { intlTag, region } from "@/lib/region";
 
 /** A venue as the admin panel sees it: the venue and everything bookable in it. */
 export type ManagedVenue = Venue & { courts: Court[] };
@@ -6,11 +7,11 @@ export type ManagedVenue = Venue & { courts: Court[] };
 /** A UTC timestamp as Malaysia-time HH:MM. */
 export function localTime(iso: string): string {
   return new Date(iso.includes("Z") || iso.includes("+") ? iso : `${iso.replace(" ", "T")}Z`)
-    .toLocaleTimeString("en-MY", {
+    .toLocaleTimeString(intlTag("en"), {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-      timeZone: "Asia/Kuala_Lumpur",
+      timeZone: region().timeZone,
     });
 }
 
@@ -22,7 +23,7 @@ export const HOUR_CHOICES = Array.from(
 
 /** Today in Malaysia, as the date input wants it. */
 export function todayLocal(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: region().timeZone }).format(new Date());
 }
 
 /**
