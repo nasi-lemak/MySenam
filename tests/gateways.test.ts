@@ -207,3 +207,38 @@ describe("migration 0034", () => {
     expect((await venueAccount(venueId))?.credentials.apiKey).toBe("key-abcd");
   });
 });
+
+describe("checking keys when they are saved", () => {
+  const save = (check: boolean) =>
+    savePaymentSettings(venueId, {
+      provider: "billplz",
+      credentials: { apiKey: "key-abcd", collectionId: "col1", xSignatureKey: "sig-wxyz" },
+      sandbox: true,
+      enabled: true,
+      check,
+    });
+  const answer = (status: number) => vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status })));
+
+  it("asks Billplz for the collection, and says what is wrong", async () => {
+    answer(401);
+    expect(await save(true)).toMatchObject({ ok: false, error: expect.stringContaining("did not accept the API key") });
+    answer(404);
+    expect(await save(true)).toMatchObject({ ok: false, error: "That Billplz account has no collection col1." });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("timed out"); }));
+    expect(await save(true)).toMatchObject({ ok: false, error: expect.stringContaining("Could not reach Billplz") });
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (calls.push(url), new Response("{}", { status: 200 }))));
+    expect(await save(true)).toMatchObject({ ok: true });
+    expect(calls).toEqual(["https://www.billplz-sandbox.com/api/v3/collections/col1"]);
+  });
+
+  it("is not done unless asked, nor for an account switched off", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    expect(await save(false)).toMatchObject({ ok: true });
+    expect(
+      await savePaymentSettings(venueId, { provider: "billplz", credentials: {}, sandbox: true, enabled: false, check: true })
+    ).toMatchObject({ ok: true });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});

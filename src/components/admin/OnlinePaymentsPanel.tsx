@@ -137,7 +137,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             `/api/admin/venues/${venueId}/payment-settings`,
             "PUT",
             form,
-            form.enabled ? "Saved. Customers can pay online." : "Saved, and switched off."
+            form.enabled ? "Checked with the gateway and saved. Customers can pay online." : "Saved, and switched off."
           );
         }}
         className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2"
@@ -185,15 +185,26 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             />
             Customers can pay online
           </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.sandbox}
-              onChange={(e) => setForm({ ...form, sandbox: e.target.checked })}
-              className="accent-teal-600"
-            />
-            Sandbox (test payments, no real money)
-          </label>
+          {gateway?.sandboxFromKey ? (
+            // The key says test or live; there is no switch to set the wrong way.
+            <p className="text-xs text-slate-500">
+              {sameGateway
+                ? settings!.sandbox
+                  ? "Test mode: this is a test key, so no real money moves."
+                  : "Live: real payments."
+                : "A test key takes test payments; a live key takes real ones."}
+            </p>
+          ) : (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.sandbox}
+                onChange={(e) => setForm({ ...form, sandbox: e.target.checked })}
+                className="accent-teal-600"
+              />
+              Sandbox (test payments, no real money)
+            </label>
+          )}
         </div>
         {gateway?.setup && <p className="text-xs text-slate-500 sm:col-span-2">{gateway.setup}</p>}
         {gateway?.callbackUrl && (

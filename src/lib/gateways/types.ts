@@ -98,6 +98,17 @@ export interface PaymentGateway {
    * is not sent with each payment), so the form shows it to copy.
    */
   webhook?: boolean;
+  /**
+   * Test or live, as the credentials themselves say (a Stripe key does), in
+   * place of a sandbox switch the venue could set the wrong way.
+   */
+  sandboxFrom?(credentials: Record<string, string>): boolean;
+  /**
+   * One harmless call with these credentials, made when staff save them:
+   * why they do not work, or null. So a wrong key shows up on the settings
+   * page, not as a customer's failed payment.
+   */
+  testConnection?(account: GatewayAccount): Promise<string | null>;
   /** Why these credentials cannot be right, or null. Every field is filled in. */
   checkCredentials(credentials: Record<string, string>): string | null;
   createCheckout(account: GatewayAccount, request: CheckoutRequest): Promise<CheckoutPage>;

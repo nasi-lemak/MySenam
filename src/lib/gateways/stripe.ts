@@ -109,6 +109,26 @@ export const stripe: PaymentGateway = {
     return null;
   },
 
+  sandboxFrom(c) {
+    return c.secretKey.includes("_test_");
+  },
+
+  async testConnection(account) {
+    let res: Response;
+    try {
+      res = await fetch(`${API}/checkout/sessions?limit=1`, {
+        headers: { Authorization: `Bearer ${account.credentials.secretKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      return `Could not reach Stripe to check the key: ${err instanceof Error ? err.message : err}. Try again.`;
+    }
+    if (res.ok) return null;
+    if (res.status === 401) return "Stripe did not accept that key. Copy it again from Developers → API keys.";
+    if (res.status === 403) return "That key cannot use Checkout Sessions. Edit the restricted key in Stripe and set Checkout Sessions to Write.";
+    return `Stripe answered ${res.status} when the key was checked. Try again.`;
+  },
+
   async createCheckout(account, request) {
     const minor = 10 ** request.currency.minorUnits;
     const form = new URLSearchParams({

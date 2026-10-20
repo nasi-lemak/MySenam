@@ -54,6 +54,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     xSignatureKey: text(xSignatureKey),
     sandbox: sandbox === true,
     enabled: enabled !== false,
+    // A wrong key shows up here, not as a customer's failed payment.
+    check: true,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   await logFromRequest(req, { venueId, action: "settings.changed", detail: `Online payment account saved (${result.settings.providerName})` });

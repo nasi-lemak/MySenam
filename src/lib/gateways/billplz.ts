@@ -1,4 +1,4 @@
-import { createBill, redirectBillId, verifyCallback, verifyRedirect } from "../billplz";
+import { billplzHost, createBill, redirectBillId, verifyCallback, verifyRedirect } from "../billplz";
 import type { GatewayAccount, PaymentGateway } from "./types";
 
 /** Billplz (Malaysia): FPX online banking and cards. The protocol itself is in lib/billplz.ts. */
@@ -16,6 +16,24 @@ export const billplz: PaymentGateway = {
 
   checkCredentials(c) {
     return /^[\w-]{3,40}$/.test(c.collectionId) ? null : "That does not look like a Billplz collection ID.";
+  },
+
+  async testConnection(account) {
+    const { apiKey, collectionId } = account.credentials;
+    let res: Response;
+    try {
+      res = await fetch(`${billplzHost(account.sandbox)}/api/v3/collections/${encodeURIComponent(collectionId)}`, {
+        headers: { Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      return `Could not reach Billplz to check the keys: ${err instanceof Error ? err.message : err}. Try again.`;
+    }
+    if (res.ok) return null;
+    if (res.status === 401)
+      return `Billplz did not accept the API key${account.sandbox ? " on its sandbox" : ""}. A sandbox key only works with Sandbox ticked, and a live key only without.`;
+    if (res.status === 404) return `That Billplz account has no collection ${collectionId}.`;
+    return `Billplz answered ${res.status} when the keys were checked. Try again.`;
   },
 
   async createCheckout(account, request) {

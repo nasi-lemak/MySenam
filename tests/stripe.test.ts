@@ -126,6 +126,41 @@ describe("connecting a Stripe account", () => {
   });
 });
 
+describe("test or live", () => {
+  it("follows the key, whatever the sandbox switch says", async () => {
+    const other = await createVenue({ name: "Live Hall", area: "x", address: "x", phone: "61234568" });
+    if (!other.ok) throw new Error("venue");
+    expect(
+      await savePaymentSettings(other.venue.id, { credentials: { secretKey: KEY, webhookSecret: SECRET }, sandbox: false, enabled: true })
+    ).toMatchObject({ ok: true, settings: { sandbox: true } });
+    expect(
+      await savePaymentSettings(other.venue.id, { credentials: { secretKey: "rk_live_abcdefghijklmnop", webhookSecret: SECRET }, sandbox: true, enabled: true })
+    ).toMatchObject({ ok: true, settings: { sandbox: false } });
+    expect((await paymentSettings(other.venue.id)).choices[0].sandboxFromKey).toBe(true);
+  });
+
+  it("checks the key can open Checkout sessions", async () => {
+    const other = await createVenue({ name: "Check Hall", area: "x", address: "x", phone: "61234569" });
+    if (!other.ok) throw new Error("venue");
+    const save = () =>
+      savePaymentSettings(other.venue.id, { credentials: { secretKey: KEY, webhookSecret: SECRET }, sandbox: true, enabled: true, check: true });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 403 })));
+    expect(await save()).toMatchObject({ ok: false, error: expect.stringContaining("set Checkout Sessions to Write") });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    expect(await save()).toMatchObject({ ok: false, error: expect.stringContaining("did not accept that key") });
+    const calls: { url: string; auth?: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: { headers: Record<string, string> }) => {
+        calls.push({ url, auth: init.headers.Authorization });
+        return Response.json({ data: [] });
+      })
+    );
+    expect(await save()).toMatchObject({ ok: true });
+    expect(calls).toEqual([{ url: "https://api.stripe.com/v1/checkout/sessions?limit=1", auth: `Bearer ${KEY}` }]);
+  });
+});
+
 describe("paying", () => {
   it("opens a Checkout session in dollars and cents, with the venue's key", async () => {
     fakeStripe();

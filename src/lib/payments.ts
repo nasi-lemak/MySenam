@@ -63,6 +63,8 @@ export interface GatewayChoice {
   setup?: string;
   /** Where the gateway should send its reports, when the venue sets that up itself. */
   callbackUrl?: string;
+  /** Test or live follows the key, so there is no sandbox switch to set. */
+  sandboxFromKey: boolean;
 }
 
 /** What staff see of a venue's gateway account. The keys never leave. */
@@ -123,6 +125,7 @@ const choice = (g: PaymentGateway): GatewayChoice => ({
   fields: g.fields,
   ...(g.setup ? { setup: g.setup } : {}),
   ...(g.webhook ? { callbackUrl: `${baseUrl()}/api/payments/${g.id}/callback` } : {}),
+  sandboxFromKey: Boolean(g.sandboxFrom),
 });
 
 export async function paymentSettings(venueId: number): Promise<PaymentSettings> {
@@ -201,6 +204,8 @@ export async function savePaymentSettings(
     xSignatureKey?: string;
     sandbox: boolean;
     enabled: boolean;
+    /** Try the credentials against the gateway before saving them (the settings form does). */
+    check?: boolean;
   }
 ): Promise<SettingsResult> {
   if (!await getVenue(venueId)) return { ok: false, error: "Venue not found." };
@@ -236,6 +241,11 @@ export async function savePaymentSettings(
   }
   const wrong = gateway.checkCredentials(plain);
   if (wrong) return { ok: false, error: wrong };
+  const sandbox = gateway.sandboxFrom ? gateway.sandboxFrom(plain) : input.sandbox;
+  if (input.check && input.enabled && gateway.testConnection) {
+    const refused = await gateway.testConnection({ provider: gateway.id, sandbox, credentials: plain });
+    if (refused) return { ok: false, error: refused };
+  }
 
   await getDb()
     .prepare(`
@@ -248,7 +258,7 @@ export async function savePaymentSettings(
         enabled = excluded.enabled,
         updated_at = excluded.updated_at
     `)
-    .run(venueId, gateway.id, JSON.stringify(sealed), input.sandbox ? 1 : 0, input.enabled ? 1 : 0);
+    .run(venueId, gateway.id, JSON.stringify(sealed), sandbox ? 1 : 0, input.enabled ? 1 : 0);
   return { ok: true, settings: await paymentSettings(venueId) };
 }
 
