@@ -29,12 +29,20 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   ms: "Bahasa Malaysia",
 };
 
+/** Gateways by name, for copy (the gateways themselves are server code). */
+const GATEWAY_NAMES: Record<string, string> = { billplz: "Billplz", stripe: "Stripe" };
+
 // Dates are formatted with `intlTag(locale)` (lib/region.ts): Intl already
 // knows the weekday and month names, so a date belongs in the locale tag,
 // not in the dictionary.
 
 export function isLocale(value: string | undefined | null): value is Locale {
-  return value === "en" || value === "ms";
+  return (LOCALES as readonly string[]).includes(value ?? "");
+}
+
+/** The languages this install offers (lib/region.ts), the first its default. */
+export function offeredLocales(): Locale[] {
+  return region().locales.filter(isLocale);
 }
 
 /**
@@ -249,7 +257,7 @@ const EN = {
   "pricing.inc3": "WhatsApp for urgent news — a booking you cancel or move, a waitlist place — at no charge",
   "pricing.inc4": "Reports, staff accounts and branches",
   "pricing.money": "Your customers' money",
-  "pricing.money1": "Customers pay you, at your counter or online by FPX into your own Billplz account. We never hold your money and take no cut. Billplz charges its own fee per payment, agreed between you and Billplz.",
+  "pricing.money1": "Customers pay you, at your counter or online ({payMethods}) into your own {gateway} account. We never hold your money and take no cut. {gateway} charges its own fee per payment, agreed between you and {gateway}.",
   "pricing.extras": "Optional",
   "pricing.whatsapp": "WhatsApp for every message, not just urgent ones: {cur}{price} for {n} messages, paid in advance. Nothing is ever billed afterwards.",
   "pricing.terms": "How you are billed",
@@ -261,7 +269,7 @@ const EN = {
   "pricing.cta": "List your venue",
   "pricing.see": "See prices",
   "apply.title": "List your venue on {site}",
-  "apply.intro": "Courts, gyms, pools and classes: take bookings online, get paid by FPX straight into your own account, and fill the quiet hours. Sign up and set your venue up today, free. Customers see it once we have checked it is real.",
+  "apply.intro": "Courts, gyms, pools and classes: take bookings online, get paid online straight into your own account, and fill the quiet hours. Sign up and set your venue up today, free. Customers see it once we have checked it is real.",
   "apply.business": "Venue name",
   "apply.area": "Area",
   "apply.address": "Address",
@@ -375,7 +383,7 @@ const EN = {
   "venue.cancelAnyTime": "cancel any time before your slot starts",
   "venue.closures": "Upcoming closures:",
   "near.me": "Near me",
-  "near.placeholder": "Or near a place: Bangsar, KLCC, a postcode",
+  "near.placeholder": "Or near a place: {placeEx}, a postcode",
   "near.go": "Go",
   "near.within": "Within {km} km of {where}",
   "near.you": "you",
@@ -532,7 +540,9 @@ const EN = {
   "member.renew": "Renew · {cur}{price}",
   "member.signIn": "Sign in to join online",
   "member.noPhone": "Add and confirm your phone number on your account to join online",
-  "member.how": "FPX online banking or card, through Billplz, into the venue's own account.",
+  "member.how": "{payMethods}, through {gateway}, into the venue's own account.",
+  "gw.billplz.methods": "FPX online banking or card",
+  "gw.stripe.methods": "Card or PayNow",
   "member.welcomeTitle": "You're a member",
   "member.welcomeBody": "Membership {code} at {venue} runs from {from} to {until}.",
   "member.notMadeTitle": "Paid, but no membership made",
@@ -606,7 +616,7 @@ const EN = {
   "hold.pending": "Held until {time} while you pay online. Not paid by then, it is let go.",
   "hold.pill": "Held",
   "hold.total": "{cur}{amount}: pay online to keep it",
-  "hold.how": "FPX online banking or card, through Billplz.",
+  "hold.how": "{payMethods}, through {gateway}.",
   "done.body":
     "Show this code at the counter. Save it — you'll need it (with your phone number) to view or cancel {what}.",
   "done.theSeries": "the series",
@@ -807,7 +817,7 @@ const EN = {
   "privacy.doGuestBody": "A name and a phone number is enough, and then there is no account to close.",
   "privacy.draftTitle": "Before this site goes live",
   "privacy.draftBody":
-    "This notice describes what the software actually does, which is the hard part — but it is not legal advice and it is not finished. It is here in Bahasa Malaysia and English, as Malaysia's PDPA expects, but the translation has not been checked by a lawyer and there is still no named person to write to. Add both, and have a lawyer read it, before taking a real customer's booking.",
+    "This notice describes what the software actually does, which is the hard part — but it is not legal advice and it is not finished. It is written for {dataAct}, but no lawyer has checked it, or any translation of it, and there is still no named person to write to. Add both, and have a lawyer read it, before taking a real customer's booking.",
 
   // Account
   "acct.greeting": "Hi, {name} 👋",
@@ -863,7 +873,7 @@ const EN = {
   "wallet.topUpAt": "At",
   "wallet.topUpAmount": "Amount ({cur})",
   "wallet.topUpGo": "Pay {cur}{amount}",
-  "wallet.topUpHow": "FPX online banking or card, through Billplz, into the venue's own account.",
+  "wallet.topUpHow": "{payMethods}, through {gateway}, into the venue's own account.",
   "wallet.topUpTitle": "Credit added",
   "wallet.topUpBody": "{cur}{amount} is on your account, ready to pay for bookings.",
   "wallet.topUpBack": "Back to my account",
@@ -911,7 +921,7 @@ const EN = {
   "pay.button": "Pay {cur}{amount} online",
   "pay.opening": "Opening the payment page…",
   "pay.failed": "The payment page could not be opened.",
-  "pay.how": "FPX online banking or card, through Billplz. Or pay at the counter as usual.",
+  "pay.how": "{payMethods}, through {gateway}. Or pay at the counter as usual.",
   "pay.paidOnline": "Paid online",
   "pay.receivedTitle": "Payment received",
   "pay.receivedBody": "Thank you. {cur}{amount} has been paid for {codes}. Show your booking code at the front desk as usual.",
@@ -1327,7 +1337,7 @@ const MS: Record<Phrase, string> = {
   "pricing.inc3": "WhatsApp untuk berita penting — tempahan yang anda batalkan atau pindahkan, tempat senarai menunggu — tanpa caj",
   "pricing.inc4": "Laporan, akaun kakitangan dan cawangan",
   "pricing.money": "Wang pelanggan anda",
-  "pricing.money1": "Pelanggan membayar anda, di kaunter atau dalam talian melalui FPX ke akaun Billplz anda sendiri. Kami tidak memegang wang anda dan tidak mengambil potongan. Billplz mengenakan yurannya sendiri bagi setiap bayaran, seperti dipersetujui antara anda dan Billplz.",
+  "pricing.money1": "Pelanggan membayar anda, di kaunter atau dalam talian ({payMethods}) ke akaun {gateway} anda sendiri. Kami tidak memegang wang anda dan tidak mengambil potongan. {gateway} mengenakan yurannya sendiri bagi setiap bayaran, seperti dipersetujui antara anda dan {gateway}.",
   "pricing.extras": "Pilihan",
   "pricing.whatsapp": "WhatsApp untuk setiap mesej, bukan hanya yang penting: {cur}{price} untuk {n} mesej, dibayar terlebih dahulu. Tiada apa-apa dibilkan kemudian.",
   "pricing.terms": "Cara anda dibilkan",
@@ -1339,7 +1349,7 @@ const MS: Record<Phrase, string> = {
   "pricing.cta": "Senaraikan pusat anda",
   "pricing.see": "Lihat harga",
   "apply.title": "Senaraikan pusat anda di {site}",
-  "apply.intro": "Gelanggang, gim, kolam dan kelas: terima tempahan dalam talian, terima bayaran FPX terus ke akaun anda sendiri, dan isi waktu lengang. Daftar dan sediakan pusat anda hari ini, percuma. Pelanggan dapat melihatnya setelah kami mengesahkan ia wujud.",
+  "apply.intro": "Gelanggang, gim, kolam dan kelas: terima tempahan dalam talian, terima bayaran dalam talian terus ke akaun anda sendiri, dan isi waktu lengang. Daftar dan sediakan pusat anda hari ini, percuma. Pelanggan dapat melihatnya setelah kami mengesahkan ia wujud.",
   "apply.business": "Nama pusat",
   "apply.area": "Kawasan",
   "apply.address": "Alamat",
@@ -1452,7 +1462,7 @@ const MS: Record<Phrase, string> = {
   "venue.cancelAnyTime": "batal bila-bila masa sebelum waktu anda bermula",
   "venue.closures": "Hari tutup akan datang:",
   "near.me": "Berhampiran saya",
-  "near.placeholder": "Atau berhampiran: Bangsar, KLCC, poskod",
+  "near.placeholder": "Atau berhampiran: {placeEx}, poskod",
   "near.go": "Cari",
   "near.within": "Dalam {km} km dari {where}",
   "near.you": "anda",
@@ -1609,7 +1619,9 @@ const MS: Record<Phrase, string> = {
   "member.renew": "Perbaharui · {cur}{price}",
   "member.signIn": "Log masuk untuk menyertai dalam talian",
   "member.noPhone": "Tambah dan sahkan nombor telefon dalam akaun anda untuk menyertai dalam talian",
-  "member.how": "Perbankan dalam talian FPX atau kad, melalui Billplz, ke akaun pusat itu sendiri.",
+  "member.how": "{payMethods}, melalui {gateway}, ke akaun pusat itu sendiri.",
+  "gw.billplz.methods": "Perbankan dalam talian FPX atau kad",
+  "gw.stripe.methods": "Kad atau PayNow",
   "member.welcomeTitle": "Anda kini ahli",
   "member.welcomeBody": "Keahlian {code} di {venue} sah dari {from} hingga {until}.",
   "member.notMadeTitle": "Dibayar, tetapi tiada keahlian dibuat",
@@ -1683,7 +1695,7 @@ const MS: Record<Phrase, string> = {
   "hold.pending": "Disimpan sehingga {time} semasa anda membayar dalam talian. Jika tidak dibayar, ia dilepaskan.",
   "hold.pill": "Disimpan",
   "hold.total": "{cur}{amount}: bayar dalam talian untuk mengekalkannya",
-  "hold.how": "Perbankan dalam talian FPX atau kad, melalui Billplz.",
+  "hold.how": "{payMethods}, melalui {gateway}.",
   "done.body":
     "Tunjukkan kod ini di kaunter. Simpan ia — anda perlukannya (bersama nombor telefon anda) untuk melihat atau membatalkan {what}.",
   "done.theSeries": "siri ini",
@@ -1893,7 +1905,7 @@ const MS: Record<Phrase, string> = {
     "Nama dan nombor telefon sudah memadai, dan kemudian tiada akaun untuk ditutup.",
   "privacy.draftTitle": "Sebelum laman ini beroperasi",
   "privacy.draftBody":
-    "Notis ini menerangkan apa yang perisian ini benar-benar lakukan, iaitu bahagian yang sukar — tetapi ia bukan nasihat guaman dan ia belum selesai. Ia ada dalam Bahasa Malaysia dan Bahasa Inggeris, seperti yang dikehendaki PDPA Malaysia, tetapi terjemahannya belum disemak oleh peguam dan masih tiada nama orang yang boleh dihubungi. Tambah kedua-duanya, dan minta peguam membacanya, sebelum menerima tempahan pelanggan sebenar.",
+    "Notis ini menerangkan apa yang perisian ini benar-benar lakukan, iaitu bahagian yang sukar — tetapi ia bukan nasihat guaman dan ia belum selesai. Ia ditulis untuk {dataAct}, tetapi belum disemak oleh peguam, begitu juga terjemahannya, dan masih tiada nama orang yang boleh dihubungi. Tambah kedua-duanya, dan minta peguam membacanya, sebelum menerima tempahan pelanggan sebenar.",
 
   // Akaun
   "acct.greeting": "Hai, {name} 👋",
@@ -1952,7 +1964,7 @@ const MS: Record<Phrase, string> = {
   "wallet.topUpAt": "Di",
   "wallet.topUpAmount": "Jumlah ({cur})",
   "wallet.topUpGo": "Bayar {cur}{amount}",
-  "wallet.topUpHow": "Perbankan dalam talian FPX atau kad, melalui Billplz, ke akaun pusat itu sendiri.",
+  "wallet.topUpHow": "{payMethods}, melalui {gateway}, ke akaun pusat itu sendiri.",
   "wallet.topUpTitle": "Kredit ditambah",
   "wallet.topUpBody": "{cur}{amount} ada dalam akaun anda, sedia untuk membayar tempahan.",
   "wallet.topUpBack": "Kembali ke akaun saya",
@@ -2001,7 +2013,7 @@ const MS: Record<Phrase, string> = {
   "pay.button": "Bayar {cur}{amount} dalam talian",
   "pay.opening": "Membuka halaman pembayaran…",
   "pay.failed": "Halaman pembayaran tidak dapat dibuka.",
-  "pay.how": "Perbankan dalam talian FPX atau kad, melalui Billplz. Atau bayar di kaunter seperti biasa.",
+  "pay.how": "{payMethods}, melalui {gateway}. Atau bayar di kaunter seperti biasa.",
   "pay.paidOnline": "Dibayar dalam talian",
   "pay.receivedTitle": "Pembayaran diterima",
   "pay.receivedBody": "Terima kasih. {cur}{amount} telah dibayar untuk {codes}. Tunjukkan kod tempahan anda di kaunter hadapan seperti biasa.",
@@ -2258,8 +2270,18 @@ export function hasPhrase(key: string): key is Phrase {
 export function translator(locale: Locale, site: string = siteName()): T {
   const dict = DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
   // Filled into any phrase that names them: the site, the install's currency,
-  // and how a phone number is written there.
-  const base = { site, cur: currencySymbol(), phoneEx: region().phone.example };
+  // how a phone number is written there, the gateway venues pay through and
+  // how customers pay with it, a place to search near, and the data law.
+  const r = region();
+  const base = {
+    site,
+    cur: currencySymbol(),
+    phoneEx: r.phone.example,
+    gateway: GATEWAY_NAMES[r.gateway],
+    payMethods: dict[`gw.${r.gateway}.methods` as Phrase] ?? "",
+    placeEx: r.placeExample,
+    dataAct: r.legal.dataAct,
+  };
   const t = ((phrase: Phrase, vars?: Vars) =>
     fill(dict[phrase] ?? String(phrase), { ...base, ...vars })) as T;
   t.plural = (stem: string, n: number, vars?: Vars) =>

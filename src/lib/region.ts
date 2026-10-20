@@ -44,6 +44,8 @@ export interface Region {
     /** How a mobile number is written locally, for placeholders. */
     example: string;
   };
+  /** Places people search near, for a placeholder. */
+  placeExample: string;
   /** The languages offered, the first the default. */
   locales: ("en" | "ms")[];
   map: {
@@ -72,6 +74,7 @@ const REGIONS: Record<CountryCode, Region> = {
     timeZone: "Asia/Kuala_Lumpur",
     utcOffsetHours: 8,
     phone: { countryCode: "60", trunk: "0", minDigits: 9, example: "012-345 6789" },
+    placeExample: "Bangsar, KLCC",
     locales: ["en", "ms"],
     // Perlis to Sabah, Johor to the Thai border.
     map: { bounds: { south: 0.85, north: 7.4, west: 99.6, east: 119.3 }, center: [4.2, 108], zoom: 5 },
@@ -92,6 +95,7 @@ const REGIONS: Record<CountryCode, Region> = {
     timeZone: "Asia/Singapore",
     utcOffsetHours: 8,
     phone: { countryCode: "65", trunk: "", minDigits: 8, example: "9123 4567" },
+    placeExample: "Tampines, Bishan",
     locales: ["en"],
     map: { bounds: { south: 1.15, north: 1.48, west: 103.59, east: 104.1 }, center: [1.352, 103.82], zoom: 11 },
     gateway: "stripe",

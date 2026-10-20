@@ -1,5 +1,6 @@
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
+import { region } from "./region";
 
 /**
  * Where things are: the pin a venue drops on the map, where its address
@@ -24,11 +25,10 @@ export interface Point {
 
 const PUBLIC_NOMINATIM = "https://nominatim.openstreetmap.org";
 
-/** Malaysia, roughly: Perlis to Sabah, Johor to the Thai border. */
-const MALAYSIA = { south: 0.85, north: 7.4, west: 99.6, east: 119.3 };
-
-export function inMalaysia(p: Point): boolean {
-  return p.lat >= MALAYSIA.south && p.lat <= MALAYSIA.north && p.lng >= MALAYSIA.west && p.lng <= MALAYSIA.east;
+/** Inside the install's country, roughly: its bounding box (lib/region.ts). */
+export function inCountry(p: Point): boolean {
+  const b = region().map.bounds;
+  return p.lat >= b.south && p.lat <= b.north && p.lng >= b.west && p.lng <= b.east;
 }
 
 /** A pin as it arrives from a form: two finite numbers, or nothing. */
@@ -128,11 +128,11 @@ async function ask(path: string, params: Record<string, string>): Promise<unknow
   }
 }
 
-/** Where an address leads, in Malaysia, or null if the map does not know it. */
+/** Where an address leads, in the install's country, or null if the map does not know it. */
 export async function findAddress(query: string): Promise<(Point & { label: string }) | null> {
   const q = query.trim().slice(0, 300);
   if (q.length < 3) return null;
-  const found = await ask("/search", { q, countrycodes: "my", limit: "1" });
+  const found = await ask("/search", { q, countrycodes: region().country.toLowerCase(), limit: "1" });
   const first = Array.isArray(found) ? (found[0] as { lat?: string; lon?: string; display_name?: string }) : null;
   if (!first?.lat || !first.lon) return null;
   const point = { lat: Number(first.lat), lng: Number(first.lon) };

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import fs from "fs";
 import path from "path";
+import { region } from "./region";
 
 /**
  * The database: Postgres.
@@ -516,8 +517,13 @@ async function migrate(d: Driver): Promise<void> {
 
 // ------------------------------------------------------------ first run
 
-/** A fresh install gets four venues, so there is something to look at. */
+/**
+ * A fresh install gets four venues, so there is something to look at. They
+ * are Malaysian (Klang Valley addresses, ringgit rates), so an install for
+ * another country starts empty and its first-run checklist leads the way.
+ */
 async function seedIfEmpty(): Promise<void> {
+  if (region().country !== "MY") return;
   const d = await driver();
   const { rows } = await d.query("SELECT COUNT(*) AS n FROM venues", []);
   if (Number(rows[0].n) > 0) return;

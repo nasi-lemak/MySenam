@@ -3,14 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type * as Leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { region } from "@/lib/region";
 
 export interface MapPoint {
   lat: number;
   lng: number;
 }
 
-/** All of Malaysia, for a map with nothing on it yet. */
-const MALAYSIA: [number, number] = [4.2, 108];
 const STREET_ZOOM = 17;
 
 /** A teal pin drawn in place, so there are no marker images to ship. */
@@ -65,8 +64,9 @@ export default function PinMap({
       lib.current = L;
       const at = start.current;
       const m = L.map(box.current, { scrollWheelZoom: false }).setView(
-        at ? [at.lat, at.lng] : MALAYSIA,
-        at ? STREET_ZOOM : 5
+        // With nothing on it yet: the whole country.
+        at ? [at.lat, at.lng] : region().map.center,
+        at ? STREET_ZOOM : region().map.zoom
       );
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,

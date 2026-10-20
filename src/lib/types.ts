@@ -1,5 +1,6 @@
 import type { ErrorCode } from "./i18n";
 import type { Amenity, CourtFeatures } from "./facilities";
+import { region } from "./region";
 export type Sport =
   | "badminton"
   | "tennis"
@@ -216,10 +217,13 @@ export type CounterMethod = (typeof COUNTER_METHODS)[number];
 export type PaidVia = CounterMethod | "online" | "pass" | "credit";
 export const PAID_VIA_LABELS: Record<PaidVia, string> = {
   cash: "Cash",
-  qr: "DuitNow QR / e-wallet",
+  // The country's QR scheme: DuitNow in Malaysia, PayNow in Singapore.
+  get qr() {
+    return `${region().qrName} / e-wallet`;
+  },
   transfer: "Bank transfer",
   card: "Card terminal",
-  online: "Online (FPX / card)",
+  online: "Online",
   pass: "Pass",
   credit: "Stored credit",
 };

@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
-import { distanceM, inMalaysia, readPoint } from "./geo";
+import { distanceM, inCountry, readPoint } from "./geo";
 import {
   amenitiesFor,
   cleanAmenities,
@@ -720,13 +720,13 @@ export const NEAR_MAX_KM = 50;
 
 /**
  * `near=3.1390,101.6869` and `km=10` from a query string, or null. A point
- * outside Malaysia, or not a point at all, is no point.
+ * outside the install's country, or not a point at all, is no point.
  */
 export function readNear(near: string | null | undefined, km?: string | null): Near | null {
   if (!near) return null;
   const [lat, lng] = near.split(",").map((x) => Number(x.trim()));
   const point = readPoint(lat, lng);
-  if (!point || !inMalaysia(point)) return null;
+  if (!point || !inCountry(point)) return null;
   const radius = Number(km);
   return {
     ...point,

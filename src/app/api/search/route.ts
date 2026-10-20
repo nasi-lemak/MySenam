@@ -6,6 +6,7 @@ import { readFacilityFilters } from "@/lib/facilities";
 import { coversFor } from "@/lib/photos";
 import { isValidDateString, todayISO } from "@/lib/time";
 import { CLOSE_HOUR, MAX_HOURS_PER_BOOKING, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
+import { region } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   // Near a point (`near=lat,lng&km=10`) is a where of its own, instead of an area.
   const near = readNear(params.get("near"), params.get("km")) ?? undefined;
   if (params.get("near") && !near)
-    return NextResponse.json({ error: "That location is not in Malaysia." }, { status: 400 });
+    return NextResponse.json({ error: `That location is not in ${region().name}.` }, { status: 400 });
   const area = near ? undefined : params.get("area") || undefined;
   const areas = await listAreas(venueIds);
 

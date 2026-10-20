@@ -4,10 +4,11 @@ import { tellOwners } from "@/lib/owner-alerts";
 import { markDetailsChecked } from "@/lib/setup";
 import { getVenue, setVenueAmenities, setVenuePin, updateVenue } from "@/lib/store";
 import { isAmenity } from "@/lib/facilities";
-import { formatDistance, inMalaysia, readPoint } from "@/lib/geo";
+import { formatDistance, inCountry, readPoint } from "@/lib/geo";
 import { FAR_FROM_ADDRESS_M } from "@/lib/applications";
 import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
 import { logFromRequest } from "@/lib/activity";
+import { region } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,7 @@ export async function PATCH(
   if (input.lat !== undefined || input.lng !== undefined) {
     pin = readPoint(input.lat, input.lng);
     if (!pin) return NextResponse.json({ error: "Drop the pin on the map where the venue is." }, { status: 400 });
-    if (!inMalaysia(pin)) return NextResponse.json({ error: "The pin is outside Malaysia." }, { status: 400 });
+    if (!inCountry(pin)) return NextResponse.json({ error: `The pin is outside ${region().name}.` }, { status: 400 });
   }
 
   // What it offers, from the fixed list: replaced whole.

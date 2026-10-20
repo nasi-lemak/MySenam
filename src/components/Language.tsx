@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo } from "react";
 import { setBrowserCountry } from "@/lib/region";
-import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, LOCALES, Locale, translator, T } from "@/lib/i18n";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, Locale, offeredLocales, translator, T } from "@/lib/i18n";
 
 const LanguageContext = createContext<Locale>(DEFAULT_LOCALE);
 
@@ -64,9 +64,12 @@ export function LanguageToggle() {
     window.location.reload();
   }
 
+  const offered = offeredLocales();
+  // One language: nothing to switch between.
+  if (offered.length < 2) return null;
   return (
     <div className="flex items-center gap-1" role="group" aria-label={t("lang.label")}>
-      {LOCALES.map((code) => (
+      {offered.map((code) => (
         <button
           key={code}
           type="button"

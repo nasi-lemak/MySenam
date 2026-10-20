@@ -13,7 +13,8 @@ import type { Admin } from "./admin-auth";
 import { VENUE_CAPS } from "./limits";
 import { listingState, venueListing, type ListingState } from "./listing";
 import { businessSuspension } from "./suspensions";
-import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inMalaysia, placeAt, readPoint, type Point } from "./geo";
+import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inCountry, placeAt, readPoint, type Point } from "./geo";
+import { region } from "./region";
 
 /**
  * Businesses joining the marketplace, and their venues going live.
@@ -154,11 +155,11 @@ function toApplication(r: Row): VenueApplication {
   };
 }
 
-/** A pin from a form, checked: on the map, and in Malaysia. */
+/** A pin from a form, checked: on the map, and in the install's country. */
 function readPin(lat: unknown, lng: unknown): { ok: true; pin: Point } | { ok: false; error: string } {
   const pin = readPoint(lat, lng);
   if (!pin) return { ok: false, error: "Drop a pin on the map where the venue is." };
-  if (!inMalaysia(pin)) return { ok: false, error: "The pin is outside Malaysia. Move it onto the venue." };
+  if (!inCountry(pin)) return { ok: false, error: `The pin is outside ${region().name}. Move it onto the venue.` };
   return { ok: true, pin };
 }
 

@@ -5,7 +5,7 @@ import {
   findAddress,
   formatDistance,
   geocoderOn,
-  inMalaysia,
+  inCountry,
   placeAt,
   readPoint,
   resetGeocoder,
@@ -36,10 +36,10 @@ describe("a pin from a form", () => {
   });
 
   it("is in Malaysia, Peninsular or Borneo", () => {
-    expect(inMalaysia({ lat: 3.14, lng: 101.69 })).toBe(true); // KL
-    expect(inMalaysia({ lat: 5.98, lng: 116.07 })).toBe(true); // Kota Kinabalu
-    expect(inMalaysia({ lat: 13.75, lng: 100.5 })).toBe(false); // Bangkok
-    expect(inMalaysia({ lat: 51.5, lng: -0.12 })).toBe(false);
+    expect(inCountry({ lat: 3.14, lng: 101.69 })).toBe(true); // KL
+    expect(inCountry({ lat: 5.98, lng: 116.07 })).toBe(true); // Kota Kinabalu
+    expect(inCountry({ lat: 13.75, lng: 100.5 })).toBe(false); // Bangkok
+    expect(inCountry({ lat: 51.5, lng: -0.12 })).toBe(false);
   });
 });
 

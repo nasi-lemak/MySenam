@@ -166,6 +166,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
 | `MYSENAM_AUTO_APPROVE_BRANCHES` | — | `on` to approve a business's new branch without the platform owner, when its location checks pass |
 | `MYSENAM_TRUST_FORWARDED_HOST` | — | `on` only behind a proxy that rewrites Host: read the storefront domain from `X-Forwarded-Host` |
+| `MYSENAM_COUNTRY` | `MY` | The country this install serves, `MY` or `SG` — currency, phone numbers, time zone, languages, map, default gateway and the laws the terms cite. See *Countries* |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
@@ -188,10 +189,10 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_PHONE_CODES_PER_DAY` | `300` | Most verification codes (SMS or WhatsApp) the whole site sends in a day; the owner is emailed when it is reached |
 | `SMS_TWILIO_ACCOUNT_SID`, `SMS_TWILIO_AUTH_TOKEN`, `SMS_FROM` | — | Send verification codes by SMS through Twilio |
 | `SMS_HTTP_URL` | — | Or through any gateway that sends with one GET, e.g. `https://gateway.example.my/send?user=…&to={to}&text={text}` — `{to}` and `{text}` are filled in |
-| `SMS_PREFIX` | `RM0` | What every SMS starts with, as Malaysian rules ask of business texts; empty to leave it off |
+| `SMS_PREFIX` | the country's (`RM0` in Malaysia) | What every SMS starts with, as Malaysian rules ask of business texts; empty to leave it off |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | Customers can sign in with Google. The redirect to register with Google is `<MYSENAM_URL>/api/auth/google/callback` |
 | `WHATSAPP_TEMPLATE_PREFIX` | `mysenam` | Prefix of the approved template names, e.g. `mysenam_booking_confirmed` |
-| `WHATSAPP_COUNTRY_CODE` | `60` | Country code put in front of a number typed with a leading 0 |
+| `WHATSAPP_COUNTRY_CODE` | the country's (`60`, `65`) | Country code put in front of a number typed locally |
 | `WHATSAPP_API_VERSION` | `v23.0` | Graph API version |
 | `WHATSAPP_CHAT_NUMBER` | — | The platform's WhatsApp number as customers dial it (e.g. `+60 11-2345 6789`). With the next two, confirmations offer *Send it to my WhatsApp* |
 | `WHATSAPP_APP_SECRET` | — | The Meta app's secret, which signs each delivery to `/api/whatsapp/webhook` |
@@ -2142,6 +2143,46 @@ Kod: {{2}}
 
 Tidak dapat hadir? Batalkan di {{5}} supaya orang lain boleh bermain.
 ```
+
+## Countries
+
+MySenam runs **one install per country**. `MYSENAM_COUNTRY` (`MY`, the
+default, or `SG`) decides everything that differs between them, from one
+table in `src/lib/region.ts`:
+
+| | Malaysia (`MY`) | Singapore (`SG`) |
+|---|---|---|
+| Currency | RM, ringgit | S$, dollars |
+| Time zone | Asia/Kuala_Lumpur | Asia/Singapore |
+| Phone numbers | +60, written locally with a leading 0 | +65, eight digits |
+| Languages | English and Bahasa Malaysia | English |
+| Map and address lookups | Malaysia | Singapore |
+| Default payment gateway | Billplz (FPX, cards) | Stripe (cards, PayNow) |
+| Counter QR scheme | DuitNow QR | PayNow QR |
+| SMS prefix | `RM0` | none |
+| Terms cite | the laws of Malaysia, the Consumer Protection Act 1999, the Personal Data Protection Act 2010 | the laws of Singapore, the Consumer Protection (Fair Trading) Act 2003, the Personal Data Protection Act 2012 |
+| Starter venues on a fresh install | four, in the Klang Valley | none |
+
+- **Money** is shown with `money()` and, in phrases, `{cur}`; nothing writes
+  a currency symbol by hand. Amounts are kept in major units with two decimal
+  places, as both currencies count; a gateway is given the currency with each
+  payment and refuses one it does not take.
+- **The browser** learns the country from the language provider in the root
+  layout, so a client component formats money and phone numbers as the
+  server does.
+- **Time**: both countries are UTC+8 all year. Times are worked out from the
+  zone and that fixed offset, which is right for every country without
+  daylight saving; a country with it, or with several zones (Indonesia),
+  would need the zone kept per venue.
+- **Phone numbers** have one key however they are written (`src/lib/phone.ts`
+  and the database's `phone_key()`, migration 0035): `+60 12-345 6789` and
+  `012-345 6789` are one number, `+65 9123 4567` and `9123 4567` another, and
+  a Singapore landline that begins 60 or 65 stays itself.
+- **Not covered by the setting**: the brand name (`SITE_NAME`), the privacy
+  notice, which still needs a lawyer for each country, and the demo data
+  (`src/lib/demo.ts`), which is Malaysian.
+- **Adding a country** is a row in that table, its dictionary if it speaks a
+  new language, and a gateway if it needs one (*Payment gateways*).
 
 ## Payments
 

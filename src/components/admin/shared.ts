@@ -21,7 +21,7 @@ export const HOUR_CHOICES = Array.from(
   (_, i) => OPEN_HOUR + i
 );
 
-/** Today in Malaysia, as the date input wants it. */
+/** Today, local time, as the date input wants it. */
 export function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: region().timeZone }).format(new Date());
 }
