@@ -38,7 +38,11 @@ const RANGES: [string, () => { from: string; to: string }][] = [
   ["Last 3 months", () => ({ from: monthStart(2), to: todayLocal() })],
 ];
 
-const ringgit = (n: number) => money(n.toLocaleString(intlTag("en")));
+const ringgit = (n: number) => {
+  const r = Math.round(n * 100) / 100;
+  const cents = Number.isInteger(r) ? 0 : 2;
+  return money(r.toLocaleString(intlTag("en"), { minimumFractionDigits: cents, maximumFractionDigits: cents }));
+};
 
 /**
  * What the owner asks at the end of a month.
@@ -150,6 +154,11 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               <div className="mt-0.5 text-xs text-slate-500">
                 of {ringgit(report.revenue.expected)} booked
               </div>
+              {report.revenue.tax && (
+                <div className="mt-0.5 text-xs text-slate-600">
+                  including {report.revenue.tax.name} of {ringgit(report.revenue.tax.amount)}
+                </div>
+              )}
               {report.collectedBy.length > 0 && (
                 <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
                   {report.collectedBy.map((c) => (

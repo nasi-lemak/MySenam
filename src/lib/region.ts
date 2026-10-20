@@ -58,6 +58,8 @@ export interface Region {
     zoom: number;
   };
   gateway: ProviderId;
+  /** What sales tax is called here, and a usual rate for a venue to start from. */
+  tax: { name: string; venueRate: number };
   /** What the national QR payment scheme is called, for the counter. */
   qrName: string;
   /** What every business SMS must start with here, if anything. */
@@ -84,6 +86,9 @@ const REGIONS: Record<CountryCode, Region> = {
     // Perlis to Sabah, Johor to the Thai border.
     map: { bounds: { south: 0.85, north: 7.4, west: 99.6, east: 119.3 }, center: [4.2, 108], zoom: 5 },
     gateway: "billplz",
+    // Service tax on rental and leasing, from 1 January 2026; a venue's
+    // accountant says whether court hire is that.
+    tax: { name: "SST", venueRate: 6 },
     qrName: "DuitNow QR",
     // Malaysian rules want a text from a business to start with "RM0".
     smsPrefix: "RM0",
@@ -105,6 +110,7 @@ const REGIONS: Record<CountryCode, Region> = {
     locales: ["en"],
     map: { bounds: { south: 1.15, north: 1.48, west: 103.59, east: 104.1 }, center: [1.352, 103.82], zoom: 11 },
     gateway: "stripe",
+    tax: { name: "GST", venueRate: 9 },
     qrName: "PayNow QR",
     smsPrefix: "",
     legal: {

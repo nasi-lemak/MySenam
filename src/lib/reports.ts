@@ -3,6 +3,7 @@ import { SAME_CREDIT } from "./branches";
 import { creditScope } from "./mode";
 import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
+import { venueTax } from "./tax";
 
 /**
  * Reporting for the person who pays for the software.
@@ -22,6 +23,11 @@ export interface RevenueLine {
   /** What has actually been marked paid. */
   collected: number;
   outstanding: number;
+  /**
+   * The sales tax inside what was collected, at each booking's own rate,
+   * and what the venue calls it; null when none of it was taxed.
+   */
+  tax: { name: string; amount: number } | null;
 }
 
 export interface SportLine {
@@ -149,7 +155,9 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
         SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
         SUM(CASE WHEN b.no_show = 1 THEN 1 ELSE 0 END) AS "noShows",
         SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END) AS expected,
-        SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
+        SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected,
+        SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' AND b.tax_rate IS NOT NULL
+                 THEN ROUND(b.total_price * b.tax_rate / (100 + b.tax_rate), 2) END) AS "taxCollected"
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
@@ -160,6 +168,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     noShows: number | null;
     expected: number | null;
     collected: number | null;
+    taxCollected: number | string | null;
   };
 
   const expected = counts.expected ?? 0;
@@ -371,7 +380,12 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       noShows: counts.noShows ?? 0,
       hours: soldHours,
     },
-    revenue: { expected, collected, outstanding: expected - collected },
+    revenue: {
+      expected,
+      collected,
+      outstanding: expected - collected,
+      tax: counts.taxCollected === null ? null : { name: (await venueTax(venueId)).name, amount: Number(counts.taxCollected) },
+    },
     collectedBy,
     utilisation: {
       courts: split(byCourt.filter((c) => exclusive.includes(c.courtId))),

@@ -230,6 +230,8 @@ export const PAID_VIA_LABELS: Record<PaidVia, string> = {
 
 export interface Booking {
   id: number;
+  /** The venue's tax rate (%) when it was booked, included in the price; null with none. */
+  taxRate?: number | null;
   code: string;
   courtId: number;
   date: string; // YYYY-MM-DD

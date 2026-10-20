@@ -13,6 +13,8 @@ import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
 import { offsetMs, region } from "./region";
+import { taxIncluded, venueTax } from "./tax";
+import { receiptPath } from "./receipts";
 
 /**
  * What MySenam tells a customer, and when.
@@ -549,6 +551,16 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
     const venue = await getVenue(court.venueId);
     if (!venue || !hasBeenLive(venue)) continue;
     const locale = await localeOf(booking.id);
+    // The tax inside the price, where the venue charges it (lib/tax.ts).
+    const tax = booking.taxRate ? await venueTax(venue.id) : null;
+    const taxLine =
+      tax && booking.taxRate
+        ? translator(locale)("msg.receiptTax", {
+            tax: tax.name,
+            taxAmount: taxIncluded(booking.totalPrice, booking.taxRate),
+            rate: booking.taxRate,
+          })
+        : "";
     await deliver(
       booking,
       {
@@ -565,6 +577,8 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
           code: booking.code,
           amount: booking.totalPrice,
           how: translator(locale)(how === "online" ? "msg.howOnline" : "msg.howCounter"),
+          taxLine,
+          receiptUrl: `${await venueBaseUrl(venue.id)}${receiptPath(booking.code)}`,
           ...slot(locale, court.name, venue.name, booking),
         },
       },

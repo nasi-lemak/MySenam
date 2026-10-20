@@ -18,6 +18,8 @@ interface Result {
   venue: { name: string; area: string; address: string; cancelCutoffHours: number };
   payOnline?: boolean;
   addons?: { name: string; quantity: number; unitPrice: number }[];
+  /** Once paid: its receipt, or tax invoice. */
+  receiptUrl?: string | null;
 }
 
 export default function MyBookingPage() {
@@ -228,6 +230,11 @@ export default function MyBookingPage() {
               </div>
             ))}
           </dl>
+          {result.receiptUrl && (
+            <a href={result.receiptUrl} target="_blank" rel="noopener" className="mt-3 inline-block text-sm font-semibold text-teal-700 underline">
+              {t("mine.receipt")}
+            </a>
+          )}
           {b.classId === null && (
             <div className="mt-3">
               <BookAgain code={b.code} phone={phone} />

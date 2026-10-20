@@ -287,6 +287,7 @@ interface BookingRow {
   checked_out_at?: string | null;
   hold_until?: string | null;
   released_unpaid?: number;
+  tax_rate?: number | string | null;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -336,6 +337,7 @@ function toBooking(r: BookingRow): Booking {
     checkInToken: r.check_in_token,
     classId: r.class_id,
     sharesPaid: Number(r.shares_paid ?? 0),
+    taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
   };
 }
 
@@ -1390,6 +1392,14 @@ export async function cancelSeries(
 async function getBookingById(id: number): Promise<Booking | null> {
   const db = getDb();
   const row = await db.prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?").get(id) as BookingRow | undefined;
+  return row ? toBooking(row) : null;
+}
+
+/** A booking by its code alone, for callers that have checked something else (a signed receipt link). */
+export async function findBookingByCode(code: string): Promise<Booking | null> {
+  const row = (await getDb()
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
+    .get(code)) as BookingRow | undefined;
   return row ? toBooking(row) : null;
 }
 

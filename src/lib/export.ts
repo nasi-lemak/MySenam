@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
 import { currencySymbol } from "./region";
+import { taxIncluded, taxName } from "./tax";
 
 /**
  * A venue's bookings and online payments as spreadsheets (CSV), for the
@@ -29,7 +30,7 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
   const rows = (await getDb()
     .prepare(
       `SELECT b.code, b.series_code, b.date, b.start_hour, b.end_hour, c.name AS court, c.sport,
-              b.name, b.phone, b.email, b.status, b.released_unpaid, b.total_price, b.payment_status, b.paid_via, b.paid_at,
+              b.name, b.phone, b.email, b.status, b.released_unpaid, b.total_price, b.tax_rate, b.payment_status, b.paid_via, b.paid_at,
               (SELECT discount FROM promo_uses u WHERE u.booking_id = b.id) AS discount,
               (SELECT STRING_AGG(a.quantity || ' x ' || a.name, '; ') FROM booking_addons a WHERE a.booking_id = b.id) AS extras,
               ci.checked_in_at, b.no_show, b.class_id, b.created_at
@@ -42,7 +43,7 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
   return toCsv(
     [
       "Code", "Series", "Date", "Start", "End", "Court", "Sport", "Customer", "Phone", "Email", "Status",
-      `Price (${currencySymbol()})`, "Payment", "Paid by", "Paid at", `Promo discount (${currencySymbol()})`, "Extras", "Checked in", "No-show", "Class", "Booked at",
+      `Price (${currencySymbol()})`, `${taxName()} rate (%)`, `${taxName()} included (${currencySymbol()})`, "Payment", "Paid by", "Paid at", `Promo discount (${currencySymbol()})`, "Extras", "Checked in", "No-show", "Class", "Booked at",
     ],
     rows.map((r) => [
       r.code,
@@ -57,6 +58,8 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
       r.email,
       r.status === "cancelled" && Number(r.released_unpaid) === 1 ? "released (unpaid)" : r.status,
       Number(r.total_price).toFixed(2),
+      r.tax_rate === null || r.tax_rate === undefined ? "" : Number(r.tax_rate).toFixed(2),
+      r.tax_rate === null || r.tax_rate === undefined ? "" : taxIncluded(Number(r.total_price), Number(r.tax_rate)).toFixed(2),
       Number(r.total_price) === 0 ? "free" : r.payment_status,
       r.paid_via ? (PAID_VIA_LABELS[r.paid_via as PaidVia] ?? r.paid_via) : r.payment_status === "paid" ? "not recorded" : "",
       r.paid_at,
