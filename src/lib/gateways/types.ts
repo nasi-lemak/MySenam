@@ -33,7 +33,7 @@ export interface CheckoutRequest {
   currency: Currency;
   name: string;
   email?: string | null;
-  /** Digits with the country code, e.g. 60123456789. */
+  /** Digits with the country code, e.g. 60123456789 or 6591234567. */
   mobile?: string | null;
   description: string;
   /** Where the gateway reports server to server. */

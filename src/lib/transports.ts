@@ -3,6 +3,7 @@ import type { Transporter } from "nodemailer";
 import { DICTIONARIES, Locale, Phrase } from "./i18n";
 import type { MessageKind, OutboxMessage, Transport } from "./outbox";
 import { region } from "./region";
+import { internationalNumber } from "./phone";
 
 /**
  * The real ways a message leaves the machine: WhatsApp and email.
@@ -67,22 +68,9 @@ export function templateName(kind: MessageKind): string {
   return `${prefix}_${kind}`;
 }
 
-/**
- * A number WhatsApp will accept: digits only, with the country code.
- *
- * People type numbers the way they say them — `012-345 6789` — and a leading
- * 0 is the local trunk prefix, which WhatsApp does not know. Malaysia is the
- * default because that is where the venues are; WHATSAPP_COUNTRY_CODE moves it.
- */
+/** A number WhatsApp will accept: digits only, with the country code (lib/phone.ts). */
 export function toWhatsAppNumber(phone: string): string {
-  const trimmed = phone.trim();
-  const digits = trimmed.replace(/\D/g, "");
-  if (trimmed.startsWith("+")) return digits;
-  if (digits.startsWith("00")) return digits.slice(2);
-  const country = (process.env.WHATSAPP_COUNTRY_CODE || "60").replace(/\D/g, "");
-  if (digits.startsWith("0")) return country + digits.slice(1);
-  if (digits.startsWith(country)) return digits;
-  return country + digits;
+  return internationalNumber(phone);
 }
 
 /**

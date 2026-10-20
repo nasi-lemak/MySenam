@@ -8,7 +8,7 @@ import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
 import { SURFACES, SURFACE_SPORTS, type CourtFeatures } from "@/lib/facilities";
 import { DICTIONARIES } from "@/lib/i18n";
-import { currencySymbol } from "@/lib/region";
+import { currencySymbol, region } from "@/lib/region";
 
 const SURFACE_LABEL = (x: string) => (DICTIONARIES.en as Record<string, string>)[`surface.${x}`] ?? x;
 
@@ -765,7 +765,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
           required
           value={form.phone}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          placeholder="012-345 6789"
+          placeholder={region().phone.example}
           className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input

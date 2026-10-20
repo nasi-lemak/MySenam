@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { InviteVenue } from "@/lib/guest-invites";
+import { region } from "@/lib/region";
 
 /** A resident putting their own guests on a private or members-only venue's list. */
 export function GuestInvites() {
@@ -106,7 +107,7 @@ export function GuestInvites() {
                     <input
                       required
                       inputMode="tel"
-                      placeholder="012-345 6789"
+                      placeholder={region().phone.example}
                       value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
                       className={`mt-0.5 block w-36 ${input}`}

@@ -5,7 +5,7 @@ import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PROMO_AMOUNT, MAX_PROMO_PE
 import type { Membership, Pass, PromoCode, Venue, WalletEntry } from "@/lib/types";
 import { percent, todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
-import { money, currencySymbol } from "@/lib/region";
+import { money, currencySymbol, region } from "@/lib/region";
 
 /* ---------------- Credit tab ---------------- */
 
@@ -384,7 +384,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           Phone
           <input
             required
-            placeholder="0123456789"
+            placeholder={region().phone.example}
             value={form.holderPhone}
             onChange={(e) => setForm({ ...form, holderPhone: e.target.value })}
             className={`mt-1 w-36 ${inputClass}`}
@@ -893,7 +893,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           Phone
           <input
             required
-            placeholder="0123456789"
+            placeholder={region().phone.example}
             value={form.holderPhone}
             onChange={(e) => setForm({ ...form, holderPhone: e.target.value })}
             className={`mt-1 w-36 ${inputClass}`}

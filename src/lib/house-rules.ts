@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { addDays, todayISO } from "./time";
 import { MAX_ADVANCE_DAYS, type Refusal } from "./types";
+import { phoneKey } from "./phone";
 
 /**
  * A venue's fair-use rules for booking online: how many bookings one person —
@@ -117,7 +118,7 @@ export async function houseRuleRefusal(input: {
         WHERE a.venue_id = ? AND a.phone_key IN (${phones.map(() => "phone_key(?)").join(",")})`
     )
     .all(input.venueId, ...phones)) as { key: string }[];
-  const keys = [...new Set([...phones.map((p) => p.replace(/[^0-9]/g, "").replace(/^60/, "0")), ...household.map((h) => h.key)])];
+  const keys = [...new Set([...phones.map(phoneKey), ...household.map((h) => h.key)])];
   const first = input.dates.reduce((a, b) => (a < b ? a : b));
   const from = [today, weekOf(first)].sort()[0];
   const rows = (await db

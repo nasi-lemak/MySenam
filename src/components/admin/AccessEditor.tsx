@@ -265,7 +265,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                   One person a line: <span className="font-mono">phone, name, unit</span> — name and unit optional. A number already on
                   the list is updated, not doubled.
                 </p>
-                <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={5} placeholder={"0123456789, Aisyah Rahman, A-12-3\n0198765432, Lee Wei, B-05-1"} className={`mt-1 w-full font-mono ${input}`} />
+                <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={5} placeholder={`${region().phone.example}, Aisyah Rahman, A-12-3\n${region().phone.example}, Lee Wei, B-05-1`} className={`mt-1 w-full font-mono ${input}`} />
                 <button
                   disabled={busy || paste.trim() === ""}
                   onClick={async () => {

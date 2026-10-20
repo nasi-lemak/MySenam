@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
+import { region } from "@/lib/region";
 
 interface Blocked {
   phone: string;
@@ -93,7 +94,7 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
         <input
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          placeholder="012-345 6789"
+          placeholder={region().phone.example}
           aria-label="Phone number to block"
           className="w-40 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
           required

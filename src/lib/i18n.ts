@@ -15,7 +15,7 @@
  */
 
 import { siteName } from "./site";
-import { currencySymbol } from "./region";
+import { currencySymbol, region } from "./region";
 
 export const LOCALES = ["en", "ms"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -401,7 +401,7 @@ const EN = {
   "auth.name": "Name",
   "auth.namePlaceholder": "Ali bin Abu",
   "auth.phone": "Phone",
-  "auth.phonePlaceholder": "012-345 6789",
+  "auth.phonePlaceholder": "{phoneEx}",
   "auth.email": "Email",
   "auth.emailPlaceholder": "you@example.com",
   "auth.password": "Password",
@@ -1478,7 +1478,7 @@ const MS: Record<Phrase, string> = {
   "auth.name": "Nama",
   "auth.namePlaceholder": "Ali bin Abu",
   "auth.phone": "Telefon",
-  "auth.phonePlaceholder": "012-345 6789",
+  "auth.phonePlaceholder": "{phoneEx}",
   "auth.email": "E-mel",
   "auth.emailPlaceholder": "anda@contoh.com",
   "auth.password": "Kata laluan",
@@ -2257,8 +2257,9 @@ export function hasPhrase(key: string): key is Phrase {
  */
 export function translator(locale: Locale, site: string = siteName()): T {
   const dict = DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
-  // Filled into any phrase that names them: the site, and the install's currency.
-  const base = { site, cur: currencySymbol() };
+  // Filled into any phrase that names them: the site, the install's currency,
+  // and how a phone number is written there.
+  const base = { site, cur: currencySymbol(), phoneEx: region().phone.example };
   const t = ((phrase: Phrase, vars?: Vars) =>
     fill(dict[phrase] ?? String(phrase), { ...base, ...vars })) as T;
   t.plural = (stem: string, n: number, vars?: Vars) =>

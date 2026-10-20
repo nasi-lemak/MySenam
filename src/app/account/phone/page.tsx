@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { PhoneStatus } from "@/lib/phone-check";
+import { region } from "@/lib/region";
 
 /**
  * Add the account's phone number and check it — by sending us a message from
@@ -132,7 +133,7 @@ export default function PhonePage() {
               autoComplete="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="012-345 6789"
+              placeholder={region().phone.example}
               className={input}
             />
           </label>

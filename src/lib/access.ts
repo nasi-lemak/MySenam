@@ -4,6 +4,7 @@ import { phoneChecksOn } from "./phone-check";
 import { activeMembership } from "./store";
 import { todayISO } from "./time";
 import type { Refusal } from "./types";
+import { longEnough } from "./phone";
 
 /**
  * Who a venue is for.
@@ -191,7 +192,7 @@ export interface AccessInput {
 export function cleanAccess(input: AccessInput): { ok: true; row: Required<AccessInput> } | { ok: false; error: string } {
   const phone = input.phone.trim();
   const digits = phone.replace(/[^0-9]/g, "");
-  if (digits.length < 9 || digits.length > 15) return { ok: false, error: `${phone || "(blank)"} is not a phone number.` };
+  if (!longEnough(phone) || digits.length > 15) return { ok: false, error: `${phone || "(blank)"} is not a phone number.` };
   const kind = input.kind ?? "resident";
   if (!ACCESS_KINDS.includes(kind)) return { ok: false, error: "A resident, a member or a guest." };
   const expiresOn = input.expiresOn?.trim() || null;

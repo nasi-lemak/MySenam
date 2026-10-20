@@ -88,6 +88,7 @@ import {
   todayISO,
 } from "./time";
 import { money, region } from "./region";
+import { phoneKey } from "./phone";
 
 interface CourtRow {
   id: number;
@@ -4683,21 +4684,19 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
   return { ok: true, pass: (await passById(pass.id))!, spent: hours };
 }
 
-/**
- * Phone numbers are typed loosely, so compare only the digits — and treat the
- * international and national forms of a Malaysian number as the same one,
- * since "+60 12-345 6789" and "012-345 6789" are the same phone. No national
- * prefix starts 60, so stripping it is unambiguous.
- */
 /** Empty is the same as unset for optional text a venue types in. */
 function nullIfBlank(value: string | null): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed === "" ? null : trimmed;
 }
 
+/**
+ * Phone numbers are typed loosely, so compare them by their key: the digits,
+ * with the international and national forms of one number made the same
+ * (lib/phone.ts).
+ */
 export function normalisePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  return digits.startsWith("60") && digits.length >= 10 ? `0${digits.slice(2)}` : digits;
+  return phoneKey(phone);
 }
 
 /**

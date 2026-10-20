@@ -24,6 +24,7 @@ import { WhatsAppEditor } from "./WhatsAppEditor";
 import { AccessEditor } from "./AccessEditor";
 import { HouseRulesEditor } from "./HouseRulesEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
+import { region } from "@/lib/region";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -666,7 +667,7 @@ function VenueRow({
               <input
                 value={fields.emergencyPhone}
                 onChange={(e) => setFields({ ...fields, emergencyPhone: e.target.value })}
-                placeholder="+60 12-345 6789"
+                placeholder={`+${region().phone.countryCode} ${region().phone.example.replace(/^0/, "")}`}
                 title="Shown to anybody letting themselves in. A number that is answered at 2 AM."
                 className={`mt-1 w-40 ${inputClass}`}
               />
