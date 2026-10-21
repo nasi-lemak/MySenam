@@ -77,7 +77,7 @@ describe("house rules", () => {
       rules: { upcoming: null, perWeek: 2, perDay: 1, aheadDays: 7 },
     });
     expect(await setHouseRules(venueId, { perWeek: 0 })).toMatchObject({ ok: false });
-    expect(await setHouseRules(venueId, { aheadDays: 30 })).toMatchObject({ ok: false });
+    expect(await setHouseRules(venueId, { aheadDays: 91 })).toMatchObject({ ok: false });
     expect(await houseRules(venueId)).toMatchObject({ perWeek: 2 });
   });
 
@@ -148,7 +148,7 @@ describe("house rules", () => {
         body: JSON.stringify({ venueId, upcoming: 3, perWeek: "", perDay: "", aheadDays: "" }),
       })
     );
-    expect(await res.json()).toEqual({ rules: { upcoming: 3, perWeek: null, perDay: null, aheadDays: null } });
+    expect(await res.json()).toEqual({ rules: { upcoming: 3, perWeek: null, perDay: null, aheadDays: null, memberAheadDays: null } });
     const anonymous = await rulesPost(
       new NextRequest("http://localhost/api/admin/house-rules", { method: "POST", body: JSON.stringify({ venueId }) })
     );

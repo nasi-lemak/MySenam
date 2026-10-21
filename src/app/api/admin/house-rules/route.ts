@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ rules: await houseRules(venueId) });
 }
 
-/** `{ venueId, upcoming, perWeek, perDay, aheadDays }`, each a number or blank for no limit. */
+/** `{ venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays }`, each a number or blank for no limit. */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;

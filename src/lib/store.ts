@@ -97,6 +97,7 @@ import { phoneKey } from "./phone";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { cancelPolicy } from "./cancel-policy";
+import { venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt } from "./documents";
 import { venueTax } from "./tax";
 
@@ -1274,7 +1275,8 @@ export async function createBookingSeries(input: {
     return refuse("WEEKS_RANGE", { max: MAX_RECUR_WEEKS });
   // Today, and what has passed, are the venue's.
   const zone = await courtZone(courtId);
-  if (!isBookableDate(date, zone))
+  // As far ahead as the venue takes bookings at all; who may book how far is lib/house-rules.ts.
+  if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)))
     return refuse("DATE_OUT_OF_WINDOW_FIRST");
   if (hours.length === 0) return refuse("NO_HOURS");
   // Slots are hours, or half hours where the venue sells halves.
@@ -1801,7 +1803,7 @@ export async function rescheduleBooking(
   if (!fromCourt) return refuse("COURT_NOT_FOUND");
   if (!onSlot(to.startHour, step) || !/^\d{4}-\d{2}-\d{2}$/.test(to.date)) return refuse("SLOT_PAST");
   const hours = slotsBetween(to.startHour, to.startHour + length, step);
-  if (!isBookableDate(to.date, zone)) return refuse("DATE_OUT_OF_WINDOW");
+  if (!isBookableDate(to.date, zone, await venueAheadDays(fromCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
   if (isPastSlot(to.date, hours[0], zone)) return refuse("SLOT_PAST");
   if (hours[0] < openHour || hours[hours.length - 1] >= closeHour) return refuse("HOURS_OUTSIDE_OPENING");
   if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
@@ -1927,7 +1929,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   const court = await getCourt(booking.courtId);
   if (!court) return [];
   const { step, zone } = await venueHours(court.venueId);
-  if (!isBookableDate(date, zone) || (await getVenueClosure(court.venueId, date))) return [];
+  if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)) || (await getVenueClosure(court.venueId, date))) return [];
   const length = booking.endHour - booking.startHour;
   const member = (await activeMembership(court.venueId, booking.phone, date)) !== null;
   const rules = await peakRules(court.venueId);
@@ -5313,7 +5315,7 @@ export async function joinSlotWaitlist(input: {
       return refuse("VENUE_CLOSED");
     if (endHour - startHour > MAX_HOURS_PER_BOOKING)
       return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
-    if (!isBookableDate(date, zone)) return refuse("DATE_OUT_OF_WINDOW");
+    if (!isBookableDate(date, zone, await venueAheadDays(waitCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
     if (isPastSlot(date, startHour, zone)) return refuse("TIME_PAST");
 
     const hours = slotsBetween(startHour, endHour, step);

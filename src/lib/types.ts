@@ -543,6 +543,8 @@ export const DEFAULT_OPEN_HOUR = 8;
 export const DEFAULT_CLOSE_HOUR = 23;
 export const MAX_HOURS_PER_BOOKING = 4;
 export const MAX_ADVANCE_DAYS = 14;
+/** The furthest ahead a venue may choose to take bookings, for everybody or its members. */
+export const MAX_VENUE_AHEAD_DAYS = 90;
 // Weekly series may extend past the normal advance window; only the first
 // session must fall inside it.
 export const MAX_RECUR_WEEKS = 8;

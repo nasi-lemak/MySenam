@@ -130,10 +130,13 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Is `date` within the bookable window (today .. today + MAX_ADVANCE_DAYS), where the venue is? */
-export function isBookableDate(date: string, zone: string = installZone()): boolean {
+/**
+ * Is `date` within the bookable window (today .. today + `ahead` days, the
+ * site's by default, or the venue's: lib/house-rules.ts), where the venue is?
+ */
+export function isBookableDate(date: string, zone: string = installZone(), ahead: number = MAX_ADVANCE_DAYS): boolean {
   const today = todayISO(zone);
-  return date >= today && date <= addDays(today, MAX_ADVANCE_DAYS);
+  return date >= today && date <= addDays(today, ahead);
 }
 
 /**

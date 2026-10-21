@@ -754,7 +754,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
-| GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays}` |
+| GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
 | POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import or remove}` |
 | POST   | `/api/admin/payments`         | `{code, paid, via?}` or `{seriesCode, via?}`; `via` is cash, qr, transfer or card |
@@ -2886,7 +2886,8 @@ venue's fair-use limits for online bookings, each blank for none:
 | Bookings coming up at once | 2 — a third waits until one is played or cancelled |
 | Bookings a week (Monday to Sunday) | 3 |
 | Bookings a day | 1 |
-| Days ahead they may book | 7 (0 is today only; the site's own window is 14) |
+| Days ahead they may book | 7 or 60 (0 is today only; blank is the site's 14; up to 90) |
+| Days ahead members may book | 21: more than everybody's, so members get first pick |
 
 - **Counted per household.** Everybody the venue's list gives the same unit
   (*Who a venue is for*) shares one allowance: a family in B-07-2 gets two
@@ -2898,8 +2899,15 @@ venue's fair-use limits for online bookings, each blank for none:
   they move a booking to another day. Staff at the counter are not held to
   them.
 - The venue page shows them (*House rules: up to 2 a week for each person or
-  household; book up to 7 days ahead*), and its dates stop at the last day
-  the venue takes bookings for.
+  household; book up to 7 days ahead. Members book up to 21 days ahead.*), and
+  its dates stop at the last day the venue takes bookings from whoever is
+  looking.
+- **Members first.** A member is a number holding a live membership at the
+  venue (or another branch of its business): the number on the booking or the
+  account's. Inside the members' window everybody else is told how far ahead
+  they may book, and that members may book further. The members' window is
+  also the outer edge for staff at the counter, for moving a booking and for
+  joining a waitlist.
 
 ## Booking again
 

@@ -7,7 +7,14 @@ const FIELDS: { key: keyof HouseRules; label: string; hint: string; max: number;
   { key: "upcoming", label: "Bookings coming up at once", hint: "e.g. 2 — a third waits until one is played or cancelled", min: 1, max: 50 },
   { key: "perWeek", label: "Bookings a week", hint: "Monday to Sunday", min: 1, max: 50 },
   { key: "perDay", label: "Bookings a day", hint: "", min: 1, max: 20 },
-  { key: "aheadDays", label: "Days ahead they may book", hint: "0 is today only; blank is the full 14 days", min: 0, max: 14 },
+  { key: "aheadDays", label: "Days ahead they may book", hint: "0 is today only; blank is 14 days; up to 90", min: 0, max: 90 },
+  {
+    key: "memberAheadDays",
+    label: "Days ahead members may book",
+    hint: "Longer than everybody's, so members get first pick; blank is the same",
+    min: 1,
+    max: 90,
+  },
 ];
 
 /**
@@ -28,6 +35,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
       perWeek: r.perWeek?.toString() ?? "",
       perDay: r.perDay?.toString() ?? "",
       aheadDays: r.aheadDays?.toString() ?? "",
+      memberAheadDays: r.memberAheadDays?.toString() ?? "",
     });
 
   useEffect(() => {

@@ -2,14 +2,14 @@ import { notFound } from "next/navigation";
 import { getVenue, listVenueClosures, readNear } from "@/lib/store";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays, formatHour, onSlot, slotsBetween } from "@/lib/time";
-import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
+import { MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
 import { currentStorefront, shows } from "@/lib/storefront";
 import { mayShowVenue, pageViewer } from "@/lib/listing";
 import { accessSettings, eligible } from "@/lib/access";
-import { hasRules, houseRules } from "@/lib/house-rules";
+import { aheadFor, hasRules, houseRules, memberAhead } from "@/lib/house-rules";
 import Link from "next/link";
 import { listOutages } from "@/lib/outages";
 import PinMap from "@/components/PinMap";
@@ -110,9 +110,9 @@ export default async function VenuePage({
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
-  // As far ahead as this venue takes bookings, within the site's window.
+  // As far ahead as this venue takes bookings from this viewer: further for its members.
   const rules = await houseRules(venue.id);
-  const ahead = Math.min(rules.aheadDays ?? MAX_ADVANCE_DAYS, MAX_ADVANCE_DAYS);
+  const ahead = await aheadFor(venue.id, viewer.userId);
   const dates = Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i));
 
   const initial = parseInitialSelection(query, sports, dates, venue.slotMinutes / 60);
@@ -236,7 +236,8 @@ export default async function VenuePage({
             `${rules.upcoming !== null || rules.perWeek !== null || rules.perDay !== null ? "; " : ""}${
               rules.aheadDays === 0 ? t("rules.today") : t("rules.ahead", { n: rules.aheadDays })
             }`}
-          .
+          {(rules.upcoming !== null || rules.perWeek !== null || rules.perDay !== null || rules.aheadDays !== null) && ". "}
+          {rules.memberAheadDays !== null && t("rules.membersAhead", { n: memberAhead(rules) })}
         </p>
       )}
       {notice && <NoticeBar notice={notice} more={t("notice.more")} />}
