@@ -12,6 +12,7 @@ import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import { EInvoicePanel } from "./EInvoicePanel";
 import { ReviewsPanel } from "./ReviewsPanel";
 import { MarketingPanel } from "./MarketingPanel";
+import { IntegrationsPanel } from "./IntegrationsPanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
 import { BillingPanel } from "./BillingPanel";
 import { StorefrontsPanel } from "./StorefrontsPanel";
@@ -163,6 +164,8 @@ export function VenuesTab({
       <ReviewsPanel venues={venues} isOwner={isOwner} />
 
       {admin.role !== "desk" && <MarketingPanel venues={venues} />}
+
+      {admin.role !== "desk" && <IntegrationsPanel venues={venues} isOwner={isOwner} />}
 
       <OnlinePaymentsPanel venues={venues} />
 
