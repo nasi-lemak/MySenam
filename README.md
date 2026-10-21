@@ -1137,6 +1137,32 @@ had.
   tube*, ready to hand over at check-in; the customer sees the same on their
   confirmation and under *My Booking*.
 
+## Counter sales: selling with no booking
+
+The desk sells a drink, a tube of shuttles, a grip or a racket hired by a
+walk-in under *Credit & passes → Counter sales* (`src/lib/counter-sales.ts`,
+`counter_sales`, migration 0057). Desk accounts can sell; voiding is for
+managers.
+
+- **What can be sold** is the venue's own list of extras, at its price (a
+  rental shows as "(hire)"), tapped to add, plus anything typed in with a
+  name and a price for the odd item not on it.
+- **Paid at the counter**: cash, the QR scheme, a transfer or a card
+  terminal, the same methods as a booking marked paid. A customer's name is
+  optional.
+- **Receipted at once**, with the venue's SST or GST inside the price as
+  with everything else. The sale's receipt (`R-000123`) is one click away to
+  print, and kept in the venue's book of receipts.
+- **The day's sales** are listed below, newest first, with the total by how
+  each was paid and who sold it, to count the till against.
+- **Voiding** asks for a reason, warns that it does not refund anything, and
+  writes a credit note against the receipt. The money goes back by hand.
+- **Reports** show *Plus counter sales* under Collected, outside the booking
+  figures. The accounting export has them as *Counter sales*, credit notes
+  included, and they go into the monthly consolidated e-invoice where the
+  venue e-invoices.
+- **Not counted: stock.** The list says what is sold, not how many are left.
+
 ## Women-only and men-only
 
 Open games, leagues and classes can be for anyone (the default), women only

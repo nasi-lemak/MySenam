@@ -169,6 +169,11 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                   ))}
                 </ul>
               )}
+              {report.counterSales.sales > 0 && (
+                <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-600">
+                  Plus counter sales: <span className="font-medium">{ringgit(report.counterSales.total)}</span> ({report.counterSales.sales})
+                </div>
+              )}
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">

@@ -78,6 +78,8 @@ export interface VenueReport {
   revenue: RevenueLine;
   /** What was collected, by how it was paid; "unrecorded" for counter payments marked before methods were asked. */
   collectedBy: { via: string; amount: number; bookings: number }[];
+  /** Sold over the counter with no booking (lib/counter-sales.ts), not voided: outside the figures above. */
+  counterSales: { sales: number; total: number };
   /**
    * Split, because one number across both would be meaningless. A forty-place
    * gym floor offers more place-hours in a fortnight than every court in the
@@ -197,6 +199,14 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     counts.taxCollected === null && Number(documents.n) === 0
       ? null
       : Math.round((Number(counts.taxCollected ?? 0) + Number(documents.tax)) * 100) / 100;
+
+  const counter = (await db
+    .prepare(`
+      SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS total FROM counter_sales
+       WHERE venue_id = ? AND voided_at IS NULL
+         AND to_char((created_at::timestamp AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') BETWEEN ? AND ?
+    `)
+    .get(venueId, (await venueHours(venueId)).zone, from, to)) as { n: number | string; total: number | string };
 
   const collectedBy = (
     (await db
@@ -411,6 +421,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       tax: taxCollected === null ? null : { name: (await venueTax(venueId)).name, amount: taxCollected },
     },
     collectedBy,
+    counterSales: { sales: Number(counter.n), total: Math.round(Number(counter.total) * 100) / 100 },
     utilisation: {
       courts: split(byCourt.filter((c) => exclusive.includes(c.courtId))),
       shared: split(byCourt.filter((c) => !exclusive.includes(c.courtId))),

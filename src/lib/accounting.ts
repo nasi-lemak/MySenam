@@ -31,6 +31,7 @@ export type Category =
   | "Game shares"
   | "Stored credit"
   | "Gift vouchers"
+  | "Counter sales"
   | "Other";
 
 /** Money held for customers, not takings, until spent. */
@@ -90,6 +91,8 @@ async function categoryOf(source: string): Promise<Category> {
       return "Tournament entries";
     case "place":
       return "League fees";
+    case "sale":
+      return "Counter sales";
     case "payment": {
       const p = (await db.prepare("SELECT purpose FROM online_payments WHERE id = ?").get(id)) as { purpose: string } | undefined;
       return PURPOSE[p?.purpose ?? ""] ?? "Other";
