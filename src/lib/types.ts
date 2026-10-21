@@ -269,6 +269,9 @@ export interface Booking {
   classId: number | null;
   /** Paid online towards it by other players in its open game (lib/games.ts). */
   sharesPaid: number;
+  /** A lesson: the coach on it, and their fee inside the price (lib/coaching.ts). */
+  coachId?: number | null;
+  coachFee?: number;
 }
 
 export type ClassStatus = "scheduled" | "cancelled";

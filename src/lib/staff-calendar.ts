@@ -56,6 +56,7 @@ interface BookingRow {
   total_price: number;
   payment_status: string;
   court_name: string;
+  coach_name: string | null;
 }
 
 interface ClassRow {
@@ -87,8 +88,8 @@ export async function staffCalendar(venueId: number): Promise<string> {
   const bookings = (await db
     .prepare(
       `SELECT b.code, b.date, b.start_hour, b.end_hour, b.name, b.phone, b.total_price, b.payment_status,
-              c.name AS court_name
-         FROM bookings b JOIN courts c ON c.id = b.court_id
+              c.name AS court_name, k.name AS coach_name
+         FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id
         WHERE c.venue_id = ? AND b.status = 'confirmed' AND b.class_id IS NULL AND b.date BETWEEN ? AND ?
         ORDER BY b.date, b.start_hour`
     )
@@ -132,7 +133,7 @@ export async function staffCalendar(venueId: number): Promise<string> {
         b.date,
         Number(b.start_hour),
         Number(b.end_hour),
-        `${b.court_name}: ${b.name}${b.payment_status === "paid" || Number(b.total_price) === 0 ? "" : " (unpaid)"}`,
+        `${b.court_name}: ${b.name}${b.coach_name ? `, lesson with ${b.coach_name}` : ""}${b.payment_status === "paid" || Number(b.total_price) === 0 ? "" : " (unpaid)"}`,
         [
           `${b.code}, ${formatHour(Number(b.start_hour))}–${formatHour(Number(b.end_hour))}`,
           `${b.name}, ${b.phone}`,

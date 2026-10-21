@@ -11,7 +11,9 @@ import {
   getVenue,
   payBookingFromWallet,
   payBookingWithPass,
+  venueHours,
 } from "@/lib/store";
+import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
 import { customerMayBook } from "@/lib/limits";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, struckOut } from "@/lib/cancel-policy";
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -107,6 +109,25 @@ export async function POST(req: NextRequest) {
     if (refused) return refusal(refused);
   }
 
+  // A lesson: a coach of this sport, here, working then, one week at a time
+  // (lib/coaching.ts). Whether they are free is settled when they are put on it.
+  let coach: Coach | null = null;
+  if (coachId !== undefined && coachId !== null) {
+    if (!Number.isInteger(coachId)) return NextResponse.json({ error: "coachId must be a number." }, { status: 400 });
+    coach = await coachById(coachId as number);
+    const lessonSport = anyCourt ? (sport as Sport) : (await getCourt(courtId as number))?.sport;
+    if (!coach || !coach.active || coach.venueId !== venueOfBooking || !lessonSport || !coach.sports.includes(lessonSport))
+      return refusal({ ok: false, error: "That coach does not give lessons in this sport here.", code: "COACH_NOT_FOUND" });
+    if (((weeks as number) ?? 1) > 1) return refusal({ ok: false, error: "Book lessons one at a time.", code: "COACH_ONE_WEEK" });
+    if (!coachWorks(coach, date, hours as number[], (await venueHours(coach.venueId)).step))
+      return refusal({
+        ok: false,
+        error: `${coach.name} does not take lessons at that time. Pick one of the times shown.`,
+        code: "COACH_NOT_WORKING",
+        vars: { name: coach.name },
+      });
+  }
+
   // Extras are checked before anything is held, so a racket that has run out
   // is said now, while the customer can still change their mind.
   if (chosen.length > 0) {
@@ -144,6 +165,22 @@ export async function POST(req: NextRequest) {
     : await createBookingSeries({ ...common, courtId: courtId as number });
 
   if (!result.ok) return refusal(result);
+
+  // The coach goes on before anything is paid, so the fee is in every total
+  // that follows. Taken meanwhile by somebody else: the court goes too.
+  if (coach) {
+    const { step } = await venueHours(coach.venueId);
+    for (const booking of result.bookings) {
+      const attached = await attachCoach(booking.id, coach, step);
+      if (!attached.ok) {
+        for (const b of result.bookings) await discardBooking(b.id);
+        return refusal(attached);
+      }
+      booking.totalPrice = Math.round((booking.totalPrice + attached.fee) * 100) / 100;
+      booking.coachId = coach.id;
+      booking.coachFee = attached.fee;
+    }
+  }
 
   // A code is claimed before anything is settled, so paying from credit or a
   // pass charges the discounted figure. Like paying, it is best-effort: a code

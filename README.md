@@ -801,6 +801,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET    | `/api/admin/data-request`  | `?venueId&phone` → what the venue holds against a number, as a file (managers) |
+| GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches |
 | GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address; on makes a new one |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
@@ -1596,6 +1597,33 @@ so shrinking a gym never strands a customer.
 For a customer this is the forward-looking crowd signal: a shared facility shows
 **places left** rather than a price in each cell, shaded from quiet through
 filling to busy, so you can see that Monday 7pm is always packed.
+
+## One-to-one coaching
+
+A venue lists its coaches under *Classes → Coaches* (`lib/coaching.ts`): a name,
+a line about them, the sports they coach, their fee for an hour, and the days
+and hours they take lessons. The venue page shows them under *🎓 Coaching*.
+*Book a lesson* (`/venue/:id/coach/:coachId`) offers the times that day when
+the coach is working, not already taken, and a court of the sport is free. The
+customer picks a length, gives their name and number, and pays the way any
+booking is paid.
+
+- **A lesson is a booking.** It goes through `POST /api/bookings` with
+  `coachId`, on any free court of the sport, so the house rules, blocked
+  numbers, strikes, holds, credit, receipts, cancelling, refunds and reports
+  all apply. The coach's fee is added to its price (`bookings.coach_fee`) and
+  is its own line on the receipt, *Coaching with Ana Lim*. A promo code comes
+  off the court, not the coach's fee. The sales journal files it under
+  *Coaching*.
+- **A coach is in one place at a time.** Each lesson claims the coach's slots
+  in `coach_slots`, whose key is the coach and the time. A second lesson for
+  the same time, on any court, is refused (*Ana Lim has just been booked*),
+  and the court it had picked is let go as if never booked. A cancelled
+  lesson's slots are cleared by the next booking that wants them.
+- One lesson at a time, not weekly. A customer cannot move a lesson to
+  another time: they ask the venue, since it is the coach's time too.
+- Staff see *🎓 Lesson with Ana Lim* on the booking, and the staff calendar
+  feed names the coach. *Stop* retires a coach; lessons already booked stand.
 
 ## Classes
 

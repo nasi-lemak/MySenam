@@ -23,6 +23,7 @@ import { PAID_VIA_LABELS, type PaidVia } from "./types";
 export type Category =
   | "Court hire"
   | "Classes"
+  | "Coaching"
   | "Memberships"
   | "Passes"
   | "Tournament entries"
@@ -72,8 +73,10 @@ async function categoryOf(source: string): Promise<Category> {
   const db = getDb();
   switch (kind) {
     case "booking": {
-      const b = (await db.prepare("SELECT class_id FROM bookings WHERE id = ?").get(id)) as { class_id: number | null } | undefined;
-      return b?.class_id ? "Classes" : "Court hire";
+      const b = (await db.prepare("SELECT class_id, coach_id FROM bookings WHERE id = ?").get(id)) as
+        | { class_id: number | null; coach_id: number | null }
+        | undefined;
+      return b?.class_id ? "Classes" : b?.coach_id ? "Coaching" : "Court hire";
     }
     case "membership":
       return "Memberships";
@@ -111,7 +114,7 @@ export async function salesJournal(venueId: number, from: string, to: string): P
   // Bookings' receipts are drawn from the bookings themselves (lib/documents.ts), when they were paid.
   const bookings = (await db
     .prepare(
-      `SELECT ${onDay("b.paid_at")} AS day, b.code, b.name, b.class_id, b.date, c.name AS court,
+      `SELECT ${onDay("b.paid_at")} AS day, b.code, b.name, b.class_id, b.coach_id, b.date, c.name AS court,
               (b.total_price - b.shares_paid)::float AS gross, b.tax_rate, b.paid_via
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.payment_status = 'paid' AND b.paid_at IS NOT NULL
@@ -123,6 +126,7 @@ export async function salesJournal(venueId: number, from: string, to: string): P
     code: string;
     name: string;
     class_id: number | null;
+    coach_id: number | null;
     date: string;
     court: string;
     gross: number;
@@ -152,7 +156,7 @@ export async function salesJournal(venueId: number, from: string, to: string): P
 
   const rows: JournalRow[] = bookings.map((b) => {
     const rate = b.tax_rate === null ? null : Number(b.tax_rate);
-    const category: Category = b.class_id ? "Classes" : "Court hire";
+    const category: Category = b.class_id ? "Classes" : b.coach_id ? "Coaching" : "Court hire";
     return {
       date: b.day,
       number: b.code,

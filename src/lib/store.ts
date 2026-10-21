@@ -319,6 +319,8 @@ interface BookingRow {
   check_in_token: string | null;
   class_id: number | null;
   shares_paid?: number | string;
+  coach_id?: number | null;
+  coach_fee?: number | string;
   user_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
@@ -374,6 +376,8 @@ function toBooking(r: BookingRow): Booking {
     checkInToken: r.check_in_token,
     classId: r.class_id,
     sharesPaid: Number(r.shares_paid ?? 0),
+    coachId: r.coach_id ?? null,
+    coachFee: Number(r.coach_fee ?? 0),
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
   };
 }
@@ -1786,6 +1790,8 @@ export async function rescheduleBooking(
   if (booking.checkedInAt) return refuse("RESCHEDULE_CHECKED_IN");
   if (await db.prepare("SELECT 1 AS n FROM open_games WHERE booking_id = ?").get(booking.id))
     return refuse("RESCHEDULE_GAME");
+  // A coach's time is not the court's: moving it is a conversation with the venue.
+  if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
   const { openHour, closeHour, step, zone } = await courtVenueHours(booking.courtId);
@@ -2495,6 +2501,8 @@ export interface AdminBookingRow extends Booking {
   phoneChecked: boolean;
   /** Extras to hand over or sell with it. */
   addons: BookingAddon[];
+  /** A lesson: who is coaching it (lib/coaching.ts). */
+  coachName: string | null;
 }
 
 export interface UserBookingRow extends Booking {
@@ -3468,12 +3476,13 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
              v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at,
-             u.verified_phone AS user_verified_phone
+             u.verified_phone AS user_verified_phone, k.name AS coach_name
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
       LEFT JOIN users u ON u.id = b.user_id
+      LEFT JOIN coaches k ON k.id = b.coach_id
       WHERE b.date = ?${venue.sql}
       ORDER BY v.id, c.id, b.start_hour
     `)
@@ -3484,6 +3493,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     venue_id: number;
     venue_name: string;
     user_verified_phone: string | null;
+    coach_name: string | null;
   })[];
   // One pass for the whole day rather than a lookup per row.
   const hires = new Map<number, HireRecord>();
@@ -3510,6 +3520,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       hire: hires.get(booking.id) ?? null,
       phoneChecked: r.user_verified_phone !== null && phoneNumber(booking.phone) === r.user_verified_phone,
       addons: extras.get(booking.id) ?? [],
+      coachName: r.coach_name,
     });
   }
   return list;
@@ -4555,7 +4566,8 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
     sport: court.sport,
     date: booking.date,
     hours: booking.endHour - booking.startHour,
-    price: booking.totalPrice,
+    // A code is for the court: a coach's fee is theirs, not the venue's to discount.
+    price: booking.totalPrice - (booking.coachFee ?? 0),
   });
   if (!quote.ok) return quote;
 
@@ -4565,7 +4577,7 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
       const blocked = promoBlockedReason(fresh);
       if (blocked) throw new Error(`BLOCKED:${blocked}`);
       // Re-derive against the live price, not the quoted one.
-      const discount = promoDiscount(fresh, booking.totalPrice);
+      const discount = promoDiscount(fresh, booking.totalPrice - (booking.coachFee ?? 0));
       if (discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
       await db.prepare(
         "INSERT INTO promo_uses (promo_id, booking_id, discount) VALUES (?, ?, ?)"

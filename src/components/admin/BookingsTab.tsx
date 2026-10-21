@@ -701,10 +701,20 @@ function CheckedPhone({ b }: { b: AdminBookingRow }) {
 
 /** Rackets, shuttles or drinks to hand over with the booking. */
 function Extras({ b }: { b: AdminBookingRow }) {
-  if (!b.addons?.length) return null;
+  if (!b.addons?.length) return b.coachName ? <Coach b={b} /> : null;
   return (
     <div className="mt-1 text-xs text-slate-600">
+      {b.coachName && <Coach b={b} />}
       🎒 {b.addons.map((a) => `${a.quantity} × ${a.name}${a.kind === "rental" ? " (hire)" : ""}`).join(", ")}
+    </div>
+  );
+}
+
+/** A lesson: the coach, and their fee inside the price. */
+function Coach({ b }: { b: AdminBookingRow }) {
+  return (
+    <div className="mt-1 text-xs text-indigo-700">
+      🎓 Lesson with {b.coachName} ({money(b.coachFee ?? 0)} of it the coach&apos;s)
     </div>
   );
 }

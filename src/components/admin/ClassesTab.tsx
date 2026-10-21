@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CoachesPanel } from "./CoachesPanel";
 import { formatHour } from "@/lib/time";
 import { MAX_CLASS_WEEKS, SPORT_ICONS } from "@/lib/types";
 import type { Booking, ClassSession } from "@/lib/types";
@@ -390,6 +391,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           </div>
         </div>
       )}
+      {venue && <CoachesPanel key={venue.id} venue={venue} />}
     </div>
   );
 }

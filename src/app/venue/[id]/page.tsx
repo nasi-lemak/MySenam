@@ -20,6 +20,9 @@ import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
 import { joinTerms, listPlans } from "@/lib/membership-plans";
 import { onlineTopUpsAllowed, renewalFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
+import { listCoaches } from "@/lib/coaching";
+import { sportLabel } from "@/lib/i18n";
+import { money } from "@/lib/region";
 import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
@@ -95,6 +98,7 @@ export default async function VenuePage({
   // Membership plans sold online, and where this visitor stands with them.
   const online = await takesPaymentOnline(venue.id);
   const plans = online ? await listPlans(venue.id) : [];
+  const coaches = await listCoaches(venue.id, { activeOnly: true });
   // Gift vouchers sold online, where credit bought here stays here (lib/vouchers.ts).
   const gifts = online && onlineTopUpsAllowed() && access.access !== "private";
   let standing: JoinStanding = { kind: "signIn" };
@@ -217,6 +221,29 @@ export default async function VenuePage({
         ))}
       {plans.length > 0 && access.access !== "private" && (
         <JoinMembership venueId={venue.id} plans={plans} standing={standing} canAutoRenew={canAutoRenew} renewal={renewal} />
+      )}
+      {coaches.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <h2 className="font-semibold">🎓 {t("coach.title")}</h2>
+          <p className="mt-0.5 text-xs text-slate-500">{t("coach.intro")}</p>
+          <ul className="mt-2 divide-y divide-slate-100">
+            {coaches.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span>
+                  <span className="font-medium">{c.name}</span>
+                  <span className="text-slate-500"> · {c.sports.map((s) => sportLabel(t, s)).join(", ")} · {t("coach.rate", { amount: money(c.rate) })}</span>
+                  {c.bio && <span className="block text-xs text-slate-500">{c.bio}</span>}
+                </span>
+                <Link
+                  href={`/venue/${venue.id}/coach/${c.id}`}
+                  className="rounded-lg border border-teal-300 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                >
+                  {t("coach.book")}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {gifts && (
         <Link href={`/venue/${venue.id}/gift`} className="inline-block text-sm font-medium text-teal-700 hover:underline">
