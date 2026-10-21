@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { cancelUserBooking } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingCancelled, tickOutbox } from "@/lib/notify";
+import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -23,10 +24,12 @@ export async function POST(req: NextRequest) {
 
   const result = await cancelUserBooking(user.id, bookingId as number);
   if (!result.ok) return refusal(result);
+  // Money paid online goes back as the venue chose, before the customer is told.
+  const refunds = await refundCancelled([result.booking.id]);
 
   await notifyBookingCancelled(result.booking, await currentLocale());
   // A cancellation is what frees a place, so it is also what makes an
   // offer worth telling somebody about.
   await tickOutbox();
-  return NextResponse.json({ booking: result.booking, kept: result.kept ?? null });
+  return NextResponse.json({ booking: result.booking, kept: result.kept ?? null, refunds });
 }

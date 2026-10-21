@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { rateLimit } from "@/lib/rate-limit";
 import { cancelSeries } from "@/lib/store";
+import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -21,5 +22,5 @@ export async function POST(req: NextRequest) {
 
   const result = await cancelSeries(seriesCode, phone);
   if (!result.ok) return refusal(result);
-  return NextResponse.json({ cancelled: result.cancelled });
+  return NextResponse.json({ cancelled: result.cancelled, refunds: await refundCancelled(result.bookingIds) });
 }

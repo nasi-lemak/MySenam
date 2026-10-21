@@ -753,7 +753,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
-| GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays}`: late cancellations and strikes |
+| GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
 | POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import or remove}` |
@@ -2615,6 +2615,17 @@ running booking software and running a payments business.
   click or a retry refunds once. **Billplz** has no refund API: refund in its
   dashboard, then mark it done. Either way the refund goes in the activity log
   with who made it.
+- **Refunds when a customer cancels** — a venue can skip the queue for what a
+  customer cancels themselves (by code, from their account, or a whole series),
+  under *Cancellations, refunds and no-shows* (`refundCancelled` in
+  `lib/payments.ts`). *Staff refund it* is the default and the old behaviour.
+  *Refund it straight away* sends it back through Stripe as the customer
+  cancels, exactly as the one-click refund would. *Give it back as credit*
+  turns it into stored credit at the venue for the account that booked, written
+  to `online_refunds` under a key made from the payment and what is owed on it,
+  so a retry credits once. Whatever cannot go that way stays under *Refunds
+  owed*: a Billplz payment, a refusal from Stripe, or credit for a booking made
+  without an account. The customer is told which happened, and how much.
 
 The keys are encrypted in the database, which is the file that gets backed up
 and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
@@ -2924,8 +2935,8 @@ a ⚠ badge counting that phone number's previous no-shows.
 
 ### Late cancellations and strikes
 
-A manager can soften or harden that, venue by venue, under *Late cancellations
-and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
+A manager can soften or harden that, venue by venue, under *Cancellations,
+refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
 
 - **Cancelling late online.** Off by default: past the cutoff a customer has to
   call. Turned on, a customer can still cancel online until the slot starts, and

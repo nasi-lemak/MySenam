@@ -30,6 +30,7 @@ import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
 import { creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
 import { venueTax } from "./tax";
+import { cancelPolicy, type OnlineRefunds } from "./cancel-policy";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -809,7 +810,9 @@ async function recordRefund(
   amount: number,
   ref: string | null,
   pending: boolean,
-  adminId: number | null
+  adminId: number | null,
+  /** Whatever else the refund is, in the same transaction: credit it became. */
+  also?: () => Promise<void>
 ): Promise<boolean> {
   const db = getDb();
   return db.transaction(async () => {
@@ -824,6 +827,7 @@ async function recordRefund(
       .prepare("UPDATE online_payments SET refunded = refunded + ? WHERE id = ? AND refunded + ? <= refund_due")
       .run(amount, row.id, amount);
     if (done.changes === 0) throw new Error("REFUND_RACE");
+    await also?.();
     // What its receipt said was sold is reversed. A booking's is reversed when it is cancelled.
     await creditReceipt(`payment:${row.id}`, "receipt.why.refunded");
     return true;
@@ -877,6 +881,73 @@ export async function refundOnline(paymentId: number, venueId: number, adminId: 
     return { ok: false, error: "That payment was marked refunded meanwhile. Check it in the gateway: it may have been refunded twice." };
   }
   return { ok: true, payment: await reread(row.id), pending: result.pending };
+}
+
+/** How money paid online for a booking a customer cancelled went back, or is to. */
+export interface CancelRefund {
+  how: OnlineRefunds;
+  amount: number;
+  /** Through the gateway, and it has not finished yet. */
+  pending?: boolean;
+}
+
+/**
+ * A customer has cancelled these bookings: what is now owed back on what
+ * they paid online goes back as the venue chose (lib/cancel-policy.ts). Where
+ * that cannot happen — a gateway with no refund API or that refuses, credit
+ * for a booking made without an account — it stays owed for staff, as before.
+ */
+export async function refundCancelled(bookingIds: number[]): Promise<CancelRefund[]> {
+  if (bookingIds.length === 0) return [];
+  const marks = bookingIds.map(() => "?").join(",");
+  const rows = (await getDb()
+    .prepare(
+      `SELECT * FROM online_payments
+        WHERE id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id IN (${marks}))
+          AND venue_id IS NOT NULL AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded
+        ORDER BY id`
+    )
+    .all(...bookingIds)) as PaymentRow[];
+  const done: CancelRefund[] = [];
+  for (const row of rows) {
+    const amount = roundMoney(row.refund_due - row.refunded);
+    const { onlineRefunds } = await cancelPolicy(row.venue_id!);
+    if (onlineRefunds === "gateway") {
+      const sent = await refundOnline(row.id, row.venue_id!).catch(() => null);
+      if (sent?.ok) {
+        done.push({ how: "gateway", amount, ...(sent.pending ? { pending: true } : {}) });
+        continue;
+      }
+    } else if (onlineRefunds === "credit" && (await refundToCredit(row, bookingIds, amount))) {
+      done.push({ how: "credit", amount });
+      continue;
+    }
+    done.push({ how: "staff", amount });
+  }
+  return done;
+}
+
+/** What is owed on a payment, as stored credit at its venue for the account that booked. */
+async function refundToCredit(row: PaymentRow, bookingIds: number[], amount: number): Promise<boolean> {
+  const db = getDb();
+  const booking = (await db
+    .prepare(
+      `SELECT b.id, b.code, b.user_id FROM bookings b JOIN online_payment_bookings pb ON pb.booking_id = b.id
+        WHERE pb.payment_id = ? AND b.id IN (${bookingIds.map(() => "?").join(",")}) AND b.user_id IS NOT NULL
+        ORDER BY b.id LIMIT 1`
+    )
+    .get(row.id, ...bookingIds)) as { id: number; code: string; user_id: number } | undefined;
+  if (!booking) return false;
+  try {
+    // Keyed on what has been owed in all, like a gateway refund: the same cancellation twice is one credit.
+    return await recordRefund(row, amount, `credit-${row.id}-${Math.round(row.refund_due * 100)}`, false, null, async () => {
+      await db
+        .prepare("INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)")
+        .run(booking.user_id, amount, `Refund for ${booking.code}, as credit`, booking.id, row.venue_id);
+    });
+  } catch {
+    return false;
+  }
 }
 
 

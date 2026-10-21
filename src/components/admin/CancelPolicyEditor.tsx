@@ -47,7 +47,7 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
   const num = (v: string) => (v === "" ? null : Number(v));
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-      <h3 className="font-semibold">Late cancellations and no-shows</h3>
+      <h3 className="font-semibold">Cancellations, refunds and no-shows</h3>
       <p className="mt-1 text-xs text-slate-500">
         Before the cancel cutoff a customer always gets everything back. After it, by default, they cannot cancel online
         and have to call you.
@@ -104,6 +104,23 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
       </label>
       <p className="ml-6 text-xs text-slate-500">
         If you take no payment online, they book at the counter instead. Staff bookings are never refused.
+      </p>
+      <label className="mt-3 flex flex-wrap items-center gap-2">
+        Money paid online, when a customer cancels:
+        <select
+          aria-label="Online refunds"
+          value={policy.onlineRefunds}
+          onChange={(e) => setPolicy({ ...policy, onlineRefunds: e.target.value as CancelPolicy["onlineRefunds"] })}
+          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+        >
+          <option value="staff">Staff refund it (listed under refunds owed)</option>
+          <option value="gateway">Refund it straight away, through Stripe</option>
+          <option value="credit">Give it back as credit here</option>
+        </select>
+      </label>
+      <p className="ml-0 text-xs text-slate-500">
+        Billplz has no way to refund automatically, so its payments stay with staff. Credit needs the booking made from
+        an account; a booking made without one stays with staff too.
       </p>
       <button
         disabled={busy}

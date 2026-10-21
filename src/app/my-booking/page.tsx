@@ -10,6 +10,7 @@ import { BookAgain } from "@/components/BookAgain";
 import PayOnline from "@/components/PayOnline";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
+import { refundLines } from "@/lib/refund-text";
 import { money, intlTag, region } from "@/lib/region";
 
 interface Result {
@@ -30,6 +31,8 @@ export default function MyBookingPage() {
   const [error, setError] = useState<string | null>(null);
   /** What the venue kept of a late cancellation just made. */
   const [kept, setKept] = useState<number | null>(null);
+  /** How money paid online for it is going back. */
+  const [refunded, setRefunded] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // The door code for an unmanned court, once asked for.
   const [door, setDoor] = useState<{
@@ -54,6 +57,7 @@ export default function MyBookingPage() {
     setError(null);
     setResult(null);
     setKept(null);
+    setRefunded([]);
     try {
       const res = await fetch(
         `/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`,
@@ -120,6 +124,7 @@ export default function MyBookingPage() {
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       setResult({ ...result, booking: data.booking });
       setKept(data.kept ?? null);
+      setRefunded(refundLines(t, data.refunds));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
     } finally {
@@ -200,6 +205,12 @@ export default function MyBookingPage() {
               {t("mine.lateCancelDone", { kept: money(kept) })}
             </p>
           )}
+          {b.status === "cancelled" &&
+            refunded.map((line) => (
+              <p key={line} className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                {line}
+              </p>
+            ))}
           {b.releasedUnpaid && (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("hold.released")}</p>
           )}

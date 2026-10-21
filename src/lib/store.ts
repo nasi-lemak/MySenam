@@ -1419,7 +1419,7 @@ export async function createBookingSeries(input: {
 export async function cancelSeries(
   seriesCode: string,
   phone: string
-): Promise<{ ok: true; cancelled: number } | (Refusal & { cancelled: number })> {
+): Promise<{ ok: true; cancelled: number; bookingIds: number[] } | (Refusal & { cancelled: number })> {
   const db = getDb();
   const rows = await db
     .prepare(
@@ -1442,7 +1442,7 @@ export async function cancelSeries(
     }
   })();
   for (const row of future) await refundBooking(row.id);
-  return { ok: true, cancelled: future.length };
+  return { ok: true, cancelled: future.length, bookingIds: future.map((r) => r.id) };
 }
 
 async function getBookingById(id: number): Promise<Booking | null> {

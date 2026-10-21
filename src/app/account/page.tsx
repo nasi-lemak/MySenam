@@ -20,6 +20,7 @@ import { MyVenues } from "@/components/MyVenues";
 import { GuestInvites } from "@/components/GuestInvites";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
+import { refundLines } from "@/lib/refund-text";
 import type { T } from "@/lib/i18n";
 import { money } from "@/lib/region";
 
@@ -76,6 +77,8 @@ export default function AccountPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
+      const lines = refundLines(t, data.refunds);
+      setNotice(lines.length > 0 ? lines.join(" ") : null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
@@ -97,7 +100,8 @@ export default function AccountPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
-      if (data.kept > 0) setNotice(t("mine.lateCancelDone", { kept: money(data.kept) }));
+      const lines = [...(data.kept > 0 ? [t("mine.lateCancelDone", { kept: money(data.kept) })] : []), ...refundLines(t, data.refunds)];
+      setNotice(lines.length > 0 ? lines.join(" ") : null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));

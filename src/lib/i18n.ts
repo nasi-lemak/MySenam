@@ -1105,6 +1105,9 @@ const EN = {
   "mine.lateCancelNote": "After that you can still cancel here, but the venue keeps {pct}% of what you paid.",
   "mine.lateCancelConfirm": "It is past the free-cancellation time. The venue keeps {pct}% of what you paid. Cancel anyway?",
   "mine.lateCancelDone": "Cancelled. The venue kept {kept}; the rest goes back the way you paid.",
+  "mine.refundGateway": "{amount} is on its way back to how you paid online. It can take a few days to show.",
+  "mine.refundCredit": "{amount} has been added to your credit at this venue.",
+  "mine.refundStaff": "The venue will refund the {amount} you paid online.",
   "err.PHONE_LIMIT_VENUE":
     "This number already has {n} unpaid bookings coming up here. Pay for or cancel one first, or call the venue.",
   "err.PHONE_LIMIT_ALL": "This number already has {n} unpaid bookings coming up. Pay for or cancel one first.",
@@ -2242,6 +2245,9 @@ const MS: Record<Phrase, string> = {
   "mine.lateCancelNote": "Selepas itu anda masih boleh membatalkan di sini, tetapi pusat menyimpan {pct}% daripada bayaran anda.",
   "mine.lateCancelConfirm": "Tempoh pembatalan percuma sudah lepas. Pusat menyimpan {pct}% daripada bayaran anda. Batalkan juga?",
   "mine.lateCancelDone": "Dibatalkan. Pusat menyimpan {kept}; bakinya dikembalikan mengikut cara anda membayar.",
+  "mine.refundGateway": "{amount} sedang dikembalikan melalui cara anda membayar dalam talian. Ia mungkin mengambil beberapa hari untuk kelihatan.",
+  "mine.refundCredit": "{amount} telah ditambah ke kredit anda di pusat ini.",
+  "mine.refundStaff": "Pusat akan memulangkan {amount} yang anda bayar dalam talian.",
   "err.PHONE_LIMIT_VENUE":
     "Nombor ini sudah mempunyai {n} tempahan belum dibayar yang akan datang di sini. Bayar atau batalkan satu dahulu, atau hubungi pusat tersebut.",
   "err.PHONE_LIMIT_ALL": "Nombor ini sudah mempunyai {n} tempahan belum dibayar yang akan datang. Bayar atau batalkan satu dahulu.",
