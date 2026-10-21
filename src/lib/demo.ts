@@ -18,6 +18,7 @@ import {
 import { registerUser } from "./auth";
 import { Court } from "./types";
 import { addDays, todayISO } from "./time";
+import { peakRules } from "./peak";
 import { money, region } from "./region";
 
 /**
@@ -222,6 +223,7 @@ export async function refreshDemoData(opts: { adminId: number }): Promise<SeedRe
       "passes",
       "promo_codes",
       "venue_closures",
+      "venue_holidays",
       "users",
     ])
       await db.prepare(`DELETE FROM ${table}`).run();
@@ -265,7 +267,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     who: number,
     opts2: { paid: boolean; cancelled: boolean; noShow: boolean; checkedIn: boolean }
   ) => {
-    const price = computePrice(court, date, [hour]);
+    const price = computePrice(court, date, [hour], false, await peakRules(court.venueId));
     const code = `MS-${Math.floor(rng() * 1e9).toString(36).toUpperCase().padStart(6, "0").slice(0, 6)}`;
     const status = opts2.cancelled ? "cancelled" : "confirmed";
     const info = await db

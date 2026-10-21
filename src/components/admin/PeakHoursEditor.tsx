@@ -1,0 +1,201 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { Holiday } from "@/lib/peak";
+import { formatHour, todayISO, type PeakRules } from "@/lib/time";
+
+type Rules = Omit<PeakRules, "holidays">;
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** A window starts on the hour from midnight and ends on it, up to the next midnight. */
+const STARTS = Array.from({ length: 24 }, (_, h) => h);
+const ENDS = Array.from({ length: 24 }, (_, h) => h + 1);
+const hourLabel = (h: number) => (h % 24 === 0 ? "Midnight" : formatHour(h));
+
+/**
+ * When a venue's peak rates apply: the hours on working days and at the
+ * weekend, which days are the weekend, and holidays priced like it.
+ */
+export function PeakHoursEditor({ venueId }: { venueId: number }) {
+  const [rules, setRules] = useState<Rules | null>(null);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [day, setDay] = useState({ date: "", name: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setRules(null);
+    void fetch(`/api/admin/peak-rules?venueId=${venueId}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { rules?: Rules; holidays?: Holiday[] }) => {
+        if (!d.rules) return;
+        setRules(d.rules);
+        setHolidays(d.holidays ?? []);
+      });
+  }, [venueId]);
+
+  async function send(url: string, method: string, body?: unknown): Promise<Record<string, unknown> | null> {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      return data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveRules() {
+    const data = await send("/api/admin/peak-rules", "POST", { venueId, ...rules });
+    if (!data) return;
+    setRules(data.rules as Rules);
+    setNotice("Saved. Prices from now on follow these hours; bookings already made keep theirs.");
+  }
+
+  async function addDay() {
+    const data = await send("/api/admin/holidays", "POST", { venueId, ...day });
+    if (!data) return;
+    setHolidays(data.holidays as Holiday[]);
+    setDay({ date: "", name: "" });
+  }
+
+  async function removeDay(date: string) {
+    const data = await send(`/api/admin/holidays?venueId=${venueId}&date=${date}`, "DELETE");
+    if (data) setHolidays(data.holidays as Holiday[]);
+  }
+
+  if (!rules) return null;
+  const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
+  const span = (fromKey: "weekdayFrom" | "weekendFrom", untilKey: "weekdayUntil" | "weekendUntil") => (
+    <span className="inline-flex items-center gap-1">
+      <select
+        aria-label="From"
+        value={rules[fromKey]}
+        onChange={(e) => setRules({ ...rules, [fromKey]: Number(e.target.value) })}
+        className={input}
+      >
+        {STARTS.map((h) => (
+          <option key={h} value={h}>
+            {hourLabel(h)}
+          </option>
+        ))}
+      </select>
+      to
+      <select
+        aria-label="Until"
+        value={rules[untilKey]}
+        onChange={(e) => setRules({ ...rules, [untilKey]: Number(e.target.value) })}
+        className={input}
+      >
+        {ENDS.map((h) => (
+          <option key={h} value={h}>
+            {hourLabel(h)}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <h3 className="font-semibold">When peak rates apply</h3>
+      <p className="mt-1 text-xs text-slate-500">
+        Each court above has an off-peak and a peak rate; these hours decide which one an hour costs. The same time twice
+        means no peak; Midnight to Midnight is all day. Holidays are priced like the weekend.
+      </p>
+      <div className="mt-3 space-y-2">
+        <p>
+          <span className="inline-block w-24 text-xs font-medium text-slate-600">Weekdays</span>
+          {span("weekdayFrom", "weekdayUntil")}
+        </p>
+        <p>
+          <span className="inline-block w-24 text-xs font-medium text-slate-600">Weekend</span>
+          {span("weekendFrom", "weekendUntil")}
+        </p>
+        <p className="flex flex-wrap items-center gap-1">
+          <span className="inline-block w-24 text-xs font-medium text-slate-600">Weekend days</span>
+          {DAYS.map((name, d) => {
+            const on = rules.weekendDays.includes(d);
+            return (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={on}
+                onClick={() =>
+                  setRules({ ...rules, weekendDays: on ? rules.weekendDays.filter((x) => x !== d) : [...rules.weekendDays, d] })
+                }
+                className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                  on ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-300 text-slate-600"
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
+        </p>
+        <button
+          disabled={busy}
+          onClick={saveRules}
+          className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          Save peak hours
+        </button>
+      </div>
+
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Holidays at weekend prices</h4>
+      {holidays.length > 0 ? (
+        <ul className="mt-1 divide-y divide-slate-100">
+          {holidays.map((h) => (
+            <li key={h.date} className="flex items-center justify-between gap-2 py-1">
+              <span>
+                <span className="font-medium">{h.date}</span> · {h.name}
+              </span>
+              <button disabled={busy} onClick={() => removeDay(h.date)} className="text-xs font-medium text-red-700">
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-xs text-slate-500">None listed. Add public, school or festive holidays as they are announced.</p>
+      )}
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <input
+          type="date"
+          aria-label="Holiday date"
+          min={todayISO()}
+          value={day.date}
+          onChange={(e) => setDay({ ...day, date: e.target.value })}
+          className={input}
+        />
+        <input
+          aria-label="Holiday name"
+          placeholder="Hari Raya Aidilfitri"
+          value={day.name}
+          onChange={(e) => setDay({ ...day, name: e.target.value })}
+          className={`w-48 ${input}`}
+        />
+        <button
+          disabled={busy || !day.date}
+          onClick={addDay}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+        >
+          Add holiday
+        </button>
+      </div>
+      {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
+      {notice && <p className="mt-2 text-xs text-emerald-700">{notice}</p>}
+    </section>
+  );
+}

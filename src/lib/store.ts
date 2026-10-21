@@ -83,12 +83,15 @@ import {
   isPastSlot,
   isValidDateString,
   isPeak,
+  DEFAULT_PEAK,
+  type PeakRules,
   isWithinCancelWindow,
   slotStartsAt,
   todayISO,
 } from "./time";
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
+import { peakRules, peakRulesFor } from "./peak";
 
 interface CourtRow {
   id: number;
@@ -420,8 +423,9 @@ export async function courtsForAnyBooking(input: {
     })
   );
 
+  const rules = await peakRules(venueId);
   return free.sort((a, b) => {
-    const diff = computePrice(a, date, hours) - computePrice(b, date, hours);
+    const diff = computePrice(a, date, hours, false, rules) - computePrice(b, date, hours, false, rules);
     return diff !== 0 ? diff : a.id - b.id;
   });
 }
@@ -583,6 +587,7 @@ export async function getAvailability(
   const { openHour, closeHour } = await venueHours(venueId);
   // A closed day reads like every hour is blocked, so nothing can be picked.
   const closed = await getVenueClosure(venueId, date) !== null;
+  const rules = await peakRules(venueId);
 
   return courts.map((court) => ({
     court,
@@ -597,7 +602,7 @@ export async function getAvailability(
       const shut = closed || booked + out >= court.capacity;
       return {
         hour,
-        rate: computePrice(court, date, [hour], member),
+        rate: computePrice(court, date, [hour], member, rules),
         booked,
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
@@ -1030,6 +1035,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   const blockedPlaces = await blockedPlacesOn(input.date, undefined, courtIds);
   const classHours = await classHoursOn(input.date, undefined, courtIds);
 
+  const rulesOf = await peakRulesFor(rows.map((r) => r.v_id));
   const results: SearchResult[] = [];
   for (const row of rows) {
     if (closedVenues.has(`${row.v_id}:${input.date}`)) continue;
@@ -1082,7 +1088,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
         court,
         startHour: start,
         endHour: start + duration,
-        totalPrice: computePrice(court, input.date, hours),
+        totalPrice: computePrice(court, input.date, hours, false, rulesOf.get(row.v_id)),
         alsoFree: 0,
         pricesVary: false,
         ...(distanceKm !== undefined ? { distanceKm } : {}),
@@ -1134,12 +1140,14 @@ export function computePrice(
   court: Court,
   date: string,
   hours: number[],
-  member = false
+  member = false,
+  /** The venue's peak hours and holidays, from `peakRules`. */
+  rules: PeakRules = DEFAULT_PEAK
 ): number {
   // To the sen or cent: rates with cents add up with floating-point noise.
   return roundMoney(
     hours.reduce((sum, h) => {
-      const peak = isPeak(date, h);
+      const peak = isPeak(date, h, rules);
       if (member) {
         const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
         if (rate !== null) return sum + rate;
@@ -1286,6 +1294,7 @@ export async function createBookingSeries(input: {
   // the weeks it covers and no more.
   const memberOn = async (weekDate: string) =>
     await activeMembership(court.venueId, phone, weekDate) !== null;
+  const rules = await peakRules(court.venueId);
 
   try {
     const result = await db.transaction(async () => {
@@ -1312,7 +1321,7 @@ export async function createBookingSeries(input: {
         }
         const bookingId = (await insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
-          name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate)),
+          name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate), rules),
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
           input.classId ?? null
         )).lastInsertRowid as number;
@@ -1765,7 +1774,8 @@ export async function rescheduleBooking(
   };
 
   const member = async (date: string) => (await activeMembership(fromCourt.venueId, booking.phone, date)) !== null;
-  const oldCourtPrice = computePrice(fromCourt, booking.date, oldHours, await member(booking.date));
+  const rules = await peakRules(fromCourt.venueId);
+  const oldCourtPrice = computePrice(fromCourt, booking.date, oldHours, await member(booking.date), rules);
   const newMember = await member(to.date);
 
   const seatsTaken = db.prepare(
@@ -1773,7 +1783,7 @@ export async function rescheduleBooking(
   );
   for (const court of candidates) {
     if (!(await fits(court))) continue;
-    const delta = Math.round((computePrice(court, to.date, hours, newMember) - oldCourtPrice) * 100) / 100;
+    const delta = Math.round((computePrice(court, to.date, hours, newMember, rules) - oldCourtPrice) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     const priceChange = paid ? 0 : Math.max(-booking.totalPrice, delta);
@@ -1843,11 +1853,13 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   if (!court || !isBookableDate(date) || (await getVenueClosure(court.venueId, date))) return [];
   const length = booking.endHour - booking.startHour;
   const member = (await activeMembership(court.venueId, booking.phone, date)) !== null;
+  const rules = await peakRules(court.venueId);
   const now = computePrice(
     court,
     booking.date,
     Array.from({ length }, (_, i) => booking.startHour + i),
-    (await activeMembership(court.venueId, booking.phone, booking.date)) !== null
+    (await activeMembership(court.venueId, booking.phone, booking.date)) !== null,
+    rules
   );
   const grid = await getAvailability(court.venueId, date, court.sport, member);
   grid.sort((a, b) => (a.court.id === court.id ? -1 : b.court.id === court.id ? 1 : a.court.id - b.court.id));
@@ -1867,7 +1879,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
     if (isPastSlot(date, start)) continue;
     const fitting = grid.find((c) => hours.every((h) => free(c, h)));
     if (fitting) {
-      const price = computePrice(fitting.court, date, hours, member);
+      const price = computePrice(fitting.court, date, hours, member, rules);
       options.push({
         startHour: start,
         courtId: fitting.court.id,

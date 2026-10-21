@@ -36,14 +36,37 @@ export function dayOfWeek(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
-export function isWeekend(date: string): boolean {
-  const d = dayOfWeek(date);
-  return d === 0 || d === 6;
+/**
+ * When a venue's peak rate applies. Each venue sets its own (migration 0038);
+ * the default is weekday evenings from 18:00 and all weekend.
+ */
+export interface PeakRules {
+  /** Peak on a working day from this hour until `weekdayUntil`. The same hour twice: no peak. */
+  weekdayFrom: number;
+  weekdayUntil: number;
+  /** The days (0 = Sunday) priced as the weekend: Friday and Saturday in some states. */
+  weekendDays: number[];
+  weekendFrom: number;
+  weekendUntil: number;
+  /** Dates priced as the weekend: public, school and festive holidays. */
+  holidays: string[];
 }
 
-/** Peak pricing: all weekend hours, and weekday evenings from 18:00. */
-export function isPeak(date: string, hour: number): boolean {
-  return isWeekend(date) || hour >= 18;
+export const DEFAULT_PEAK: PeakRules = {
+  weekdayFrom: 18,
+  weekdayUntil: 24,
+  weekendDays: [0, 6],
+  weekendFrom: 0,
+  weekendUntil: 24,
+  holidays: [],
+};
+
+/** Is the hour starting at `hour` on `date` priced at the peak rate? */
+export function isPeak(date: string, hour: number, rules: PeakRules = DEFAULT_PEAK): boolean {
+  const weekend = rules.weekendDays.includes(dayOfWeek(date)) || rules.holidays.includes(date);
+  return weekend
+    ? hour >= rules.weekendFrom && hour < rules.weekendUntil
+    : hour >= rules.weekdayFrom && hour < rules.weekdayUntil;
 }
 
 export function addDays(date: string, days: number): string {

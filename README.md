@@ -12,7 +12,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Courts *and* shared facilities** — a resource has a capacity: 1 means exclusive use (a badminton court), more means a gym floor, pool or class where that many people hold the same hour. The booking grid shows places left and colours them by how busy the hour is
 - **Facilities and photos** — each venue ticks what it has (showers, parking, surau, near LRT/MRT…) from a fixed list and says what each court is like (indoor, air-con, floodlit, surface); players see it on the venue page and on every card, and filter by it. A cover and up to five photos, optional, checked and redrawn as small WebP files, lazy-loaded so the booking grid never waits
 - **Live availability grid** — per venue, per sport, per day, with hourly slots inside that venue's own trading hours
-- **Peak / off-peak pricing** — weekday evenings (from 6 PM) and weekends charge the peak rate; prices shown per-slot in MYR
+- **Peak / off-peak pricing** — each venue sets when its peak rate applies: weekday hours, weekend hours, which days are the weekend, and holidays priced like it (weekday evenings from 6 PM and all weekend until it does); prices shown per slot
 - **"Any court"** — a row above the grid for customers who do not mind which court; it shows the cheapest free rate each hour and books the cheapest court free for the whole slot
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
 - **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
@@ -38,7 +38,7 @@ equipment hire such as kayaks, and instructor-led classes.
   - **Occupancy**: 7-day utilisation heatmap per court with venue totals
   - **First run**: while nothing has been sold, an owner is offered a demo fortnight in one click, beside a three-step checklist for setting up a real venue. It disappears the moment a real booking exists
   - **Reports**: any period up to 400 days — collected, still owed, how full, cancellations and no-shows; revenue by month, by sport and by court; hours sold by time of day; and what the venue still owes in unspent pass entries and live memberships
-  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, induct people for unstaffed hours or withdraw them, read the door log, add new courts
+  - **Courts & rates**: rename courts, edit peak/off-peak rates, member rates, capacity and the hire deposit, set a resource unmanned with the code that is on its lock, induct people for unstaffed hours or withdraw them, read the door log, add new courts, and set when peak rates apply and which holidays are priced as peak
   - **Classes**: schedule one-off or weekly classes, view the roster and waiting queue, cancel a class (releasing every enrolment)
   - **Credit**: look a customer up by email or phone, see their balance and history, sell them credit
   - **Backups** (owner): every snapshot with its age and size, a warning when the newest is over two days old, and a button to take one before a risky change
@@ -807,7 +807,8 @@ src/
     privacy.ts        # Export, erasure and the retention schedule
     demo.ts           # A deterministic demo fortnight for an empty install
     rate-limit.ts     # Fixed-window limiter for password and code endpoints
-    time.ts           # Malaysia-timezone helpers, peak-hour rules
+    time.ts           # Malaysia-timezone helpers, the peak-hour rule
+    peak.ts           # each venue's peak hours, weekend days and holidays
     types.ts          # Shared types & constants
 db/migrations/        # The schema, one numbered .sql file per change
 scripts/              # backup, restore, and import-sqlite for moving off SQLite
@@ -1548,6 +1549,30 @@ closes their queue entry; the token is then spent.
 If somebody books the slot directly between the offer and the claim, the claim
 fails and the waiter is put **back at the front of the queue** rather than
 losing their turn for someone else's race.
+
+## Peak hours and holidays
+
+Each court has an off-peak and a peak rate. **Courts & rates → When peak
+rates apply** decides which one an hour costs, venue by venue (a manager's
+setting):
+
+- **Weekday hours**: the peak window on working days, 6 PM to midnight to
+  begin with. The same time twice means no weekday peak.
+- **Weekend hours**: the window on weekend days, all day to begin with.
+- **Weekend days**: Saturday and Sunday to begin with. In Kedah, Kelantan and
+  Terengganu the weekend is Friday and Saturday, so a venue there picks those.
+- **Holidays**: dates priced like the weekend: public holidays as they are
+  gazetted, school holidays, festive days. Named, listed from today, up to 60
+  ahead; nothing is filled in automatically, since holiday dates differ by
+  state and some are only fixed weeks before.
+
+The rules price the slot grid, search results, cheapest-court ordering,
+bookings, weekly series and moves. A change applies from then on: a booking
+keeps the price it was made at. The columns are on `venues`
+(`peak_weekday_from`, `peak_weekday_until`, `peak_weekend_days`,
+`peak_weekend_from`, `peak_weekend_until`), with the dates in
+`venue_holidays` (migration 0038); the defaults are the rule every venue had
+before.
 
 ## Memberships and member rates
 

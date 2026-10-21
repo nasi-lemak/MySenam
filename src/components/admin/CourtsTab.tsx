@@ -1,5 +1,6 @@
 "use client";
 
+import { PeakHoursEditor } from "./PeakHoursEditor";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS } from "@/lib/types";
@@ -266,6 +267,8 @@ export function CourtsTab({
           </table>
         </div>
       )}
+
+      {venue && <PeakHoursEditor key={venue.id} venueId={venue.id} />}
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
