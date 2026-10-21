@@ -6,6 +6,7 @@ import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import type { Refusal } from "./types";
 import { todayISO } from "./time";
+import { struckOut } from "./cancel-policy";
 
 /**
  * What stops one person holding a venue's evenings with bookings that will
@@ -60,6 +61,8 @@ export async function customerMayBook(input: {
   dates?: string[];
   /** Its own staff, trying out a venue customers cannot reach yet (lib/listing.ts). */
   preview?: boolean;
+  /** The venue takes payment online, so a struck-out number can pay to book rather than be refused. */
+  canPayOnline?: boolean;
 }): Promise<Refusal | null> {
   if (!input.preview && !(await venueIsOpen(input.venueId))) return venueNotOpen();
   if (!input.preview) {
@@ -72,6 +75,10 @@ export async function customerMayBook(input: {
   }
   if ((input.weeks ?? 1) > 1 && !input.signedIn) return refuse("SERIES_NEEDS_ACCOUNT");
   if (await isBlocked(input.venueId, input.phone)) return phoneBlocked();
+  // Too many no-shows here: where the venue takes nothing online, the counter only.
+  // (Where it does, the booking is held until paid instead: app/api/bookings.)
+  const strikes = await struckOut(input.venueId, input.phone);
+  if (strikes.out && !input.canPayOnline) return refuse("STRIKES_COUNTER", { n: strikes.strikes });
   const db = getDb();
   const today = todayISO();
   const here = (await db.prepare(`${UNPAID_AHEAD} AND c.venue_id = ?`).get(input.phone, today, input.venueId)) as {

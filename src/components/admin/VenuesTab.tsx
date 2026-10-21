@@ -25,6 +25,7 @@ import { AccessEditor } from "./AccessEditor";
 import { HouseRulesEditor } from "./HouseRulesEditor";
 import { TaxEditor } from "./TaxEditor";
 import { TimeZoneEditor } from "./TimeZoneEditor";
+import { CancelPolicyEditor } from "./CancelPolicyEditor";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
@@ -704,6 +705,7 @@ function VenueRow({
       <WhatsAppEditor venueId={venue.id} isOwner={isOwner} />
       <AccessEditor venueId={venue.id} />
       <HouseRulesEditor venueId={venue.id} />
+      <CancelPolicyEditor venueId={venue.id} />
       <BookingAlertsEditor venueId={venue.id} />
       <TaxEditor venueId={venue.id} />
       <TimeZoneEditor venueId={venue.id} />

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { formatHour, todayISO } from "@/lib/time";
+import { formatHour, hoursUntilSlot, todayISO } from "@/lib/time";
 import { SPORT_ICONS } from "@/lib/types";
 import type { User } from "@/lib/auth";
 import type { PhoneStatus } from "@/lib/phone-check";
@@ -32,6 +32,7 @@ export default function AccountPage() {
   const [bookings, setBookings] = useState<UserBookingRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,17 +82,22 @@ export default function AccountPage() {
     }
   }
 
-  async function cancel(bookingId: number) {
-    if (!window.confirm(t("mine.cancelConfirm"))) return;
+  async function cancel(b: UserBookingRow) {
+    const keep = b.venueLateCancelKeep;
+    const late = keep !== null && hoursUntilSlot(b.date, b.startHour, b.venueTimeZone) < b.venueCancelCutoffHours;
+    const askLate = late && keep > 0 && b.paymentStatus === "paid" && b.totalPrice > 0;
+    if (!window.confirm(askLate ? t("mine.lateCancelConfirm", { pct: keep }) : t("mine.cancelConfirm"))) return;
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch("/api/my/bookings/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId }),
+        body: JSON.stringify({ bookingId: b.id }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
+      if (data.kept > 0) setNotice(t("mine.lateCancelDone", { kept: money(data.kept) }));
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
@@ -191,6 +197,9 @@ export default function AccountPage() {
           {error}
         </div>
       )}
+      {notice && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{notice}</div>
+      )}
 
       <Wallet />
 
@@ -216,7 +225,7 @@ export default function AccountPage() {
                 key={b.id}
                 t={t}
                 booking={b}
-                onCancel={() => cancel(b.id)}
+                onCancel={() => cancel(b)}
                 onCancelSeries={
                   b.seriesCode ? () => cancelSeries(b.seriesCode!, user.phone) : undefined
                 }

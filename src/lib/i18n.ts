@@ -1099,6 +1099,12 @@ const EN = {
   "err.PHONE_CODE_WRONG": "That is not the code. Check it and try again.",
   "err.PHONE_NEEDED": "Add your phone number to your account first, so the venue can reach you.",
   "err.PHONE_UNVERIFIED": "Check your phone number first: we send a code to it on WhatsApp.",
+  "err.STRIKES_COUNTER":
+    "After {n} missed or late-cancelled bookings, this venue takes bookings from your number at the counter only.",
+  "receipt.why.lateCancelled": "Cancelled after the free-cancellation time: the venue kept its fee, and this is what went back.",
+  "mine.lateCancelNote": "After that you can still cancel here, but the venue keeps {pct}% of what you paid.",
+  "mine.lateCancelConfirm": "It is past the free-cancellation time. The venue keeps {pct}% of what you paid. Cancel anyway?",
+  "mine.lateCancelDone": "Cancelled. The venue kept {kept}; the rest goes back the way you paid.",
   "err.PHONE_LIMIT_VENUE":
     "This number already has {n} unpaid bookings coming up here. Pay for or cancel one first, or call the venue.",
   "err.PHONE_LIMIT_ALL": "This number already has {n} unpaid bookings coming up. Pay for or cancel one first.",
@@ -2230,6 +2236,12 @@ const MS: Record<Phrase, string> = {
   "err.PHONE_CODE_WRONG": "Itu bukan kodnya. Semak dan cuba lagi.",
   "err.PHONE_NEEDED": "Tambah nombor telefon pada akaun anda dahulu, supaya pusat boleh menghubungi anda.",
   "err.PHONE_UNVERIFIED": "Sahkan nombor telefon anda dahulu: kami hantar kod kepadanya melalui WhatsApp.",
+  "err.STRIKES_COUNTER":
+    "Selepas {n} tempahan yang tidak dihadiri atau dibatalkan lewat, pusat ini hanya menerima tempahan daripada nombor anda di kaunter.",
+  "receipt.why.lateCancelled": "Dibatalkan selepas tempoh pembatalan percuma: pusat menyimpan yurannya, dan ini yang dikembalikan.",
+  "mine.lateCancelNote": "Selepas itu anda masih boleh membatalkan di sini, tetapi pusat menyimpan {pct}% daripada bayaran anda.",
+  "mine.lateCancelConfirm": "Tempoh pembatalan percuma sudah lepas. Pusat menyimpan {pct}% daripada bayaran anda. Batalkan juga?",
+  "mine.lateCancelDone": "Dibatalkan. Pusat menyimpan {kept}; bakinya dikembalikan mengikut cara anda membayar.",
   "err.PHONE_LIMIT_VENUE":
     "Nombor ini sudah mempunyai {n} tempahan belum dibayar yang akan datang di sini. Bayar atau batalkan satu dahulu, atau hubungi pusat tersebut.",
   "err.PHONE_LIMIT_ALL": "Nombor ini sudah mempunyai {n} tempahan belum dibayar yang akan datang. Bayar atau batalkan satu dahulu.",

@@ -753,6 +753,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
+| GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays}`: late cancellations and strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
 | POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import or remove}` |
@@ -2920,6 +2921,27 @@ window.
 After a slot has passed, staff can flag it a no-show from the Bookings tab. The
 flag is reversible, never applies to a cancelled booking, and the day list shows
 a ⚠ badge counting that phone number's previous no-shows.
+
+### Late cancellations and strikes
+
+A manager can soften or harden that, venue by venue, under *Late cancellations
+and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
+
+- **Cancelling late online.** Off by default: past the cutoff a customer has to
+  call. Turned on, a customer can still cancel online until the slot starts, and
+  the venue keeps a percentage of what was paid (0–100). The rest goes back the
+  way it was paid: to stored credit, to a pass (whole entries, rounded down), or
+  as an amount owed back on the online payment. A credit note covers the share
+  given back. My Booking and the account page say what the venue keeps before
+  the customer confirms, and how much it kept afterwards.
+- **Strikes.** A no-show, or a late cancellation of a booking nobody had paid
+  for, is a strike against the phone number at that venue. A paid late
+  cancellation is not: its fee was its cost. After the venue's limit (1–20) in
+  its window (7–365 days, default 90), the number has to pay online to book.
+  Its bookings are held unpaid as with *Paying online to hold a booking*, even
+  where the venue does not ask that of everyone. Where the venue takes nothing
+  online, it is told to book at the counter instead. Staff bookings are never
+  refused.
 
 ## Operating hours and closed days
 

@@ -96,6 +96,7 @@ import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
+import { cancelPolicy } from "./cancel-policy";
 import { creditBooking, creditReceipt, issueReceipt } from "./documents";
 import { venueTax } from "./tax";
 
@@ -1466,7 +1467,14 @@ export async function findBooking(code: string, phone: string): Promise<Booking 
   return row ? toBooking(row) : null;
 }
 
-export type CancelResult = { ok: true; booking: Booking } | Refusal;
+export type CancelResult =
+  | {
+      ok: true;
+      booking: Booking;
+      /** A late cancellation: what the venue kept of what was paid (0 for one never paid). */
+      kept?: number;
+    }
+  | Refusal;
 
 /** The cancellation cutoff of the venue a booking belongs to. */
 async function cancelCutoffForBooking(bookingId: number): Promise<number> {
@@ -1490,23 +1498,45 @@ function cutoffMessage(hours: number): string {
 export async function cancelBooking(code: string, phone: string): Promise<CancelResult> {
   const booking = await findBooking(code, phone);
   if (!booking) return refuse("BOOKING_NOT_FOUND_CODE");
+  return customerCancel(booking);
+}
+
+/**
+ * A customer cancelling their own booking. Free up to the venue's cutoff,
+ * everything going back as it was paid. After the cutoff, only where the
+ * venue allows late cancelling (lib/cancel-policy.ts): it keeps its share of
+ * what was paid and the rest goes back; one never paid counts as a strike.
+ * Once the booking has started it cannot be cancelled at all.
+ */
+async function customerCancel(booking: Booking): Promise<CancelResult> {
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
   if (await hasOpenHire(booking.id))
     return refuse("KIT_STILL_OUT");
   const cutoff = await cancelCutoffForBooking(booking.id);
-  if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff, await courtZone(booking.courtId)))
-    return { ok: false, error: cutoffMessage(cutoff) };
+  const zone = await courtZone(booking.courtId);
+  let share = 1;
+  // Late: past the free-cancellation cutoff, which the venue may allow for a share of the price.
+  const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
+  if (late) {
+    const court = await getCourt(booking.courtId);
+    const { lateKeep } = court ? await cancelPolicy(court.venueId) : { lateKeep: null };
+    if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone))
+      return { ok: false, error: cutoffMessage(cutoff) };
+    share = (100 - lateKeep) / 100;
+  }
 
   const db = getDb();
   await db.transaction(async () => {
     await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
     await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+    if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1 WHERE id = ?").run(booking.id);
   })();
-  await refundBooking(booking.id);
+  await refundBooking(booking.id, share);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
-  return { ok: true, booking: { ...booking, status: "cancelled" } };
+  const kept = booking.paymentStatus === "paid" ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (1 - share)) : 0;
+  return { ok: true, booking: { ...booking, status: "cancelled" }, ...(late ? { kept } : {}) };
 }
 
 export type AdminSlotStatus = "free" | "booked" | "blocked" | "past";
@@ -2473,6 +2503,10 @@ export interface UserBookingRow extends Booking {
   venueAddress: string;
   /** The venue's time zone, which the booking's times are in. */
   venueTimeZone: string;
+  /** Hours before the start it may be cancelled for free. */
+  venueCancelCutoffHours: number;
+  /** After that, the percent of what was paid the venue keeps; null: no cancelling online. */
+  venueLateCancelKeep: number | null;
 }
 
 export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
@@ -2482,6 +2516,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
       SELECT b.*, c.name AS court_name, c.sport AS court_sport,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
+             v.cancel_cutoff_hours AS venue_cutoff, v.late_cancel_keep AS venue_late_keep,
              ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -2499,6 +2534,8 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venue_time_zone: string | null;
     venue_lat: number | null;
     venue_lng: number | null;
+    venue_cutoff: number;
+    venue_late_keep: number | null;
   })[];
   return rows.map((r) => ({
     ...toBooking(r),
@@ -2508,6 +2545,8 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venueArea: r.venue_area,
     venueAddress: r.venue_address,
     venueTimeZone: venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng }),
+    venueCancelCutoffHours: r.venue_cutoff,
+    venueLateCancelKeep: r.venue_late_keep,
   }));
 }
 
@@ -2518,23 +2557,7 @@ export async function cancelUserBooking(userId: number, bookingId: number): Prom
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ? AND b.user_id = ?")
     .get(bookingId, userId) as BookingRow | undefined;
   if (!row) return refuse("BOOKING_NOT_FOUND");
-  const booking = toBooking(row);
-  if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
-  if (await hasOpenHire(booking.id))
-    return refuse("KIT_STILL_OUT");
-  const cutoff = await cancelCutoffForBooking(booking.id);
-  if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff, await courtZone(booking.courtId)))
-    return { ok: false, error: cutoffMessage(cutoff) };
-
-  await db.transaction(async () => {
-    await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-    await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
-  })();
-  await refundBooking(booking.id);
-  // A freed place goes to whoever has waited longest.
-  if (booking.classId) await offerClassPlace(booking.classId);
-  else await offerSlotPlace(booking.courtId, booking.date);
-  return { ok: true, booking: { ...booking, status: "cancelled" } };
+  return customerCancel(toBooking(row));
 }
 
 export type PaymentResult = { ok: true; booking: Booking } | Refusal;
@@ -4016,7 +4039,7 @@ async function walletChargesFor(
  * Put a wallet-paid booking's money back when it is cancelled. Refunding twice
  * is refused, so a double cancellation cannot mint credit.
  */
-export async function refundBookingToWallet(bookingId: number): Promise<WalletResult> {
+export async function refundBookingToWallet(bookingId: number, share = 1): Promise<WalletResult> {
   const charges = await walletChargesFor(bookingId);
   if (charges.length === 0) return { ok: false, error: "This booking was not paid from credit." };
 
@@ -4034,13 +4057,17 @@ export async function refundBookingToWallet(bookingId: number): Promise<WalletRe
   );
   const ids = await db.transaction(async () => {
     const made: number[] = [];
-    for (const c of charges)
+    for (const c of charges) {
+      const back = roundMoney(-c.amount * share);
+      if (back <= 0) continue;
       made.push(
-        (await put.run(c.user_id, -c.amount, `Refund for ${code ?? "booking"}`, bookingId, c.venue_id))
-          .lastInsertRowid as number
+        (await put.run(c.user_id, back, `Refund for ${code ?? "booking"}`, bookingId, c.venue_id)).lastInsertRowid as number
       );
+    }
     return made;
   })();
+  // A late cancellation where the venue keeps it all: nothing goes back.
+  if (ids.length === 0) return { ok: false, error: "Nothing to give back." };
 
   const venueId = charges.find((c) => c.venue_id !== null)?.venue_id ?? undefined;
   return {
@@ -4051,15 +4078,17 @@ export async function refundBookingToWallet(bookingId: number): Promise<WalletRe
 }
 
 /**
- * Undo whatever a cancelled booking was settled with. A booking is paid from
- * credit or with a pass, never both, so each call is a no-op for the other.
+ * Give back what a cancelled booking was paid, by whichever way it was paid
+ * (credit, a pass or online: one at most, so the others are no-ops): all of
+ * it (`share` 1), or what is left after a venue keeps its fee for a late
+ * cancellation.
  */
-async function refundBooking(bookingId: number): Promise<void> {
+async function refundBooking(bookingId: number, share = 1): Promise<void> {
   // A paid booking's receipt is reversed, whoever gives the money back and how.
-  await creditBooking(bookingId, "receipt.why.cancelled");
-  await refundBookingToWallet(bookingId);
-  await refundBookingToPass(bookingId);
-  await noteOnlineRefundDue(bookingId);
+  await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
+  await refundBookingToWallet(bookingId, share);
+  await refundBookingToPass(bookingId, share);
+  await noteOnlineRefundDue(bookingId, share);
   // The customer never had the benefit, so a limited code is not poorer for it.
   await releasePromoUse(bookingId);
   // An open game on it goes too, and its players' shares are owed back.
@@ -4074,11 +4103,11 @@ async function refundBooking(bookingId: number): Promise<void> {
  * back — a refund is made in the gateway — so the amount is written against
  * the payment, and the venue is shown what it owes until staff say it is done.
  */
-async function noteOnlineRefundDue(bookingId: number): Promise<void> {
+async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> {
   await getDb()
     .prepare(`
       UPDATE online_payments
-         SET refund_due = refund_due + (SELECT total_price - shares_paid FROM bookings WHERE id = ?)
+         SET refund_due = refund_due + ROUND((SELECT total_price - shares_paid FROM bookings WHERE id = ?) * ${Number(share)}, 2)
        WHERE status = 'paid'
          AND id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
          AND EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
@@ -4892,7 +4921,7 @@ export function normalisePhone(phone: string): string {
  * double cancellation cannot mint entries. An expired pass is still credited —
  * the ledger stays honest, even if the entries can no longer be spent.
  */
-export async function refundBookingToPass(bookingId: number): Promise<PassPayResult> {
+export async function refundBookingToPass(bookingId: number, share = 1): Promise<PassPayResult> {
   return withTransaction(async () => {
     const db = getDb();
     const charge = await db
@@ -4910,8 +4939,11 @@ export async function refundBookingToPass(bookingId: number): Promise<PassPayRes
     const code = (await db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
       | { code: string }
       | undefined)?.code;
-    await db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
-      .run(charge.pass_id, -charge.delta, `Refund for ${code ?? "booking"}`, bookingId);
+    // Whole entries only: a late cancellation's share is rounded down.
+    const back = Math.floor(-charge.delta * share);
+    if (back > 0)
+      await db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
+        .run(charge.pass_id, back, `Refund for ${code ?? "booking"}`, bookingId);
 
     return { ok: true, pass: (await passById(charge.pass_id))!, spent: charge.delta };
   });

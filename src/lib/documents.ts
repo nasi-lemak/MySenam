@@ -318,9 +318,18 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
  * A paid booking cancelled: a credit note for what its receipt showed, so
  * the tax on it comes off the venue's books. Once only.
  */
-export async function creditBooking(bookingId: number, why: string): Promise<Document | null> {
-  const sale = await bookingSale(bookingId);
-  if (!sale || sale.paymentStatus !== "paid" || sale.total <= 0) return null;
+export async function creditBooking(bookingId: number, why: string, share = 1): Promise<Document | null> {
+  const full = await bookingSale(bookingId);
+  if (!full || full.paymentStatus !== "paid" || full.total <= 0 || share <= 0) return null;
+  // A late cancellation gives back only part: the credit note is for that part, the fee kept stays sold.
+  const sale =
+    share >= 1
+      ? full
+      : {
+          ...full,
+          total: roundMoney(full.total * share),
+          lines: [{ description: `${Math.round(share * 100)}% of ${full.code}, cancelled late`, amount: roundMoney(full.total * share) }],
+        };
   const tax = sale.taxRate ? await venueTax(sale.venueId) : null;
   return write({
     venue_id: sale.venueId,

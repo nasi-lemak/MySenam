@@ -28,5 +28,5 @@ export async function POST(req: NextRequest) {
   // A cancellation is what frees a place, so it is also what makes an
   // offer worth telling somebody about.
   await tickOutbox();
-  return NextResponse.json({ booking: result.booking });
+  return NextResponse.json({ booking: result.booking, kept: result.kept ?? null });
 }

@@ -14,6 +14,7 @@ import {
 } from "@/lib/store";
 import { customerMayBook } from "@/lib/limits";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
+import { cancelPolicy, struckOut } from "@/lib/cancel-policy";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isValidDateString } from "@/lib/time";
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
           ? Array.from({ length: Math.min(Math.max(1, Number(weeks) || 1), 52) }, (_, i) => addDays(date, i * 7))
           : undefined,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
+      canPayOnline: await takesPaymentOnline(venueOfBooking),
     });
     if (refused) return refusal(refused);
   }
@@ -201,8 +203,10 @@ export async function POST(req: NextRequest) {
 
   // A venue asking for payment online to hold a booking: what is still
   // unpaid is held for a few minutes, and confirmed once it is paid.
+  // So is one from a number with too many no-shows here (lib/cancel-policy.ts).
   const policy = await holdPolicy(venue.id);
-  const holdUntil = policy.active
+  const mustPay = (await struckOut(venue.id, phone)).out && (await takesPaymentOnline(venue.id));
+  const holdUntil = policy.active || mustPay
     ? await holdNewBookings(
         result.bookings.filter((b) => b.paymentStatus === "unpaid").map((b) => b.id),
         policy.minutes
@@ -269,6 +273,7 @@ export async function GET(req: NextRequest) {
       address: venue.address,
       cancelCutoffHours: venue.cancelCutoffHours,
       timeZone: venue.timeZone,
+      lateCancelKeep: (await cancelPolicy(venue.id)).lateKeep,
     },
     payOnline: await takesPaymentOnline(venue.id),
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { Booking, Court } from "@/lib/types";
-import { formatHour } from "@/lib/time";
+import { formatHour, hoursUntilSlot } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 import { ChangeTime } from "@/components/ChangeTime";
@@ -15,7 +15,7 @@ import { money, intlTag, region } from "@/lib/region";
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null };
   payOnline?: boolean;
   addons?: { name: string; quantity: number; unitPrice: number }[];
   /** Once paid: its receipt, or tax invoice. */
@@ -28,6 +28,8 @@ export default function MyBookingPage() {
   const [phone, setPhone] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** What the venue kept of a late cancellation just made. */
+  const [kept, setKept] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   // The door code for an unmanned court, once asked for.
   const [door, setDoor] = useState<{
@@ -51,6 +53,7 @@ export default function MyBookingPage() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setKept(null);
     try {
       const res = await fetch(
         `/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`,
@@ -99,7 +102,12 @@ export default function MyBookingPage() {
 
   async function cancel() {
     if (!result) return;
-    if (!window.confirm(t("mine.cancelConfirm"))) return;
+    const { booking: bk, venue } = result;
+    const keep = venue.lateCancelKeep ?? null;
+    const late =
+      keep !== null && hoursUntilSlot(bk.date, bk.startHour, venue.timeZone ?? region().timeZone) < venue.cancelCutoffHours;
+    const askLate = late && keep > 0 && bk.paymentStatus === "paid" && bk.totalPrice > 0;
+    if (!window.confirm(askLate ? t("mine.lateCancelConfirm", { pct: keep }) : t("mine.cancelConfirm"))) return;
     setBusy(true);
     setError(null);
     try {
@@ -111,6 +119,7 @@ export default function MyBookingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       setResult({ ...result, booking: data.booking });
+      setKept(data.kept ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
     } finally {
@@ -186,6 +195,11 @@ export default function MyBookingPage() {
                 : t("mine.cancelled")}
             </span>
           </div>
+          {b.status === "cancelled" && kept !== null && kept > 0 && (
+            <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              {t("mine.lateCancelDone", { kept: money(kept) })}
+            </p>
+          )}
           {b.releasedUnpaid && (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("hold.released")}</p>
           )}
@@ -248,6 +262,9 @@ export default function MyBookingPage() {
               {result.venue.cancelCutoffHours > 0 && (
                 <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   {t.plural("mine.freeCancel", result.venue.cancelCutoffHours)}
+                  {result.venue.lateCancelKeep != null && result.venue.lateCancelKeep > 0 && (
+                    <> {t("mine.lateCancelNote", { pct: result.venue.lateCancelKeep })}</>
+                  )}
                 </p>
               )}
               {result.court.unmanned ? (
