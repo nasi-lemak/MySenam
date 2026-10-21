@@ -287,6 +287,13 @@ export interface CustomerExport {
   tournaments: unknown[];
   /** Leagues joined, and each season's box, finish and fee. */
   leagues: unknown[];
+  /** Receipts and credit notes issued to this account. */
+  receipts: unknown[];
+  waitlist: unknown[];
+  /** Gift vouchers turned into credit on this account. */
+  vouchers: unknown[];
+  /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
+  messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -397,8 +404,143 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE p.user_id = ? ORDER BY p.id, s.number`,
       userId
     ),
+    receipts: await all(
+      `SELECT r.kind, r.number, r.issued_at, r.total, r.lines, r.paid_via, r.customer_name, r.customer_phone, v.name AS venue
+         FROM receipts r LEFT JOIN venues v ON v.id = r.venue_id
+        WHERE r.user_id = ? ORDER BY r.id`,
+      userId
+    ),
+    waitlist: await all(
+      `SELECT w.status, w.date, w.start_hour, w.end_hour, w.name, w.phone, w.email, w.created_at, k.name AS class
+         FROM waitlist w LEFT JOIN classes k ON k.id = w.class_id
+        WHERE w.user_id = ? ORDER BY w.id`,
+      userId
+    ),
+    vouchers: await all(
+      `SELECT g.code, g.amount, g.redeemed_at, v.name AS venue
+         FROM gift_vouchers g JOIN venues v ON v.id = g.venue_id
+        WHERE g.redeemed_by = ? ORDER BY g.id`,
+      userId
+    ),
+    messages: await all(
+      `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
+         FROM messages m
+        WHERE m.booking_id IN (SELECT id FROM bookings WHERE user_id = ?) OR (m.channel = 'email' AND lower(m.recipient) = lower(?))
+        ORDER BY m.id`,
+      userId,
+      account.email
+    ),
     heldAtACounter:
-      "A pass, membership, waiting-list place or induction taken at a counter is filed against a phone number rather than this account. Ask the venue for those — they check who you are in person, which this page cannot.",
+      "A pass, membership, waiting-list place, induction or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
+  };
+}
+
+/* ---------------- What a venue holds against a phone number ---------------- */
+
+export interface PhoneExport {
+  takenAt: string;
+  phone: string;
+  venues: string[];
+  bookings: unknown[];
+  waitlist: unknown[];
+  passes: unknown[];
+  memberships: unknown[];
+  inductions: unknown[];
+  /** On the venue's list of who it is for (lib/access.ts). */
+  accessList: unknown[];
+  blocked: unknown[];
+  receipts: unknown[];
+  giftVouchers: unknown[];
+  messages: unknown[];
+}
+
+/**
+ * Everything these venues hold against a phone number, for a request made in
+ * person.
+ *
+ * The other half of `exportCustomerData`. A pass, a membership or a guest
+ * booking is filed against a number, and a number is not proof of who is
+ * asking, so this is for a venue's manager to run after checking who is at
+ * the counter, never for anybody online. It reaches only the venues that
+ * manager runs, and what it finds is that venue's own record of the person.
+ */
+export async function exportPhoneData(venueIds: number[], phone: string): Promise<PhoneExport> {
+  const db = getDb();
+  const marks = venueIds.map(() => "?").join(",");
+  const all = async (sql: string, ...args: unknown[]) => await db.prepare(sql).all(...args);
+  const names = (await all(`SELECT name FROM venues WHERE id IN (${marks}) ORDER BY id`, ...venueIds)) as { name: string }[];
+  return {
+    takenAt: new Date().toISOString(),
+    phone,
+    venues: names.map((v) => v.name),
+    bookings: await all(
+      `SELECT b.code, b.date, b.start_hour, b.end_hour, b.name, b.phone, b.email, b.total_price, b.status, b.payment_status,
+              b.paid_via, b.no_show, b.late_cancelled, b.created_at, c.name AS court, v.name AS venue,
+              ci.checked_in_at, ci.checked_out_at
+         FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+         LEFT JOIN check_ins ci ON ci.booking_id = b.id
+        WHERE c.venue_id IN (${marks}) AND b.phone_key = phone_key(?)
+        ORDER BY b.date DESC, b.start_hour DESC`,
+      ...venueIds,
+      phone
+    ),
+    waitlist: await all(
+      `SELECT w.status, w.date, w.start_hour, w.end_hour, w.name, w.phone, w.email, w.created_at, k.name AS class
+         FROM waitlist w
+         LEFT JOIN classes k ON k.id = w.class_id
+         LEFT JOIN courts c ON c.id = COALESCE(w.court_id, k.court_id)
+        WHERE c.venue_id IN (${marks}) AND phone_key(w.phone) = phone_key(?)
+        ORDER BY w.id`,
+      ...venueIds,
+      phone
+    ),
+    passes: await all(
+      `SELECT p.code, p.name, p.holder_name, p.holder_phone, p.entries, p.price, p.expires_on, p.status, p.created_at
+         FROM passes p WHERE p.venue_id IN (${marks}) AND phone_key(p.holder_phone) = phone_key(?) ORDER BY p.id`,
+      ...venueIds,
+      phone
+    ),
+    memberships: await all(
+      `SELECT m.code, m.holder_name, m.holder_phone, m.starts_on, m.expires_on, m.price, m.status
+         FROM memberships m WHERE m.venue_id IN (${marks}) AND phone_key(m.holder_phone) = phone_key(?) ORDER BY m.id`,
+      ...venueIds,
+      phone
+    ),
+    inductions: await all(
+      `SELECT name, phone, note, created_at, revoked_at FROM inductions
+        WHERE venue_id IN (${marks}) AND phone_key(phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    accessList: await all(
+      `SELECT name, phone, label, kind, expires_on, created_at FROM venue_access_list
+        WHERE venue_id IN (${marks}) AND phone_key = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    blocked: await all(
+      `SELECT phone, reason, created_at FROM venue_blocked_phones WHERE venue_id IN (${marks}) AND phone_key = phone_key(?)`,
+      ...venueIds,
+      phone
+    ),
+    receipts: await all(
+      `SELECT kind, number, issued_at, total, lines, paid_via, customer_name, customer_phone FROM receipts
+        WHERE venue_id IN (${marks}) AND phone_key(customer_phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    giftVouchers: await all(
+      `SELECT code, amount, buyer_name, buyer_email, buyer_phone, recipient_name, message, status, created_at
+         FROM gift_vouchers WHERE venue_id IN (${marks}) AND status <> 'pending' AND phone_key(buyer_phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    messages: await all(
+      `SELECT created_at, channel, kind, recipient, status, subject, body FROM messages
+        WHERE venue_id IN (${marks}) AND channel = 'whatsapp' AND phone_key(recipient) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
   };
 }
 

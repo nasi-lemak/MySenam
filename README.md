@@ -755,6 +755,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
+| GET    | `/api/admin/data-request`  | `?venueId&phone` → what the venue holds against a number, as a file (managers) |
 | GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address; on makes a new one |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
@@ -1347,6 +1348,24 @@ their price — which also means anybody who types that number gets the member
 rate. That is a discount the venue chose to make easy to claim, not a hole; it
 costs the difference between two rates, and it is pinned by a test so that
 changing it is a decision rather than an accident.
+
+### Asking a venue in person
+
+The account page's *Download my data* (`/api/my/data`) covers what is filed
+against the account: bookings, credit, passes and memberships sold to it,
+games, leagues, tournaments, receipts and credit notes, waiting-list places,
+gift vouchers used, and the messages still kept about its bookings or sent to
+its address. Its file says what it leaves out: anything filed against a phone
+number at a counter.
+
+For that, the venue's manager has *Venues & staff → A customer's data*
+(`/api/admin/data-request?venueId&phone`). After checking who is asking, the
+manager downloads everything that venue holds against the number, however it
+was typed: bookings with arrivals, no-shows and late cancellations, waiting
+lists, passes, memberships, inductions, the venue's own list, blocks,
+receipts, gift vouchers bought and WhatsApp messages. It reaches that venue
+only. It is for managers only (front desk is refused), and each download goes
+in the activity log with the last four digits of the number.
 
 ### Erasure keeps the books
 

@@ -27,6 +27,7 @@ import { TaxEditor } from "./TaxEditor";
 import { TimeZoneEditor } from "./TimeZoneEditor";
 import { CancelPolicyEditor } from "./CancelPolicyEditor";
 import { CalendarFeedEditor } from "./CalendarFeedEditor";
+import { DataRequestPanel } from "./DataRequestPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
@@ -151,6 +152,8 @@ export function VenuesTab({
       </section>
 
       <BlockedPhonesPanel venues={venues} />
+
+      <DataRequestPanel venues={venues} />
 
       <MessagesPanel venues={venues} />
 
