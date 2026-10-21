@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { GatewayAccount, Inbound, PaymentGateway, PaymentResult } from "./types";
+import type { GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult } from "./types";
 
 /**
  * Stripe (Singapore, and most places beyond): cards, PayNow and the wallets a
@@ -32,22 +32,42 @@ interface Session {
   url?: string | null;
   payment_status?: "paid" | "unpaid" | "no_payment_required";
   status?: "open" | "complete" | "expired";
+  payment_intent?: string | null;
 }
 
-async function call(account: GatewayAccount, method: "GET" | "POST", path: string, form?: URLSearchParams): Promise<Session> {
+interface Refund {
+  id: string;
+  status?: "pending" | "requires_action" | "succeeded" | "failed" | "canceled";
+}
+
+/** Stripe's answer was not a success: its status, for a message that says what to do. */
+class StripeError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+async function call<T extends { id: string } = Session>(
+  account: GatewayAccount,
+  method: "GET" | "POST",
+  path: string,
+  form?: URLSearchParams,
+  idempotencyKey?: string
+): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${account.credentials.secretKey}`,
       ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: form?.toString(),
     signal: AbortSignal.timeout(20_000),
   });
-  const data = (await res.json().catch(() => null)) as (Session & { error?: { message?: string } }) | null;
+  const data = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
   if (!res.ok || !data?.id) {
     const why = data?.error?.message;
-    throw new Error(`Stripe refused the request (${res.status})${why ? `: ${why}` : ""}`);
+    throw new StripeError(`Stripe refused the request (${res.status})${why ? `: ${why}` : ""}`, res.status);
   }
   return data;
 }
@@ -90,7 +110,7 @@ export const stripe: PaymentGateway = {
       key: "secretKey",
       label: "Restricted key",
       secret: true,
-      help: "Stripe → Developers → API keys → Create restricted key, with Checkout Sessions set to Write. Starts rk_live_ (or rk_test_).",
+      help: "Stripe → Developers → API keys → Create restricted key, with Checkout Sessions and Refunds set to Write. Starts rk_live_ (or rk_test_).",
     },
     {
       key: "webhookSecret",
@@ -151,6 +171,29 @@ export const stripe: PaymentGateway = {
     const session = await call(account, "POST", "/checkout/sessions", form);
     if (!session.url) throw new Error("Stripe gave no payment page for that session.");
     return { id: session.id, url: session.url };
+  },
+
+  async refund(account, request): Promise<RefundResult> {
+    try {
+      const session = await call(account, "GET", `/checkout/sessions/${encodeURIComponent(request.billId)}`);
+      if (!session.payment_intent) return { ok: false, error: "Stripe has no payment on that page to refund." };
+      const form = new URLSearchParams({
+        payment_intent: session.payment_intent,
+        amount: String(Math.round(request.amount * 10 ** request.currency.minorUnits)),
+        "metadata[mysenam_bill]": request.billId,
+      });
+      const refund = await call<Refund>(account, "POST", "/refunds", form, request.idempotencyKey);
+      if (refund.status === "failed" || refund.status === "canceled")
+        return { ok: false, error: `Stripe could not make that refund (${refund.status}). Refund it in Stripe instead.` };
+      return { ok: true, refundId: refund.id, pending: refund.status !== "succeeded" };
+    } catch (err) {
+      if (err instanceof StripeError && err.status === 403)
+        return {
+          ok: false,
+          error: "The venue's Stripe key cannot make refunds. Edit the restricted key in Stripe and set Refunds to Write, or refund it in Stripe and mark it refunded.",
+        };
+      return { ok: false, error: err instanceof Error ? err.message : "Stripe could not be reached. Try again." };
+    }
   },
 
   readCallback(body, headers): Inbound {

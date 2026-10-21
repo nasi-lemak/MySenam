@@ -16,6 +16,15 @@ import { money } from "@/lib/region";
  * key, which is enough to tell which account is set without making the page
  * worth stealing. The fields are whatever the chosen gateway asks for.
  */
+/** What a payment that is not for bookings was for. */
+const PURPOSES: Partial<Record<OnlinePayment["purpose"], string>> = {
+  share: "share of an open game",
+  entry: "tournament entry",
+  league: "league fee",
+  topup: "credit top-up",
+  membership: "membership",
+};
+
 export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [settings, setSettings] = useState<PaymentSettings | null>(null);
@@ -243,25 +252,49 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h3 className="text-sm font-bold text-amber-900">Refunds owed</h3>
           <p className="mt-0.5 text-xs text-amber-800">
-            Paid online, then cancelled — or paid twice. Refund these in {settings?.providerName ?? "your gateway"}, then mark them done.
+            Paid online, then cancelled, or paid for something gone by the time the money came in. Where the gateway can,
+            refund in one click; otherwise refund in the gateway&apos;s own dashboard, then mark it done.
           </p>
           <ul className="mt-2 space-y-1.5 text-sm">
             {owed.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   <strong>{money(p.refundOwed)}</strong> to {p.payerName} ({p.payerPhone}) ·{" "}
-                  <span className="font-mono text-xs">{p.bookingCodes.join(", ")}</span> · bill{" "}
-                  <span className="font-mono text-xs">{p.billId}</span>
+                  {p.bookingCodes.length > 0 ? (
+                    <span className="font-mono text-xs">{p.bookingCodes.join(", ")}</span>
+                  ) : (
+                    <span className="text-xs">{PURPOSES[p.purpose] ?? p.purpose}</span>
+                  )}{" "}
+                  · {p.providerName} <span className="font-mono text-xs">{p.billId}</span>
                 </span>
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id }, "Marked refunded.")
-                  }
-                  className="rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                >
-                  Refunded
-                </button>
+                <span className="flex gap-1.5">
+                  {p.refundsByApi && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        if (!confirm(`Refund ${money(p.refundOwed)} to ${p.payerName ?? "the payer"} through ${p.providerName} now?`)) return;
+                        call(
+                          "/api/admin/online-payments",
+                          "POST",
+                          { venueId, paymentId: p.id, through: "gateway" },
+                          `Refunded ${money(p.refundOwed)} through ${p.providerName}. It reaches the payer's card or account in 5 to 10 days.`
+                        );
+                      }}
+                      className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      Refund {money(p.refundOwed)}
+                    </button>
+                  )}
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id }, "Marked refunded.")
+                    }
+                    className="rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {p.refundsByApi ? "Refunded in " + p.providerName : "Refunded"}
+                  </button>
+                </span>
               </li>
             ))}
           </ul>

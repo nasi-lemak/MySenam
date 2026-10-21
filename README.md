@@ -2394,8 +2394,17 @@ running booking software and running a payments business.
   these as `✓ online`, which cannot be toggled off by mistake: that money is in
   Billplz, not the till.
 - **Refunds** — a booking paid online and then cancelled, or paid at the counter
-  as well, is listed under *Refunds owed* with who to pay back. Refund it in
-  Billplz, then mark it done.
+  as well, is listed under *Refunds owed* with who to pay back. So is a
+  tournament entry, league fee, game share, membership or top-up paid for
+  something that had gone by the time the money arrived. Through **Stripe**,
+  a manager refunds it with one click: MySenam asks Stripe for the session's
+  payment and refunds what is owed, in cents, with the venue's own key (which
+  needs *Refunds: Write* as well as *Checkout Sessions: Write*). The request
+  carries an idempotency key made from the payment and what is owed on it, and
+  each refund is written to `online_refunds` under Stripe's own id, so a double
+  click or a retry refunds once. **Billplz** has no refund API: refund in its
+  dashboard, then mark it done. Either way the refund goes in the activity log
+  with who made it.
 
 The keys are encrypted in the database, which is the file that gets backed up
 and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,

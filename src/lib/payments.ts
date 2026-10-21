@@ -305,9 +305,13 @@ export interface OnlinePayment {
   payerPhone: string | null;
   createdAt: string;
   paidAt: string | null;
+  /** The gateway it was paid through: "Stripe". */
+  providerName: string;
   /** Still to be refunded in the gateway, for bookings cancelled after paying. */
   refundOwed: number;
   refunded: number;
+  /** The gateway refunds through its API, with one click; otherwise staff refund in its dashboard. */
+  refundsByApi: boolean;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
   purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership";
@@ -332,8 +336,10 @@ async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
     payerPhone: r.payer_phone,
     createdAt: r.created_at,
     paidAt: r.paid_at,
-    refundOwed: Math.max(0, r.refund_due - r.refunded),
+    providerName: gatewayFor(r.provider)?.name ?? r.provider,
+    refundOwed: Math.max(0, roundMoney(r.refund_due - r.refunded)),
     refunded: r.refunded,
+    refundsByApi: typeof gatewayFor(r.provider)?.refund === "function",
     bookingCodes: codes.map((c) => c.code),
     purpose: r.purpose,
     ...(r.membership_id ? { membership: await membershipSummary(r.membership_id) } : {}),
@@ -714,32 +720,110 @@ export async function listOnlinePayments(venueId: number, limit = 50): Promise<O
   return Promise.all(rows.map(toPayment));
 }
 
-/** Payments with money still to go back, oldest first. */
+/**
+ * Payments to the venue with money still to go back, oldest first: bookings
+ * cancelled after paying, and fees, shares and top-ups paid for something
+ * that had gone by the time the money came in. Not the venue's own invoice
+ * or WhatsApp packs, which it paid the platform.
+ */
 export async function refundsOwed(venueId: number): Promise<OnlinePayment[]> {
   const rows = (await getDb()
     .prepare(
-      "SELECT * FROM online_payments WHERE venue_id = ? AND purpose = 'booking' AND refund_due > refunded ORDER BY id"
+      `SELECT * FROM online_payments
+        WHERE venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded ORDER BY id`
     )
     .all(venueId)) as PaymentRow[];
   return Promise.all(rows.map(toPayment));
 }
 
-/** Staff have made the refund in the gateway. */
-export async function markRefunded(
-  paymentId: number,
-  venueId: number
-): Promise<{ ok: true; payment: OnlinePayment } | { ok: false; error: string }> {
-  const db = getDb();
-  const done = await db
+export type RefundDone = { ok: true; payment: OnlinePayment; pending: boolean } | { ok: false; error: string };
+
+async function owedRow(paymentId: number, venueId: number): Promise<PaymentRow | null> {
+  const row = (await getDb()
     .prepare(
-      "UPDATE online_payments SET refunded = refund_due WHERE id = ? AND venue_id = ? AND refund_due > refunded"
+      `SELECT * FROM online_payments
+        WHERE id = ? AND venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded`
     )
-    .run(paymentId, venueId);
-  if (done.changes === 0) return { ok: false, error: "Nothing is owed back on that payment." };
-  return {
-    ok: true,
-    payment: await toPayment(await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(paymentId) as PaymentRow),
-  };
+    .get(paymentId, venueId)) as PaymentRow | undefined;
+  return row ?? null;
+}
+
+/**
+ * Write a refund down against its payment. Counted once: the same refund
+ * reported again (a double click; the gateway answering a retry with the
+ * refund it already made) finds its id already there and changes nothing.
+ */
+async function recordRefund(
+  row: PaymentRow,
+  amount: number,
+  ref: string | null,
+  pending: boolean,
+  adminId: number | null
+): Promise<boolean> {
+  const db = getDb();
+  return db.transaction(async () => {
+    const added = await db
+      .prepare(
+        `INSERT INTO online_refunds (payment_id, amount, provider_ref, pending, admin_id) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (provider_ref) DO NOTHING`
+      )
+      .run(row.id, amount, ref, pending ? 1 : 0, adminId);
+    if (added.changes === 0) return false;
+    const done = await db
+      .prepare("UPDATE online_payments SET refunded = refunded + ? WHERE id = ? AND refunded + ? <= refund_due")
+      .run(amount, row.id, amount);
+    if (done.changes === 0) throw new Error("REFUND_RACE");
+    return true;
+  })();
+}
+
+const reread = async (id: number) =>
+  toPayment((await getDb().prepare("SELECT * FROM online_payments WHERE id = ?").get(id)) as PaymentRow);
+
+/** Staff have made the refund in the gateway's own dashboard. */
+export async function markRefunded(paymentId: number, venueId: number, adminId: number | null = null): Promise<RefundDone> {
+  const row = await owedRow(paymentId, venueId);
+  if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
+  try {
+    await recordRefund(row, roundMoney(row.refund_due - row.refunded), null, false, adminId);
+  } catch {
+    return { ok: false, error: "Nothing is owed back on that payment." };
+  }
+  return { ok: true, payment: await reread(row.id), pending: false };
+}
+
+/**
+ * Refund what is owed on a payment through the gateway it was paid through,
+ * with the venue's own account: one click instead of a trip to the
+ * gateway's dashboard. Only where the gateway has a refund API (Stripe).
+ */
+export async function refundOnline(paymentId: number, venueId: number, adminId: number | null = null): Promise<RefundDone> {
+  const row = await owedRow(paymentId, venueId);
+  if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
+  const gateway = gatewayFor(row.provider);
+  if (!gateway?.refund)
+    return { ok: false, error: `${gateway?.name ?? row.provider} refunds are made in its own dashboard. Refund it there, then mark it refunded.` };
+  const account = await accountForBill(row.provider, row.bill_id);
+  if (!account)
+    return { ok: false, error: `This was paid through ${gateway.name}, which this venue no longer has connected. Refund it there, then mark it refunded.` };
+  const amount = roundMoney(row.refund_due - row.refunded);
+  const { code, minorUnits } = region().currency;
+  const result = await gateway.refund(account, {
+    billId: row.bill_id,
+    amount,
+    currency: { code, minorUnits },
+    // What has been owed in all, so a retry of this refund is the same one
+    // and a later one (another booking off the same payment) is new.
+    idempotencyKey: `mysenam-refund-${row.id}-${Math.round(row.refund_due * 100)}`,
+  });
+  if (!result.ok) return result;
+  try {
+    await recordRefund(row, amount, result.refundId, result.pending, adminId);
+  } catch {
+    // Somebody marked it refunded by hand while this one went through.
+    return { ok: false, error: "That payment was marked refunded meanwhile. Check it in the gateway: it may have been refunded twice." };
+  }
+  return { ok: true, payment: await reread(row.id), pending: result.pending };
 }
 
 

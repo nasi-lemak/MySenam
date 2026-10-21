@@ -55,6 +55,21 @@ export interface CheckoutPage {
   url: string;
 }
 
+/** Money back to whoever paid on a page, through the gateway. */
+export interface RefundRequest {
+  /** The page that was paid. */
+  billId: string;
+  /** In major units. Up to what is left of the payment. */
+  amount: number;
+  currency: Currency;
+  /** The same for a retry of the same refund, so the gateway makes it once. */
+  idempotencyKey: string;
+}
+
+export type RefundResult =
+  | { ok: true; refundId: string; /** Accepted, and still going through (some methods take days). */ pending: boolean }
+  | { ok: false; error: string };
+
 /** What the gateway says happened to a payment page. */
 export interface PaymentResult {
   billId: string;
@@ -121,6 +136,11 @@ export interface PaymentGateway {
   readCallback(body: string, headers: Headers): Inbound;
   /** The browser coming back, or null when the address is not this gateway's. */
   readRedirect(query: URLSearchParams): Inbound | null;
+  /**
+   * Refund a payment through the gateway's API. Left out where the gateway
+   * has none (Billplz): staff refund in its dashboard and mark it done.
+   */
+  refund?(account: GatewayAccount, request: RefundRequest): Promise<RefundResult>;
   /** The platform's own account (venue fees, WhatsApp packs) from the environment. */
   platformAccount(env: NodeJS.ProcessEnv): GatewayAccount | null;
 }
