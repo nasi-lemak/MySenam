@@ -41,7 +41,9 @@ export type MessageKind =
   /** By email only: a receipt is a document to keep, not worth a WhatsApp message. */
   | "payment_received"
   /** To the venue itself, at the address and number it chose: a booking made online. */
-  | "venue_new_booking";
+  | "venue_new_booking"
+  /** By email only: a gift voucher bought online, to its buyer. */
+  | "gift_voucher";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

@@ -24,7 +24,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/(hold-policy|house-rules|venue-access|venue-tax|booking-alerts|peak-rules|slot-length|venue-time-zone|cancel-policy)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/holidays$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/(leagues|tournaments)$/, methods: ["POST"] },
-  { path: /^\/api\/admin\/(memberships|passes|promos)\/\d+\/void$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/(memberships|passes|promos|vouchers)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },
   { path: /^\/api\/admin\/membership-plans$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/notices(\/\d+)?$/, methods: ["POST", "DELETE"] },

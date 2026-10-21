@@ -19,6 +19,28 @@ export default function Wallet() {
   const [topUp, setTopUp] = useState<{ venueId: number; amount: string } | null>(null);
   const [topUpError, setTopUpError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  // A gift voucher being turned into credit.
+  const [voucher, setVoucher] = useState("");
+  const [voucherNote, setVoucherNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function redeem(e: React.FormEvent) {
+    e.preventDefault();
+    setVoucherNote(null);
+    try {
+      const res = await fetch("/api/my/vouchers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: voucher }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
+      setVoucher("");
+      setVoucherNote({ ok: true, text: t("wallet.redeemDone", { amount: money(data.amount), venue: data.venueName }) });
+      await load();
+    } catch (err) {
+      setVoucherNote({ ok: false, text: err instanceof Error ? err.message : t("pay.failed") });
+    }
+  }
 
   async function payTopUp() {
     if (!topUp) return;
@@ -137,6 +159,28 @@ export default function Wallet() {
             {t("wallet.topUp")}
           </button>
         ))}
+
+      <form onSubmit={redeem} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+        <label className="text-xs text-slate-600">
+          {t("wallet.redeem")}
+          <input
+            aria-label={t("wallet.redeemCode")}
+            placeholder="GV-XXXX-XXXX"
+            value={voucher}
+            onChange={(e) => setVoucher(e.target.value.toUpperCase())}
+            className="mt-0.5 block w-40 rounded-md border border-slate-300 px-2 py-1 font-mono text-sm"
+          />
+        </label>
+        <button
+          disabled={voucher.trim().length < 6}
+          className="rounded-lg border border-teal-300 px-3 py-1.5 font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+        >
+          {t("wallet.redeemGo")}
+        </button>
+      </form>
+      {voucherNote && (
+        <p className={`mt-1 text-xs font-medium ${voucherNote.ok ? "text-emerald-700" : "text-red-700"}`}>{voucherNote.text}</p>
+      )}
 
       {entries.length > 0 && (
         <>

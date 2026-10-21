@@ -722,6 +722,8 @@ Account endpoints (session cookie):
 | POST   | `/api/my/password`        | `{current, next}` → change it; others signed out |
 | GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
+| POST   | `/api/my/vouchers`        | `{code}` → a gift voucher, as credit            |
+| POST   | `/api/vouchers`           | Buy a gift voucher online → `{url}` to pay      |
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
 | GET    | `/api/my/membership`      | The signed-in customer's memberships            |
 | GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
@@ -777,6 +779,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/passes`           | `?venueId=` → passes sold by that venue              |
 | POST   | `/api/admin/passes`           | `{venueId, name, sport?, entries, price, holderName, holderPhone, expiresOn}` |
 | POST   | `/api/admin/passes/:id/void`  | Cancel a pass; entries already spent stay spent      |
+| GET    | `/api/admin/vouchers`         | `?venueId=` → gift vouchers sold, with printable links |
+| POST   | `/api/admin/vouchers`         | `{venueId, amount, buyerName, buyerEmail?, recipientName?, message?, via?}`: sold at the counter |
+| POST   | `/api/admin/vouchers/:id/void` | Cancel a voucher nobody has used                   |
 | GET    | `/api/admin/classes`          | `?venueId=` → classes including cancelled ones       |
 | POST   | `/api/admin/classes`          | `{courtId, name, instructor, date, startHour, endHour, capacity, price, weeks?}` |
 | GET    | `/api/admin/classes/:id`      | The class and its roster                             |
@@ -1800,6 +1805,33 @@ Online top-ups are only allowed where the money lands with whoever owes the
 credit: per-venue credit on a marketplace, or any credit on a single business's
 own copy. On a marketplace with `MYSENAM_CREDIT_SCOPE=platform` they are not
 offered, since one venue would take money for credit that other venues honour.
+
+### Gift vouchers
+
+An amount somebody buys for somebody else (`lib/vouchers.ts`). Whoever holds the
+code (`GV-XXXX-XXXX`, without 0/O or 1/I so it can be read out at a counter)
+enters it under *Have a gift voucher?* on their account page, and it becomes
+stored credit at the venue, credited the way an online top-up is. It works
+once, and for a year.
+
+- **At the counter** (*Credit → Gift vouchers*): amount, who bought it, and
+  optionally their email, who it is for, a message and how they paid. It gets a
+  receipt and a link to a printable voucher.
+- **Online**, from *🎁 Give a gift voucher* on the venue page (`/venue/:id/gift`),
+  where the venue takes payment online and online top-ups are allowed. No
+  account is needed, only an email. The voucher is *pending* until the payment
+  settles, so nobody can use it before then. It then becomes good, gets a
+  receipt, and is emailed once to the buyer with its printable link. A payment
+  whose voucher has gone is owed back.
+- **The printable voucher** (`/gift/:code?t=…`) is reached only by its signed
+  link. The code alone shows nothing, so guessing addresses finds no vouchers.
+- **Receipts carry no tax**: like credit, a voucher is taxed when it is spent,
+  on what it buys.
+- **Cancelling** (managers only) works on a voucher nobody has used. Sold at
+  the counter, its receipt gets a credit note and the money goes back by hand.
+  Bought online, what was paid is listed under refunds owed.
+- Redeeming is rate-limited like a booking lookup, so codes cannot be guessed
+  quickly.
 
 ## Check-in and live crowd levels
 

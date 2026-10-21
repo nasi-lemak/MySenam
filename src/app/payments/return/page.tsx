@@ -5,6 +5,7 @@ import { serverT } from "@/lib/locale";
 import { money } from "@/lib/region";
 import { receiptOfPayment } from "@/lib/documents";
 import { receiptPath } from "@/lib/receipts";
+import { voucherOfPayment, voucherPath } from "@/lib/vouchers";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +151,29 @@ export default async function PaymentReturnPage({
           >
             {t("member.back")}
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // A gift voucher bought online: here it is, to print or pass on.
+  if (payment?.purpose === "voucher") {
+    const voucher = payment.status === "paid" ? await voucherOfPayment(payment.id) : null;
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">{voucher ? "🎁" : "↩️"}</div>
+          <h1 className="mt-2 text-xl font-bold">{voucher ? t("gift.paidTitle") : t("pay.notPaidTitle")}</h1>
+          <p className="mt-2 text-sm text-slate-600">{voucher ? t("gift.paidBody", { code: voucher.code }) : t("gift.notPaid")}</p>
+          {voucher && (
+            <a
+              href={voucherPath(voucher.code)}
+              className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+            >
+              {t("gift.open")}
+            </a>
+          )}
+          {receiptLink}
         </div>
       </div>
     );

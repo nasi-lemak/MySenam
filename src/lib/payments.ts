@@ -31,6 +31,7 @@ import { money, region, isAmount, roundMoney } from "./region";
 import { creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
 import { venueTax } from "./tax";
 import { cancelPolicy, type OnlineRefunds } from "./cancel-policy";
+import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -286,13 +287,14 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher";
   invoice_id: number | null;
   game_player_id: number | null;
   tournament_entry_id: number | null;
   league_place_id: number | null;
   pack_id: number | null;
   topup_user_id?: number | null;
+  voucher_id?: number | null;
   member_user_id?: number | null;
   membership_plan_id?: number | null;
   membership_id?: number | null;
@@ -320,7 +322,7 @@ export interface OnlinePayment {
   refundsByApi: boolean;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher";
   /** The membership a paid membership fee made. */
   membership?: { code: string; venueId: number; venueName: string; startsOn: string; expiresOn: string };
 }
@@ -649,6 +651,30 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
       }
     })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "voucher") {
+    let bought: Voucher | null = null;
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes !== 1 || row.voucher_id == null) return;
+      bought = await activateVoucher(row.voucher_id, paidVia("online", gatewayFor(row.provider)?.name));
+      if (bought)
+        await receiptPayment(row, {
+          description: `Gift voucher ${bought.code}`,
+          userId: null,
+          // Taxed when it is spent, on what it buys, like the credit it becomes.
+          taxable: false,
+          note: row.venue_id !== null && (await venueTax(row.venue_id)).registered ? "receipt.creditNoTax" : null,
+        });
+      // Nothing to give for it (the voucher went): owed back.
+      else await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+    })();
+    if (bought) await sendVoucher(bought);
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
   }
@@ -1175,6 +1201,45 @@ export async function startTopUpPayment(
     )
     .run(account.provider, bill.id, bill.url, venueId, amount, user.name, user.phone, user.id);
   return { ok: true, url: bill.url, amount, reused: false };
+}
+
+// ------------------------------------------------------------ gift vouchers
+
+/**
+ * Somebody buying a gift voucher online, into the venue's own account. Where
+ * credit bought at one venue would be spent at others on a marketplace, as
+ * with a top-up, only at the counter.
+ */
+export async function startVoucherPayment(input: VoucherInput): Promise<StartResult> {
+  if (!onlineTopUpsAllowed()) return { ok: false, error: "Gift vouchers are sold at the counter here.", status: 409 };
+  const venue = await getVenue(input.venueId);
+  if (!venue || !isOpen(venue)) return { ok: false, error: "That venue is not taking payment online at the moment.", status: 409 };
+  const account = await venueAccount(input.venueId);
+  if (!account) return { ok: false, error: `${venue.name} sells gift vouchers at the counter.`, status: 409 };
+  if (!input.buyerEmail?.trim()) return { ok: false, error: "An email address to send the voucher to is needed.", status: 400 };
+  const made = await pendingVoucher(input);
+  if (!made.ok) return { ...made, status: 400 };
+  let bill;
+  try {
+    bill = await openCheckout(account, {
+      amount: made.voucher.amount,
+      name: made.voucher.buyerName,
+      email: made.voucher.buyerEmail ?? "",
+      mobile: made.voucher.buyerPhone ? toWhatsAppNumber(made.voucher.buyerPhone) : "",
+      description: `${venue.name}: gift voucher`,
+      redirectUrl: `${await venueBaseUrl(input.venueId)}/payments/return`,
+      reference: { label: "Voucher", value: made.voucher.code },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await getDb()
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, voucher_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'voucher', ?)`
+    )
+    .run(account.provider, bill.id, bill.url, input.venueId, made.voucher.amount, made.voucher.buyerName, made.voucher.buyerPhone, made.voucher.id);
+  return { ok: true, url: bill.url, amount: made.voucher.amount, reused: false };
 }
 
 // ------------------------------------------------------------ memberships

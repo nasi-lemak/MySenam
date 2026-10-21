@@ -19,7 +19,7 @@ import { NoticeBar } from "@/components/NoticeBar";
 import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
 import { joinTerms, listPlans } from "@/lib/membership-plans";
-import { renewalFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
+import { onlineTopUpsAllowed, renewalFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
 import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
@@ -93,7 +93,10 @@ export default async function VenuePage({
     access.access === "members" && viewer.userId !== null ? await eligible(venue.id, viewer.userId, "members") : false;
 
   // Membership plans sold online, and where this visitor stands with them.
-  const plans = (await takesPaymentOnline(venue.id)) ? await listPlans(venue.id) : [];
+  const online = await takesPaymentOnline(venue.id);
+  const plans = online ? await listPlans(venue.id) : [];
+  // Gift vouchers sold online, where credit bought here stays here (lib/vouchers.ts).
+  const gifts = online && onlineTopUpsAllowed() && access.access !== "private";
   let standing: JoinStanding = { kind: "signIn" };
   if (plans.length > 0 && viewer.userId !== null) {
     const terms = await joinTerms(viewer.userId, plans[0].id);
@@ -214,6 +217,11 @@ export default async function VenuePage({
         ))}
       {plans.length > 0 && access.access !== "private" && (
         <JoinMembership venueId={venue.id} plans={plans} standing={standing} canAutoRenew={canAutoRenew} renewal={renewal} />
+      )}
+      {gifts && (
+        <Link href={`/venue/${venue.id}/gift`} className="inline-block text-sm font-medium text-teal-700 hover:underline">
+          {t("gift.buyLink")}
+        </Link>
       )}
       {access.access === "private" && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
