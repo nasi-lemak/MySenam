@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   // Codes are guessed one try at a time, slowly.
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
   const body = (await req.json().catch(() => null)) as { code?: unknown } | null;
   if (typeof body?.code !== "string" || body.code.trim() === "")

@@ -18,7 +18,7 @@ const NOISE = [/extension:\/\//, /^Script error\.?$/, /ResizeObserver loop/];
  * echoed back.
  */
 export async function POST(req: NextRequest) {
-  const limited = rateLimit(req, "clientError");
+  const limited = await rateLimit(req, "clientError");
   if (limited) return limited;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const text = (k: string, max: number) => (typeof body?.[k] === "string" ? (body[k] as string).slice(0, max) : null);

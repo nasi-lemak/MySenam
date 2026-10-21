@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
 
-  const limited = rateLimit(req, "register");
+  const limited = await rateLimit(req, "register");
   if (limited) return limited;
 
   const result = await registerUser({ name, email, phone, password });

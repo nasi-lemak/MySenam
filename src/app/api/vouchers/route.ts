@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * No account needed: it is bought for somebody else.
  */
 export async function POST(req: NextRequest) {
-  const limited = rateLimit(req, "payment");
+  const limited = await rateLimit(req, "payment");
   if (limited) return limited;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || !Number.isInteger(body.venueId)) return NextResponse.json({ error: "venueId is required." }, { status: 400 });

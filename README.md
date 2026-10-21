@@ -181,6 +181,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
 | `MYSENAM_BACKUP_HOUR` | `3` | The hour, Malaysia time, of the nightly backup |
 | `MYSENAM_SCHEDULER` | on in production | `off` to leave nightly backups and message sending to your own cron |
+| `MYSENAM_RATE_LIMITS` | `memory` | `shared` to keep rate-limit counters in Postgres, for more than one instance |
 | `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
 | `PHOTOS_S3_*` | — | A bucket of its own for venue photos (`ENDPOINT`, `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION`); without one, photos go in the data folder. See *Venue photos* |
 | `PHOTOS_PUBLIC_URL` | — | The photo bucket's public address, so browsers fetch photos from it rather than through this server |
@@ -3316,10 +3317,29 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | Booking lookup / cancel by code | 20 per 10 min |
 | Booking creation | 20 per hour |
 
-Counters live in process memory, so each instance keeps its own. A horizontally
-scaled deploy should move them to a shared store (Redis) with the same policies.
-Client identity comes from `x-forwarded-for`, which is only trustworthy behind a
-proxy that sets it.
+Counters live in process memory by default, which is right for one instance.
+Behind several, set `MYSENAM_RATE_LIMITS=shared` and they live in Postgres
+instead (`rate_limits`). That is one atomic upsert per limited request, so
+every instance counts against the same window; passed windows are cleared with
+the daily retention run. Client identity comes from `x-forwarded-for`, which is
+only trustworthy behind a proxy that sets it.
+
+### More than one instance
+
+Two things would otherwise happen once per instance:
+
+- **Rate limits**: see above, `MYSENAM_RATE_LIMITS=shared`.
+- **Scheduled work** (messages, released holds, invoices, overdue checks,
+  league housekeeping, the nightly backup): each instance ticks, but only the
+  one holding the **scheduler's lease** works. The lease is a row in
+  `settings` naming the instance and when it runs out
+  (`holdSchedulerLease` in `lib/scheduler.ts`). The holder renews it every
+  minute; if it stops, another instance takes over within three minutes. No
+  setting needed.
+
+Backups are written to the data folder of whichever instance holds the lease,
+so with several instances set up an off-site copy (below) to have them in one
+place.
 
 ### Limits that follow the phone number
 

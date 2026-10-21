@@ -33,7 +33,7 @@ export function forgotRoute(kind: AccountKind) {
     if (!body) return invalid();
     if (typeof body.email !== "string" || body.email.trim() === "")
       return NextResponse.json({ error: "email is required." }, { status: 400 });
-    const limited = rateLimit(req, "login", body.email.trim().toLowerCase());
+    const limited = await rateLimit(req, "login", body.email.trim().toLowerCase());
     if (limited) return limited;
     const locale = req.cookies.get(LOCALE_COOKIE)?.value;
     return NextResponse.json(await requestReset(kind, body.email, isLocale(locale) ? locale : "en"));
@@ -47,7 +47,7 @@ export function resetRoute(kind: AccountKind) {
     if (!body) return invalid();
     if (typeof body.token !== "string" || typeof body.password !== "string")
       return NextResponse.json({ error: "token and password are required." }, { status: 400 });
-    const limited = rateLimit(req, "login");
+    const limited = await rateLimit(req, "login");
     if (limited) return limited;
     const result = await resetPassword(kind, body.token, body.password);
     if (!result.ok) return NextResponse.json(result, { status: 400 });
@@ -75,7 +75,7 @@ export function changeRoute(kind: AccountKind) {
     const body = await bodyOf(req);
     if (!body) return invalid();
     if (typeof body.next !== "string") return NextResponse.json({ error: "next is required." }, { status: 400 });
-    const limited = rateLimit(req, "login", `${kind}:${account.id}`);
+    const limited = await rateLimit(req, "login", `${kind}:${account.id}`);
     if (limited) return limited;
     const result = await changePassword(
       kind,

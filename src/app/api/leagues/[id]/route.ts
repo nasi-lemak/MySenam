@@ -38,14 +38,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const body = await jsonBody(req);
   if (body instanceof NextResponse) return body;
   if (body.action === "pay") {
-    const limited = rateLimit(req, "payment");
+    const limited = await rateLimit(req, "payment");
     if (limited) return limited;
     const paying = await startLeaguePayment(user, league.id);
     if (!paying.ok) return NextResponse.json({ error: paying.error }, { status: paying.status });
     return NextResponse.json({ url: paying.url });
   }
   if (body.action === "join") {
-    const limited = rateLimit(req, "booking");
+    const limited = await rateLimit(req, "booking");
     if (limited) return limited;
     // Box-mates are given this number to arrange matches: it had better be theirs.
     const noPhone = await phoneRefusal(user.id);

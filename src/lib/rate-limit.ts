@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "./db";
 
 /**
- * Fixed-window rate limiting, kept in process memory.
+ * Fixed-window rate limiting: what stops a single host brute-forcing
+ * passwords or booking codes, or filling a venue with junk bookings.
  *
- * This is single-node state: behind several instances each one keeps its own
- * counters, so a horizontally scaled deploy wants a shared store (Redis) with
- * the same policies. It is still worth having — it is what stops a single host
- * brute-forcing passwords or booking codes.
+ * Kept in process memory by default, which is right for one instance. Behind
+ * several, each would keep its own counters and the limits would multiply, so
+ * `MYSENAM_RATE_LIMITS=shared` keeps them in Postgres instead (`rate_limits`),
+ * one atomic upsert per limited request, the same policies either way.
  */
 
 export interface Policy {
@@ -94,9 +96,40 @@ export function checkRateLimit(key: string, policy: Policy): RateLimitResult {
   return { allowed: true, remaining: policy.limit - existing.count, retryAfter };
 }
 
-/** Test helper — clears all counters. */
-export function resetRateLimits(): void {
+/** Test helper — clears all counters, in memory and shared. */
+export async function resetRateLimits(): Promise<void> {
   windows.clear();
+  if (sharedLimits()) await getDb().prepare("DELETE FROM rate_limits").run();
+}
+
+/** Counters kept in Postgres, for an app running as more than one instance. */
+export function sharedLimits(): boolean {
+  return process.env.MYSENAM_RATE_LIMITS === "shared";
+}
+
+/**
+ * The same window as `checkRateLimit`, counted in Postgres so every instance
+ * sees one count: a window that has passed starts again at 1.
+ */
+export async function checkSharedRateLimit(key: string, policy: Policy, now = Date.now()): Promise<RateLimitResult> {
+  const row = (await getDb()
+    .prepare(
+      `INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
+       ON CONFLICT (key) DO UPDATE SET
+         count = CASE WHEN rate_limits.reset_at <= ? THEN 1 ELSE rate_limits.count + 1 END,
+         reset_at = CASE WHEN rate_limits.reset_at <= ? THEN excluded.reset_at ELSE rate_limits.reset_at END
+       RETURNING count, reset_at`
+    )
+    .get(key, now + policy.windowMs, now, now)) as { count: number; reset_at: number | string };
+  const count = Number(row.count);
+  const retryAfter = Math.max(0, Math.ceil((Number(row.reset_at) - now) / 1000));
+  if (count > policy.limit) return { allowed: false, remaining: 0, retryAfter };
+  return { allowed: true, remaining: policy.limit - count, retryAfter: count === 1 ? 0 : retryAfter };
+}
+
+/** Shared windows that have passed: nothing to keep. */
+export async function pruneRateLimits(now = Date.now()): Promise<void> {
+  await getDb().prepare("DELETE FROM rate_limits WHERE reset_at <= ?").run(now);
 }
 
 /**
@@ -111,20 +144,20 @@ function clientKey(req: NextRequest): string {
 
 /**
  * Returns a 429 to hand straight back, or null to continue:
- *   const limited = rateLimit(req, "login");
+ *   const limited = await rateLimit(req, "login");
  *   if (limited) return limited;
  *
  * `scope` further narrows the bucket (e.g. the email being tried), so one
  * noisy client cannot exhaust another's allowance.
  */
-export function rateLimit(
+export async function rateLimit(
   req: NextRequest,
   name: PolicyName,
   scope?: string
-): NextResponse | null {
+): Promise<NextResponse | null> {
   const policy = POLICIES[name];
   const key = `${name}:${clientKey(req)}${scope ? `:${scope.toLowerCase()}` : ""}`;
-  const result = checkRateLimit(key, policy);
+  const result = sharedLimits() ? await checkSharedRateLimit(key, policy) : checkRateLimit(key, policy);
   if (result.allowed) return null;
 
   return NextResponse.json(

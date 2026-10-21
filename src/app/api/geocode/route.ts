@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
   if (q.length < 3) return NextResponse.json({ error: "Type more of the address." }, { status: 400 });
-  const limited = rateLimit(req, "geocode");
+  const limited = await rateLimit(req, "geocode");
   if (limited) return limited;
   return NextResponse.json({ found: await findAddress(q) });
 }

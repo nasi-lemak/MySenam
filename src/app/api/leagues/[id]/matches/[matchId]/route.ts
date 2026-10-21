@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
     .get(Number(matchId), Number(id))) as { id: number } | undefined;
   if (!match) return NextResponse.json({ error: "Not found." }, { status: 404 });
-  const limited = rateLimit(req, "booking");
+  const limited = await rateLimit(req, "booking");
   if (limited) return limited;
   const body = await jsonBody(req);
   if (body instanceof NextResponse) return body;

@@ -48,7 +48,7 @@ async function topUpVenues(userId: number): Promise<{ id: number; name: string }
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  const limited = rateLimit(req, "payment");
+  const limited = await rateLimit(req, "payment");
   if (limited) return limited;
   const body = (await req.json().catch(() => null)) as { venueId?: unknown; amount?: unknown } | null;
   if (!body || !Number.isInteger(body.venueId)) return NextResponse.json({ error: "venueId is required." }, { status: 400 });

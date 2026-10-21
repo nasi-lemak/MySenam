@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   // The second step: the ticket from the password, and the code from the app.
   if (typeof ticket === "string" && typeof code === "string") {
-    const limitedCode = rateLimit(req, "login", ticket);
+    const limitedCode = await rateLimit(req, "login", ticket);
     if (limitedCode) return limitedCode;
     const done = await redeemLoginTicket(ticket, code);
     if (!done.ok) return NextResponse.json({ error: done.error }, { status: 401 });
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   if (typeof email !== "string" || typeof password !== "string")
     return NextResponse.json({ error: "email and password are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "login", email);
+  const limited = await rateLimit(req, "login", email);
   if (limited) return limited;
 
   const admin = await authenticateAdmin(email, password);

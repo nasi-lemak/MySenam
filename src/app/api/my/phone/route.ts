@@ -31,14 +31,14 @@ export async function POST(req: NextRequest) {
   }
   const phone = typeof body.phone === "string" ? body.phone : "";
   if (body.action === "send") {
-    const limited = rateLimit(req, "phoneCode");
+    const limited = await rateLimit(req, "phoneCode");
     if (limited) return limited;
     const sent = await sendPhoneCode(user.id, phone, isLocale(req.cookies.get(LOCALE_COOKIE)?.value) ? (req.cookies.get(LOCALE_COOKIE)!.value as Locale) : "en");
     if (!sent.ok) return NextResponse.json(sent, { status: 400 });
     return NextResponse.json({ ...sent, status: await phoneStatus(user.id) });
   }
   if (body.action === "whatsapp") {
-    const limited = rateLimit(req, "phoneCode");
+    const limited = await rateLimit(req, "phoneCode");
     if (limited) return limited;
     const locale = req.cookies.get(LOCALE_COOKIE)?.value;
     const started = await startWhatsappCheck(user.id, phone, isLocale(locale) ? locale : "en");
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...started, status: await phoneStatus(user.id) });
   }
   if (body.action === "confirm") {
-    const limited = rateLimit(req, "phoneCode");
+    const limited = await rateLimit(req, "phoneCode");
     if (limited) return limited;
     const checked = await confirmPhoneCode(user.id, typeof body.code === "string" ? body.code : "");
     if (!checked.ok) return NextResponse.json(checked, { status: 400 });

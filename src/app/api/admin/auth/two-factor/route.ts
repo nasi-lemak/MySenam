@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { action?: unknown; code?: unknown } | null;
   const code = typeof body?.code === "string" ? body.code : "";
   if (body?.action !== "start") {
-    const limited = rateLimit(req, "login", `2fa:${admin.id}`);
+    const limited = await rateLimit(req, "login", `2fa:${admin.id}`);
     if (limited) return limited;
   }
   switch (body?.action) {

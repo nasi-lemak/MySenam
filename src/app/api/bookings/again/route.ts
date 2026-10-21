@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code") ?? "";
   const phone = req.nextUrl.searchParams.get("phone");
   if (!code) return NextResponse.json({ error: "code is required." }, { status: 400 });
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
   let mine = false;

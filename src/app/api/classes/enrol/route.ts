@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
 
-  const limited = rateLimit(req, "booking");
+  const limited = await rateLimit(req, "booking");
   if (limited) return limited;
 
   const user = await getSessionUser(req);

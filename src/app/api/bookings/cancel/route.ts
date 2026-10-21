@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   if (typeof code !== "string" || typeof phone !== "string")
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
   const result = await cancelBooking(code, phone);

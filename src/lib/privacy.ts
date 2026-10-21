@@ -225,6 +225,8 @@ export async function pruneOldData(): Promise<PruneResult> {
     await deleteStaleDrafts(photoKeys);
     await db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
+    // Shared rate-limit windows that have passed.
+    await db.prepare("DELETE FROM rate_limits WHERE reset_at <= ?").run(Date.now());
     // Errors, 90 days after they last happened: long enough to see one is fixed.
     await db.prepare("DELETE FROM error_events WHERE last_at < ?").run(`${addDays(todayISO(), -90)} 00:00:00`);
     // The staff activity log: two years, long enough for any dispute or audit.

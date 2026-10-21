@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (typeof code !== "string" || code.trim() === "" || typeof phone !== "string" || phone.trim() === "")
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "accessCode");
+  const limited = await rateLimit(req, "accessCode");
   if (limited) return limited;
 
   const result = await accessCodeFor(code, phone);

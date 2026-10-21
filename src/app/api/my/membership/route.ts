@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  const limited = rateLimit(req, "payment");
+  const limited = await rateLimit(req, "payment");
   if (limited) return limited;
   const body = (await req.json().catch(() => null)) as { planId?: unknown; autoRenew?: unknown } | null;
   if (!body || !Number.isInteger(body.planId)) return NextResponse.json({ error: "planId is required." }, { status: 400 });

@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const noPhone = await phoneRefusal(user.id);
     if (noPhone) return refusal(noPhone, 403);
   }
-  const limited = rateLimit(req, "booking");
+  const limited = await rateLimit(req, "booking");
   if (limited) return limited;
   let body: Record<string, unknown>;
   try {

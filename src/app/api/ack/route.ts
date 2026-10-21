@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** `{ token }` — the customer has seen the venue's news. */
 export async function POST(req: NextRequest) {
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
   let b: Record<string, unknown>;
   try {

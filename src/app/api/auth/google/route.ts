@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /** Off to Google, `?next=` being where to come back to. */
 export async function GET(req: NextRequest) {
-  const limited = rateLimit(req, "login");
+  const limited = await rateLimit(req, "login");
   if (limited) return limited;
   if (!googleOfferedAt(req.headers.get("host")))
     return NextResponse.redirect(new URL("/login?error=google", req.url));

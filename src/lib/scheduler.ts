@@ -1,3 +1,5 @@
+import crypto from "crypto";
+import { getDb } from "./db";
 import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
@@ -138,6 +140,30 @@ export function schedulerEnabled(): boolean {
 
 const state = globalThis as { __mysenamScheduler?: ReturnType<typeof setInterval> };
 
+/** This process, among the app's instances: who holds the scheduler's lease. */
+const INSTANCE = `${process.env.HOSTNAME ?? "app"}-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
+/** Held this long past each renewal: an instance that stops is taken over within three minutes. */
+export const LEASE_MS = 3 * MINUTE;
+
+/**
+ * The scheduled work runs on one instance at a time, however many there are:
+ * backups, reminders, invoices and released holds must not happen twice. The
+ * lease is a row in `settings` naming the instance and when it runs out; an
+ * instance takes it when it is free or has run out, and renews it each tick.
+ * Works with any connection pooling, and on PGlite.
+ */
+export async function holdSchedulerLease(instance = INSTANCE, now = Date.now()): Promise<boolean> {
+  const row = await getDb()
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES ('scheduler_lease', ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value
+        WHERE split_part(settings.value, '|', 1) = ? OR split_part(settings.value, '|', 2)::bigint < ?
+       RETURNING value`
+    )
+    .get(`${instance}|${now + LEASE_MS}`, instance, now);
+  return row !== undefined;
+}
+
 /** Start ticking, once per process. */
 export function startScheduler(): void {
   if (state.__mysenamScheduler || !schedulerEnabled()) return;
@@ -147,6 +173,8 @@ export function startScheduler(): void {
     if (busy) return;
     busy = true;
     try {
+      // Another instance has it: this one serves pages and leaves the rest.
+      if (!(await holdSchedulerLease().catch(() => false))) return;
       await runScheduledWork();
     } finally {
       busy = false;

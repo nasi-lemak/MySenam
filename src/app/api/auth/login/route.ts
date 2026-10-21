@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (typeof email !== "string" || typeof password !== "string")
     return NextResponse.json({ error: "email and password are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "login", email);
+  const limited = await rateLimit(req, "login", email);
   if (limited) return limited;
 
   const user = await authenticate(email, password);

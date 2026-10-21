@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (typeof phone !== "string" || !/^\+?[0-9 -]{7,20}$/.test(phone.trim()))
     return NextResponse.json({ error: "Please provide a valid phone number." }, { status: 400 });
 
-  const limited = rateLimit(req, "booking");
+  const limited = await rateLimit(req, "booking");
   if (limited) return limited;
 
   const user = await getSessionUser(req);
@@ -110,7 +110,7 @@ export async function DELETE(req: NextRequest) {
   if (!Number.isInteger(entryId) || typeof phone !== "string")
     return NextResponse.json({ error: "entryId and phone are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
   const result = await leaveWaitlist(entryId as number, phone);

@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
 
-  const limited = rateLimit(req, "booking");
+  const limited = await rateLimit(req, "booking");
   if (limited) return limited;
 
   const user = await getSessionUser(req);
@@ -289,7 +289,7 @@ export async function GET(req: NextRequest) {
   if (!code || !phone)
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
   const booking = await findBooking(code, phone);

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const found = await staffVenue(req, (await params).id);
   if (found instanceof NextResponse) return found;
-  const limited = rateLimit(req, "photoUpload");
+  const limited = await rateLimit(req, "photoUpload");
   if (limited) return limited;
   // Refused before it is read, where the size is declared.
   if (Number(req.headers.get("content-length") ?? 0) > MAX_UPLOAD_BYTES + 64 * 1024)

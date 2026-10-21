@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   if (typeof input.website === "string" && input.website !== "")
     return NextResponse.json({ ok: true, emailSent: true }, { status: 201 });
 
-  const limited = rateLimit(req, "register");
+  const limited = await rateLimit(req, "register");
   if (limited) return limited;
 
   const result = await submitApplication({

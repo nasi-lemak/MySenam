@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   if (typeof seriesCode !== "string" || typeof phone !== "string")
     return NextResponse.json({ error: "seriesCode and phone are required." }, { status: 400 });
 
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
   const result = await cancelSeries(seriesCode, phone);

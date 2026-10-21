@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const date = p.get("date") ?? "";
   if (!code || !phone || !/^\d{4}-\d{2}-\d{2}$/.test(date))
     return NextResponse.json({ error: "code, phone and date are required." }, { status: 400 });
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
   const booking = await findBooking(code, phone);
   if (!booking) return NextResponse.json({ error: "Booking not found. Check the code and phone number.", code: "BOOKING_NOT_FOUND_CODE" }, { status: 404 });
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   const { code, phone, date, startHour } = body ?? {};
   if (typeof code !== "string" || typeof phone !== "string" || typeof date !== "string" || !Number.isInteger(startHour))
     return NextResponse.json({ error: "code, phone, date and startHour are required." }, { status: 400 });
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
   // The code and the phone number together, as for cancelling.
   const booking = await findBooking(code, phone);

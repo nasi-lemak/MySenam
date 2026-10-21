@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   if (typeof token !== "string" || token.trim() === "")
     return NextResponse.json({ error: "token is required." }, { status: 400 });
 
-  const limited = rateLimit(req, "bookingLookup");
+  const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
   const result = await checkInByToken(token);

@@ -40,14 +40,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   if (body.action === "pay") {
-    const limited = rateLimit(req, "payment");
+    const limited = await rateLimit(req, "payment");
     if (limited) return limited;
     const paying = await startEntryPayment(user, t.id);
     if (!paying.ok) return NextResponse.json({ error: paying.error }, { status: paying.status });
     return NextResponse.json({ url: paying.url });
   }
   if (body.action === "enter") {
-    const limited = rateLimit(req, "booking");
+    const limited = await rateLimit(req, "booking");
     if (limited) return limited;
     const noPhone = await phoneRefusal(user.id);
     if (noPhone) return refusal(noPhone, 403);
