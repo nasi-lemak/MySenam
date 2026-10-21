@@ -1787,6 +1787,25 @@ keeps the price it was made at. The columns are on `venues`
 `venue_holidays` (migration 0038); the defaults are the rule every venue had
 before.
 
+
+### Last-minute prices
+
+A venue can fill hours that would otherwise go empty (*Courts & rates → When peak
+rates apply → Last-minute prices*, migration 0060): an hour still free
+within 1 to 24 hours of starting costs 5% to 50% less, for whoever books it
+then. Off-peak hours only unless the venue unticks that, with a warning
+that regulars may learn to wait for the lower price on busy evenings.
+
+- The grid marks those hours (*−20%*) and shows the lower price; the
+  booking form says it is a last-minute price for booking now, and that
+  the venue's usual cancellation rules apply. Search results show the price
+  as it is now.
+- It is a price for a booking made now (`computePrice(..., at)`): a booking
+  already made keeps what it cost, a booking moved into such an hour pays
+  the usual price, and later weeks of a weekly series are too far ahead to
+  qualify.
+- A member's rate is discounted the same way.
+
 ## Memberships and member rates
 
 Every court carries an optional **member rate** beside its public one, per

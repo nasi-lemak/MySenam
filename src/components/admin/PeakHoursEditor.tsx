@@ -23,6 +23,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lm, setLm] = useState({ on: false, hours: 3, percent: 20, offPeakOnly: true });
 
   useEffect(() => {
     setRules(null);
@@ -31,6 +32,8 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
       .then((d: { rules?: Rules; holidays?: Holiday[] }) => {
         if (!d.rules) return;
         setRules(d.rules);
+        const l = d.rules.lastMinute;
+        setLm(l ? { on: true, hours: l.hours, percent: l.percent, offPeakOnly: l.offPeakOnly } : { on: false, hours: 3, percent: 20, offPeakOnly: true });
         setHolidays(d.holidays ?? []);
       });
   }, [venueId]);
@@ -61,6 +64,16 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     if (!data) return;
     setRules(data.rules as Rules);
     setNotice("Saved. Prices from now on follow these hours; bookings already made keep theirs.");
+  }
+
+  async function saveLastMinute() {
+    const data = await send("/api/admin/peak-rules", "POST", {
+      venueId,
+      lastMinute: lm.on ? { hours: lm.hours, percent: lm.percent, offPeakOnly: lm.offPeakOnly } : { off: true },
+    });
+    if (!data) return;
+    setRules(data.rules as Rules);
+    setNotice(lm.on ? "Saved. Customers see the lower price on hours that qualify, and pay it if they book then." : "Last-minute prices are off.");
   }
 
   async function addDay() {
@@ -152,6 +165,46 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
           Save peak hours
         </button>
       </div>
+
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Last-minute prices</h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Fill hours that would otherwise go empty: an hour still free shortly before it starts costs less, for whoever books
+        it then. Bookings already made keep their price, and a booking moved into such an hour does not get the lower one.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={lm.on} onChange={(e) => setLm({ ...lm, on: e.target.checked })} />
+          On:
+        </label>
+        <select aria-label="Discount" value={lm.percent} disabled={!lm.on} onChange={(e) => setLm({ ...lm, percent: Number(e.target.value) })} className={input}>
+          {[10, 15, 20, 25, 30, 40, 50].map((p) => (
+            <option key={p} value={p}>
+              {p}% off
+            </option>
+          ))}
+        </select>
+        within
+        <select aria-label="Hours before" value={lm.hours} disabled={!lm.on} onChange={(e) => setLm({ ...lm, hours: Number(e.target.value) })} className={input}>
+          {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+            <option key={h} value={h}>
+              {h} hour{h === 1 ? "" : "s"}
+            </option>
+          ))}
+        </select>
+        of the start
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={lm.offPeakOnly} disabled={!lm.on} onChange={(e) => setLm({ ...lm, offPeakOnly: e.target.checked })} />
+          off-peak hours only
+        </label>
+        <button disabled={busy} onClick={saveLastMinute} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+          Save
+        </button>
+      </div>
+      {lm.on && !lm.offPeakOnly && (
+        <p className="mt-1 text-xs text-amber-700">
+          Peak hours too: regulars may learn to wait for the lower price on your busiest evenings.
+        </p>
+      )}
 
       <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Holidays at weekend prices</h4>
       {holidays.length > 0 ? (

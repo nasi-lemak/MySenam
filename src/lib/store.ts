@@ -88,6 +88,7 @@ import {
   onSlot,
   isValidDateString,
   isPeak,
+  lastMinuteOff,
   DEFAULT_PEAK,
   type PeakRules,
   isWithinCancelWindow,
@@ -466,7 +467,7 @@ export async function courtsForAnyBooking(input: {
 
   const rules = await peakRules(venueId);
   return free.sort((a, b) => {
-    const diff = computePrice(a, date, hours, false, rules) - computePrice(b, date, hours, false, rules);
+    const diff = computePrice(a, date, hours, false, rules, Date.now()) - computePrice(b, date, hours, false, rules, Date.now());
     return diff !== 0 ? diff : a.id - b.id;
   });
 }
@@ -641,9 +642,11 @@ export async function getAvailability(
       // A partial block shrinks the resource rather than closing it, so the
       // hour stays bookable until the remaining places are gone.
       const shut = closed || booked + out >= court.capacity;
+      const lastMinute = shut || session ? 0 : lastMinuteOff(date, hour, rules, Date.now());
       return {
         hour,
-        rate: computePrice(court, date, [hour], member, rules),
+        rate: computePrice(court, date, [hour], member, rules, Date.now()),
+        ...(lastMinute > 0 ? { lastMinute } : {}),
         booked,
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
@@ -1141,7 +1144,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
         court,
         startHour: start,
         endHour: start + duration,
-        totalPrice: computePrice(court, input.date, hours, false, rulesOf.get(row.v_id)),
+        totalPrice: computePrice(court, input.date, hours, false, rulesOf.get(row.v_id), Date.now()),
         alsoFree: 0,
         pricesVary: false,
         ...(distanceKm !== undefined ? { distanceKm } : {}),
@@ -1195,7 +1198,12 @@ export function computePrice(
   hours: number[],
   member = false,
   /** The venue's peak hours and holidays, from `peakRules`. */
-  rules: PeakRules = DEFAULT_PEAK
+  rules: PeakRules = DEFAULT_PEAK,
+  /**
+   * When the booking is being made, for the venue's last-minute prices. Left
+   * out, none apply: what a booking already made cost, or a move.
+   */
+  at?: number
 ): number {
   // Each slot costs its share of the hourly rate: half of it, by the half hour.
   const share = rules.slotHours ?? 1;
@@ -1203,11 +1211,12 @@ export function computePrice(
   return roundMoney(
     hours.reduce((sum, h) => {
       const peak = isPeak(date, h, rules);
+      const off = at === undefined ? 1 : 1 - lastMinuteOff(date, h, rules, at) / 100;
       if (member) {
         const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
-        if (rate !== null) return sum + rate * share;
+        if (rate !== null) return sum + rate * share * off;
       }
-      return sum + (peak ? court.peakRate : court.offPeakRate) * share;
+      return sum + (peak ? court.peakRate : court.offPeakRate) * share * off;
     }, 0)
   );
 }
@@ -1379,7 +1388,7 @@ export async function createBookingSeries(input: {
         }
         const bookingId = (await insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + step,
-          name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate), rules),
+          name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate), rules, Date.now()),
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
           input.classId ?? null
         )).lastInsertRowid as number;

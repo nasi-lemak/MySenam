@@ -1,5 +1,6 @@
 import { getDb } from "./db";
-import { DEFAULT_PEAK, isValidDateString, todayISO, type PeakRules } from "./time";
+import { DEFAULT_PEAK, isValidDateString, todayISO, type LastMinute, type PeakRules } from "./time";
+import { venueZoneOf } from "./zones";
 
 /**
  * Each venue's peak hours, weekend and holidays: when its courts' peak rates
@@ -22,6 +23,12 @@ interface Row {
   peak_weekend_from: number;
   peak_weekend_until: number;
   slot_minutes: number;
+  last_minute_hours: number | null;
+  last_minute_percent: number | null;
+  last_minute_off_peak: number;
+  time_zone: string | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 const toRules = (row: Row, holidays: string[]): PeakRules => ({
@@ -35,6 +42,9 @@ const toRules = (row: Row, holidays: string[]): PeakRules => ({
   weekendUntil: row.peak_weekend_until,
   holidays,
   slotHours: row.slot_minutes / 60,
+  ...(row.last_minute_hours && row.last_minute_percent
+    ? { lastMinute: { hours: row.last_minute_hours, percent: row.last_minute_percent, offPeakOnly: row.last_minute_off_peak === 1, zone: venueZoneOf(row) } }
+    : {}),
 });
 
 /** The rules of several venues at once, for a search across them. A venue not found gets the default. */
@@ -46,7 +56,8 @@ export async function peakRulesFor(venueIds: number[]): Promise<Map<number, Peak
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until, slot_minutes
+      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until, slot_minutes,
+              last_minute_hours, last_minute_percent, last_minute_off_peak, time_zone, lat, lng
        FROM venues WHERE id IN (${list})`
     )
     .all(...ids)) as Row[];
@@ -100,6 +111,31 @@ export async function setPeakRules(venueId: number, input: Record<string, unknow
     )
     .run(weekdayFrom, weekdayUntil, days.join(","), weekendFrom, weekendUntil, venueId);
   return { ok: true, rules: await peakRules(venueId) };
+}
+
+/**
+ * Last-minute prices: `{ hours, percent, offPeakOnly }`, or `{ off: true }`.
+ * Hours still free within `hours` (1–24) of starting cost `percent` (5–50)
+ * less, for bookings made then; bookings already made keep their price.
+ */
+export async function setLastMinute(
+  venueId: number,
+  input: Record<string, unknown>
+): Promise<Result<{ lastMinute: Omit<LastMinute, "zone"> | null }>> {
+  if (input.off === true) {
+    await getDb().prepare("UPDATE venues SET last_minute_hours = NULL, last_minute_percent = NULL WHERE id = ?").run(venueId);
+    return { ok: true, lastMinute: null };
+  }
+  const { hours, percent } = input;
+  if (typeof hours !== "number" || !Number.isInteger(hours) || hours < 1 || hours > 24)
+    return { ok: false, error: "How close to the start: 1 to 24 hours." };
+  if (typeof percent !== "number" || !Number.isInteger(percent) || percent < 5 || percent > 50)
+    return { ok: false, error: "The discount is 5% to 50%." };
+  const offPeakOnly = input.offPeakOnly !== false;
+  await getDb()
+    .prepare("UPDATE venues SET last_minute_hours = ?, last_minute_percent = ?, last_minute_off_peak = ? WHERE id = ?")
+    .run(hours, percent, offPeakOnly ? 1 : 0, venueId);
+  return { ok: true, lastMinute: { hours, percent, offPeakOnly } };
 }
 
 /** Price a date like the weekend. Naming a date already listed renames it. */

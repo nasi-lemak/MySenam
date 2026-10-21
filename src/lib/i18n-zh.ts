@@ -1017,6 +1017,8 @@ export const ZH: Record<Phrase, string> = {
   "mkt.acctSince": "自 {date} 起",
   "mkt.acctStopped": "已退订",
   "mkt.acctStop": "退订",
+  "lm.badge": "−{n}%",
+  "lm.note": "临时优惠价：现在预订可享 {n}% 折扣。场馆的常规取消规则仍然适用。",
   "mine.lateCancelNote": "在此之后您仍可在此取消，但场馆会保留您所付金额的 {pct}%。",
   "mine.lateCancelConfirm": "已过免费取消期限。场馆会保留您所付金额的 {pct}%。仍要取消吗？",
   "mine.lateStrikeConfirm": "已过免费取消期限，此次将计为您号码在此场馆的一次逾期取消。仍要取消吗？",

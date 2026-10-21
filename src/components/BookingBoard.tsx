@@ -258,6 +258,13 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     );
   }, [selection, availability, anyRow]);
 
+  /** The last-minute discount on the hours picked, if any: the form says what it is. */
+  const lastMinute = useMemo(() => {
+    if (!selection || !availability || selection.courtId === ANY_COURT) return 0;
+    const slots = availability.find((a) => a.court.id === selection.courtId)?.slots ?? [];
+    return Math.max(0, ...selection.hours.map((h) => slots.find((s) => s.hour === h)?.lastMinute ?? 0));
+  }, [selection, availability]);
+
   function toggleSlot(courtId: number, hour: number) {
     setError(null);
     setSelection((prev) => {
@@ -453,6 +460,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                           }`}
                         >
                           {!slot.available ? (canQueue(slot, date, zone) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)}
+                          {slot.available && slot.lastMinute && (
+                            <span className={`block text-[9px] font-semibold leading-none ${isSelected ? "text-white" : "text-amber-700"}`}>
+                              {t("lm.badge", { n: slot.lastMinute })}
+                            </span>
+                          )}
                         </button>
                       </td>
                     );
@@ -501,6 +513,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           hours={selection.hours}
           step={step}
           totalPrice={totalPrice}
+          lastMinute={lastMinute}
           onBooked={(c) => {
             setConfirmation(c);
             setSelection(null);
@@ -539,6 +552,7 @@ function BookingForm({
   hours,
   step,
   totalPrice,
+  lastMinute = 0,
   onBooked,
   onError,
 }: {
@@ -550,6 +564,8 @@ function BookingForm({
   /** One slot's length in hours. */
   step: number;
   totalPrice: number;
+  /** Percent off the hours picked, for booking them now. */
+  lastMinute?: number;
   onBooked: (c: Confirmation) => void;
   onError: (msg: string) => void;
 }) {
@@ -839,6 +855,7 @@ function BookingForm({
           {t("form.skipTaken")}
         </label>
       )}
+      {lastMinute > 0 && <p className="mt-2 text-xs font-medium text-amber-800">⏱ {t("lm.note", { n: lastMinute })}</p>}
       {email.trim() !== "" && (
         <label className="mt-2 flex items-start gap-2 text-xs text-slate-600">
           <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="mt-0.5 accent-teal-600" />

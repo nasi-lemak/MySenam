@@ -104,6 +104,19 @@ export interface PeakRules {
    * by the half hour. A slot costs its share of the hourly rate.
    */
   slotHours?: number;
+  /**
+   * Last-minute prices: an hour starting within `hours` of now costs
+   * `percent` less, for a booking made now; only off-peak hours where
+   * `offPeakOnly`. Times are the venue's, in `zone`. Null: none.
+   */
+  lastMinute?: LastMinute | null;
+}
+
+export interface LastMinute {
+  hours: number;
+  percent: number;
+  offPeakOnly: boolean;
+  zone: string;
 }
 
 export const DEFAULT_PEAK: PeakRules = {
@@ -115,6 +128,18 @@ export const DEFAULT_PEAK: PeakRules = {
   holidays: [],
   slotHours: 1,
 };
+
+/**
+ * The last-minute discount (percent) on the slot starting at `hour` on `date`,
+ * for a booking made at `at`; 0 when none applies.
+ */
+export function lastMinuteOff(date: string, hour: number, rules: PeakRules, at: number): number {
+  const lm = rules.lastMinute;
+  if (!lm) return 0;
+  if (lm.offPeakOnly && isPeak(date, hour, rules)) return 0;
+  const until = slotStartsAt(date, hour, lm.zone).getTime() - at;
+  return until > 0 && until <= lm.hours * 3_600_000 ? lm.percent : 0;
+}
 
 /** Is the hour starting at `hour` on `date` priced at the peak rate? */
 export function isPeak(date: string, hour: number, rules: PeakRules = DEFAULT_PEAK): boolean {

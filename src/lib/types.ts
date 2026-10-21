@@ -491,6 +491,8 @@ export const WAITLIST_OFFER_MINUTES = 30;
 export interface SlotInfo {
   hour: number;
   rate: number;
+  /** A last-minute price: this percent off, for booking it now. */
+  lastMinute?: number;
   available: boolean;
   /** Places already taken, and the resource's total, for this hour. */
   booked: number;

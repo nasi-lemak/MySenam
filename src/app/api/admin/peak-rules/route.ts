@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { peakRules, setPeakRules, upcomingHolidays } from "@/lib/peak";
+import { peakRules, setLastMinute, setPeakRules, upcomingHolidays } from "@/lib/peak";
 import { formatHour } from "@/lib/time";
 import { logFromRequest } from "@/lib/activity";
 
@@ -25,12 +25,27 @@ export async function GET(req: NextRequest) {
 const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const span = (from: number, until: number) => (from === until ? "none" : `${formatHour(from)}–${formatHour(until)}`);
 
-/** `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }`. */
+/**
+ * `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }`,
+ * or `{ venueId, lastMinute: { hours, percent, offPeakOnly } | { off: true } }`.
+ */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   const venueId = await venueOf(req, body.venueId);
   if (venueId instanceof NextResponse) return venueId;
+  if (body.lastMinute && typeof body.lastMinute === "object") {
+    const set = await setLastMinute(venueId, body.lastMinute as Record<string, unknown>);
+    if (!set.ok) return NextResponse.json(set, { status: 400 });
+    const lm = set.lastMinute;
+    await logFromRequest(req, {
+      venueId,
+      action: "settings.changed",
+      detail: lm ? `Last-minute: ${lm.percent}% off within ${lm.hours}h${lm.offPeakOnly ? ", off-peak only" : ""}` : "Last-minute prices off",
+    });
+    const { holidays: _, ...rules } = await peakRules(venueId);
+    return NextResponse.json({ rules });
+  }
   const result = await setPeakRules(venueId, body);
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   const r = result.rules;
