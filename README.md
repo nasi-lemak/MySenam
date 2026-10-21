@@ -564,13 +564,27 @@ every admin route, so a new route cannot forget it; `tests/roles.test.ts`
 checks each line names a real route, that front desk is refused there and a
 manager is not.
 
-**Spreadsheets for the accountant.** *Reports* has *Bookings (CSV)* and
-*Online payments (CSV)* for the period shown (`src/lib/export.ts`): every
+**Spreadsheets for the accountant.** *Reports* has *Bookings (CSV)*,
+*Online payments (CSV)*, *Sales journal* and *Sales summary* for the period shown (`src/lib/export.ts`): every
 booking with its price, whether and how it was paid, promo discount, extras,
 check-in and no-show; and every payment taken online with what is owed back.
 They open straight in Excel (byte-order mark, quoted cells, and a cell that
 would start a formula is kept as text). Managers only, and each download is
 in the activity log, since customers' names and numbers leave with it.
+
+**The sales journal** (`src/lib/accounting.ts`) is what the accountant keys
+into SQL Accounting, AutoCount, Xero or QuickBooks. It has one row for every
+receipt and credit note dated in the period, on the venue's own calendar,
+including booking receipts, which are drawn from the bookings when they were
+paid. Each row carries the number, the customer, a category (*Court hire*,
+*Classes*, *Memberships*, *Passes*, *Tournament entries*, *League fees*,
+*Game shares*, *Stored credit*, *Gift vouchers*), the net, the tax inside it,
+the gross and how it was paid. Credit notes are negative. Two categories are
+marked *not takings*: **stored credit** and **gift vouchers** are owed to
+customers until they are spent, so the booking they pay for is the sale (shown
+as paid by *Stored credit*). A **booking paid with a pass** is not a row: the
+pass was the sale, taxed when it was sold. *Sales summary* totals it by
+category, the takings, and what was received each way.
 
 **The staff activity log** (*Reports → Staff activity*, `src/lib/activity.ts`)
 writes down who did what, when, at which venue and to which booking:
