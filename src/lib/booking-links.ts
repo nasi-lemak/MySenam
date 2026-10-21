@@ -20,7 +20,7 @@ export interface BookingShareInfo {
 }
 
 /** A venue's wall-clock time as a calendar's UTC stamp, in the venue's zone (the install's if not given). */
-function toUtcStamp(date: string, localHour: number, zone?: string): string {
+export function toUtcStamp(date: string, localHour: number, zone?: string): string {
   return slotStartsAt(date, localHour, zone).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
@@ -33,7 +33,7 @@ function toUtcStamp(date: string, localHour: number, zone?: string): string {
  * The backslash goes first: escaping it after the others would escape the
  * escapes.
  */
-function icsText(value: string): string {
+export function icsText(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
     .replace(/;/g, "\\;")
@@ -48,7 +48,7 @@ function icsText(value: string): string {
  * next line beginning with a space. An address plus a long venue name goes past
  * that easily, and a strict reader rejects the whole file rather than the line.
  */
-function fold(line: string): string {
+export function fold(line: string): string {
   const bytes = Buffer.from(line, "utf8");
   if (bytes.length <= 75) return line;
   const parts: string[] = [];

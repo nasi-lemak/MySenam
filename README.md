@@ -755,6 +755,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
+| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address; on makes a new one |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
@@ -1954,6 +1955,24 @@ are not announced back to the desk.
 - On WhatsApp each alert counts against the venue's messages like any other,
   and needs the `mysenam_venue_new_booking` template below approved.
 - They are written in the install's first language.
+
+### Bookings in staff's own calendar
+
+Under *Venue details → Bookings in your own calendar* a manager turns on an
+iCalendar feed (`lib/staff-calendar.ts`). Staff subscribe to it in Google
+Calendar, Outlook or their phone, and the venue's bookings and classes show up
+next to the rest of their day, from a week back to 90 days ahead. Each booking
+is *Court 1: Name (unpaid)* with its code, times, number and amount. Each class
+is *Yoga Flow (6/8)*. Cancelled bookings drop off at the next refresh, which
+the feed asks for every 30 minutes.
+
+- The address is `/api/calendar/<token>.ics` on the venue's own domain where
+  it has one. A calendar app cannot sign in, so the long random token is the
+  key. It shows customers' names and numbers, so *Make a new address* replaces
+  it (calendars on the old one stop updating) and *Turn off* withdraws it. Both
+  go in the activity log. Turning it on, renewing it and turning it off are for
+  managers; front desk can copy it.
+- The response is `Cache-Control: private, no-store` and `noindex`.
 
 ### What WhatsApp costs, and who pays
 
