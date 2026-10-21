@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { receiptFor } from "@/lib/receipts";
 import { serverT } from "@/lib/locale";
-import { money } from "@/lib/region";
+import { money, region } from "@/lib/region";
+import { einvoiceForReceipt } from "@/lib/myinvois";
 import { PrintButton } from "@/components/PrintButton";
+import { EInvoiceRequest } from "@/components/EInvoiceRequest";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +24,11 @@ export default async function ReceiptPage({
   const t = await serverT();
   const { code } = await params;
   const token = (await searchParams).t;
-  const receipt = typeof token === "string" ? await receiptFor(decodeURIComponent(code), token) : null;
+  const ref = decodeURIComponent(code);
+  const receipt = typeof token === "string" ? await receiptFor(ref, token) : null;
   if (!receipt) notFound();
+  // Malaysia's e-invoicing: the customer's own, asked for here, where the venue issues them.
+  const einvoice = region().country === "MY" && receipt.kind === "receipt" ? await einvoiceForReceipt(ref, receipt.paidAt) : null;
 
   const net = receipt.tax ? Math.round((receipt.total - receipt.tax.amount) * 100) / 100 : null;
   const credit = receipt.kind === "credit_note";
@@ -111,6 +116,21 @@ export default async function ReceiptPage({
             {t("receipt.seeCreditNote", { no: receipt.creditNote.number })}
           </a>
         </p>
+      )}
+      {einvoice?.einvoice ? (
+        <p className="rounded-lg border border-slate-200 p-3 text-slate-700">
+          {t("einv.yours", { code: einvoice.einvoice.codeNumber })}: {t(`einv.status.${einvoice.einvoice.status}`)}.
+          {einvoice.einvoice.link && (
+            <>
+              {" "}
+              <a href={einvoice.einvoice.link} target="_blank" rel="noreferrer" className="font-medium text-teal-700 underline">
+                {t("einv.view")}
+              </a>
+            </>
+          )}
+        </p>
+      ) : (
+        einvoice?.available && typeof token === "string" && <EInvoiceRequest refCode={ref} token={token} />
       )}
     </article>
   );

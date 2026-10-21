@@ -9,6 +9,7 @@ import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { MessagesPanel } from "./MessagesPanel";
 import { BlockedPhonesPanel } from "./BlockedPhonesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
+import { EInvoicePanel } from "./EInvoicePanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
 import { BillingPanel } from "./BillingPanel";
 import { StorefrontsPanel } from "./StorefrontsPanel";
@@ -158,6 +159,8 @@ export function VenuesTab({
       <MessagesPanel venues={venues} />
 
       <OnlinePaymentsPanel venues={venues} />
+
+      {region().country === "MY" && admin.role !== "desk" && <EInvoicePanel venues={venues} />}
 
       <BillingPanel isOwner={isOwner} />
 

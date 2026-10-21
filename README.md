@@ -182,6 +182,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_BACKUP_HOUR` | `3` | The hour, Malaysia time, of the nightly backup |
 | `MYSENAM_SCHEDULER` | on in production | `off` to leave nightly backups and message sending to your own cron |
 | `MYSENAM_RATE_LIMITS` | `memory` | `shared` to keep rate-limit counters in Postgres, for more than one instance |
+| `MYINVOIS_CLIENT_ID`, `MYINVOIS_CLIENT_SECRET` | unset | The platform's own MyInvois ERP client, to act as venues' intermediary for LHDN e-invoicing (Malaysia) |
 | `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
 | `PHOTOS_S3_*` | — | A bucket of its own for venue photos (`ENDPOINT`, `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION`); without one, photos go in the data folder. See *Venue photos* |
 | `PHOTOS_PUBLIC_URL` | — | The photo bucket's public address, so browsers fetch photos from it rather than through this server |
@@ -2697,13 +2698,74 @@ and `MYSENAM_TAX_REG_NO` once the operator is registered:
   venue's own tax number if it has one, the lines, the total before tax, the
   tax and the total.
 
-**Not built: e-invoicing.** Malaysia's MyInvois exempts businesses under RM3
-million in annual sales (from 1 September 2026; they may still opt in), and
-any single invoice over RM10,000 needs one regardless. Singapore requires
-InvoiceNow from the start for anybody registering for GST voluntarily from
-1 April 2026, and from 2028 for others. Either is an API integration with the
-tax authority, worth building when the operator is in scope. Until then the
-printable invoices and the CSV exports are what an accountant works from.
+**Singapore's InvoiceNow is not built.** It is required from the start for
+anybody registering for GST voluntarily from 1 April 2026, and from 2028 for
+others: an API integration through a Peppol access point, worth building when
+an operator there is in scope. Until then the printable invoices and the CSV
+exports are what an accountant works from.
+
+## E-invoicing in Malaysia (LHDN MyInvois)
+
+> **Not yet tried against LHDN.** This is written from LHDN's published API
+> and sample documents, and tested against a pretend MyInvois
+> (`tests/myinvois.test.ts`). Before a venue uses production, run it in
+> LHDN's sandbox (pre-production) and check the documents there. Whether a
+> venue must e-invoice at all, and from when, depends on its turnover and on
+> thresholds LHDN has changed more than once: that is for the venue and its
+> accountant, and the settings panel says so.
+
+A venue turns it on under *Venues & staff → E-invoicing* (managers only;
+Malaysian installs only), with its TIN, business registration number, MSIC
+code, registered name, address and contact details (`einvoice_settings`,
+migration 0056). It starts in sandbox; production is a separate tick, with a
+warning that documents cannot be withdrawn after 72 hours.
+
+How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
+
+- **With the venue's own ERP client**, registered in the MyInvois portal: its
+  client ID and secret, the secret sealed like a payment key and never shown
+  again; or
+- **as the venue's intermediary**, with the platform's own client
+  (`MYINVOIS_CLIENT_ID`, `MYINVOIS_CLIENT_SECRET`) and the venue's TIN in the
+  `onbehalfof` header, once the venue has named the platform as an
+  intermediary in the portal. Offered only when those are set.
+
+*Test connection* signs in with them. What is sent (`src/lib/myinvois.ts`,
+`src/lib/myinvois/ubl.ts`):
+
+- **Each month, consolidated.** In each venue's first seven days of a month,
+  the scheduler writes last month's sales down as one e-invoice to the
+  general public (`CON-2026-10`, buyer TIN `EI00000000010`, classification
+  004): a line for each kind of sale (court hire, classes, coaching, passes,
+  memberships, credit…) and tax rate, saying how many receipts and which.
+  Managers can send it sooner with *Send last month now*.
+- **Credit notes**, by the e-invoice that carried what they reverse: the
+  month's consolidated one, or a customer's own, as consolidated credit notes
+  (`CCN-2026-11-CON-2026-10`) naming it by LHDN's UUID. A credit note waits to
+  be sent until what it corrects has been accepted. Reversing a sale from
+  before e-invoicing was on sends nothing.
+- **A customer's own.** A paid receipt shows *Need an e-invoice?* while its
+  month has not been consolidated. The customer gives a name, TIN (an
+  individual without one uses `EI00000000010` and their IC number), ID,
+  email, phone and address, with a warning that it goes to LHDN at once in
+  that name and cannot be edited. It is sent straight away
+  (`POST /api/receipts/einvoice`, behind the receipt's signed link),
+  classification 022, and left out of the consolidated one. The receipt then
+  says where it stands and, once valid, links to LHDN's public page.
+- Each document is UBL 2.1 JSON, version 1.0 (no digital signature), built
+  when it is sent so it carries the venue's details as they are then, base64
+  with its SHA-256. Tax category 02 (service tax) where the venue charges
+  SST, else 06 (not applicable).
+- **Afterwards**, every tick asks LHDN about those sent and not yet decided:
+  *Valid* (with the link) or *Invalid* (with LHDN's reasons). One that LHDN
+  refused or found invalid is listed with why; *Send again* sends it once the
+  venue has put it right.
+
+Not covered: a single sale over RM10,000 must have its own e-invoice and
+cannot go in the consolidated one, so the venue issues those itself in the
+MyInvois portal (the panel says so); cancelling a document within LHDN's 72
+hours is done in the portal; sales recorded outside MySenam are not
+included.
 
 ## Payments
 

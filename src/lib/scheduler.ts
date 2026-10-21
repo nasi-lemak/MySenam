@@ -6,6 +6,7 @@ import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
 import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
+import { runEInvoicing } from "./myinvois";
 import { releaseExpiredHolds } from "./holds";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 import { region } from "./region";
@@ -102,6 +103,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
     await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Malaysian e-invoices: last month consolidated early in the month, then sent and checked.
+    await runEInvoicing(now);
+  } catch (err) {
+    console.error("[mysenam] e-invoicing failed:", err);
+    await raiseAlert("scheduler:e-invoicing-failed", "Scheduled work failed: e-invoicing", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
