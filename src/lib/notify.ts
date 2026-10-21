@@ -12,7 +12,9 @@ import { createNotice } from "./urgent";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
-import { money, offsetMs, region } from "./region";
+import { money } from "./region";
+import { slotStartsAt } from "./time";
+import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
@@ -66,7 +68,7 @@ async function deliver(
 }
 
 /** The booking, or each week of a series, as a calendar file. */
-function calendarFor(bookings: Booking[], court: string, venue: { name: string; address: string }): string {
+function calendarFor(bookings: Booking[], court: string, venue: { name: string; address: string; timeZone?: string }): string {
   return icsCalendar(
     bookings.map((b) => ({
       siteName: siteName(),
@@ -77,6 +79,7 @@ function calendarFor(bookings: Booking[], court: string, venue: { name: string; 
       courtName: court,
       venueName: venue.name,
       venueAddress: venue.address,
+      timeZone: venue.timeZone,
       totalPrice: b.totalPrice,
     }))
   );
@@ -651,11 +654,6 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
   }
 }
 
-/** The start of a booking (local time) as a moment. */
-function startsAt(date: string, hour: number): number {
-  const [y, m, d] = date.split("-").map(Number);
-  return Date.UTC(y, m - 1, d, hour - region().utcOffsetHours);
-}
 
 /**
  * The day before: a reminder for every booking starting within the next 24
@@ -665,19 +663,26 @@ function startsAt(date: string, hour: number): number {
  * Once per booking, however often this runs.
  */
 export async function notifyReminders(now = new Date()): Promise<number> {
-  const today = new Date(now.getTime() + offsetMs()).toISOString().slice(0, 10);
-  const tomorrow = new Date(now.getTime() + 32 * 3_600_000).toISOString().slice(0, 10);
+  // Wide enough for a venue anywhere on the clock; each is then held to its own zone.
+  const from = new Date(now.getTime() - 24 * 3_600_000).toISOString().slice(0, 10);
+  const to = new Date(now.getTime() + 48 * 3_600_000).toISOString().slice(0, 10);
   const rows = (await getDb()
     .prepare(
-      `SELECT b.*, v.whatsapp_reminders FROM bookings b
+      `SELECT b.*, v.whatsapp_reminders, v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng FROM bookings b
          JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
-        WHERE b.status = 'confirmed' AND b.demo = 0 AND b.date IN (?, ?)
+        WHERE b.status = 'confirmed' AND b.demo = 0 AND b.date >= ? AND b.date <= ?
           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'reminder:' || b.code)`
     )
-    .all(today, tomorrow)) as (Record<string, unknown> & { whatsapp_reminders: number })[];
+    .all(from, to)) as (Record<string, unknown> & {
+    whatsapp_reminders: number;
+    venue_time_zone: string | null;
+    venue_lat: number | null;
+    venue_lng: number | null;
+  })[];
   let written = 0;
   for (const r of rows) {
-    const start = startsAt(r.date as string, r.start_hour as number);
+    const zone = venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng });
+    const start = slotStartsAt(r.date as string, r.start_hour as number, zone).getTime();
     const made = Date.parse(`${(r.created_at as string).replace(" ", "T")}Z`);
     if (start <= now.getTime() || start - now.getTime() > 24 * 3_600_000) continue;
     if (start - made < 24 * 3_600_000) continue;

@@ -16,7 +16,7 @@ import {
   Pass,
   VenueClosure,
 } from "@/lib/types";
-import { consecutive, formatHour } from "@/lib/time";
+import { consecutive, formatHour, isPastSlot } from "@/lib/time";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -51,7 +51,7 @@ interface Confirmation {
   skipped: { date: string; reason: string }[];
   seriesCode: string | null;
   court: Court;
-  venue: { name: string; area: string };
+  venue: { name: string; area: string; timeZone?: string };
   /** Total taken off by a promo code, and why one did not apply. */
   discount?: number;
   promoError?: string | null;
@@ -74,39 +74,20 @@ const BUSY_STYLES: Record<string, string> = {
 
 /**
  * A taken slot can be queued for; a blocked, class-reserved or past one
- * cannot, because no cancellation will ever free it.
+ * cannot, because no cancellation will ever free it. Past by the venue's clock.
  */
-function canQueue(slot: CourtAvailability["slots"][number], date: string): boolean {
+function canQueue(slot: CourtAvailability["slots"][number], date: string, zone: string): boolean {
   if (slot.available || slot.blocked || slot.className) return false;
-  return !isPastSlotClient(date, slot.hour);
+  return !isPastSlot(date, slot.hour, zone);
 }
 
-/** A UTC "YYYY-MM-DD HH:MM:SS" as Malaysia-time HH:MM, for the customer. */
-function localTimeOf(utc: string): string {
+/** A UTC "YYYY-MM-DD HH:MM:SS" as the venue's HH:MM, for the customer. */
+function localTimeOf(utc: string, zone: string = region().timeZone): string {
   return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
-    timeZone: region().timeZone,
+    timeZone: zone,
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-/** Past-slot check in the install's time zone, for the browser. */
-function isPastSlotClient(date: string, hour: number): boolean {
-  const now = new Date();
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: region().timeZone }).format(now);
-  if (date < today) return true;
-  if (date > today) return false;
-  const [h, m] = new Intl.DateTimeFormat("en-GB", {
-    timeZone: region().timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
-    .format(now)
-    .split(":")
-    .map(Number);
-  // A slot is under way from its first minute: 18:30 at 18:30.
-  return hour <= (h % 24) + m / 60;
 }
 
 function formatDateLabel(t: T, date: string): { day: string; num: string } {
@@ -135,6 +116,8 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
   const [availability, setAvailability] = useState<CourtAvailability[] | null>(null);
   const [closure, setClosure] = useState<VenueClosure | null>(null);
   const [memberRates, setMemberRates] = useState(false);
+  // The venue's clock, which the slots and "already passed" go by.
+  const [zone, setZone] = useState(region().timeZone);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +162,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       setAvailability(slots);
       setClosure(data.closure ?? null);
       setMemberRates(data.memberRates === true);
+      if (typeof data.timeZone === "string") setZone(data.timeZone);
 
       const pending = pendingInitial.current;
       if (pending) {
@@ -427,7 +411,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     return (
                       <td key={slot.hour} className="p-1 text-center">
                         <button
-                          disabled={!slot.available && !canQueue(slot, date)}
+                          disabled={!slot.available && !canQueue(slot, date, zone)}
                           onClick={() =>
                             slot.available
                               ? toggleSlot(court.id, slot.hour)
@@ -435,7 +419,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                           }
                           title={
                             !slot.available
-                              ? canQueue(slot, date)
+                              ? canQueue(slot, date, zone)
                                 ? t("board.queueHint")
                                 : slot.className
                                   ? t("board.reservedFor", { name: slot.className })
@@ -455,7 +439,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
                             !slot.available
-                              ? canQueue(slot, date)
+                              ? canQueue(slot, date, zone)
                                 ? "cursor-pointer bg-slate-100 text-slate-400 hover:bg-amber-100 hover:text-amber-700"
                                 : "cursor-not-allowed bg-slate-100 text-slate-300"
                               : isSelected
@@ -465,7 +449,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                                   : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           }`}
                         >
-                          {!slot.available ? (canQueue(slot, date) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)}
+                          {!slot.available ? (canQueue(slot, date, zone) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)}
                         </button>
                       </td>
                     );
@@ -874,6 +858,7 @@ function ConfirmationModal({
     endHour: booking.endHour,
     courtName: court.name,
     venueName: venue.name,
+    timeZone: venue.timeZone,
     totalPrice: isSeries ? seriesTotal : booking.totalPrice,
   };
   return (
@@ -886,7 +871,7 @@ function ConfirmationModal({
           </h2>
           {holdUntil ? (
             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-              {t("hold.body", { time: localTimeOf(holdUntil) })}
+              {t("hold.body", { time: localTimeOf(holdUntil, venue.timeZone) })}
             </p>
           ) : (
             <p className="mt-1 text-sm text-slate-600">

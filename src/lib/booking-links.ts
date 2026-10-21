@@ -1,9 +1,12 @@
 // Client-safe helpers for sharing/exporting a booking. Court times are local
 // to the install (lib/region.ts); calendar formats want UTC.
 import { DEFAULT_SITE_NAME } from "./site";
-import { money, region } from "./region";
+import { money } from "./region";
+import { slotStartsAt } from "./time";
 
 export interface BookingShareInfo {
+  /** The venue's time zone, which the times are in; the install's if not given. */
+  timeZone?: string;
   /** What the install is called, for the text that names it. */
   siteName?: string;
   code: string;
@@ -16,11 +19,9 @@ export interface BookingShareInfo {
   totalPrice: number;
 }
 
-function toUtcStamp(date: string, localHour: number): string {
-  const [y, m, d] = date.split("-").map(Number);
-  // In minutes, so 18.5 is 18:30.
-  const utc = new Date(Date.UTC(y, m - 1, d, 0, Math.round((localHour - region().utcOffsetHours) * 60)));
-  return utc.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+/** A venue's wall-clock time as a calendar's UTC stamp, in the venue's zone (the install's if not given). */
+function toUtcStamp(date: string, localHour: number, zone?: string): string {
+  return slotStartsAt(date, localHour, zone).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
 /**
@@ -80,9 +81,9 @@ export function icsCalendar(list: BookingShareInfo[]): string {
     ...list.flatMap((b) => [
       "BEGIN:VEVENT",
       `UID:${b.code}@mysenam`,
-      `DTSTAMP:${toUtcStamp(b.date, b.startHour)}`,
-      `DTSTART:${toUtcStamp(b.date, b.startHour)}`,
-      `DTEND:${toUtcStamp(b.date, b.endHour)}`,
+      `DTSTAMP:${toUtcStamp(b.date, b.startHour, b.timeZone)}`,
+      `DTSTART:${toUtcStamp(b.date, b.startHour, b.timeZone)}`,
+      `DTEND:${toUtcStamp(b.date, b.endHour, b.timeZone)}`,
       `SUMMARY:${icsText(`${b.courtName} @ ${b.venueName}`)}`,
       `DESCRIPTION:${icsText(`${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total ${money(b.totalPrice)}.`)}`,
       ...(b.venueAddress ? [`LOCATION:${icsText(b.venueAddress)}`] : []),
@@ -113,7 +114,7 @@ export function googleCalendarUrl(b: BookingShareInfo): string {
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text: `${b.courtName} @ ${b.venueName}`,
-    dates: `${toUtcStamp(b.date, b.startHour)}/${toUtcStamp(b.date, b.endHour)}`,
+    dates: `${toUtcStamp(b.date, b.startHour, b.timeZone)}/${toUtcStamp(b.date, b.endHour, b.timeZone)}`,
     details: `${b.siteName ?? DEFAULT_SITE_NAME} booking ${b.code}. Total ${money(b.totalPrice)}.`,
     ...(b.venueAddress ? { location: b.venueAddress } : {}),
   });

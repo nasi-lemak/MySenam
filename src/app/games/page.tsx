@@ -8,10 +8,10 @@ import { useT } from "@/components/Language";
 import { NearPicker, type NearChoice } from "@/components/NearPicker";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
-import { addDays, formatHour, todayISO } from "@/lib/time";
+import { addDays, formatHour, slotStartsAt, todayISO } from "@/lib/time";
 import { SPORT_ICONS, SPORTS, type Sport } from "@/lib/types";
 import type { GamePlayer, Level, OpenGame } from "@/lib/games";
-import { intlTag, isoOffset } from "@/lib/region";
+import { intlTag } from "@/lib/region";
 
 const LEVELS: Level[] = ["beginner", "intermediate", "advanced", "competitive"];
 const levelLabel = (t: T, level: Level) => t(`games.level.${level}`);
@@ -26,6 +26,8 @@ interface MyBooking {
   classId: number | null;
   courtName: string;
   venueName: string;
+  /** The venue's time zone (from /api/my/bookings). */
+  venueTimeZone?: string;
   sport: Sport;
 }
 
@@ -283,7 +285,7 @@ function MyGames({
 }) {
   const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
   // Local time, whatever the phone's own clock is set to.
-  const started = (g: OpenGame) => new Date(`${g.date}T${String(g.startHour).padStart(2, "0")}:00:00${isoOffset()}`) <= new Date();
+  const started = (g: OpenGame) => slotStartsAt(g.date, g.startHour, g.timeZone) <= new Date();
   const small = "rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium hover:border-teal-500";
   return (
     <section className="space-y-3 rounded-xl border border-teal-200 bg-teal-50/50 p-4">
@@ -408,7 +410,7 @@ function OpenOne({
       b.status === "confirmed" &&
       b.classId === null &&
       !hosted.includes(b.code) &&
-      new Date(`${b.date}T${String(b.startHour).padStart(2, "0")}:00:00${isoOffset()}`) > now
+      slotStartsAt(b.date, b.startHour, b.venueTimeZone) > now
   );
   const chosen = upcoming.find((b) => b.code === code) ?? upcoming[0];
   // Split the court evenly among everybody playing, to the 50 sen.

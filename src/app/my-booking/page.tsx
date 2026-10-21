@@ -15,7 +15,7 @@ import { money, intlTag, region } from "@/lib/region";
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string; cancelCutoffHours: number };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string };
   payOnline?: boolean;
   addons?: { name: string; quantity: number; unitPrice: number }[];
   /** Once paid: its receipt, or tax invoice. */
@@ -193,7 +193,7 @@ export default function MyBookingPage() {
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
               {t("hold.pending", {
                 time: new Date(`${b.holdUntil.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
-                  timeZone: region().timeZone,
+                  timeZone: result.venue.timeZone ?? region().timeZone,
                   hour: "numeric",
                   minute: "2-digit",
                 }),
@@ -326,6 +326,7 @@ export default function MyBookingPage() {
                     courtName: result.court.name,
                     venueName: result.venue.name,
                     venueAddress: result.venue.address,
+                    timeZone: result.venue.timeZone,
                     totalPrice: b.totalPrice,
                   };
                   return (

@@ -30,6 +30,8 @@ export interface Region {
     minor: string;
   };
   timeZone: string;
+  /** Every zone a venue here can be in, the main one first. */
+  timeZones: string[];
   /**
    * Hours ahead of UTC. Every country MySenam runs in keeps one offset all
    * year (no daylight saving), so arithmetic on it is safe; a country that
@@ -78,6 +80,8 @@ const REGIONS: Record<CountryCode, Region> = {
     name: "Malaysia",
     currency: { code: "MYR", symbol: "RM", minorUnits: 2, major: "ringgit", minor: "sen" },
     timeZone: "Asia/Kuala_Lumpur",
+    // Sabah and Sarawak keep their own name for the same UTC+8.
+    timeZones: ["Asia/Kuala_Lumpur", "Asia/Kuching"],
     utcOffsetHours: 8,
     phone: { countryCode: "60", trunk: "0", minDigits: 9, example: "012-345 6789" },
     placeExample: "Bangsar, KLCC",
@@ -103,6 +107,7 @@ const REGIONS: Record<CountryCode, Region> = {
     name: "Singapore",
     currency: { code: "SGD", symbol: "S$", minorUnits: 2, major: "dollars", minor: "cent" },
     timeZone: "Asia/Singapore",
+    timeZones: ["Asia/Singapore"],
     utcOffsetHours: 8,
     phone: { countryCode: "65", trunk: "", minDigits: 8, example: "9123 4567" },
     placeExample: "Tampines, Bishan",

@@ -53,6 +53,8 @@ export interface Venue {
   closeHour: number;
   /** Sold by the hour (60) or the half hour (30). */
   slotMinutes: 30 | 60;
+  /** The venue's time zone (IANA), which its courts' times are in. */
+  timeZone: string;
   /**
    * When somebody is behind the counter. null for both means always staffed;
    * equal values mean never staffed. Outside the window is an unstaffed hour,

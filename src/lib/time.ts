@@ -1,30 +1,79 @@
 import { MAX_ADVANCE_DAYS } from "./types";
 import { region } from "./region";
 
+/**
+ * Time zones. Every venue keeps its courts' times in its own wall-clock time:
+ * a booking is "18:00 on the 4th" where the venue is. Its zone (an IANA name,
+ * such as Asia/Kuala_Lumpur or America/New_York) turns that into a moment,
+ * daylight saving and all. A venue with none set is in the install's.
+ */
+export function installZone(): string {
+  return region().timeZone;
+}
+
 // Built once per zone. Constructing a formatter costs far more than using
 // one, and isPastSlot asks for the date and hour once per court per hour — a
 // search across every venue builds tens of thousands of them otherwise. Built
 // on first use rather than at load, so the browser has its country by then.
-let formats: { zone: string; date: Intl.DateTimeFormat; hour: Intl.DateTimeFormat } | null = null;
-function formatters() {
-  const zone = region().timeZone;
-  if (formats?.zone !== zone)
-    formats = {
-      zone,
+const formats = new Map<string, { date: Intl.DateTimeFormat; clock: Intl.DateTimeFormat }>();
+function formatters(zone: string) {
+  let f = formats.get(zone);
+  if (!f) {
+    f = {
       date: new Intl.DateTimeFormat("en-CA", { timeZone: zone }),
-      hour: new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", hour12: false }),
+      clock: new Intl.DateTimeFormat("en-GB", {
+        timeZone: zone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }),
     };
-  return formats;
+    formats.set(zone, f);
+  }
+  return f;
 }
 
-/** Today's date (YYYY-MM-DD) in the install's time zone. */
-export function todayISO(): string {
-  return formatters().date.format(new Date());
+/** Whether this is a time zone the runtime knows. */
+export function isTimeZone(zone: unknown): zone is string {
+  if (typeof zone !== "string" || !zone) return false;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** Current hour (0-23) in the install's time zone. */
-export function currentHour(): number {
-  return parseInt(formatters().hour.format(new Date()), 10) % 24;
+/** Wall-clock parts of a moment in a zone. */
+function wallClock(at: Date, zone: string): { y: number; m: number; d: number; h: number; min: number; s: number } {
+  const parts = Object.fromEntries(formatters(zone).clock.formatToParts(at).map((p) => [p.type, p.value]));
+  return { y: +parts.year, m: +parts.month, d: +parts.day, h: +parts.hour % 24, min: +parts.minute, s: +parts.second };
+}
+
+/** How far ahead of UTC a zone is at a moment, in minutes (negative west of Greenwich). */
+export function zoneOffsetMinutes(at: Date, zone: string): number {
+  const w = wallClock(at, zone);
+  return Math.round((Date.UTC(w.y, w.m - 1, w.d, w.h, w.min, w.s) - Math.floor(at.getTime() / 1000) * 1000) / 60_000);
+}
+
+/** Today's date (YYYY-MM-DD) in a zone: the install's unless a venue's is given. */
+export function todayISO(zone: string = installZone()): string {
+  return formatters(zone).date.format(new Date());
+}
+
+/** The hour now (0-23) in a zone. */
+export function currentHour(zone: string = installZone()): number {
+  return wallClock(new Date(), zone).h;
+}
+
+/** The time now in a zone, in hours: 18.5 at 18:30. */
+export function currentTime(zone: string = installZone()): number {
+  const w = wallClock(new Date(), zone);
+  return w.h + w.min / 60;
 }
 
 export function isValidDateString(date: string): boolean {
@@ -81,28 +130,36 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Is `date` within the bookable window (today .. today + MAX_ADVANCE_DAYS)? */
-export function isBookableDate(date: string): boolean {
-  const today = todayISO();
+/** Is `date` within the bookable window (today .. today + MAX_ADVANCE_DAYS), where the venue is? */
+export function isBookableDate(date: string, zone: string = installZone()): boolean {
+  const today = todayISO(zone);
   return date >= today && date <= addDays(today, MAX_ADVANCE_DAYS);
 }
 
 /**
- * Has this slot already started (or passed), local time? A slot is under way
- * from its first minute: 18:00 is past at 18:10, and 18:30 at 18:30.
+ * Has this slot already started (or passed), the venue's time? A slot is
+ * under way from its first minute: 18:00 is past at 18:10, and 18:30 at 18:30.
  */
-export function isPastSlot(date: string, hour: number): boolean {
-  const today = todayISO();
+export function isPastSlot(date: string, hour: number, zone: string = installZone()): boolean {
+  const today = todayISO(zone);
   if (date < today) return true;
   if (date > today) return false;
-  // The minutes are the same in UTC as here: Malaysia and Singapore are whole hours ahead.
-  return hour <= currentHour() + new Date().getUTCMinutes() / 60;
+  return hour <= currentTime(zone);
 }
 
-/** The UTC instant at which a slot (local time) begins. 18.5 is 18:30. */
-export function slotStartsAt(date: string, hour: number): Date {
+/**
+ * The moment a slot begins: `date` at `hour` (18.5 is 18:30) on the venue's
+ * clock. Across a daylight-saving change the offset is the one in force at
+ * that moment, not today's.
+ */
+export function slotStartsAt(date: string, hour: number, zone: string = installZone()): Date {
   const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, 0, Math.round((hour - region().utcOffsetHours) * 60)));
+  const wall = Date.UTC(y, m - 1, d, 0, Math.round(hour * 60));
+  // Guess with the offset at the wall time read as UTC, then once more with
+  // the offset at the guess, which settles it either side of a change.
+  let at = wall - zoneOffsetMinutes(new Date(wall), zone) * 60_000;
+  at = wall - zoneOffsetMinutes(new Date(at), zone) * 60_000;
+  return new Date(at);
 }
 
 /** A slot's length in hours: 1 by the hour, 0.5 by the half hour. */
@@ -126,17 +183,18 @@ export function onSlot(hour: number, step = 1): boolean {
 }
 
 /** Hours from now until a slot starts; negative once it has begun. */
-export function hoursUntilSlot(date: string, hour: number): number {
-  return (slotStartsAt(date, hour).getTime() - Date.now()) / 3_600_000;
+export function hoursUntilSlot(date: string, hour: number, zone: string = installZone()): number {
+  return (slotStartsAt(date, hour, zone).getTime() - Date.now()) / 3_600_000;
 }
 
 /** Is a customer still inside the free-cancellation window? */
 export function isWithinCancelWindow(
   date: string,
   hour: number,
-  cutoffHours: number
+  cutoffHours: number,
+  zone: string = installZone()
 ): boolean {
-  return hoursUntilSlot(date, hour) >= cutoffHours;
+  return hoursUntilSlot(date, hour, zone) >= cutoffHours;
 }
 
 export function formatHour(hour: number): string {

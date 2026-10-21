@@ -410,6 +410,7 @@ function BookingCard({
     courtName: b.courtName,
     venueName: b.venueName,
     venueAddress: b.venueAddress,
+    timeZone: b.venueTimeZone,
     totalPrice: b.totalPrice,
   };
   return (

@@ -2406,6 +2406,26 @@ table in `src/lib/region.ts`:
   from either does not compile, and the tests check each fills the same
   placeholders. Dates are formatted for `zh-Hans`; WhatsApp templates go to
   Meta as `zh_CN`.
+- **Time zones, venue by venue.** Each venue's courts run on its own clock:
+  bookings are wall-clock times there (18:00 on the 4th), and its zone turns
+  them into moments: when a slot has passed, the booking window, the
+  cancellation cutoff, check-in, reminders and calendar invites. Zones are
+  IANA names, so daylight saving is handled for countries that have it.
+  - **Worked out from the map pin**, not the address: the pin is a point
+    already checked to be in the country, while an address is free text.
+    The lookup (`@photostructure/tz-lookup`, server only) is kept to the
+    country's own zones (`timeZones` in the region table: Kuala Lumpur and
+    Kuching for Malaysia), and with no pin the venue is in the install's
+    zone. Because it is worked out when needed (`venues.time_zone` NULL,
+    migration 0043), moving the pin moves the zone.
+  - **Chosen by a manager** under *Venue details → Time zone* where the pin is
+    wrong. A chosen zone stays put when the pin moves; *From the map pin*
+    goes back. The setting only shows where the country has more than one
+    zone.
+  - Malaysia and Singapore are UTC+8 without daylight saving, so today this
+    changes nothing anyone sees. It is what lets an install take venues in
+    Indonesia's three zones, or the Americas, later. Install-wide clocks
+    (billing months, backups, the scheduler) stay on the install's zone.
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).
 

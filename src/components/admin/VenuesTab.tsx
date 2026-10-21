@@ -24,6 +24,7 @@ import { WhatsAppEditor } from "./WhatsAppEditor";
 import { AccessEditor } from "./AccessEditor";
 import { HouseRulesEditor } from "./HouseRulesEditor";
 import { TaxEditor } from "./TaxEditor";
+import { TimeZoneEditor } from "./TimeZoneEditor";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
@@ -705,6 +706,7 @@ function VenueRow({
       <HouseRulesEditor venueId={venue.id} />
       <BookingAlertsEditor venueId={venue.id} />
       <TaxEditor venueId={venue.id} />
+      <TimeZoneEditor venueId={venue.id} />
       <NoticesEditor
         venueId={venue.id}
         intro="A line for customers — an event, a promotion, a change of hours — on this venue's own page and storefront, for the days you choose. It never shows on the marketplace's front page or in search. A link can only go to a page on this site, like your tournament or league."

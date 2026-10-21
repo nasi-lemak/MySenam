@@ -233,7 +233,7 @@ export async function POST(req: NextRequest) {
       // The customer can open the chat themselves and have it there for free.
       chatNumber: (await chatOfferedFor(venue.id)) ? chatNumber() : null,
       court,
-      venue: { id: venue.id, name: venue.name, area: venue.area },
+      venue: { id: venue.id, name: venue.name, area: venue.area, timeZone: venue.timeZone },
       payOnline: await takesPaymentOnline(venue.id),
     },
     { status: 201 }
@@ -268,6 +268,7 @@ export async function GET(req: NextRequest) {
       area: venue.area,
       address: venue.address,
       cancelCutoffHours: venue.cancelCutoffHours,
+      timeZone: venue.timeZone,
     },
     payOnline: await takesPaymentOnline(venue.id),
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],

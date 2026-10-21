@@ -32,8 +32,9 @@ export async function GET(req: NextRequest) {
   }
   // A storefront's pages do not show other venues, and neither does this.
   // Nor a venue customers may not reach yet, except to its own staff.
+  const venue = await getVenue(venueId);
   if (
-    !(await getVenue(venueId)) ||
+    !venue ||
     !shows(await storefrontForRequest(req), venueId) ||
     !(await mayShowVenue(venueId, req)).show
   ) {
@@ -51,5 +52,6 @@ export async function GET(req: NextRequest) {
     availability: await getAvailability(venueId, date, sport, membership !== null),
     closure: await getVenueClosure(venueId, date),
     memberRates: membership !== null,
+    timeZone: venue.timeZone,
   });
 }

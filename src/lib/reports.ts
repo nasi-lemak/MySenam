@@ -4,6 +4,7 @@ import { creditScope } from "./mode";
 import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
 import { venueTax } from "./tax";
+import { venueHours } from "./store";
 
 /**
  * Reporting for the person who pays for the software.
@@ -187,9 +188,11 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
              COALESCE(SUM(CASE WHEN kind = 'receipt' THEN tax_amount
                                WHEN credits_id IS NOT NULL THEN -tax_amount ELSE 0 END), 0) AS tax
         FROM receipts
-       WHERE venue_id = ? AND tax_rate IS NOT NULL AND substr(issued_at, 1, 10) >= ? AND substr(issued_at, 1, 10) <= ?
+       WHERE venue_id = ? AND tax_rate IS NOT NULL
+         -- Stamped in UTC; counted on the venue's own date.
+         AND to_char((issued_at::timestamp AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') BETWEEN ? AND ?
     `)
-    .get(venueId, from, to)) as { n: number | string; tax: number | string };
+    .get(venueId, (await venueHours(venueId)).zone, from, to)) as { n: number | string; tax: number | string };
   const taxCollected =
     counts.taxCollected === null && Number(documents.n) === 0
       ? null

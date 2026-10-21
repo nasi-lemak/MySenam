@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { venueZoneOf } from "./zones";
 import { isBlocked } from "./limits";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
@@ -63,6 +64,8 @@ export interface OpenGame {
   venueId: number;
   venueName: string;
   area: string;
+  /** The venue's time zone, which the game's times are in. */
+  timeZone: string;
   courtName: string;
   sport: Sport;
   date: string;
@@ -101,6 +104,7 @@ interface GameRow {
   area: string;
   lat: number | null;
   lng: number | null;
+  time_zone: string | null;
   court_name: string;
   sport: Sport;
   date: string;
@@ -121,7 +125,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
 const GAME_SELECT = `
   SELECT g.id, g.booking_id, b.code AS booking_code, g.host_id, u.name AS host_name, hl.level AS host_level,
-         v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, c.name AS court_name, c.sport,
+         v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, v.time_zone, c.name AS court_name, c.sport,
          b.date, b.start_hour, b.end_hour, g.level, g.who, g.spots,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') AS joined,
          g.share::float AS share, g.auto_accept, g.note, g.status,
@@ -144,6 +148,7 @@ function toGame(r: GameRow): OpenGame {
     venueId: r.venue_id,
     venueName: r.venue_name,
     area: r.area,
+    timeZone: venueZoneOf(r),
     courtName: r.court_name,
     sport: r.sport,
     date: r.date,
@@ -205,17 +210,20 @@ export async function openGame(
   const booking = (await db
     .prepare(
       `SELECT b.id, b.user_id, b.date, b.start_hour, b.status, b.class_id, b.total_price::float AS total_price,
-              (${OPEN_TO_CUSTOMERS}) AS open
+              v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE UPPER(b.code) = UPPER(?)`
     )
     .get(input.bookingCode.trim())) as
-    | { id: number; user_id: number | null; date: string; start_hour: number; status: string; class_id: number | null; total_price: number; open: boolean }
+    | {
+        id: number; user_id: number | null; date: string; start_hour: number; status: string; class_id: number | null;
+        total_price: number; open: boolean; time_zone: string | null; lat: number | null; lng: number | null;
+      }
     | undefined;
   if (!booking || booking.user_id !== hostId) return { ok: false, error: "That is not one of your bookings.", status: 404 };
   if (booking.status !== "confirmed") return { ok: false, error: "That booking is cancelled." };
   if (booking.class_id !== null) return { ok: false, error: "A class place cannot be shared." };
-  if (isPastSlot(booking.date, booking.start_hour)) return { ok: false, error: "That booking has already started." };
+  if (isPastSlot(booking.date, booking.start_hour, venueZoneOf(booking))) return { ok: false, error: "That booking has already started." };
   if (!booking.open) return { ok: false, error: "That venue is not taking bookings at the moment." };
   if (!Number.isInteger(input.spots) || input.spots < 1 || input.spots > MAX_SPOTS)
     return { ok: false, error: `Look for 1 to ${MAX_SPOTS} players.` };
@@ -291,12 +299,12 @@ export async function decide(hostId: number, playerId: number, action: PlayerAct
 
   if (action === "no_show") {
     if (row.status !== "accepted") return { ok: false, error: "Only somebody who was in the game can miss it." };
-    if (!isPastSlot(game.date, game.startHour)) return { ok: false, error: "Only once the game has started." };
+    if (!isPastSlot(game.date, game.startHour, game.timeZone)) return { ok: false, error: "Only once the game has started." };
     await db.prepare("UPDATE open_game_players SET no_show = 1 WHERE id = ?").run(playerId);
     return { ok: true, game: (await gameById(game.id))! };
   }
   if (game.status !== "open") return { ok: false, error: "That game is closed." };
-  if (isPastSlot(game.date, game.startHour)) return { ok: false, error: "That game has started." };
+  if (isPastSlot(game.date, game.startHour, game.timeZone)) return { ok: false, error: "That game has started." };
 
   if (action === "accept") {
     if (row.status !== "requested") return { ok: false, error: "They are not waiting for an answer." };
@@ -351,7 +359,7 @@ export async function askToJoin(user: { id: number; phone: string }, gameId: num
   if (!game) return { ok: false, error: "That game is not there any more.", status: 404 };
   if (game.hostId === user.id) return { ok: false, error: "It is your own game." };
   if (game.status !== "open") return { ok: false, error: "That game is not taking players." };
-  if (isPastSlot(game.date, game.startHour)) return { ok: false, error: "That game has started." };
+  if (isPastSlot(game.date, game.startHour, game.timeZone)) return { ok: false, error: "That game has started." };
   if (game.joined >= game.spots) return { ok: false, error: "That game is full." };
   const notFor = await whoRefusal(user.id, game.who);
   if (notFor) return { ok: false, error: notFor.error, code: notFor.code, status: 403 };
@@ -393,7 +401,7 @@ export async function leaveGame(userId: number, gameId: number): Promise<GameRes
     .get(gameId, userId)) as { id: number; status: PlayerStatus } | undefined;
   if (!game || !row || (row.status !== "requested" && row.status !== "accepted"))
     return { ok: false, error: "You are not in that game.", status: 404 };
-  if (isPastSlot(game.date, game.startHour)) return { ok: false, error: "That game has started." };
+  if (isPastSlot(game.date, game.startHour, game.timeZone)) return { ok: false, error: "That game has started." };
   await db.prepare("UPDATE open_game_players SET status = 'left', decided_at = datetime('now') WHERE id = ?").run(row.id);
   await shareOwedBack(row.id);
   if (row.status === "accepted") await tellHost(game, "left");
@@ -457,7 +465,7 @@ export async function findGames(filter: {
 
   const games: OpenGame[] = [];
   for (const r of rows) {
-    if (isPastSlot(r.date, r.start_hour)) continue;
+    if (isPastSlot(r.date, r.start_hour, venueZoneOf(r))) continue;
     const game = toGame(r);
     if (filter.near) {
       const km = Math.round(distanceM(filter.near, { lat: r.lat!, lng: r.lng! }) / 100) / 10;

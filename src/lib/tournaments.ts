@@ -19,7 +19,8 @@ import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
-import { offerSlotPlace } from "./store";
+import { offerSlotPlace, venueHours } from "./store";
+import { venueZoneOf } from "./zones";
 import { sendPlainEmail } from "./transports";
 import { addDays, formatHour, isPastSlot, isValidDateString, todayISO } from "./time";
 import { SPORTS, type Sport } from "./types";
@@ -311,6 +312,12 @@ export interface TournamentInput {
   description?: string;
 }
 
+/** The time zone of the venue running a tournament. */
+async function tournamentZone(tournamentId: number): Promise<string> {
+  const row = (await getDb().prepare("SELECT venue_id FROM tournaments WHERE id = ?").get(tournamentId)) as { venue_id: number } | undefined;
+  return (await venueHours(row?.venue_id ?? 0)).zone;
+}
+
 /** Every day, hour and court a tournament would hold. */
 function heldSlots(t: { startsOn: string; endsOn: string; startHour: number; endHour: number; courtIds: number[] }): Slot[] {
   const slots: Slot[] = [];
@@ -330,15 +337,18 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (category === "mixed" && input.teamSize !== 2) return { ok: false, error: "Mixed is doubles: one woman and one man." };
   if (!isValidDateString(input.startsOn) || !isValidDateString(input.endsOn) || input.endsOn < input.startsOn)
     return { ok: false, error: "Give the first and last day." };
-  if (input.startsOn <= todayISO()) return { ok: false, error: "It has to start after today, so players can enter." };
   if (addDays(input.startsOn, 13) < input.endsOn) return { ok: false, error: "Two weeks at most." };
   if (!Number.isInteger(input.maxEntries) || input.maxEntries < 2 || input.maxEntries > 128)
     return { ok: false, error: "Between 2 and 128 entries." };
   if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
-  const venue = (await db.prepare("SELECT open_hour, close_hour, slot_minutes FROM venues WHERE id = ?").get(input.venueId)) as
-    | { open_hour: number; close_hour: number; slot_minutes: number }
+  const venue = (await db
+    .prepare("SELECT open_hour, close_hour, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
+    .get(input.venueId)) as
+    | { open_hour: number; close_hour: number; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
     | undefined;
   if (!venue) return { ok: false, error: "Venue not found." };
+  // Today where the venue is.
+  if (input.startsOn <= todayISO(venueZoneOf(venue))) return { ok: false, error: "It has to start after today, so players can enter." };
   if (input.startHour < venue.open_hour || input.endHour > venue.close_hour || input.endHour <= input.startHour)
     return { ok: false, error: "The hours must be within the venue's opening hours." };
   const courtIds = [...new Set(input.courtIds)];
@@ -681,6 +691,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       sides: [m.a !== null ? `e${m.a}` : `w:${m.key}:a`, m.b !== null ? `e${m.b}` : `w:${m.key}:b`],
       after: m.after.filter((k) => !byes.has(k)),
     }));
+  const zone = await tournamentZone(tournamentId);
   const slots = (
     (await db
       // Not an hour on a court taken out of service since.
@@ -694,7 +705,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       )
       .all(tournamentId)) as { court_id: number; date: string; hour: number }[]
   )
-    .filter((s) => !isPastSlot(s.date, s.hour))
+    .filter((s) => !isPastSlot(s.date, s.hour, zone))
     .map((s) => ({ courtId: s.court_id, date: s.date, hour: s.hour }));
   const scheduled = scheduleMatches(toPlay, slots);
   if (!scheduled.ok)
@@ -866,10 +877,13 @@ export async function releaseUnneeded(tournamentId: number): Promise<number> {
         .all(tournamentId)) as { court_id: number; date: string; first: number; last: number }[]
     ).map((r) => [`${r.court_id}:${r.date}`, r])
   );
+  const zone = await tournamentZone(tournamentId);
   const free = held.filter((b) => {
-    if (isPastSlot(b.date, b.hour)) return false;
+    if (isPastSlot(b.date, b.hour, zone)) return false;
     const span = spans.get(`${b.court_id}:${b.date}`);
-    return !span || b.hour < span.first || b.hour > span.last;
+    // By the hour: a match at 18:00 still needs the 18:30 half of a half-hour venue.
+    const hour = Math.floor(b.hour);
+    return !span || hour < span.first || hour > span.last;
   });
   if (free.length === 0) return 0;
   await db.prepare(`DELETE FROM slot_blocks WHERE id IN (${free.map(() => "?").join(",")})`).run(...free.map((b) => b.id));
