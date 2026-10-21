@@ -1631,6 +1631,31 @@ venue. Staff see it in the list tagged *online*.
   only way in, and a fee does not put anyone on it. Free memberships are
   given at the counter.
 
+#### Renewing automatically
+
+Where the venue takes payment through **Stripe**, the customer can tick
+*Renew automatically each time, by card*. The payment page then sets up a
+Stripe subscription for the plan's price every plan period (a 3-month plan
+charges every 3 months), on the venue's own account:
+
+- **The first payment** makes the membership as usual and records the
+  subscription (`membership_subscriptions`, migration 0041).
+- **Each later charge** arrives as Stripe's `invoice.paid` webhook. It is
+  written as an online payment of its own, and makes the next membership, run
+  on from the last whatever day the charge lands, with its receipt. Stripe
+  sending it twice counts once. The first invoice is not counted again: its
+  checkout session already settled it.
+- **Stopping**: the member presses *Stop renewing* on the venue page, or the
+  venue voids the membership. Either way MySenam cancels the subscription in
+  Stripe and nothing more is charged; what was already paid for runs to its
+  end. A subscription ended in Stripe (cancelled there, or the card kept
+  failing: `customer.subscription.deleted`) stops renewing here too.
+- **A charge that buys nothing** (the account was deleted, say) is owed back
+  like any other, and the subscription is cancelled.
+- The venue's restricted key needs **Subscriptions: Write** as well, and its
+  webhook the `invoice.paid` and `customer.subscription.deleted` events.
+  Billplz has no subscriptions, so venues on Billplz sell one period at a time.
+
 ## Promo codes
 
 A venue advertises a code — `RAYA20` for 20% off, `NEWBIE5` for RM5 — and a

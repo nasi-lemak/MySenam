@@ -19,7 +19,7 @@ import { NoticeBar } from "@/components/NoticeBar";
 import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
 import { joinTerms, listPlans } from "@/lib/membership-plans";
-import { takesPaymentOnline } from "@/lib/payments";
+import { renewalFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
 import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
@@ -105,6 +105,8 @@ export default async function VenuePage({
         ? { kind: "early", until: String(terms.vars?.until), from: String(terms.vars?.from) }
         : { kind: "noPhone" };
   }
+  const canAutoRenew = plans.length > 0 && (await renewsByItself(venue.id));
+  const renewal = plans.length > 0 && viewer.userId !== null ? await renewalFor(viewer.userId, venue.id) : null;
 
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const today = todayISO();
@@ -211,7 +213,7 @@ export default async function VenuePage({
           </div>
         ))}
       {plans.length > 0 && access.access !== "private" && (
-        <JoinMembership venueId={venue.id} plans={plans} standing={standing} />
+        <JoinMembership venueId={venue.id} plans={plans} standing={standing} canAutoRenew={canAutoRenew} renewal={renewal} />
       )}
       {access.access === "private" && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">

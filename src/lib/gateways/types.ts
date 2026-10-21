@@ -47,6 +47,11 @@ export interface CheckoutRequest {
    * let go then, and should not be paid for after). Left open otherwise.
    */
   expiresInMinutes?: number;
+  /**
+   * Charge the same again every this many months until stopped: a
+   * subscription, where the gateway has them (`subscriptions`).
+   */
+  recurring?: { months: number };
 }
 
 /** A hosted payment page: the gateway's id for it, and where to send the payer. */
@@ -75,7 +80,17 @@ export interface PaymentResult {
   billId: string;
   paid: boolean;
   paidAt: string | null;
+  /** A page that started a subscription: the gateway's id for it. */
+  subscriptionId?: string | null;
 }
+
+/**
+ * Word about a subscription rather than a page: charged again for a new
+ * period, or ended (stopped, or the card kept failing).
+ */
+export type SubscriptionEvent =
+  | { kind: "renewed"; subscriptionId: string; /** The gateway's id for this charge. */ chargeId: string; amountMinor: number; paidAt: string | null }
+  | { kind: "ended"; subscriptionId: string };
 
 /**
  * A callback or redirect, read but not yet believed: which payment it claims
@@ -89,8 +104,12 @@ export interface Inbound {
    * so the gateway does not keep retrying it.
    */
   ignored?: boolean;
+  /** About a subscription, not a page: which, so the account can be found by it. */
+  subscriptionId?: string;
   /** Checked against the account: its signature, or the gateway's own API. */
   verify(account: GatewayAccount): Promise<PaymentResult | null>;
+  /** For one about a subscription: what happened, once its signature checks out. */
+  verifySubscription?(account: GatewayAccount): Promise<SubscriptionEvent | null>;
 }
 
 /** One thing a venue types in to connect its account. */
@@ -141,6 +160,10 @@ export interface PaymentGateway {
    * has none (Billplz): staff refund in its dashboard and mark it done.
    */
   refund?(account: GatewayAccount, request: RefundRequest): Promise<RefundResult>;
+  /** It can charge again every period by itself (`CheckoutRequest.recurring`). */
+  subscriptions?: boolean;
+  /** Stop a subscription: why it could not be, or null. */
+  cancelSubscription?(account: GatewayAccount, subscriptionId: string): Promise<string | null>;
   /** The platform's own account (venue fees, WhatsApp packs) from the environment. */
   platformAccount(env: NodeJS.ProcessEnv): GatewayAccount | null;
 }

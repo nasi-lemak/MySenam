@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gatewayFor } from "@/lib/gateways";
-import { accountForBill, settleBill } from "@/lib/payments";
+import { accountForBill, accountForSubscription, settleBill, settleSubscription } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +20,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const body = await req.text().catch(() => "");
   const inbound = gateway.readCallback(body, req.headers);
   if (inbound.ignored) return new NextResponse("OK", { status: 200 });
+
+  // A membership renewing itself: a later charge on its subscription, or its end.
+  if (inbound.subscriptionId && inbound.verifySubscription) {
+    const account = await accountForSubscription(gateway.id, inbound.subscriptionId);
+    // Not one of ours: the venue's own Stripe business, answered so it is not retried.
+    if (!account) return new NextResponse("OK", { status: 200 });
+    const event = await inbound.verifySubscription(account);
+    if (!event) return NextResponse.json({ error: "Bad signature." }, { status: 400 });
+    await settleSubscription(gateway.id, event);
+    return new NextResponse("OK", { status: 200 });
+  }
+
   const account = inbound.billId ? await accountForBill(gateway.id, inbound.billId) : null;
   const result = account ? await inbound.verify(account) : null;
   if (!result) return NextResponse.json({ error: "Unknown payment or bad signature." }, { status: 400 });

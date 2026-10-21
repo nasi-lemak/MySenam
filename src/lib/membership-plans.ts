@@ -121,7 +121,12 @@ export interface JoinTerms {
 export async function joinTerms(
   userId: number,
   planId: number,
-  opts: { retired?: boolean } = {}
+  /**
+   * `retired`: a plan no longer offered still sells (a fee already paid).
+   * `renewal`: a subscription charging for the next period, which runs on
+   * from the last whenever its charge comes in.
+   */
+  opts: { retired?: boolean; renewal?: boolean } = {}
 ): Promise<{ ok: true; terms: JoinTerms } | Refusal> {
   const plan = await planById(planId, opts);
   if (!plan) return refuse("JOIN_NO_PLAN");
@@ -140,7 +145,7 @@ export async function joinTerms(
     .map((r) => r.expires_on)
     .sort()
     .pop();
-  if (until) {
+  if (until && !opts.renewal) {
     const opens = addDays(until, -RENEW_WINDOW_DAYS);
     if (today < opens) return refuse("JOIN_TOO_EARLY", { until, from: opens });
   }

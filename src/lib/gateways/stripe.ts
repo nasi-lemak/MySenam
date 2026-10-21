@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult } from "./types";
+import type { GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult, SubscriptionEvent } from "./types";
 
 /**
  * Stripe (Singapore, and most places beyond): cards, PayNow and the wallets a
@@ -27,12 +27,31 @@ const PAYMENT_EVENTS = new Set([
   "checkout.session.expired",
 ]);
 
+/** A subscription's later charges, and its end. The first charge comes as its checkout session. */
+const SUBSCRIPTION_EVENTS = new Set(["invoice.paid", "customer.subscription.deleted"]);
+
 interface Session {
   id: string;
   url?: string | null;
   payment_status?: "paid" | "unpaid" | "no_payment_required";
   status?: "open" | "complete" | "expired";
   payment_intent?: string | null;
+  subscription?: string | null;
+}
+
+interface Invoice {
+  id: string;
+  object: "invoice";
+  billing_reason?: string;
+  amount_paid?: number;
+  /** Where API versions before 2025 put it. */
+  subscription?: string | null;
+  parent?: { subscription_details?: { subscription?: string | null } | null } | null;
+}
+
+interface Subscription {
+  id: string;
+  object: "subscription";
 }
 
 interface Refund {
@@ -49,7 +68,7 @@ class StripeError extends Error {
 
 async function call<T extends { id: string } = Session>(
   account: GatewayAccount,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   path: string,
   form?: URLSearchParams,
   idempotencyKey?: string
@@ -73,7 +92,12 @@ async function call<T extends { id: string } = Session>(
 }
 
 function result(session: Session, paidAt: string | null): PaymentResult {
-  return { billId: session.id, paid: session.payment_status === "paid", paidAt };
+  return {
+    billId: session.id,
+    paid: session.payment_status === "paid",
+    paidAt,
+    ...(session.subscription ? { subscriptionId: session.subscription } : {}),
+  };
 }
 
 /** The address to come back to, with Stripe's placeholder for the session id. */
@@ -110,7 +134,7 @@ export const stripe: PaymentGateway = {
       key: "secretKey",
       label: "Restricted key",
       secret: true,
-      help: "Stripe → Developers → API keys → Create restricted key, with Checkout Sessions and Refunds set to Write. Starts rk_live_ (or rk_test_).",
+      help: "Stripe → Developers → API keys → Create restricted key, with Checkout Sessions, Refunds and Subscriptions set to Write. Starts rk_live_ (or rk_test_).",
     },
     {
       key: "webhookSecret",
@@ -121,7 +145,7 @@ export const stripe: PaymentGateway = {
   ],
   webhook: true,
   setup:
-    "In Stripe, add a webhook endpoint at the address below, sending checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed and checkout.session.expired. Turn on PayNow and cards under Settings → Payment methods.",
+    "In Stripe, add a webhook endpoint at the address below, sending checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, invoice.paid and customer.subscription.deleted (the last two for memberships that renew themselves). Turn on PayNow and cards under Settings → Payment methods.",
 
   checkCredentials(c) {
     if (!/^(rk|sk)_(live|test)_[A-Za-z0-9]{10,}$/.test(c.secretKey)) return "That does not look like a Stripe key (rk_live_… or sk_live_…).";
@@ -152,7 +176,7 @@ export const stripe: PaymentGateway = {
   async createCheckout(account, request) {
     const minor = 10 ** request.currency.minorUnits;
     const form = new URLSearchParams({
-      mode: "payment",
+      mode: request.recurring ? "subscription" : "payment",
       "line_items[0][quantity]": "1",
       "line_items[0][price_data][currency]": request.currency.code.toLowerCase(),
       "line_items[0][price_data][unit_amount]": String(Math.round(request.amount * minor)),
@@ -160,6 +184,10 @@ export const stripe: PaymentGateway = {
       success_url: returnTo(request.redirectUrl),
       cancel_url: returnTo(request.redirectUrl),
     });
+    if (request.recurring) {
+      form.set("line_items[0][price_data][recurring][interval]", "month");
+      form.set("line_items[0][price_data][recurring][interval_count]", String(request.recurring.months));
+    }
     // Stripe closes a page no sooner than 30 minutes, and by default after a day.
     if (request.expiresInMinutes)
       form.set("expires_at", String(Math.floor(Date.now() / 1000) + Math.max(30, request.expiresInMinutes) * 60));
@@ -196,6 +224,20 @@ export const stripe: PaymentGateway = {
     }
   },
 
+  subscriptions: true,
+
+  async cancelSubscription(account, subscriptionId) {
+    try {
+      await call<Subscription>(account, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+      return null;
+    } catch (err) {
+      if (err instanceof StripeError && err.status === 404) return null; // already gone
+      if (err instanceof StripeError && err.status === 403)
+        return "The venue's Stripe key cannot stop subscriptions. Edit the restricted key in Stripe and set Subscriptions to Write.";
+      return err instanceof Error ? err.message : "Stripe could not be reached. Try again.";
+    }
+  },
+
   readCallback(body, headers): Inbound {
     let event: { type?: string; created?: number; data?: { object?: Session & { object?: string } } } | null = null;
     try {
@@ -205,10 +247,37 @@ export const stripe: PaymentGateway = {
     }
     const session = event?.data?.object;
     if (!event?.type || !session?.id) return { billId: null, verify: async () => null };
+    const signature = headers.get("stripe-signature");
+    if (SUBSCRIPTION_EVENTS.has(event.type)) {
+      const object = session as unknown as Invoice | Subscription;
+      const subscriptionId =
+        object.object === "subscription"
+          ? object.id
+          : (object.parent?.subscription_details?.subscription ?? object.subscription ?? null);
+      // A first charge is its checkout session's; and the venue's other Stripe business is not ours.
+      if (!subscriptionId || (object.object === "invoice" && object.billing_reason !== "subscription_cycle"))
+        return { billId: null, ignored: true, verify: async () => null };
+      const created = event.created;
+      return {
+        billId: null,
+        subscriptionId,
+        verify: async () => null,
+        verifySubscription: async (account): Promise<SubscriptionEvent | null> => {
+          if (!stripeSignatureValid(body, signature, account.credentials.webhookSecret)) return null;
+          if (object.object === "subscription") return { kind: "ended", subscriptionId };
+          return {
+            kind: "renewed",
+            subscriptionId,
+            chargeId: object.id,
+            amountMinor: object.amount_paid ?? 0,
+            paidAt: created ? new Date(created * 1000).toISOString() : null,
+          };
+        },
+      };
+    }
     // Other events on the venue's account are not ours to settle.
     if (!PAYMENT_EVENTS.has(event.type) || session.object !== "checkout.session")
       return { billId: null, ignored: true, verify: async () => null };
-    const signature = headers.get("stripe-signature");
     return {
       billId: session.id,
       verify: async (account) => {

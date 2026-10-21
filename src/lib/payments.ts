@@ -12,10 +12,11 @@ import {
   type PaymentResult,
   type ProviderId,
 } from "./gateways";
+import type { SubscriptionEvent } from "./gateways/types";
 import { seal, unseal } from "./secrets";
 import { findBooking, getCourt, getVenue, membershipById, sellMembership } from "./store";
 import { joinTerms } from "./membership-plans";
-import { accessSettings } from "./access";
+import { accessSettings, accountPhone } from "./access";
 import { toWhatsAppNumber } from "./transports";
 import { baseUrl } from "./outbox";
 import { formatHour } from "./time";
@@ -294,6 +295,8 @@ interface PaymentRow {
   member_user_id?: number | null;
   membership_plan_id?: number | null;
   membership_id?: number | null;
+  auto_renew?: number;
+  subscription_id?: string | null;
 }
 
 export interface OnlinePayment {
@@ -605,8 +608,20 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       // The plan went, the account went, or a second payment for the same
       // months came in: nothing to give for it, so it is owed back.
       else await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+      // The first charge of a membership that renews itself: from now on the gateway charges each period.
+      if (result.subscriptionId && made !== null)
+        await db
+          .prepare(
+            `INSERT INTO membership_subscriptions (venue_id, user_id, plan_id, provider, subscription_id, membership_id)
+             VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (subscription_id) DO NOTHING`
+          )
+          .run(row.venue_id, row.member_user_id, row.membership_plan_id, row.provider, result.subscriptionId, made);
+      if (result.subscriptionId)
+        await db.prepare("UPDATE online_payments SET subscription_id = ? WHERE id = ?").run(result.subscriptionId, row.id);
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    // Paid for nothing it can give: no more charges either.
+    if (fresh.membership_id == null && fresh.subscription_id) await stopSubscription(fresh.subscription_id);
     return { payment: await toPayment(fresh), newlyPaid: [] };
   }
 
@@ -1098,7 +1113,9 @@ const ENGLISH = translator("en");
 /** A customer joining, or renewing, on one of the venue's membership plans. */
 export async function startMembershipPayment(
   user: { id: number; name: string; email: string },
-  planId: number
+  planId: number,
+  /** Charge the plan's price again each period until stopped, where the venue's gateway can. */
+  opts: { autoRenew?: boolean } = {}
 ): Promise<StartResult> {
   const joining = await joinTerms(user.id, planId);
   if (!joining.ok) return { ok: false, error: joining.error, code: joining.code, vars: joining.vars, status: 409 };
@@ -1110,6 +1127,9 @@ export async function startMembershipPayment(
   const account = venue && isOpen(venue) ? await venueAccount(plan.venueId) : null;
   if (!venue || !account)
     return { ok: false, error: errorText(ENGLISH, "JOIN_OFFLINE"), code: "JOIN_OFFLINE", status: 409 };
+  const autoRenew = opts.autoRenew === true;
+  if (autoRenew && !gatewayFor(account.provider)?.subscriptions)
+    return { ok: false, error: "This venue's payments cannot renew by themselves. Pay for one period instead.", status: 409 };
   let bill;
   try {
     bill = await openCheckout(account, {
@@ -1120,16 +1140,17 @@ export async function startMembershipPayment(
       description: `${venue.name}: ${plan.name}, ${startsOn} to ${expiresOn}${renewing ? " (renewal)" : ""}`,
       redirectUrl: `${await venueBaseUrl(plan.venueId)}/payments/return`,
       reference: { label: "Membership", value: `U${user.id}` },
+      ...(autoRenew ? { recurring: { months: plan.months } } : {}),
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
   }
   await getDb()
     .prepare(
-      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, member_user_id, membership_plan_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'membership', ?, ?)`
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, member_user_id, membership_plan_id, auto_renew)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'membership', ?, ?, ?)`
     )
-    .run(account.provider, bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id);
+    .run(account.provider, bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id, autoRenew ? 1 : 0);
   return { ok: true, url: bill.url, amount: plan.price, reused: false };
 }
 
@@ -1141,7 +1162,7 @@ export async function startMembershipPayment(
 async function makePaidMembership(row: PaymentRow): Promise<number | null> {
   if (!row.member_user_id || !row.membership_plan_id) return null;
   // A plan retired while they paid still gives what they paid for.
-  const joining = await joinTerms(row.member_user_id, row.membership_plan_id, { retired: true });
+  const joining = await joinTerms(row.member_user_id, row.membership_plan_id, { retired: true, renewal: Boolean(row.subscription_id) });
   if (!joining.ok) return null;
   const { plan, phone, startsOn, expiresOn } = joining.terms;
   const user = (await getDb().prepare("SELECT name FROM users WHERE id = ?").get(row.member_user_id)) as { name: string } | undefined;
@@ -1215,4 +1236,126 @@ export async function startLeaguePayment(user: { id: number; name: string; phone
     )
     .run(account.provider, bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
   return { ok: true, url: bill.url, amount: row.fee, reused: false };
+}
+
+// ------------------------------------------------------------ memberships that renew themselves
+
+export interface Renewal {
+  id: number;
+  venueId: number;
+  planId: number | null;
+  /** When the membership its latest charge made runs out, and so when it charges again. */
+  until: string | null;
+}
+
+/** Whose key checks word about this subscription: the venue's that sold it, at the same gateway. */
+export async function accountForSubscription(provider: string, subscriptionId: string): Promise<GatewayAccount | null> {
+  const sub = (await getDb()
+    .prepare("SELECT venue_id, provider FROM membership_subscriptions WHERE subscription_id = ?")
+    .get(subscriptionId)) as { venue_id: number; provider: string } | undefined;
+  if (!sub || sub.provider !== provider) return null;
+  const account = await accountRow(sub.venue_id);
+  if (!account || account.provider !== provider) return null;
+  return readAccount(account);
+}
+
+/**
+ * The gateway charged a subscription again, or ended it. A charge is an
+ * online payment of its own, settled like the first: the next membership,
+ * run on from the last, and its receipt. Told twice, it counts once.
+ */
+export async function settleSubscription(provider: string, event: SubscriptionEvent): Promise<void> {
+  const db = getDb();
+  const sub = (await db
+    .prepare("SELECT * FROM membership_subscriptions WHERE subscription_id = ? AND provider = ?")
+    .get(event.subscriptionId, provider)) as
+    | { id: number; venue_id: number; user_id: number | null; plan_id: number | null; status: string }
+    | undefined;
+  if (!sub) return;
+  if (event.kind === "ended") {
+    await db
+      .prepare("UPDATE membership_subscriptions SET status = 'stopped', stopped_at = datetime('now') WHERE id = ? AND status = 'active'")
+      .run(sub.id);
+    return;
+  }
+  const user = sub.user_id
+    ? ((await db.prepare("SELECT name FROM users WHERE id = ?").get(sub.user_id)) as { name: string } | undefined)
+    : undefined;
+  const amount = roundMoney(event.amountMinor / 10 ** region().currency.minorUnits);
+  const added = await db
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose,
+         member_user_id, membership_plan_id, auto_renew, subscription_id)
+       VALUES (?, ?, '', ?, ?, ?, ?, 'membership', ?, ?, 1, ?) ON CONFLICT (bill_id) DO NOTHING`
+    )
+    .run(provider, event.chargeId, sub.venue_id, amount, user?.name ?? null, sub.user_id ? await accountPhone(sub.user_id) : null,
+      sub.user_id, sub.plan_id, event.subscriptionId);
+  if (added.changes === 0) return;
+  await settleBill({ billId: event.chargeId, paid: true, paidAt: event.paidAt });
+  const made = (await db.prepare("SELECT membership_id FROM online_payments WHERE bill_id = ?").get(event.chargeId)) as {
+    membership_id: number | null;
+  };
+  if (made.membership_id !== null)
+    await db.prepare("UPDATE membership_subscriptions SET membership_id = ? WHERE id = ?").run(made.membership_id, sub.id);
+}
+
+/** Stop a subscription at the gateway and here. Why it could not be, or null. */
+async function stopSubscription(subscriptionId: string): Promise<string | null> {
+  const db = getDb();
+  const sub = (await db
+    .prepare("SELECT id, provider, status FROM membership_subscriptions WHERE subscription_id = ?")
+    .get(subscriptionId)) as { id: number; provider: string; status: string } | undefined;
+  const provider = sub?.provider ?? ((await db.prepare("SELECT provider FROM online_payments WHERE subscription_id = ? LIMIT 1").get(subscriptionId)) as { provider: string } | undefined)?.provider;
+  const gateway = provider ? gatewayFor(provider) : null;
+  if (!gateway?.cancelSubscription) return "That subscription cannot be stopped from here.";
+  const venue = (await db.prepare("SELECT venue_id FROM online_payments WHERE subscription_id = ? LIMIT 1").get(subscriptionId)) as
+    | { venue_id: number }
+    | undefined;
+  const row = venue ? await accountRow(venue.venue_id) : null;
+  if (!row || row.provider !== provider) return `The venue no longer has ${gateway.name} connected. Stop it in ${gateway.name}.`;
+  const account = readAccount(row);
+  if (!account) return `The venue's ${gateway.name} keys cannot be read on this install. Stop it in ${gateway.name}.`;
+  const why = await gateway.cancelSubscription(account, subscriptionId);
+  if (why) return why;
+  if (sub)
+    await db
+      .prepare("UPDATE membership_subscriptions SET status = 'stopped', stopped_at = datetime('now') WHERE id = ? AND status = 'active'")
+      .run(sub.id);
+  return null;
+}
+
+/** Whether a membership bought online at this venue can renew itself: its gateway has subscriptions. */
+export async function renewsByItself(venueId: number): Promise<boolean> {
+  const account = await venueAccount(venueId);
+  return Boolean(account && gatewayFor(account.provider)?.subscriptions);
+}
+
+/** A customer's membership at this venue that renews itself, if they have one. */
+export async function renewalFor(userId: number, venueId: number): Promise<Renewal | null> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT s.id, s.venue_id, s.plan_id, m.expires_on FROM membership_subscriptions s
+         LEFT JOIN memberships m ON m.id = s.membership_id
+        WHERE s.user_id = ? AND s.venue_id = ? AND s.status = 'active' ORDER BY s.id DESC LIMIT 1`
+    )
+    .get(userId, venueId)) as { id: number; venue_id: number; plan_id: number | null; expires_on: string | null } | undefined;
+  return row ? { id: row.id, venueId: row.venue_id, planId: row.plan_id, until: row.expires_on } : null;
+}
+
+/** The member stops renewing: the membership they have runs to its end, and nothing more is charged. */
+export async function stopRenewal(userId: number, renewalId: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  const row = (await getDb()
+    .prepare("SELECT subscription_id FROM membership_subscriptions WHERE id = ? AND user_id = ? AND status = 'active'")
+    .get(renewalId, userId)) as { subscription_id: string } | undefined;
+  if (!row) return { ok: false, error: "That membership is not renewing." };
+  const why = await stopSubscription(row.subscription_id);
+  return why ? { ok: false, error: why } : { ok: true };
+}
+
+/** Staff cancel a membership: it stops renewing too. */
+export async function stopRenewalOf(membershipId: number): Promise<string | null> {
+  const row = (await getDb()
+    .prepare("SELECT subscription_id FROM membership_subscriptions WHERE membership_id = ? AND status = 'active'")
+    .get(membershipId)) as { subscription_id: string } | undefined;
+  return row ? stopSubscription(row.subscription_id) : null;
 }
