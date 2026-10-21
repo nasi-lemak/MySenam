@@ -22,13 +22,13 @@ export async function register(): Promise<void> {
 }
 
 /**
- * Any request that ends in a server error: the platform owner is told
- * (lib/alerts.ts), once every few hours with how many there have been, so a
- * page failing for every customer is not found out from a complaint.
+ * Any request that ends in a server error: filed with its stack under its
+ * kind (lib/error-log.ts), and the platform owner told about each new kind,
+ * so a page failing for every customer is not found out from a complaint.
  */
 export async function onRequestError(err: unknown, request: { path: string; method: string }): Promise<void> {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { noteRequestError } = await import("./lib/alerts");
-    await noteRequestError(err, `${request.method} ${request.path}`);
+    await noteRequestError(err, request);
   }
 }

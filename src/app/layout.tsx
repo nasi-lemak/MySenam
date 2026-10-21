@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import { LanguageProvider } from "@/components/Language";
+import ErrorReporter from "@/components/ErrorReporter";
 import { currentLocale, currentSiteName, serverT } from "@/lib/locale";
 import { accentCss, currentStorefront } from "@/lib/storefront";
 import { baseUrl } from "@/lib/outbox";
@@ -37,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <style dangerouslySetInnerHTML={{ __html: accentCss(storefront.accentColor) }} />
         )}
         <LanguageProvider locale={locale} site={site} country={region().country}>
+          <ErrorReporter />
           <header className="sticky top-0 print:hidden z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-x-2 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 text-xl font-bold text-teal-700">

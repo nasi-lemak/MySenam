@@ -130,10 +130,22 @@ export async function checkMessages(): Promise<void> {
     );
 }
 
-/** A server error on a request: a bug, or something it depends on being down. */
-export async function noteRequestError(err: unknown, path: string): Promise<void> {
-  const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-  await raiseAlert("errors", "Pages are failing with server errors", `${path}\n${message}`);
+/**
+ * A server error on a request: a bug, or something it depends on being down.
+ * Filed with its stack under its kind (lib/error-log.ts), which tells the
+ * owners about each new kind.
+ */
+export async function noteRequestError(err: unknown, request: { path: string; method: string; digest?: string }): Promise<void> {
+  const { recordError } = await import("./error-log");
+  await recordError({
+    source: "server",
+    name: err instanceof Error ? err.name : "Error",
+    message: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? (err.stack ?? null) : null,
+    path: request.path,
+    method: request.method,
+    digest: request.digest ?? (err as { digest?: string } | null)?.digest ?? null,
+  });
 }
 
 const STARTED = Date.now();

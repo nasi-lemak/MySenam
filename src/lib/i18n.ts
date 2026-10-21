@@ -1142,6 +1142,10 @@ const EN = {
   "wallet.redeemCode": "Voucher code",
   "wallet.redeemGo": "Use it",
   "wallet.redeemDone": "{amount} added to your credit at {venue}.",
+  "error.title": "Something went wrong",
+  "error.body": "It has been reported. Try again, or start from the home page.",
+  "error.retry": "Try again",
+  "error.home": "Home page",
   "msg.voucherSubject": "Your gift voucher for {venue}",
   "msg.voucher": "Hi {name}! Your {amount} gift voucher for {venue} is ready.\n\nCode: {code}\nValid until {until}.\n\nPrint it or send it on: {link}\n\nWhoever has it signs in at {site} and enters the code on their account page, and it becomes credit at {venue}.",
   "err.PHONE_LIMIT_VENUE":
@@ -2319,6 +2323,10 @@ const MS: Record<Phrase, string> = {
   "wallet.redeemCode": "Kod baucar",
   "wallet.redeemGo": "Guna",
   "wallet.redeemDone": "{amount} ditambah ke kredit anda di {venue}.",
+  "error.title": "Sesuatu tidak kena",
+  "error.body": "Ia telah dilaporkan. Cuba lagi, atau mula dari halaman utama.",
+  "error.retry": "Cuba lagi",
+  "error.home": "Halaman utama",
   "msg.voucherSubject": "Baucar hadiah anda untuk {venue}",
   "msg.voucher": "Hai {name}! Baucar hadiah {amount} anda untuk {venue} sudah sedia.\n\nKod: {code}\nSah sehingga {until}.\n\nCetak atau hantarkannya: {link}\n\nSesiapa yang memilikinya log masuk ke {site} dan memasukkan kod di halaman akaun mereka, dan ia menjadi kredit di {venue}.",
   "err.PHONE_LIMIT_VENUE":

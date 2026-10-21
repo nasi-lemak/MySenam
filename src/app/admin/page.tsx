@@ -17,6 +17,7 @@ import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
 import { SystemHealth } from "@/components/admin/SystemHealth";
+import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
@@ -257,6 +258,7 @@ export default function AdminPage() {
       )}
 
       {isOwner && <SystemHealth />}
+      {isOwner && <ErrorsPanel />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
       {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. */}
