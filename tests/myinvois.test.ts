@@ -293,6 +293,23 @@ describe("when LHDN says no", () => {
   });
 });
 
+describe("a sale over RM10,000", () => {
+  it("gets its own e-invoice to the general public, and stays out of the consolidated one", async () => {
+    await saveEInvoiceSettings(venueId, SETTINGS);
+    const big = await paidIn("2025-06", 12_000);
+    await paidIn("2025-06", 50);
+    const made = await consolidate(venueId, "2025-06");
+    expect(made.map((e) => [e.kind, e.codeNumber, e.total])).toEqual([
+      ["individual", `EI-${big.code}`, 12_000],
+      ["consolidated", "CON-2025-06", 50],
+    ]);
+    const { submitPending } = await import("../src/lib/myinvois");
+    await submitPending(venueId);
+    const doc = sent.find((s) => s.codeNumber === `EI-${big.code}`)!;
+    expect(JSON.stringify(doc.doc)).toContain(GENERAL_PUBLIC_TIN);
+  });
+});
+
 describe("periods", () => {
   it("the month before, across a new year", () => {
     expect(previousPeriod("2027-01-03")).toBe("2026-12");

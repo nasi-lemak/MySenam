@@ -207,17 +207,22 @@ export async function countSplitShare(paymentId: number, splitId: number, amount
   return true;
 }
 
-/** The booking was cancelled: every friend's share is owed back, and its receipt credited. */
-export async function splitCancelled(bookingId: number): Promise<void> {
+/**
+ * The booking was cancelled: each friend's share is owed back, at the same
+ * `share` as the booker's payment (all of it, or what is left after the
+ * venue's late-cancellation fee), and its receipt credited for that much.
+ */
+export async function splitCancelled(bookingId: number, share = 1): Promise<void> {
+  if (share <= 0) return;
   const db = getDb();
   const paid = (await db
     .prepare(
-      `UPDATE online_payments SET refund_due = amount
-        WHERE purpose = 'split' AND status = 'paid' AND refund_due < amount
+      `UPDATE online_payments SET refund_due = ROUND(amount * ${Number(share)}, 2)
+        WHERE purpose = 'split' AND status = 'paid' AND refund_due = 0
           AND split_id IN (SELECT id FROM booking_splits WHERE booking_id = ?) RETURNING id`
     )
     .all(bookingId)) as { id: number }[];
-  for (const p of paid) await creditReceipt(`payment:${p.id}`, "receipt.why.cancelled");
+  for (const p of paid) await creditReceipt(`payment:${p.id}`, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
 }
 
 export async function venueOfSplit(token: string): Promise<{ venueId: number; venueName: string } | null> {

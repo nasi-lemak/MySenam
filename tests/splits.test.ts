@@ -9,7 +9,8 @@ import { documentFor } from "../src/lib/documents";
 import { getDb } from "../src/lib/db";
 import { savePaymentSettings, settleBill, startBookingPayment, startSplitPayment } from "../src/lib/payments";
 import { splitBooking, splitByToken } from "../src/lib/splits";
-import { adminCancelBooking, createBooking, createCourt, createVenue, findBooking } from "../src/lib/store";
+import { adminCancelBooking, cancelBooking, createBooking, createCourt, createVenue, findBooking } from "../src/lib/store";
+import { setCancelPolicy } from "../src/lib/cancel-policy";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as splitRoute } from "../src/app/api/bookings/split/route";
 
@@ -138,5 +139,24 @@ describe("splitting", () => {
     const paid = (await getDb().prepare("SELECT id, refund_due FROM online_payments WHERE payer_name = 'Friend 6'").get()) as { id: number; refund_due: string };
     expect(Number(paid.refund_due)).toBe(10);
     expect(await splitByToken(again.split.token)).toMatchObject({ closed: "cancelled" });
+  });
+
+  it("on a late cancellation, refunds friends what the booker gets back, so the venue keeps its fee on the whole", async () => {
+    fakeStripe();
+    await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 120 WHERE id = ?").run(venueId);
+    await setCancelPolicy(venueId, { lateKeep: 50 });
+    const b = await booking(12);
+    const made = await splitBooking(b.code, b.phone, 3);
+    if (!made.ok) throw new Error(made.error);
+    const started = await startSplitPayment(made.split.token, friend(7));
+    if (!started.ok) throw new Error(started.error);
+    await settleBill({ billId: billOf(started.url), paid: true, paidAt: null });
+    expect(await cancelBooking(b.code, b.phone)).toMatchObject({ ok: true });
+    const paid = (await getDb().prepare("SELECT id, refund_due FROM online_payments WHERE payer_name = 'Friend 7'").get()) as { id: number; refund_due: string };
+    expect(Number(paid.refund_due)).toBe(5);
+    const receipt = (await documentFor(`payment:${paid.id}`))!;
+    expect(await documentFor(`credit:${receipt.id}`)).toMatchObject({ kind: "credit_note", total: 5, note: "receipt.why.lateCancelled" });
+    await setCancelPolicy(venueId, {});
+    await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 2 WHERE id = ?").run(venueId);
   });
 });

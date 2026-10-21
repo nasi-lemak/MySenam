@@ -170,8 +170,8 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
           </li>
           <li>Run it in sandbox first and check the documents in LHDN&apos;s pre-production portal before production.</li>
           <li>
-            A single sale above RM10,000 must have its own e-invoice: it cannot go in the consolidated one. Issue those
-            yourself in the MyInvois portal.
+            A single sale above RM10,000 cannot go in the consolidated one: each gets its own e-invoice, to the general
+            public unless the customer asked for one in their name. Check those after each month.
           </li>
           <li>Only sales recorded here are included: not another till, nor bank transfers never entered here.</li>
           <li>You remain responsible for what is sent under your TIN. Check the list below after each month.</li>

@@ -220,13 +220,23 @@ export async function issueReceipt(sale: Sale): Promise<Document | null> {
 }
 
 /**
- * Reverse a receipted sale in full: a credit note for all of it, at the tax
- * it was sold at. Nothing when the sale was never receipted (it was free, or
- * made before receipts were kept). Once only.
+ * Reverse a receipted sale: a credit note for all of it, or for `share` of it
+ * (a late cancellation), at the tax it was sold at. Nothing when the sale was
+ * never receipted (it was free, or made before receipts were kept). Once only.
  */
-export async function creditReceipt(source: string, why: string): Promise<Document | null> {
-  const receipt = await documentFor(source);
-  if (!receipt || receipt.kind !== "receipt") return null;
+export async function creditReceipt(source: string, why: string, share = 1): Promise<Document | null> {
+  const full = await documentFor(source);
+  if (!full || full.kind !== "receipt" || share <= 0) return null;
+  const part = roundMoney(full.total * Math.min(share, 1));
+  const receipt =
+    share >= 1
+      ? full
+      : {
+          ...full,
+          total: part,
+          lines: [{ description: `${Math.round(share * 100)}% of ${full.number}, cancelled late`, amount: part }],
+          tax: full.tax ? { ...full.tax, amount: taxIncluded(part, full.tax.rate) } : null,
+        };
   return write({
     venue_id: receipt.venueId,
     kind: "credit_note",

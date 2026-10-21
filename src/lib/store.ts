@@ -4147,7 +4147,7 @@ async function refundBooking(bookingId: number, share = 1): Promise<void> {
   await bookingCancelled(bookingId);
   // Friends who paid a share of it are owed it back.
   const { splitCancelled } = await import("./splits");
-  await splitCancelled(bookingId);
+  await splitCancelled(bookingId, share);
 }
 
 /**

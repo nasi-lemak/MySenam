@@ -335,6 +335,16 @@ const monthBounds = (period: string) => {
   return { from: `${period}-01`, to: `${period}-${String(last).padStart(2, "0")}` };
 };
 
+/** LHDN: no single transaction above this may be consolidated. */
+export const CONSOLIDATION_LIMIT = 10_000;
+
+/** The address part of a receipt's link, from its printed number: a booking's code, or "R<id>". */
+async function refOfReceipt(venueId: number, number: string): Promise<string | null> {
+  if (!number.startsWith("R-") && !number.startsWith("CN-")) return number;
+  const row = (await getDb().prepare("SELECT id FROM receipts WHERE venue_id = ? AND number = ?").get(venueId, number)) as { id: number } | undefined;
+  return row ? `R${row.id}` : null;
+}
+
 /** The month before this one, on the venue's calendar. */
 export async function lastMonthAt(venueId: number): Promise<string> {
   return previousPeriod(todayISO(await zoneOf(venueId)));
@@ -379,9 +389,24 @@ export async function consolidate(venueId: number, period: string): Promise<EInv
   if (exists) return [];
   const { from, to } = monthBounds(period);
   const journal = await salesJournal(venueId, from, to);
+  // A single sale over the limit may not go in a consolidated e-invoice: it
+  // gets its own, made out to the general public unless the customer asked
+  // for one in their name already.
+  const made: number[] = [];
+  const already = await individuallyInvoiced(venueId);
+  for (const r of journal.filter((j) => j.type === "Receipt" && j.gross > CONSOLIDATION_LIMIT && !already.has(j.number))) {
+    const ref = await refOfReceipt(venueId, r.number);
+    if (!ref) continue;
+    const row = (await db
+      .prepare(
+        `INSERT INTO e_invoices (venue_id, kind, type_code, code_number, period, receipt_ref, receipt_number, total)
+         VALUES (?, 'individual', '01', ?, ?, ?, ?, ?) ON CONFLICT (venue_id, code_number) DO NOTHING RETURNING id`
+      )
+      .get(venueId, `EI-${r.number}`, period, ref, r.number, r.gross)) as { id: number } | undefined;
+    if (row) made.push(row.id);
+  }
   const own = await individuallyInvoiced(venueId);
   const receipts = journal.filter((r) => r.type === "Receipt" && !own.has(r.number) && r.gross > 0);
-  const made: number[] = [];
   if (receipts.length > 0) {
     const total = roundMoney(receipts.reduce((s, r) => s + r.gross, 0));
     const row = (await db

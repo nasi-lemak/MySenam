@@ -1054,9 +1054,10 @@ WhatsApp*.
   taken.
 - **Owed back:** a share arriving after every share was taken, or after the
   booking was paid in full or cancelled, is written down as owed back (with a
-  credit note) and shows under *Refunds owed* for the venue's staff; so is
-  every share when the booking is cancelled later, whatever the booker's
-  late-cancellation fee.
+  credit note) and shows under *Refunds owed* for the venue's staff. When the
+  booking is cancelled later, each share is owed back as the booker's payment
+  is: all of it, or, cancelled late, what is left after the venue's
+  late-cancellation fee, so the venue keeps its fee on the whole booking.
 - Not for a booking held until paid (pay it first), a weekly series, a class
   enrolment, or an open game (whose players pay there). Search engines are
   kept off split pages.
@@ -2938,11 +2939,13 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
   refused or found invalid is listed with why; *Send again* sends it once the
   venue has put it right.
 
-Not covered: a single sale over RM10,000 must have its own e-invoice and
-cannot go in the consolidated one, so the venue issues those itself in the
-MyInvois portal (the panel says so); cancelling a document within LHDN's 72
-hours is done in the portal; sales recorded outside MySenam are not
-included.
+- **A single sale over RM10,000** may not be consolidated: at month end it
+  gets its own e-invoice (`EI-<receipt number>`), made out to the general
+  public unless the customer already asked for one in their name, and is
+  left out of the consolidated one.
+
+Not covered: cancelling a document within LHDN's 72 hours is done in the
+portal; sales recorded outside MySenam are not included.
 
 ## Payments
 
