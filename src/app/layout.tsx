@@ -30,7 +30,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const site = await currentSiteName();
 
   return (
-    <html lang={locale}>
+    <html lang={locale === "zh" ? "zh-Hans" : locale}>
       <body>
         {storefront?.accentColor && (
           // Validated as #rrggbb when saved, and again when written out.

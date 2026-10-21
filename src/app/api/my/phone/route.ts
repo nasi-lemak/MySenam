@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { isLocale, LOCALE_COOKIE } from "@/lib/i18n";
+import { isLocale, LOCALE_COOKIE, type Locale } from "@/lib/i18n";
 import { confirmPhoneCode, phoneStatus, savePhone, sendPhoneCode, startWhatsappCheck } from "@/lib/phone-check";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   if (body.action === "send") {
     const limited = rateLimit(req, "phoneCode");
     if (limited) return limited;
-    const sent = await sendPhoneCode(user.id, phone, isLocale(req.cookies.get(LOCALE_COOKIE)?.value) ? (req.cookies.get(LOCALE_COOKIE)!.value as "en" | "ms") : "en");
+    const sent = await sendPhoneCode(user.id, phone, isLocale(req.cookies.get(LOCALE_COOKIE)?.value) ? (req.cookies.get(LOCALE_COOKIE)!.value as Locale) : "en");
     if (!sent.ok) return NextResponse.json(sent, { status: 400 });
     return NextResponse.json({ ...sent, status: await phoneStatus(user.id) });
   }

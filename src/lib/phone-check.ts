@@ -312,7 +312,7 @@ async function deliver(number: string, code: string, locale: Locale): Promise<vo
       type: "template",
       template: {
         name: process.env.WHATSAPP_CODE_TEMPLATE || "mysenam_login_code",
-        language: { code: locale === "ms" ? "ms" : "en" },
+        language: { code: { en: "en", ms: "ms", zh: "zh_CN" }[locale] ?? "en" },
         components: [
           { type: "body", parameters: [{ type: "text", text: code }] },
           { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: code }] },

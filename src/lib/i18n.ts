@@ -1,14 +1,15 @@
 /**
- * Two languages, one dictionary.
+ * Three languages, one dictionary.
  *
- * MySenam is used in Malaysia by people who are not all comfortable in
- * English, so the customer-facing side speaks Bahasa Malaysia as well. The
+ * MySenam is used in Malaysia and Singapore by people who are not all
+ * comfortable in English, so the customer-facing side speaks Bahasa Malaysia
+ * and Simplified Chinese as well (each country offers its own, lib/region.ts). The
  * choice lives in a cookie rather than the URL: this is an application people
  * come to in order to book, not a site they arrive at from a search engine,
  * and a `/ms` prefix on every route would have been a large amount of routing
  * for very little.
  *
- * English is the source text and Bahasa Malaysia is typed against it, so a
+ * English is the source text and the others are typed against it, so a
  * phrase added on one side and forgotten on the other does not compile. That
  * is the whole point of the shape below — "is it all translated?" should be a
  * question the build answers, not one somebody has to go and check.
@@ -16,8 +17,9 @@
 
 import { siteName } from "./site";
 import { currencySymbol, plainAmount, region } from "./region";
+import { CUSTOMER_ERRORS_ZH, ZH } from "./i18n-zh";
 
-export const LOCALES = ["en", "ms"] as const;
+export const LOCALES = ["en", "ms", "zh"] as const;
 export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = "en";
@@ -27,6 +29,14 @@ export const LOCALE_COOKIE = "ms_lang";
 export const LOCALE_NAMES: Record<Locale, string> = {
   en: "English",
   ms: "Bahasa Malaysia",
+  zh: "中文",
+};
+
+/** On the language switch (shown upper-case): a code where that reads, the script where it does not. */
+export const LOCALE_SHORT: Record<Locale, string> = {
+  en: "en",
+  ms: "ms",
+  zh: "中文",
 };
 
 /** Gateways by name, for copy (the gateways themselves are server code). */
@@ -317,6 +327,7 @@ const EN = {
   "home.courts_one": "{n} court",
   "home.courts_other": "{n} courts",
   "home.fromRate": "from {cur}{rate}/hr",
+  "board.rateRange": "{cur}{from}–{to}/hr",
   "price.free": "Free",
   "photos.close": "Close",
   "photos.prev": "Previous",
@@ -1430,6 +1441,7 @@ const MS: Record<Phrase, string> = {
   "home.courts_one": "{n} gelanggang",
   "home.courts_other": "{n} gelanggang",
   "home.fromRate": "dari {cur}{rate}/jam",
+  "board.rateRange": "{cur}{from}–{to}/jam",
   "price.free": "Percuma",
   "photos.close": "Tutup",
   "photos.prev": "Sebelum",
@@ -2290,7 +2302,7 @@ const MS: Record<Phrase, string> = {
 };
 
 /** Exported so a test can hold the two languages against each other. */
-export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms: MS };
+export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms: MS, zh: ZH };
 
 export type Vars = Record<string, string | number>;
 
@@ -2376,7 +2388,7 @@ export function sportLabel(t: T, sport: string): string {
  * translated reads oddly, an error nobody shows reads as a blank screen, and
  * the first is much the better failure.
  */
-const CUSTOMER_ERRORS_MS: Record<string, string> = {
+export const CUSTOMER_ERRORS_MS: Record<string, string> = {
   // Applying to list a venue
   "Drop a pin on the map where the venue is.": "Letakkan pin di peta pada lokasi pusat anda.",
   "The pin is outside Malaysia. Move it onto the venue.": "Pin itu di luar Malaysia. Alihkan ke pusat anda.",
@@ -2480,10 +2492,10 @@ export interface RefusalBody {
 export function translateError(t: T, body: string | RefusalBody | null | undefined): string {
   const sentence = typeof body === "string" ? body : (body?.error ?? "");
   const code = typeof body === "string" ? undefined : body?.code;
-  if (t.locale !== "ms") return sentence;
+  if (t.locale === "en") return sentence;
   if (code && (hasPhrase(`err.${code}`) || hasPhrase(`err.${code}_one`)))
     return errorText(t, code as ErrorCode, typeof body === "string" ? undefined : body?.vars);
-  return CUSTOMER_ERRORS_MS[sentence] ?? sentence;
+  return (t.locale === "zh" ? CUSTOMER_ERRORS_ZH : CUSTOMER_ERRORS_MS)[sentence] ?? sentence;
 }
 
 /**

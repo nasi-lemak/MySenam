@@ -51,7 +51,7 @@ export interface Region {
   /** The line under the site's name in the footer. */
   tagline: string;
   /** The languages offered, the first the default. */
-  locales: ("en" | "ms")[];
+  locales: ("en" | "ms" | "zh")[];
   map: {
     bounds: { south: number; north: number; west: number; east: number };
     center: [number, number];
@@ -82,7 +82,7 @@ const REGIONS: Record<CountryCode, Region> = {
     phone: { countryCode: "60", trunk: "0", minDigits: 9, example: "012-345 6789" },
     placeExample: "Bangsar, KLCC",
     tagline: "gelanggang, gim dan kelas, satu tempahan",
-    locales: ["en", "ms"],
+    locales: ["en", "ms", "zh"],
     // Perlis to Sabah, Johor to the Thai border.
     map: { bounds: { south: 0.85, north: 7.4, west: 99.6, east: 119.3 }, center: [4.2, 108], zoom: 5 },
     gateway: "billplz",
@@ -107,7 +107,7 @@ const REGIONS: Record<CountryCode, Region> = {
     phone: { countryCode: "65", trunk: "", minDigits: 8, example: "9123 4567" },
     placeExample: "Tampines, Bishan",
     tagline: "courts, gyms and classes, one booking",
-    locales: ["en"],
+    locales: ["en", "zh"],
     map: { bounds: { south: 1.15, north: 1.48, west: 103.59, east: 104.1 }, center: [1.352, 103.82], zoom: 11 },
     gateway: "stripe",
     tax: { name: "GST", venueRate: 9 },
@@ -196,5 +196,6 @@ export function offsetMs(): number {
 
 /** A BCP 47 tag for Intl formatting in this language and country: en-MY, en-SG. */
 export function intlTag(locale: string): string {
-  return `${locale}-${region().country}`;
+  // Simplified script, as Malaysia and Singapore write it.
+  return `${locale === "zh" ? "zh-Hans" : locale}-${region().country}`;
 }

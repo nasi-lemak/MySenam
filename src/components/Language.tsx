@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo } from "react";
 import { setBrowserCountry } from "@/lib/region";
-import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, Locale, offeredLocales, translator, T } from "@/lib/i18n";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, LOCALE_SHORT, Locale, offeredLocales, translator, T } from "@/lib/i18n";
 
 const LanguageContext = createContext<Locale>(DEFAULT_LOCALE);
 
@@ -83,7 +83,7 @@ export function LanguageToggle() {
               : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
           }`}
         >
-          {code}
+          {LOCALE_SHORT[code]}
         </button>
       ))}
     </div>

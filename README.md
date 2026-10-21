@@ -1949,7 +1949,7 @@ the email is, and what fills it is sent as its parameters.
    access token for a system user. Its token is `WHATSAPP_TOKEN`; the number's
    *Phone number ID* is `WHATSAPP_PHONE_NUMBER_ID`.
 2. In WhatsApp Manager, create the templates below, category **Utility**,
-   each with an English (`en`) and a Malay (`ms`) translation, the body exactly
+   each with an English (`en`), a Malay (`ms`) and a Chinese (`zh_CN`) translation, the body exactly
    as given. The name must match, prefix included.
 3. Wait for approval, then set the two variables. Anything that failed while
    waiting can be retried from the dashboard.
@@ -1986,6 +1986,19 @@ Jumlah: {{5}}
 Tunjukkan kod ini di kaunter hadapan. Untuk melihat, membayar atau membatalkannya, buka {{6}} dan masukkan kod ini.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} total, {{6}} link
+
+```text
+您好，{{1}}！您的预订已确认。
+
+代码：{{2}}
+{{3}}
+{{4}}
+总额：{{5}}
+
+请在前台出示代码。如需查看、付款或取消，请打开 {{6}} 并输入代码。
+```
+
 #### `mysenam_booking_series_confirmed`
 
 English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} weeks, {{5}} when, {{6}} total, {{7}} link
@@ -2014,6 +2027,19 @@ Jumlah: {{6}}
 Tunjukkan kod ini di kaunter hadapan. Untuk melihat, membayar atau membatalkan, buka {{7}} dan masukkan kod siri.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} weeks, {{6}} total, {{7}} link
+
+```text
+您好，{{1}}！您的每周时段已预订。
+
+系列代码：{{2}}
+{{3}}
+自 {{4}} 起，共 {{5}} 周
+总额：{{6}}
+
+请在前台出示代码。如需查看、付款或取消，请打开 {{7}} 并输入系列代码。
+```
+
 #### `mysenam_booking_cancelled`
 
 English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
@@ -2038,6 +2064,17 @@ Hai {{1}}, tempahan {{2}} telah dibatalkan.
 Waktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
+
+```text
+您好，{{1}}！预订 {{2}} 已取消。
+
+{{3}}
+{{4}}
+
+该时段已重新开放，您无需支付任何费用。
+```
+
 #### `mysenam_waitlist_offer`
 
 English (`en`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
@@ -2054,6 +2091,14 @@ Malay (`ms`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{
 Hai {{1}}, ada tempat kosong untuk {{2}} di {{3}}, {{4}} {{5}}.
 
 Ia ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {{6}} selagi ia milik anda.
+```
+
+Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} what, {{4}} date, {{5}} from, {{6}} link
+
+```text
+您好，{{1}}！{{2}} 的 {{3}}（{{4}} {{5}}）有名额空出。
+
+名额会为您短暂保留，之后将转给下一位候补者。请趁名额仍属于您时在 {{6}} 领取。
 ```
 
 #### `mysenam_class_enrolled`
@@ -2084,6 +2129,19 @@ Jumlah: {{7}}
 Tunjukkan kod ini di kaunter hadapan.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} instructor, {{3}} what, {{4}} code, {{5}} venue, {{6}} when, {{7}} total
+
+```text
+您好，{{1}}！您已报名由 {{2}} 指导的 {{3}}。
+
+代码：{{4}}
+{{5}}
+{{6}}
+总额：{{7}}
+
+请在前台出示代码。
+```
+
 #### `mysenam_booking_cancelled_by_venue`
 
 English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
@@ -2110,6 +2168,18 @@ Hai {{1}}, kami memohon maaf: {{2}} terpaksa membatalkan tempahan {{3}}.
 Sila tekan {{7}} untuk memberitahu mereka anda telah melihat mesej ini.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+您好，{{1}}！很抱歉：{{2}} 不得不取消预订 {{3}}。
+
+{{4}}
+{{5}}
+{{6}}
+
+请点击 {{7}} 告知对方您已看到此消息。
+```
+
 #### `mysenam_booking_moved`
 
 English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} ack
@@ -2132,6 +2202,17 @@ Kini: {{4}}
 {{5}}
 
 Masa dan harga yang sama. Sila tekan {{6}} untuk memberitahu mereka anda telah melihat mesej ini.
+```
+
+Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} ack
+
+```text
+您好，{{1}}！{{2}} 已将预订 {{3}} 调到另一个场地。
+
+现为：{{4}}
+{{5}}
+
+时间不变，价格不变。请点击 {{6}} 告知对方您已看到此消息。
 ```
 
 #### `mysenam_booking_rescheduled`
@@ -2162,6 +2243,18 @@ Kini: {{4}}
 Sila tekan {{7}} untuk memberitahu mereka anda telah melihat mesej ini.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+您好，{{1}}！{{2}} 已更改预订 {{3}} 的时间。
+
+现为：{{4}}
+{{5}}
+{{6}}
+
+请点击 {{7}} 告知对方您已看到此消息。
+```
+
 #### `mysenam_booking_reminder`
 
 English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
@@ -2186,6 +2279,18 @@ Kod: {{2}}
 {{4}}
 
 Tidak dapat hadir? Batalkan di {{5}} supaya orang lain boleh bermain.
+```
+
+Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
+
+```text
+您好，{{1}}！提醒您有一个预订。
+
+代码：{{2}}
+{{3}}
+{{4}}
+
+无法前来？请在 {{5}} 取消，让其他人可以打球。
 ```
 
 #### `mysenam_venue_new_booking`
@@ -2216,6 +2321,18 @@ Tempahan baharu.
 Kod {{5}}, {{6}}, {{7}}. Ia ada dalam senarai Tempahan anda.
 ```
 
+Chinese (`zh_CN`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {{6}} amount, {{7}} paid
+
+```text
+新预订。
+
+{{1}}，{{2}}
+{{3}}
+{{4}}
+
+代码 {{5}}，{{6}}，{{7}}。已列入您的预订列表。
+```
+
 ## Countries
 
 MySenam runs **one install per country**. `MYSENAM_COUNTRY` (`MY`, the
@@ -2227,7 +2344,7 @@ table in `src/lib/region.ts`:
 | Currency | RM, ringgit | S$, dollars |
 | Time zone | Asia/Kuala_Lumpur | Asia/Singapore |
 | Phone numbers | +60, written locally with a leading 0 | +65, eight digits |
-| Languages | English and Bahasa Malaysia | English |
+| Languages | English, Bahasa Malaysia and Simplified Chinese | English and Simplified Chinese |
 | Map and address lookups | Malaysia | Singapore |
 | Default payment gateway | Billplz (FPX, cards) | Stripe (cards, PayNow) |
 | Counter QR scheme | DuitNow QR | PayNow QR |
@@ -2257,6 +2374,13 @@ table in `src/lib/region.ts`:
   privacy notice and terms, which need a lawyer in each country. Demo data
   (`src/lib/demo.ts`) fills whatever venues the install has, with phone
   numbers in its country's shape.
+- **Languages** are English, Bahasa Malaysia (`ms`) and Simplified Chinese
+  (`zh`), each country offering its own; the switch in the header sets a
+  cookie. The Malay and Chinese dictionaries (`src/lib/i18n.ts`,
+  `src/lib/i18n-zh.ts`) are typed against the English, so a phrase missing
+  from either does not compile, and the tests check each fills the same
+  placeholders. Dates are formatted for `zh-Hans`; WhatsApp templates go to
+  Meta as `zh_CN`.
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).
 

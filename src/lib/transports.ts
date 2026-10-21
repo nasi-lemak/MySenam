@@ -40,7 +40,7 @@ export const TEMPLATE_PHRASES: Partial<Record<MessageKind, Phrase>> = {
 };
 
 /** The language codes Meta files a template's translations under. */
-const WHATSAPP_LANGUAGE: Record<Locale, string> = { en: "en", ms: "ms" };
+const WHATSAPP_LANGUAGE: Record<Locale, string> = { en: "en", ms: "ms", zh: "zh_CN" };
 
 /** `{name}` placeholders in the order they first appear. */
 export function placeholders(text: string): string[] {

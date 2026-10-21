@@ -25,7 +25,7 @@ import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
 import { extendHolds, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
-import { errorText, translator, type ErrorCode } from "./i18n";
+import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
 import { creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
 import { venueTax } from "./tax";
@@ -707,7 +707,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       const stored = (await db.prepare("SELECT locale FROM bookings WHERE id = ?").get(group[0].id)) as { locale: string | null };
       await notifyBookingConfirmed(
         group.map((b) => ({ ...b, holdUntil: null })),
-        stored.locale === "ms" ? "ms" : "en",
+        isLocale(stored.locale) ? stored.locale : "en",
         group.length > 1 ? group[0].seriesCode : null
       );
     }

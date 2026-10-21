@@ -406,7 +406,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                     <div className="text-xs font-normal text-slate-400">
                       {court.offPeakRate === 0 && court.peakRate === 0
                         ? t("price.free")
-                        : `${money(court.offPeakRate)}–${plainAmount(court.peakRate)}/hr`}
+                        : t("board.rateRange", { from: court.offPeakRate, to: plainAmount(court.peakRate) })}
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>

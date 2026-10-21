@@ -2,42 +2,44 @@ import { describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
-import { DICTIONARIES, LOCALES, translator } from "../src/lib/i18n";
+import { DICTIONARIES, LOCALES, LOCALE_NAMES, translator } from "../src/lib/i18n";
 
 const EN = DICTIONARIES.en;
-const MS = DICTIONARIES.ms;
 const keys = Object.keys(EN) as (keyof typeof EN)[];
+/** Every language typed against the English. */
+const OTHERS = LOCALES.filter((l) => l !== "en");
 
 /** The {placeholders} a phrase expects, in no particular order. */
 function slots(text: string): string[] {
-  return [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  return [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort();
 }
 
-describe("the two languages", () => {
-  it("has something to say in both", () => {
+describe.each(OTHERS)("%s against English", (locale) => {
+  const OTHER = DICTIONARIES[locale];
+  const name = LOCALE_NAMES[locale];
+
+  it("has something to say for every phrase", () => {
     expect(keys.length).toBeGreaterThan(200);
     for (const key of keys) {
-      expect(MS[key], `${key} is missing from Bahasa Malaysia`).toBeTruthy();
-      expect(MS[key].trim(), `${key} is blank in Bahasa Malaysia`).not.toBe("");
+      expect(OTHER[key], `${key} is missing from ${name}`).toBeTruthy();
+      expect(OTHER[key].trim(), `${key} is blank in ${name}`).not.toBe("");
     }
   });
 
   it("was actually translated, not copied", () => {
     // Proper nouns, codes and a handful of loanwords are the same either way;
     // anything beyond a few words should not be.
-    const copied = keys.filter(
-      (k) => EN[k] === MS[k] && EN[k].split(" ").length > 3
-    );
+    const copied = keys.filter((k) => EN[k] === OTHER[k] && EN[k].split(" ").length > 3);
     expect(copied, `these are still English: ${copied.join(", ")}`).toEqual([]);
   });
 
-  it("fills the same holes in both", () => {
-    for (const key of keys) {
-      expect(slots(MS[key]), `${key} has different placeholders`).toEqual(slots(EN[key]));
-    }
+  it("fills the same holes", () => {
+    for (const key of keys) expect(slots(OTHER[key]), `${key} has different placeholders`).toEqual(slots(EN[key]));
   });
+});
 
-  it("gives every counted phrase both forms", () => {
+describe("counted phrases", () => {
+  it("give every one both forms", () => {
     for (const key of keys) {
       if (key.endsWith("_one")) {
         const other = key.replace(/_one$/, "_other") as keyof typeof EN;
@@ -65,6 +67,15 @@ describe("the lookup", () => {
     expect(t("home.fromRate", { rate: 20 })).toBe("dari RM20/jam");
   });
 
+  it("says it in Chinese, money and counts filled in", async () => {
+    const { translateError } = await import("../src/lib/i18n");
+    const t = translator("zh");
+    expect(t("home.fromRate", { rate: 20 })).toBe("RM20/小时起");
+    expect(t.plural("home.courts", 4)).toContain("4");
+    expect(translateError(t, { error: "Wrong email or password." })).not.toBe("Wrong email or password.");
+    expect(translateError(t, { error: "Maximum 3 hours per booking.", code: "MAX_HOURS", vars: { max: 3 } })).toContain("3");
+  });
+
   it("falls back to English for an unknown language", () => {
     // @ts-expect-error — deliberately not a Locale, which is what a stale
     // cookie or a hand-edited request actually looks like.
@@ -77,13 +88,14 @@ describe("the lookup", () => {
 });
 
 describe("refusals", () => {
-  it("gives every code something to say in both languages", async () => {
+  it("gives every code something to say in every language", async () => {
     const codes = keys.filter((k) => k.startsWith("err."));
     expect(codes.length).toBeGreaterThan(40);
-    for (const key of codes) {
-      expect(MS[key], `${key} is missing from Bahasa Malaysia`).toBeTruthy();
-      expect(EN[key]).not.toBe(MS[key]);
-    }
+    for (const locale of OTHERS)
+      for (const key of codes) {
+        expect(DICTIONARIES[locale][key], `${key} is missing from ${locale}`).toBeTruthy();
+        expect(EN[key]).not.toBe(DICTIONARIES[locale][key]);
+      }
   });
 
   it("says a refusal in Malay, including the bit it quotes", async () => {

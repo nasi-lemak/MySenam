@@ -111,10 +111,9 @@ describe("the templates Meta is asked to approve", () => {
       });
     }
 
-    it(`${kind} fills the same parameters in both languages`, () => {
-      expect(new Set(templateText(kind, "ms").params)).toEqual(
-        new Set(templateText(kind, "en").params)
-      );
+    it(`${kind} fills the same parameters in every language`, () => {
+      for (const locale of LOCALES)
+        expect(new Set(templateText(kind, locale).params), locale).toEqual(new Set(templateText(kind, "en").params));
     });
   }
 
