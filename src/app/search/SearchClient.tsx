@@ -7,6 +7,7 @@ import {
   CLOSE_HOUR,
   MAX_ADVANCE_DAYS,
   MAX_HOURS_PER_BOOKING,
+  MAX_VENUE_AHEAD_DAYS,
   OPEN_HOUR,
   Sport,
   SPORTS,
@@ -95,7 +96,9 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
   const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
 
   const [sport, setSport] = useState<Sport>(start.sport ?? "badminton");
-  const [date, setDate] = useState(start.date && dates.includes(start.date) ? start.date : today);
+  // Two weeks as buttons; further, up to the furthest any venue takes bookings, by picking a day.
+  const lastDay = addDays(today, MAX_VENUE_AHEAD_DAYS);
+  const [date, setDate] = useState(start.date && start.date >= today && start.date <= lastDay ? start.date : today);
   const [fromHour, setFromHour] = useState(start.fromHour ?? OPEN_HOUR);
   const [toHour, setToHour] = useState(start.toHour ?? CLOSE_HOUR - 1);
   const [duration, setDuration] = useState(1);
@@ -206,6 +209,17 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
               {d === today ? t("search.today") : dateLabel(t, d)}
             </button>
           ))}
+          <label className="flex shrink-0 items-center gap-1 text-sm text-slate-600">
+            {t("search.laterDay")}
+            <input
+              type="date"
+              min={today}
+              max={lastDay}
+              value={date}
+              onChange={(e) => e.target.value && setDate(e.target.value)}
+              className={`rounded-lg border px-2 py-1 text-sm ${dates.includes(date) ? "border-slate-200" : "border-teal-600 ring-1 ring-teal-600"}`}
+            />
+          </label>
         </div>
 
         <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.time")}>

@@ -36,6 +36,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "voucher.sold": "Sold a gift voucher",
   "voucher.voided": "Cancelled a gift voucher",
   "privacy.export": "Gave a customer their data",
+  "strikes.forgiven": "Forgave a number its strikes",
   "promo.created": "Made a promo code",
   "promo.voided": "Voided a promo code",
   "staff.added": "Added staff",

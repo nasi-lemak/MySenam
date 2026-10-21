@@ -16,7 +16,7 @@ import { money, intlTag, region } from "@/lib/region";
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null; lastDate?: string };
   payOnline?: boolean;
   addons?: { name: string; quantity: number; unitPrice: number }[];
   /** Once paid: its receipt, or tax invoice. */
@@ -399,6 +399,7 @@ export default function MyBookingPage() {
                   <div className="mt-3">
                     <ChangeTime
                       booking={b}
+                      lastDate={result.venue.lastDate}
                       optionsUrl={optionsUrl}
                       submit={(o, date) =>
                         fetch("/api/bookings/reschedule", {

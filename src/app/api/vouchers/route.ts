@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startVoucherPayment } from "@/lib/payments";
 import { rateLimit } from "@/lib/rate-limit";
+import { currentLocale } from "@/lib/locale";
 import { shows, storefrontForRequest } from "@/lib/storefront";
 import { mayShowVenue } from "@/lib/listing";
 
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
     buyerPhone: text("buyerPhone"),
     recipientName: text("recipientName"),
     message: text("message"),
+    // The email that sends it is written in the language it was bought in.
+    locale: await currentLocale(),
   });
   if (!started.ok) return NextResponse.json({ error: started.error, code: started.code, vars: started.vars }, { status: started.status });
   return NextResponse.json({ url: started.url, amount: started.amount });

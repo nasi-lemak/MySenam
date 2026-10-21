@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { getDb, withTransaction } from "./db";
 import { creditReceipt, issueReceipt, paidVia as paidViaLabel } from "./documents";
-import { errorText, translator, type ErrorCode, type Locale } from "./i18n";
+import { errorText, isLocale, translator, type ErrorCode, type Locale } from "./i18n";
 import { creditScope } from "./mode";
 import { enqueue } from "./outbox";
 import { isAmount, money, roundMoney } from "./region";
@@ -48,6 +48,8 @@ export interface Voucher {
   redeemedAt: string | null;
   /** Who it became credit for. */
   redeemedByName: string | null;
+  /** The language it was bought in, for the email that sends it. */
+  locale: Locale;
 }
 
 interface VoucherRow {
@@ -65,6 +67,7 @@ interface VoucherRow {
   expires_on: string;
   created_at: string;
   paid_via: string | null;
+  locale: string;
   redeemed_at: string | null;
   redeemed_by_name: string | null;
 }
@@ -92,6 +95,7 @@ function toVoucher(r: VoucherRow): Voucher {
     paidVia: r.paid_via,
     redeemedAt: r.redeemed_at,
     redeemedByName: r.redeemed_by_name,
+    locale: isLocale(r.locale) ? r.locale : "en",
   };
 }
 
@@ -124,6 +128,7 @@ export interface VoucherInput {
   buyerPhone?: string | null;
   recipientName?: string | null;
   message?: string | null;
+  locale?: Locale;
 }
 
 export type VoucherResult = { ok: true; voucher: Voucher } | Refusal | { ok: false; error: string };
@@ -146,8 +151,8 @@ async function insert(input: VoucherInput, status: "pending" | "active", extra: 
   const row = (await getDb()
     .prepare(
       `INSERT INTO gift_vouchers (code, venue_id, amount, buyer_name, buyer_email, buyer_phone, recipient_name, message,
-                                  status, expires_on, sold_by, paid_via)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                                  status, expires_on, sold_by, paid_via, locale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
     .get(
       newCode(),
@@ -161,7 +166,8 @@ async function insert(input: VoucherInput, status: "pending" | "active", extra: 
       status,
       addDays(todayISO(), VOUCHER_DAYS),
       extra.soldBy ?? null,
-      extra.paidVia ?? null
+      extra.paidVia ?? null,
+      input.locale ?? "en"
     )) as { id: number };
   return (await voucherById(row.id))!;
 }
@@ -229,7 +235,7 @@ async function receiptVoucher(voucher: Voucher, source: string, paidVia: string 
 }
 
 /** Email the voucher to whoever bought it, to print or send on. */
-export async function sendVoucher(voucher: Voucher, locale: Locale = "en"): Promise<void> {
+export async function sendVoucher(voucher: Voucher, locale: Locale = voucher.locale): Promise<void> {
   if (!voucher.buyerEmail) return;
   await enqueue({
     venueId: voucher.venueId,

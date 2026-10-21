@@ -72,6 +72,8 @@ export async function strikesFor(venueId: number, phone: string, days?: number):
     .prepare(
       `SELECT COUNT(*)::int AS n FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.phone_key = ? AND b.date >= ?
+          -- Forgiven by the venue: only what came after counts again.
+          AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
           AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid'))`
     )
     .get(venueId, phoneKey(phone), addDays(todayISO(), -window))) as { n: number };
@@ -84,4 +86,17 @@ export async function struckOut(venueId: number, phone: string): Promise<{ out: 
   if (policy.strikeLimit === null) return { out: false, strikes: 0 };
   const strikes = await strikesFor(venueId, phone, policy.strikeDays);
   return { out: strikes >= policy.strikeLimit, strikes };
+}
+
+/**
+ * The venue lets a number off: its strikes so far stop counting. Staff do it
+ * when a no-show had a good reason, or was marked by mistake.
+ */
+export async function forgiveStrikes(venueId: number, phone: string, adminId: number | null): Promise<void> {
+  await getDb()
+    .prepare(
+      `INSERT INTO strike_forgiveness (venue_id, phone_key, forgiven_on, admin_id) VALUES (?, ?, ?, ?)
+       ON CONFLICT (venue_id, phone_key) DO UPDATE SET forgiven_on = excluded.forgiven_on, admin_id = excluded.admin_id`
+    )
+    .run(venueId, phoneKey(phone), todayISO(), adminId);
 }

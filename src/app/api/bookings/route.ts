@@ -19,7 +19,8 @@ import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, struckOut } from "@/lib/cancel-policy";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { addDays, isValidDateString } from "@/lib/time";
+import { addDays, isValidDateString, todayISO } from "@/lib/time";
+import { houseRules, isMemberHere, lastBookableDay } from "@/lib/house-rules";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
@@ -312,6 +313,12 @@ export async function GET(req: NextRequest) {
       timeZone: venue.timeZone,
       lateCancelKeep: (await cancelPolicy(venue.id)).lateKeep,
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
+      // As far as it can be moved: the venue's window, a member's where this number is one.
+      lastDate: lastBookableDay(
+        await houseRules(venue.id),
+        todayISO(venue.timeZone),
+        await isMemberHere(venue.id, [booking.phone])
+      ),
     },
     payOnline: await takesPaymentOnline(venue.id),
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],

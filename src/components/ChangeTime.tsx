@@ -19,6 +19,7 @@ export function ChangeTime({
   optionsUrl,
   submit,
   staff = false,
+  lastDate,
   onDone,
   onClose,
 }: {
@@ -26,6 +27,8 @@ export function ChangeTime({
   optionsUrl: (date: string) => string;
   submit: (option: RescheduleOption, date: string) => Promise<Response>;
   staff?: boolean;
+  /** The last day it may move to: the venue's window for this customer, up to 90 days. */
+  lastDate?: string;
   onDone: (booking: Booking, message: string) => void;
   onClose: () => void;
 }) {
@@ -84,7 +87,7 @@ export function ChangeTime({
           type="date"
           value={date}
           min={todayISO()}
-          max={addDays(todayISO(), MAX_ADVANCE_DAYS)}
+          max={lastDate ?? addDays(todayISO(), MAX_ADVANCE_DAYS)}
           onChange={(e) => e.target.value && setDate(e.target.value)}
           className="ml-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
         />

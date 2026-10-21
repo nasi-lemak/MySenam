@@ -1,4 +1,7 @@
 import { hasBeenLive } from "./listing";
+import { coachNames } from "./coaching";
+import { refundLines } from "./refund-text";
+import type { CancelRefund } from "./payments";
 import { getDb } from "./db";
 import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue } from "./store";
 import { Booking } from "./types";
@@ -103,6 +106,9 @@ export async function notifyBookingConfirmed(
   const series = bookings.length > 1;
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const code = seriesCode ?? first.code;
+  // A lesson says who is coaching it, where the court is named.
+  const coach = first.coachId ? (await coachNames([first.id])).get(first.id) : undefined;
+  const where = coach ? translator(locale)("msg.lesson", { court: court.name, coach }) : court.name;
 
   await alertVenue(bookings, code, court.name, venue);
   return await deliver(first, {
@@ -120,7 +126,7 @@ export async function notifyBookingConfirmed(
       code,
       venue: venue.name,
       weeks: bookings.length,
-      ...slot(locale, court.name, venue.name, first),
+      ...slot(locale, where, venue.name, first),
       total: await totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
       // Back to the site they booked on: the venue's storefront, if it has one.
       link: `${await venueBaseUrl(venue.id)}/my-booking`,
@@ -193,7 +199,9 @@ async function alertVenue(bookings: Booking[], code: string, courtName: string, 
 /** Tell a customer a booking is off, and that they owe nothing for it. */
 export async function notifyBookingCancelled(
   booking: Booking,
-  locale: Locale
+  locale: Locale,
+  /** What it cost and how the money is going back, for a cancellation by the customer. */
+  outcome: { kept?: number | null; refunds?: CancelRefund[] } = {}
 ): Promise<OutboxMessage | null> {
   const court = await getCourt(booking.courtId);
   if (!court) return null;
@@ -215,8 +223,19 @@ export async function notifyBookingCancelled(
       code: booking.code,
       venue: venue.name,
       ...slot(locale, court.name, venue.name, booking),
+      money: cancelMoney(locale, outcome),
     },
   });
+}
+
+/** The money line of a cancellation: a fee kept, refunds on their way, or nothing owed. */
+function cancelMoney(locale: Locale, outcome: { kept?: number | null; refunds?: CancelRefund[] }): string {
+  const t = translator(locale);
+  const lines = [
+    ...(outcome.kept ? [t("msg.keptFee", { kept: money(outcome.kept) })] : []),
+    ...refundLines(t, outcome.refunds),
+  ];
+  return lines.length > 0 ? lines.join(" ") : t("msg.owedNothing");
 }
 
 /** Tell a customer they are in a class. */

@@ -30,6 +30,7 @@ import {
   DEFAULT_OPEN_HOUR,
   DEFAULT_CLOSE_HOUR,
   MAX_ADVANCE_DAYS,
+  MAX_VENUE_AHEAD_DAYS,
   type CounterMethod,
   type PaidVia,
   MAX_HOURS_PER_BOOKING,
@@ -96,7 +97,7 @@ import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
-import { cancelPolicy } from "./cancel-policy";
+import { cancelPolicy, strikesFor } from "./cancel-policy";
 import { venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt } from "./documents";
 import { venueTax } from "./tax";
@@ -1011,7 +1012,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
-           v.access AS v_access
+           v.access AS v_access, v.book_ahead_days AS v_ahead
     FROM courts c JOIN venues v ON v.id = c.venue_id
     WHERE c.sport = ? AND ${listRule(input.venueIds)}
   `;
@@ -1055,6 +1056,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_lng: number | null;
     v_amenities: string[] | null;
     v_access: "public" | "members" | "private";
+    v_ahead: number | null;
   })[];
   if (rows.length === 0) return [];
 
@@ -1082,6 +1084,9 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   const results: SearchResult[] = [];
   for (const row of rows) {
     if (closedVenues.has(`${row.v_id}:${input.date}`)) continue;
+    // Only on a day the venue takes bookings for, by everybody: a member's longer window is on its own page.
+    const zone = venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng });
+    if (!isBookableDate(input.date, zone, Math.min(row.v_ahead ?? MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS))) continue;
     const court = toCourt(row);
     const venue: Venue = {
       id: row.v_id,
@@ -2503,6 +2508,8 @@ export interface AdminBookingRow extends Booking {
   addons: BookingAddon[];
   /** A lesson: who is coaching it (lib/coaching.ts). */
   coachName: string | null;
+  /** This number's strikes at the venue, and its limit; null where the venue counts none. */
+  strikes: { count: number; limit: number } | null;
 }
 
 export interface UserBookingRow extends Booking {
@@ -3508,10 +3515,13 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     for (const row of held) hires.set(row.booking_id, toHire(row));
   }
   const extras = await addonsFor(rows.map((r) => r.id));
+  const policies = new Map<number, Awaited<ReturnType<typeof cancelPolicy>>>();
 
   const list: AdminBookingRow[] = [];
   for (const r of rows) {
     const booking = toBooking(r);
+    if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
+    const policy = policies.get(r.venue_id)!;
     list.push({
       ...booking,
       courtName: r.court_name,
@@ -3525,6 +3535,10 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       phoneChecked: r.user_verified_phone !== null && phoneNumber(booking.phone) === r.user_verified_phone,
       addons: extras.get(booking.id) ?? [],
       coachName: r.coach_name,
+      strikes:
+        policy.strikeLimit === null
+          ? null
+          : { count: await strikesFor(r.venue_id, booking.phone, policy.strikeDays), limit: policy.strikeLimit },
     });
   }
   return list;

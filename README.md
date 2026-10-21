@@ -2049,6 +2049,13 @@ are not announced back to the desk.
   and needs the `mysenam_venue_new_booking` template below approved.
 - They are written in the install's first language.
 
+A lesson's confirmation names the coach where it names the court (*Court 1,
+lesson with Ana Lim*). A customer's cancellation says what happened to the
+money: the late-cancellation fee kept, refunds on their way and how, or that
+nothing is owed. That changed the `mysenam_booking_cancelled` template (a new
+`{{5}}`), which has to be submitted to Meta again. A gift voucher bought online
+is emailed in the language it was bought in.
+
 ### Bookings in staff's own calendar
 
 Under *Venue details → Bookings in your own calendar* a manager turns on an
@@ -2233,7 +2240,7 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} wee
 
 #### `mysenam_booking_cancelled`
 
-English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
+English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} money
 
 ```text
 Hi {{1}}, booking {{2}} has been cancelled.
@@ -2241,10 +2248,13 @@ Hi {{1}}, booking {{2}} has been cancelled.
 {{3}}
 {{4}}
 
-The slot is free again. Nothing is owed for it.
+The slot is free again.
+{{5}}
+
+See you another time.
 ```
 
-Malay (`ms`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
+Malay (`ms`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} money
 
 ```text
 Hai {{1}}, tempahan {{2}} telah dibatalkan.
@@ -2252,10 +2262,13 @@ Hai {{1}}, tempahan {{2}} telah dibatalkan.
 {{3}}
 {{4}}
 
-Waktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.
+Waktu itu kosong semula.
+{{5}}
+
+Jumpa lagi.
 ```
 
-Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
+Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} money
 
 ```text
 您好，{{1}}！预订 {{2}} 已取消。
@@ -2263,7 +2276,10 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when
 {{3}}
 {{4}}
 
-该时段已重新开放，您无需支付任何费用。
+该时段已重新开放。
+{{5}}
+
+期待下次再见。
 ```
 
 #### `mysenam_waitlist_offer`
@@ -3052,6 +3068,10 @@ venue's fair-use limits for online bookings, each blank for none:
   they may book, and that members may book further. The members' window is
   also the outer edge for staff at the counter, for moving a booking and for
   joining a waitlist.
+- Cross-venue search lists a venue only on days inside its own window (the
+  public one), and offers *Or another day* up to 90 days ahead besides the two
+  weeks of buttons. Moving a booking can go as far as the window allows that
+  customer.
 
 ## Booking again
 
@@ -3125,6 +3145,10 @@ there are to pay.
   put away or not: *You have 2 of 3 so far here*, or in red once they have
   reached the limit. A guest's are not, since a typed phone number is not
   proof of whose it is.
+- **Staff see each number's strikes** on the day's bookings (*2/3 strikes*, red
+  once at the limit). Clicking it **forgives** them: only no-shows and late
+  cancellations on bookings after today count again (`strike_forgiveness`,
+  managers only, in the activity log).
 - Cancelling an unpaid booking late, where strikes are counted, asks first:
   *this counts as a late cancellation against your number*. Staff marking a
   no-show are reminded it counts against the customer too.

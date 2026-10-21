@@ -77,6 +77,7 @@ function message(over: Partial<OutboxMessage> = {}): OutboxMessage {
       code: "ABC123",
       where: "Court 1 at Arena",
       when: "2026-10-20, 10:00 to 11:00",
+      money: "Nothing is owed for it.",
     },
     status: "queued",
     dedupeKey: null,

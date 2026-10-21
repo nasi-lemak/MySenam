@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   // Money paid online goes back as the venue chose, before the customer is told.
   const refunds = await refundCancelled([result.booking.id]);
 
-  await notifyBookingCancelled(result.booking, await currentLocale());
+  await notifyBookingCancelled(result.booking, await currentLocale(), { kept: result.kept ?? null, refunds });
   // A cancellation is what frees a place, so it is also what makes an
   // offer worth telling somebody about.
   await tickOutbox();

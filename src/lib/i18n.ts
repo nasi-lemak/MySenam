@@ -669,6 +669,7 @@ const EN = {
   "search.title": "Find a court",
   "search.intro": "Search every venue at once — pick a sport and a time, and see what's free.",
   "search.today": "Today",
+  "search.laterDay": "Or another day",
   "search.from": "From",
   "search.until": "Until",
   "search.customTime": "Custom…",
@@ -949,7 +950,10 @@ const EN = {
   "pay.toMyBooking": "Go to My Booking",
   "msg.cancelledSubject": "Booking {code} cancelled — {venue}",
   "msg.cancelled":
-    "Hi {name}, booking {code} has been cancelled.\n\n{where}\n{when}\n\nThe slot is free again. Nothing is owed for it.",
+    "Hi {name}, booking {code} has been cancelled.\n\n{where}\n{when}\n\nThe slot is free again.\n{money}\n\nSee you another time.",
+  "msg.owedNothing": "Nothing is owed for it.",
+  "msg.keptFee": "The venue kept {kept} as its late-cancellation fee.",
+  "msg.lesson": "{court}, lesson with {coach}",
   "msg.offerSubject": "A place has opened up — {venue}",
   "msg.offer":
     "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for a short while, and then goes to the next person waiting. Claim it at {link} while it is yours.",
@@ -1871,6 +1875,7 @@ const MS: Record<Phrase, string> = {
   "search.intro":
     "Cari semua pusat serentak — pilih sukan dan waktu, dan lihat apa yang kosong.",
   "search.today": "Hari ini",
+  "search.laterDay": "Atau hari lain",
   "search.from": "Dari",
   "search.until": "Hingga",
   "search.customTime": "Pilih sendiri…",
@@ -2163,7 +2168,10 @@ const MS: Record<Phrase, string> = {
   "pay.toMyBooking": "Pergi ke Tempahan Saya",
   "msg.cancelledSubject": "Tempahan {code} dibatalkan — {venue}",
   "msg.cancelled":
-    "Hai {name}, tempahan {code} telah dibatalkan.\n\n{where}\n{when}\n\nWaktu itu kosong semula. Tiada apa-apa yang perlu dibayar untuknya.",
+    "Hai {name}, tempahan {code} telah dibatalkan.\n\n{where}\n{when}\n\nWaktu itu kosong semula.\n{money}\n\nJumpa lagi.",
+  "msg.owedNothing": "Tiada apa-apa yang perlu dibayar untuknya.",
+  "msg.keptFee": "Pusat menyimpan {kept} sebagai caj pembatalan lewat.",
+  "msg.lesson": "{court}, kelas dengan {coach}",
   "msg.offerSubject": "Ada tempat kosong — {venue}",
   "msg.offer":
     "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",

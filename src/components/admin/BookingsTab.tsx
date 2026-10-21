@@ -3,8 +3,8 @@
 import { AttentionPanel } from "./AttentionPanel";
 import { ChangeTime } from "@/components/ChangeTime";
 import { useCallback, useEffect, useState } from "react";
-import { formatHour } from "@/lib/time";
-import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, PAID_VIA_LABELS, SPORT_ICONS } from "@/lib/types";
+import { addDays, formatHour, todayISO } from "@/lib/time";
+import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS, SPORT_ICONS } from "@/lib/types";
 import type { CounterMethod } from "@/lib/types";
 import type { Court, HireCondition, Venue } from "@/lib/types";
 import type { AdminBookingRow } from "@/lib/store";
@@ -259,6 +259,25 @@ export function BookingsTab() {
     }
   }
 
+  async function forgiveStrikes(b: AdminBookingRow) {
+    if (!confirm(`Forgive ${b.phone} their ${b.strikes?.count ?? 0} strike(s) at ${b.venueName}? Only what happens from tomorrow counts again.`))
+      return;
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/strikes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId: b.venueId, phone: b.phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not forgive the strikes");
+      setNotice(`${b.phone}'s strikes at ${b.venueName} no longer count.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not forgive the strikes");
+    }
+  }
+
   async function toggleNoShow(code: string, noShow: boolean) {
     // A no-show can cost the customer: past the venue's strike limit, they pay online to book.
     if (noShow && !confirm(`Mark ${code} as a no-show? If you count strikes (Venues & staff → Cancellations), this counts against their number.`))
@@ -312,6 +331,7 @@ export function BookingsTab() {
     cancelBooking,
     paySeries,
     blockNumber,
+    forgiveStrikes,
   };
 
   return (
@@ -396,6 +416,7 @@ export function BookingsTab() {
           key={changing.code}
           booking={changing}
           staff
+          lastDate={addDays(todayISO(), MAX_VENUE_AHEAD_DAYS)}
           optionsUrl={changeOptionsUrl}
           submit={(o, day) =>
             fetch("/api/admin/bookings/reschedule", {
@@ -566,6 +587,7 @@ export function BookingsTab() {
                 <div className="mt-2 text-sm">
                   {b.name}
                   <NoShowBadge b={b} />
+                  <StrikesBadge b={b} act={act} />
                   <a href={`tel:${b.phone}`} className="ml-2 text-slate-500 underline">
                     {b.phone}
                   </a>
@@ -613,6 +635,7 @@ export function BookingsTab() {
                     <td className="px-3 py-2">
                       {b.name}
                       <NoShowBadge b={b} />
+                  <StrikesBadge b={b} act={act} />
                       <Extras b={b} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
@@ -675,6 +698,7 @@ interface Act {
   cancelBooking: (code: string) => void;
   paySeries: (seriesCode: string, via?: CounterMethod) => void;
   blockNumber: (b: AdminBookingRow) => void;
+  forgiveStrikes: (b: AdminBookingRow) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -719,6 +743,21 @@ function Coach({ b }: { b: AdminBookingRow }) {
     <div className="mt-1 text-xs text-indigo-700">
       🎓 Lesson with {b.coachName} ({money(b.coachFee ?? 0)} of it the coach&apos;s)
     </div>
+  );
+}
+
+/** Strikes against this number here, where the venue counts them, with a way to let them off. */
+function StrikesBadge({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (!b.strikes || b.strikes.count === 0) return null;
+  const out = b.strikes.count >= b.strikes.limit;
+  return (
+    <button
+      onClick={() => act.forgiveStrikes(b)}
+      title={`${b.strikes.count} of ${b.strikes.limit} strikes here${out ? ": must pay online to book" : ""}. Click to forgive.`}
+      className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${out ? "bg-red-600 text-white" : "bg-amber-100 text-amber-800"}`}
+    >
+      {b.strikes.count}/{b.strikes.limit} strikes
+    </button>
   );
 }
 
