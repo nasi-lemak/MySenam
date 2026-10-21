@@ -50,6 +50,11 @@ export interface PeakRules {
   weekendUntil: number;
   /** Dates priced as the weekend: public, school and festive holidays. */
   holidays: string[];
+  /**
+   * How long one of the venue's slots is, in hours: 1, or 0.5 where it sells
+   * by the half hour. A slot costs its share of the hourly rate.
+   */
+  slotHours?: number;
 }
 
 export const DEFAULT_PEAK: PeakRules = {
@@ -59,6 +64,7 @@ export const DEFAULT_PEAK: PeakRules = {
   weekendFrom: 0,
   weekendUntil: 24,
   holidays: [],
+  slotHours: 1,
 };
 
 /** Is the hour starting at `hour` on `date` priced at the peak rate? */
@@ -81,18 +87,42 @@ export function isBookableDate(date: string): boolean {
   return date >= today && date <= addDays(today, MAX_ADVANCE_DAYS);
 }
 
-/** Has this slot already started (or passed), local time? */
+/**
+ * Has this slot already started (or passed), local time? A slot is under way
+ * from its first minute: 18:00 is past at 18:10, and 18:30 at 18:30.
+ */
 export function isPastSlot(date: string, hour: number): boolean {
   const today = todayISO();
   if (date < today) return true;
   if (date > today) return false;
-  return hour <= currentHour();
+  // The minutes are the same in UTC as here: Malaysia and Singapore are whole hours ahead.
+  return hour <= currentHour() + new Date().getUTCMinutes() / 60;
 }
 
-/** The UTC instant at which a slot (local time) begins. */
+/** The UTC instant at which a slot (local time) begins. 18.5 is 18:30. */
 export function slotStartsAt(date: string, hour: number): Date {
   const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, hour - region().utcOffsetHours));
+  return new Date(Date.UTC(y, m - 1, d, 0, Math.round((hour - region().utcOffsetHours) * 60)));
+}
+
+/** A slot's length in hours: 1 by the hour, 0.5 by the half hour. */
+export const slotHours = (slotMinutes: number) => slotMinutes / 60;
+
+/** The slots from `start` up to `end`, each `step` hours long: 18, 18.5, 19… */
+export function slotsBetween(start: number, end: number, step = 1): number[] {
+  const out: number[] = [];
+  for (let i = 0; start + i * step < end - 1e-9; i++) out.push(start + i * step);
+  return out;
+}
+
+/** Whether these slot starts follow on from each other without a gap. */
+export function consecutive(hours: number[], step = 1): boolean {
+  return hours.every((h, i) => i === 0 || Math.abs(h - hours[i - 1] - step) < 1e-9);
+}
+
+/** Whether a time falls on a slot boundary: any hour, or the half hour where slots are halves. */
+export function onSlot(hour: number, step = 1): boolean {
+  return Number.isFinite(hour) && Math.abs(hour / step - Math.round(hour / step)) < 1e-9;
 }
 
 /** Hours from now until a slot starts; negative once it has begun. */
@@ -110,8 +140,10 @@ export function isWithinCancelWindow(
 }
 
 export function formatHour(hour: number): string {
-  const h = hour % 24;
+  const whole = Math.floor(hour);
+  const minutes = Math.round((hour - whole) * 60);
+  const h = whole % 24;
   const suffix = h >= 12 ? "PM" : "AM";
   const display = h % 12 === 0 ? 12 : h % 12;
-  return `${display}:00 ${suffix}`;
+  return `${display}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }

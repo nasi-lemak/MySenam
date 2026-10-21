@@ -18,7 +18,8 @@ export interface BookingShareInfo {
 
 function toUtcStamp(date: string, localHour: number): string {
   const [y, m, d] = date.split("-").map(Number);
-  const utc = new Date(Date.UTC(y, m - 1, d, localHour - region().utcOffsetHours));
+  // In minutes, so 18.5 is 18:30.
+  const utc = new Date(Date.UTC(y, m - 1, d, 0, Math.round((localHour - region().utcOffsetHours) * 60)));
   return utc.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
@@ -120,10 +121,11 @@ export function googleCalendarUrl(b: BookingShareInfo): string {
 }
 
 function formatHour12(hour: number): string {
-  const h = hour % 24;
+  const whole = Math.floor(hour);
+  const h = whole % 24;
   const suffix = h >= 12 ? "PM" : "AM";
   const display = h % 12 === 0 ? 12 : h % 12;
-  return `${display}:00 ${suffix}`;
+  return `${display}:${String(Math.round((hour - whole) * 60)).padStart(2, "0")} ${suffix}`;
 }
 
 export function whatsappShareUrl(b: BookingShareInfo): string {

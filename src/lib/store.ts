@@ -81,6 +81,9 @@ import {
   formatHour,
   isBookableDate,
   isPastSlot,
+  slotsBetween,
+  consecutive,
+  onSlot,
   isValidDateString,
   isPeak,
   DEFAULT_PEAK,
@@ -124,6 +127,7 @@ interface VenueRow {
   cancel_cutoff_hours: number;
   open_hour: number;
   close_hour: number;
+  slot_minutes?: number;
   staffed_from: number | null;
   staffed_to: number | null;
   emergency_phone: string | null;
@@ -148,6 +152,7 @@ function toVenue(r: VenueRow): Venue {
     cancelCutoffHours: r.cancel_cutoff_hours,
     openHour: r.open_hour,
     closeHour: r.close_hour,
+    slotMinutes: r.slot_minutes === 30 ? 30 : 60,
     staffedFrom: r.staffed_from,
     staffedTo: r.staffed_to,
     emergencyPhone: r.emergency_phone,
@@ -163,28 +168,38 @@ function toVenue(r: VenueRow): Venue {
   };
 }
 
-/** A venue's trading hours, falling back to the defaults if it has vanished. */
-export async function venueHours(venueId: number): Promise<{ openHour: number; closeHour: number }> {
+/**
+ * A venue's trading hours, falling back to the defaults if it has vanished,
+ * and how long each of its slots is in hours (`step`: 1, or 0.5).
+ */
+export async function venueHours(venueId: number): Promise<{ openHour: number; closeHour: number; step: number }> {
   const row = await getDb()
-    .prepare("SELECT open_hour, close_hour FROM venues WHERE id = ?")
-    .get(venueId) as { open_hour: number; close_hour: number } | undefined;
+    .prepare("SELECT open_hour, close_hour, slot_minutes FROM venues WHERE id = ?")
+    .get(venueId) as { open_hour: number; close_hour: number; slot_minutes: number } | undefined;
   return {
     openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR,
     closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR,
+    step: (row?.slot_minutes ?? 60) / 60,
   };
 }
 
-/** The trading hours of the venue a court belongs to. */
-export async function courtVenueHours(courtId: number): Promise<{ openHour: number; closeHour: number }> {
+/** The slots a booking holds: its hours, or half hours where its venue sells halves. */
+export async function bookingHours(b: { courtId: number; startHour: number; endHour: number }): Promise<number[]> {
+  return slotsBetween(b.startHour, b.endHour, (await courtVenueHours(b.courtId)).step);
+}
+
+/** The trading hours and slot length of the venue a court belongs to. */
+export async function courtVenueHours(courtId: number): Promise<{ openHour: number; closeHour: number; step: number }> {
   const row = await getDb()
     .prepare(`
-      SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour
+      SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour, v.slot_minutes AS slot_minutes
       FROM courts c JOIN venues v ON v.id = c.venue_id WHERE c.id = ?
     `)
-    .get(courtId) as { id: number; open_hour: number; close_hour: number } | undefined;
+    .get(courtId) as { id: number; open_hour: number; close_hour: number; slot_minutes: number } | undefined;
   return {
     openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR,
     closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR,
+    step: (row?.slot_minutes ?? 60) / 60,
   };
 }
 
@@ -586,15 +601,15 @@ export async function getAvailability(
 
   const blockedPlaces = await blockedPlacesOn(date, venueId);
   const classHours = await classHoursOn(date, venueId);
-  const { openHour, closeHour } = await venueHours(venueId);
+  const { openHour, closeHour, step } = await venueHours(venueId);
   // A closed day reads like every hour is blocked, so nothing can be picked.
   const closed = await getVenueClosure(venueId, date) !== null;
   const rules = await peakRules(venueId);
 
   return courts.map((court) => ({
     court,
-    slots: Array.from({ length: closeHour - openHour }, (_, i) => {
-      const hour = openHour + i;
+    // One per slot: each hour, or each half hour where the venue sells halves.
+    slots: slotsBetween(openHour, closeHour, step).map((hour) => {
       const key = `${court.id}:${hour}`;
       const booked = takenCounts.get(key) ?? 0;
       const out = blockedPlaces.get(key) ?? 0;
@@ -639,9 +654,11 @@ async function classHoursOn(
     end_hour: number;
   }[];
 
+  // By the half hour, whichever way the venue sells: a lookup by the hour
+  // finds its hour, and one by the half hour finds both halves.
   const map = new Map<string, { id: number; name: string }>();
   for (const row of rows) {
-    for (let hour = row.start_hour; hour < row.end_hour; hour++) {
+    for (const hour of slotsBetween(row.start_hour, row.end_hour, 0.5)) {
       map.set(`${row.court_id}:${hour}`, { id: row.id, name: row.name });
     }
   }
@@ -968,7 +985,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
            v.address AS v_address, v.phone AS v_phone,
            v.cancel_cutoff_hours AS v_cutoff,
-           v.open_hour AS v_open, v.close_hour AS v_close,
+           v.open_hour AS v_open, v.close_hour AS v_close, v.slot_minutes AS v_slot_minutes,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
@@ -1005,6 +1022,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_cutoff: number;
     v_open: number;
     v_close: number;
+    v_slot_minutes: number;
     v_staffed_from: number | null;
     v_staffed_to: number | null;
     v_emergency_phone: string | null;
@@ -1051,6 +1069,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       cancelCutoffHours: row.v_cutoff,
       openHour: row.v_open,
       closeHour: row.v_close,
+      slotMinutes: row.v_slot_minutes === 30 ? 30 : 60,
       staffedFrom: row.v_staffed_from,
       staffedTo: row.v_staffed_to,
       emergencyPhone: row.v_emergency_phone,
@@ -1074,8 +1093,10 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     // A booking of `duration` hours must still finish by the venue's close.
     const fromHour = Math.max(wantFrom, venue.openHour);
     const lastStart = Math.min(wantTo, venue.closeHour - duration);
+    // Search offers whole-hour starts; a venue selling half hours fills the time with its halves.
+    const step = venue.slotMinutes / 60;
     for (let start = fromHour; start <= lastStart; start++) {
-      const hours = Array.from({ length: duration }, (_, i) => start + i);
+      const hours = slotsBetween(start, start + duration, step);
       const free = hours.every((h) => {
         const key = `${court.id}:${h}`;
         return (
@@ -1146,15 +1167,17 @@ export function computePrice(
   /** The venue's peak hours and holidays, from `peakRules`. */
   rules: PeakRules = DEFAULT_PEAK
 ): number {
+  // Each slot costs its share of the hourly rate: half of it, by the half hour.
+  const share = rules.slotHours ?? 1;
   // To the sen or cent: rates with cents add up with floating-point noise.
   return roundMoney(
     hours.reduce((sum, h) => {
       const peak = isPeak(date, h, rules);
       if (member) {
         const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
-        if (rate !== null) return sum + rate;
+        if (rate !== null) return sum + rate * share;
       }
-      return sum + (peak ? court.peakRate : court.offPeakRate);
+      return sum + (peak ? court.peakRate : court.offPeakRate) * share;
     }, 0)
   );
 }
@@ -1233,13 +1256,13 @@ export async function createBookingSeries(input: {
   if (!isBookableDate(date))
     return refuse("DATE_OUT_OF_WINDOW_FIRST");
   if (hours.length === 0) return refuse("NO_HOURS");
-  if (hours.length > MAX_HOURS_PER_BOOKING)
+  // Slots are hours, or half hours where the venue sells halves.
+  const { openHour, closeHour, step } = await courtVenueHours(courtId);
+  if (!hours.every((h) => onSlot(h, step))) return refuse("NO_HOURS");
+  if (hours.length * step > MAX_HOURS_PER_BOOKING)
     return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
-  for (let i = 1; i < hours.length; i++) {
-    if (hours[i] !== hours[i - 1] + 1)
-      return refuse("HOURS_NOT_CONSECUTIVE");
-  }
-  const { openHour, closeHour } = await courtVenueHours(courtId);
+  if (!consecutive(hours, step))
+    return refuse("HOURS_NOT_CONSECUTIVE");
   if (hours[0] < openHour || hours[hours.length - 1] >= closeHour)
     return refuse("HOURS_OUTSIDE_OPENING");
   if (isPastSlot(date, hours[0]))
@@ -1275,7 +1298,7 @@ export async function createBookingSeries(input: {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
-    "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
+    `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${step})`
   );
 
   /** Lowest unused place for an hour, or null when the resource is full. */
@@ -1322,7 +1345,7 @@ export async function createBookingSeries(input: {
           continue;
         }
         const bookingId = (await insertBooking.run(
-          generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + 1,
+          generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + step,
           name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate), rules),
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
           input.classId ?? null
@@ -1518,13 +1541,12 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
   const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b]));
   const blockedPlaces = await blockedPlacesOn(date, venueId);
 
-  const { openHour, closeHour } = await venueHours(venueId);
+  const { openHour, closeHour, step } = await venueHours(venueId);
   const closure = await getVenueClosure(venueId, date);
 
   return courts.map((court) => ({
     court,
-    slots: Array.from({ length: closeHour - openHour }, (_, i) => {
-      const hour = openHour + i;
+    slots: slotsBetween(openHour, closeHour, step).map((hour) => {
       const key = `${court.id}:${hour}`;
       const count = bookedCounts.get(key) ?? 0;
       const block = blockMap.get(key);
@@ -1580,8 +1602,8 @@ export async function blockSlots(
 ): Promise<BlockResult> {
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
-  const { openHour, closeHour } = await courtVenueHours(courtId);
-  const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour);
+  const { openHour, closeHour, step } = await courtVenueHours(courtId);
+  const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour && onSlot(h, step));
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
 
   const partial = places !== undefined && places !== null;
@@ -1598,7 +1620,7 @@ export async function blockSlots(
   );
   // One block row per court-hour, so re-blocking an hour revises it.
   const insert = db.prepare(`
-    INSERT INTO slot_blocks (court_id, date, hour, reason, places) VALUES (?, ?, ?, ?, ?)
+    INSERT INTO slot_blocks (court_id, date, hour, reason, places, span) VALUES (?, ?, ?, ?, ?, ${step})
     ON CONFLICT (court_id, date, hour)
     DO UPDATE SET reason = excluded.reason, places = excluded.places
   `);
@@ -1713,8 +1735,9 @@ export async function rescheduleBooking(
     return refuse("RESCHEDULE_GAME");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
+  const { openHour, closeHour, step } = await courtVenueHours(booking.courtId);
   const length = booking.endHour - booking.startHour;
-  const oldHours = Array.from({ length }, (_, i) => booking.startHour + i);
+  const oldHours = slotsBetween(booking.startHour, booking.endHour, step);
   if (by === "customer") {
     const cutoff = await cancelCutoffForBooking(booking.id);
     if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff))
@@ -1725,11 +1748,10 @@ export async function rescheduleBooking(
 
   const fromCourt = await getCourt(booking.courtId);
   if (!fromCourt) return refuse("COURT_NOT_FOUND");
-  if (!Number.isInteger(to.startHour) || !/^\d{4}-\d{2}-\d{2}$/.test(to.date)) return refuse("SLOT_PAST");
-  const hours = Array.from({ length }, (_, i) => to.startHour + i);
+  if (!onSlot(to.startHour, step) || !/^\d{4}-\d{2}-\d{2}$/.test(to.date)) return refuse("SLOT_PAST");
+  const hours = slotsBetween(to.startHour, to.startHour + length, step);
   if (!isBookableDate(to.date)) return refuse("DATE_OUT_OF_WINDOW");
   if (isPastSlot(to.date, hours[0])) return refuse("SLOT_PAST");
-  const { openHour, closeHour } = await courtVenueHours(fromCourt.id);
   if (hours[0] < openHour || hours[hours.length - 1] >= closeHour) return refuse("HOURS_OUTSIDE_OPENING");
   if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
 
@@ -1793,7 +1815,7 @@ export async function rescheduleBooking(
       await db.transaction(async () => {
         await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
         const insert = db.prepare(
-          "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
+          `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${step})`
         );
         for (const hour of hours) {
           const used = new Set(
@@ -1814,7 +1836,7 @@ export async function rescheduleBooking(
           .prepare(
             "UPDATE bookings SET court_id = ?, date = ?, start_hour = ?, end_hour = ?, total_price = total_price + ? WHERE id = ?"
           )
-          .run(court.id, to.date, hours[0], hours[hours.length - 1] + 1, priceChange, booking.id);
+          .run(court.id, to.date, hours[0], hours[hours.length - 1] + step, priceChange, booking.id);
       })();
     } catch (err) {
       if ((err instanceof Error && err.message === "FULL") || isUniqueViolation(err)) return refuse("RESCHEDULE_TAKEN");
@@ -1854,12 +1876,13 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   const court = await getCourt(booking.courtId);
   if (!court || !isBookableDate(date) || (await getVenueClosure(court.venueId, date))) return [];
   const length = booking.endHour - booking.startHour;
+  const { step } = await venueHours(court.venueId);
   const member = (await activeMembership(court.venueId, booking.phone, date)) !== null;
   const rules = await peakRules(court.venueId);
   const now = computePrice(
     court,
     booking.date,
-    Array.from({ length }, (_, i) => booking.startHour + i),
+    slotsBetween(booking.startHour, booking.endHour, step),
     (await activeMembership(court.venueId, booking.phone, booking.date)) !== null,
     rules
   );
@@ -1877,7 +1900,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   const hoursOf = grid[0]?.slots.map((s) => s.hour) ?? [];
   for (const start of hoursOf) {
     if (date === booking.date && start === booking.startHour) continue;
-    const hours = Array.from({ length }, (_, i) => start + i);
+    const hours = slotsBetween(start, start + length, step);
     if (isPastSlot(date, start)) continue;
     const fitting = grid.find((c) => hours.every((h) => free(c, h)));
     if (fitting) {
@@ -1912,7 +1935,7 @@ export async function bookAgainLink(code: string): Promise<string | null> {
   const sameWeekday = (d: string) =>
     new Date(`${d}T00:00:00Z`).getUTCDay() === new Date(`${booking.date}T00:00:00Z`).getUTCDay();
   const ordered = [...days.filter(sameWeekday), ...days.filter((d) => !sameWeekday(d))];
-  const hours = Array.from({ length }, (_, i) => booking.startHour + i);
+  const hours = slotsBetween(booking.startHour, booking.endHour, (await venueHours(court.venueId)).step);
   const link = (date: string, courtId: number) =>
     `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${courtId}&hour=${booking.startHour}&duration=${length}`;
   for (const date of ordered) {
@@ -1973,10 +1996,7 @@ export async function moveBooking(code: string, toCourtId: number): Promise<Move
       error: `${toCourt.name} is for ${SPORT_LABELS[toCourt.sport]}, not ${SPORT_LABELS[fromCourt.sport]}.`,
     };
 
-  const hours = Array.from(
-    { length: booking.endHour - booking.startHour },
-    (_, i) => booking.startHour + i
-  );
+  const hours = await bookingHours(booking);
   // A booking that is wholly in the past is history; there is nothing to move.
   if (isPastSlot(booking.date, hours[hours.length - 1]))
     return { ok: false, error: "That booking has already finished." };
@@ -2011,7 +2031,7 @@ export async function moveBooking(code: string, toCourtId: number): Promise<Move
       await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
 
       const insert = db.prepare(
-        "INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)"
+        `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${hours.length ? (booking.endHour - booking.startHour) / hours.length : 1})`
       );
       for (const hour of hours) {
         const used = new Set(
@@ -2054,10 +2074,7 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
   if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
   const court = await getCourt(booking.courtId);
   if (!court) return [];
-  const hours = Array.from(
-    { length: booking.endHour - booking.startHour },
-    (_, i) => booking.startHour + i
-  );
+  const hours = await bookingHours(booking);
   const db = getDb();
   const candidates = (
     await db
@@ -2107,7 +2124,7 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
 
   const bookedRows = await db
     .prepare(`
-      SELECT court_id, date, COUNT(*) AS n FROM booking_slots
+      SELECT court_id, date, SUM(span) AS n FROM booking_slots
       WHERE date >= ? AND date <= ? GROUP BY court_id, date
     `)
     .all(start, end) as { court_id: number; date: string; n: number }[];
@@ -2115,7 +2132,7 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
   // blocks that take the whole resource.
   const blockedRows = await db
     .prepare(`
-      SELECT b.court_id AS court_id, b.date AS date, COUNT(*) AS n
+      SELECT b.court_id AS court_id, b.date AS date, SUM(b.span) AS n
       FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
       WHERE COALESCE(b.places, c.capacity) >= c.capacity
       GROUP BY b.court_id, b.date
@@ -2143,6 +2160,77 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
       })),
     })),
   };
+}
+
+/**
+ * Sell a venue's courts by the hour (60) or the half hour (30).
+ *
+ * To half hours: whatever is already in the diary from today on is split
+ * into its two halves, each keeping its place, so nothing booked or blocked
+ * moves. Back to hours: refused while anything from today on starts or ends
+ * on the half hour, since it would no longer fit; otherwise the halves of
+ * each hour are put back together.
+ */
+export async function setSlotMinutes(venueId: number, minutes: unknown): Promise<{ ok: true; slotMinutes: 30 | 60 } | { ok: false; error: string }> {
+  if (minutes !== 30 && minutes !== 60) return { ok: false, error: "Slots are 30 or 60 minutes." };
+  const db = getDb();
+  const venue = (await db.prepare("SELECT slot_minutes FROM venues WHERE id = ?").get(venueId)) as { slot_minutes: number } | undefined;
+  if (!venue) return refuse("VENUE_NOT_FOUND");
+  if (venue.slot_minutes === minutes) return { ok: true, slotMinutes: minutes };
+  const today = todayISO();
+  const courts = "(SELECT id FROM courts WHERE venue_id = ?)";
+  if (minutes === 60) {
+    const onHalf = (await db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*)::int FROM bookings WHERE court_id IN ${courts} AND date >= ? AND status = 'confirmed'
+              AND (start_hour <> FLOOR(start_hour) OR end_hour <> FLOOR(end_hour)))
+         + (SELECT COUNT(*)::int FROM waitlist WHERE court_id IN ${courts} AND date >= ? AND status IN ('waiting', 'offered')
+              AND (start_hour <> FLOOR(start_hour) OR end_hour <> FLOOR(end_hour))) AS n`
+      )
+      .get(venueId, today, venueId, today)) as { n: number };
+    if (onHalf.n > 0)
+      return { ok: false, error: "Bookings from today on start or end on the half hour. Move or cancel them first, then sell by the hour." };
+  }
+  await db.transaction(async () => {
+    if (minutes === 30) {
+      // Each upcoming hour becomes its two halves, the second in the same place as the first.
+      await db
+        .prepare(
+          `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span)
+           SELECT booking_id, court_id, date, hour + 0.5, seat, 0.5 FROM booking_slots
+            WHERE court_id IN ${courts} AND date >= ? AND span = 1`
+        )
+        .run(venueId, today);
+      await db.prepare(`UPDATE booking_slots SET span = 0.5 WHERE court_id IN ${courts} AND date >= ? AND span = 1`).run(venueId, today);
+      await db
+        .prepare(
+          `INSERT INTO slot_blocks (court_id, date, hour, reason, places, tournament_id, span)
+           SELECT court_id, date, hour + 0.5, reason, places, tournament_id, 0.5 FROM slot_blocks
+            WHERE court_id IN ${courts} AND date >= ? AND span = 1
+           ON CONFLICT (court_id, date, hour) DO NOTHING`
+        )
+        .run(venueId, today);
+      await db.prepare(`UPDATE slot_blocks SET span = 0.5 WHERE court_id IN ${courts} AND date >= ? AND span = 1`).run(venueId, today);
+    } else {
+      // Every booking is on whole hours (checked above): its second halves go, its firsts are hours again.
+      await db.prepare(`DELETE FROM booking_slots WHERE court_id IN ${courts} AND date >= ? AND hour <> FLOOR(hour)`).run(venueId, today);
+      await db.prepare(`UPDATE booking_slots SET span = 1 WHERE court_id IN ${courts} AND date >= ?`).run(venueId, today);
+      // A block on either half closes the hour.
+      await db
+        .prepare(
+          `INSERT INTO slot_blocks (court_id, date, hour, reason, places, tournament_id, span)
+           SELECT court_id, date, FLOOR(hour), reason, places, tournament_id, 1 FROM slot_blocks
+            WHERE court_id IN ${courts} AND date >= ? AND hour <> FLOOR(hour)
+           ON CONFLICT (court_id, date, hour) DO NOTHING`
+        )
+        .run(venueId, today);
+      await db.prepare(`DELETE FROM slot_blocks WHERE court_id IN ${courts} AND date >= ? AND hour <> FLOOR(hour)`).run(venueId, today);
+      await db.prepare(`UPDATE slot_blocks SET span = 1 WHERE court_id IN ${courts} AND date >= ?`).run(venueId, today);
+    }
+    await db.prepare("UPDATE venues SET slot_minutes = ? WHERE id = ?").run(minutes, venueId);
+  })();
+  return { ok: true, slotMinutes: minutes };
 }
 
 export type VenueEditResult = { ok: true; venue: Venue } | Refusal;
@@ -3504,7 +3592,7 @@ export async function createClassSessions(input: {
   if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
     return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
-  const { openHour, closeHour } = await courtVenueHours(courtId);
+  const { openHour, closeHour, step } = await courtVenueHours(courtId);
   if (startHour < openHour || endHour > closeHour || endHour <= startHour)
     return { ok: false, error: "Class hours are outside operating hours." };
   if (await getVenueClosure(court.venueId, date))
@@ -3517,7 +3605,8 @@ export async function createClassSessions(input: {
   if (isPastSlot(date, startHour))
     return { ok: false, error: "That start time has already passed." };
 
-  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+  // Every slot the class covers: both halves of each hour where the venue sells halves.
+  const hours = slotsBetween(startHour, endHour, step);
   const db = getDb();
   const seriesCode = weeks > 1 ? randomCode("CL-") : null;
 
@@ -3593,10 +3682,7 @@ export async function enrolInClass(input: {
       .get(session.id, input.phone.trim());
     if (already) return refuse("ALREADY_ENROLLED");
 
-    const hours = Array.from(
-      { length: session.endHour - session.startHour },
-      (_, i) => session.startHour + i
-    );
+    const hours = await bookingHours(session);
     const result = await createBookingSeries({
       courtId: session.courtId,
       date: session.date,
@@ -4727,7 +4813,8 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
   if (normalisePhone(pass.holderPhone) !== normalisePhone(booking.phone))
     return refuse("PASS_WRONG_PHONE");
 
-  const hours = booking.endHour - booking.startHour;
+  // An entry an hour; a booking with a half hour in it spends the whole hour.
+  const hours = Math.ceil(booking.endHour - booking.startHour);
 
   try {
     await db.transaction(async () => {
@@ -5020,10 +5107,7 @@ export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
       if (!enrolled.ok) return { ok: false, error: enrolled.error };
       booking = enrolled.booking;
     } else if (row.court_id && row.date && row.start_hour !== null && row.end_hour !== null) {
-      const hours = Array.from(
-        { length: row.end_hour - row.start_hour },
-        (_, i) => row.start_hour! + i
-      );
+      const hours = await bookingHours({ courtId: row.court_id, startHour: row.start_hour, endHour: row.end_hour });
       const created = await createBooking({
         courtId: row.court_id,
         date: row.date,
@@ -5158,8 +5242,8 @@ export async function joinSlotWaitlist(input: {
 
     const waitCourt = await getCourt(courtId);
     if (!waitCourt) return refuse("COURT_NOT_FOUND");
-    const { openHour, closeHour } = await courtVenueHours(courtId);
-    if (endHour <= startHour || startHour < openHour || endHour > closeHour)
+    const { openHour, closeHour, step } = await courtVenueHours(courtId);
+    if (endHour <= startHour || startHour < openHour || endHour > closeHour || !onSlot(startHour, step) || !onSlot(endHour, step))
       return refuse("THOSE_HOURS_OUTSIDE_OPENING");
     if (await getVenueClosure(waitCourt.venueId, date))
       return refuse("VENUE_CLOSED");
@@ -5168,7 +5252,7 @@ export async function joinSlotWaitlist(input: {
     if (!isBookableDate(date)) return refuse("DATE_OUT_OF_WINDOW");
     if (isPastSlot(date, startHour)) return refuse("TIME_PAST");
 
-    const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+    const hours = slotsBetween(startHour, endHour, step);
     if (await slotHoursFree(courtId, date, hours))
       return refuse("SLOT_FREE_BOOK_IT");
 
@@ -5221,10 +5305,7 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
 
     for (const row of queue) {
       if (row.status !== "waiting" || row.start_hour === null || row.end_hour === null) continue;
-      const hours = Array.from(
-        { length: row.end_hour - row.start_hour },
-        (_, i) => row.start_hour! + i
-      );
+      const hours = await bookingHours({ courtId, startHour: row.start_hour, endHour: row.end_hour });
       if (isPastSlot(date, row.start_hour)) continue;
       if (!await slotHoursFree(courtId, date, hours)) continue;
 

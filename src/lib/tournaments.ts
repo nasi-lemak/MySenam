@@ -335,8 +335,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (!Number.isInteger(input.maxEntries) || input.maxEntries < 2 || input.maxEntries > 128)
     return { ok: false, error: "Between 2 and 128 entries." };
   if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
-  const venue = (await db.prepare("SELECT open_hour, close_hour FROM venues WHERE id = ?").get(input.venueId)) as
-    | { open_hour: number; close_hour: number }
+  const venue = (await db.prepare("SELECT open_hour, close_hour, slot_minutes FROM venues WHERE id = ?").get(input.venueId)) as
+    | { open_hour: number; close_hour: number; slot_minutes: number }
     | undefined;
   if (!venue) return { ok: false, error: "Venue not found." };
   if (input.startHour < venue.open_hour || input.endHour > venue.close_hour || input.endHour <= input.startHour)
@@ -404,12 +404,16 @@ export async function createTournament(input: TournamentInput, adminId: number):
     id = info.lastInsertRowid as number;
     for (const c of courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
     // The hours, held. An hour staff had already blocked stays theirs, and is
-    // simply not one the draw can use.
+    // simply not one the draw can use. Where the venue sells half hours, both
+    // halves are held; matches are still drawn by the hour.
+    const step = venue.slot_minutes / 60;
     const hold = db.prepare(
-      `INSERT INTO slot_blocks (court_id, date, hour, reason, tournament_id) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO slot_blocks (court_id, date, hour, reason, tournament_id, span) VALUES (?, ?, ?, ?, ?, ${step})
        ON CONFLICT (court_id, date, hour) DO NOTHING`
     );
-    for (const s of slots) await hold.run(s.courtId, s.date, s.hour, `Tournament: ${name}`, id);
+    for (const s of slots)
+      for (const half of step < 1 ? [s.hour, s.hour + step] : [s.hour])
+        await hold.run(s.courtId, s.date, half, `Tournament: ${name}`, id);
   })();
   return { ok: true, value: (await tournamentById(id))! };
 }
@@ -682,7 +686,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       // Not an hour on a court taken out of service since.
       .prepare(
         `SELECT s.court_id, s.date, s.hour FROM slot_blocks s
-          WHERE s.tournament_id = ?
+          WHERE s.tournament_id = ? AND s.hour = FLOOR(s.hour)
             AND NOT EXISTS (
               SELECT 1 FROM court_outages o
                WHERE o.court_id = s.court_id AND o.starts_on <= s.date AND (o.ends_on IS NULL OR o.ends_on >= s.date))

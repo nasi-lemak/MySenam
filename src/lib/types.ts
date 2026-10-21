@@ -51,6 +51,8 @@ export interface Venue {
   /** Trading hours: the first bookable hour, and when the last one ends. */
   openHour: number;
   closeHour: number;
+  /** Sold by the hour (60) or the half hour (30). */
+  slotMinutes: 30 | 60;
   /**
    * When somebody is behind the counter. null for both means always staffed;
    * equal values mean never staffed. Outside the window is an unstaffed hour,

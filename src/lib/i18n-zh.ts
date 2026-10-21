@@ -406,6 +406,7 @@ export const ZH: Record<Phrase, string> = {
   "board.sharedSlot": "{time} · {cur}{rate} · 剩 {left}/{capacity} 个名额（{level}）",
   "board.plainSlot": "{time} · {cur}{rate}",
   "board.legendFree": "可预订（数字 = {cur}/小时）",
+  "board.legendFreeHalf": "可预订（数字 = 每半小时 {cur}）",
   "board.legendShared": "共享设施（数字 = 剩余名额）",
   "board.legendSelected": "已选",
   "board.legendTaken": "已预订 / 已过",

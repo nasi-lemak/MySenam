@@ -2644,6 +2644,34 @@ creating a key and a webhook, would be easier for venues; it needs the platform
 registered as a Connect platform, and would replace the two fields with a
 connected account id.
 
+## Half-hour bookings
+
+A venue sells its courts **by the hour** (the default) or **by the half
+hour**, chosen under *Courts & rates → Booked by* (a manager's setting,
+`venues.slot_minutes`, 60 or 30):
+
+- **The grid** shows a column every half hour (8AM, 8:30AM, 9AM…). Customers
+  pick consecutive halves, up to the same four hours. A half hour costs half
+  the hourly rate, peak or off-peak by when it starts, and the legend says
+  the numbers are per half hour.
+- **Times** are hours with a fraction (18.5 is 18:30) in `start_hour`,
+  `end_hour`, `booking_slots.hour`, `slot_blocks.hour` and the waitlist
+  (migration 0042). Each slot row carries its length (`span`), so reports
+  count hours sold correctly whichever way the venue sold them. Calendar
+  invites, messages and receipts show 6:30 PM.
+- **Moving, rescheduling, blocking, waitlists and outages** all work in the
+  venue's own slots. Search still offers whole-hour start times, made of a
+  half-hour venue's halves.
+- **Classes and tournaments stay on the hour.** At a half-hour venue they hold
+  both halves of each hour they use.
+- **Passes** spend one entry an hour, so a booking with a half hour in it
+  (an hour and a half, say) spends the whole of that hour (two entries).
+- **Switching to half hours** at any time splits everything already in the
+  diary from today on into its two halves, each keeping its place, so
+  nothing moves. **Switching back to hours** is refused while anything from
+  today on starts or ends on the half hour; otherwise the halves are put back
+  together.
+
 ## Booking without naming a court
 
 Courts are chosen cinema-seat style: the grid is a row per court, and tapping a

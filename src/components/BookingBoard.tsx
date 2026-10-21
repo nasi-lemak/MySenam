@@ -16,7 +16,7 @@ import {
   Pass,
   VenueClosure,
 } from "@/lib/types";
-import { formatHour } from "@/lib/time";
+import { consecutive, formatHour } from "@/lib/time";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -96,14 +96,17 @@ function isPastSlotClient(date: string, hour: number): boolean {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: region().timeZone }).format(now);
   if (date < today) return true;
   if (date > today) return false;
-  const currentHour = Number(
-    new Intl.DateTimeFormat("en-GB", {
-      timeZone: region().timeZone,
-      hour: "2-digit",
-      hour12: false,
-    }).format(now)
-  );
-  return hour <= currentHour % 24;
+  const [h, m] = new Intl.DateTimeFormat("en-GB", {
+    timeZone: region().timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .format(now)
+    .split(":")
+    .map(Number);
+  // A slot is under way from its first minute: 18:30 at 18:30.
+  return hour <= (h % 24) + m / 60;
 }
 
 function formatDateLabel(t: T, date: string): { day: string; num: string } {
@@ -206,6 +209,12 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
     [availability]
   );
 
+  /** How long one slot is, in hours: 1, or 0.5 where the venue sells half hours. */
+  const step = useMemo(() => {
+    const slots = availability?.[0]?.slots;
+    return slots && slots.length > 1 ? slots[1].hour - slots[0].hour : 1;
+  }, [availability]);
+
   /**
    * A synthetic row standing for "whichever court, pick the cheapest". Worth
    * offering only when there is more than one court to choose between.
@@ -270,11 +279,9 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
         ? prev.hours.filter((h) => h !== hour)
         : [...prev.hours, hour].sort((a, b) => a - b);
       if (hours.length === 0) return null;
-      // Keep the selection contiguous: if toggling breaks contiguity, restart from this hour.
-      for (let i = 1; i < hours.length; i++) {
-        if (hours[i] !== hours[i - 1] + 1) return { courtId, hours: [hour] };
-      }
-      if (hours.length > MAX_HOURS_PER_BOOKING) return prev;
+      // Keep the selection contiguous: if toggling breaks contiguity, restart from this slot.
+      if (!consecutive(hours, step)) return { courtId, hours: [hour] };
+      if (hours.length * step > MAX_HOURS_PER_BOOKING) return prev;
       return { courtId, hours };
     });
   }
@@ -354,7 +361,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
                 </th>
                 {availability[0].slots.map((slot) => (
                   <th key={slot.hour} data-hour={slot.hour} className="px-1 py-2 text-center font-medium text-slate-500">
-                    {formatHour(slot.hour).replace(":00 ", "")}
+                    {formatHour(slot.hour).replace(":00 ", "").replace(" ", "")}
                   </th>
                 ))}
               </tr>
@@ -362,7 +369,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
             <tbody>
               {anyRow && (
                 <tr className="border-b border-slate-200 bg-teal-50/40">
-                  <td className="sticky left-0 z-10 whitespace-nowrap bg-teal-50/40 px-3 py-2 font-medium">
+                  <td className="sticky left-0 z-10 whitespace-nowrap bg-teal-50 px-3 py-2 font-medium">
                     {t("board.anyCourt")}
                     <span className="block text-xs font-normal text-slate-500">
                       {t("board.anyCourtHint")}
@@ -470,7 +477,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
           <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
             <span>
               <span className="mr-1 inline-block h-3 w-3 rounded bg-emerald-100 align-middle" />
-              {t("board.legendFree")}
+              {step < 1 ? t("board.legendFreeHalf") : t("board.legendFree")}
             </span>
             {hasShared && (
               <span>
@@ -504,6 +511,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
           court={selectedCourt}
           date={date}
           hours={selection.hours}
+          step={step}
           totalPrice={totalPrice}
           onBooked={(c) => {
             setConfirmation(c);
@@ -523,6 +531,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
           court={waitlistSlot.court}
           date={date}
           hour={waitlistSlot.hour}
+          step={step}
           onClose={() => setWaitlistSlot(null)}
         />
       )}
@@ -539,6 +548,7 @@ function BookingForm({
   court,
   date,
   hours,
+  step,
   totalPrice,
   onBooked,
   onError,
@@ -547,6 +557,8 @@ function BookingForm({
   court: Court;
   date: string;
   hours: number[];
+  /** One slot's length in hours. */
+  step: number;
   totalPrice: number;
   onBooked: (c: Confirmation) => void;
   onError: (msg: string) => void;
@@ -642,7 +654,7 @@ function BookingForm({
       if (
         !res.ok &&
         court.id !== ANY_COURT &&
-        accountDetour(data, `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${court.id}&hour=${hours[0]}&duration=${hours.length}`)
+        accountDetour(data, `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${court.id}&hour=${hours[0]}&duration=${hours.length * step}`)
       )
         return;
       if (!res.ok && accountDetour(data)) return;
@@ -666,7 +678,7 @@ function BookingForm({
         <div className="min-w-[12rem] flex-1">
           <div className="font-semibold text-teal-700">{court.name}</div>
           <div className="text-sm text-slate-600">
-            {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + 1)} ·{" "}
+            {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + step)} ·{" "}
             <span className="font-semibold text-slate-900">{withExtras === 0 ? t("price.free") : `${money(withExtras)}`}</span>
           </div>
           {remembered && (
@@ -813,10 +825,10 @@ function BookingForm({
         )}
         {passCode.trim() !== "" && (
           <span className="text-slate-500">
-            {t.plural("form.passSpend", hours.length, {
+            {t.plural("form.passSpend", Math.ceil(hours.length * step), {
               per:
                 weeks > 1
-                  ? t("form.passPerWeek", { total: hours.length * weeks })
+                  ? t("form.passPerWeek", { total: Math.ceil(hours.length * step) * weeks })
                   : "",
             })}
           </span>
@@ -1003,12 +1015,14 @@ function SlotWaitlistModal({
   court,
   date,
   hour,
+  step,
   onClose,
 }: {
   t: T;
   court: Court;
   date: string;
   hour: number;
+  step: number;
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
@@ -1050,7 +1064,7 @@ function SlotWaitlistModal({
           courtId: court.id,
           date,
           startHour: hour,
-          endHour: hour + 1,
+          endHour: hour + step,
           name,
           phone,
           email,
@@ -1097,7 +1111,7 @@ function SlotWaitlistModal({
           <>
             <h2 className="text-lg font-bold">{court.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {date} · {formatHour(hour)} – {formatHour(hour + 1)}
+              {date} · {formatHour(hour)} – {formatHour(hour + step)}
             </p>
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {t("queue.taken")}

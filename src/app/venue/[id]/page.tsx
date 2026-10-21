@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getVenue, listVenueClosures, readNear } from "@/lib/store";
 import { distanceM } from "@/lib/geo";
-import { todayISO, addDays, formatHour } from "@/lib/time";
+import { todayISO, addDays, formatHour, onSlot, slotsBetween } from "@/lib/time";
 import { MAX_ADVANCE_DAYS, MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
@@ -115,7 +115,7 @@ export default async function VenuePage({
   const ahead = Math.min(rules.aheadDays ?? MAX_ADVANCE_DAYS, MAX_ADVANCE_DAYS);
   const dates = Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i));
 
-  const initial = parseInitialSelection(query, sports, dates);
+  const initial = parseInitialSelection(query, sports, dates, venue.slotMinutes / 60);
   // Only closures inside the booking window are worth warning about.
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
   // Courts out for a stretch that touches the booking window.
@@ -286,7 +286,9 @@ export default async function VenuePage({
 function parseInitialSelection(
   query: Record<string, string | string[] | undefined>,
   sports: Sport[],
-  dates: string[]
+  dates: string[],
+  /** The venue's slot length in hours: 1, or 0.5 where it sells half hours. */
+  step = 1
 ) {
   const one = (key: string) => {
     const value = query[key];
@@ -300,7 +302,7 @@ function parseInitialSelection(
   const duration = Number(one("duration") ?? 1);
 
   const validDuration =
-    Number.isInteger(duration) && duration >= 1 && duration <= MAX_HOURS_PER_BOOKING;
+    onSlot(duration, step) && duration >= step && duration <= MAX_HOURS_PER_BOOKING;
 
   return {
     sport: sport && SPORTS.includes(sport as Sport) && sports.includes(sport as Sport)
@@ -309,8 +311,8 @@ function parseInitialSelection(
     date: date && dates.includes(date) ? date : undefined,
     courtId: Number.isInteger(courtId) && courtId > 0 ? courtId : undefined,
     hours:
-      Number.isInteger(hour) && validDuration
-        ? Array.from({ length: duration }, (_, i) => hour + i)
+      onSlot(hour, step) && validDuration
+        ? slotsBetween(hour, hour + duration, step)
         : undefined,
   };
 }

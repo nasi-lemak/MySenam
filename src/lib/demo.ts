@@ -260,6 +260,9 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
   let noShows = 0;
   const extras: string[] = [];
 
+  /** Each venue's peak hours, looked up once rather than for every booking invented. */
+  const rulesOf = new Map<number, Awaited<ReturnType<typeof peakRules>>>();
+
   /** Insert a booking that has already happened, slots and all. */
   const insertPast = async (
     court: Court,
@@ -268,7 +271,8 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     who: number,
     opts2: { paid: boolean; cancelled: boolean; noShow: boolean; checkedIn: boolean }
   ) => {
-    const price = computePrice(court, date, [hour], false, await peakRules(court.venueId));
+    if (!rulesOf.has(court.venueId)) rulesOf.set(court.venueId, await peakRules(court.venueId));
+    const price = computePrice(court, date, [hour], false, rulesOf.get(court.venueId));
     const code = `MS-${Math.floor(rng() * 1e9).toString(36).toUpperCase().padStart(6, "0").slice(0, 6)}`;
     const status = opts2.cancelled ? "cancelled" : "confirmed";
     const info = await db

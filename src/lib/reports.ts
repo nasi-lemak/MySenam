@@ -212,7 +212,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   // --- place-hours sold ----------------------------------------------------
   const { soldHours } = await db
     .prepare(`
-      SELECT COUNT(*) AS "soldHours" FROM booking_slots s
+      SELECT COALESCE(SUM(s.span), 0) AS "soldHours" FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
       WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
@@ -227,7 +227,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const blockedByCourt = new Map<number, number>();
   for (const row of await db
     .prepare(`
-      SELECT b.court_id AS "courtId", SUM(COALESCE(b.places, c.capacity)) AS blocked
+      SELECT b.court_id AS "courtId", SUM(COALESCE(b.places, c.capacity) * b.span) AS blocked
       FROM blocks_between(?, ?) b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
@@ -243,7 +243,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const soldByCourt = new Map<number, { hours: number; expected: number }>();
   for (const row of await db
     .prepare(`
-      SELECT b.court_id AS "courtId", COUNT(*) AS hours
+      SELECT b.court_id AS "courtId", SUM(s.span) AS hours
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
@@ -321,7 +321,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     .all(venueId, from, to) as { month: string; expected: number; collected: number }[];
   const monthHours = await db
     .prepare(`
-      SELECT substr(s.date, 1, 7) AS month, COUNT(*) AS hours
+      SELECT substr(s.date, 1, 7) AS month, SUM(s.span) AS hours
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
@@ -340,12 +340,12 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   // --- when the place is actually busy ------------------------------------
   const hourRows = await db
     .prepare(`
-      SELECT s.hour AS hour, COUNT(*) AS hours
+      SELECT FLOOR(s.hour) AS hour, SUM(s.span) AS hours
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
       WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
-      GROUP BY s.hour
+      GROUP BY FLOOR(s.hour)
     `)
     .all(venueId, from, to) as { hour: number; hours: number }[];
   const byHour: HourLine[] = Array.from({ length: tradingHours }, (_, i) => {

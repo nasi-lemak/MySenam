@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { SPORTS, type Refusal, type Sport } from "./types";
 import { errorText, translator, type ErrorCode } from "./i18n";
+import { slotsBetween } from "./time";
 
 /**
  * Extras with a booking: a racket and a tube of shuttles for a casual player,
@@ -228,7 +229,8 @@ export async function attachAddons(bookingId: number, chosen: Chosen[]): Promise
       )
       .get(bookingId)) as { id: number; date: string; start_hour: number; end_hour: number; venue_id: number; sport: Sport } | undefined;
     if (!b) return refuse("BOOKING_NOT_FOUND");
-    const hours = Array.from({ length: b.end_hour - b.start_hour }, (_, i) => b.start_hour + i);
+    // By the half hour, which finds an overlap whichever way the venue sells.
+    const hours = slotsBetween(b.start_hour, b.end_hour, 0.5);
     const priced = await priceChoice(chosen, { venueId: b.venue_id, sport: b.sport, date: b.date, hours, excludeBookingId: b.id });
     if (!priced.ok) return priced;
     for (const l of priced.lines)

@@ -21,6 +21,7 @@ interface Row {
   peak_weekend_days: string;
   peak_weekend_from: number;
   peak_weekend_until: number;
+  slot_minutes: number;
 }
 
 const toRules = (row: Row, holidays: string[]): PeakRules => ({
@@ -33,6 +34,7 @@ const toRules = (row: Row, holidays: string[]): PeakRules => ({
   weekendFrom: row.peak_weekend_from,
   weekendUntil: row.peak_weekend_until,
   holidays,
+  slotHours: row.slot_minutes / 60,
 });
 
 /** The rules of several venues at once, for a search across them. A venue not found gets the default. */
@@ -44,7 +46,7 @@ export async function peakRulesFor(venueIds: number[]): Promise<Map<number, Peak
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until
+      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until, slot_minutes
        FROM venues WHERE id IN (${list})`
     )
     .all(...ids)) as Row[];

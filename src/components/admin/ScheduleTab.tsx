@@ -120,7 +120,7 @@ export function ScheduleTab({
                 <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-semibold">Court</th>
                 {courts[0]?.slots.map((s) => (
                   <th key={s.hour} className="px-1 py-2 text-center font-medium text-slate-500">
-                    {formatHour(s.hour).replace(":00 ", "")}
+                    {formatHour(s.hour).replace(":00 ", "").replace(" ", "")}
                   </th>
                 ))}
               </tr>
