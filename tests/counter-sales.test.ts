@@ -52,11 +52,16 @@ beforeAll(async () => {
   asManager = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(mgr.admin.id)).token}`;
 });
 
-const post = (handler: typeof sellRoute, url: string, cookie: string, body: unknown, params?: Record<string, string>) =>
-  (handler as (req: NextRequest, ctx?: unknown) => Promise<Response>)(
-    new NextRequest(url, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) }),
-    params ? { params: Promise.resolve(params) } : undefined
-  );
+const post = (
+  handler: (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => Promise<Response>,
+  url: string,
+  cookie: string,
+  body: unknown,
+  params: { id: string } = { id: "" }
+) =>
+  handler(new NextRequest(url, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) }), {
+    params: Promise.resolve(params),
+  });
 
 describe("a counter sale", () => {
   let saleId: number;

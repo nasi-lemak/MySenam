@@ -28,6 +28,9 @@ import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
 import { photoAt } from "@/lib/photos-shared";
 import { siteName } from "@/lib/site";
+import { venueRating, venueReviews } from "@/lib/reviews";
+import { VenueReviews } from "@/components/VenueReviews";
+import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +141,9 @@ export default async function VenuePage({
       ? Math.round(distanceM(near, { lat: venue.lat, lng: venue.lng }) / 100) / 10
       : null;
 
+  const rating = await venueRating(venue.id);
+  const reviews = await venueReviews(venue.id);
+
   // What the venue is, for search engines, where it is listed at all.
   const jsonLd = (await venueIsListed(venue.id))
     ? venueJsonLd({
@@ -145,6 +151,7 @@ export default async function VenuePage({
         url: `${await siteOrigin()}/venue/${venue.id}`,
         image: photos[0] ? new URL(photoAt(photos[0], 1200), await siteOrigin()).toString() : null,
         sports,
+        rating,
       })
     : null;
 
@@ -188,6 +195,14 @@ export default async function VenuePage({
             </>
           )}
         </p>
+        {rating && (
+          <a href="#reviews" className="mt-1 inline-block text-sm text-slate-700 hover:underline">
+            <span className="text-amber-500" aria-hidden>
+              ★
+            </span>{" "}
+            {t("review.summary", { avg: rating.average.toFixed(1), count: rating.count })}
+          </a>
+        )}
         <p className="mt-1 text-sm text-slate-500">
           {t("venue.openDaily", {
             from: formatHour(venue.openHour),
@@ -314,6 +329,7 @@ export default async function VenuePage({
         <VenueFacilities t={t} venue={venue} />
         {venue.lat !== null && venue.lng !== null && <PinMap pin={{ lat: venue.lat, lng: venue.lng }} height={180} />}
       </div>
+      <VenueReviews t={t} locale={await currentLocale()} venueName={venue.name} rating={rating} reviews={reviews} />
     </div>
   );
 }

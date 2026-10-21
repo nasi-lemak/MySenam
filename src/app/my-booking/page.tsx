@@ -21,6 +21,8 @@ interface Result {
   addons?: { name: string; quantity: number; unitPrice: number }[];
   /** Once paid: its receipt, or tax invoice. */
   receiptUrl?: string | null;
+  /** Once played: where to rate the visit. */
+  reviewUrl?: string | null;
 }
 
 export default function MyBookingPage() {
@@ -265,6 +267,11 @@ export default function MyBookingPage() {
           {result.receiptUrl && (
             <a href={result.receiptUrl} target="_blank" rel="noopener" className="mt-3 inline-block text-sm font-semibold text-teal-700 underline">
               {t("mine.receipt")}
+            </a>
+          )}
+          {result.reviewUrl && (
+            <a href={result.reviewUrl} className="mt-3 ml-4 inline-block text-sm font-semibold text-teal-700 underline">
+              ★ {t("review.rate")}
             </a>
           )}
           {b.classId === null && (

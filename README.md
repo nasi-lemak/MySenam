@@ -1163,6 +1163,41 @@ managers.
   venue e-invoices.
 - **Not counted: stock.** The list says what is sold, not how many are left.
 
+## Reviews
+
+Stars and a few words about a venue, from somebody who played there
+(`src/lib/reviews.ts`, `venue_reviews`, migration 0058).
+
+- **Only after playing.** A review is written from a booking that went ahead
+  (not cancelled, not a no-show), from when it ends until 60 days after,
+  through a link signed for that booking (`/review/<code>?t=…`, no phone
+  number in it). My Booking and the account page show *Rate your visit* on
+  past bookings. Nobody can review a venue they have not booked.
+- **Asked once.** A couple of hours after a customer's first visit to a venue
+  (up to three days after), one email asks how it was, if the booking has an
+  email address. It says it is the only time, and it is: never again for
+  that venue, answered or not. Email only, never WhatsApp. A venue can turn
+  it off under *Venues & staff → Reviews*.
+- **One per number per venue.** Writing again replaces the earlier review,
+  so a regular counts once, with what they think now.
+- **The rules are said before posting:** what is shown (first name and
+  initial, stars, the month played), no phone numbers, links or abuse, the
+  venue can reply, and a review that breaks the rules can be removed. Links
+  and phone numbers are refused outright.
+- **Shown** on the venue's page, newest first, with the venue's replies and a
+  line saying every review comes from a booking that went ahead. The average
+  shows by the venue's name, and as `aggregateRating` in its structured
+  data, only from three reviews up.
+- **The venue** replies publicly (managers), and can report a review to the
+  platform, saying which rule it breaks; it stays up until decided. The
+  panel says negative reviews are not removed for being negative.
+- **The platform's owners** see the reported ones, and hide a review (the
+  venue is emailed why) or show it again. Hidden reviews do not count in the
+  average.
+- **Personal data:** reviews are in the customer's data export and in a
+  venue's export for a phone number, and closing an account deletes the
+  reviews written from it.
+
 ## Women-only and men-only
 
 Open games, leagues and classes can be for anyone (the default), women only

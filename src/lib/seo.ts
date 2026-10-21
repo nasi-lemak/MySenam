@@ -53,6 +53,8 @@ export function venueJsonLd(venue: {
   url: string;
   image: string | null;
   sports: Sport[];
+  /** From verified bookings, shown only from a few reviews up (lib/reviews.ts). */
+  rating?: { average: number; count: number } | null;
 }): Record<string, unknown> {
   const hh = (h: number) => `${String(h % 24).padStart(2, "0")}:00`;
   return {
@@ -71,6 +73,9 @@ export function venueJsonLd(venue: {
       closes: hh(venue.closeHour),
     },
     keywords: venue.sports.map((s) => SPORT_LABELS[s] ?? s).join(", "),
+    ...(venue.rating
+      ? { aggregateRating: { "@type": "AggregateRating", ratingValue: venue.rating.average, reviewCount: venue.rating.count, bestRating: 5, worstRating: 1 } }
+      : {}),
   };
 }
 

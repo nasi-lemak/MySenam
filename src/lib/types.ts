@@ -321,6 +321,9 @@ export interface WalletBalance {
   balance: number;
 }
 
+/** The most a review of a venue may say (lib/reviews.ts). */
+export const MAX_REVIEW_BODY = 1000;
+
 export const MAX_TOP_UP = 1000;
 
 /**

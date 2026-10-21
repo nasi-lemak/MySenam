@@ -295,7 +295,16 @@ export default function AccountPage() {
                           : t("acct.cancelledLower")}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right">{b.classId === null && <BookAgain code={b.code} />}</td>
+                    <td className="px-3 py-2 text-right">
+                      <span className="inline-flex items-center gap-3">
+                        {b.reviewUrl && (
+                          <a href={b.reviewUrl} className="whitespace-nowrap text-sm font-semibold text-teal-700 underline">
+                            ★ {t("review.rate")}
+                          </a>
+                        )}
+                        {b.classId === null && <BookAgain code={b.code} />}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

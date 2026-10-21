@@ -29,6 +29,7 @@ import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 import { receiptPath } from "@/lib/receipts";
+import { reviewable, reviewPath } from "@/lib/reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -324,5 +325,7 @@ export async function GET(req: NextRequest) {
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],
     // Its receipt (a tax invoice where the venue charges SST or GST), once paid.
     receiptUrl: booking.paymentStatus === "paid" && booking.totalPrice > 0 ? receiptPath(booking.code) : null,
+    // Once played: where to rate the visit.
+    reviewUrl: (await reviewable(booking.code)).ok ? reviewPath(booking.code) : null,
   });
 }

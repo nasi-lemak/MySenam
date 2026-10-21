@@ -7,6 +7,7 @@ import { issueDueInvoices } from "./billing";
 import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { runEInvoicing } from "./myinvois";
+import { askForReviews } from "./reviews";
 import { releaseExpiredHolds } from "./holds";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 import { region } from "./region";
@@ -103,6 +104,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
     await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // One email, the day after a first visit to a venue, asking how it was.
+    await askForReviews(now);
+  } catch (err) {
+    console.error("[mysenam] asking for reviews failed:", err);
+    await raiseAlert("scheduler:asking-for-reviews-failed", "Scheduled work failed: asking for reviews", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

@@ -296,6 +296,8 @@ export interface CustomerExport {
   waitlist: unknown[];
   /** Gift vouchers turned into credit on this account. */
   vouchers: unknown[];
+  /** Reviews of venues written from their bookings. */
+  reviews: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
@@ -426,6 +428,13 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE g.redeemed_by = ? ORDER BY g.id`,
       userId
     ),
+    reviews: await all(
+      `SELECT v.name AS venue, r.author, r.rating, r.body, r.played_on, r.created_at, r.updated_at, r.reply
+         FROM venue_reviews r JOIN venues v ON v.id = r.venue_id
+        WHERE r.user_id = ? OR r.booking_id IN (SELECT id FROM bookings WHERE user_id = ?) ORDER BY r.id`,
+      userId,
+      userId
+    ),
     messages: await all(
       `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
          FROM messages m
@@ -455,6 +464,8 @@ export interface PhoneExport {
   blocked: unknown[];
   receipts: unknown[];
   giftVouchers: unknown[];
+  reviews: unknown[];
+  counterSales: unknown[];
   messages: unknown[];
 }
 
@@ -536,6 +547,18 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
     giftVouchers: await all(
       `SELECT code, amount, buyer_name, buyer_email, buyer_phone, recipient_name, message, status, created_at
          FROM gift_vouchers WHERE venue_id IN (${marks}) AND status <> 'pending' AND phone_key(buyer_phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    reviews: await all(
+      `SELECT author, rating, body, played_on, created_at, updated_at, reply, hidden_at FROM venue_reviews
+        WHERE venue_id IN (${marks}) AND phone_key = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    counterSales: await all(
+      `SELECT created_at, customer_name, customer_phone, lines, total, paid_via, voided_at FROM counter_sales
+        WHERE venue_id IN (${marks}) AND phone_key(customer_phone) = phone_key(?) ORDER BY id`,
       ...venueIds,
       phone
     ),
@@ -639,6 +662,10 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);
+    // Their reviews go: an opinion is theirs, not the venue's record.
+    await db
+      .prepare("DELETE FROM venue_reviews WHERE user_id = ? OR booking_id IN (SELECT id FROM bookings WHERE user_id = ?)")
+      .run(userId, userId);
 
     const result = await db
       .prepare(

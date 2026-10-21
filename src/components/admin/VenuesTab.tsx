@@ -10,6 +10,7 @@ import { MessagesPanel } from "./MessagesPanel";
 import { BlockedPhonesPanel } from "./BlockedPhonesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
 import { EInvoicePanel } from "./EInvoicePanel";
+import { ReviewsPanel } from "./ReviewsPanel";
 import { ApplicationsPanel } from "./ApplicationsPanel";
 import { BillingPanel } from "./BillingPanel";
 import { StorefrontsPanel } from "./StorefrontsPanel";
@@ -157,6 +158,8 @@ export function VenuesTab({
       <DataRequestPanel venues={venues} />
 
       <MessagesPanel venues={venues} />
+
+      <ReviewsPanel venues={venues} isOwner={isOwner} />
 
       <OnlinePaymentsPanel venues={venues} />
 

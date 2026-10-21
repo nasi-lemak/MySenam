@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { reviewPath } from "./review-links";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
@@ -2526,6 +2527,8 @@ export interface UserBookingRow extends Booking {
   venueLateCancelKeep: number | null;
   /** Strikes before a number pays online to book here; null when the venue counts none. */
   venueStrikeLimit: number | null;
+  /** Where to rate the visit, once it has been played (lib/reviews.ts); null otherwise. */
+  reviewUrl: string | null;
 }
 
 export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
@@ -2568,7 +2571,14 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venueCancelCutoffHours: r.venue_cutoff,
     venueLateCancelKeep: r.venue_late_keep,
     venueStrikeLimit: r.venue_strike_limit,
+    reviewUrl: mayReviewByDate(r, venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng })) ? reviewPath(r.code) : null,
   }));
+}
+
+/** Played, on a day before today and within the window for reviews; the review page checks the hour. */
+function mayReviewByDate(r: BookingRow, zone: string): boolean {
+  const today = todayISO(zone);
+  return r.status === "confirmed" && r.no_show !== 1 && r.date < today && r.date >= addDays(today, -60);
 }
 
 /** Cancel a booking that belongs to this user (before it starts). */
