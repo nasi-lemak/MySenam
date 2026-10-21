@@ -321,6 +321,9 @@ export interface WalletBalance {
   balance: number;
 }
 
+/** The most ways a booking can be split with friends, the booker included (lib/splits.ts). */
+export const MAX_SPLIT_PARTS = 10;
+
 /** The most a review of a venue may say (lib/reviews.ts). */
 export const MAX_REVIEW_BODY = 1000;
 

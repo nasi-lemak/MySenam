@@ -19,6 +19,7 @@ import { money } from "@/lib/region";
 /** What a payment that is not for bookings was for. */
 const PURPOSES: Partial<Record<OnlinePayment["purpose"], string>> = {
   share: "share of an open game",
+  split: "share of a split booking",
   entry: "tournament entry",
   league: "league fee",
   topup: "credit top-up",

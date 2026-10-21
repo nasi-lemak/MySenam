@@ -655,6 +655,9 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
       // Players in an open game on it hear it is off, and are owed their shares.
       await bookingCancelled(booking.id);
+      // So are friends who paid a share of it.
+      const { splitCancelled } = await import("./splits");
+      await splitCancelled(booking.id);
       cancelled++;
     }
     await forgetPlayer(userId);

@@ -1028,6 +1028,39 @@ The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
 than an ordinary booking lookup, because a booking code plus a phone number is
 now a door.
 
+## Splitting the cost with friends
+
+A booker who already has their group can split what a booking costs
+(`src/lib/splits.ts`, migration 0062), without anybody needing an account:
+on the booking confirmation and on My Booking, *Split the cost*, 2 to 10 ways
+(the booker included), gives a link to send, with *Copy link* and *Send on
+WhatsApp*.
+
+- **Each friend** opens the link (`/split/<token>`), sees the venue, court,
+  time, the booker's first name and their share, and pays it with their name
+  and number on the venue's own payment page (purpose `split`). It counts
+  towards the booking (`bookings.shares_paid`), as an open game's shares do,
+  and each share has its own receipt. The page says how many shares are paid
+  and stops taking payment once all are, or once the booking is paid,
+  cancelled or has started.
+- **The booker** pays the rest: *Pay online* asks only for what is left, or
+  nothing once friends have covered it. A share is the total divided by the
+  number of ways, rounded down to the cent; the booker's part takes the
+  remainder. The number of ways can be changed until a friend has paid.
+- **Said up front:** the booking stays the booker's, so until it is all paid
+  they owe what is left and the venue's cancellation rules apply to them; a
+  friend is told they pay the venue directly, get a receipt, and are owed
+  their money back if the booking is cancelled or every share was already
+  taken.
+- **Owed back:** a share arriving after every share was taken, or after the
+  booking was paid in full or cancelled, is written down as owed back (with a
+  credit note) and shows under *Refunds owed* for the venue's staff; so is
+  every share when the booking is cancelled later, whatever the booker's
+  late-cancellation fee.
+- Not for a booking held until paid (pay it first), a weekly series, a class
+  enrolment, or an open game (whose players pay there). Search engines are
+  kept off split pages.
+
 ## Open games: finding players
 
 A player who has booked a court can open it to others at `/games` (*Games* in

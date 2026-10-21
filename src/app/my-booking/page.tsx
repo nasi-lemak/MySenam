@@ -8,6 +8,7 @@ import CheckInQr from "@/components/CheckInQr";
 import { ChangeTime } from "@/components/ChangeTime";
 import { BookAgain } from "@/components/BookAgain";
 import PayOnline from "@/components/PayOnline";
+import { SplitCost } from "@/components/SplitCost";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { refundLines } from "@/lib/refund-text";
@@ -283,6 +284,9 @@ export default function MyBookingPage() {
             <>
               {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && (
                 <PayOnline codes={[b.code]} phone={phone} amount={b.totalPrice} held={!!b.holdUntil} />
+              )}
+              {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && !b.holdUntil && b.classId === null && (
+                <SplitCost code={b.code} phone={phone} total={b.totalPrice - (b.sharesPaid ?? 0)} venueName={result.venue.name} date={b.date} />
               )}
               {result.venue.cancelCutoffHours > 0 && (
                 <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">

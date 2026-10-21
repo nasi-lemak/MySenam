@@ -288,8 +288,9 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
   invoice_id: number | null;
+  split_id?: number | null;
   game_player_id: number | null;
   tournament_entry_id: number | null;
   league_place_id: number | null;
@@ -323,7 +324,7 @@ export interface OnlinePayment {
   refundsByApi: boolean;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
   /** The membership a paid membership fee made. */
   membership?: { code: string; venueId: number; venueName: string; startsOn: string; expiresOn: string };
 }
@@ -596,6 +597,22 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
       if (claimed.changes === 1) await settleShare(row);
+    })();
+    const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "split") {
+    await db.transaction(async () => {
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes !== 1 || !row.split_id) return;
+      const { countSplitShare } = await import("./splits");
+      const counted = await countSplitShare(row.id, row.split_id, Number(row.amount));
+      // Receipted either way: money was taken; one owed back is credited.
+      await receiptPayment(row, { description: "Share of a booking, split with friends", userId: null, taxable: true });
+      if (!counted) await creditReceipt(`payment:${row.id}`, "receipt.why.refunded");
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -1097,6 +1114,52 @@ async function settleShare(row: PaymentRow): Promise<void> {
     await db
       .prepare("UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now'), paid_via = 'online' WHERE id = ?")
       .run(target.booking_id);
+}
+
+// ------------------------------------------------------------ shares of a split booking
+
+/** A friend, through the booker's split link, paying one share to the venue (lib/splits.ts). No account needed. */
+export async function startSplitPayment(
+  token: string,
+  payer: { name: unknown; phone: unknown; email?: unknown }
+): Promise<StartResult> {
+  const { splitByToken } = await import("./splits");
+  const split = await splitByToken(token);
+  if (!split) return { ok: false, error: "That link is not valid.", status: 404 };
+  if (split.closed === "cancelled") return { ok: false, error: "That booking was cancelled.", status: 409 };
+  if (split.closed === "paid") return { ok: false, error: "That booking is paid in full: settle up with the booker.", status: 409 };
+  if (split.closed === "started") return { ok: false, error: "That booking has started: settle up with the booker.", status: 409 };
+  if (split.closed === "full") return { ok: false, error: "Every share is paid already.", status: 409 };
+  const name = typeof payer.name === "string" ? payer.name.trim().slice(0, 80) : "";
+  const phone = typeof payer.phone === "string" ? payer.phone.trim() : "";
+  const email = typeof payer.email === "string" && payer.email.trim() ? payer.email.trim() : null;
+  if (name.length < 2 || phone.length < 7) return { ok: false, error: "Give your name and phone number.", status: 400 };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "That email address does not look right.", status: 400 };
+  const venue = (await getVenue(split.venueId))!;
+  if (!isOpen(venue)) return { ok: false, error: `${venue.name} is not taking payment online at the moment.`, status: 409 };
+  const account = await venueAccount(split.venueId);
+  if (!account) return { ok: false, error: `${venue.name} does not take payment online.`, status: 409 };
+  let bill;
+  try {
+    bill = await openCheckout(account, {
+      amount: split.share,
+      name,
+      email: email ?? undefined,
+      mobile: toWhatsAppNumber(phone),
+      description: `${venue.name}: share of ${split.courtName}, ${split.date} ${formatHour(split.startHour)}-${formatHour(split.endHour)} (${split.code})`,
+      redirectUrl: `${await venueBaseUrl(split.venueId)}/payments/return`,
+      reference: { label: "Booking", value: split.code },
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await getDb()
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, split_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'split', ?)`
+    )
+    .run(account.provider, bill.id, bill.url, split.venueId, split.share, name, phone, split.id);
+  return { ok: true, url: bill.url, amount: split.share, reused: false };
 }
 
 // ------------------------------------------------------------ tournament entry fees

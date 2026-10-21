@@ -25,6 +25,7 @@ import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 import PayOnline from "@/components/PayOnline";
+import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
@@ -991,6 +992,9 @@ function ConfirmationModal({
         )}
         {confirmation.payOnline && unpaid.length > 0 && unpaidTotal > 0 && (
           <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} held={holdUntil !== null} />
+        )}
+        {confirmation.payOnline && !isSeries && holdUntil === null && booking.paymentStatus === "unpaid" && booking.totalPrice > 0 && (
+          <SplitCost code={booking.code} phone={booking.phone} total={booking.totalPrice} venueName={confirmation.venue.name} date={booking.date} />
         )}
         <ChatLink t={t} number={confirmation.chatNumber} code={seriesCode ?? booking.code} />
         {!isSeries && booking.checkInToken && <CheckInQr token={booking.checkInToken} />}

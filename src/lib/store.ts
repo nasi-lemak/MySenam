@@ -4145,6 +4145,9 @@ async function refundBooking(bookingId: number, share = 1): Promise<void> {
   // Imported here, not at the top: lib/games.ts reads from this module.
   const { bookingCancelled } = await import("./games");
   await bookingCancelled(bookingId);
+  // Friends who paid a share of it are owed it back.
+  const { splitCancelled } = await import("./splits");
+  await splitCancelled(bookingId);
 }
 
 /**

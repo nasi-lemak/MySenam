@@ -58,6 +58,7 @@ const PURPOSE: Record<string, Category> = {
   entry: "Tournament entries",
   league: "League fees",
   share: "Game shares",
+  split: "Court hire",
 };
 
 async function zoneOf(venueId: number): Promise<string> {
