@@ -963,6 +963,11 @@ const EN = {
     "Hi {name}, thank you. {venue} has received {cur}{amount} for booking {code}, {how}.{taxLine}\n\n{where}\n{when}\n\nYour receipt, to keep or print: {receiptUrl}",
   "msg.receiptTax": " That includes {tax} of {cur}{taxAmount} ({rate}%).",
   "msg.howOnline": "paid online",
+  "msg.venueNewBookingSubject": "New booking: {when}",
+  "msg.venueNewBooking":
+    "New booking.\n\n{name}, {phone}\n{where}\n{when}\n\nCode {code}, {amount}, {paid}. It is on your Bookings list.",
+  "msg.alertPaid": "paid",
+  "msg.alertUnpaid": "to pay at the counter",
   "receipt.title": "Receipt",
   "mine.receipt": "Receipt ↗",
   "receipt.taxInvoice": "Tax invoice",
@@ -2070,6 +2075,11 @@ const MS: Record<Phrase, string> = {
     "Hai {name}, terima kasih. {venue} telah menerima {cur}{amount} untuk tempahan {code}, {how}.{taxLine}\n\n{where}\n{when}\n\nResit anda, untuk disimpan atau dicetak: {receiptUrl}",
   "msg.receiptTax": " Jumlah itu termasuk {tax} sebanyak {cur}{taxAmount} ({rate}%).",
   "msg.howOnline": "dibayar dalam talian",
+  "msg.venueNewBookingSubject": "Tempahan baharu: {when}",
+  "msg.venueNewBooking":
+    "Tempahan baharu.\n\n{name}, {phone}\n{where}\n{when}\n\nKod {code}, {amount}, {paid}. Ia ada dalam senarai Tempahan anda.",
+  "msg.alertPaid": "sudah dibayar",
+  "msg.alertUnpaid": "dibayar di kaunter",
   "receipt.title": "Resit",
   "mine.receipt": "Resit ↗",
   "receipt.taxInvoice": "Invois cukai",

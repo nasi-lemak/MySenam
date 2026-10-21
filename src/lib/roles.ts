@@ -21,7 +21,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/courts(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/classes(\/\d+)?$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/go-live$/, methods: ["POST"] },
-  { path: /^\/api\/admin\/(hold-policy|house-rules|venue-access|venue-tax)$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/(hold-policy|house-rules|venue-access|venue-tax|booking-alerts)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(leagues|tournaments)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },

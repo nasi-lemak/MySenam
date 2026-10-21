@@ -2,7 +2,7 @@ import { hasBeenLive } from "./listing";
 import { getDb } from "./db";
 import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue } from "./store";
 import { Booking } from "./types";
-import { isLocale, Locale, translator } from "./i18n";
+import { isLocale, Locale, offeredLocales, translator } from "./i18n";
 import { drainOutbox, enqueue, hourRange } from "./outbox";
 import type { Channel, Compose } from "./outbox";
 import { icsCalendar } from "./booking-links";
@@ -12,7 +12,8 @@ import { createNotice } from "./urgent";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
-import { offsetMs, region } from "./region";
+import { money, offsetMs, region } from "./region";
+import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
 
@@ -100,6 +101,7 @@ export async function notifyBookingConfirmed(
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const code = seriesCode ?? first.code;
 
+  await alertVenue(bookings, code, court.name, venue);
   return await deliver(first, {
     bookingId: first.id,
     venueId: venue.id,
@@ -121,6 +123,68 @@ export async function notifyBookingConfirmed(
       link: `${await venueBaseUrl(venue.id)}/my-booking`,
     },
   });
+}
+
+/** Where a venue hears about bookings made online: its own address and WhatsApp number, if it chose them. */
+export interface BookingAlerts {
+  email: string | null;
+  phone: string | null;
+}
+
+export async function bookingAlerts(venueId: number): Promise<BookingAlerts> {
+  const row = (await getDb().prepare("SELECT alert_email, alert_phone FROM venues WHERE id = ?").get(venueId)) as
+    | { alert_email: string | null; alert_phone: string | null }
+    | undefined;
+  return { email: row?.alert_email ?? null, phone: row?.alert_phone ?? null };
+}
+
+export async function setBookingAlerts(
+  venueId: number,
+  input: { email?: unknown; phone?: unknown }
+): Promise<{ ok: true; alerts: BookingAlerts } | { ok: false; error: string }> {
+  const email = typeof input.email === "string" ? input.email.trim() : "";
+  const phone = typeof input.phone === "string" ? input.phone.trim() : "";
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "That email address does not look right." };
+  if (phone && !longEnough(phone)) return { ok: false, error: "That phone number is too short." };
+  await getDb().prepare("UPDATE venues SET alert_email = ?, alert_phone = ? WHERE id = ?").run(email || null, phone || null, venueId);
+  return { ok: true, alerts: await bookingAlerts(venueId) };
+}
+
+/**
+ * Tell the venue a customer booked online: by email, and on WhatsApp where
+ * the venue sends WhatsApp at all (each one counts against its messages).
+ * Once per booking, in the install's first language; staff bookings, made
+ * at the desk, are not announced to the desk.
+ */
+async function alertVenue(bookings: Booking[], code: string, courtName: string, venue: { id: number; name: string }): Promise<void> {
+  const alerts = await bookingAlerts(venue.id);
+  if (!alerts.email && !alerts.phone) return;
+  const first = bookings[0];
+  const locale = offeredLocales()[0] ?? "en";
+  const t = translator(locale);
+  const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
+  const { where, when } = slot(locale, courtName, venue.name, first);
+  const message = {
+    bookingId: first.id,
+    venueId: venue.id,
+    kind: "venue_new_booking" as const,
+    locale,
+    subject: "msg.venueNewBookingSubject" as const,
+    body: "msg.venueNewBooking" as const,
+    vars: {
+      name: first.name,
+      phone: first.phone,
+      where,
+      when: bookings.length > 1 ? `${when} (${bookings.length}×)` : when,
+      code,
+      amount: total === 0 ? t("price.free") : money(total),
+      paid: t(bookings.every((b) => b.paymentStatus === "paid") ? "msg.alertPaid" : "msg.alertUnpaid"),
+    },
+  };
+  if (alerts.email)
+    await enqueue({ ...message, channel: "email", recipient: alerts.email, dedupeKey: `venuenew:${code}:email` });
+  if (alerts.phone && (await whatsappFor(venue.id, "venue_new_booking")))
+    await enqueue({ ...message, channel: "whatsapp", recipient: alerts.phone, dedupeKey: `venuenew:${code}:whatsapp` });
 }
 
 /** Tell a customer a booking is off, and that they owe nothing for it. */

@@ -39,7 +39,16 @@ export type MessageKind =
   | "booking_rescheduled"
   | "booking_reminder"
   /** By email only: a receipt is a document to keep, not worth a WhatsApp message. */
-  | "payment_received";
+  | "payment_received"
+  /** To the venue itself, at the address and number it chose: a booking made online. */
+  | "venue_new_booking";
+
+/**
+ * Messages to the venue's own staff, which they asked for: not held to the
+ * daily limit per recipient, which is there to keep the site from being used
+ * to flood somebody else's phone. A busy venue takes more bookings than that.
+ */
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking"];
 
 export interface OutboxMessage {
   id: number;
@@ -221,7 +230,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
     input.channel === "whatsapp" && HELD_KINDS.includes(input.kind) && (await chatOfferedFor(input.venueId)) ? chatHoldMinutes() : 0;
   // Past the day's limit for this recipient, it is written down but never
   // sent, with the reason, where staff can see it.
-  const capped = (await sentToday(input.channel, input.recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY;
+  const capped =
+    !UNCAPPED_KINDS.includes(input.kind) && (await sentToday(input.channel, input.recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY;
   const info = await db
     .prepare(
       `INSERT INTO messages

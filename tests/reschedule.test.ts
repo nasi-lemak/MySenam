@@ -27,10 +27,17 @@ await ensureBootstrapAdmin();
 const owner = (await authenticateAdmin("admin@mysenam.my", "mysenam-admin"))!;
 const ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(owner.id)).token}`;
 
-/** A weekday this many days or more ahead, so 10am is off-peak and 7pm peak. */
-function weekday(from: number): string {
-  let d = addDays(todayISO(), from);
-  while (isPeak(d, 10)) d = addDays(d, 1);
+/**
+ * The nth weekday after today, so 10am is off-peak and 7pm peak. Counting
+ * weekdays rather than days gives each n its own date whatever day the
+ * tests run on, so tests using different n never share a court's hours.
+ */
+function weekday(n: number): string {
+  let d = todayISO();
+  for (let found = 0; found < n; ) {
+    d = addDays(d, 1);
+    if (!isPeak(d, 10)) found++;
+  }
   return d;
 }
 
@@ -84,8 +91,6 @@ describe("changing a booking's time", () => {
   });
 
   it("goes to another court of the sport when its own is taken, and refuses when none is free", async () => {
-    // weekday(6) can be the same day as the tests above (weekends are skipped),
-    // so this one keeps to hours they do not use.
     const date = weekday(6);
     const courts = await badminton();
     const b = await book(courts[0].id, [8], date);

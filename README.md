@@ -1834,6 +1834,23 @@ not-delivered states for every WhatsApp message.
 Numbers are sent the way WhatsApp wants them, whatever was typed:
 `012-345 6789` becomes `60123456789`.
 
+### New-booking alerts to the venue
+
+Under *Venue details → New-booking alerts* a venue gives an email address, a
+WhatsApp number, both or neither (the default). Each booking a customer makes
+online then goes to them too: who booked, their number, the court and time,
+the code, the amount and whether it is paid. A booking held for payment is
+announced once it is paid, when it stands. Bookings staff make at the desk
+are not announced back to the desk.
+
+- They go through the same outbox as customers' messages, so they are retried
+  and show under delivery, but are **not held to the daily limit per
+  recipient**: that limit is there to keep the site from flooding somebody
+  else's phone, and a busy venue takes more bookings than it allows.
+- On WhatsApp each alert counts against the venue's messages like any other,
+  and needs the `mysenam_venue_new_booking` template below approved.
+- They are written in the install's first language.
+
 ### What WhatsApp costs, and who pays
 
 Meta charges the platform for each template it delivers to a customer — a
@@ -1906,7 +1923,7 @@ the email is, and what fills it is sent as its parameters.
    with the WhatsApp product, add the venue's number, and create a permanent
    access token for a system user. Its token is `WHATSAPP_TOKEN`; the number's
    *Phone number ID* is `WHATSAPP_PHONE_NUMBER_ID`.
-2. In WhatsApp Manager, create the five templates below, category **Utility**,
+2. In WhatsApp Manager, create the templates below, category **Utility**,
    each with an English (`en`) and a Malay (`ms`) translation, the body exactly
    as given. The name must match, prefix included.
 3. Wait for approval, then set the two variables. Anything that failed while
@@ -2144,6 +2161,34 @@ Kod: {{2}}
 {{4}}
 
 Tidak dapat hadir? Batalkan di {{5}} supaya orang lain boleh bermain.
+```
+
+#### `mysenam_venue_new_booking`
+
+To the venue itself, at the number it chose under *Venue details → New-booking alerts*.
+
+English (`en`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {{6}} amount, {{7}} paid
+
+```text
+New booking.
+
+{{1}}, {{2}}
+{{3}}
+{{4}}
+
+Code {{5}}, {{6}}, {{7}}. It is on your Bookings list.
+```
+
+Malay (`ms`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {{6}} amount, {{7}} paid
+
+```text
+Tempahan baharu.
+
+{{1}}, {{2}}
+{{3}}
+{{4}}
+
+Kod {{5}}, {{6}}, {{7}}. Ia ada dalam senarai Tempahan anda.
 ```
 
 ## Countries
