@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import PayOnline from "@/components/PayOnline";
+import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { sportLabel, translateError } from "@/lib/i18n";
 import { money } from "@/lib/region";
 import { formatHour, slotsBetween } from "@/lib/time";
@@ -151,6 +152,8 @@ export default function CoachBooking({
           <input aria-label={t("form.name")} placeholder={t("form.name")} required minLength={2} value={who.name} onChange={(e) => setWho({ ...who, name: e.target.value })} className={input} />
           <input aria-label={t("form.phone")} placeholder={t("form.phone")} required type="tel" value={who.phone} onChange={(e) => setWho({ ...who, phone: e.target.value })} className={input} />
           <input aria-label={t("form.emailOptional")} placeholder={t("form.emailOptional")} type="email" value={who.email} onChange={(e) => setWho({ ...who, email: e.target.value })} className={input} />
+          <BookingTermsNotice venueId={venueId} />
+          <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           <button disabled={busy} className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
             {t("coach.confirm", { length: t("coach.minutes", { n: length * 60 }), name: coach.name, time: formatHour(start!) })}

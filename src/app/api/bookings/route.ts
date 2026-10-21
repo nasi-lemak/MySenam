@@ -311,6 +311,7 @@ export async function GET(req: NextRequest) {
       cancelCutoffHours: venue.cancelCutoffHours,
       timeZone: venue.timeZone,
       lateCancelKeep: (await cancelPolicy(venue.id)).lateKeep,
+      strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
     },
     payOnline: await takesPaymentOnline(venue.id),
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],

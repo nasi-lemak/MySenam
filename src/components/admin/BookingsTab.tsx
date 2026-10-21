@@ -260,6 +260,9 @@ export function BookingsTab() {
   }
 
   async function toggleNoShow(code: string, noShow: boolean) {
+    // A no-show can cost the customer: past the venue's strike limit, they pay online to book.
+    if (noShow && !confirm(`Mark ${code} as a no-show? If you count strikes (Venues & staff → Cancellations), this counts against their number.`))
+      return;
     setError(null);
     try {
       const res = await fetch("/api/admin/no-show", {

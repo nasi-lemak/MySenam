@@ -32,7 +32,7 @@ export default async function GiftPage({ params }: { params: Promise<{ id: strin
         <h1 className="text-xl font-bold">🎁 {t("gift.buyTitle", { venue: venue.name })}</h1>
         <p className="mt-1 text-sm text-slate-600">{t("gift.buyIntro", { venue: venue.name })}</p>
         {online ? (
-          <GiftVoucherForm venueId={id} min={MIN_VOUCHER} max={MAX_TOP_UP} />
+          <GiftVoucherForm venueId={id} venueName={venue.name} min={MIN_VOUCHER} max={MAX_TOP_UP} />
         ) : (
           <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("gift.offline", { venue: venue.name })}</p>
         )}

@@ -89,7 +89,14 @@ export default function AccountPage() {
     const keep = b.venueLateCancelKeep;
     const late = keep !== null && hoursUntilSlot(b.date, b.startHour, b.venueTimeZone) < b.venueCancelCutoffHours;
     const askLate = late && keep > 0 && b.paymentStatus === "paid" && b.totalPrice > 0;
-    if (!window.confirm(askLate ? t("mine.lateCancelConfirm", { pct: keep }) : t("mine.cancelConfirm"))) return;
+    // Late and unpaid: no fee, but a strike against the number, where the venue counts them.
+    const strike = late && b.paymentStatus !== "paid" && b.venueStrikeLimit !== null;
+    if (
+      !window.confirm(
+        askLate ? t("mine.lateCancelConfirm", { pct: keep }) : strike ? t("mine.lateStrikeConfirm") : t("mine.cancelConfirm")
+      )
+    )
+      return;
     setError(null);
     setNotice(null);
     try {

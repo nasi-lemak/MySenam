@@ -2517,6 +2517,8 @@ export interface UserBookingRow extends Booking {
   venueCancelCutoffHours: number;
   /** After that, the percent of what was paid the venue keeps; null: no cancelling online. */
   venueLateCancelKeep: number | null;
+  /** Strikes before a number pays online to book here; null when the venue counts none. */
+  venueStrikeLimit: number | null;
 }
 
 export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
@@ -2526,7 +2528,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
       SELECT b.*, c.name AS court_name, c.sport AS court_sport,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
-             v.cancel_cutoff_hours AS venue_cutoff, v.late_cancel_keep AS venue_late_keep,
+             v.cancel_cutoff_hours AS venue_cutoff, v.late_cancel_keep AS venue_late_keep, v.strike_limit AS venue_strike_limit,
              ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -2546,6 +2548,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venue_lng: number | null;
     venue_cutoff: number;
     venue_late_keep: number | null;
+    venue_strike_limit: number | null;
   })[];
   return rows.map((r) => ({
     ...toBooking(r),
@@ -2557,6 +2560,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venueTimeZone: venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng }),
     venueCancelCutoffHours: r.venue_cutoff,
     venueLateCancelKeep: r.venue_late_keep,
+    venueStrikeLimit: r.venue_strike_limit,
   }));
 }
 

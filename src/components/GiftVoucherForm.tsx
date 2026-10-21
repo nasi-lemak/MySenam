@@ -6,7 +6,7 @@ import { translateError } from "@/lib/i18n";
 import { money, region } from "@/lib/region";
 
 /** Who is buying a gift voucher, for whom, and how much: then off to pay. */
-export default function GiftVoucherForm({ venueId, min, max }: { venueId: number; min: number; max: number }) {
+export default function GiftVoucherForm({ venueId, venueName, min, max }: { venueId: number; venueName: string; min: number; max: number }) {
   const t = useT();
   const [form, setForm] = useState({ amount: "50", buyerName: "", buyerEmail: "", buyerPhone: "", recipientName: "", message: "" });
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +62,7 @@ export default function GiftVoucherForm({ venueId, min, max }: { venueId: number
         {t("gift.message")}
         <textarea value={form.message} onChange={set("message")} maxLength={300} rows={3} className={input} />
       </label>
+      <p className="text-xs text-slate-500">{t("gift.terms", { venue: venueName })}</p>
       {error && <p className="text-sm font-medium text-red-700">{error}</p>}
       <button
         disabled={busy || !(amount >= min && amount <= max)}

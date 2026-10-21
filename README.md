@@ -772,6 +772,7 @@ Account endpoints (session cookie):
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
 | GET    | `/api/my/membership`      | The signed-in customer's memberships            |
 | GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
+| GET/POST | `/api/venues/:id/terms` | The venue's booking rules, and for an account whether it put them away and its strikes / `{version}`: don't show again |
 | GET    | `/api/my/data`            | Everything held against this account, as a file |
 | POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account        |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
@@ -3104,6 +3105,32 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   where the venue does not ask that of everyone. Where the venue takes nothing
   online, it is told to book at the counter instead. Staff bookings are never
   refused.
+
+
+### Telling customers before they book
+
+Every booking form, and the lesson form, has a **Before you book** box
+(`lib/booking-terms.ts`, `components/BookingTermsNotice.tsx`). It says when
+cancelling is free, what a late cancellation costs or that it means calling
+the venue, and that a no-show counts against the number. Where the venue
+counts strikes, it says what happens after the limit (pay online, or book at
+the counter). Where bookings are held until paid, it says how many minutes
+there are to pay.
+
+- **Don't show again for this venue** puts it away, for the account where
+  someone is signed in (`terms_dismissals`) and in the browser for a guest. It
+  is filed under a digest of the rules, so when the venue changes them it
+  shows again. *Booking rules at this venue* reopens it.
+- **A signed-in customer's own strikes are always shown**, whether the box is
+  put away or not: *You have 2 of 3 so far here*, or in red once they have
+  reached the limit. A guest's are not, since a typed phone number is not
+  proof of whose it is.
+- Cancelling an unpaid booking late, where strikes are counted, asks first:
+  *this counts as a late cancellation against your number*. Staff marking a
+  no-show are reminded it counts against the customer too.
+- The gift voucher form says it is good for 12 months, cannot be exchanged for
+  cash, and is refunded only if the venue cancels it. The lesson form says the
+  venue's cancellation rules cover the whole lesson, the coach's fee included.
 
 ## Operating hours and closed days
 

@@ -16,7 +16,7 @@ import { money, intlTag, region } from "@/lib/region";
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null };
   payOnline?: boolean;
   addons?: { name: string; quantity: number; unitPrice: number }[];
   /** Once paid: its receipt, or tax invoice. */
@@ -111,7 +111,14 @@ export default function MyBookingPage() {
     const late =
       keep !== null && hoursUntilSlot(bk.date, bk.startHour, venue.timeZone ?? region().timeZone) < venue.cancelCutoffHours;
     const askLate = late && keep > 0 && bk.paymentStatus === "paid" && bk.totalPrice > 0;
-    if (!window.confirm(askLate ? t("mine.lateCancelConfirm", { pct: keep }) : t("mine.cancelConfirm"))) return;
+    // Late and unpaid: no fee, but a strike against the number, where the venue counts them.
+    const strike = late && bk.paymentStatus !== "paid" && venue.strikeLimit != null;
+    if (
+      !window.confirm(
+        askLate ? t("mine.lateCancelConfirm", { pct: keep }) : strike ? t("mine.lateStrikeConfirm") : t("mine.cancelConfirm")
+      )
+    )
+      return;
     setBusy(true);
     setError(null);
     try {

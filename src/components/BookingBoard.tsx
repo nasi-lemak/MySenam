@@ -1,6 +1,7 @@
 "use client";
 
 import { accountDetour } from "@/lib/phone-detour";
+import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Booking,
@@ -830,6 +831,9 @@ function BookingForm({
           {t("form.skipTaken")}
         </label>
       )}
+      <div className="mt-3">
+        <BookingTermsNotice venueId={court.venueId} />
+      </div>
     </form>
   );
 }
