@@ -2306,8 +2306,27 @@ details → Tax* (managers only).
   shows the amount before tax, the tax at its rate, the total and the venue's
   registration number. The receipt email links to it and says how much tax
   the payment included; My Booking links to it too.
+- **Receipts for everything else sold.** A membership, a pass, a credit
+  top-up, a tournament entry, a league fee or a share of a game gets a
+  receipt as it is paid, at the counter or online: a document written once
+  (`receipts`, migration 0040) with the next number at its venue (`R-000001`,
+  `R-000002`, …), the tax as it stood that day and how it was paid, at
+  `/receipt/R<id>?t=…`. Customers find theirs on their account page and on the
+  page they come back to after paying online; staff find the venue's under
+  *Credit & passes → Receipts and credit notes*, to reprint one.
+- **Credit notes.** Reversing a sale makes a credit note (`CN-000001`, …)
+  for all of it, at the tax it was sold at, naming the receipt it reverses:
+  a paid booking cancelled, a pass or membership voided, an online payment
+  refunded, a fee marked paid at the counter and then unmarked. A cancelled
+  booking's receipt links to its credit note.
+- **Tax is counted once.** Credit carries no tax when bought: it is taxed
+  when spent, on the booking it pays for. A pass is taxed when sold, so a
+  booking paid with one carries none of its own and its receipt says so. A
+  booking's receipt shows what its host paid: shares paid by other players
+  are on their own receipts.
 - **Reports and exports.** The Collected figure says how much tax is inside
-  it, at each booking's own rate, and the bookings spreadsheet has each
+  it, at each booking's own rate, plus the tax on the period's other
+  receipts less their credit notes; the bookings spreadsheet has each
   booking's rate and tax.
 - One rate covers the whole booking, add-ons included.
 

@@ -7,9 +7,10 @@ import { PrintButton } from "@/components/PrintButton";
 export const dynamic = "force-dynamic";
 
 /**
- * A paid booking's receipt, or its tax invoice where the venue is registered
- * for SST or GST. Reached by the signed link in the receipt email and on My
- * Booking; anything else is not found.
+ * A receipt (a tax invoice where the venue is registered for SST or GST) or
+ * a credit note: for a paid booking, or anything else sold. Reached by a
+ * signed link (the receipt email, My Booking, the account page, the staff
+ * screens); anything else is not found.
  */
 export default async function ReceiptPage({
   params,
@@ -25,14 +26,17 @@ export default async function ReceiptPage({
   if (!receipt) notFound();
 
   const net = receipt.tax ? Math.round((receipt.total - receipt.tax.amount) * 100) / 100 : null;
+  const credit = receipt.kind === "credit_note";
+  const title = credit ? t("receipt.creditNote") : receipt.tax ? t("receipt.taxInvoice") : t("receipt.title");
   return (
     <article className="mx-auto max-w-xl space-y-5 rounded-2xl border border-slate-200 bg-white p-6 text-sm shadow-sm print:border-0 print:shadow-none">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">{receipt.tax ? t("receipt.taxInvoice") : t("receipt.title")}</h1>
+          <h1 className="text-xl font-bold">{title}</h1>
           <p className="mt-1 text-slate-600">
-            {t("receipt.no")} <span className="font-mono font-semibold">{receipt.code}</span>
+            {t("receipt.no")} <span className="font-mono font-semibold">{receipt.number}</span>
           </p>
+          {receipt.credits && <p className="text-slate-600">{t("receipt.credits", { ref: receipt.credits })}</p>}
           {receipt.paidAt && (
             <p className="text-slate-600">
               {t("receipt.date")} {receipt.paidAt.slice(0, 10)}
@@ -80,15 +84,34 @@ export default async function ReceiptPage({
           )}
           <tr>
             <td className="pt-2 pr-3 font-semibold">
-              {receipt.tax ? t("receipt.totalIncl", { tax: receipt.tax.name }) : t("receipt.total")}
+              {credit
+                ? receipt.tax
+                  ? t("receipt.creditTotalIncl", { tax: receipt.tax.name })
+                  : t("receipt.creditTotal")
+                : receipt.tax
+                  ? t("receipt.totalIncl", { tax: receipt.tax.name })
+                  : t("receipt.total")}
             </td>
             <td className="pt-2 text-right text-base font-bold tabular-nums">{money(receipt.total)}</td>
           </tr>
         </tfoot>
       </table>
 
-      {receipt.paidVia && <p className="text-slate-600">{t("receipt.paidVia", { via: receipt.paidVia })}</p>}
+      {receipt.paidVia && !credit && <p className="text-slate-600">{t("receipt.paidVia", { via: receipt.paidVia })}</p>}
+      {receipt.passTax && <p className="text-slate-600">{t("receipt.passPaid", { tax: receipt.passTax })}</p>}
+      {receipt.note && (
+        <p className="text-slate-600">
+          {receipt.note.startsWith("receipt.") ? t(receipt.note as Parameters<typeof t>[0], { tax: receipt.taxName }) : receipt.note}
+        </p>
+      )}
       {receipt.cancelled && <p className="font-medium text-amber-700">{t("receipt.cancelled")}</p>}
+      {receipt.creditNote && (
+        <p>
+          <a href={receipt.creditNote.path} className="font-medium text-teal-700 underline">
+            {t("receipt.seeCreditNote", { no: receipt.creditNote.number })}
+          </a>
+        </p>
+      )}
     </article>
   );
 }

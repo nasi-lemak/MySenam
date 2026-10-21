@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { receiptFee } from "./documents";
 import {
   bracketSize,
   firstRound,
@@ -548,8 +549,12 @@ export async function withdraw(entryId: number): Promise<Result<Entry>> {
 
 export async function setEntry(entryId: number, change: { paid?: boolean; seed?: number | null }): Promise<Result<Entry>> {
   const db = getDb();
-  if (change.paid !== undefined)
+  if (change.paid !== undefined) {
+    const was = (await db.prepare("SELECT paid_at FROM tournament_entries WHERE id = ?").get(entryId)) as { paid_at: string | null } | undefined;
     await db.prepare(`UPDATE tournament_entries SET paid_at = ${change.paid ? "COALESCE(paid_at, datetime('now'))" : "NULL"} WHERE id = ?`).run(entryId);
+    // Paid at the counter just now, or the mark taken back: receipted, or credited.
+    if (was && (was.paid_at === null) === change.paid) await receiptFee("entry", entryId, change.paid);
+  }
   if (change.seed !== undefined) {
     if (change.seed !== null && (!Number.isInteger(change.seed) || change.seed < 1 || change.seed > 64))
       return { ok: false, error: "A seed is 1 or more." };

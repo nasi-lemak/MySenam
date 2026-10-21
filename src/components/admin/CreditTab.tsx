@@ -1,5 +1,6 @@
 "use client";
 
+import { ReceiptsPanel } from "./ReceiptsPanel";
 import { useCallback, useEffect, useState } from "react";
 import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
 import type { Membership, Pass, PromoCode, Venue, WalletEntry } from "@/lib/types";
@@ -204,6 +205,8 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
       <MembershipsPanel venues={venues} />
 
       <PromosPanel venues={venues} />
+
+      <ReceiptsPanel venues={venues} />
     </div>
   );
 }

@@ -92,6 +92,8 @@ import {
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 import { peakRules, peakRulesFor } from "./peak";
+import { creditBooking, creditReceipt, issueReceipt } from "./documents";
+import { venueTax } from "./tax";
 
 interface CourtRow {
   id: number;
@@ -3779,6 +3781,18 @@ export async function topUpWallet(input: {
         input.adminId,
         perVenue ? input.venueId! : null
       );
+    const venueId = input.venueId ?? null;
+    await issueReceipt({
+      source: `wallet:${info.lastInsertRowid}`,
+      venueId: perVenue ? input.venueId! : venueId,
+      userId: input.userId,
+      name: ((await db.prepare("SELECT name FROM users WHERE id = ?").get(input.userId)) as { name: string }).name,
+      lines: [{ description: `Stored credit: ${input.reason?.trim() || "counter top-up"}`, amount: input.amount }],
+      paidVia: "At the counter",
+      // Credit is taxed when it is spent, on what it buys.
+      taxable: false,
+      note: venueId !== null && (await venueTax(venueId)).registered ? "receipt.creditNoTax" : null,
+    });
     return {
       ok: true,
       balance: await getWalletBalance(input.userId, perVenue ? input.venueId : undefined),
@@ -3923,6 +3937,8 @@ export async function refundBookingToWallet(bookingId: number): Promise<WalletRe
  * credit or with a pass, never both, so each call is a no-op for the other.
  */
 async function refundBooking(bookingId: number): Promise<void> {
+  // A paid booking's receipt is reversed, whoever gives the money back and how.
+  await creditBooking(bookingId, "receipt.why.cancelled");
   await refundBookingToWallet(bookingId);
   await refundBookingToPass(bookingId);
   await noteOnlineRefundDue(bookingId);
@@ -4070,6 +4086,8 @@ export async function sellMembership(input: {
   adminId?: number;
   userId?: number;
   planId?: number;
+  /** How it was paid, for its receipt: "Online (Stripe)". At the counter when staff sell it. */
+  paidVia?: string;
 }): Promise<MembershipResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -4125,7 +4143,18 @@ export async function sellMembership(input: {
         randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
         input.startsOn, input.expiresOn, input.price, input.adminId ?? null, input.planId ?? null
       );
-    return { ok: true, membership: (await membershipById(Number(info.lastInsertRowid)))! };
+    const membership = (await membershipById(Number(info.lastInsertRowid)))!;
+    await issueReceipt({
+      source: `membership:${membership.id}`,
+      venueId: input.venueId,
+      userId: input.userId ?? null,
+      name: holderName,
+      phone: holderPhone,
+      lines: [{ description: `Membership ${membership.code}, ${input.startsOn} to ${input.expiresOn}`, amount: input.price }],
+      paidVia: input.paidVia ?? "At the counter",
+      taxable: true,
+    });
+    return { ok: true, membership };
   });
 }
 
@@ -4136,6 +4165,7 @@ export async function voidMembership(id: number): Promise<MembershipResult> {
     if (!m) return { ok: false, error: "Membership not found." };
     if (m.status === "void") return { ok: false, error: "This membership is already cancelled." };
     await getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
+    await creditReceipt(`membership:${id}`, "receipt.why.voided");
     return { ok: true, membership: (await membershipById(id))! };
   });
 }
@@ -4613,7 +4643,18 @@ export async function issuePass(input: {
         input.expiresOn,
         input.adminId
       );
-    return { ok: true, pass: (await passById(Number(info.lastInsertRowid)))! };
+    const pass = (await passById(Number(info.lastInsertRowid)))!;
+    await issueReceipt({
+      source: `pass:${pass.id}`,
+      venueId: input.venueId,
+      userId: input.userId ?? null,
+      name: holderName,
+      phone: holderPhone,
+      lines: [{ description: `${name} (${pass.code}), ${input.entries} entries, until ${input.expiresOn}`, amount: input.price }],
+      paidVia: "At the counter",
+      taxable: true,
+    });
+    return { ok: true, pass };
   });
 }
 
@@ -4634,6 +4675,7 @@ export async function voidPass(passId: number): Promise<PassResult> {
     if (!pass) return refuse("PASS_NOT_FOUND");
     if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
     await db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
+    await creditReceipt(`pass:${passId}`, "receipt.why.voided");
     return { ok: true, pass: (await passById(passId))! };
   });
 }

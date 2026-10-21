@@ -135,6 +135,15 @@ const RULES: Rule[] = [
     set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL`,
   },
   {
+    what: "Names and numbers on old receipts",
+    days: RETENTION.bookingIdentityDays,
+    action: "anonymised",
+    table: "receipts",
+    where: `issued_at < ? AND customer_name <> '${ANONYMOUS}'`,
+    // Kept for the books, like the bookings: what was sold and the tax on it.
+    set: `customer_name = '${ANONYMOUS}', customer_phone = NULL, user_id = NULL`,
+  },
+  {
     what: "Withdrawn out-of-hours access",
     days: RETENTION.revokedInductionDays,
     action: "deleted",
@@ -500,6 +509,10 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     ).run(ANONYMOUS, userId);
     await db.prepare(
       "UPDATE memberships SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
+    ).run(ANONYMOUS, userId);
+    // So do receipts and credit notes: the venue's books keep what was sold, not to whom.
+    await db.prepare(
+      "UPDATE receipts SET customer_name = ?, customer_phone = NULL, user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
     await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   })();

@@ -25,7 +25,9 @@ export interface RevenueLine {
   outstanding: number;
   /**
    * The sales tax inside what was collected, at each booking's own rate,
-   * and what the venue calls it; null when none of it was taxed.
+   * plus that on the period's other receipts (passes, memberships, fees,
+   * shares) less their credit notes, and what the venue calls it; null when
+   * none of it was taxed.
    */
   tax: { name: string; amount: number } | null;
 }
@@ -157,7 +159,8 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
         SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END) AS expected,
         SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected,
         SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' AND b.tax_rate IS NOT NULL
-                 THEN ROUND(b.total_price * b.tax_rate / (100 + b.tax_rate), 2) END) AS "taxCollected"
+                      AND COALESCE(b.paid_via, '') <> 'pass'
+                 THEN ROUND((b.total_price - b.shares_paid) * b.tax_rate / (100 + b.tax_rate), 2) END) AS "taxCollected"
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
@@ -173,6 +176,24 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
 
   const expected = counts.expected ?? 0;
   const collected = counts.collected ?? 0;
+
+  // The tax on everything else sold, receipted as it was sold (passes,
+  // memberships, fees, shares), less what credit notes took back of it.
+  // A booking's own credit note is not counted: a cancelled booking is
+  // already out of the sum above.
+  const documents = (await db
+    .prepare(`
+      SELECT COUNT(*) AS n,
+             COALESCE(SUM(CASE WHEN kind = 'receipt' THEN tax_amount
+                               WHEN credits_id IS NOT NULL THEN -tax_amount ELSE 0 END), 0) AS tax
+        FROM receipts
+       WHERE venue_id = ? AND tax_rate IS NOT NULL AND substr(issued_at, 1, 10) >= ? AND substr(issued_at, 1, 10) <= ?
+    `)
+    .get(venueId, from, to)) as { n: number | string; tax: number | string };
+  const taxCollected =
+    counts.taxCollected === null && Number(documents.n) === 0
+      ? null
+      : Math.round((Number(counts.taxCollected ?? 0) + Number(documents.tax)) * 100) / 100;
 
   const collectedBy = (
     (await db
@@ -384,7 +405,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       expected,
       collected,
       outstanding: expected - collected,
-      tax: counts.taxCollected === null ? null : { name: (await venueTax(venueId)).name, amount: Number(counts.taxCollected) },
+      tax: taxCollected === null ? null : { name: (await venueTax(venueId)).name, amount: taxCollected },
     },
     collectedBy,
     utilisation: {

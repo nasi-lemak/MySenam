@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { receiptFee } from "./documents";
 import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
 import { parseScore, standings, type Standing } from "./brackets";
 import { LEVELS, type Level } from "./games";
@@ -580,10 +581,14 @@ export async function setStartBox(playerId: number, box: number | null): Promise
 
 /** Staff: a season's fee paid at the counter, or not. */
 export async function setPlacePaid(placeId: number, paid: boolean): Promise<Result<{ id: number; paid: boolean }>> {
-  const done = await getDb()
+  const db = getDb();
+  const was = (await db.prepare("SELECT paid_at FROM league_places WHERE id = ?").get(placeId)) as { paid_at: string | null } | undefined;
+  if (!was) return { ok: false, error: "Not found." };
+  await db
     .prepare(`UPDATE league_places SET paid_at = ${paid ? "COALESCE(paid_at, datetime('now'))" : "NULL"} WHERE id = ?`)
     .run(placeId);
-  return done.changes === 0 ? { ok: false, error: "Not found." } : { ok: true, value: { id: placeId, paid } };
+  if ((was.paid_at === null) === paid) await receiptFee("place", placeId, paid);
+  return { ok: true, value: { id: placeId, paid } };
 }
 
 // ------------------------------------------------------------ seasons

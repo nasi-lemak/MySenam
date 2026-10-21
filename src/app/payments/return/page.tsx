@@ -3,6 +3,8 @@ import { allGateways, type PaymentResult } from "@/lib/gateways";
 import { accountForBill, paymentByBill, settleBill } from "@/lib/payments";
 import { serverT } from "@/lib/locale";
 import { money } from "@/lib/region";
+import { receiptOfPayment } from "@/lib/documents";
+import { receiptPath } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,13 @@ export default async function PaymentReturnPage({
   }
   if (result) await settleBill(result);
   const payment = result ? await paymentByBill(result.billId) : null;
+  // What was just bought, on paper: for anything but court time, which has its own on My Booking.
+  const receipt = payment && payment.status === "paid" ? await receiptOfPayment(payment.id) : null;
+  const receiptLink = receipt && (
+    <a href={receiptPath(receipt.ref)} className="mt-3 inline-block text-sm font-medium text-teal-700 underline">
+      {t("mine.receipt")}
+    </a>
+  );
 
   // A venue paying its marketplace invoice, rather than a customer paying for
   // a booking: staff, in English like the rest of the admin, and back to it.
@@ -70,6 +79,7 @@ export default async function PaymentReturnPage({
           <div className="text-4xl">✅</div>
           <h1 className="mt-2 text-xl font-bold">{t("pay.entryTitle")}</h1>
           <p className="mt-2 text-sm text-slate-600">{t("pay.entryBody", { amount: payment.amount })}</p>
+          {receiptLink}
           <Link
             href="/tournaments"
             className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
@@ -88,6 +98,7 @@ export default async function PaymentReturnPage({
           <div className="text-4xl">✅</div>
           <h1 className="mt-2 text-xl font-bold">{t("pay.leagueTitle")}</h1>
           <p className="mt-2 text-sm text-slate-600">{t("pay.leagueBody", { amount: payment.amount })}</p>
+          {receiptLink}
           <Link
             href="/leagues"
             className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
@@ -106,6 +117,7 @@ export default async function PaymentReturnPage({
           <div className="text-4xl">✅</div>
           <h1 className="mt-2 text-xl font-bold">{t("pay.shareTitle")}</h1>
           <p className="mt-2 text-sm text-slate-600">{t("pay.shareBody", { amount: payment.amount })}</p>
+          {receiptLink}
           <Link
             href="/games"
             className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
@@ -131,6 +143,7 @@ export default async function PaymentReturnPage({
                 ? t("member.notMadeBody", { amount: payment.amount })
                 : t("member.notPaidBody")}
           </p>
+          {receiptLink}
           <Link
             href={payment.venueId ? `/venue/${payment.venueId}` : "/account"}
             className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
@@ -156,6 +169,7 @@ export default async function PaymentReturnPage({
               ? t("wallet.topUpBody", { amount: payment.amount })
               : t("wallet.topUpNotPaid")}
           </p>
+          {receiptLink}
           <Link
             href="/account"
             className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"

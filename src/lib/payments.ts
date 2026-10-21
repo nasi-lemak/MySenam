@@ -27,6 +27,8 @@ import { extendHolds, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
+import { creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
+import { venueTax } from "./tax";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -549,7 +551,11 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         .get(row.tournament_entry_id)) as { status: string; t_status: string } | undefined;
       if (!entry || entry.status === "withdrawn" || entry.t_status === "cancelled")
         await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
-      else await db.prepare("UPDATE tournament_entries SET paid_at = datetime('now') WHERE id = ?").run(row.tournament_entry_id);
+      else {
+        await db.prepare("UPDATE tournament_entries SET paid_at = datetime('now') WHERE id = ?").run(row.tournament_entry_id);
+        const sale = await entrySale(row.tournament_entry_id!);
+        if (sale) await receiptPayment(row, { description: sale.description, userId: sale.userId, taxable: true });
+      }
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -567,7 +573,11 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         | undefined;
       if (!place || place.withdrawn_at !== null || place.paid_at !== null)
         await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
-      else await db.prepare("UPDATE league_places SET paid_at = datetime('now') WHERE id = ?").run(row.league_place_id);
+      else {
+        await db.prepare("UPDATE league_places SET paid_at = datetime('now') WHERE id = ?").run(row.league_place_id);
+        const sale = await placeSale(row.league_place_id!);
+        if (sale) await receiptPayment(row, { description: sale.description, userId: sale.userId, taxable: true });
+      }
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -611,6 +621,13 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         await db
           .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Online top-up', ?)")
           .run(row.topup_user_id, row.amount, creditScope() === "venue" ? row.venue_id : null);
+        await receiptPayment(row, {
+          description: "Stored credit: online top-up",
+          userId: row.topup_user_id,
+          // Credit is taxed when it is spent, on what it buys.
+          taxable: false,
+          note: row.venue_id !== null && (await venueTax(row.venue_id)).registered ? "receipt.creditNoTax" : null,
+        });
       } else if (claimed.changes === 1) {
         // The account went away while they paid: owed back.
         await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
@@ -702,6 +719,25 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
   return { payment: await toPayment(fresh), newlyPaid: bookings };
 }
 
+/** Receipt an online payment for something other than court time, as it settles. */
+async function receiptPayment(
+  row: PaymentRow,
+  sale: { description: string; userId: number | null; taxable: boolean; note?: string | null }
+): Promise<void> {
+  const lines: Line[] = [{ description: sale.description, amount: Number(row.amount) }];
+  await issueReceipt({
+    source: `payment:${row.id}`,
+    venueId: row.venue_id,
+    userId: sale.userId,
+    name: row.payer_name ?? "Customer",
+    phone: row.payer_phone,
+    lines,
+    paidVia: paidVia("online", gatewayFor(row.provider)?.name),
+    taxable: sale.taxable,
+    note: sale.note ?? null,
+  });
+}
+
 async function bookingById(id: number): Promise<Booking | null> {
   const row = await getDb().prepare("SELECT code, phone FROM bookings WHERE id = ?").get(id) as
     | { code: string; phone: string }
@@ -773,6 +809,8 @@ async function recordRefund(
       .prepare("UPDATE online_payments SET refunded = refunded + ? WHERE id = ? AND refunded + ? <= refund_due")
       .run(amount, row.id, amount);
     if (done.changes === 0) throw new Error("REFUND_RACE");
+    // What its receipt said was sold is reversed. A booking's is reversed when it is cancelled.
+    await creditReceipt(`payment:${row.id}`, "receipt.why.refunded");
     return true;
   })();
 }
@@ -930,6 +968,17 @@ async function settleShare(row: PaymentRow): Promise<void> {
   await db.prepare("UPDATE open_game_players SET paid_at = datetime('now') WHERE id = ?").run(target.id);
   const sharesPaid = Math.round((target.shares_paid + Number(row.amount)) * 100) / 100;
   await db.prepare("UPDATE bookings SET shares_paid = ? WHERE id = ?").run(sharesPaid, target.booking_id);
+  const court = (await db
+    .prepare(
+      `SELECT c.name, b.date, b.start_hour, b.end_hour, p.user_id FROM bookings b JOIN courts c ON c.id = b.court_id
+         JOIN open_game_players p ON p.id = ? WHERE b.id = ?`
+    )
+    .get(target.id, target.booking_id)) as { name: string; date: string; start_hour: number; end_hour: number; user_id: number };
+  await receiptPayment(row, {
+    description: `Share of ${court.name}, ${court.date} ${formatHour(court.start_hour)}–${formatHour(court.end_hour)}`,
+    userId: court.user_id,
+    taxable: true,
+  });
   // Shares alone covered the court: nothing is left for the host to pay.
   if (sharesPaid >= target.total_price)
     await db
@@ -1107,6 +1156,7 @@ async function makePaidMembership(row: PaymentRow): Promise<number | null> {
     price: roundMoney(row.amount),
     userId: row.member_user_id,
     planId: plan.id,
+    paidVia: paidVia("online", gatewayFor(row.provider)?.name) ?? undefined,
   });
   return sold.ok ? sold.membership.id : null;
 }

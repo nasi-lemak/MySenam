@@ -213,6 +213,7 @@ export async function refreshDemoData(opts: { adminId: number }): Promise<SeedRe
       "waitlist",
       "promo_uses",
       "pass_entries",
+      "receipts",
       "wallet_entries",
       "sessions",
       "bookings",

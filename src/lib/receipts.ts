@@ -1,17 +1,21 @@
 import crypto from "crypto";
-import { getDb } from "./db";
 import { keyedHash } from "./secrets";
-import { findBookingByCode, getCourt, getVenue } from "./store";
-import { taxIncluded, venueTax } from "./tax";
-import { formatHour } from "./time";
-import { PAID_VIA_LABELS, SPORT_LABELS, type PaidVia } from "./types";
+import { findBookingByCode, getVenue } from "./store";
+import { taxIncluded, taxName, venueTax } from "./tax";
+import { bookingSale, documentById, documentFor, documentId, paidVia, type Document, type Line } from "./documents";
+import { siteName } from "./site";
 
 /**
- * A paid booking's receipt: a page to keep or print, and — when the venue is
- * registered for SST or GST — its tax invoice, with the tax inside the price
- * and the venue's registration number.
+ * Receipts as the customer sees them: a page to keep or print, and — when
+ * the venue is registered for SST or GST — a tax invoice, with the tax
+ * inside the price and the venue's registration number.
  *
- * Its address carries a token signed with the install's secret rather than
+ * Two kinds sit behind the same address. A booking's receipt is drawn from
+ * the booking (its code is its number). Everything else sold — memberships,
+ * passes, credit, entries, league fees, shares — and every credit note is a
+ * document written when the money moved (lib/documents.ts), at "R<id>".
+ *
+ * The address carries a token signed with the install's secret rather than
  * the customer's phone number, so it can go in an email and a browser's
  * history without giving anybody else a way in.
  */
@@ -26,59 +30,105 @@ export function receiptPath(code: string): string {
 }
 
 export interface Receipt {
+  /** What is in its address: a booking code, or "R42". */
   code: string;
+  kind: "receipt" | "credit_note";
+  /** The number printed on it. */
+  number: string;
   venue: { name: string; address: string; phone: string };
   customer: string;
-  /** When it was paid; the booking's date for one paid as it was made. */
+  /** When it was paid (or credited); the booking's date for one paid as it was made. */
   paidAt: string | null;
   paidVia: string | null;
-  lines: { description: string; amount: number }[];
+  lines: Line[];
   total: number;
   /** The tax inside the total, with what the venue is registered as. Null with none. */
   tax: { name: string; rate: number; amount: number; regNo: string | null } | null;
   cancelled: boolean;
+  /** A credit note: the number of what it reverses. */
+  credits: string | null;
+  /** A cancelled booking's credit note, to link to. */
+  creditNote: { number: string; path: string } | null;
+  /**
+   * A line under it: a phrase key ("receipt.why.refunded"), shown in the
+   * reader's language with the issuer's `taxName`.
+   */
+  note: string | null;
+  taxName: string;
+  /** Paid with a pass at a registered venue: the tax it carries was on the pass's receipt. */
+  passTax: string | null;
 }
 
-/** The receipt behind a signed link, or null: a wrong token, no such booking, or nothing paid. */
-export async function receiptFor(code: string, token: string): Promise<Receipt | null> {
+function tokenMatches(code: string, token: string): boolean {
   const expected = receiptToken(code);
-  if (token.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return null;
+  return token.length === expected.length && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+}
+
+async function issuer(venueId: number | null): Promise<Receipt["venue"] | null> {
+  if (venueId === null) return { name: siteName(), address: "", phone: "" };
+  const venue = await getVenue(venueId);
+  return venue ? { name: venue.name, address: venue.address, phone: venue.phone } : null;
+}
+
+async function fromDocument(code: string, doc: Document): Promise<Receipt | null> {
+  const venue = await issuer(doc.venueId);
+  if (!venue) return null;
+  return {
+    code,
+    kind: doc.kind,
+    number: doc.number,
+    venue,
+    customer: doc.customerName,
+    paidAt: doc.issuedAt,
+    paidVia: doc.paidVia,
+    lines: doc.lines,
+    total: doc.total,
+    tax: doc.tax,
+    cancelled: false,
+    credits: doc.credits,
+    creditNote: null,
+    note: doc.note,
+    taxName: doc.venueId === null ? taxName() : (await venueTax(doc.venueId)).name,
+    passTax: null,
+  };
+}
+
+/** The receipt behind a signed link, or null: a wrong token, no such thing, or nothing paid. */
+export async function receiptFor(code: string, token: string): Promise<Receipt | null> {
+  if (!tokenMatches(code, token)) return null;
+
+  const id = documentId(code);
+  if (id !== null) {
+    const doc = await documentById(id);
+    return doc ? fromDocument(code, doc) : null;
+  }
+
   const booking = await findBookingByCode(code);
-  if (!booking || booking.paymentStatus !== "paid" || booking.totalPrice <= 0) return null;
-  const court = await getCourt(booking.courtId);
-  const venue = court ? await getVenue(court.venueId) : null;
-  if (!court || !venue) return null;
-
-  const db = getDb();
-  const extras = (await db
-    .prepare("SELECT name, quantity, unit_price::float AS unit_price FROM booking_addons WHERE booking_id = ? ORDER BY id")
-    .all(booking.id)) as { name: string; quantity: number; unit_price: number }[];
-  const promo = (await db
-    .prepare("SELECT u.discount::float AS discount, p.code FROM promo_uses u JOIN promo_codes p ON p.id = u.promo_id WHERE u.booking_id = ?")
-    .get(booking.id)) as { discount: number; code: string } | undefined;
-
-  const extrasTotal = extras.reduce((sum, e) => sum + e.quantity * e.unit_price, 0);
-  const discount = promo?.discount ?? 0;
-  const lines: Receipt["lines"] = [
-    {
-      description: `${court.name} (${SPORT_LABELS[court.sport] ?? court.sport}), ${booking.date} ${formatHour(booking.startHour)}–${formatHour(booking.endHour)}`,
-      amount: Math.round((booking.totalPrice - extrasTotal + discount) * 100) / 100,
-    },
-    ...extras.map((e) => ({ description: `${e.quantity} × ${e.name}`, amount: Math.round(e.quantity * e.unit_price * 100) / 100 })),
-    ...(promo ? [{ description: `Promo ${promo.code}`, amount: -discount }] : []),
-  ];
-
-  const registered = await venueTax(venue.id);
-  const rate = booking.taxRate ?? null;
+  if (!booking || booking.paymentStatus !== "paid") return null;
+  const sale = await bookingSale(booking.id);
+  if (!sale || sale.total <= 0) return null;
+  const venue = await issuer(sale.venueId);
+  if (!venue) return null;
+  const registered = await venueTax(sale.venueId);
+  const credit = await documentFor(`booking:${booking.id}`);
   return {
     code: booking.code,
-    venue: { name: venue.name, address: venue.address, phone: venue.phone },
+    kind: "receipt",
+    number: booking.code,
+    venue,
     customer: booking.name,
     paidAt: booking.paidAt,
-    paidVia: booking.paidVia ? PAID_VIA_LABELS[booking.paidVia as PaidVia] ?? null : null,
-    lines,
-    total: booking.totalPrice,
-    tax: rate ? { name: registered.name, rate, amount: taxIncluded(booking.totalPrice, rate), regNo: registered.regNo } : null,
+    paidVia: paidVia(booking.paidVia),
+    lines: sale.lines,
+    total: sale.total,
+    tax: sale.taxRate
+      ? { name: registered.name, rate: sale.taxRate, amount: taxIncluded(sale.total, sale.taxRate), regNo: registered.regNo }
+      : null,
     cancelled: booking.status === "cancelled",
+    credits: null,
+    creditNote: credit ? { number: credit.number, path: receiptPath(credit.ref) } : null,
+    note: null,
+    taxName: registered.name,
+    passTax: booking.paidVia === "pass" && registered.registered ? registered.name : null,
   };
 }

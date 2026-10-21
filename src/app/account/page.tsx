@@ -13,6 +13,7 @@ import CheckInQr from "@/components/CheckInQr";
 import Wallet from "@/components/Wallet";
 import MyWaitlist from "@/components/MyWaitlist";
 import MyPasses from "@/components/MyPasses";
+import MyReceipts from "@/components/MyReceipts";
 import { ChangePassword } from "@/components/ChangePassword";
 import { BookAgain } from "@/components/BookAgain";
 import { MyVenues } from "@/components/MyVenues";
@@ -194,6 +195,8 @@ export default function AccountPage() {
       <Wallet />
 
       <MyPasses />
+
+      <MyReceipts />
 
       <MyWaitlist phone={user.phone} />
 
