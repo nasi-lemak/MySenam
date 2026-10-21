@@ -30,6 +30,7 @@ import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
 import { receiptPath } from "@/lib/receipts";
 import { reviewable, reviewPath } from "@/lib/reviews";
+import { recordConsent } from "@/lib/marketing";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -258,6 +259,9 @@ export async function POST(req: NextRequest) {
   // booking is told about once it is paid (lib/payments.ts).
   const locale = await currentLocale();
   await rememberLocale(result.bookings.map((b) => b.id), locale);
+  // Only when the box was ticked: news from this venue (lib/marketing.ts).
+  if (marketing === true && typeof email === "string" && email.trim())
+    await recordConsent({ venueId: venue.id, email, name: name as string, userId: user?.id ?? null, locale, source: "booking" });
   if (!holdUntil) await notifyBookingConfirmed(result.bookings, locale, result.seriesCode);
   await tickOutbox();
   return NextResponse.json(

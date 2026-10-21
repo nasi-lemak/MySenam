@@ -322,7 +322,7 @@ export default async function VenuePage({
         </div>
       )}
       {/* Booking first: it is what nearly everybody came for. */}
-      <BookingBoard venueId={venue.id} sports={sports} dates={dates} initial={initial} />
+      <BookingBoard venueId={venue.id} venueName={venue.name} sports={sports} dates={dates} initial={initial} />
       <LiveOccupancy venueId={venue.id} />
       {/* What it has, and where it is, side by side on a wide screen. */}
       <div className="grid gap-4 md:grid-cols-2">

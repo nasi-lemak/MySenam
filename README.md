@@ -1198,6 +1198,35 @@ Stars and a few words about a venue, from somebody who played there
   venue's export for a phone number, and closing an account deletes the
   reviews written from it.
 
+## News from venues (marketing email)
+
+A venue can email news and offers to customers who asked for them, and to
+nobody else (`src/lib/marketing.ts`, migration 0059). Written for
+Malaysia's PDPA and Singapore's PDPA and Spam Control Act; not legal
+advice, and a venue running promotions should still check with its own
+adviser.
+
+- **Asked, never assumed.** Under the booking form, once an email address
+  is typed, an unticked box: *Email me news and offers from {venue}. I can
+  unsubscribe at any time.* Ticking it is recorded per venue and address,
+  with the words as shown in the customer's language and when. Nothing else
+  signs anybody up: not an account, not a booking at the counter, not staff.
+- **Stopping is one click** from the link at the foot of every copy (a
+  page with a button, so mail scanners following links do not unsubscribe
+  people), or from *News from venues* on the account page. Booking
+  confirmations, reminders and receipts are not marketing and keep coming.
+- **Sending** is under *Venues & staff → News to customers* (managers): a
+  subject and some words, a test copy to yourself first, then *Send to N*
+  after a confirmation. Every copy ends with why the customer gets it and the
+  unsubscribe link, in the customer's own language; the venue cannot remove
+  it. At most 4 in 30 days per venue. The usual daily cap per recipient
+  applies.
+- **Email only.** No WhatsApp: each message costs the venue, and in
+  Singapore marketing messages to phone numbers fall under the Do Not Call
+  registry.
+- **Personal data:** consents (with their wording) are in the customer's
+  data export, and closing an account deletes them.
+
 ## Women-only and men-only
 
 Open games, leagues and classes can be for anyone (the default), women only

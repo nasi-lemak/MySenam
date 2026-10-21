@@ -298,6 +298,8 @@ export interface CustomerExport {
   vouchers: unknown[];
   /** Reviews of venues written from their bookings. */
   reviews: unknown[];
+  /** Venues they agreed to hear from by email, in the words agreed to, and when they stopped. */
+  marketing: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
@@ -434,6 +436,13 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE r.user_id = ? OR r.booking_id IN (SELECT id FROM bookings WHERE user_id = ?) ORDER BY r.id`,
       userId,
       userId
+    ),
+    marketing: await all(
+      `SELECT v.name AS venue, c.email, c.wording, c.source, c.consented_at, c.withdrawn_at
+         FROM marketing_consents c JOIN venues v ON v.id = c.venue_id
+        WHERE c.user_id = ? OR c.email_key = lower(?) ORDER BY c.id`,
+      userId,
+      account.email
     ),
     messages: await all(
       `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
@@ -596,8 +605,8 @@ export type EraseResult =
  */
 export async function eraseCustomer(userId: number): Promise<EraseResult> {
   const db = getDb();
-  const account = await db.prepare("SELECT id FROM users WHERE id = ?").get(userId) as
-    | { id: number }
+  const account = await db.prepare("SELECT id, email FROM users WHERE id = ?").get(userId) as
+    | { id: number; email: string }
     | undefined;
   if (!account) return { ok: false, error: "Account not found." };
 
@@ -662,6 +671,8 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);
+    // Nobody left to send news to.
+    await db.prepare("DELETE FROM marketing_consents WHERE user_id = ? OR email_key = lower(?)").run(userId, account.email);
     // Their reviews go: an opinion is theirs, not the venue's record.
     await db
       .prepare("DELETE FROM venue_reviews WHERE user_id = ? OR booking_id IN (SELECT id FROM bookings WHERE user_id = ?)")

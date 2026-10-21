@@ -32,6 +32,8 @@ import { money, intlTag, region, plainAmount } from "@/lib/region";
 
 interface Props {
   venueId: number;
+  /** For the box asking whether to hear from it. */
+  venueName?: string;
   sports: Sport[];
   dates: string[];
   /** Slot to pre-select, e.g. when arriving from a search result. */
@@ -100,7 +102,7 @@ function formatDateLabel(t: T, date: string): { day: string; num: string } {
   };
 }
 
-export default function BookingBoard({ venueId, sports, dates, initial }: Props) {
+export default function BookingBoard({ venueId, venueName = "", sports, dates, initial }: Props) {
   const t = useT();
   const [sport, setSport] = useState<Sport>(
     initial?.sport && sports.includes(initial.sport) ? initial.sport : sports[0]
@@ -493,6 +495,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
       {selection && selectedCourt && (
         <BookingForm
           t={t}
+          venueName={venueName}
           court={selectedCourt}
           date={date}
           hours={selection.hours}
@@ -530,6 +533,7 @@ export default function BookingBoard({ venueId, sports, dates, initial }: Props)
 
 function BookingForm({
   t,
+  venueName,
   court,
   date,
   hours,
@@ -539,6 +543,7 @@ function BookingForm({
   onError,
 }: {
   t: T;
+  venueName: string;
   court: Court;
   date: string;
   hours: number[];
@@ -551,6 +556,8 @@ function BookingForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  // News from this venue: asked, never ticked for them (lib/marketing.ts).
+  const [marketing, setMarketing] = useState(false);
   const [weeks, setWeeks] = useState(1);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
@@ -632,6 +639,7 @@ function BookingForm({
           payWithPass: (!hasExtras && passCode.trim()) || undefined,
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
+          marketing: email.trim() !== "" && marketing,
         }),
       });
       const data = await res.json();
@@ -829,6 +837,12 @@ function BookingForm({
             className="accent-teal-600"
           />
           {t("form.skipTaken")}
+        </label>
+      )}
+      {email.trim() !== "" && (
+        <label className="mt-2 flex items-start gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="mt-0.5 accent-teal-600" />
+          {t("mkt.optIn", { venue: venueName })}
         </label>
       )}
       <div className="mt-3">

@@ -45,7 +45,9 @@ export type MessageKind =
   /** By email only: a gift voucher bought online, to its buyer. */
   | "gift_voucher"
   /** By email only, once per customer per venue: how was it? (lib/reviews.ts) */
-  | "review_request";
+  | "review_request"
+  /** By email only, to people who agreed to hear from the venue (lib/marketing.ts). */
+  | "campaign";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

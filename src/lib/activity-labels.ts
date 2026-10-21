@@ -47,6 +47,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "review.requests": "Changed review requests",
   "review.hidden": "Hid a review",
   "review.shown": "Showed a review again",
+  "campaign.sent": "Emailed news to customers who asked for it",
   "promo.created": "Made a promo code",
   "promo.voided": "Voided a promo code",
   "staff.added": "Added staff",

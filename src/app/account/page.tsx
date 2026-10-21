@@ -313,8 +313,61 @@ export default function AccountPage() {
         </section>
       )}
 
+      <VenueNews t={t} />
+
       <YourData t={t} />
     </div>
+  );
+}
+
+/** Venues this account asked for news from, each with a way to stop (lib/marketing.ts). */
+function VenueNews({ t }: { t: T }) {
+  const [consents, setConsents] = useState<{ id: number; venueName: string; email: string; consentedAt: string; withdrawnAt: string | null }[] | null>(null);
+  useEffect(() => {
+    fetch("/api/my/marketing", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setConsents(d.consents ?? []))
+      .catch(() => setConsents([]));
+  }, []);
+  if (consents === null) return null;
+  return (
+    <section>
+      <h2 className="text-lg font-bold">{t("mkt.acctTitle")}</h2>
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
+        {consents.length === 0 ? (
+          <p className="text-slate-600">{t("mkt.acctNone")}</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {consents.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>
+                  <span className="font-medium">{c.venueName}</span>{" "}
+                  <span className="text-slate-500">
+                    · {c.email} · {c.withdrawnAt ? t("mkt.acctStopped") : t("mkt.acctSince", { date: c.consentedAt.slice(0, 10) })}
+                  </span>
+                </span>
+                {!c.withdrawnAt && (
+                  <button
+                    type="button"
+                    className="font-medium text-teal-700 underline"
+                    onClick={async () => {
+                      const res = await fetch("/api/my/marketing", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: c.id }),
+                      });
+                      if (res.ok) setConsents((await res.json()).consents);
+                    }}
+                  >
+                    {t("mkt.acctStop")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 
