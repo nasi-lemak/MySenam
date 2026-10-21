@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import { LanguageProvider } from "@/components/Language";
@@ -10,9 +10,17 @@ import { isMarketplace } from "@/lib/mode";
 import { region } from "@/lib/region";
 import "./globals.css";
 
+export const viewport: Viewport = { themeColor: "#0d9488" };
+
 export async function generateMetadata(): Promise<Metadata> {
   const t = await serverT();
-  return { title: t("meta.title"), description: t("meta.description") };
+  return {
+    title: t("meta.title"),
+    description: t("meta.description"),
+    // Added to a home screen: its icon, and a title bar in the site's colour (app/manifest.ts).
+    icons: { apple: "/app-icon/192" },
+    appleWebApp: { capable: true, title: siteName() },
+  };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

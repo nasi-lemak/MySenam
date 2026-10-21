@@ -2235,6 +2235,29 @@ table in `src/lib/region.ts`:
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).
 
+## Search engines and installing as an app
+
+**Search engines** are given what a visitor could find from the home page and
+nothing else (`src/lib/seo.ts`):
+
+- `/sitemap.xml` lists the public pages and every venue that is live and
+  public, or members-only but kept in search. On a storefront it lists that
+  storefront's venues under its own address.
+- `/robots.txt` keeps crawlers out of `/admin`, the API, accounts, My Booking,
+  receipts, acknowledgement and waitlist links, and sign-in pages, and points
+  at the sitemap.
+- Each venue page has its own title and description ("Arena — Badminton and
+  Futsal in Petaling Jaya"), a canonical address, an Open Graph image from its
+  first photo for shared links, and a schema.org `SportsActivityLocation`
+  (address, map pin, opening hours, sports). A private venue, a members-only
+  one kept out of search, a draft or a suspended one asks not to be indexed.
+
+**Installing as an app**: `/manifest.webmanifest` lets a phone, or the front
+desk's tablet, add the site to its home screen and open it full screen in the
+site's teal. The icon is drawn at `/app-icon/192` and `/app-icon/512` from the
+first letter of `SITE_NAME`, so an install under its own name gets its own
+initial with no image files to make.
+
 ## Tax (SST and GST)
 
 Two different taxes pass through MySenam, and neither is MySenam's to decide
