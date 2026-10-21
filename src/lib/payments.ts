@@ -12,7 +12,8 @@ import {
   type PaymentResult,
   type ProviderId,
 } from "./gateways";
-import type { SubscriptionEvent } from "./gateways/types";
+import type { DisputeEvent, SubscriptionEvent } from "./gateways/types";
+import { tellVenueStaff } from "./owner-alerts";
 import { seal, unseal } from "./secrets";
 import { findBooking, getCourt, getVenue, membershipById, sellMembership } from "./store";
 import { joinTerms } from "./membership-plans";
@@ -28,7 +29,7 @@ import { extendHolds, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
-import { creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
+import { creditBooking, creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
 import { venueTax } from "./tax";
 import { cancelPolicy, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
@@ -1494,4 +1495,137 @@ export async function stopRenewalOf(membershipId: number): Promise<string | null
     .prepare("SELECT subscription_id FROM membership_subscriptions WHERE membership_id = ? AND status = 'active'")
     .get(membershipId)) as { subscription_id: string } | undefined;
   return row ? stopSubscription(row.subscription_id) : null;
+}
+
+// ------------------------------------------------------------ disputes (chargebacks)
+
+/** Every venue's account at this gateway that can be read: to find whose signing key a report checks out under. */
+export async function gatewayAccounts(provider: string): Promise<(GatewayAccount & { venueId: number })[]> {
+  const rows = (await getDb().prepare("SELECT * FROM venue_payment_accounts WHERE provider = ?").all(provider)) as AccountRow[];
+  return rows
+    .map((row) => {
+      const account = readAccount(row);
+      return account ? { ...account, venueId: row.venue_id } : null;
+    })
+    .filter((a): a is GatewayAccount & { venueId: number } => a !== null);
+}
+
+export interface PaymentDispute {
+  id: number;
+  paymentId: number;
+  providerDisputeId: string;
+  amount: number;
+  reason: string;
+  status: string;
+  dueBy: string | null;
+  outcome: "won" | "lost" | null;
+  openedAt: string;
+  payerName: string | null;
+  bookingCodes: string[];
+}
+
+/**
+ * A customer has disputed a payment with their bank. Written down against the
+ * payment, once, and kept up to date as it moves. Opened: the venue's staff
+ * are told by email, with the date to answer by, since only the venue can
+ * answer it (in the gateway's dashboard). Lost: the money went back to the
+ * customer, so the bookings it paid for are unpaid again and its receipt is
+ * credited; staff collect at the counter or let them go. Won: nothing changes.
+ */
+export async function recordDispute(provider: string, billId: string, event: DisputeEvent): Promise<PaymentDispute | null> {
+  const db = getDb();
+  const payment = (await db.prepare("SELECT * FROM online_payments WHERE provider = ? AND bill_id = ?").get(provider, billId)) as
+    | PaymentRow
+    | undefined;
+  if (!payment || payment.venue_id === null) return null;
+  const minor = region().currency.minorUnits;
+  const amount = roundMoney(event.amountMinor / 10 ** minor);
+  const before = (await db.prepare("SELECT outcome FROM payment_disputes WHERE provider_dispute_id = ?").get(event.disputeId)) as
+    | { outcome: string | null }
+    | undefined;
+  await db
+    .prepare(
+      `INSERT INTO payment_disputes (payment_id, provider_dispute_id, amount, reason, status, due_by, outcome)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (provider_dispute_id) DO UPDATE SET status = excluded.status, due_by = COALESCE(excluded.due_by, payment_disputes.due_by),
+         outcome = COALESCE(excluded.outcome, payment_disputes.outcome), updated_at = datetime('now')`
+    )
+    .run(payment.id, event.disputeId, amount, event.reason, event.status, event.dueBy, event.outcome);
+  const venue = await getVenue(payment.venue_id);
+  const name = venue?.name ?? "your venue";
+  const gateway = gatewayFor(provider)?.name ?? provider;
+  if (!before)
+    await tellVenueStaff(
+      payment.venue_id,
+      `A customer has disputed a payment: ${money(amount)}`,
+      [
+        `${payment.payer_name ?? "A customer"} has disputed ${money(amount)} paid online to ${name} with their bank (reason given: ${event.reason.replace(/_/g, " ")}).`,
+        event.dueBy ? `Answer it in your ${gateway} dashboard by ${event.dueBy.slice(0, 10)}, with whatever shows the booking was real and played: the booking, the check-in, messages.` : `Answer it in your ${gateway} dashboard.`,
+        "If the bank decides for the customer, the money goes back to them and the booking shows as unpaid again.",
+      ].join("\n\n")
+    );
+  if (event.outcome === "lost" && before?.outcome !== "lost") await disputeLost(payment);
+  if (event.outcome && before?.outcome !== event.outcome && before)
+    await tellVenueStaff(
+      payment.venue_id,
+      `Dispute ${event.outcome}: ${money(amount)}`,
+      event.outcome === "won"
+        ? `The bank decided for ${name}: the ${money(amount)} stays yours.`
+        : `The bank decided for the customer: ${money(amount)} has gone back to them. The bookings it paid for show as unpaid again.`
+    );
+  return (await disputesFor(payment.venue_id)).find((d) => d.providerDisputeId === event.disputeId) ?? null;
+}
+
+/** The money went back: what it paid for is unpaid again, and its receipt credited. */
+async function disputeLost(payment: PaymentRow): Promise<void> {
+  const db = getDb();
+  const bookings = (await db
+    .prepare(
+      `SELECT b.id FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id
+        WHERE pb.payment_id = ? AND b.payment_status = 'paid' AND b.paid_via = 'online'`
+    )
+    .all(payment.id)) as { id: number }[];
+  for (const b of bookings) {
+    await creditBooking(b.id, "receipt.why.disputed");
+    await db.prepare("UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL WHERE id = ?").run(b.id);
+  }
+  if (bookings.length === 0) await creditReceipt(`payment:${payment.id}`, "receipt.why.disputed");
+}
+
+/** A venue's disputes: those still open first, then the last few decided. */
+export async function disputesFor(venueId: number): Promise<PaymentDispute[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT d.*, p.payer_name,
+              (SELECT STRING_AGG(b.code, ', ') FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = p.id) AS codes
+         FROM payment_disputes d JOIN online_payments p ON p.id = d.payment_id
+        WHERE p.venue_id = ?
+        ORDER BY (d.outcome IS NULL) DESC, d.id DESC LIMIT 50`
+    )
+    .all(venueId)) as {
+    id: number;
+    payment_id: number;
+    provider_dispute_id: string;
+    amount: number | string;
+    reason: string;
+    status: string;
+    due_by: string | null;
+    outcome: "won" | "lost" | null;
+    opened_at: string;
+    payer_name: string | null;
+    codes: string | null;
+  }[];
+  return rows.map((r) => ({
+    id: r.id,
+    paymentId: r.payment_id,
+    providerDisputeId: r.provider_dispute_id,
+    amount: Number(r.amount),
+    reason: r.reason,
+    status: r.status,
+    dueBy: r.due_by,
+    outcome: r.outcome,
+    openedAt: r.opened_at,
+    payerName: r.payer_name,
+    bookingCodes: r.codes ? r.codes.split(", ") : [],
+  }));
 }

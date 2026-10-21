@@ -957,6 +957,7 @@ export const ZH: Record<Phrase, string> = {
   "err.PHONE_UNVERIFIED": "请先验证您的电话号码：我们会通过 WhatsApp 向其发送验证码。",
   "err.STRIKES_COUNTER": "由于已有 {n} 次缺席或逾期取消的预订，本场馆只接受您的号码在柜台预订。",
   "receipt.why.lateCancelled": "在免费取消期限后取消：场馆保留了手续费，这是退回的部分。",
+  "receipt.why.disputed": "客户向银行提出付款争议，银行已将款项退还给客户。",
   "mine.lateCancelNote": "在此之后您仍可在此取消，但场馆会保留您所付金额的 {pct}%。",
   "mine.lateCancelConfirm": "已过免费取消期限。场馆会保留您所付金额的 {pct}%。仍要取消吗？",
   "mine.lateStrikeConfirm": "已过免费取消期限，此次将计为您号码在此场馆的一次逾期取消。仍要取消吗？",

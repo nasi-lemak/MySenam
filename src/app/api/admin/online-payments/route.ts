@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { listOnlinePayments, markRefunded, refundOnline, refundsOwed } from "@/lib/payments";
+import { disputesFor, listOnlinePayments, markRefunded, refundOnline, refundsOwed } from "@/lib/payments";
 import { money } from "@/lib/region";
 import { logAction } from "@/lib/activity";
 
@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     payments: await listOnlinePayments(venueId),
     refundsOwed: await refundsOwed(venueId),
+    disputes: await disputesFor(venueId),
   });
 }
 

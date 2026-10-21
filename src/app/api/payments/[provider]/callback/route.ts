@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gatewayFor } from "@/lib/gateways";
-import { accountForBill, accountForSubscription, settleBill, settleSubscription } from "@/lib/payments";
+import { accountForBill, accountForSubscription, gatewayAccounts, recordDispute, settleBill, settleSubscription } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     if (!event) return NextResponse.json({ error: "Bad signature." }, { status: 400 });
     await settleSubscription(gateway.id, event);
     return new NextResponse("OK", { status: 200 });
+  }
+
+  // A chargeback names no page of ours: whose it is shows by whose signing key it checks out under.
+  if (inbound.dispute && inbound.verifyDispute) {
+    for (const account of await gatewayAccounts(gateway.id)) {
+      const event = await inbound.verifyDispute(account);
+      if (!event) continue;
+      const billId = await gateway.billForPayment?.(account, event.paymentRef);
+      // On a payment that is not ours (the venue's other business): nothing to do.
+      if (billId) await recordDispute(gateway.id, billId, event);
+      return new NextResponse("OK", { status: 200 });
+    }
+    return NextResponse.json({ error: "Bad signature." }, { status: 400 });
   }
 
   const account = inbound.billId ? await accountForBill(gateway.id, inbound.billId) : null;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { OnlinePayment, PaymentSettings } from "@/lib/payments";
+import type { OnlinePayment, PaymentDispute, PaymentSettings } from "@/lib/payments";
 import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
@@ -30,6 +30,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [settings, setSettings] = useState<PaymentSettings | null>(null);
   const [payments, setPayments] = useState<OnlinePayment[]>([]);
   const [owed, setOwed] = useState<OnlinePayment[]>([]);
+  const [disputes, setDisputes] = useState<PaymentDispute[]>([]);
   const [form, setForm] = useState({
     provider: "",
     credentials: {} as Record<string, string>,
@@ -61,6 +62,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       });
       setPayments(paymentsData.payments);
       setOwed(paymentsData.refundsOwed);
+      setDisputes(paymentsData.disputes ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load payment settings");
     }
@@ -247,6 +249,42 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       </form>
 
       <HoldPolicyEditor venueId={venueId} canPayOnline={settings?.configured === true && settings.enabled} />
+
+      {disputes.length > 0 && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+          <h3 className="text-sm font-bold text-red-900">Disputed payments</h3>
+          <p className="mt-0.5 text-xs text-red-800">
+            A customer has asked their bank for the money back (a chargeback). Answer each one in the gateway&apos;s own
+            dashboard before its date, with what shows the booking was real: the booking, its check-in, messages. Lost, the
+            money goes back to them and the booking shows as unpaid again.
+          </p>
+          <ul className="mt-2 divide-y divide-red-100 text-sm">
+            {disputes.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>
+                  <span className="font-semibold">{money(d.amount)}</span> · {d.payerName ?? "Customer"}
+                  {d.bookingCodes.length > 0 && ` · ${d.bookingCodes.join(", ")}`} · {d.reason.replace(/_/g, " ")}
+                  <span className="block text-xs text-red-800">
+                    {d.outcome
+                      ? `Decided: ${d.outcome === "won" ? "kept" : "returned to the customer"}`
+                      : `${d.status.replace(/_/g, " ")}${d.dueBy ? ` · answer by ${d.dueBy.slice(0, 10)}` : ""}`}
+                  </span>
+                </span>
+                {!d.outcome && (
+                  <a
+                    href={`https://dashboard.stripe.com/disputes/${encodeURIComponent(d.providerDisputeId)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold text-red-800 underline"
+                  >
+                    Answer it
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {owed.length > 0 && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">

@@ -92,6 +92,20 @@ export type SubscriptionEvent =
   | { kind: "renewed"; subscriptionId: string; /** The gateway's id for this charge. */ chargeId: string; amountMinor: number; paidAt: string | null }
   | { kind: "ended"; subscriptionId: string };
 
+/** A customer disputing a payment with their bank: opened, moving on, or decided. */
+export interface DisputeEvent {
+  disputeId: string;
+  /** The gateway's id for the payment disputed, to find the page it was made on. */
+  paymentRef: string;
+  amountMinor: number;
+  reason: string;
+  status: string;
+  /** Answer by then, or lose it. */
+  dueBy: string | null;
+  /** Decided, and which way. */
+  outcome: "won" | "lost" | null;
+}
+
 /**
  * A callback or redirect, read but not yet believed: which payment it claims
  * to be about (to find whose key checks it), and the check itself.
@@ -110,6 +124,12 @@ export interface Inbound {
   verify(account: GatewayAccount): Promise<PaymentResult | null>;
   /** For one about a subscription: what happened, once its signature checks out. */
   verifySubscription?(account: GatewayAccount): Promise<SubscriptionEvent | null>;
+  /**
+   * About a dispute, which names no page and no subscription: whose it is is
+   * found by whose signing key it checks out under.
+   */
+  dispute?: boolean;
+  verifyDispute?(account: GatewayAccount): Promise<DisputeEvent | null>;
 }
 
 /** One thing a venue types in to connect its account. */
@@ -166,4 +186,6 @@ export interface PaymentGateway {
   cancelSubscription?(account: GatewayAccount, subscriptionId: string): Promise<string | null>;
   /** The platform's own account (venue fees, WhatsApp packs) from the environment. */
   platformAccount(env: NodeJS.ProcessEnv): GatewayAccount | null;
+  /** The page a payment was made on, from the gateway's id for the payment (for a dispute). */
+  billForPayment?(account: GatewayAccount, paymentRef: string): Promise<string | null>;
 }

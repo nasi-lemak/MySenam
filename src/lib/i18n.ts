@@ -1107,6 +1107,7 @@ const EN = {
   "err.STRIKES_COUNTER":
     "After {n} missed or late-cancelled bookings, this venue takes bookings from your number at the counter only.",
   "receipt.why.lateCancelled": "Cancelled after the free-cancellation time: the venue kept its fee, and this is what went back.",
+  "receipt.why.disputed": "The customer disputed the payment with their bank, which returned it to them.",
   "mine.lateCancelNote": "After that you can still cancel here, but the venue keeps {pct}% of what you paid.",
   "mine.lateCancelConfirm": "It is past the free-cancellation time. The venue keeps {pct}% of what you paid. Cancel anyway?",
   "mine.lateStrikeConfirm": "It is past the free-cancellation time, so this counts as a late cancellation against your number at this venue. Cancel anyway?",
@@ -2325,6 +2326,7 @@ const MS: Record<Phrase, string> = {
   "err.STRIKES_COUNTER":
     "Selepas {n} tempahan yang tidak dihadiri atau dibatalkan lewat, pusat ini hanya menerima tempahan daripada nombor anda di kaunter.",
   "receipt.why.lateCancelled": "Dibatalkan selepas tempoh pembatalan percuma: pusat menyimpan yurannya, dan ini yang dikembalikan.",
+  "receipt.why.disputed": "Pelanggan mempertikaikan bayaran dengan bank mereka, yang memulangkannya kepada mereka.",
   "mine.lateCancelNote": "Selepas itu anda masih boleh membatalkan di sini, tetapi pusat menyimpan {pct}% daripada bayaran anda.",
   "mine.lateCancelConfirm": "Tempoh pembatalan percuma sudah lepas. Pusat menyimpan {pct}% daripada bayaran anda. Batalkan juga?",
   "mine.lateStrikeConfirm": "Tempoh pembatalan percuma sudah lepas, jadi ini dikira sebagai pembatalan lewat terhadap nombor anda di pusat ini. Batalkan juga?",

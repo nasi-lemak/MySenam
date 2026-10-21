@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult, SubscriptionEvent } from "./types";
+import type { DisputeEvent, GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult, SubscriptionEvent } from "./types";
 
 /**
  * Stripe (Singapore, and most places beyond): cards, PayNow and the wallets a
@@ -29,6 +29,20 @@ const PAYMENT_EVENTS = new Set([
 
 /** A subscription's later charges, and its end. The first charge comes as its checkout session. */
 const SUBSCRIPTION_EVENTS = new Set(["invoice.paid", "customer.subscription.deleted"]);
+
+/** A chargeback opened, moving on, or decided. */
+const DISPUTE_EVENTS = new Set(["charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"]);
+
+interface Dispute {
+  id: string;
+  object: "dispute";
+  payment_intent?: string | null;
+  charge?: string | null;
+  amount: number;
+  reason?: string;
+  status: string;
+  evidence_details?: { due_by?: number | null };
+}
 
 interface Session {
   id: string;
@@ -226,6 +240,20 @@ export const stripe: PaymentGateway = {
 
   subscriptions: true,
 
+  async billForPayment(account, paymentRef) {
+    // The checkout session that made this payment intent: our page for it.
+    try {
+      const res = await fetch(`${API}/checkout/sessions?payment_intent=${encodeURIComponent(paymentRef)}&limit=1`, {
+        headers: { Authorization: `Bearer ${account.credentials.secretKey}` },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const list = (await res.json().catch(() => null)) as { data?: { id: string }[] } | null;
+      return res.ok ? (list?.data?.[0]?.id ?? null) : null;
+    } catch {
+      return null;
+    }
+  },
+
   async cancelSubscription(account, subscriptionId) {
     try {
       await call<Subscription>(account, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
@@ -248,6 +276,29 @@ export const stripe: PaymentGateway = {
     const session = event?.data?.object;
     if (!event?.type || !session?.id) return { billId: null, verify: async () => null };
     const signature = headers.get("stripe-signature");
+    if (DISPUTE_EVENTS.has(event.type)) {
+      const dispute = session as unknown as Dispute;
+      const paymentRef = dispute.payment_intent ?? null;
+      if (dispute.object !== "dispute" || !paymentRef) return { billId: null, ignored: true, verify: async () => null };
+      return {
+        billId: null,
+        dispute: true,
+        verify: async () => null,
+        verifyDispute: async (account): Promise<DisputeEvent | null> => {
+          if (!stripeSignatureValid(body, signature, account.credentials.webhookSecret)) return null;
+          const due = dispute.evidence_details?.due_by;
+          return {
+            disputeId: dispute.id,
+            paymentRef,
+            amountMinor: dispute.amount,
+            reason: dispute.reason ?? "general",
+            status: dispute.status,
+            dueBy: due ? new Date(due * 1000).toISOString() : null,
+            outcome: dispute.status === "won" ? "won" : dispute.status === "lost" ? "lost" : null,
+          };
+        },
+      };
+    }
     if (SUBSCRIPTION_EVENTS.has(event.type)) {
       const object = session as unknown as Invoice | Subscription;
       const subscriptionId =

@@ -2776,6 +2776,18 @@ running booking software and running a payments business.
   click or a retry refunds once. **Billplz** has no refund API: refund in its
   dashboard, then mark it done. Either way the refund goes in the activity log
   with who made it.
+- **Chargebacks** — when a customer disputes a Stripe payment with their
+  bank, Stripe tells the venue's webhook (`charge.dispute.created`, `.updated`
+  and `.closed`; add them to the endpoint's events). A dispute names no page of
+  ours, so whose it is shows by which venue's signing secret it checks out
+  under, and the payment by asking Stripe which checkout session made it. It
+  is written to `payment_disputes` once and kept up to date. The venue's staff
+  get an email with the amount, the reason and the date to answer by, and it
+  shows in red under *Disputed payments* with *Answer it*, a link to the
+  dispute in Stripe. **Lost**: the money went back to the customer, so the
+  bookings it paid for show as unpaid again and get a credit note, and staff
+  are told. **Won**: only the record changes. Billplz (FPX) has no card
+  chargebacks to report.
 - **Refunds when a customer cancels** — a venue can skip the queue for what a
   customer cancels themselves (by code, from their account, or a whole series),
   under *Cancellations, refunds and no-shows* (`refundCancelled` in
