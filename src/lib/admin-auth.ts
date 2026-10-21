@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hasTwoFactor, twoFactorRequired } from "./two-factor";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, withTransaction } from "./db";
 import { hashPassword, verifyPassword } from "./auth";
@@ -104,6 +105,11 @@ export async function authenticateAdmin(email: string, password: string): Promis
   return await toAdmin(row);
 }
 
+export async function getAdminById(id: number): Promise<Admin | null> {
+  const row = (await getDb().prepare(`SELECT ${ADMIN_COLUMNS} FROM ${ADMIN_FROM} WHERE a.id = ?`).get(id)) as AdminRow | undefined;
+  return row ? await toAdmin(row) : null;
+}
+
 export async function createAdminSession(adminId: number): Promise<{ token: string; expiresAt: Date }> {
   const db = getDb();
   await db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run();
@@ -163,6 +169,13 @@ async function markSeen(adminId: number): Promise<void> {
 export async function requireAdmin(req: NextRequest): Promise<Admin | NextResponse> {
   const admin = await getSessionAdmin(req);
   if (!admin) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  // Where the install requires two-factor sign-in, an account without it may
+  // only set it up (the routes under /api/admin/auth) until it has.
+  if (twoFactorRequired(admin) && !req.nextUrl.pathname.startsWith("/api/admin/auth/") && !(await hasTwoFactor(admin.id)))
+    return NextResponse.json(
+      { error: "Set up two-factor sign-in for this account first.", code: "TWO_FACTOR_REQUIRED" },
+      { status: 403 }
+    );
   // Front desk is turned away from what only a manager does, here, for every route.
   return deskRefusal(admin.role, req.method, req.nextUrl.pathname) ?? admin;
 }

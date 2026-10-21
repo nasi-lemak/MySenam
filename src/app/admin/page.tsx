@@ -19,6 +19,8 @@ import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
 import { SystemHealth } from "@/components/admin/SystemHealth";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
+import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
+import type { TwoFactorStatus } from "@/lib/two-factor";
 
 type Tab =
   | "bookings"
@@ -38,6 +40,10 @@ export default function AdminPage() {
   const [loaded, setLoaded] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Two-factor: the ticket the password earned, the code that completes it, and this account's state.
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [twoFactor, setTwoFactor] = useState<TwoFactorStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("bookings");
@@ -48,6 +54,7 @@ export default function AdminPage() {
     const data = await res.json();
     setAdmin(data.admin);
     setVenues(data.venues);
+    setTwoFactor(data.twoFactor ?? null);
     return data.admin as Admin | null;
   }, []);
 
@@ -65,12 +72,23 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(ticket ? { ticket, code } : { email, password }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Sign-in failed");
+      if (!res.ok) {
+        // A ticket that ran out (or too many wrong codes) means the password again.
+        if (ticket && /timed out|again/i.test(data.error ?? "")) setTicket(null);
+        throw new Error(data.error ?? "Sign-in failed");
+      }
+      if (data.twoFactor) {
+        setTicket(data.ticket);
+        setCode("");
+        return;
+      }
       await refreshVenues();
       setPassword("");
+      setTicket(null);
+      setCode("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
     } finally {
@@ -105,6 +123,23 @@ export default function AdminPage() {
           onSubmit={signIn}
           className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
         >
+          {ticket ? (
+            <label className="block text-sm font-medium text-slate-700">
+              Code from your authenticator app
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+                autoFocus
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="123456"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-center font-mono tracking-widest focus:border-teal-500 focus:outline-none"
+              />
+              <span className="mt-1 block text-xs font-normal text-slate-500">Lost your phone? A recovery code works here too.</span>
+            </label>
+          ) : (
+          <>
           <label className="block text-sm font-medium text-slate-700">
             Email
             <input
@@ -127,6 +162,8 @@ export default function AdminPage() {
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none"
             />
           </label>
+          </>
+          )}
           <button
             type="submit"
             disabled={busy}
@@ -142,6 +179,22 @@ export default function AdminPage() {
       </div>
     );
   }
+
+  // Required here and not yet set up: that comes first, and only that.
+  if (twoFactor?.required && !twoFactor.enabled)
+    return (
+      <div className="mx-auto max-w-lg space-y-4">
+        <h1 className="text-2xl font-bold">Set up two-factor sign-in</h1>
+        <p className="text-sm text-slate-600">
+          {admin.name}, this site asks every staff account like yours to sign in with a code from a phone app as well as
+          a password. It takes a minute.
+        </p>
+        <TwoFactorPanel status={twoFactor} onChange={() => void refreshVenues()} />
+        <button onClick={signOut} className="text-sm text-slate-500 underline">
+          Sign out
+        </button>
+      </div>
+    );
 
   const isOwner = admin.venueId === null && admin.businessId === null;
   const isManager = admin.businessId !== null;
@@ -191,6 +244,17 @@ export default function AdminPage() {
           <ChangePassword endpoint="/api/admin/auth/password" />
         </div>
       </div>
+
+      {twoFactor && (
+        <details className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">
+          <summary className="cursor-pointer font-medium text-slate-700">
+            Two-factor sign-in: {twoFactor.enabled ? "on" : "off"}
+          </summary>
+          <div className="mt-2">
+            <TwoFactorPanel status={twoFactor} onChange={setTwoFactor} />
+          </div>
+        </details>
+      )}
 
       {isOwner && <SystemHealth />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}

@@ -3,6 +3,7 @@ import { getSessionAdmin } from "@/lib/admin-auth";
 import { isOwner } from "@/lib/admin-auth";
 import { listVenues, listVenuesByIds } from "@/lib/store";
 import { pruneIfDue } from "@/lib/privacy";
+import { twoFactorStatus } from "@/lib/two-factor";
 
 export const dynamic = "force-dynamic";
 
@@ -20,5 +21,5 @@ export async function GET(req: NextRequest) {
   // and for anybody else their own, read on its own rather than picked out
   // of every venue there is.
   const venues = isOwner(admin) ? await listVenues() : await listVenuesByIds(admin.venueIds ?? []);
-  return NextResponse.json({ admin, venues });
+  return NextResponse.json({ admin, venues, twoFactor: await twoFactorStatus(admin) });
 }

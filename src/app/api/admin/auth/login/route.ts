@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession } from "@/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession, getAdminById } from "@/lib/admin-auth";
+import { hasTwoFactor, issueLoginTicket, redeemLoginTicket } from "@/lib/two-factor";
 import { rateLimit } from "@/lib/rate-limit";
 import { sessionCookieOptions } from "@/lib/session-cookie";
 
@@ -12,7 +13,17 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { email, password } = (body ?? {}) as Record<string, unknown>;
+  const { email, password, ticket, code } = (body ?? {}) as Record<string, unknown>;
+
+  // The second step: the ticket from the password, and the code from the app.
+  if (typeof ticket === "string" && typeof code === "string") {
+    const limitedCode = rateLimit(req, "login", ticket);
+    if (limitedCode) return limitedCode;
+    const done = await redeemLoginTicket(ticket, code);
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 401 });
+    return signedIn(req, done.adminId);
+  }
+
   if (typeof email !== "string" || typeof password !== "string")
     return NextResponse.json({ error: "email and password are required." }, { status: 400 });
 
@@ -22,6 +33,14 @@ export async function POST(req: NextRequest) {
   const admin = await authenticateAdmin(email, password);
   if (!admin) return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
 
+  // The password alone is not enough for an account with two-factor on.
+  if (await hasTwoFactor(admin.id)) return NextResponse.json({ twoFactor: true, ticket: await issueLoginTicket(admin.id) });
+  return signedIn(req, admin.id);
+}
+
+async function signedIn(req: NextRequest, adminId: number) {
+  const admin = await getAdminById(adminId);
+  if (!admin) return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
   const session = await createAdminSession(admin.id);
   const res = NextResponse.json({ admin });
   res.cookies.set(ADMIN_SESSION_COOKIE, session.token, sessionCookieOptions(req, session.expiresAt));

@@ -169,6 +169,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_AUTO_APPROVE_BRANCHES` | — | `on` to approve a business's new branch without the platform owner, when its location checks pass |
 | `MYSENAM_TRUST_FORWARDED_HOST` | — | `on` only behind a proxy that rewrites Host: read the storefront domain from `X-Forwarded-Host` |
 | `MYSENAM_COUNTRY` | `MY` | The country this install serves, `MY` or `SG` — currency, phone numbers, time zone, languages, map, default gateway and the laws the terms cite. See *Countries* |
+| `MYSENAM_STAFF_2FA` | — | Make two-factor sign-in compulsory for staff: `owners` (platform owners), `managers` (owners and managers, not front desk) or `all`. Unset, each account chooses. See *Two-factor sign-in* |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
 | `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
@@ -489,6 +490,26 @@ own running costs (~RM600 a month), and about 330 would pay for a developer
 and a support person (~RM8,047). The biggest unknown is how many bookings
 come from first-time customers who choose SMS; the daily cap on codes
 (`MYSENAM_PHONE_CODES_PER_DAY`) bounds it.
+
+### Two-factor sign-in
+
+Staff accounts can change payment keys, refund money and read every
+customer's number, so each can add a second step to signing in: a six-digit
+code from an authenticator app (Google Authenticator, 1Password, Authy and the
+like; RFC 6238 time-based codes), set up from *Two-factor sign-in* at the top
+of the admin dashboard by scanning a QR code.
+
+- **Signing in** with it on takes the password, then the code. The password
+  alone earns a five-minute ticket, not a session, and five wrong codes void
+  it. A code is good once: the same one twice is refused.
+- **Recovery codes**, ten, are shown once when it is turned on, for a lost
+  phone; each signs in once, and new ones can be made (which voids the old).
+  Only their hashes are kept, and the app's secret is sealed like payment keys.
+- **Compulsory** with `MYSENAM_STAFF_2FA` (`owners`, `managers` or `all`): an
+  account without it can sign in only to set it up, and cannot turn it off.
+- Turning it on or off goes in the staff activity log. An owner who loses
+  both phone and recovery codes needs another owner, or the database, to
+  clear `totp_enabled_at` on their row.
 
 ### Managers and front desk
 
