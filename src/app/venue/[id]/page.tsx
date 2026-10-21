@@ -21,8 +21,37 @@ import { venuePhotos } from "@/lib/photos";
 import { joinTerms, listPlans } from "@/lib/membership-plans";
 import { takesPaymentOnline } from "@/lib/payments";
 import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
+import type { Metadata } from "next";
+import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
+import { photoAt } from "@/lib/photos-shared";
+import { siteName } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * What a search result and a shared link show: the venue, its sports and
+ * where it is. A venue a visitor could not find from the home page (private,
+ * a members-only one kept out of search, a draft) is not to be indexed.
+ */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const venueId = Number((await params).id);
+  const venue = Number.isInteger(venueId) ? await getVenue(venueId) : null;
+  if (!venue || !(await venueIsListed(venue.id)) || !shows(await currentStorefront(), venue.id))
+    return { robots: { index: false, follow: false } };
+  const sports = sportsLine([...new Set(venue.courts.map((c) => c.sport))] as Sport[]);
+  const origin = await siteOrigin();
+  const url = `${origin}/venue/${venue.id}`;
+  const cover = (await venuePhotos(venue.id))[0];
+  const image = cover ? new URL(photoAt(cover, 1200), origin).toString() : null;
+  const title = `${venue.name} — ${sports} in ${venue.area}`;
+  const description = `Book ${sports.toLowerCase()} at ${venue.name}, ${venue.address}. Open ${formatHour(venue.openHour)} to ${formatHour(venue.closeHour)}; see what is free and book online.`;
+  return {
+    title: `${title} | ${siteName()}`,
+    description,
+    alternates: { canonical: url },
+    openGraph: { title, description, url, type: "website", ...(image ? { images: [{ url: image }] } : {}) },
+  };
+}
 
 export default async function VenuePage({
   params,
@@ -100,8 +129,22 @@ export default async function VenuePage({
       ? Math.round(distanceM(near, { lat: venue.lat, lng: venue.lng }) / 100) / 10
       : null;
 
+  // What the venue is, for search engines, where it is listed at all.
+  const jsonLd = (await venueIsListed(venue.id))
+    ? venueJsonLd({
+        ...venue,
+        url: `${await siteOrigin()}/venue/${venue.id}`,
+        image: photos[0] ? new URL(photoAt(photos[0], 1200), await siteOrigin()).toString() : null,
+        sports,
+      })
+    : null;
+
   return (
     <div className="space-y-6">
+      {jsonLd && (
+        // Escaped so nothing in a venue's name can close the script.
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
+      )}
       {preview && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <span className="font-semibold">Preview.</span>{" "}
