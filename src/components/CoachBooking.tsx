@@ -34,12 +34,19 @@ export default function CoachBooking({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [booked, setBooked] = useState<Booking | null>(null);
+  // Weekly lessons, for a signed-in customer, like a weekly court.
+  const [signedIn, setSignedIn] = useState(false);
+  const [weeks, setWeeks] = useState(1);
+  const [series, setSeries] = useState<{ count: number; skipped: { date: string; reason: string }[] } | null>(null);
 
   useEffect(() => {
     void fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())
       .then((d: { user?: { name: string; phone: string; email: string } }) => {
-        if (d.user) setWho({ name: d.user.name, phone: d.user.phone, email: d.user.email });
+        if (d.user) {
+          setWho({ name: d.user.name, phone: d.user.phone, email: d.user.email });
+          setSignedIn(true);
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -66,11 +73,12 @@ export default function CoachBooking({
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, sport, date, hours, coachId: coach.id, ...who }),
+        body: JSON.stringify({ venueId, sport, date, hours, coachId: coach.id, ...who, weeks, skipConflicts: weeks > 1 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
       setBooked(data.booking);
+      if (weeks > 1) setSeries({ count: data.bookings?.length ?? 1, skipped: data.skipped ?? [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("pay.failed"));
     } finally {
@@ -82,6 +90,16 @@ export default function CoachBooking({
     return (
       <div className="mt-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
         <p className="font-semibold">{t("coach.booked", { code: booked.code })}</p>
+        {series && (
+          <p>
+            {t("coach.weeksBooked", { n: series.count })}
+            {series.skipped.map((s) => (
+              <span key={s.date} className="block text-amber-800">
+                {t("coach.weekSkipped", { date: s.date, reason: s.reason })}
+              </span>
+            ))}
+          </p>
+        )}
         <p>
           {booked.date} {formatHour(booked.startHour)}–{formatHour(booked.endHour)} · {t("coach.with", { name: coach.name })} ·{" "}
           {money(booked.totalPrice)}
@@ -152,6 +170,21 @@ export default function CoachBooking({
           <input aria-label={t("form.name")} placeholder={t("form.name")} required minLength={2} value={who.name} onChange={(e) => setWho({ ...who, name: e.target.value })} className={input} />
           <input aria-label={t("form.phone")} placeholder={t("form.phone")} required type="tel" value={who.phone} onChange={(e) => setWho({ ...who, phone: e.target.value })} className={input} />
           <input aria-label={t("form.emailOptional")} placeholder={t("form.emailOptional")} type="email" value={who.email} onChange={(e) => setWho({ ...who, email: e.target.value })} className={input} />
+          {signedIn ? (
+            <label className="block text-sm font-medium text-slate-700">
+              {t("form.repeat")}
+              <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))} className={input}>
+                <option value={1}>{t("form.justOnce")}</option>
+                {[2, 4, 6, 8, 10, 12].map((w) => (
+                  <option key={w} value={w}>
+                    {t("form.weekly", { n: w })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="text-xs text-slate-500">{t("err.SERIES_NEEDS_ACCOUNT")}</p>
+          )}
           <BookingTermsNotice venueId={venueId} />
           <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}

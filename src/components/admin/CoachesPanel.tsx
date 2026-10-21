@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Coach, CoachHours } from "@/lib/coaching";
+import type { CoachContact } from "@/lib/coach-schedule";
 import { SPORT_LABELS, type Sport } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { money } from "@/lib/region";
@@ -31,13 +32,31 @@ const blank = (sports: Sport[]): Draft => ({ name: "", bio: "", sports: sports.s
 export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
   const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [contacts, setContacts] = useState<Record<number, CoachContact>>({});
+  const [emails, setEmails] = useState<Record<number, string>>({});
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/coaches?venueId=${venue.id}`, { cache: "no-store" });
-    if (res.ok) setCoaches((await res.json()).coaches);
+    if (!res.ok) return;
+    const data = await res.json();
+    setCoaches(data.coaches);
+    setContacts(data.contacts ?? {});
   }, [venue.id]);
+
+  async function contact(id: number, body: Record<string, unknown>) {
+    setError(null);
+    const res = await fetch("/api/admin/coaches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId: venue.id, id, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setError(data.error ?? "Could not save");
+    setCoaches(data.coaches);
+    setContacts(data.contacts ?? {});
+  }
   useEffect(() => {
     void load();
   }, [load]);
@@ -92,7 +111,8 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       <h3 className="font-semibold">Coaches: one-to-one lessons</h3>
       <p className="mt-1 text-xs text-slate-500">
         Customers book a lesson from your venue page: a free court is picked for them, and the coach&apos;s fee goes on top of
-        its price. A coach can only be booked once at a time.
+        its price. A coach can only be booked once at a time. A coach&apos;s schedule link shows their lessons and
+        students&apos; numbers to whoever has it: give it to the coach alone, and withdraw it when they leave.
       </p>
       <ul className="mt-2 divide-y divide-slate-100">
         {coaches.map((c) => (
@@ -104,6 +124,41 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                   ? c.hours.map((h) => `${DAYS[h.weekday]} ${formatHour(h.from)}–${formatHour(h.until)}`).join(", ") || "No hours set"
                   : "Not taking lessons"}
               </span>
+              {c.active && (
+                <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  <input
+                    aria-label={`${c.name}'s email`}
+                    type="email"
+                    placeholder="Email for lesson alerts"
+                    value={emails[c.id] ?? contacts[c.id]?.email ?? ""}
+                    onChange={(e) => setEmails({ ...emails, [c.id]: e.target.value })}
+                    className={`w-52 ${input}`}
+                  />
+                  <button type="button" className="font-medium text-teal-700 underline" onClick={() => void contact(c.id, { action: "email", email: emails[c.id] ?? contacts[c.id]?.email ?? "" })}>
+                    Save email
+                  </button>
+                  {contacts[c.id]?.pageUrl ? (
+                    <>
+                      <button type="button" className="font-medium text-teal-700 underline" onClick={() => void navigator.clipboard?.writeText(contacts[c.id]!.pageUrl!)}>
+                        Copy schedule link
+                      </button>
+                      <button
+                        type="button"
+                        className="font-medium text-red-700 underline"
+                        onClick={() => {
+                          if (confirm(`Withdraw ${c.name}'s schedule link? It stops working at once.`)) void contact(c.id, { action: "link", on: false });
+                        }}
+                      >
+                        Withdraw link
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="font-medium text-teal-700 underline" onClick={() => void contact(c.id, { action: "link", on: true })}>
+                      Make a schedule link
+                    </button>
+                  )}
+                </span>
+              )}
             </span>
             <span className="flex gap-3 text-xs font-medium">
               <button onClick={() => edit(c)} className="text-teal-700 underline">

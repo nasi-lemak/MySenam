@@ -337,6 +337,9 @@ export interface Pass {
   venueName: string;
   /** null means any sport at that venue. */
   sport: Sport | null;
+  /** A pack of lessons: pays whole lessons with this coach, and nothing else. Null: court time. */
+  coachId?: number | null;
+  coachName?: string | null;
   name: string;
   /** Entries sold, and how many are left after spends and refunds. */
   entries: number;

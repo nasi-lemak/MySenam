@@ -47,7 +47,9 @@ export type MessageKind =
   /** By email only, once per customer per venue: how was it? (lib/reviews.ts) */
   | "review_request"
   /** By email only, to people who agreed to hear from the venue (lib/marketing.ts). */
-  | "campaign";
+  | "campaign"
+  /** By email only, to a coach: a lesson booked with them, or cancelled (lib/coach-schedule.ts). */
+  | "coach_lesson";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

@@ -4678,14 +4678,16 @@ interface PassRow {
   status: PassStatus;
   created_at: string;
   spent: number | null;
+  coach_id: number | null;
+  coach_name: string | null;
 }
 
 const PASS_SELECT = `
   SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.name,
          p.entries, p.price, p.holder_name, p.holder_phone, p.expires_on,
-         p.status, p.created_at,
+         p.status, p.created_at, p.coach_id, k.name AS coach_name,
          (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent
-  FROM passes p JOIN venues v ON v.id = p.venue_id
+  FROM passes p JOIN venues v ON v.id = p.venue_id LEFT JOIN coaches k ON k.id = p.coach_id
 `;
 
 function toPass(r: PassRow): Pass {
@@ -4696,6 +4698,8 @@ function toPass(r: PassRow): Pass {
     venueId: r.venue_id,
     venueName: r.venue_name,
     sport: r.sport,
+    coachId: r.coach_id,
+    coachName: r.coach_name,
     name: r.name,
     entries: r.entries,
     remaining,
@@ -4790,6 +4794,8 @@ export async function issuePass(input: {
   expiresOn: string;
   adminId: number;
   userId?: number;
+  /** A pack of lessons with this coach. */
+  coachId?: number | null;
 }): Promise<PassResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -4821,12 +4827,18 @@ export async function issuePass(input: {
         .get(input.venueId, input.sport);
       if (!has) return { ok: false, error: "That venue has no courts for that sport." };
     }
+    if (input.coachId !== undefined && input.coachId !== null) {
+      const coach = (await db.prepare("SELECT venue_id, active FROM coaches WHERE id = ?").get(input.coachId)) as
+        | { venue_id: number; active: number }
+        | undefined;
+      if (!coach || coach.venue_id !== input.venueId || coach.active !== 1) return { ok: false, error: "That coach does not take lessons here." };
+    }
 
     const info = await db
       .prepare(`
         INSERT INTO passes (code, venue_id, sport, name, entries, price, holder_name,
-                            holder_phone, user_id, expires_on, admin_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            holder_phone, user_id, expires_on, admin_id, coach_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("PS-"),
@@ -4839,7 +4851,8 @@ export async function issuePass(input: {
         holderPhone,
         input.userId ?? null,
         input.expiresOn,
-        input.adminId
+        input.adminId,
+        input.coachId ?? null
       );
     const pass = (await passById(Number(info.lastInsertRowid)))!;
     await issueReceipt({
@@ -4889,6 +4902,11 @@ async function passScopeError(pass: Pass, booking: Booking): Promise<string | nu
     return "That pass is for a different venue.";
   if (pass.sport && court.sport !== pass.sport)
     return `That pass only covers ${SPORT_LABELS[pass.sport]}.`;
+  // A pack of lessons pays lessons with its coach; a court pass does not pay a coach.
+  if (pass.coachId && booking.coachId !== pass.coachId)
+    return `That pass is for lessons with ${pass.coachName ?? "one coach"} only.`;
+  if (!pass.coachId && booking.coachId)
+    return "A court pass does not cover a coach's fee. Use a lesson pack for this coach, or pay another way.";
   return null;
 }
 

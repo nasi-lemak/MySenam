@@ -232,14 +232,20 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     holderPhone: "",
     accountEmail: "",
     expiresOn: "",
+    coachId: "",
   });
+  const [coaches, setCoaches] = useState<{ id: number; name: string; active: boolean }[]>([]);
 
   const venue = venues.find((v) => v.id === venueId) ?? null;
   const sports = [...new Set((venue?.courts ?? []).map((c) => c.sport))];
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const res = await fetch(`/api/admin/passes?venueId=${venueId}`, { cache: "no-store" });
+    const [res, c] = await Promise.all([
+      fetch(`/api/admin/passes?venueId=${venueId}`, { cache: "no-store" }),
+      fetch(`/api/admin/coaches?venueId=${venueId}`, { cache: "no-store" }).catch(() => null),
+    ]);
+    if (c?.ok) setCoaches(((await c.json()).coaches ?? []).filter((x: { active: boolean }) => x.active));
     if (!res.ok) return;
     const data = await res.json();
     setPasses(data.passes);
@@ -267,6 +273,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           holderPhone: form.holderPhone,
           accountEmail: form.accountEmail.trim() || undefined,
           expiresOn: form.expiresOn,
+          coachId: form.coachId ? Number(form.coachId) : null,
         }),
       });
       const data = await res.json();
@@ -302,7 +309,8 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
       <h2 className="text-lg font-bold">Multi-visit passes</h2>
       <p className="mt-1 text-sm text-slate-600">
         Sell a block of entries up front. One entry covers one booked hour, so a 2-hour booking
-        spends two. The holder quotes the pass code when booking.
+        spends two. The holder quotes the pass code when booking. A lesson pack is a pass for one coach: each entry
+        pays a whole hour&apos;s lesson, court and coach, and it pays nothing else. A court pass does not pay lessons.
       </p>
 
       {error && (
@@ -357,6 +365,23 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             ))}
           </select>
         </label>
+        {coaches.length > 0 && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            For
+            <select
+              value={form.coachId}
+              onChange={(e) => setForm({ ...form, coachId: e.target.value })}
+              className={`mt-1 w-48 ${inputClass}`}
+            >
+              <option value="">Court time</option>
+              {coaches.map((c) => (
+                <option key={c.id} value={c.id}>
+                  Lessons with {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
           Entries
           <input
@@ -452,6 +477,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                   {pass.name}
                   <span className="ml-1 text-xs text-slate-400">
                     {pass.sport ? SPORT_ICONS[pass.sport] : "all sports"}
+                    {pass.coachName && ` · lessons with ${pass.coachName}`}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">

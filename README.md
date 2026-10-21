@@ -1713,10 +1713,45 @@ booking is paid.
   the same time, on any court, is refused (*Ana Lim has just been booked*),
   and the court it had picked is let go as if never booked. A cancelled
   lesson's slots are cleared by the next booking that wants them.
-- One lesson at a time, not weekly. A customer cannot move a lesson to
-  another time: they ask the venue, since it is the coach's time too.
+- **Weekly lessons**, for a signed-in customer, as with a weekly court:
+  *Repeat* on the lesson form books the same time for up to 12 weeks, and a
+  week the coach or every court is already taken is skipped and listed
+  (`skipConflicts`). A customer cannot move a lesson to another time: they ask
+  the venue, since it is the coach's time too.
 - Staff see *🎓 Lesson with Ana Lim* on the booking, and the staff calendar
   feed names the coach. *Stop* retires a coach; lessons already booked stand.
+
+### Lesson packs
+
+A pass sold for one coach (*Credit & passes → Multi-visit passes → For:
+Lessons with Ana Lim*, `passes.coach_id`, migration 0061). Each entry pays an
+hour of lesson with that coach, court and coach fee together, and it pays
+nothing else. A court pass no longer pays a lesson, since the coach's fee
+would go unpaid; the customer is told to use a lesson pack or pay another way.
+The pack's receipt is filed under *Coaching* in the sales journal.
+
+### A coach's own schedule (no account needed)
+
+On each coach under *Coaches* (`lib/coach-schedule.ts`):
+
+- **Email for lesson alerts.** The coach is emailed when a lesson is booked
+  with them and when one is cancelled, once each (`notifyCoaches`, every
+  scheduler tick, dedupe keys `coach-new:<id>` and `coach-cancel:<id>`).
+- **Schedule link.** *Make a schedule link* gives the coach a private page,
+  `/coach/<token>`, with their lessons for the next 30 days, each student's
+  name and number (to call), and whether it is paid, plus a calendar feed of
+  the same, `/api/coach-calendar/<token>.ics`, for their phone. The page says
+  it is private and not to be shared. *Withdraw link* stops it at once; a new
+  link replaces the old. Neither is listed for search engines.
+
+### What coaches are owed
+
+*Reports* shows *Coaches: lessons and fees* for the period: per coach, lessons
+that went ahead and their hours, the coach's fees on those paid and on those
+not yet paid, and no-shows apart (whether a coach is paid for those is the
+venue's call). *Every lesson (CSV)* has one row per lesson for the venue's
+books and the coach's records (`/api/admin/coach-payouts`, managers only).
+Late-cancellation fees are not split with the coach.
 
 ## Classes
 

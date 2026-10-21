@@ -81,8 +81,11 @@ async function categoryOf(source: string): Promise<Category> {
     }
     case "membership":
       return "Memberships";
-    case "pass":
-      return "Passes";
+    case "pass": {
+      // A pack of lessons is coaching sold ahead.
+      const p = (await db.prepare("SELECT coach_id FROM passes WHERE id = ?").get(id)) as { coach_id: number | null } | undefined;
+      return p?.coach_id ? "Coaching" : "Passes";
+    }
     case "wallet":
       return "Stored credit";
     case "voucher":

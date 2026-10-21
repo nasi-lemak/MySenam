@@ -1,0 +1,317 @@
+import crypto from "crypto";
+import { icsText, toUtcStamp } from "./booking-links";
+import { coachById, type Coach } from "./coaching";
+import { getDb } from "./db";
+import { toCsv } from "./export";
+import { enqueue } from "./outbox";
+import { money, roundMoney } from "./region";
+import { siteName } from "./site";
+import { venueBaseUrl } from "./storefront";
+import { addDays, formatHour, todayISO } from "./time";
+import { venueZoneOf } from "./zones";
+
+/**
+ * A coach's side of their lessons (lib/coaching.ts), without an account:
+ *
+ * - **Their schedule** at a private link, `/coach/<token>`, and the same as a
+ *   calendar feed for their phone. A manager turns it on, which makes the
+ *   link, and can replace or withdraw it. It shows each student's name and
+ *   number, so the coach can reach them; nothing else of the venue's.
+ * - **An email** when a lesson is booked with them, and when one is
+ *   cancelled, where the venue has given their address.
+ * - **What they are owed**: the coach's fee on each lesson in a period that
+ *   went ahead, split by paid and not yet paid, for the venue to pay them.
+ */
+
+const DAYS_BACK = 7;
+const DAYS_AHEAD = 90;
+
+export interface CoachContact {
+  email: string | null;
+  /** Their schedule page, when the link is on. */
+  pageUrl: string | null;
+  calendarUrl: string | null;
+}
+
+export async function coachContacts(venueId: number): Promise<Map<number, CoachContact>> {
+  const rows = (await getDb().prepare("SELECT id, email, calendar_token FROM coaches WHERE venue_id = ?").all(venueId)) as {
+    id: number;
+    email: string | null;
+    calendar_token: string | null;
+  }[];
+  const base = await venueBaseUrl(venueId);
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        email: r.email,
+        pageUrl: r.calendar_token ? `${base}/coach/${r.calendar_token}` : null,
+        calendarUrl: r.calendar_token ? `${base}/api/coach-calendar/${r.calendar_token}.ics` : null,
+      },
+    ])
+  );
+}
+
+export async function setCoachEmail(coachId: number, venueId: number, email: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const value = typeof email === "string" && email.trim() ? email.trim() : null;
+  if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return { ok: false, error: "That email address does not look right." };
+  const done = await getDb().prepare("UPDATE coaches SET email = ? WHERE id = ? AND venue_id = ?").run(value, coachId, venueId);
+  return done.changes === 1 ? { ok: true } : { ok: false, error: "Coach not found." };
+}
+
+/** A fresh private link (the old one stops working), or none. */
+export async function setCoachLink(coachId: number, venueId: number, on: boolean): Promise<boolean> {
+  const token = on ? crypto.randomBytes(24).toString("base64url") : null;
+  const done = await getDb().prepare("UPDATE coaches SET calendar_token = ? WHERE id = ? AND venue_id = ?").run(token, coachId, venueId);
+  return done.changes === 1;
+}
+
+export interface CoachByToken {
+  coach: Coach;
+  venueName: string;
+  venueAddress: string;
+  zone: string;
+}
+
+export async function coachForToken(token: string): Promise<CoachByToken | null> {
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
+  const row = (await getDb()
+    .prepare(
+      `SELECT k.id, v.name, v.address, v.time_zone, v.lat, v.lng FROM coaches k JOIN venues v ON v.id = k.venue_id WHERE k.calendar_token = ?`
+    )
+    .get(token)) as { id: number; name: string; address: string; time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+  if (!row) return null;
+  const coach = await coachById(row.id);
+  return coach ? { coach, venueName: row.name, venueAddress: row.address, zone: venueZoneOf(row) } : null;
+}
+
+export interface Lesson {
+  code: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  court: string;
+  student: string;
+  phone: string;
+  paid: boolean;
+}
+
+/** A coach's lessons still on, between two dates. */
+export async function coachLessons(coachId: number, from: string, until: string): Promise<Lesson[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT b.code, b.date, b.start_hour, b.end_hour, b.name, b.phone, b.payment_status, c.name AS court
+         FROM bookings b JOIN courts c ON c.id = b.court_id
+        WHERE b.coach_id = ? AND b.status = 'confirmed' AND b.date BETWEEN ? AND ?
+        ORDER BY b.date, b.start_hour`
+    )
+    .all(coachId, from, until)) as {
+    code: string;
+    date: string;
+    start_hour: number;
+    end_hour: number;
+    name: string;
+    phone: string;
+    payment_status: string;
+    court: string;
+  }[];
+  return rows.map((r) => ({
+    code: r.code,
+    date: r.date,
+    startHour: Number(r.start_hour),
+    endHour: Number(r.end_hour),
+    court: r.court,
+    student: r.name,
+    phone: r.phone,
+    paid: r.payment_status === "paid",
+  }));
+}
+
+/** Their lessons as a calendar file, from a week back to as far ahead as anybody can book. */
+export async function coachCalendar(found: CoachByToken, venueId: number): Promise<string> {
+  const today = todayISO(found.zone);
+  const lessons = await coachLessons(found.coach.id, addDays(today, -DAYS_BACK), addDays(today, DAYS_AHEAD));
+  const host = new URL(await venueBaseUrl(venueId)).host;
+  const stamp = toUtcStamp(today, 0, found.zone);
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    `PRODID:-//${icsText(siteName())}//Coach calendar//EN`,
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${icsText(`Lessons at ${found.venueName}`)}`,
+    `X-WR-TIMEZONE:${found.zone}`,
+    "REFRESH-INTERVAL;VALUE=DURATION:PT30M",
+    "X-PUBLISHED-TTL:PT30M",
+    ...lessons.flatMap((l) => [
+      "BEGIN:VEVENT",
+      `UID:lesson-${l.code}@${host}`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${toUtcStamp(l.date, l.startHour, found.zone)}`,
+      `DTEND:${toUtcStamp(l.date, l.endHour, found.zone)}`,
+      `SUMMARY:${icsText(`Lesson: ${l.student}, ${l.court}`)}`,
+      `DESCRIPTION:${icsText(`${l.code}, ${formatHour(l.startHour)}–${formatHour(l.endHour)}\n${l.student}, ${l.phone}`)}`,
+      `LOCATION:${icsText(found.venueAddress)}`,
+      "END:VEVENT",
+    ]),
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
+/**
+ * Tell coaches, by email, of lessons booked with them and of lessons since
+ * cancelled. Once each: a lesson's cancellation only if its booking was told.
+ */
+export async function notifyCoaches(now = new Date()): Promise<number> {
+  const db = getDb();
+  const since = new Date(now.getTime() - 2 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
+  const rows = (await db
+    .prepare(
+      `SELECT b.id, b.code, b.date, b.start_hour, b.end_hour, b.name, b.status, k.id AS coach_id, k.name AS coach, k.email,
+              c.name AS court, v.id AS venue_id, v.name AS venue,
+              EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
+         FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE k.email IS NOT NULL AND b.demo = 0 AND b.date >= ?
+          AND ((b.status = 'confirmed' AND b.created_at >= ?
+                AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id))
+               OR (b.status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-cancel:' || b.id)))`
+    )
+    .all(now.toISOString().slice(0, 10), since)) as {
+    id: number;
+    code: string;
+    date: string;
+    start_hour: number;
+    end_hour: number;
+    name: string;
+    status: string;
+    coach_id: number;
+    coach: string;
+    email: string;
+    court: string;
+    venue_id: number;
+    venue: string;
+    told: boolean;
+  }[];
+  let sent = 0;
+  for (const r of rows) {
+    const cancelled = r.status === "cancelled";
+    if (cancelled && !r.told) continue;
+    const vars = {
+      name: r.coach.split(/\s+/)[0],
+      student: r.name,
+      court: r.court,
+      venue: r.venue,
+      date: r.date,
+      time: `${formatHour(Number(r.start_hour))}–${formatHour(Number(r.end_hour))}`,
+      code: r.code,
+    };
+    await enqueue({
+      venueId: r.venue_id,
+      bookingId: r.id,
+      kind: "coach_lesson",
+      channel: "email",
+      recipient: r.email,
+      locale: "en",
+      subject: cancelled ? "msg.coachCancelledSubject" : "msg.coachNewSubject",
+      body: cancelled ? "msg.coachCancelled" : "msg.coachNew",
+      dedupeKey: `${cancelled ? "coach-cancel" : "coach-new"}:${r.id}`,
+      vars,
+    });
+    sent++;
+  }
+  return sent;
+}
+
+// ------------------------------------------------------------ what coaches are owed
+
+export interface CoachPayout {
+  coachId: number;
+  coach: string;
+  lessons: number;
+  hours: number;
+  /** Coach fees on lessons that went ahead and are paid. */
+  paidFees: number;
+  /** On lessons that went ahead and are not paid yet: owed once the venue collects. */
+  unpaidFees: number;
+  /** Lessons the student did not turn up to, and the fees on them: the venue decides. */
+  noShows: number;
+  noShowFees: number;
+}
+
+/** Per coach, the lessons in a period (on the lesson's date) and the coach's fees on them. */
+export async function coachPayouts(venueId: number, from: string, to: string): Promise<CoachPayout[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT k.id, k.name,
+              COUNT(b.id) FILTER (WHERE b.no_show = 0) AS lessons,
+              COALESCE(SUM(b.end_hour - b.start_hour) FILTER (WHERE b.no_show = 0), 0)::float AS hours,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status = 'paid'), 0)::float AS paid,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status <> 'paid'), 0)::float AS unpaid,
+              COUNT(b.id) FILTER (WHERE b.no_show = 1) AS no_shows,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 1), 0)::float AS no_show_fees
+         FROM coaches k
+         LEFT JOIN bookings b ON b.coach_id = k.id AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
+        WHERE k.venue_id = ?
+        GROUP BY k.id, k.name
+        ORDER BY k.name`
+    )
+    .all(from, to, venueId)) as {
+    id: number;
+    name: string;
+    lessons: number | string;
+    hours: number;
+    paid: number;
+    unpaid: number;
+    no_shows: number | string;
+    no_show_fees: number;
+  }[];
+  return rows
+    .map((r) => ({
+      coachId: r.id,
+      coach: r.name,
+      lessons: Number(r.lessons),
+      hours: Number(r.hours),
+      paidFees: roundMoney(Number(r.paid)),
+      unpaidFees: roundMoney(Number(r.unpaid)),
+      noShows: Number(r.no_shows),
+      noShowFees: roundMoney(Number(r.no_show_fees)),
+    }))
+    .filter((p) => p.lessons > 0 || p.noShows > 0);
+}
+
+/** The same, one row per lesson, for the venue's books and the coach's own records. */
+export async function coachPayoutsCsv(venueId: number, from: string, to: string): Promise<string> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT k.name AS coach, b.date, b.start_hour, b.end_hour, b.code, b.name AS student, c.name AS court,
+              b.coach_fee::float AS fee, b.payment_status, b.no_show
+         FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id
+        WHERE k.venue_id = ? AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
+        ORDER BY k.name, b.date, b.start_hour`
+    )
+    .all(venueId, from, to)) as {
+    coach: string;
+    date: string;
+    start_hour: number;
+    end_hour: number;
+    code: string;
+    student: string;
+    court: string;
+    fee: number;
+    payment_status: string;
+    no_show: number;
+  }[];
+  return toCsv(
+    ["Coach", "Date", "Time", "Booking", "Student", "Court", "Coach fee", "Paid", "Status"],
+    rows.map((r) => [
+      r.coach,
+      r.date,
+      `${formatHour(Number(r.start_hour))}–${formatHour(Number(r.end_hour))}`,
+      r.code,
+      r.student,
+      r.court,
+      money(Number(r.fee)),
+      r.payment_status === "paid" ? "Yes" : "No",
+      r.no_show === 1 ? "No-show" : "Went ahead",
+    ])
+  );
+}

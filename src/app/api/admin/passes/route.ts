@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
     expiresOn: input.expiresOn as string,
     adminId: admin.id,
     userId,
+    coachId: Number.isInteger(input.coachId) ? (input.coachId as number) : null,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   await logAction(admin, {

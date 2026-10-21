@@ -112,8 +112,9 @@ export async function POST(req: NextRequest) {
     if (refused) return refusal(refused);
   }
 
-  // A lesson: a coach of this sport, here, working then, one week at a time
-  // (lib/coaching.ts). Whether they are free is settled when they are put on it.
+  // A lesson: a coach of this sport, here, working then (lib/coaching.ts),
+  // weekly too for a signed-in customer, as a court is. Whether they are free
+  // is settled week by week when they are put on it.
   let coach: Coach | null = null;
   if (coachId !== undefined && coachId !== null) {
     if (!Number.isInteger(coachId)) return NextResponse.json({ error: "coachId must be a number." }, { status: 400 });
@@ -121,7 +122,6 @@ export async function POST(req: NextRequest) {
     const lessonSport = anyCourt ? (sport as Sport) : (await getCourt(courtId as number))?.sport;
     if (!coach || !coach.active || coach.venueId !== venueOfBooking || !lessonSport || !coach.sports.includes(lessonSport))
       return refusal({ ok: false, error: "That coach does not give lessons in this sport here.", code: "COACH_NOT_FOUND" });
-    if (((weeks as number) ?? 1) > 1) return refusal({ ok: false, error: "Book lessons one at a time.", code: "COACH_ONE_WEEK" });
     if (!coachWorks(coach, date, hours as number[], (await venueHours(coach.venueId)).step))
       return refusal({
         ok: false,
@@ -173,16 +173,26 @@ export async function POST(req: NextRequest) {
   // that follows. Taken meanwhile by somebody else: the court goes too.
   if (coach) {
     const { step } = await venueHours(coach.venueId);
+    const kept: typeof result.bookings = [];
     for (const booking of result.bookings) {
       const attached = await attachCoach(booking.id, coach, step);
       if (!attached.ok) {
+        // A week the coach is already taken: skipped like a taken court, if the customer said so.
+        if (result.bookings.length > 1 && skipConflicts === true) {
+          await discardBooking(booking.id);
+          result.skipped.push({ date: booking.date, reason: `${coach.name} is not free` });
+          continue;
+        }
         for (const b of result.bookings) await discardBooking(b.id);
         return refusal(attached);
       }
       booking.totalPrice = Math.round((booking.totalPrice + attached.fee) * 100) / 100;
       booking.coachId = coach.id;
       booking.coachFee = attached.fee;
+      kept.push(booking);
     }
+    if (kept.length === 0) return refusal({ ok: false, error: `${coach.name} has just been booked for that time. Pick another.`, code: "COACH_TAKEN", vars: { name: coach.name } });
+    result.bookings.splice(0, result.bookings.length, ...kept);
   }
 
   // A code is claimed before anything is settled, so paying from credit or a
