@@ -311,6 +311,8 @@ export interface CustomerExport {
   marketing: unknown[];
   /** Concession proof a venue saw at its counter for their number: the fact and until when, no proof itself. */
   concessionProofs: unknown[];
+  /** Notes venues' staff keep on their number (lib/customer-notes.ts). */
+  staffNotes: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
@@ -461,6 +463,11 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE p.phone_key = phone_key(?) ORDER BY p.seen_on`,
       account.phone
     ),
+    staffNotes: await all(
+      `SELECT v.name AS venue, n.note, n.updated_at FROM customer_notes n JOIN venues v ON v.id = n.venue_id
+        WHERE n.phone_key = phone_key(?) ORDER BY v.name`,
+      account.phone
+    ),
     messages: await all(
       `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
          FROM messages m
@@ -496,6 +503,8 @@ export interface PhoneExport {
   concessionProofs: unknown[];
   /** Company or school accounts that list this number as allowed to book on them (lib/accounts.ts). */
   accountBookers: unknown[];
+  /** The venue's staff's note on this customer (lib/customer-notes.ts). */
+  staffNotes: unknown[];
   messages: unknown[];
 }
 
@@ -607,6 +616,12 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       ...venueIds,
       phone
     ),
+    staffNotes: await all(
+      `SELECT v.name AS venue, n.note, n.updated_at FROM customer_notes n JOIN venues v ON v.id = n.venue_id
+        WHERE n.venue_id IN (${marks}) AND n.phone_key = phone_key(?)`,
+      ...venueIds,
+      phone
+    ),
     messages: await all(
       `SELECT created_at, channel, kind, recipient, status, subject, body FROM messages
         WHERE venue_id IN (${marks}) AND channel = 'whatsapp' AND phone_key(recipient) = phone_key(?) ORDER BY id`,
@@ -712,6 +727,13 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     await forgetLeaguePlayer(userId, ANONYMOUS);
     // Nor a concession proof remembered against the account's number.
     await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);
+    // Nor a note staff kept on that number, or the one proved.
+    await db
+      .prepare(
+        `DELETE FROM customer_notes WHERE phone_key IN (SELECT phone_key(phone) FROM users WHERE id = ?
+                                                        UNION SELECT phone_key(verified_phone) FROM users WHERE id = ? AND verified_phone IS NOT NULL)`
+      )
+      .run(userId, userId);
     // Nor on a company's list of who may book on its account, by that number or the one proved.
     await db
       .prepare(

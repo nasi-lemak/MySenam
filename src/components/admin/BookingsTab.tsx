@@ -222,6 +222,24 @@ export function BookingsTab() {
     }
   }
 
+  /** The venue's note on this customer (lib/customer-notes.ts): written, changed, or cleared. */
+  async function writeNote(b: AdminBookingRow) {
+    const note = window.prompt(
+      `Note on ${b.name} (${b.phone}), shown on each of their bookings here. Keep it factual: they can ask to see it. Clear it to take it away.`,
+      b.staffNote ?? ""
+    );
+    if (note === null) return;
+    setError(null);
+    const res = await fetch("/api/admin/customer-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId: b.venueId, phone: b.phone, note }),
+    });
+    const data = await res.json();
+    if (!res.ok) setError(data.error ?? "Could not save the note");
+    load();
+  }
+
   /** Onto a company or school account (lib/accounts.ts), or off it again. */
   async function charge(b: AdminBookingRow, accountId: number | null) {
     setError(null);
@@ -368,6 +386,7 @@ export function BookingsTab() {
     forgiveStrikes,
     checkConcession,
     charge,
+    writeNote,
   };
 
   return (
@@ -690,6 +709,7 @@ export function BookingsTab() {
                   </a>
                   <CheckedPhone b={b} />
                   <Extras b={b} act={act} />
+                  <StaffNote b={b} act={act} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -735,6 +755,7 @@ export function BookingsTab() {
                       <NoShowBadge b={b} />
                   <StrikesBadge b={b} act={act} />
                       <Extras b={b} act={act} />
+                      <StaffNote b={b} act={act} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -800,6 +821,7 @@ interface Act {
   forgiveStrikes: (b: AdminBookingRow) => void;
   checkConcession: (b: AdminBookingRow, outcome: "seen" | "refused", remember?: string, via?: CounterMethod) => void;
   charge: (b: AdminBookingRow, accountId: number | null) => void;
+  writeNote: (b: AdminBookingRow) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -824,6 +846,26 @@ function CheckedPhone({ b }: { b: AdminBookingRow }) {
     <span title="Number checked: the customer proved it is theirs" className="ml-1 text-xs font-semibold text-emerald-700">
       ✓
     </span>
+  );
+}
+
+/** The venue's note on this customer, or a way to write one. */
+function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (!b.staffNote)
+    return (
+      <button type="button" onClick={() => act.writeNote(b)} className="ml-1 text-xs text-slate-400 hover:text-teal-700" title="Write a note on this customer">
+        📝
+      </button>
+    );
+  return (
+    <button
+      type="button"
+      onClick={() => act.writeNote(b)}
+      title="Change the note"
+      className="mt-1 block max-w-xs rounded bg-amber-50 px-2 py-0.5 text-left text-xs text-amber-900 ring-1 ring-amber-200"
+    >
+      📝 {b.staffNote}
+    </button>
   );
 }
 

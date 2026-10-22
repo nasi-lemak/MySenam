@@ -1,4 +1,5 @@
 import { randomBytes, randomInt } from "crypto";
+import { notesFor } from "./customer-notes";
 import { reviewPath } from "./review-links";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
@@ -2815,6 +2816,8 @@ export interface AdminBookingRow extends Booking {
   /** The company or school account it is charged to, and whether it is on an invoice yet (lib/accounts.ts). */
   accountName: string | null;
   invoiced: boolean;
+  /** The venue's own note on this customer, by number (lib/customer-notes.ts). */
+  staffNote: string | null;
 }
 
 export interface UserBookingRow extends Booking {
@@ -3881,6 +3884,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     for (const row of held) hires.set(row.booking_id, toHire(row));
   }
   const extras = await addonsFor(rows.map((r) => r.id));
+  const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
   const policies = new Map<number, Awaited<ReturnType<typeof cancelPolicy>>>();
   for (const r of rows) if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
 
@@ -3942,6 +3946,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
           : { count: h.strikeDates.filter((d) => d >= since).length, limit: policy.strikeLimit },
       accountName: r.account_name,
       invoiced: r.account_invoice_id !== null,
+      staffNote: notes.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? null,
     });
   }
   return list;

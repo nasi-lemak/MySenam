@@ -1586,6 +1586,20 @@ pin more than 1 km is reported to the platform owner. Distances are worked out
 in SQL, inside a box drawn around the circle first, so a search near KL never
 looks at a venue in Johor.
 
+## Notes on a customer
+
+Staff remember things about regulars: prefers Court 3, pays by transfer, bring
+the ramp out, the coach's son. 📝 beside a customer on the day's bookings
+writes a note against their phone number, one per number per venue (however
+the number is typed), and it shows on every booking of theirs from then on
+(`src/lib/customer-notes.ts`). Anyone at the desk can write, change or clear
+it; each change is in the activity log, and the note says who last wrote it.
+
+A note is personal data, so staff are told as they write it to keep it
+factual: it goes out with what the venue holds against the number and with
+the customer's own data when they ask for it, and it is erased with their
+account, by the number on the account and the one they proved.
+
 ## Personal data
 
 Malaysia's PDPA gives a person the right to see what is held about them and to
