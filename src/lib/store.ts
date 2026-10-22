@@ -37,6 +37,7 @@ import {
   type PaidVia,
   MAX_HOURS_PER_BOOKING,
   MAX_COURT_HOURS,
+  MAX_GROUP_COURTS,
   bookingLengths,
   MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
@@ -404,6 +405,7 @@ interface BookingRow {
   class_id: number | null;
   shares_paid?: number | string;
   deposit_paid?: number | string;
+  group_code?: string | null;
   coach_id?: number | null;
   coach_fee?: number | string;
   user_id: number | null;
@@ -464,6 +466,7 @@ function toBooking(r: BookingRow): Booking {
     classId: r.class_id,
     sharesPaid: Number(r.shares_paid ?? 0),
     depositPaid: Number(r.deposit_paid ?? 0),
+    groupCode: r.group_code ?? null,
     coachId: r.coach_id ?? null,
     coachFee: Number(r.coach_fee ?? 0),
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
@@ -623,6 +626,45 @@ export async function createBookingOnAnyCourt(input: {
     if (!TAKEN_ERROR.test(result.error) && code !== "MIN_HOURS" && code !== "MAX_HOURS") return result;
   }
   return { ok: false, error: lastError };
+}
+
+/**
+ * Several courts at the same time, as one: a company night, a club session.
+ * Each court is its own booking and code, made as any booking is, and they
+ * share a group code so they are confirmed, held and paid together. All or
+ * nothing: a court that cannot be had takes the others back with it, saying
+ * which one. One date (a weekly booking is one court's).
+ */
+export async function createGroupBooking(input: {
+  courtIds: number[];
+  date: string;
+  hours: number[];
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+}): Promise<CreateSeriesResult> {
+  const courtIds = [...new Set(input.courtIds)];
+  if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
+  const courts = await Promise.all(courtIds.map((id) => getCourt(id)));
+  if (courts.some((c) => !c)) return refuse("COURT_NOT_FOUND");
+  if (new Set(courts.map((c) => c!.venueId)).size > 1) return refuse("GROUP_ONE_VENUE");
+
+  const made: Booking[] = [];
+  for (const court of courts) {
+    const result = await createBookingSeries({ ...input, courtId: court!.id, weeks: 1 });
+    if (!result.ok) {
+      // Nothing has been paid or said yet: the courts already taken go back as if never booked.
+      for (const b of made) await getDb().prepare("DELETE FROM bookings WHERE id = ? AND payment_status = 'unpaid'").run(b.id);
+      return { ...result, error: `${court!.name}: ${result.error}` };
+    }
+    made.push(...result.bookings);
+  }
+  const groupCode = randomCode("GR-");
+  await getDb()
+    .prepare(`UPDATE bookings SET group_code = ? WHERE id IN (${made.map(() => "?").join(",")})`)
+    .run(groupCode, ...made.map((b) => b.id));
+  return { ok: true, bookings: made.map((b) => ({ ...b, groupCode })), skipped: [], seriesCode: null };
 }
 
 /**

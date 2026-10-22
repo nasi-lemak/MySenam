@@ -831,7 +831,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     }
     if (holding.length > 0) {
       await db.prepare(`UPDATE bookings SET hold_until = NULL WHERE id IN (${holding.map(() => "?").join(",")})`).run(...holding.map((b) => b.id));
-      for (const group of Map.groupBy(holding, (b) => b.seriesCode ?? b.code).values()) {
+      for (const group of Map.groupBy(holding, (b) => b.seriesCode ?? b.groupCode ?? b.code).values()) {
         const stored = (await db.prepare("SELECT locale FROM bookings WHERE id = ?").get(group[0].id)) as { locale: string | null };
         await notifyBookingConfirmed(
           group.map((b) => ({ ...b, holdUntil: null })),
@@ -855,7 +855,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     await db
       .prepare(`UPDATE bookings SET hold_until = NULL WHERE id IN (${held.map(() => "?").join(",")})`)
       .run(...held.map((b) => b.id));
-    for (const group of Map.groupBy(held, (b) => b.seriesCode ?? b.code).values()) {
+    for (const group of Map.groupBy(held, (b) => b.seriesCode ?? b.groupCode ?? b.code).values()) {
       const stored = (await db.prepare("SELECT locale FROM bookings WHERE id = ?").get(group[0].id)) as { locale: string | null };
       await notifyBookingConfirmed(
         group.map((b) => ({ ...b, holdUntil: null })),

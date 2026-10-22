@@ -254,6 +254,8 @@ export interface Booking {
   status: BookingStatus;
   createdAt: string;
   seriesCode: string | null;
+  /** Booked with other courts at the same time, as one (lib/store.ts `createGroupBooking`). */
+  groupCode?: string | null;
   paymentStatus: PaymentStatus;
   paidAt: string | null;
   /** Paid through the venue's online gateway: the money is there, not in the till. */
@@ -589,6 +591,8 @@ export const MAX_RECUR_WEEKS = 8;
 export const MAX_SERIES_WEEKS = 26;
 /** The longest a venue may let one court be booked at a time, in hours. */
 export const MAX_COURT_HOURS = 12;
+/** The most courts one person may book together at the same time. */
+export const MAX_GROUP_COURTS = 6;
 /** Customers may check in from this long before their slot until it ends. */
 export const CHECK_IN_OPENS_MINUTES_BEFORE = 60;
 

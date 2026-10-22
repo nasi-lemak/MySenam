@@ -6,6 +6,7 @@ import {
   applyPromo,
   createBookingOnAnyCourt,
   createBookingSeries,
+  createGroupBooking,
   findBooking,
   getCourt,
   getVenue,
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -81,6 +82,12 @@ export async function POST(req: NextRequest) {
 
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
+  // Other courts booked with this one, at the same time, as one (lib/store.ts `createGroupBooking`).
+  if (moreCourts !== undefined && moreCourts !== null && (!Array.isArray(moreCourts) || !moreCourts.every((c) => Number.isInteger(c) && c > 0)))
+    return NextResponse.json({ error: "moreCourts must be a list of court ids." }, { status: 400 });
+  const group = Array.isArray(moreCourts) && moreCourts.length > 0 ? [courtId as number, ...(moreCourts as number[])] : null;
+  if (group && (anyCourt || ((weeks as number) ?? 1) > 1 || (coachId !== undefined && coachId !== null) || chosen.length > 0))
+    return refusal({ ok: false, error: "A booking of several courts is for one date, without extras or a coach.", code: "GROUP_ONE_COURT_ONLY" });
 
   const limited = await rateLimit(req, "booking");
   if (limited) return limited;
@@ -102,9 +109,12 @@ export async function POST(req: NextRequest) {
       weeks: (weeks as number) ?? 1,
       signedIn: user !== null,
       userId: user?.id ?? null,
+      // Each court of a group counts as a booking, as each week of a series does.
       dates:
         typeof date === "string" && isValidDateString(date)
-          ? Array.from({ length: Math.min(Math.max(1, Number(weeks) || 1), 52) }, (_, i) => addDays(date, i * 7))
+          ? group
+            ? group.map(() => date)
+            : Array.from({ length: Math.min(Math.max(1, Number(weeks) || 1), 52) }, (_, i) => addDays(date, i * 7))
           : undefined,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
       canPayOnline: await takesPaymentOnline(venueOfBooking),
@@ -165,7 +175,9 @@ export async function POST(req: NextRequest) {
         venueId: venueId as number,
         sport: sport as Sport,
       })
-    : await createBookingSeries({ ...common, courtId: courtId as number });
+    : group
+      ? await createGroupBooking({ ...common, courtIds: group })
+      : await createBookingSeries({ ...common, courtId: courtId as number });
 
   if (!result.ok) return refusal(result);
 
@@ -303,6 +315,8 @@ export async function POST(req: NextRequest) {
       // The customer can open the chat themselves and have it there for free.
       chatNumber: (await chatOfferedFor(venue.id)) ? chatNumber() : null,
       court,
+      // Courts booked together: each one's name, for the confirmation's list.
+      ...(group ? { courtNames: Object.fromEntries(await Promise.all(group.map(async (id) => [id, (await getCourt(id))?.name ?? ""]))) } : {}),
       venue: { id: venue.id, name: venue.name, area: venue.area, timeZone: venue.timeZone },
       payOnline: await takesPaymentOnline(venue.id),
     },

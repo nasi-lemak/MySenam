@@ -71,7 +71,11 @@ async function deliver(
 }
 
 /** The booking, or each week of a series, as a calendar file. */
-function calendarFor(bookings: Booking[], court: string, venue: { name: string; address: string; timeZone?: string }): string {
+function calendarFor(
+  bookings: Booking[],
+  court: string | ((b: Booking) => string),
+  venue: { name: string; address: string; timeZone?: string }
+): string {
   return icsCalendar(
     bookings.map((b) => ({
       siteName: siteName(),
@@ -79,7 +83,7 @@ function calendarFor(bookings: Booking[], court: string, venue: { name: string; 
       date: b.date,
       startHour: b.startHour,
       endHour: b.endHour,
-      courtName: court,
+      courtName: typeof court === "string" ? court : court(b),
       venueName: venue.name,
       venueAddress: venue.address,
       timeZone: venue.timeZone,
@@ -103,19 +107,24 @@ export async function notifyBookingConfirmed(
   // its own staff trying it out, under whatever number they typed.
   if (!venue || !hasBeenLive(venue)) return null;
 
-  const series = bookings.length > 1;
+  // Several courts at the same time, booked as one: one message naming each court and its code.
+  const group = !seriesCode && bookings.length > 1 && !!first.groupCode && bookings.every((b) => b.groupCode === first.groupCode);
+  const names = new Map<number, string>();
+  if (group) for (const b of bookings) names.set(b.courtId, (await getCourt(b.courtId))?.name ?? court.name);
+  const series = bookings.length > 1 && !group;
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
-  const code = seriesCode ?? first.code;
+  const code = seriesCode ?? (group ? first.groupCode! : first.code);
   // A lesson says who is coaching it, where the court is named.
   const coach = first.coachId ? (await coachNames([first.id])).get(first.id) : undefined;
-  const where = coach ? translator(locale)("msg.lesson", { court: court.name, coach }) : court.name;
+  const courtNames = group ? [...new Set(bookings.map((b) => names.get(b.courtId)!))].join(", ") : court.name;
+  const where = coach ? translator(locale)("msg.lesson", { court: court.name, coach }) : courtNames;
 
-  await alertVenue(bookings, code, court.name, venue);
+  await alertVenue(bookings, code, courtNames, venue);
   return await deliver(first, {
     bookingId: first.id,
     venueId: venue.id,
     kind: series ? "booking_series_confirmed" : "booking_confirmed",
-    calendar: calendarFor(bookings, court.name, venue),
+    calendar: calendarFor(bookings, group ? (b) => names.get(b.courtId)! : court.name, venue),
     locale,
     subject: series ? "msg.seriesSubject" : "msg.confirmedSubject",
     body: series ? "msg.series" : "msg.confirmed",
@@ -123,7 +132,8 @@ export async function notifyBookingConfirmed(
     dedupeKey: `confirmed:${code}`,
     vars: {
       name: firstName(first.name),
-      code,
+      // Each court's own code, which is what the desk and /my-booking take.
+      code: group ? bookings.map((b) => `${b.code} (${names.get(b.courtId)})`).join(", ") : code,
       venue: venue.name,
       weeks: bookings.length,
       ...slot(locale, where, venue.name, first),

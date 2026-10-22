@@ -505,6 +505,8 @@ const EN = {
   "form.phone": "Phone",
   "form.emailOptional": "Email (for your code + calendar)",
   "form.repeat": "Repeat",
+  "form.alsoBook": "Book more courts at the same time",
+  "form.alsoBookNote": "Each court gets its own code; they are confirmed and paid together. One date, without extras.",
   "form.justOnce": "Just once",
   "form.weekly": "Weekly × {n}",
   "form.booking": "Booking…",
@@ -628,6 +630,8 @@ const EN = {
 
   // Confirmation
   "done.seriesTitle": "{n} weekly sessions booked!",
+  "done.groupTitle": "{n} courts booked!",
+  "done.groupCodes": "Each court's code: show them at the desk",
   "done.title": "Booking confirmed!",
   "hold.title": "Held for you: pay to confirm",
   "hold.body": "Pay online by {time} to keep this booking. Not paid by then, it is let go for somebody else and you are not charged.",
@@ -1032,6 +1036,9 @@ const EN = {
   "err.NO_SPORT_AT_VENUE": "That venue has no {sport} courts.",
   "err.NO_COURT_FREE": "No court is free for that whole time. Please pick another time.",
   "err.WEEKS_RANGE": "Weeks must be between 1 and {max}.",
+  "err.GROUP_COURTS": "Book 2 to {max} courts together.",
+  "err.GROUP_ONE_VENUE": "Courts booked together must be at the same venue.",
+  "err.GROUP_ONE_COURT_ONLY": "A booking of several courts is for one date, without extras or a coach: book those on one court.",
   "err.DATE_OUT_OF_WINDOW_FIRST": "The first date is outside the booking window.",
   "err.DATE_OUT_OF_WINDOW": "Date is outside the booking window.",
   "err.NO_HOURS": "Select at least one hour.",
@@ -1848,6 +1855,8 @@ const MS: Record<Phrase, string> = {
   "form.phone": "Telefon",
   "form.emailOptional": "E-mel (untuk kod + kalendar)",
   "form.repeat": "Ulang",
+  "form.alsoBook": "Tempah lebih banyak gelanggang pada masa yang sama",
+  "form.alsoBookNote": "Setiap gelanggang mendapat kodnya sendiri; ia disahkan dan dibayar bersama. Satu tarikh, tanpa tambahan.",
   "form.justOnce": "Sekali sahaja",
   "form.weekly": "Mingguan × {n}",
   "form.booking": "Menempah…",
@@ -1971,6 +1980,8 @@ const MS: Record<Phrase, string> = {
 
   // Pengesahan
   "done.seriesTitle": "{n} sesi mingguan telah ditempah!",
+  "done.groupTitle": "{n} gelanggang ditempah!",
+  "done.groupCodes": "Kod setiap gelanggang: tunjukkan di kaunter",
   "done.title": "Tempahan disahkan!",
   "hold.title": "Disimpan untuk anda: bayar untuk mengesahkan",
   "hold.body": "Bayar dalam talian sebelum {time} untuk mengekalkan tempahan ini. Jika tidak dibayar, ia dilepaskan untuk orang lain dan anda tidak dicaj.",
@@ -2388,6 +2399,9 @@ const MS: Record<Phrase, string> = {
   "err.NO_COURT_FREE":
     "Tiada gelanggang kosong untuk sepanjang waktu itu. Sila pilih waktu lain.",
   "err.WEEKS_RANGE": "Bilangan minggu mesti antara 1 dan {max}.",
+  "err.GROUP_COURTS": "Tempah 2 hingga {max} gelanggang bersama.",
+  "err.GROUP_ONE_VENUE": "Gelanggang yang ditempah bersama mesti di pusat yang sama.",
+  "err.GROUP_ONE_COURT_ONLY": "Tempahan beberapa gelanggang adalah untuk satu tarikh, tanpa tambahan atau jurulatih: tempah itu di satu gelanggang.",
   "err.DATE_OUT_OF_WINDOW_FIRST": "Tarikh pertama itu di luar tempoh tempahan yang dibenarkan.",
   "err.DATE_OUT_OF_WINDOW": "Tarikh itu di luar tempoh tempahan yang dibenarkan.",
   "err.NO_HOURS": "Pilih sekurang-kurangnya satu jam.",

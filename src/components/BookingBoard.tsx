@@ -12,6 +12,7 @@ import {
   isShared,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
+  MAX_GROUP_COURTS,
   bookingLengths,
   Sport,
   SPORT_ICONS,
@@ -69,6 +70,8 @@ interface Confirmation {
   chatNumber?: string | null;
   /** The share the venue takes online to hold the booking, the rest at the counter. */
   depositPercent?: number | null;
+  /** Courts booked together: each one's name, by id. */
+  courtNames?: Record<number, string>;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -279,6 +282,26 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       0
     );
   }, [selection, availability, anyChoice]);
+
+  /**
+   * Other courts free for every hour picked, to book with it as one: whole
+   * courts that take a booking that long, with what those hours cost there.
+   */
+  const alsoFree = useMemo(() => {
+    if (!selection || !availability || selection.courtId === ANY_COURT) return [];
+    const length = selection.hours.length * step;
+    return availability
+      .filter((a) => a.court.id !== selection.courtId && a.court.capacity === 1)
+      .filter((a) => {
+        const l = bookingLengths(a.court, step);
+        return length >= l.min && length <= l.max;
+      })
+      .filter((a) => selection.hours.every((h) => a.slots.find((s) => s.hour === h)?.available))
+      .map((a) => ({
+        court: a.court,
+        price: selection.hours.reduce((sum, h) => sum + (a.slots.find((s) => s.hour === h)?.rate ?? 0), 0),
+      }));
+  }, [selection, availability, step]);
 
   /** The last-minute discount on the hours picked, if any: the form says what it is. */
   const lastMinute = useMemo(() => {
@@ -543,6 +566,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           hours={selection.hours}
           step={step}
           maxWeeks={maxWeeks}
+          alsoFree={alsoFree}
           totalPrice={totalPrice}
           lastMinute={lastMinute}
           onBooked={(c) => {
@@ -583,7 +607,8 @@ function BookingForm({
   hours,
   step,
   maxWeeks = MAX_RECUR_WEEKS,
-  totalPrice,
+  alsoFree = [],
+  totalPrice: courtPrice,
   lastMinute = 0,
   onBooked,
   onError,
@@ -597,6 +622,8 @@ function BookingForm({
   step: number;
   /** The most weeks one weekly booking may run here. */
   maxWeeks?: number;
+  /** Other courts free then, to book with this one as one, and what those hours cost on each. */
+  alsoFree?: { court: Court; price: number }[];
   totalPrice: number;
   /** Percent off the hours picked, for booking them now. */
   lastMinute?: number;
@@ -609,6 +636,12 @@ function BookingForm({
   // News from this venue: asked, never ticked for them (lib/marketing.ts).
   const [marketing, setMarketing] = useState(false);
   const [weeks, setWeeks] = useState(1);
+  // Other courts booked with this one, at the same time.
+  const [more, setMore] = useState<number[]>([]);
+  const hoursKey = hours.join(",");
+  useEffect(() => setMore([]), [court.id, hoursKey, date]);
+  const moreChosen = alsoFree.filter((a) => more.includes(a.court.id));
+  const totalPrice = Math.round((courtPrice + moreChosen.reduce((sum, a) => sum + a.price, 0)) * 100) / 100;
   // This court's own shortest and longest booking, when it has them.
   const lengths = bookingLengths(court, step);
   const ownLengths = court.id !== ANY_COURT && (court.minHours != null || court.maxHours != null);
@@ -694,6 +727,7 @@ function BookingForm({
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
+          ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((a) => a.court.id) } : {}),
         }),
       });
       const data = await res.json();
@@ -780,6 +814,7 @@ function BookingForm({
             className="mt-1 w-44 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           />
         </label>
+        {more.length === 0 && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("form.repeat")}
           <select
@@ -795,6 +830,7 @@ function BookingForm({
             ))}
           </select>
         </label>
+        )}
         <button
           type="submit"
           disabled={submitting || tooShort}
@@ -807,11 +843,33 @@ function BookingForm({
               : t("form.book", { amount: withExtras })}
         </button>
       </div>
+      {alsoFree.length > 0 && weeks === 1 && !hasExtras && (
+        <details className="mt-2 text-xs text-slate-600" open={more.length > 0}>
+          <summary className="cursor-pointer font-medium text-teal-700">{t("form.alsoBook")}</summary>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+            {alsoFree.map((a) => (
+              <label key={a.court.id} className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  className="accent-teal-600"
+                  checked={more.includes(a.court.id)}
+                  // The most courts booked together, this one included.
+                  disabled={!more.includes(a.court.id) && more.length + 1 >= MAX_GROUP_COURTS}
+                  onChange={(e) => setMore(e.target.checked ? [...more, a.court.id] : more.filter((id) => id !== a.court.id))}
+                />
+                {a.court.name} · {a.price === 0 ? t("price.free") : money(a.price)}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-slate-500">{t("form.alsoBookNote")}</p>
+        </details>
+      )}
       {(tooShort || ownLengths) && (
         <p className={`mt-2 text-xs ${tooShort ? "font-medium text-amber-700" : "text-slate-500"}`}>
           {t("board.lengths", { min: lengths.min, max: lengths.max, court: court.name })}
         </p>
       )}
+      {more.length === 0 && (
       <AddonPicker
         t={t}
         query={`${court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`}&date=${date}&hours=${hours.join(",")}`}
@@ -819,6 +877,7 @@ function BookingForm({
         onChange={setPicked}
         onList={setOffered}
       />
+      )}
       {balance !== null && balance > 0 && (hasExtras || passCode.trim() === "") && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input
@@ -922,7 +981,10 @@ function ConfirmationModal({
   onClose: () => void;
 }) {
   const { booking, bookings, skipped, seriesCode, court, venue } = confirmation;
-  const isSeries = bookings.length > 1 || seriesCode !== null;
+  // Several courts at the same time, booked as one: listed by court, each with its own code.
+  const isGroup = bookings.length > 1 && seriesCode === null && !!booking.groupCode;
+  const courtName = (id: number) => confirmation.courtNames?.[id] ?? court.name;
+  const isSeries = (bookings.length > 1 || seriesCode !== null) && !isGroup;
   const seriesTotal = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const unpaid = bookings.filter((b) => b.paymentStatus === "unpaid");
   const unpaidTotal = unpaid.reduce((sum, b) => sum + b.totalPrice, 0);
@@ -937,7 +999,7 @@ function ConfirmationModal({
     courtName: court.name,
     venueName: venue.name,
     timeZone: venue.timeZone,
-    totalPrice: isSeries ? seriesTotal : booking.totalPrice,
+    totalPrice: isSeries || isGroup ? seriesTotal : booking.totalPrice,
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
@@ -945,27 +1007,35 @@ function ConfirmationModal({
         <div className="text-center">
           <div className="text-4xl">{holdUntil ? "⏳" : "✅"}</div>
           <h2 className="mt-2 text-xl font-bold">
-            {holdUntil ? t("hold.title") : isSeries ? t("done.seriesTitle", { n: bookings.length }) : t("done.title")}
+            {holdUntil
+              ? t("hold.title")
+              : isSeries
+                ? t("done.seriesTitle", { n: bookings.length })
+                : isGroup
+                  ? t("done.groupTitle", { n: bookings.length })
+                  : t("done.title")}
           </h2>
           {holdUntil ? (
             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
               {t("hold.body", { time: localTimeOf(holdUntil, venue.timeZone) })}
             </p>
-          ) : (
+          ) : isGroup ? null : (
             <p className="mt-1 text-sm text-slate-600">
               {t("done.body", {
                 what: isSeries ? t("done.theSeries") : t("done.theBooking"),
               })}
             </p>
           )}
-          <div className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
-            {seriesCode ?? booking.code}
-          </div>
+          {!isGroup && (
+            <div className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
+              {seriesCode ?? booking.code}
+            </div>
+          )}
         </div>
         <dl className="mt-5 space-y-1.5 text-sm">
           {[
             [t("done.venue"), `${venue.name} (${venue.area})`],
-            [t("done.court"), court.name],
+            [t("done.court"), isGroup ? bookings.map((b) => courtName(b.courtId)).join(", ") : court.name],
             ...(isSeries
               ? ([] as [string, string][])
               : ([[t("done.date"), booking.date]] as [string, string][])),
@@ -983,11 +1053,11 @@ function ConfirmationModal({
               : ([] as [string, string][])),
             [
               t("done.total"),
-              (isSeries ? seriesTotal : booking.totalPrice) === 0
+              (isSeries || isGroup ? seriesTotal : booking.totalPrice) === 0
                 ? t("price.free")
                 : holdUntil
-                  ? t("hold.total", { amount: isSeries ? seriesTotal : booking.totalPrice })
-                  : t("done.totalValue", { amount: isSeries ? seriesTotal : booking.totalPrice }),
+                  ? t("hold.total", { amount: isSeries || isGroup ? seriesTotal : booking.totalPrice })
+                  : t("done.totalValue", { amount: isSeries || isGroup ? seriesTotal : booking.totalPrice }),
             ],
             ...(isHire(court)
               ? ([
@@ -1010,6 +1080,21 @@ function ConfirmationModal({
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {t("done.addonRejected", { reason: translateError(t, confirmation.addonError) })}
           </p>
+        )}
+        {isGroup && (
+          <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm">
+            <div className="font-semibold text-slate-700">{t("done.groupCodes")}</div>
+            <ul className="mt-1 space-y-0.5">
+              {bookings.map((b) => (
+                <li key={b.id} className="flex justify-between gap-3">
+                  <span>{courtName(b.courtId)}</span>
+                  <span className="font-mono font-semibold text-teal-700">
+                    {b.code} <span className="font-sans text-xs font-normal text-slate-500">· {b.totalPrice === 0 ? t("price.free") : money(b.totalPrice)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {isSeries && (
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
@@ -1035,7 +1120,7 @@ function ConfirmationModal({
         {confirmation.payOnline && unpaid.length > 0 && unpaidTotal > 0 && (
           <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} held={holdUntil !== null} depositPercent={confirmation.depositPercent ?? null} />
         )}
-        {confirmation.payOnline && !isSeries && holdUntil === null && booking.paymentStatus === "unpaid" && booking.totalPrice > 0 && (
+        {confirmation.payOnline && !isSeries && !isGroup && holdUntil === null && booking.paymentStatus === "unpaid" && booking.totalPrice > 0 && (
           <SplitCost code={booking.code} phone={booking.phone} total={booking.totalPrice} venueName={confirmation.venue.name} date={booking.date} />
         )}
         <ChatLink t={t} number={confirmation.chatNumber} code={seriesCode ?? booking.code} />

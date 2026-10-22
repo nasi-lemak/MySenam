@@ -1764,6 +1764,25 @@ four hours, and a weekly booking of up to eight weeks. A venue can change both:
   venue limits how far ahead people may book, every week must still fall in
   that window.
 
+## Several courts in one booking
+
+A company night or a club session wants three badminton courts at 8 PM, not
+three separate bookings. With a court and its hours picked, the booking form
+offers *Book more courts at the same time*: the other courts free for every
+one of those hours (and that take a booking that long), with what each costs.
+
+- Each court is its own booking with its own code, exactly as if booked one by
+  one, so the desk, check-in, cancelling and moving work as ever. They share
+  a group code (`bookings.group_code`, `GR-…`).
+- All or nothing (`createGroupBooking` in `src/lib/store.ts`): if any court
+  cannot be had, none are kept, and the refusal names the court.
+- One confirmation lists every court and its code, with a calendar entry for
+  each; the venue's new-booking alert names them all. Held for payment, they
+  are paid in one bill and confirmed once when it is paid.
+- Each court counts against the venue's house rules, as each week of a weekly
+  booking does. 2 to 6 courts, at one venue, on one date, without extras or a
+  coach (book those on one court).
+
 ## Exclusive courts vs shared facilities
 
 Every bookable resource carries a `capacity`:
