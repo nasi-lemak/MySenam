@@ -204,6 +204,12 @@ export async function sendPlainEmail(to: string, subject: string, text: string):
   }
 }
 
+export function unsubscribeHeaders(link: unknown): { headers?: Record<string, string> } {
+  if (typeof link !== "string" || !/\/unsubscribe\/[\w-]+$/.test(link)) return {};
+  const oneClick = link.replace(/\/unsubscribe\/([\w-]+)$/, "/api/unsubscribe/$1");
+  return { headers: { "List-Unsubscribe": `<${oneClick}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
+}
+
 export function emailTransport(config: EmailConfig): Transport {
   return {
     name: "email",
@@ -218,6 +224,8 @@ export function emailTransport(config: EmailConfig): Transport {
         // The booking as a calendar invite: in the customer's diary in a tap,
         // with its own reminder.
         ...(message.calendar ? { icalEvent: { filename: "booking.ics", method: "PUBLISH", content: message.calendar } } : {}),
+        // A venue's news: the mail app's own unsubscribe button, one click (RFC 8058).
+        ...(message.kind === "campaign" ? unsubscribeHeaders(message.params?.link) : {}),
       });
     },
   };

@@ -196,10 +196,14 @@ describe("sending", () => {
 
   it("lets staff put a bad number right and try again", async () => {
     const abandoned = (await listMessages(venueId, 200)).find((m) => m.status === "abandoned")!;
-    const again = await retryMessage(abandoned.id, "0191112222");
-    expect(again?.status).toBe("queued");
-    expect(again?.recipient).toBe("0191112222");
-    expect(again?.attempts).toBe(0);
+    const retried = await retryMessage(abandoned.id, "0191112222");
+    if (!retried?.ok) throw new Error("retry");
+    const again = retried.message;
+    expect(again.status).toBe("queued");
+    expect(again.recipient).toBe("0191112222");
+    expect(again.attempts).toBe(0);
+    // Once it has gone, it is not sent again; nor is a number something else.
+    expect(await retryMessage(abandoned.id, "not a number")).toMatchObject({ ok: false });
 
     const post = recorder();
     setTransport(post);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logAction } from "@/lib/activity";
 import { cancelTournament, closeEntries, makeDraw, tournamentDetail } from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
 
@@ -30,5 +31,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           : null;
   if (!result) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  const t = await tournamentDetail(found.id, { forStaff: true });
+  await logAction(found.admin, {
+    venueId: t?.venueId ?? null,
+    action: body.action === "close" ? "tournament.closed" : body.action === "draw" ? "tournament.drawn" : "tournament.cancelled",
+    detail: t?.name ?? `Tournament ${found.id}`,
+  });
   return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
 }

@@ -16,6 +16,9 @@ import { baseUrl } from "./outbox";
  * changes. The first time, an existing account with the same email is joined
  * to it — only if Google says it has verified that email, or anybody could
  * make a Google account with somebody else's address and walk into theirs.
+ * Joining it clears the account's password and signs it out everywhere, since
+ * that password was set by whoever registered the address, not necessarily
+ * its owner.
  * Otherwise a new account is made, with no password and no phone number yet:
  * the number is asked for, and checked, before anything that needs it.
  *
@@ -200,8 +203,17 @@ export async function signInWithIdentity(who: {
     return { ok: false, error: "An account with this email already exists. Sign in with your password instead." };
   let userId: number;
   let created = false;
-  if (existing) userId = existing.id;
-  else {
+  if (existing) {
+    userId = existing.id;
+    // Nothing here ever proved that whoever set this account's password owns the address; Google just has.
+    // So somebody who signed up with it first, to be let in later, is shut out: the password goes, and
+    // every session with it. The owner signs in with Google, or sets a password by the reset email.
+    const had = (await db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId)) as { password_hash: string } | undefined;
+    if (had?.password_hash) {
+      await db.prepare("UPDATE users SET password_hash = '' WHERE id = ?").run(userId);
+      await db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+    }
+  } else {
     const name = (who.name?.trim() || email.split("@")[0]).slice(0, 100);
     // No password, so none can match; no phone yet, so one is asked for before booking.
     userId = (await db.prepare("INSERT INTO users (name, email, phone, password_hash) VALUES (?, ?, '', '')").run(name, email))

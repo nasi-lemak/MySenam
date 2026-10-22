@@ -132,6 +132,9 @@ export async function reviewable(code: string, now = new Date()): Promise<{ ok: 
   const venue = court ? await getVenue(court.venueId) : null;
   if (!court || !venue) return refuse("REVIEW_NOT_FOUND");
   if (booking.status !== "confirmed" || booking.noShow) return refuse("REVIEW_NOT_PLAYED");
+  // Paid for, or checked in: a booking made under any number and never turned up to is not a visit,
+  // and is the cheapest way to leave a rival one star.
+  if (booking.paymentStatus !== "paid" && !booking.checkedInAt && booking.totalPrice > 0) return refuse("REVIEW_NOT_PLAYED");
   const zone = await zoneOf(venue.id);
   if (slotStartsAt(booking.date, booking.endHour, zone).getTime() > now.getTime()) return refuse("REVIEW_NOT_YET");
   if (booking.date < addDays(todayISO(zone), -REVIEW_DAYS)) return refuse("REVIEW_TOO_LATE", { days: REVIEW_DAYS });
@@ -165,7 +168,9 @@ export async function writeReview(
        VALUES (?, ?, phone_key(?), ?, ?, ?, ?, ?, ?)
        ON CONFLICT (venue_id, phone_key) DO UPDATE SET booking_id = excluded.booking_id, user_id = COALESCE(excluded.user_id, venue_reviews.user_id),
          author = excluded.author, rating = excluded.rating, body = excluded.body, played_on = excluded.played_on,
-         locale = excluded.locale, updated_at = datetime('now')
+         locale = excluded.locale, updated_at = datetime('now'),
+         -- A report was about the words now gone.
+         reported_at = NULL, report_reason = NULL
        RETURNING *`
     )
     .get(venueId, booking.id, booking.phone, userId?.user_id ?? null, shownName(booking.name), rating, body, booking.date, input.locale ?? null)) as Row;
@@ -194,11 +199,15 @@ export async function venueReviews(venueId: number, limit = 10): Promise<Review[
   return rows.map(toReview);
 }
 
-/** Everything about the venue's reviews, hidden ones included, for its staff. */
+/**
+ * Everything about the venue's reviews, hidden ones included, for its staff:
+ * but not which booking wrote each, so a bad review cannot be traced to a
+ * number and turned away. The platform's owners see that when one is reported.
+ */
 export async function staffReviews(venueId: number, limit = 100): Promise<StaffReview[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT r.*, b.code AS booking_code FROM venue_reviews r LEFT JOIN bookings b ON b.id = r.booking_id
+      `SELECT r.* FROM venue_reviews r
         WHERE r.venue_id = ? ORDER BY r.updated_at DESC, r.id DESC LIMIT ?`
     )
     .all(venueId, limit)) as Row[];
@@ -221,7 +230,7 @@ type Done = { ok: true; review: StaffReview } | { ok: false; error: string };
 
 async function staffRow(id: number, venueId: number): Promise<StaffReview | null> {
   const row = (await getDb()
-    .prepare("SELECT r.*, b.code AS booking_code FROM venue_reviews r LEFT JOIN bookings b ON b.id = r.booking_id WHERE r.id = ? AND r.venue_id = ?")
+    .prepare("SELECT r.* FROM venue_reviews r WHERE r.id = ? AND r.venue_id = ?")
     .get(id, venueId)) as Row | undefined;
   return row ? toStaffReview(row) : null;
 }
@@ -241,10 +250,15 @@ export async function replyToReview(id: number, venueId: number, text: unknown):
 export async function reportReview(id: number, venueId: number, reason: unknown): Promise<Done> {
   const why = typeof reason === "string" ? reason.trim().slice(0, 500) : "";
   if (why.length < 5) return { ok: false, error: "Say which rule it breaks." };
-  const done = await getDb()
-    .prepare("UPDATE venue_reviews SET reported_at = datetime('now'), report_reason = ? WHERE id = ? AND venue_id = ? AND hidden_at IS NULL")
+  const already = (await getDb()
+    .prepare("SELECT reported_at FROM venue_reviews WHERE id = ? AND venue_id = ? AND hidden_at IS NULL")
+    .get(id, venueId)) as { reported_at: string | null } | undefined;
+  if (!already) return { ok: false, error: "Review not found." };
+  // Asked once: reporting it again changes nothing until the platform decides.
+  if (already.reported_at) return { ok: true, review: (await staffRow(id, venueId))! };
+  await getDb()
+    .prepare("UPDATE venue_reviews SET reported_at = datetime('now'), report_reason = ? WHERE id = ? AND venue_id = ?")
     .run(why, id, venueId);
-  if (done.changes !== 1) return { ok: false, error: "Review not found." };
   const review = (await staffRow(id, venueId))!;
   const venue = await getVenue(venueId);
   await tellOwners(

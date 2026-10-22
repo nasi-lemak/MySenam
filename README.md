@@ -1203,7 +1203,8 @@ Stars and a few words about a venue, from somebody who played there
 (`src/lib/reviews.ts`, `venue_reviews`, migration 0058).
 
 - **Only after playing.** A review is written from a booking that went ahead
-  (not cancelled, not a no-show), from when it ends until 60 days after,
+  (not cancelled, not a no-show, and paid for or checked in), from when it
+  ends until 60 days after,
   through a link signed for that booking (`/review/<code>?t=…`, no phone
   number in it). My Booking and the account page show *Rate your visit* on
   past bookings. Nobody can review a venue they have not booked.
@@ -1245,6 +1246,9 @@ adviser.
   unsubscribe at any time.* Ticking it is recorded per venue and address,
   with the words as shown in the customer's language and when. Nothing else
   signs anybody up: not an account, not a booking at the counter, not staff.
+  An address that is not the signed-in account's own (anybody can type
+  one), or one that had unsubscribed, is sent one email asking it to confirm,
+  and nothing else until it does.
 - **Stopping is one click** from the link at the foot of every copy (a
   page with a button, so mail scanners following links do not unsubscribe
   people), or from *News from venues* on the account page. Booking
@@ -3788,6 +3792,50 @@ were unkind to the people using them. What changed, by theme:
 - **Coach payouts** list paid lessons cancelled late, at the coach's fee times
   the share the venue kept (`bookings.late_kept_percent`), beside no-shows,
   for the venue to decide on.
+
+### Trust and abuse
+
+- **Reviews** come only from a booking that was paid for or checked in: a
+  booking under any number, never paid and never turned up to, is the
+  cheapest way to leave a rival one star. Staff no longer see which booking
+  wrote a review, so a bad one cannot be traced to a number and turned away
+  (the platform's owners still see it on a reported one). Rewriting a review
+  clears a report on the old words; reporting one twice tells the owners once.
+- **Resending a message** is for one that was not sent (failed or held back),
+  never one that arrived; a new address must look like one for its channel;
+  a venue's news, a review request and a marketing confirmation only go to
+  whoever they were written for; the daily limit per recipient holds for the
+  new recipient.
+- **Signing in with Google** to an account that already has the same address
+  clears its password and signs it out everywhere: nothing ever proved that
+  whoever set that password owned the address, and somebody who registered
+  it first could otherwise wait to be let in.
+- **Stored credit at the counter** shows only that venue's entries, not what
+  the customer has done elsewhere.
+- **Tournaments and leagues**: closing entries, drawing, calling off (which
+  refunds every entry) and starting or ending a season are a manager's, and
+  each is in the staff activity log.
+- **Rate limits** count an IPv6 client as its /64, which is what one
+  connection is handed and can walk through.
+- **Phone numbers** dialled with 00 (0060…, 0065…) are the same person as +60
+  and +65 (migration 0066).
+- **Webhooks** refuse more addresses that lead nowhere public: documentation
+  and benchmarking ranges, and IPv4 addresses written inside IPv6 (mapped in
+  hex, compatible, NAT64). The address is still checked by looking it up
+  just before sending rather than pinned for the connection itself; doing
+  that needs a dedicated HTTP agent and is left for later.
+- **Marketing email** goes only to an address that said yes itself: a box
+  ticked for an address that is not the signed-in account's own, or for one
+  that had unsubscribed, sends one email asking, and nothing more until it is
+  confirmed (`confirmed_at`, migration 0067; agreements made before stand).
+  The venue sees how many are waiting. Each email carries `List-Unsubscribe`
+  and `List-Unsubscribe-Post` headers, so a mail app's own button
+  unsubscribes in one click (`POST /api/unsubscribe/<token>`).
+- **API keys** can be *availability only*, for a website or widget: the venue
+  and its free times, no customer's name or number.
+- **A flood of guest bookings**: past 30 unpaid bookings without an account
+  at one venue in an hour, the next guest pays online to hold theirs where the
+  venue takes payment online, or signs in where it does not.
 
 ## Renamed from MudahTempah
 

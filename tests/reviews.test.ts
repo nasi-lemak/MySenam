@@ -45,7 +45,7 @@ let n = 0;
 const ZONE = "Asia/Kuala_Lumpur";
 
 /** A booking at the venue, moved to the given day. */
-async function played(daysAgo: number, opts: { name?: string; phone?: string; email?: string; userId?: number } = {}) {
+async function played(daysAgo: number, opts: { name?: string; phone?: string; email?: string; userId?: number; unpaid?: boolean } = {}) {
   n++;
   const made = await createBooking({
     courtId,
@@ -58,7 +58,10 @@ async function played(daysAgo: number, opts: { name?: string; phone?: string; em
   });
   if (!made.ok) throw new Error(made.error);
   const date = addDays(todayISO(ZONE), -daysAgo);
-  await getDb().prepare("UPDATE bookings SET date = ? WHERE id = ?").run(date, made.booking.id);
+  // Paid, as a booking that went ahead is: an unpaid one nobody turned up to is not a visit.
+  await getDb()
+    .prepare(`UPDATE bookings SET date = ?, payment_status = ${opts.unpaid ? "'unpaid'" : "'paid'"} WHERE id = ?`)
+    .run(date, made.booking.id);
   return { ...made.booking, date };
 }
 
@@ -84,6 +87,8 @@ describe("who may review", () => {
     const missed = await played(3);
     await getDb().prepare("UPDATE bookings SET no_show = 1 WHERE id = ?").run(missed.id);
     expect(await reviewable(missed.code)).toMatchObject({ ok: false, code: "REVIEW_NOT_PLAYED" });
+    // Booked under any number, never paid, never checked in: not a visit.
+    expect(await reviewable((await played(2, { unpaid: true })).code)).toMatchObject({ ok: false, code: "REVIEW_NOT_PLAYED" });
     expect(await reviewable((await played(61)).code)).toMatchObject({ ok: false, code: "REVIEW_TOO_LATE" });
     expect(await reviewable((await played(1)).code)).toMatchObject({ ok: true });
   });
@@ -112,11 +117,15 @@ describe("what is shown", () => {
   it("one per number: writing again replaces it", async () => {
     const first = await played(10, { phone: "0129990100" });
     const again = await played(2, { phone: "0129990100" });
-    await review(first.code, 2, "Too hot.");
-    await review(again.code, 5, "Aircon fixed!");
-    const mine = (await staffReviews(venueId)).filter((r) => r.bookingCode === again.code || r.bookingCode === first.code);
+    const one = await review(first.code, 2, "Too hot.");
+    const two = await review(again.code, 5, "Aircon fixed!");
+    if (!one.ok || !two.ok) throw new Error("review");
+    expect(two.review.id).toBe(one.review.id);
+    const mine = (await staffReviews(venueId)).filter((r) => r.id === one.review.id);
     expect(mine).toHaveLength(1);
     expect(mine[0]).toMatchObject({ rating: 5, body: "Aircon fixed!" });
+    // Staff do not see which booking wrote it, so cannot trace it to a number.
+    expect(mine[0].bookingCode).toBeNull();
   });
 
   it("a score only from three reviews, hidden ones not counted", async () => {
@@ -128,6 +137,10 @@ describe("what is shown", () => {
     if (!written.ok) throw new Error(written.error);
     expect((await venueRating(venueId))!.count).toBe(4);
     await reportReview(written.review.id, venueId, "Abuse of the owner");
+    // Asked once; asking again does not tell the owners twice.
+    const told = Number(((await getDb().prepare("SELECT COUNT(*) AS n FROM messages WHERE subject LIKE 'Review reported%'").get()) as { n: number }).n);
+    await reportReview(written.review.id, venueId, "Abuse of the owner, again");
+    expect(Number(((await getDb().prepare("SELECT COUNT(*) AS n FROM messages WHERE subject LIKE 'Review reported%'").get()) as { n: number }).n)).toBe(told);
     expect((await venueReviews(venueId)).some((r) => r.id === written.review.id)).toBe(true);
     await moderateReview(written.review.id, true, "Abusive");
     expect(await venueRating(venueId)).toEqual({ average: 4, count: 3 });

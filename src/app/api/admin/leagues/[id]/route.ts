@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logAction } from "@/lib/activity";
 import { jsonBody, staffLeague } from "@/lib/league-access";
 import { closeLeague, endSeason, leagueDetail, planSeason, startSeason } from "@/lib/leagues";
 import { todayISO } from "@/lib/time";
@@ -37,5 +38,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             : null;
   if (!result) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  const l = await leagueDetail(found.id, { forStaff: true });
+  await logAction(found.admin, {
+    venueId: l?.venueId ?? null,
+    action: `league.${body.action === "start" ? "started" : body.action === "end" ? "ended" : body.action === "plan" ? "planned" : "closed"}`,
+    detail: l?.name ?? `League ${found.id}`,
+  });
   return NextResponse.json({ league: await leagueDetail(found.id, { forStaff: true }) });
 }

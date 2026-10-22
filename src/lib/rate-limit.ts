@@ -140,8 +140,26 @@ export async function pruneRateLimits(now = Date.now()): Promise<void> {
  */
 function clientKey(req: NextRequest): string {
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+  if (forwarded) return addressBucket(forwarded.split(",")[0].trim());
+  return addressBucket(req.headers.get("x-real-ip") ?? "unknown");
+}
+
+/**
+ * The address a limit counts against. An IPv6 user is handed a whole /64 (or
+ * more) and can walk through it at will, so a v6 address counts as its /64;
+ * an IPv4 one, and a v4 address written the v6 way, as itself.
+ */
+export function addressBucket(ip: string): string {
+  const bare = ip.replace(/^\[|\](:\d+)?$/g, "").split("%")[0].toLowerCase();
+  if (!bare.includes(":")) return bare;
+  const mapped = bare.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return mapped[1];
+  const [head, tail] = bare.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail !== undefined && tail !== "" ? tail.split(":") : [];
+  const groups = tail === undefined ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return bare;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
 }
 
 /**

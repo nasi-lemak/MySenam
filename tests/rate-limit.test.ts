@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkRateLimit, POLICIES, resetRateLimits } from "../src/lib/rate-limit";
+import { addressBucket, checkRateLimit, POLICIES, resetRateLimits } from "../src/lib/rate-limit";
 
 const policy = { limit: 3, windowMs: 60_000 };
 
@@ -62,5 +62,17 @@ describe("fixed-window rate limiting", () => {
     // password guessing should be the tightest per-minute budget
     const perMinute = (p: { limit: number; windowMs: number }) => p.limit / (p.windowMs / 60_000);
     expect(perMinute(POLICIES.login)).toBeLessThan(perMinute(POLICIES.bookingLookup));
+  });
+});
+
+describe("who a limit counts", () => {
+  it("an IPv6 address as its /64, an IPv4 one as itself", () => {
+    expect(addressBucket("203.0.113.9")).toBe("203.0.113.9");
+    expect(addressBucket("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(addressBucket("2001:db8:abcd:12:1:2:3:4")).toBe("2001:db8:abcd:12::/64");
+    expect(addressBucket("2001:db8:abcd:12::99")).toBe("2001:db8:abcd:12::/64");
+    expect(addressBucket("[2001:0db8:abcd:0012::1]:443")).toBe("2001:db8:abcd:12::/64");
+    expect(addressBucket("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(addressBucket("unknown")).toBe("unknown");
   });
 });

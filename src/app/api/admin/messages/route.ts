@@ -43,7 +43,9 @@ export async function POST(req: NextRequest) {
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const message = await retryMessage(id as number, recipient as string | undefined);
+  const retried = await retryMessage(id as number, recipient as string | undefined);
+  if (!retried) return NextResponse.json({ error: "Message not found." }, { status: 404 });
+  if (!retried.ok) return NextResponse.json({ error: retried.error }, { status: 409 });
   await tickOutbox();
-  return NextResponse.json({ message });
+  return NextResponse.json({ message: retried.message });
 }

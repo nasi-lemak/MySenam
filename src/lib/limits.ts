@@ -32,6 +32,25 @@ export const PHONE_LIMITS = {
   platform: 6,
 } as const;
 
+/**
+ * Unpaid bookings made without an account at one venue in an hour, past
+ * which the next guest pays online to hold theirs (or signs in, where the
+ * venue takes nothing online). Each number is held to three, but numbers
+ * can be made up: this is the venue's evening being filled from a script.
+ */
+export const GUEST_SURGE_PER_HOUR = 30;
+
+export async function guestSurge(venueId: number): Promise<boolean> {
+  const r = (await getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM bookings b JOIN courts c ON c.id = b.court_id
+        WHERE c.venue_id = ? AND b.user_id IS NULL AND b.status = 'confirmed' AND b.payment_status = 'unpaid'
+          AND b.demo = 0 AND b.created_at > datetime('now', '-1 hour')`
+    )
+    .get(venueId)) as { n: number | string };
+  return Number(r.n) >= GUEST_SURGE_PER_HOUR;
+}
+
 const ENGLISH = translator("en");
 function refuse(code: ErrorCode, vars?: Record<string, string | number>): Refusal {
   const refusal: Refusal = { ok: false, error: errorText(ENGLISH, code, vars), code };
@@ -74,6 +93,9 @@ export async function customerMayBook(input: {
     }
   }
   if ((input.weeks ?? 1) > 1 && !input.signedIn) return refuse("SERIES_NEEDS_ACCOUNT");
+  // A flood of guest bookings here: where the venue takes payment online the booking is held until
+  // paid instead (app/api/bookings); where it does not, an account is needed for now.
+  if (!input.signedIn && !input.preview && !input.canPayOnline && (await guestSurge(input.venueId))) return refuse("GUEST_SURGE");
   if (await isBlocked(input.venueId, input.phone)) return phoneBlocked();
   // Too many no-shows here: where the venue takes nothing online, the counter only.
   // (Where it does, the booking is held until paid instead: app/api/bookings.)

@@ -60,15 +60,31 @@ function readUrl(raw: unknown): URL | string {
 export function isPrivate(address: string): boolean {
   const ip = address.replace(/^\[|\]$/g, "");
   if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+    const [a, b, c] = ip.split(".").map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224 ||
+      // Protocol assignments, documentation and benchmarking ranges: never a real receiver.
+      (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)
+    );
   }
   if (net.isIPv6(ip)) {
     const v = ip.toLowerCase();
     if (v === "::" || v === "::1") return true;
     if (v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe8") || v.startsWith("fe9") || v.startsWith("fea") || v.startsWith("feb")) return true;
-    const mapped = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    return mapped ? isPrivate(mapped[1]) : false;
+    // Site-local (deprecated, still routed by some), documentation, and multicast.
+    if (/^fe[c-f]/.test(v) || v.startsWith("2001:db8:") || v.startsWith("ff")) return true;
+    // An IPv4 address carried inside IPv6, dotted or in hex (::ffff:7f00:1), mapped, compatible or
+    // through NAT64 (64:ff9b::): judged as the IPv4 address it is.
+    const dotted = v.match(/^(?:::ffff:|::|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/);
+    if (dotted) return isPrivate(dotted[1]);
+    const hex = v.match(/^(?:::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) {
+      const [hi, lo] = [parseInt(hex[1], 16), parseInt(hex[2], 16)];
+      return isPrivate(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+    return false;
   }
   return false;
 }

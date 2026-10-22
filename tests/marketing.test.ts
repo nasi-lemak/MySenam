@@ -11,6 +11,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { NextRequest } from "next/server";
+import { unsubscribeHeaders } from "../src/lib/transports";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/lib/admin-auth";
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
@@ -43,11 +44,12 @@ const post = (body: Record<string, unknown>) =>
   );
 
 const consents = async () =>
-  (await getDb().prepare("SELECT email, wording, locale, withdrawn_at, token FROM marketing_consents WHERE venue_id = ? ORDER BY id").all(venueId)) as {
+  (await getDb().prepare("SELECT email, wording, locale, withdrawn_at, confirmed_at, token FROM marketing_consents WHERE venue_id = ? ORDER BY id").all(venueId)) as {
     email: string;
     wording: string;
     locale: string;
     withdrawn_at: string | null;
+    confirmed_at: string | null;
     token: string;
   }[];
 
@@ -71,6 +73,11 @@ describe("agreeing", () => {
     const [c] = await consents();
     expect(c).toMatchObject({ email: "Siti@Example.my", locale: "ms", withdrawn_at: null });
     expect(c.wording).toBe("E-melkan saya berita dan tawaran daripada News Arena. Saya boleh berhenti melanggan pada bila-bila masa.");
+    // Typed in by whoever booked: nothing goes to it until the address says yes itself.
+    expect(c.confirmed_at).toBeNull();
+    const ask = (await getDb().prepare("SELECT recipient, body FROM messages WHERE kind = 'marketing_confirm'").all()) as { recipient: string; body: string }[];
+    expect(ask).toHaveLength(1);
+    expect(ask[0].body).toContain(`/unsubscribe/${c.token}`);
   });
 
   it("is one per address per venue, however often it is ticked", async () => {
@@ -82,8 +89,23 @@ describe("agreeing", () => {
 });
 
 describe("a venue's news", () => {
+  it("waits for an address to confirm, from the email that asked", async () => {
+    expect(await audience(venueId)).toMatchObject({ subscribed: 0, waiting: 1 });
+    expect(await sendCampaign(venueId, null, { subject: "Too soon", body: "Nobody has said yes yet." })).toMatchObject({ ok: false });
+    const siti = (await consents()).find((c) => c.email.toLowerCase() === "siti@example.my")!;
+    const res = await unsubscribeRoute(
+      new NextRequest("http://localhost/api/unsubscribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: siti.token, confirm: true }),
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(await audience(venueId)).toMatchObject({ subscribed: 1, waiting: 0 });
+  });
+
   it("goes to those who agreed, with why and how to stop in their own language", async () => {
-    await recordConsent({ venueId, email: "ali@example.my", name: "Ali", locale: "en", source: "booking" });
+    await recordConsent({ venueId, email: "ali@example.my", name: "Ali", locale: "en", source: "booking", confirmed: true });
     const sent = await sendCampaign(venueId, null, { subject: "Raya opening hours", body: "We open at 10am on the first day of Raya." });
     expect(sent).toMatchObject({ ok: true, recipients: 2 });
     const msgs = (await getDb().prepare("SELECT recipient, subject, body FROM messages WHERE kind = 'campaign' ORDER BY id").all()) as {
@@ -98,6 +120,25 @@ describe("a venue's news", () => {
     expect(msgs.find((m) => m.recipient.toLowerCase() === "siti@example.my")!.body).toContain("Berhenti melanggan dengan satu klik");
   });
 
+  it("carries the mail app's one-click unsubscribe, which works by POST alone", async () => {
+    const ali = (await consents()).find((c) => c.email === "ali@example.my")!;
+    expect(unsubscribeHeaders(`https://book.example.my/unsubscribe/${ali.token}`)).toEqual({
+      headers: {
+        "List-Unsubscribe": `<https://book.example.my/api/unsubscribe/${ali.token}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    });
+    expect(unsubscribeHeaders(undefined)).toEqual({});
+    const { POST: oneClick } = await import("../src/app/api/unsubscribe/[token]/route");
+    const res = await oneClick(new NextRequest(`http://localhost/api/unsubscribe/${ali.token}`, { method: "POST", body: "List-Unsubscribe=One-Click" }), {
+      params: Promise.resolve({ token: ali.token }),
+    });
+    expect(res.status).toBe(200);
+    expect((await consents()).find((c) => c.email === "ali@example.my")!.withdrawn_at).not.toBeNull();
+    // Back on, for what follows.
+    await recordConsent({ venueId, email: "ali@example.my", name: "Ali", locale: "en", source: "booking", confirmed: true });
+  });
+
   it("stops for anybody who clicks the link, with no account", async () => {
     const siti = (await consents()).find((c) => c.email.toLowerCase() === "siti@example.my")!;
     const res = await unsubscribeRoute(
@@ -105,6 +146,9 @@ describe("a venue's news", () => {
     );
     expect(res.status).toBe(200);
     expect((await audience(venueId)).subscribed).toBe(1);
+    // Ticked again for the address that stopped: it has to say yes again itself.
+    await recordConsent({ venueId, email: siti.email, locale: "ms", source: "booking", confirmed: false });
+    expect(await audience(venueId)).toMatchObject({ subscribed: 1, waiting: 1 });
     const bad = await unsubscribeRoute(
       new NextRequest("http://localhost/api/unsubscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "nope" }) })
     );
@@ -140,7 +184,7 @@ describe("an account", () => {
   it("sees and stops what it agreed to, has it in its data, and loses it on closing", async () => {
     const user = await registerUser({ name: "Mei", email: "mei@example.my", phone: "0136660001", password: "a long enough password" });
     if (!user.ok) throw new Error(user.error);
-    await recordConsent({ venueId, email: "MEI@example.my", locale: "en", source: "booking" });
+    await recordConsent({ venueId, email: "MEI@example.my", locale: "en", source: "booking", confirmed: true });
     const cookie = `${SESSION_COOKIE}=${(await createSession(user.user.id)).token}`;
     const list = await (await myGet(new NextRequest("http://localhost/api/my/marketing", { headers: { cookie } }))).json();
     expect(list.consents).toHaveLength(1);

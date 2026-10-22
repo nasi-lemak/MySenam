@@ -101,7 +101,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
         {keys.map((k) => (
           <li key={k.id} className={`flex flex-wrap items-center justify-between gap-2 p-2 ${k.revokedAt ? "text-slate-400" : ""}`}>
             <span>
-              <span className="font-medium">{k.name}</span> · <code>{k.prefix}…</code> · {k.scope === "write" ? "read and write" : "read only"}
+              <span className="font-medium">{k.name}</span> · <code>{k.prefix}…</code> · {k.scope === "write" ? "read and write" : k.scope === "availability" ? "availability only" : "read only"}
               <span className="block text-xs text-slate-500">
                 {k.revokedAt ? `revoked ${k.revokedAt.slice(0, 10)}` : k.lastUsedAt ? `last used ${k.lastUsedAt.slice(0, 16)}` : "not used yet"}
               </span>
@@ -123,6 +123,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
       <div className="mt-2 flex flex-wrap gap-2">
         <input className={input} placeholder="What will use it" value={keyForm.name} onChange={(e) => setKeyForm({ ...keyForm, name: e.target.value })} aria-label="Key name" />
         <select className={input} value={keyForm.scope} onChange={(e) => setKeyForm({ ...keyForm, scope: e.target.value })} aria-label="Key scope">
+          <option value="availability">Availability only (for a website: no customer details)</option>
           <option value="read">Read only</option>
           <option value="write">Read and write (books and cancels)</option>
         </select>

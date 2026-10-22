@@ -48,6 +48,8 @@ export type MessageKind =
   | "review_request"
   /** By email only, to people who agreed to hear from the venue (lib/marketing.ts). */
   | "campaign"
+  /** By email only: asking an address to confirm it wants a venue's news, before any is sent. */
+  | "marketing_confirm"
   /** By email only, to a coach: a lesson booked with them, or cancelled (lib/coach-schedule.ts). */
   | "coach_lesson";
 
@@ -511,9 +513,31 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
  * For the case the retries cannot help with: the number was wrong, or the
  * venue's account was not set up yet. Staff fix the cause and ask again.
  */
-export async function retryMessage(id: number, recipient?: string): Promise<OutboxMessage | null> {
+/** Kinds sent to people who did not book: never to an address staff type in. */
+const NOT_READDRESSED: MessageKind[] = ["campaign", "review_request", "marketing_confirm"];
+
+export async function retryMessage(
+  id: number,
+  recipient?: string
+): Promise<{ ok: true; message: OutboxMessage } | { ok: false; error: string } | null> {
   const existing = await messageById(id);
   if (!existing) return null;
+  // Only what did not go: sending what arrived again is how one customer gets the same message ten times.
+  if (existing.status !== "failed" && existing.status !== "abandoned")
+    return { ok: false, error: "Only a message that was not sent can be sent again." };
+  const to = recipient?.trim() || null;
+  if (to && to !== existing.recipient) {
+    if (NOT_READDRESSED.includes(existing.kind))
+      return { ok: false, error: "This message only goes to who it was written for." };
+    if (existing.channel === "email" ? !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) : !/^\+?[0-9 -]{7,20}$/.test(to))
+      return { ok: false, error: existing.channel === "email" ? "That is not an email address." : "That is not a phone number." };
+  }
+  // The day's limit holds for whoever it goes to now.
+  const readdressed = to !== null && to !== existing.recipient;
+  // Counted with this message itself, where it was already theirs.
+  const today = await sentToday(existing.channel, to ?? existing.recipient);
+  if (!UNCAPPED_KINDS.includes(existing.kind) && today >= MESSAGES_PER_RECIPIENT_PER_DAY + (readdressed ? 0 : 1))
+    return { ok: false, error: `Already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today. Try again tomorrow.` };
   await getDb()
     .prepare(
       `UPDATE messages
@@ -522,8 +546,8 @@ export async function retryMessage(id: number, recipient?: string): Promise<Outb
               recipient = COALESCE(?, recipient)
         WHERE id = ?`
     )
-    .run(recipient?.trim() || null, id);
-  return await messageById(id);
+    .run(to, id);
+  return { ok: true, message: (await messageById(id))! };
 }
 
 /**

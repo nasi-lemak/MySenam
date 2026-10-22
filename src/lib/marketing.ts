@@ -43,7 +43,12 @@ export function optInWording(locale: Locale, venueName: string): string {
   return translator(locale)("mkt.optIn", { venue: venueName });
 }
 
-/** Somebody ticked the box: agreed (again, if they had stopped). */
+/**
+ * Somebody ticked the box: agreed (again, if they had stopped). `confirmed`
+ * when the address is the signed-in account's own; otherwise, and always for
+ * an address that had unsubscribed, nothing is sent to it until it says yes
+ * itself, from the one email asking.
+ */
 export async function recordConsent(input: {
   venueId: number;
   email: string;
@@ -51,20 +56,25 @@ export async function recordConsent(input: {
   userId?: number | null;
   locale: Locale;
   source: "booking" | "account";
+  confirmed: boolean;
 }): Promise<void> {
   const email = input.email.trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
   const venue = await getVenue(input.venueId);
   if (!venue) return;
-  await getDb()
+  const row = (await getDb()
     .prepare(
-      `INSERT INTO marketing_consents (venue_id, email, email_key, name, user_id, locale, source, wording, token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO marketing_consents (venue_id, email, email_key, name, user_id, locale, source, wording, token, confirmed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') END)
        ON CONFLICT (venue_id, email_key) DO UPDATE SET email = excluded.email, name = COALESCE(excluded.name, marketing_consents.name),
          user_id = COALESCE(excluded.user_id, marketing_consents.user_id), locale = excluded.locale, source = excluded.source,
-         wording = excluded.wording, consented_at = datetime('now'), withdrawn_at = NULL`
+         wording = excluded.wording, consented_at = datetime('now'), withdrawn_at = NULL,
+         confirmed_at = CASE WHEN excluded.confirmed_at IS NOT NULL THEN excluded.confirmed_at
+                             WHEN marketing_consents.withdrawn_at IS NOT NULL THEN NULL
+                             ELSE marketing_consents.confirmed_at END
+       RETURNING token, confirmed_at`
     )
-    .run(
+    .get(
       input.venueId,
       email,
       emailKey(email),
@@ -73,16 +83,42 @@ export async function recordConsent(input: {
       input.locale,
       input.source,
       optInWording(input.locale, venue.name),
-      crypto.randomBytes(18).toString("base64url")
-    );
+      crypto.randomBytes(18).toString("base64url"),
+      input.confirmed
+    )) as { token: string; confirmed_at: string | null };
+  if (row.confirmed_at !== null) return;
+  // Asked once a day at most, however many times the box is ticked for it.
+  await enqueue({
+    venueId: venue.id,
+    kind: "marketing_confirm",
+    channel: "email",
+    recipient: email,
+    locale: input.locale,
+    subject: "msg.mktConfirmSubject",
+    body: "msg.mktConfirm",
+    dedupeKey: `mkt-confirm:${row.token}:${new Date().toISOString().slice(0, 10)}`,
+    vars: { venue: venue.name, link: `${await venueBaseUrl(venue.id)}/unsubscribe/${row.token}`, site: siteName() },
+  });
+}
+
+/** The address saying yes itself, from the email that asked. */
+export async function confirmConsent(token: string): Promise<boolean> {
+  const row = await getDb()
+    .prepare("UPDATE marketing_consents SET confirmed_at = COALESCE(confirmed_at, datetime('now')) WHERE token = ? AND withdrawn_at IS NULL RETURNING id")
+    .get(token);
+  return !!row;
 }
 
 /** Who an unsubscribe link is for, to ask before stopping. */
-export async function consentByToken(token: string): Promise<{ venueName: string; email: string; withdrawn: boolean } | null> {
+export async function consentByToken(
+  token: string
+): Promise<{ venueName: string; email: string; withdrawn: boolean; confirmed: boolean } | null> {
   const row = (await getDb()
-    .prepare("SELECT c.email, c.withdrawn_at, v.name AS venue FROM marketing_consents c JOIN venues v ON v.id = c.venue_id WHERE c.token = ?")
-    .get(token)) as { email: string; withdrawn_at: string | null; venue: string } | undefined;
-  return row ? { venueName: row.venue, email: row.email, withdrawn: row.withdrawn_at !== null } : null;
+    .prepare("SELECT c.email, c.withdrawn_at, c.confirmed_at, v.name AS venue FROM marketing_consents c JOIN venues v ON v.id = c.venue_id WHERE c.token = ?")
+    .get(token)) as { email: string; withdrawn_at: string | null; confirmed_at: string | null; venue: string } | undefined;
+  return row
+    ? { venueName: row.venue, email: row.email, withdrawn: row.withdrawn_at !== null, confirmed: row.confirmed_at !== null }
+    : null;
 }
 
 export async function unsubscribe(token: string): Promise<boolean> {
@@ -128,6 +164,8 @@ export interface Campaign {
 export interface Audience {
   /** Who would get one now. */
   subscribed: number;
+  /** Ticked for an address that has not confirmed it yet: sent nothing. */
+  waiting: number;
   /** Who stopped. */
   withdrawn: number;
   campaigns: Campaign[];
@@ -139,10 +177,12 @@ export async function audience(venueId: number): Promise<Audience> {
   const db = getDb();
   const counts = (await db
     .prepare(
-      `SELECT COUNT(*) FILTER (WHERE withdrawn_at IS NULL) AS on_, COUNT(*) FILTER (WHERE withdrawn_at IS NOT NULL) AS off
+      `SELECT COUNT(*) FILTER (WHERE withdrawn_at IS NULL AND confirmed_at IS NOT NULL) AS on_,
+              COUNT(*) FILTER (WHERE withdrawn_at IS NULL AND confirmed_at IS NULL) AS waiting,
+              COUNT(*) FILTER (WHERE withdrawn_at IS NOT NULL) AS off
          FROM marketing_consents WHERE venue_id = ?`
     )
-    .get(venueId)) as { on_: number | string; off: number | string };
+    .get(venueId)) as { on_: number | string; waiting: number | string; off: number | string };
   const campaigns = (await db
     .prepare(
       `SELECT m.*, a.name AS sent_by FROM marketing_campaigns m LEFT JOIN admins a ON a.id = m.admin_id
@@ -151,6 +191,7 @@ export async function audience(venueId: number): Promise<Audience> {
     .all(venueId)) as { id: number; subject: string; body: string; recipients: number; sent_at: string; sent_by: string | null }[];
   return {
     subscribed: Number(counts.on_),
+    waiting: Number(counts.waiting),
     withdrawn: Number(counts.off),
     campaigns: campaigns.map((c) => ({ id: c.id, subject: c.subject, body: c.body, recipients: Number(c.recipients), sentAt: c.sent_at, sentBy: c.sent_by })),
     left: Math.max(0, MAX_CAMPAIGNS_PER_30_DAYS - (await recentCampaigns(venueId))),
@@ -222,7 +263,7 @@ export async function sendCampaign(venueId: number, adminId: number | null, inpu
     return { ok: false, error: `At most ${MAX_CAMPAIGNS_PER_30_DAYS} in 30 days, so people keep wanting them.` };
   const db = getDb();
   const people = (await db
-    .prepare("SELECT email, locale, token FROM marketing_consents WHERE venue_id = ? AND withdrawn_at IS NULL ORDER BY id")
+    .prepare("SELECT email, locale, token FROM marketing_consents WHERE venue_id = ? AND withdrawn_at IS NULL AND confirmed_at IS NOT NULL ORDER BY id")
     .all(venueId)) as { email: string; locale: string | null; token: string }[];
   if (people.length === 0) return { ok: false, error: "Nobody has agreed to hear from this venue yet." };
   const row = (await db

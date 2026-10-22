@@ -101,6 +101,15 @@ describe("the public API", () => {
     expect((await cancelled.json()).booking.status).toBe("cancelled");
   });
 
+  it("with an availability key, shows availability and the venue but no customer", async () => {
+    const a = await createApiKey(venueId, { name: "Widget", scope: "availability" }, null);
+    if (!a.ok) throw new Error(a.error);
+    expect(a.key.startsWith("ms_a_")).toBe(true);
+    expect((await venueGet(call("/api/v1/venue", a.key))).status).toBe(200);
+    expect((await availabilityGet(call(`/api/v1/availability?date=${day}`, a.key))).status).toBe(200);
+    expect((await bookingsGet(call(`/api/v1/bookings?from=${day}&to=${day}`, a.key))).status).toBe(403);
+  });
+
   it("stops at once for a revoked key", async () => {
     const k = await createApiKey(venueId, { name: "Old", scope: "read" }, null);
     if (!k.ok) throw new Error(k.error);
@@ -119,6 +128,12 @@ describe("webhooks", () => {
     expect(isPrivate("::ffff:127.0.0.1")).toBe(true);
     expect(isPrivate("fd00::1")).toBe(true);
     expect(isPrivate("8.8.8.8")).toBe(false);
+    // The same addresses written other ways.
+    expect(isPrivate("::ffff:7f00:1")).toBe(true);
+    expect(isPrivate("64:ff9b::10.0.0.1")).toBe(true);
+    expect(isPrivate("::127.0.0.1")).toBe(true);
+    expect(isPrivate("198.18.0.1")).toBe(true);
+    expect(isPrivate("::ffff:808:808")).toBe(false);
   });
 
   it("tell of bookings made, paid, moved and cancelled, signed, once each", async () => {

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /** `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price and whether they are free. */
 export async function GET(req: NextRequest) {
-  const caller = await apiCaller(req);
+  const caller = await apiCaller(req, "availability");
   if (caller instanceof NextResponse) return caller;
   const date = req.nextUrl.searchParams.get("date") ?? "";
   const sport = req.nextUrl.searchParams.get("sport");

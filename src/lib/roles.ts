@@ -32,6 +32,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/coach-payouts$/, methods: "all" },
   { path: /^\/api\/admin\/integrations$/, methods: "all" },
   { path: /^\/api\/admin\/(leagues|tournaments)$/, methods: ["POST"] },
+  // Calling one off refunds every entry; drawing and seasons shape what people paid for.
+  { path: /^\/api\/admin\/(leagues|tournaments)\/\d+$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },
   { path: /^\/api\/admin\/membership-plans$/, methods: ["POST", "DELETE"] },

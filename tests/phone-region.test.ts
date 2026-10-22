@@ -22,10 +22,10 @@ afterEach(() => {
 
 const SAME = [
   // Malaysia: national with its trunk 0, and international.
-  ["012-345 6789", "+60 12-345 6789", "60123456789", "0123456789"],
+  ["012-345 6789", "+60 12-345 6789", "60123456789", "0123456789", "0060 12-345 6789"],
   ["03-7956 1234", "+60 3 7956 1234"],
   // Singapore: eight digits, and the same with 65 before it.
-  ["9123 4567", "+65 9123 4567", "6591234567"],
+  ["9123 4567", "+65 9123 4567", "6591234567", "0065 9123 4567"],
   // A Singapore landline that begins 60 or 65 is not a Malaysian or international number.
   ["6012 3456"],
   ["6512 3456"],
@@ -73,6 +73,17 @@ describe("one key per number", () => {
       .filter(Boolean);
     for (const statement of sql) await db.prepare(statement).run();
     expect(await key()).toBe("60123456");
+    // And on to today's rule, which leaves it be.
+    const latest = readFileSync(path.join(process.cwd(), "db/migrations/0066_phone_key_00.sql"), "utf8")
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n")
+      .split(/;\s*\n/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    for (const statement of latest) await db.prepare(statement).run();
+    expect(await key()).toBe("60123456");
+    expect(((await db.prepare("SELECT phone_key('0060 12-345 6789') AS k").get()) as { k: string }).k).toBe("0123456789");
   });
 });
 

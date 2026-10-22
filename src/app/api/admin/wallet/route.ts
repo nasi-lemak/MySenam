@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     scope: creditScope(),
     customer,
-    entries: await listWalletEntries(customer.id, 20),
+    entries: await listWalletEntries(customer.id, 20, venueId),
   });
 }
 

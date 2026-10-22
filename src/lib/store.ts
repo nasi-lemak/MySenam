@@ -4038,10 +4038,15 @@ export async function walletBalances(userId: number): Promise<WalletBalance[]> {
 }
 
 /** Most recent movements first. */
-export async function listWalletEntries(userId: number, limit = 50): Promise<WalletEntry[]> {
-  const rows = await getDb()
-    .prepare(`${WALLET_SELECT} WHERE w.user_id = ? ORDER BY w.id DESC LIMIT ?`)
-    .all(userId, Math.min(Math.max(limit, 1), 200)) as WalletRow[];
+export async function listWalletEntries(userId: number, limit = 50, venueId?: number): Promise<WalletEntry[]> {
+  // A venue's counter sees that venue's credit, not what the customer has been doing elsewhere.
+  const rows = (venueId === undefined
+    ? await getDb()
+        .prepare(`${WALLET_SELECT} WHERE w.user_id = ? ORDER BY w.id DESC LIMIT ?`)
+        .all(userId, Math.min(Math.max(limit, 1), 200))
+    : await getDb()
+        .prepare(`${WALLET_SELECT} WHERE w.user_id = ? AND w.venue_id = ? ORDER BY w.id DESC LIMIT ?`)
+        .all(userId, venueId, Math.min(Math.max(limit, 1), 200))) as WalletRow[];
   return rows.map(toWalletEntry);
 }
 

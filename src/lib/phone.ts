@@ -4,7 +4,7 @@ import { region } from "./region";
  * A phone number as the digits that identify it, however it was typed:
  * "012-345 6789", "+60 12 345 6789" and "0123456789" are one Malaysian number;
  * "9123 4567" and "+65 9123 4567" one Singaporean. The same rule as the
- * database's `phone_key()` (migration 0035), which keys bookings and lists.
+ * database's `phone_key()` (migrations 0035, 0066), which keys bookings and lists.
  *
  * It needs no country: a Malaysian number written nationally starts with its
  * trunk 0, never 60, so 60 and ten or more digits is the international form;
@@ -12,7 +12,9 @@ import { region } from "./region";
  * international form and an eight-digit local number starting 65 is left be.
  */
 export function phoneKey(phone: string): string {
-  const d = phone.replace(/\D/g, "");
+  const raw = phone.replace(/\D/g, "");
+  // 00 is how the international + is dialled.
+  const d = raw.startsWith("00") ? raw.slice(2) : raw;
   if (d.startsWith("60") && d.length >= 10) return `0${d.slice(2)}`;
   if (d.startsWith("65") && d.length === 10) return d.slice(2);
   return d;

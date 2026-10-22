@@ -17,7 +17,9 @@ import type { Booking } from "./types";
  */
 
 export const MAX_KEYS = 10;
-export type ApiScope = "read" | "write";
+/** What a key may do: see availability and the venue only; also read bookings; also book and cancel. */
+export type ApiScope = "availability" | "read" | "write";
+const RANK: Record<ApiScope, number> = { availability: 0, read: 1, write: 2 };
 
 export interface ApiKey {
   id: number;
@@ -65,12 +67,12 @@ export async function createApiKey(
 ): Promise<{ ok: true; key: string; record: ApiKey } | { ok: false; error: string }> {
   const name = typeof input.name === "string" ? input.name.trim().slice(0, 60) : "";
   if (name.length < 2) return { ok: false, error: "Name the key after what will use it." };
-  const scope: ApiScope = input.scope === "write" ? "write" : "read";
+  const scope: ApiScope = input.scope === "write" ? "write" : input.scope === "availability" ? "availability" : "read";
   const live = (await getDb().prepare("SELECT COUNT(*) AS n FROM venue_api_keys WHERE venue_id = ? AND revoked_at IS NULL").get(venueId)) as {
     n: number | string;
   };
   if (Number(live.n) >= MAX_KEYS) return { ok: false, error: `${MAX_KEYS} keys at most. Revoke one first.` };
-  const key = `ms_${scope === "write" ? "w" : "r"}_${crypto.randomBytes(24).toString("base64url")}`;
+  const key = `ms_${scope === "write" ? "w" : scope === "availability" ? "a" : "r"}_${crypto.randomBytes(24).toString("base64url")}`;
   const row = (await getDb()
     .prepare("INSERT INTO venue_api_keys (venue_id, name, prefix, key_hash, scope, admin_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING *")
     .get(venueId, name, key.slice(0, 10), hash(key), scope, adminId)) as Row;
@@ -98,13 +100,17 @@ export interface ApiCaller {
 export async function apiCaller(req: NextRequest, need: ApiScope = "read"): Promise<ApiCaller | NextResponse> {
   const header = req.headers.get("authorization") ?? "";
   const key = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!/^ms_[rw]_[A-Za-z0-9_-]{20,64}$/.test(key))
+  if (!/^ms_[arw]_[A-Za-z0-9_-]{20,64}$/.test(key))
     return NextResponse.json({ error: "Give an API key: Authorization: Bearer <key>." }, { status: 401 });
   const row = (await getDb()
     .prepare("SELECT id, venue_id, scope, last_used_at FROM venue_api_keys WHERE key_hash = ? AND revoked_at IS NULL")
     .get(hash(key))) as { id: number; venue_id: number; scope: ApiScope; last_used_at: string | null } | undefined;
   if (!row) return NextResponse.json({ error: "That API key is not valid, or was revoked." }, { status: 401 });
-  if (need === "write" && row.scope !== "write") return NextResponse.json({ error: "This key can only read." }, { status: 403 });
+  if (RANK[row.scope] < RANK[need])
+    return NextResponse.json(
+      { error: row.scope === "availability" ? "This key can only see availability and the venue." : "This key can only read." },
+      { status: 403 }
+    );
   const limited = await rateLimit(req, "api", `key${row.id}`);
   if (limited) return limited;
   // Written at most once a minute, so a busy integration does not write on every call.

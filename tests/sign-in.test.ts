@@ -10,7 +10,7 @@ vi.mock("next/headers", () => ({
 
 import { NextRequest } from "next/server";
 import { ensureBootstrapAdmin } from "../src/lib/admin-auth";
-import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
+import { authenticate, createSession, getUserByToken, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import {
   decodePending,
@@ -164,8 +164,12 @@ describe("signing in with Google", () => {
       ok: false,
       error: expect.stringContaining("Sign in with your password"),
     });
+    const before = await createSession(existing.id);
     googleAnswers(claimsFor(pending, { email: existing.email, email_verified: "true" }));
     expect(await finishGoogle({ code: "x", state: pending.state, error: null }, pending)).toMatchObject({ ok: true, userId: existing.id });
+    // Whoever registered the address first, to be let in later, is shut out: no password, no session.
+    expect(await authenticate(existing.email, "a long enough password")).toBeNull();
+    expect(await getUserByToken(before.token)).toBeNull();
   });
 
   it("refuses an answer that is not for this sign-in", async () => {

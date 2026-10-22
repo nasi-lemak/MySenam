@@ -14,7 +14,7 @@ import {
   venueHours,
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
-import { customerMayBook } from "@/lib/limits";
+import { customerMayBook, guestSurge } from "@/lib/limits";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, struckOut } from "@/lib/cancel-policy";
 import { mayShowVenue } from "@/lib/listing";
@@ -255,7 +255,9 @@ export async function POST(req: NextRequest) {
   // unpaid is held for a few minutes, and confirmed once it is paid.
   // So is one from a number with too many no-shows here (lib/cancel-policy.ts).
   const policy = await holdPolicy(venue.id);
-  const mustPay = (await struckOut(venue.id, phone)).out && (await takesPaymentOnline(venue.id));
+  // So is a guest's while the venue is being flooded with unpaid guest bookings (lib/limits.ts).
+  const mustPay =
+    ((await struckOut(venue.id, phone)).out || (!user && (await guestSurge(venue.id)))) && (await takesPaymentOnline(venue.id));
   const holdUntil = policy.active || mustPay
     ? await holdNewBookings(
         result.bookings.filter((b) => b.paymentStatus === "unpaid").map((b) => b.id),
@@ -271,7 +273,16 @@ export async function POST(req: NextRequest) {
   await rememberLocale(result.bookings.map((b) => b.id), locale);
   // Only when the box was ticked: news from this venue (lib/marketing.ts).
   if (marketing === true && typeof email === "string" && email.trim())
-    await recordConsent({ venueId: venue.id, email, name: name as string, userId: user?.id ?? null, locale, source: "booking" });
+    await recordConsent({
+      venueId: venue.id,
+      email,
+      name: name as string,
+      userId: user?.id ?? null,
+      locale,
+      source: "booking",
+      // Anybody can type an address: only the account's own is taken at its word.
+      confirmed: !!user && user.email.trim().toLowerCase() === email.trim().toLowerCase(),
+    });
   if (!holdUntil) await notifyBookingConfirmed(result.bookings, locale, result.seriesCode);
   await tickOutbox();
   return NextResponse.json(

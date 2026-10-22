@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** The key's venue: its details, hours and courts with their rates. */
 export async function GET(req: NextRequest) {
-  const caller = await apiCaller(req);
+  const caller = await apiCaller(req, "availability");
   if (caller instanceof NextResponse) return caller;
   const v = (await getVenue(caller.venueId))!;
   return NextResponse.json({

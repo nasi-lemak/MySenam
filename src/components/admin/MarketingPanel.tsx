@@ -78,6 +78,7 @@ export function MarketingPanel({ venues }: { venues: ManagedVenue[] }) {
           <>
             {": "}
             <span className="font-medium text-slate-700">{data.subscribed}</span> now
+            {data.waiting > 0 && `, ${data.waiting} not yet confirmed (sent nothing until they do)`}
             {data.withdrawn > 0 && `, ${data.withdrawn} stopped`}
           </>
         )}
