@@ -100,7 +100,7 @@ import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
-import { cancelPolicy, strikesFor } from "./cancel-policy";
+import { cancelPolicy } from "./cancel-policy";
 import { venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt } from "./documents";
 import { venueTax } from "./tax";
@@ -3642,12 +3642,47 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   }
   const extras = await addonsFor(rows.map((r) => r.id));
   const policies = new Map<number, Awaited<ReturnType<typeof cancelPolicy>>>();
+  for (const r of rows) if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
+
+  // No-shows and strikes for every number on the day in two queries, not two per row; and each
+  // venue's own, by the number however it was typed: another venue's dealings are not its staff's.
+  const keys = [...new Set(rows.map((r) => phoneKey(r.phone)))];
+  const venueIds = [...policies.keys()];
+  const history = new Map<string, { noShows: number; strikeDates: string[] }>();
+  if (keys.length > 0) {
+    const longest = Math.max(0, ...[...policies.values()].map((p) => p.strikeDays));
+    const marked = (await db
+      .prepare(
+        `SELECT c.venue_id, b.phone_key, b.date, b.no_show,
+                (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid'))
+                  AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
+                  AND b.date >= ? AS strike
+           FROM bookings b JOIN courts c ON c.id = b.court_id
+          WHERE c.venue_id IN (${venueIds.map(() => "?").join(",")}) AND b.phone_key IN (${keys.map(() => "?").join(",")})
+            AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid'))`
+      )
+      .all(addDays(todayISO(), -longest), ...venueIds, ...keys)) as {
+      venue_id: number;
+      phone_key: string;
+      date: string;
+      no_show: number;
+      strike: boolean | number;
+    }[];
+    for (const m of marked) {
+      const key = `${m.venue_id}:${m.phone_key}`;
+      const h = history.get(key) ?? { noShows: 0, strikeDates: [] };
+      if (m.no_show === 1) h.noShows++;
+      if (m.strike === true || m.strike === 1) h.strikeDates.push(m.date);
+      history.set(key, h);
+    }
+  }
 
   const list: AdminBookingRow[] = [];
   for (const r of rows) {
     const booking = toBooking(r);
-    if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
     const policy = policies.get(r.venue_id)!;
+    const h = history.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? { noShows: 0, strikeDates: [] };
+    const since = addDays(todayISO(), -policy.strikeDays);
     list.push({
       ...booking,
       courtName: r.court_name,
@@ -3655,7 +3690,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       venueId: r.venue_id,
       venueName: r.venue_name,
       // Exclude this booking so the count reads as history, not self-reference.
-      priorNoShows: (await countNoShows(booking.phone)) - (booking.noShow ? 1 : 0),
+      priorNoShows: h.noShows - (booking.noShow ? 1 : 0),
       courtDeposit: r.court_deposit,
       hire: hires.get(booking.id) ?? null,
       phoneChecked: r.user_verified_phone !== null && phoneNumber(booking.phone) === r.user_verified_phone,
@@ -3664,7 +3699,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       strikes:
         policy.strikeLimit === null
           ? null
-          : { count: await strikesFor(r.venue_id, booking.phone, policy.strikeDays), limit: policy.strikeLimit },
+          : { count: h.strikeDates.filter((d) => d >= since).length, limit: policy.strikeLimit },
     });
   }
   return list;

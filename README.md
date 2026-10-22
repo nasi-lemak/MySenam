@@ -1567,6 +1567,7 @@ the account would destroy the only record of whose money the venue is holding.
 | Arrivals at the desk | 365 days | deleted |
 | Settled waiting-list entries | 90 days | deleted |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
+| Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
@@ -1577,9 +1578,8 @@ Door logs go first and shortest: they tie a named person to a time and a
 building, which is the most sensitive thing here and the least useful once an
 incident window has passed.
 
-There is no scheduler in this system, so the policy applies itself the first
-time anyone opens the dashboard each day — a venue nobody opens is a venue
-accumulating nothing either. An owner can see what is due, when it last ran, and
+The scheduler applies the policy once a day; where it is turned off, it
+applies itself the first time anyone opens the dashboard each day. An owner can see what is due, when it last ran, and
 run it early, under *Venues & staff → Keeping nothing too long*.
 
 ### How big it gets, and why not TimescaleDB
@@ -3836,6 +3836,23 @@ were unkind to the people using them. What changed, by theme:
 - **A flood of guest bookings**: past 30 unpaid bookings without an account
   at one venue in an hour, the next guest pays online to hold theirs where the
   venue takes payment online, or signs in where it does not.
+
+### Reliability
+
+- **A message is sent once** however many drains run at the same moment (two
+  requests, or two servers): each claims a message by moving its next try ten
+  minutes on before sending it, and only the one whose claim landed sends.
+  A server that dies mid-send leaves it to be tried again when that runs out.
+- **Reminders** are looked for at most once a minute per server, not on every
+  request that sends messages.
+- **The Bookings tab** reads no-shows and strikes for the whole day in two
+  queries rather than two per row, and counts each venue's own (by phone
+  number however typed): another venue's dealings with a customer are not
+  this venue's staff's business.
+- **The retention policy** runs from the scheduler once a day, and also
+  removes webhook deliveries older than 30 days (delivered, or given up on);
+  the dashboard still runs it where the scheduler is off. The deliveries
+  still to go have a partial index of their own (migration 0068).
 
 ## Renamed from MudahTempah
 

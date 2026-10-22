@@ -481,6 +481,10 @@ describe("no-show tracking", () => {
       expect(row.noShow).toBe(true);
       expect(row.priorNoShows).toBe(1);
     }
+    // Another venue's staff do not see what this number did here, however it is typed there.
+    const elsewhere = await createBooking({ courtId: (await listVenues())[0].courts[0].id, date, hours: [20], name: "Repeat", phone: "+60170000002" });
+    if (!elsewhere.ok) throw new Error(elsewhere.error);
+    expect((await listBookingsForDate(date)).find((r) => r.code === elsewhere.booking.code)!.priorNoShows).toBe(0);
 
     // a mistake can be undone
     expect(await setNoShow(second.booking.code, false)).toMatchObject({

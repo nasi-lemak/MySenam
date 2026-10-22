@@ -467,6 +467,16 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
   const result: DrainResult = { sent: 0, failed: 0, abandoned: 0, transport: post.name };
 
   for (const message of await dueMessages(limit)) {
+    // Claimed before it is tried: two drains at once (two requests, two servers) each see it due, and
+    // only the one that moves its next try on ten minutes sends it. Should this one die mid-send, the
+    // message is tried again when that runs out.
+    const claimed = await db
+      .prepare(
+        `UPDATE messages SET next_attempt_at = datetime('now', '+10 minutes')
+          WHERE id = ? AND status IN ('queued','failed') AND next_attempt_at <= datetime('now')`
+      )
+      .run(message.id);
+    if (claimed.changes !== 1) continue;
     const attempts = message.attempts + 1;
     // A WhatsApp message the venue pays for is paid before it goes
     // (lib/whatsapp-credit.ts); with nothing left to pay with, it does not go

@@ -50,6 +50,8 @@ export const RETENTION = {
    * table and the most personal. Long enough to answer "did they get it?".
    */
   messageDays: 90,
+  /** What was sent to a venue's own systems, delivered or given up on: each carries a booking, name and all. */
+  webhookDeliveryDays: 30,
   /** A booking stops naming anybody after this, but its money stays. */
   bookingIdentityDays: 730,
   /** Withdrawn out-of-hours access, kept a while in case it is disputed. */
@@ -121,6 +123,14 @@ const RULES: Rule[] = [
     table: "messages",
     // Never one still waiting to go.
     where: "status IN ('sent','abandoned') AND created_at < ?",
+  },
+  {
+    what: "Webhook deliveries to venues' systems",
+    days: RETENTION.webhookDeliveryDays,
+    action: "deleted",
+    table: "webhook_deliveries",
+    // Delivered, or tried as often as it will be; never one still to go.
+    where: "(delivered_at IS NOT NULL OR attempts >= 8) AND created_at < ?",
   },
   {
     what: "Names and numbers on old bookings",
@@ -200,9 +210,8 @@ export interface PruneResult {
 /**
  * Apply the retention policy.
  *
- * Deliberately not on a timer of its own: this codebase has no scheduler, and
- * a venue that never opens the dashboard is a venue with nothing accumulating
- * either. It runs at most once a day, whenever staff are already here.
+ * At most once a day: from the scheduler's minute tick (lib/scheduler.ts),
+ * and, where that is turned off, whenever staff open the dashboard.
  */
 export async function pruneOldData(): Promise<PruneResult> {
   const db = getDb();

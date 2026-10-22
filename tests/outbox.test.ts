@@ -194,6 +194,23 @@ describe("sending", () => {
     expect((await dueMessages(100)).map((m) => m.id)).not.toContain(message.id);
   });
 
+  it("sends a message once when two drains run at the same moment", async () => {
+    // Booking it writes the confirmation down.
+    const b = await book(addDays(todayISO(), 9), 9);
+    const ids: number[] = [];
+    setTransport({
+      name: "slow",
+      async send(message) {
+        ids.push(message.id);
+        await new Promise((r) => setTimeout(r, 20));
+      },
+    });
+    await Promise.all([drainOutbox(100), drainOutbox(100), drainOutbox(100)]);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect((await messagesForBooking(b.id)).every((m) => m.status === "sent")).toBe(true);
+  });
+
   it("lets staff put a bad number right and try again", async () => {
     const abandoned = (await listMessages(venueId, 200)).find((m) => m.status === "abandoned")!;
     const retried = await retryMessage(abandoned.id, "0191112222");

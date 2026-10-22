@@ -427,9 +427,15 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
  */
 export async function tickOutbox(): Promise<DrainResult> {
   await notifyPendingOffers();
-  await notifyReminders();
+  // Reminders look over three days of bookings: once a minute is soon enough, not on every request.
+  if (Date.now() - remindersLooked.at >= 60_000) {
+    remindersLooked.at = Date.now();
+    await notifyReminders();
+  }
   return await drainOutbox();
 }
+
+const remindersLooked = { at: 0 };
 
 /**
  * Where and when, each as one phrase.

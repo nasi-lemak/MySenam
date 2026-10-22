@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { getDb } from "./db";
+import { pruneIfDue } from "./privacy";
 import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
@@ -107,6 +108,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
     await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // The retention policy, once a day: not left to whenever staff next open the dashboard.
+    await pruneIfDue();
+  } catch (err) {
+    console.error("[mysenam] applying the retention policy failed:", err);
+    await raiseAlert("scheduler:retention-failed", "Scheduled work failed: applying the retention policy", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
