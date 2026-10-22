@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ policy: await holdPolicy(venueId) });
 }
 
-/** `{ venueId, on, minutes }`. */
+/** `{ venueId, on, minutes, depositPercent? }`: depositPercent null for the whole price. */
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -30,12 +30,20 @@ export async function POST(req: NextRequest) {
   }
   const venueId = await venueOf(req, body.venueId);
   if (venueId instanceof NextResponse) return venueId;
-  const result = await setHoldPolicy(venueId, { on: body.on === true, minutes: body.minutes === undefined ? undefined : Number(body.minutes) });
+  const result = await setHoldPolicy(venueId, {
+    on: body.on === true,
+    minutes: body.minutes === undefined ? undefined : Number(body.minutes),
+    depositPercent: body.depositPercent === undefined ? undefined : body.depositPercent === null ? null : Number(body.depositPercent),
+  });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   await logFromRequest(req, {
     venueId,
     action: "settings.changed",
-    detail: `Pay online to hold: ${result.policy.on ? `on, ${result.policy.minutes} minutes` : "off"}`,
+    detail: `Pay online to hold: ${
+      result.policy.on
+        ? `on, ${result.policy.minutes} minutes${result.policy.depositPercent ? `, a ${result.policy.depositPercent}% deposit` : ""}`
+        : "off"
+    }`,
   });
   return NextResponse.json({ policy: result.policy });
 }

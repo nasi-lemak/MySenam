@@ -938,6 +938,9 @@ const EN = {
 
   // Paying online
   "pay.button": "Pay {cur}{amount} online",
+  "pay.deposit": "Pay a {pct}% deposit now: {cur}{amount}",
+  "pay.depositRest": "The rest, {cur}{rest}, is paid at the venue.",
+  "mine.depositPaid": "{cur}{amount} deposit paid online; {cur}{rest} still to pay at the venue.",
   "pay.opening": "Opening the payment page…",
   "pay.failed": "The payment page could not be opened.",
   "pay.how": "{payMethods}, through {gateway}. Or pay at the counter as usual.",
@@ -1274,6 +1277,7 @@ const EN = {
   "terms.strikes": "After {n} no-shows or unpaid late cancellations in {days} days, bookings from your number here must be paid online.",
   "terms.strikesCounter": "After {n} no-shows or unpaid late cancellations in {days} days, your number can only book here at the counter.",
   "terms.hold": "Pay online within {m} minutes of booking, or the booking is let go.",
+  "terms.deposit": "Or pay a {pct}% deposit online to hold it, and the rest at the venue.",
   "terms.yours": "You have {n} of {limit} so far here.",
   "terms.struck": "You have reached {limit} here: bookings from your number must be paid online.",
   "terms.creditRefund": "If you cancel a booking you paid for online, what comes back is stored credit at this venue, not money to your card.",
@@ -2288,6 +2292,9 @@ const MS: Record<Phrase, string> = {
 
   // Paying online
   "pay.button": "Bayar {cur}{amount} dalam talian",
+  "pay.deposit": "Bayar deposit {pct}% sekarang: {cur}{amount}",
+  "pay.depositRest": "Bakinya, {cur}{rest}, dibayar di pusat.",
+  "mine.depositPaid": "Deposit {cur}{amount} dibayar dalam talian; {cur}{rest} lagi dibayar di pusat.",
   "pay.opening": "Membuka halaman pembayaran…",
   "pay.failed": "Halaman pembayaran tidak dapat dibuka.",
   "pay.how": "{payMethods}, melalui {gateway}. Atau bayar di kaunter seperti biasa.",
@@ -2624,6 +2631,7 @@ const MS: Record<Phrase, string> = {
   "terms.strikes": "Selepas {n} kali tidak hadir atau pembatalan lewat tanpa bayaran dalam {days} hari, tempahan dari nombor anda di sini mesti dibayar dalam talian.",
   "terms.strikesCounter": "Selepas {n} kali tidak hadir atau pembatalan lewat tanpa bayaran dalam {days} hari, nombor anda hanya boleh menempah di kaunter di sini.",
   "terms.hold": "Bayar dalam talian dalam masa {m} minit selepas menempah, atau tempahan akan dilepaskan.",
+  "terms.deposit": "Atau bayar deposit {pct}% dalam talian untuk menahannya, dan bakinya di pusat.",
   "terms.yours": "Anda mempunyai {n} daripada {limit} setakat ini di sini.",
   "terms.struck": "Anda telah mencapai {limit} di sini: tempahan dari nombor anda mesti dibayar dalam talian.",
   "terms.creditRefund": "Jika anda membatalkan tempahan yang dibayar dalam talian, wang dipulangkan sebagai kredit tersimpan di pusat ini, bukan ke kad anda.",

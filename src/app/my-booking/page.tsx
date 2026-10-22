@@ -24,6 +24,8 @@ interface Result {
   receiptUrl?: string | null;
   /** Once played: where to rate the visit. */
   reviewUrl?: string | null;
+  /** The share the venue takes online to hold it, while it is held and nothing is paid. */
+  depositPercent?: number | null;
 }
 
 export default function MyBookingPage() {
@@ -283,7 +285,21 @@ export default function MyBookingPage() {
           {b.status === "confirmed" && (
             <>
               {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && (
-                <PayOnline codes={[b.code]} phone={phone} amount={b.totalPrice} held={!!b.holdUntil} />
+                <PayOnline
+                  codes={[b.code]}
+                  phone={phone}
+                  amount={Math.round((b.totalPrice - (b.sharesPaid ?? 0)) * 100) / 100}
+                  held={!!b.holdUntil}
+                  depositPercent={result.depositPercent ?? null}
+                />
+              )}
+              {(b.depositPaid ?? 0) > 0 && b.paymentStatus === "unpaid" && (
+                <p className="mt-3 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-900">
+                  {t("mine.depositPaid", {
+                    amount: b.depositPaid!.toFixed(2),
+                    rest: (Math.round((b.totalPrice - (b.sharesPaid ?? 0)) * 100) / 100).toFixed(2),
+                  })}
+                </p>
               )}
               {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && !b.holdUntil && b.classId === null && (
                 <SplitCost code={b.code} phone={phone} total={b.totalPrice - (b.sharesPaid ?? 0)} venueName={result.venue.name} date={b.date} />

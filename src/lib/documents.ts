@@ -279,7 +279,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   const b = (await db
     .prepare(
       `SELECT b.code, b.user_id, b.name, b.phone, b.date, b.start_hour, b.end_hour, b.total_price::float AS total_price,
-              b.shares_paid::float AS shares_paid, b.tax_rate, b.status, b.payment_status, b.paid_via,
+              b.shares_paid::float AS shares_paid, b.deposit_paid::float AS deposit_paid, b.tax_rate, b.status, b.payment_status, b.paid_via,
               b.coach_fee::float AS coach_fee, k.name AS coach_name,
               c.name AS court_name, c.sport, c.venue_id
          FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id WHERE b.id = ?`
@@ -287,7 +287,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     .get(bookingId)) as
     | {
         code: string; user_id: number | null; name: string; phone: string; date: string; start_hour: number; end_hour: number;
-        total_price: number; shares_paid: number; tax_rate: number | string | null; status: string; payment_status: string;
+        total_price: number; shares_paid: number; deposit_paid: number; tax_rate: number | string | null; status: string; payment_status: string;
         paid_via: string | null; court_name: string; sport: string; venue_id: number;
         coach_fee: number; coach_name: string | null;
       }
@@ -310,7 +310,10 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),
     ...extras.map((e) => ({ description: `${e.quantity} × ${e.name}`, amount: roundMoney(e.quantity * e.unit_price) })),
     ...(promo ? [{ description: `Promo ${promo.code}`, amount: -discount }] : []),
-    ...(b.shares_paid > 0 ? [{ description: "Paid by other players, on their own receipts", amount: -b.shares_paid }] : []),
+    ...(b.deposit_paid > 0 ? [{ description: "Deposit paid online, on its own receipt", amount: -b.deposit_paid }] : []),
+    ...(b.shares_paid - b.deposit_paid > 0.005
+      ? [{ description: "Paid by other players, on their own receipts", amount: -roundMoney(b.shares_paid - b.deposit_paid) }]
+      : []),
   ];
   return {
     code: b.code,

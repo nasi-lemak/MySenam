@@ -66,6 +66,8 @@ interface Confirmation {
   addonError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
   /** The platform's WhatsApp number, when customers can open the chat for their confirmation. */
   chatNumber?: string | null;
+  /** The share the venue takes online to hold the booking, the rest at the counter. */
+  depositPercent?: number | null;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -1009,7 +1011,7 @@ function ConfirmationModal({
           </div>
         )}
         {confirmation.payOnline && unpaid.length > 0 && unpaidTotal > 0 && (
-          <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} held={holdUntil !== null} />
+          <PayOnline codes={unpaid.map((b) => b.code)} phone={booking.phone} amount={unpaidTotal} held={holdUntil !== null} depositPercent={confirmation.depositPercent ?? null} />
         )}
         {confirmation.payOnline && !isSeries && holdUntil === null && booking.paymentStatus === "unpaid" && booking.totalPrice > 0 && (
           <SplitCost code={booking.code} phone={booking.phone} total={booking.totalPrice} venueName={confirmation.venue.name} date={booking.date} />

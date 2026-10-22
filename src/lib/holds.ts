@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { takesPaymentOnline } from "./payments";
+import { DEPOSIT_PERCENTS } from "./types";
 import { offerSlotPlace, settleCancelled } from "./store";
 
 /**
@@ -34,25 +35,43 @@ export interface HoldPolicy {
   minutes: number;
   /** In force: asked for, and the venue can take payment online. */
   active: boolean;
+  /** The share of the price the customer may pay now to hold it, the rest at the counter; null: the whole price. */
+  depositPercent: number | null;
 }
 
+
 export async function holdPolicy(venueId: number): Promise<HoldPolicy> {
-  const row = (await getDb().prepare("SELECT pay_to_hold, hold_minutes FROM venues WHERE id = ?").get(venueId)) as
-    | { pay_to_hold: number; hold_minutes: number }
+  const row = (await getDb().prepare("SELECT pay_to_hold, hold_minutes, deposit_percent FROM venues WHERE id = ?").get(venueId)) as
+    | { pay_to_hold: number; hold_minutes: number; deposit_percent: number | null }
     | undefined;
   const on = row?.pay_to_hold === 1;
-  return { on, minutes: row?.hold_minutes ?? 15, active: on && (await takesPaymentOnline(venueId)) };
+  return {
+    on,
+    minutes: row?.hold_minutes ?? 15,
+    active: on && (await takesPaymentOnline(venueId)),
+    depositPercent: on ? (row?.deposit_percent ?? null) : null,
+  };
 }
 
 export async function setHoldPolicy(
   venueId: number,
-  input: { on: boolean; minutes?: number }
+  input: { on: boolean; minutes?: number; depositPercent?: number | null }
 ): Promise<{ ok: true; policy: HoldPolicy } | { ok: false; error: string }> {
   const minutes = input.minutes ?? 15;
   if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60) return { ok: false, error: "Hold a booking for 5 to 60 minutes." };
+  // Not given: as it was.
+  const deposit =
+    input.depositPercent !== undefined
+      ? input.depositPercent
+      : (((await getDb().prepare("SELECT deposit_percent FROM venues WHERE id = ?").get(venueId)) as { deposit_percent: number | null } | undefined)
+          ?.deposit_percent ?? null);
+  if (deposit !== null && !(DEPOSIT_PERCENTS as readonly number[]).includes(deposit))
+    return { ok: false, error: `A deposit of ${DEPOSIT_PERCENTS.join(", ")} percent, or the whole price.` };
   if (input.on && !(await takesPaymentOnline(venueId)))
     return { ok: false, error: "Set up taking payment online first: there is no way to pay without it." };
-  await getDb().prepare("UPDATE venues SET pay_to_hold = ?, hold_minutes = ? WHERE id = ?").run(input.on ? 1 : 0, minutes, venueId);
+  await getDb()
+    .prepare("UPDATE venues SET pay_to_hold = ?, hold_minutes = ?, deposit_percent = ? WHERE id = ?")
+    .run(input.on ? 1 : 0, minutes, deposit, venueId);
   return { ok: true, policy: await holdPolicy(venueId) };
 }
 

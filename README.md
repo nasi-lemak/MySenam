@@ -3043,6 +3043,25 @@ it is let go for somebody else and the customer is charged nothing.
   pass, and free ones are never held. It needs the venue's Billplz account;
   without one it cannot be turned on.
 
+**A deposit instead of the whole price.** The same setting can let the
+customer hold it with a share of the price (10, 20, 25, 30, 40 or 50 percent)
+and pay the rest at the counter. They see both buttons, *Pay RM35.00 online*
+and *Pay a 30% deposit now: RM10.50*, and the booking terms say so.
+
+- Paid, the deposit stands the booking exactly as paying in full would, with
+  the confirmation, and it is on a receipt of its own (`deposit_paid`, and in
+  `shares_paid` like a friend's share, so the balance left is right
+  everywhere). `/my-booking` says what was paid and what is left. Ticked paid
+  at the counter, the booking's receipt is for the rest.
+- Cancelled in time, all of it is owed back under *Refunds owed*, with a
+  credit note. Cancelled late, the venue keeps its late-cancel share of it
+  and the rest is owed back; a late cancellation with a deposit paid is not a
+  strike, since the venue was paid something.
+- The customer can still move it themselves; only friends' shares stop that.
+- A number past its no-show strikes is offered no deposit: it pays it all.
+- Several bookings paid together (a weekly series) take the share of the
+  whole, split across them.
+
 ### Paying online
 
 A venue can let customers pay by FPX online banking or card through

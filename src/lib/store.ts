@@ -399,6 +399,7 @@ interface BookingRow {
   check_in_token: string | null;
   class_id: number | null;
   shares_paid?: number | string;
+  deposit_paid?: number | string;
   coach_id?: number | null;
   coach_fee?: number | string;
   user_id: number | null;
@@ -456,6 +457,7 @@ function toBooking(r: BookingRow): Booking {
     checkInToken: r.check_in_token,
     classId: r.class_id,
     sharesPaid: Number(r.shares_paid ?? 0),
+    depositPaid: Number(r.deposit_paid ?? 0),
     coachId: r.coach_id ?? null,
     coachFee: Number(r.coach_fee ?? 0),
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
@@ -1675,7 +1677,10 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
-  const kept = booking.paymentStatus === "paid" ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (1 - share)) : 0;
+  const kept =
+    booking.paymentStatus === "paid"
+      ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (1 - share))
+      : roundMoney((booking.depositPaid ?? 0) * (1 - share));
   return { ok: true, booking: { ...booking, status: "cancelled" }, ...(late ? { kept } : {}) };
 }
 
@@ -1933,7 +1938,7 @@ export async function rescheduleBooking(
   if (await db.prepare("SELECT 1 AS n FROM open_games WHERE booking_id = ?").get(booking.id))
     return refuse("RESCHEDULE_GAME");
   // Friends have paid their share for this time: moving it is for the venue, who can square it with them.
-  if (by === "customer" && booking.sharesPaid > 0) return refuse("RESCHEDULE_SHARED");
+  if (by === "customer" && booking.sharesPaid - (booking.depositPaid ?? 0) > 0.005) return refuse("RESCHEDULE_SHARED");
   // A coach's time is not the court's: moving it is a conversation with the venue.
   if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
@@ -3709,12 +3714,12 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     const marked = (await db
       .prepare(
         `SELECT c.venue_id, b.phone_key, b.date, b.no_show,
-                (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid'))
+                (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid' AND b.deposit_paid = 0))
                   AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
                   AND b.date >= ? AS strike
            FROM bookings b JOIN courts c ON c.id = b.court_id
           WHERE c.venue_id IN (${venueIds.map(() => "?").join(",")}) AND b.phone_key IN (${keys.map(() => "?").join(",")})
-            AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid'))`
+            AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid' AND b.deposit_paid = 0))`
       )
       .all(addDays(todayISO(), -longest), ...venueIds, ...keys)) as {
       venue_id: number;
@@ -4386,9 +4391,18 @@ async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> 
                (SELECT total_price - shares_paid FROM bookings WHERE id = ?)) * ${Number(share)}, 2))
        WHERE p.status = 'paid'
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
-         AND EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
+         -- Paid for online, or a deposit paid on it (the rest was never paid online).
+         AND (p.deposit = 1 OR EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online'))
     `)
     .run(bookingId, bookingId, bookingId, bookingId);
+  // A deposit's own receipt is credited for what goes back.
+  const deposits = (await getDb()
+    .prepare(
+      `SELECT p.id FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
+        WHERE pb.booking_id = ? AND p.deposit = 1 AND p.status = 'paid'`
+    )
+    .all(bookingId)) as { id: number }[];
+  for (const d of deposits) await creditReceipt(`payment:${d.id}`, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
 }
 
 /* ---------------- Memberships ---------------- */

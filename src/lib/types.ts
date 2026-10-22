@@ -270,8 +270,14 @@ export interface Booking {
   checkInToken: string | null;
   /** Set when this booking is an enrolment in an instructor-led class. */
   classId: number | null;
-  /** Paid online towards it by other players in its open game (lib/games.ts). */
+  /**
+   * Paid towards it on receipts of its own: other players' shares in its open
+   * game (lib/games.ts), friends' in a split (lib/splits.ts), and the booker's
+   * own deposit (depositPaid). The rest is what is still due.
+   */
   sharesPaid: number;
+  /** Of sharesPaid, what the booker paid online as a deposit to hold it (lib/holds.ts). */
+  depositPaid?: number;
   /** A lesson: the coach on it, and their fee inside the price (lib/coaching.ts). */
   coachId?: number | null;
   coachFee?: number;
@@ -594,3 +600,6 @@ export interface Refusal {
   code?: ErrorCode;
   vars?: Record<string, string | number>;
 }
+
+/** The deposits a venue may take online to hold a booking, as a percent of the price (lib/holds.ts). */
+export const DEPOSIT_PERCENTS = [10, 20, 25, 30, 40, 50] as const;

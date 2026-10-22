@@ -39,6 +39,7 @@ export default function CoachBooking({
   // Every lesson booked, one or several weeks of them, and how long they are held unpaid.
   const [all, setAll] = useState<Booking[]>([]);
   const [holdUntil, setHoldUntil] = useState<string | null>(null);
+  const [depositPercent, setDepositPercent] = useState<number | null>(null);
   // Weekly lessons, for a signed-in customer, like a weekly court.
   const [signedIn, setSignedIn] = useState(false);
   const [weeks, setWeeks] = useState(1);
@@ -85,6 +86,7 @@ export default function CoachBooking({
       setBooked(data.booking);
       setAll(data.bookings ?? [data.booking]);
       setHoldUntil(data.holdUntil ?? null);
+      setDepositPercent(data.depositPercent ?? null);
       if (weeks > 1) setSeries({ count: data.bookings?.length ?? 1, skipped: data.skipped ?? [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("pay.failed"));
@@ -121,7 +123,7 @@ export default function CoachBooking({
           <p className="font-medium text-amber-800">{t("hold.body", { time: localTimeOf(holdUntil, timeZone) })}</p>
         )}
         {payOnline && unpaid.length > 0 && (
-          <PayOnline codes={unpaid.map((b) => b.code)} phone={booked.phone} amount={unpaidTotal} held={!!holdUntil} />
+          <PayOnline codes={unpaid.map((b) => b.code)} phone={booked.phone} amount={unpaidTotal} held={!!holdUntil} depositPercent={depositPercent} />
         )}
         <Link href="/my-booking" className="inline-block font-medium text-teal-800 underline">
           {t("nav.myBooking")}

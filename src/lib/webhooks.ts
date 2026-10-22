@@ -175,6 +175,7 @@ interface SeenRow {
   email: string | null;
   total_price: number | string;
   shares_paid: number | string;
+  deposit_paid: number | string;
   coach_id: number | null;
   no_show: number;
   created_at: string;
@@ -198,7 +199,8 @@ const bookingOf = (r: SeenRow) => ({
   phone: r.phone,
   email: r.email,
   totalPrice: Number(r.total_price),
-  paidByOthers: Number(r.shares_paid),
+  paidByOthers: Math.round((Number(r.shares_paid) - Number(r.deposit_paid)) * 100) / 100,
+  depositPaid: Number(r.deposit_paid),
   coachId: r.coach_id,
   noShow: r.no_show === 1,
   createdAt: r.created_at,
@@ -221,7 +223,7 @@ export async function sweepWebhookEvents(now = new Date()): Promise<number> {
     const rows = (await db
       .prepare(
         `SELECT b.id, c.venue_id, b.code, b.status, b.payment_status, b.date, b.start_hour, b.end_hour, b.court_id, c.name AS court_name,
-                c.sport, b.name, b.phone, b.email, b.total_price, b.shares_paid, b.coach_id, b.no_show, b.created_at, w.state AS seen
+                c.sport, b.name, b.phone, b.email, b.total_price, b.shares_paid, b.deposit_paid, b.coach_id, b.no_show, b.created_at, w.state AS seen
            FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN webhook_seen w ON w.booking_id = b.id
           WHERE c.venue_id = ? AND b.demo = 0 AND b.date BETWEEN ? AND ?`
       )

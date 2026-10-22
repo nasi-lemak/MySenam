@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { HoldPolicy } from "@/lib/holds";
+import { DEPOSIT_PERCENTS } from "@/lib/types";
 
 /**
  * Ask for payment online to hold a booking: the answer to slots lost to
@@ -10,6 +11,7 @@ import type { HoldPolicy } from "@/lib/holds";
 export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; canPayOnline: boolean }) {
   const [policy, setPolicy] = useState<HoldPolicy | null>(null);
   const [minutes, setMinutes] = useState("15");
+  const [deposit, setDeposit] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -22,6 +24,7 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
         if (!d.policy) return;
         setPolicy(d.policy);
         setMinutes(String(d.policy.minutes));
+        setDeposit(d.policy.depositPercent ? String(d.policy.depositPercent) : "");
       });
   }, [venueId, canPayOnline]);
 
@@ -33,12 +36,18 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
       const res = await fetch("/api/admin/hold-policy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, on, minutes: Number(minutes) }),
+        body: JSON.stringify({ venueId, on, minutes: Number(minutes), depositPercent: deposit ? Number(deposit) : null }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not save");
       setPolicy(data.policy);
-      setNotice(on ? `Online bookings are now held ${data.policy.minutes} minutes for payment.` : "Bookings stand unpaid until the counter again.");
+      setNotice(
+        on
+          ? `Online bookings are now held ${data.policy.minutes} minutes for payment${
+              data.policy.depositPercent ? `, or a ${data.policy.depositPercent}% deposit` : ""
+            }.`
+          : "Bookings stand unpaid until the counter again."
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save");
     } finally {
@@ -55,6 +64,11 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
         else and they are not charged. Paid, it stands, and they get the confirmation. Your staff booking at the counter, and
         anything paid from credit, a pass or free, are never held.
       </p>
+      <p className="mt-1 text-xs text-slate-500">
+        With a deposit, the customer may pay just that share to hold it and the rest at your counter. A deposit is refunded
+        like any payment when they cancel in time; cancelled late, you keep the late-cancel share of it. A number past its
+        no-show strikes always pays the whole price.
+      </p>
       {!canPayOnline && <p className="mt-2 text-xs font-medium text-amber-700">Set up taking payment online above first.</p>}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2">
@@ -68,6 +82,17 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
             className="w-16 rounded-md border border-slate-300 px-2 py-1"
           />
           minutes
+        </label>
+        <label className="flex items-center gap-2">
+          Customer pays
+          <select value={deposit} onChange={(e) => setDeposit(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1">
+            <option value="">the whole price</option>
+            {DEPOSIT_PERCENTS.map((p) => (
+              <option key={p} value={p}>
+                the whole price, or a {p}% deposit
+              </option>
+            ))}
+          </select>
         </label>
         {policy.on ? (
           <>

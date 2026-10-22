@@ -294,6 +294,8 @@ export async function POST(req: NextRequest) {
       walletError: payErrors[0] ?? null,
       // Pay online by then, or the booking is let go.
       holdUntil,
+      // Or just this share of it, the rest at the counter: the venue's choice, not for a number past its strikes.
+      depositPercent: holdUntil && policy.active && !(await struckOut(venue.id, phone)).out ? policy.depositPercent : null,
       promoError,
       discount,
       addons: addonLines,
@@ -347,6 +349,11 @@ export async function GET(req: NextRequest) {
       ),
     },
     payOnline: await takesPaymentOnline(venue.id),
+    // A deposit to hold it, while it is held and none is paid yet.
+    depositPercent:
+      booking.holdUntil && (booking.depositPaid ?? 0) === 0 && !(await struckOut(venue.id, booking.phone)).out
+        ? (await holdPolicy(venue.id)).depositPercent
+        : null,
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],
     // Its receipt (a tax invoice where the venue charges SST or GST), once paid.
     receiptUrl: booking.paymentStatus === "paid" && booking.totalPrice > 0 ? receiptPath(booking.code) : null,

@@ -25,13 +25,13 @@ import { Booking, MAX_TOP_UP } from "./types";
 import { settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
-import { extendHolds, PAYMENT_PAGE_MINUTES } from "./holds";
+import { extendHolds, holdPolicy, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
 import { creditBooking, creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
 import { venueTax } from "./tax";
-import { cancelPolicy, type OnlineRefunds } from "./cancel-policy";
+import { cancelPolicy, struckOut, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
 
 /**
@@ -288,6 +288,8 @@ interface PaymentRow {
   paid_at: string | null;
   refund_due: number;
   refunded: number;
+  /** 1: a page for the venue's deposit only, not the whole price. */
+  deposit?: number;
   purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
   invoice_id: number | null;
   split_id?: number | null;
@@ -369,7 +371,7 @@ export async function paymentByBill(billId: string): Promise<OnlinePayment | nul
 }
 
 export type StartResult =
-  | { ok: true; url: string; amount: number; reused: boolean }
+  | { ok: true; url: string; amount: number; reused: boolean; /** Only the venue's deposit. */ deposit?: boolean }
   | { ok: false; error: string; status: number; code?: ErrorCode; vars?: Record<string, string | number> };
 
 /**
@@ -384,6 +386,8 @@ export type StartResult =
 export async function startBookingPayment(input: {
   codes: string[];
   phone: string;
+  /** Only the venue's deposit now, where it takes one (lib/holds.ts): the rest at the counter. */
+  deposit?: boolean;
 }): Promise<StartResult> {
   const codes = [...new Set(input.codes.map((c) => c.trim().toUpperCase()).filter(Boolean))];
   if (codes.length === 0) return { ok: false, error: "Which booking is this for?", status: 400 };
@@ -417,6 +421,23 @@ export async function startBookingPayment(input: {
   if (amount <= 0)
     return { ok: false, error: "There is nothing left to pay on this booking.", status: 409 };
 
+  // A deposit, where the venue takes one and none is paid on these yet: that share of what is due now,
+  // split across the bookings in proportion, the last taking the rounding.
+  // Not for a number past its strikes here, which pays in full to book (lib/cancel-policy.ts).
+  const depositPercent =
+    input.deposit && !(await struckOut(venueId, bookings[0].phone)).out ? (await holdPolicy(venueId)).depositPercent : null;
+  const asDeposit = depositPercent !== null && due.every((b) => (b.depositPaid ?? 0) === 0);
+  const owing = (b: Booking) => Math.round((b.totalPrice - b.sharesPaid) * 100) / 100;
+  // Rounded exactly as the page showing it does (components/PayOnline.tsx).
+  const charge = asDeposit ? Math.round(amount * depositPercent!) / 100 : amount;
+  const billedFor = new Map<number, number>();
+  let allotted = 0;
+  due.forEach((b, i) => {
+    const share = !asDeposit ? owing(b) : i === due.length - 1 ? Math.round((charge - allotted) * 100) / 100 : Math.round(owing(b) * depositPercent! / 100 * 100) / 100;
+    allotted += share;
+    billedFor.set(b.id, share);
+  });
+
   // Pressing the button twice, or coming back to it, should not make a second
   // bill for the same thing.
   const ids = due.map((b) => b.id).sort((a, b) => a - b);
@@ -425,8 +446,8 @@ export async function startBookingPayment(input: {
   // while it has time left.
   const held = due.some((b) => b.holdUntil);
   await extendHolds(ids);
-  const reusable = await pendingPaymentFor(ids, amount, held ? PAYMENT_PAGE_MINUTES - 5 : 23 * 60);
-  if (reusable) return { ok: true, url: reusable.url, amount, reused: true };
+  const reusable = await pendingPaymentFor(ids, charge, held ? PAYMENT_PAGE_MINUTES - 5 : 23 * 60, asDeposit);
+  if (reusable) return { ok: true, url: reusable.url, amount: charge, reused: true };
 
   const first = due[0];
   const court = (await getCourt(first.courtId))!;
@@ -438,11 +459,11 @@ export async function startBookingPayment(input: {
   let bill;
   try {
     bill = await openCheckout(account, {
-      amount,
+      amount: charge,
       name: first.name,
       email: first.email,
       mobile: first.phone ? toWhatsAppNumber(first.phone) : null,
-      description: `${venue.name}: ${what} (${first.seriesCode && due.length > 1 ? first.seriesCode : first.code})`,
+      description: `${venue.name}: ${asDeposit ? `deposit, ${what}` : what} (${first.seriesCode && due.length > 1 ? first.seriesCode : first.code})`,
       // The customer comes back to the site they paid on; the gateway reports to ours.
       redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
       reference: { label: "Booking", value: due.map((b) => b.code).join(" ") },
@@ -460,16 +481,16 @@ export async function startBookingPayment(input: {
   await db.transaction(async () => {
     const info = await db
       .prepare(
-        `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, deposit)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(account.provider, bill.id, bill.url, venueId, amount, first.name, first.phone);
+      .run(account.provider, bill.id, bill.url, venueId, charge, first.name, first.phone, asDeposit ? 1 : 0);
     const link = db.prepare(
       "INSERT INTO online_payment_bookings (payment_id, booking_id, amount) VALUES (?, ?, ?)"
     );
-    for (const b of due) await link.run(info.lastInsertRowid, b.id, Math.round((b.totalPrice - b.sharesPaid) * 100) / 100);
+    for (const b of due) await link.run(info.lastInsertRowid, b.id, billedFor.get(b.id)!);
   })();
-  return { ok: true, url: bill.url, amount, reused: false };
+  return { ok: true, url: bill.url, amount: charge, reused: false, ...(asDeposit ? { deposit: true } : {}) };
 }
 
 /**
@@ -477,11 +498,11 @@ export async function startBookingPayment(input: {
  * within `maxAgeMinutes` (so its page is still open: a day at most, which is
  * as long as Stripe keeps one).
  */
-async function pendingPaymentFor(bookingIds: number[], amount: number, maxAgeMinutes: number): Promise<PaymentRow | null> {
+async function pendingPaymentFor(bookingIds: number[], amount: number, maxAgeMinutes: number, deposit = false): Promise<PaymentRow | null> {
   const candidates = await getDb()
     .prepare(`
       SELECT p.* FROM online_payments p
-       WHERE p.status = 'pending' AND p.purpose = 'booking' AND p.amount = ?
+       WHERE p.status = 'pending' AND p.purpose = 'booking' AND p.deposit = ${deposit ? 1 : 0} AND p.amount = ?
          AND p.created_at > datetime('now', '-${Math.round(maxAgeMinutes)} minutes')
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
        ORDER BY p.id DESC
@@ -721,6 +742,8 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
 
   const paidAt = new Date().toISOString();
   const newlyPaid: number[] = [];
+  // Bookings a deposit was just paid on: held no longer, the rest due at the counter.
+  const deposited: number[] = [];
   await db.transaction(async () => {
     const claimed = await db
       .prepare("UPDATE online_payments SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'pending'")
@@ -730,12 +753,48 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     const linked = await db
       .prepare(`
         SELECT b.id, b.status, b.payment_status, b.total_price::float AS total_price, b.shares_paid::float AS shares_paid,
-               pb.amount::float AS billed
+               b.deposit_paid::float AS deposit_paid, pb.amount::float AS billed
           FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id
          WHERE pb.payment_id = ?
       `)
-      .all(row.id) as { id: number; status: string; payment_status: string; total_price: number; shares_paid: number; billed: number | null }[];
+      .all(row.id) as {
+      id: number;
+      status: string;
+      payment_status: string;
+      total_price: number;
+      shares_paid: number;
+      deposit_paid: number;
+      billed: number | null;
+    }[];
     let owed = 0;
+    if (row.deposit === 1) {
+      // A deposit counts towards the booking like a share, on its own receipt; the booking stays unpaid
+      // for the rest. Not for one cancelled, paid already, or with a deposit on it from another page.
+      for (const b of linked) {
+        const due = Math.round((Number(b.total_price) - Number(b.shares_paid)) * 100) / 100;
+        const billed = Number(b.billed ?? 0);
+        if (b.status === "confirmed" && b.payment_status === "unpaid" && Number(b.deposit_paid) === 0 && billed <= due + 0.005) {
+          await db
+            .prepare("UPDATE bookings SET shares_paid = shares_paid + ?, deposit_paid = deposit_paid + ? WHERE id = ?")
+            .run(billed, billed, b.id);
+          deposited.push(b.id);
+        } else owed += billed;
+      }
+      if (owed > 0)
+        await db
+          .prepare("UPDATE online_payments SET refund_due = LEAST(amount, refund_due + ?) WHERE id = ?")
+          .run(Math.round(owed * 100) / 100, row.id);
+      if (deposited.length > 0) {
+        const codes = (await db
+          .prepare(`SELECT code FROM bookings WHERE id IN (${deposited.map(() => "?").join(",")}) ORDER BY id`)
+          .all(...deposited)) as { code: string }[];
+        await receiptPayment(
+          { ...row, amount: Math.round((Number(row.amount) - owed) * 100) / 100 },
+          { description: `Deposit for ${codes.map((c) => c.code).join(", ")}`, userId: null, taxable: true }
+        );
+      }
+      return;
+    }
     for (const b of linked) {
       const due = Math.round((Number(b.total_price) - Number(b.shares_paid)) * 100) / 100;
       // What this page asked for it; a page made before that was recorded asked what it cost.
@@ -763,6 +822,26 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
   })();
 
   const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
+  // A deposit on a held booking: it stands now, and is confirmed as one paid in full would be.
+  if (deposited.length > 0) {
+    const holding: Booking[] = [];
+    for (const id of deposited) {
+      const b = await bookingById(id);
+      if (b?.holdUntil) holding.push(b);
+    }
+    if (holding.length > 0) {
+      await db.prepare(`UPDATE bookings SET hold_until = NULL WHERE id IN (${holding.map(() => "?").join(",")})`).run(...holding.map((b) => b.id));
+      for (const group of Map.groupBy(holding, (b) => b.seriesCode ?? b.code).values()) {
+        const stored = (await db.prepare("SELECT locale FROM bookings WHERE id = ?").get(group[0].id)) as { locale: string | null };
+        await notifyBookingConfirmed(
+          group.map((b) => ({ ...b, holdUntil: null })),
+          isLocale(stored.locale) ? stored.locale : "en",
+          group.length > 1 ? group[0].seriesCode : null
+        );
+      }
+    }
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
   const bookings: Booking[] = [];
   for (const id of newlyPaid) {
     const b = await bookingById(id);

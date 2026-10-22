@@ -74,7 +74,8 @@ export async function strikesFor(venueId: number, phone: string, days?: number):
         WHERE c.venue_id = ? AND b.phone_key = ? AND b.date >= ?
           -- Forgiven by the venue: only what came after counts again.
           AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
-          AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid'))`
+          -- A late cancellation the venue was paid something for (in full, or a deposit it kept part of) is not one.
+          AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid' AND b.deposit_paid = 0))`
     )
     .get(venueId, phoneKey(phone), addDays(todayISO(), -window))) as { n: number };
   return row.n;

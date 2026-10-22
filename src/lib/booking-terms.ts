@@ -26,6 +26,8 @@ export interface BookingTerms {
   struckOutPays: boolean;
   /** Minutes to pay before an unpaid booking is let go; null where bookings are not held. */
   holdMinutes: number | null;
+  /** Or this share paid online holds it, the rest at the counter. Left out when none, so earlier versions still match. */
+  depositPercent?: number;
   /** Money paid online for a booking the customer cancels comes back as stored credit here, not to the card. */
   refundsAsCredit: boolean;
   version: string;
@@ -53,6 +55,7 @@ export async function bookingTerms(venueId: number): Promise<BookingTerms | null
     struckOutPays: await takesPaymentOnline(venueId),
     holdMinutes: hold.active ? hold.minutes : null,
     refundsAsCredit: policy.onlineRefunds === "credit" && (await takesPaymentOnline(venueId)),
+    ...(hold.active && hold.depositPercent ? { depositPercent: hold.depositPercent } : {}),
   };
   const version = crypto.createHash("sha256").update(JSON.stringify(terms)).digest("hex").slice(0, 16);
   return { ...terms, version };

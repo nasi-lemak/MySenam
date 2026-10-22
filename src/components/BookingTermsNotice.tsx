@@ -72,6 +72,7 @@ export default function BookingTermsNotice({ venueId }: { venueId: number }) {
       ? [t(terms.struckOutPays ? "terms.strikes" : "terms.strikesCounter", { n: terms.strikeLimit, days: terms.strikeDays })]
       : []),
     ...(terms.holdMinutes !== null ? [t("terms.hold", { m: terms.holdMinutes })] : []),
+    ...(terms.holdMinutes !== null && terms.depositPercent ? [t("terms.deposit", { pct: terms.depositPercent })] : []),
     ...(terms.refundsAsCredit ? [t("terms.creditRefund")] : []),
   ];
 
