@@ -35,6 +35,7 @@ import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } f
 import { receiptPath } from "@/lib/receipts";
 import { reviewable, reviewPath } from "@/lib/reviews";
 import { recordConsent } from "@/lib/marketing";
+import { accountsForUser, chargeToAccount } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -100,6 +101,17 @@ export async function POST(req: NextRequest) {
   if (user) {
     const noPhone = await phoneRefusal(user.id);
     if (noPhone) return refusal(noPhone, 403);
+  }
+
+  // Charged to a company or school account (lib/accounts.ts): only by somebody
+  // signed in whose proved number the account lists.
+  let account: { id: number; name: string } | null = null;
+  if (chargeTo !== undefined && chargeTo !== null) {
+    const venueOfAccount = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
+    account = user && Number.isInteger(chargeTo) && venueOfAccount !== undefined
+      ? (await accountsForUser(venueOfAccount, user.id)).find((a) => a.id === chargeTo) ?? null
+      : null;
+    if (!account) return refusal({ ok: false, error: "That account cannot be charged here.", code: "ACCOUNT_NOT_HERE" }, 403);
   }
 
   // Not too many unpaid bookings ahead on one number, no weekly series
@@ -262,10 +274,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // On an account, it is paid on the account's invoice: nothing to settle now.
+  // Past the account's limit, nothing is booked.
+  if (account) {
+    const charged = await chargeToAccount(venueOfBooking!, account.id, result.bookings.map((b) => b.id));
+    if (!charged.ok) {
+      for (const b of result.bookings) await discardBooking(b.id);
+      return refusal(charged);
+    }
+    for (const b of result.bookings) b.accountId = account.id;
+  }
+
   // Settling is best-effort: an empty wallet or a spent pass leaves the
   // booking standing as unpaid rather than throwing it away.
   const payErrors: string[] = [];
-  if (typeof payWithPass === "string" && payWithPass.trim() !== "") {
+  if (account) {
+    // Paid on the invoice.
+  } else if (typeof payWithPass === "string" && payWithPass.trim() !== "") {
     // The pass itself proves entitlement: it must match the booking's phone
     // number, which payBookingWithPass checks.
     for (const booking of result.bookings) {
@@ -291,7 +316,7 @@ export async function POST(req: NextRequest) {
   // So is a guest's while the venue is being flooded with unpaid guest bookings (lib/limits.ts).
   const mustPay =
     ((await struckOut(venue.id, phone)).out || (!user && (await guestSurge(venue.id)))) && (await takesPaymentOnline(venue.id));
-  const holdUntil = policy.active || mustPay
+  const holdUntil = !account && (policy.active || mustPay)
     ? await holdNewBookings(
         result.bookings.filter((b) => b.paymentStatus === "unpaid").map((b) => b.id),
         policy.minutes
@@ -342,7 +367,9 @@ export async function POST(req: NextRequest) {
       // Courts booked together: each one's name, for the confirmation's list.
       ...(group ? { courtNames: Object.fromEntries(await Promise.all(group.map(async (id) => [id, (await getCourt(id))?.name ?? ""]))) } : {}),
       venue: { id: venue.id, name: venue.name, area: venue.area, timeZone: venue.timeZone },
-      payOnline: await takesPaymentOnline(venue.id),
+      payOnline: !account && (await takesPaymentOnline(venue.id)),
+      // Charged to this account, on its monthly invoice.
+      account: account ? { name: account.name } : null,
     },
     { status: 201 }
   );

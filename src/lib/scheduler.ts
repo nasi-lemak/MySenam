@@ -6,6 +6,7 @@ import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
+import { issueDueAccountInvoices } from "./accounts";
 import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { runEInvoicing } from "./myinvois";
@@ -93,6 +94,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] issuing invoices failed:", err);
     await raiseAlert("scheduler:issuing-invoices-failed", "Scheduled work failed: issuing invoices", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Company and school accounts: last month's invoice, early in the month.
+    await issueDueAccountInvoices();
+  } catch (err) {
+    console.error("[mysenam] invoicing accounts failed:", err);
+    await raiseAlert("scheduler:invoicing-accounts-failed", "Scheduled work failed: invoicing company and school accounts", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

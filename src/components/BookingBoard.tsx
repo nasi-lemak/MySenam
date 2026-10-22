@@ -76,6 +76,8 @@ interface Confirmation {
   /** The concession price that went on, and what to bring for it; or why it did not. */
   concession?: { name: string; proof: string } | null;
   concessionError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
+  /** Charged to a company or school account, on its monthly invoice. */
+  account?: { name: string } | null;
 }
 
 /** A concession price the venue offers (lib/concessions.ts). */
@@ -684,6 +686,9 @@ function BookingForm({
   const [passCode, setPassCode] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
+  // Company or school accounts here this customer may charge to (lib/accounts.ts).
+  const [accounts, setAccounts] = useState<{ id: number; name: string }[]>([]);
+  const [chargeTo, setChargeTo] = useState<number | null>(null);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -713,6 +718,10 @@ function BookingForm({
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
+        fetch(`/api/my/accounts?venueId=${court.venueId}`, { cache: "no-store" })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => data && setAccounts(data.accounts))
+          .catch(() => {});
         return fetch(`/api/my/wallet?venueId=${court.venueId}`, { cache: "no-store" });
       })
       .then((res) => (res && res.ok ? res.json() : null))
@@ -755,8 +764,10 @@ function BookingForm({
           email,
           weeks,
           skipConflicts,
-          payFromWallet: (hasExtras || passCode.trim() === "") && payFromWallet,
-          payWithPass: (!hasExtras && passCode.trim()) || undefined,
+          // On an account, paid on its invoice: not from credit or a pass.
+          payFromWallet: chargeTo === null && (hasExtras || passCode.trim() === "") && payFromWallet,
+          payWithPass: (chargeTo === null && !hasExtras && passCode.trim()) || undefined,
+          ...(chargeTo !== null ? { chargeTo } : {}),
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
@@ -952,7 +963,24 @@ function BookingForm({
         onList={setOffered}
       />
       )}
-      {balance !== null && balance > 0 && (hasExtras || passCode.trim() === "") && (
+      {accounts.length > 0 && (
+        <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          {t("form.whoPays")}
+          <select
+            value={chargeTo ?? ""}
+            onChange={(e) => setChargeTo(e.target.value === "" ? null : Number(e.target.value))}
+            className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+          >
+            <option value="">{t("form.payMyself")}</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {t("form.onAccount", { name: a.name })}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {chargeTo === null && balance !== null && balance > 0 && (hasExtras || passCode.trim() === "") && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
@@ -982,8 +1010,8 @@ function BookingForm({
       )}
 
       {/* A pass covers one entry per booked hour, so it settles the whole slot —
-          court time only, so not a booking with extras. */}
-      {hasExtras ? (
+          court time only, so not a booking with extras. Not on an account, which pays on its invoice. */}
+      {chargeTo !== null ? null : hasExtras ? (
         (myPasses.length > 0 || passCode.trim() !== "") && (
           <p className="mt-2 text-xs text-slate-500">{t("err.PASS_NOT_FOR_EXTRAS")}</p>
         )
@@ -1153,6 +1181,9 @@ function ConfirmationModal({
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {t("done.promoRejected", { reason: confirmation.promoError })}
           </p>
+        )}
+        {confirmation.account && (
+          <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">{t("done.onAccount", { name: confirmation.account.name })}</p>
         )}
         {confirmation.concession && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">

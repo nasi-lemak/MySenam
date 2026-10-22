@@ -417,6 +417,7 @@ interface BookingRow {
   concession_check?: "due" | "seen" | "refused" | null;
   coach_id?: number | null;
   coach_fee?: number | string;
+  account_id?: number | null;
   user_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
@@ -484,6 +485,7 @@ function toBooking(r: BookingRow): Booking {
     concessionCheck: r.concession_check ?? null,
     coachId: r.coach_id ?? null,
     coachFee: Number(r.coach_fee ?? 0),
+    accountId: r.account_id ?? null,
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
   };
 }
@@ -2810,6 +2812,9 @@ export interface AdminBookingRow extends Booking {
   coachName: string | null;
   /** This number's strikes at the venue, and its limit; null where the venue counts none. */
   strikes: { count: number; limit: number } | null;
+  /** The company or school account it is charged to, and whether it is on an invoice yet (lib/accounts.ts). */
+  accountName: string | null;
+  invoiced: boolean;
 }
 
 export interface UserBookingRow extends Booking {
@@ -3845,13 +3850,14 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     .prepare(`
       SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
              v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at,
-             u.verified_phone AS user_verified_phone, k.name AS coach_name
+             u.verified_phone AS user_verified_phone, k.name AS coach_name, ac.name AS account_name
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
       LEFT JOIN users u ON u.id = b.user_id
       LEFT JOIN coaches k ON k.id = b.coach_id
+      LEFT JOIN venue_accounts ac ON ac.id = b.account_id
       WHERE b.date = ?${venue.sql}
       ORDER BY v.id, c.id, b.start_hour
     `)
@@ -3863,6 +3869,8 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     venue_name: string;
     user_verified_phone: string | null;
     coach_name: string | null;
+    account_name: string | null;
+    account_invoice_id: number | null;
   })[];
   // One pass for the whole day rather than a lookup per row.
   const hires = new Map<number, HireRecord>();
@@ -3932,6 +3940,8 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
         policy.strikeLimit === null
           ? null
           : { count: h.strikeDates.filter((d) => d >= since).length, limit: policy.strikeLimit },
+      accountName: r.account_name,
+      invoiced: r.account_invoice_id !== null,
     });
   }
   return list;

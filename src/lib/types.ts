@@ -295,6 +295,8 @@ export interface Booking {
   /** A lesson: the coach on it, and their fee inside the price (lib/coaching.ts). */
   coachId?: number | null;
   coachFee?: number;
+  /** Charged to a company or school account, paid on its invoice (lib/accounts.ts). */
+  accountId?: number | null;
 }
 
 export type ClassStatus = "scheduled" | "cancelled";

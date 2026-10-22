@@ -494,6 +494,8 @@ export interface PhoneExport {
   counterSales: unknown[];
   /** Concession proof seen at the counter: the fact, by whom and until when; no proof itself is kept. */
   concessionProofs: unknown[];
+  /** Company or school accounts that list this number as allowed to book on them (lib/accounts.ts). */
+  accountBookers: unknown[];
   messages: unknown[];
 }
 
@@ -595,6 +597,13 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
          FROM concession_proofs p JOIN concessions c ON c.id = p.concession_id JOIN venues v ON v.id = p.venue_id
          LEFT JOIN admins a ON a.id = p.seen_by
         WHERE p.venue_id IN (${marks}) AND p.phone_key = phone_key(?) ORDER BY p.seen_on`,
+      ...venueIds,
+      phone
+    ),
+    accountBookers: await all(
+      `SELECT v.name AS venue, a.name AS account, k.name, k.phone
+         FROM account_bookers k JOIN venue_accounts a ON a.id = k.account_id JOIN venues v ON v.id = a.venue_id
+        WHERE a.venue_id IN (${marks}) AND k.phone_key = phone_key(?) ORDER BY a.name`,
       ...venueIds,
       phone
     ),
@@ -703,6 +712,13 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     await forgetLeaguePlayer(userId, ANONYMOUS);
     // Nor a concession proof remembered against the account's number.
     await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);
+    // Nor on a company's list of who may book on its account, by that number or the one proved.
+    await db
+      .prepare(
+        `DELETE FROM account_bookers WHERE phone_key IN (SELECT phone_key(phone) FROM users WHERE id = ?
+                                                         UNION SELECT phone_key(verified_phone) FROM users WHERE id = ? AND verified_phone IS NOT NULL)`
+      )
+      .run(userId, userId);
     // Nobody left to send news to.
     await db.prepare("DELETE FROM marketing_consents WHERE user_id = ? OR email_key = lower(?)").run(userId, account.email);
     // Their reviews go: an opinion is theirs, not the venue's record.

@@ -222,6 +222,19 @@ export function BookingsTab() {
     }
   }
 
+  /** Onto a company or school account (lib/accounts.ts), or off it again. */
+  async function charge(b: AdminBookingRow, accountId: number | null) {
+    setError(null);
+    const res = await fetch("/api/admin/accounts/charge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId: b.id, accountId }),
+    });
+    const data = await res.json();
+    if (!res.ok) setError(data.error ?? "Could not change its account");
+    load();
+  }
+
   async function togglePaid(code: string, paid: boolean, via?: CounterMethod) {
     setError(null);
     setPaying(null);
@@ -354,6 +367,7 @@ export function BookingsTab() {
     blockNumber,
     forgiveStrikes,
     checkConcession,
+    charge,
   };
 
   return (
@@ -680,6 +694,7 @@ export function BookingsTab() {
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   <PaymentChip b={b} act={act} />
+                  <AccountChip b={b} act={act} />
                   <AttendanceChip b={b} act={act} />
                   <KitChip b={b} act={act} />
                 </div>
@@ -739,6 +754,7 @@ export function BookingsTab() {
                     </td>
                     <td className="px-3 py-2">
                       <PaymentChip b={b} act={act} />
+                      <AccountChip b={b} act={act} />
                     </td>
                     <td className="px-3 py-2">
                       <AttendanceChip b={b} act={act} />
@@ -783,6 +799,7 @@ interface Act {
   blockNumber: (b: AdminBookingRow) => void;
   forgiveStrikes: (b: AdminBookingRow) => void;
   checkConcession: (b: AdminBookingRow, outcome: "seen" | "refused", remember?: string, via?: CounterMethod) => void;
+  charge: (b: AdminBookingRow, accountId: number | null) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -989,6 +1006,57 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
           ? `${money(b.totalPrice - b.sharesPaid)} due`
           : "unpaid"}
     </button>
+  );
+}
+
+/**
+ * Charged to a company or school account: which, and whether it is on an
+ * invoice yet. An unpaid booking can be put on one here, or taken off until invoiced.
+ */
+function AccountChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const [choices, setChoices] = useState<{ id: number; name: string }[] | null>(null);
+  if (b.status !== "confirmed") return null;
+  if (b.accountName)
+    return (
+      <span className={`${CHIP} mt-1 gap-1 bg-sky-50 text-sky-800 ring-1 ring-sky-200`} title="Paid on the account's monthly invoice">
+        🏢 {b.accountName}
+        {b.invoiced ? " · invoiced" : ""}
+        {!b.invoiced && b.paymentStatus === "unpaid" && (
+          <button type="button" aria-label="Take it off the account" onClick={() => act.charge(b, null)} className="text-sky-500 hover:text-red-600">
+            ×
+          </button>
+        )}
+      </span>
+    );
+  if (b.paymentStatus !== "unpaid" || b.totalPrice === 0) return null;
+  if (choices === null)
+    return (
+      <button
+        type="button"
+        onClick={async () => {
+          const res = await fetch(`/api/admin/accounts?venueId=${b.venueId}`, { cache: "no-store" });
+          setChoices(res.ok ? (await res.json()).accounts : []);
+        }}
+        className="mt-1 block text-xs text-slate-500 underline hover:text-teal-700"
+      >
+        on account…
+      </button>
+    );
+  if (choices.length === 0) return <span className="mt-1 block text-xs text-slate-400">No accounts here</span>;
+  return (
+    <select
+      aria-label="Charge to an account"
+      defaultValue=""
+      onChange={(e) => e.target.value && act.charge(b, Number(e.target.value))}
+      className="mt-1 block rounded-md border border-slate-300 px-1 py-0.5 text-xs"
+    >
+      <option value="">Charge to…</option>
+      {choices.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

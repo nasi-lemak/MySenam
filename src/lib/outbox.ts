@@ -53,7 +53,9 @@ export type MessageKind =
   /** By email only, to a coach: a lesson booked with them, or cancelled (lib/coach-schedule.ts). */
   | "coach_lesson"
   /** By email only: a free hour earned by playing at a venue (lib/loyalty.ts). */
-  | "loyalty_reward";
+  | "loyalty_reward"
+  /** By email only, to a company or school account: its monthly invoice (lib/accounts.ts). */
+  | "account_invoice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

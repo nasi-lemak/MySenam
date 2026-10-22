@@ -1253,6 +1253,39 @@ managers.
   venue e-invoices.
 - **Not counted: stock.** The list says what is sold, not how many are left.
 
+## Company and school accounts
+
+A school's PE department, a firm's sports club, a corporate league: the
+people who book are not the people who pay. *Credit & passes → Company and
+school accounts* opens an account with the organisation's name, where its
+invoices go, its address and registration or tax number for the invoice, how
+many days it has to pay (30 unless said, at most 90), and, if the venue wants
+one, a limit on what it may owe at once (`lib/accounts.ts`).
+
+The venue lists who may book on it, by name and phone number. One of them,
+signed in with that number proved on their account (the code check, never a
+number typed into the form), sees *Who pays: SK Taman Klang (on account,
+invoiced monthly)* when booking. The booking stands unpaid on the account: not
+held for payment online, not paid from credit or a pass, not counted against
+the person's own unpaid limit, and refused, with nothing booked, if it would
+take the account past its limit. The desk can put any unpaid booking on an
+account from the day's list, or take it off until it is invoiced.
+
+Early on the first of each month, what was played on each account last month
+and not yet invoiced goes on one invoice, which is emailed to the account
+with a link to print it or save it as a PDF: each booking, its date and court,
+who booked it, and what it cost, with the SST or GST included where the venue
+is registered. A manager can also invoice an account at once, for last month
+or this month so far. *Mark paid* records how it came in and marks every
+booking on it paid the same way. An unpaid invoice can be withdrawn; its
+bookings go on the next one. Closing an account stops new bookings on it;
+what is on it is still invoiced.
+
+Managers open, change and close accounts and invoice them; the desk charges
+bookings to them and marks invoices paid. Every step is in the activity log.
+The numbers listed on an account go out with what a venue holds against a
+number, and come off every account when the customer erases their own.
+
 ## Reviews
 
 Stars and a few words about a venue, from somebody who played there

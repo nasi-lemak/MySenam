@@ -18,7 +18,9 @@ import { struckOut } from "./cancel-policy";
  * likes. So the number itself is limited: only so many unpaid bookings coming
  * up at once, at one venue and across the platform. Paying for one, playing
  * it, or cancelling it frees the place. A weekly series counts as one, but
- * takes an account; and a venue can refuse a number outright.
+ * takes an account; and a venue can refuse a number outright. A booking
+ * charged to a company or school account is the account's, not the number's,
+ * and is not counted (lib/accounts.ts).
  *
  * These are a brake, checked before the booking is made rather than inside
  * its transaction, so two requests in the same instant could each get the
@@ -63,7 +65,8 @@ const UNPAID_AHEAD = `
   SELECT COUNT(DISTINCT COALESCE(b.series_code, b.code)) AS n
     FROM bookings b JOIN courts c ON c.id = b.court_id
    WHERE b.phone_key = phone_key(?) AND b.date >= ?
-     AND b.status = 'confirmed' AND b.payment_status = 'unpaid' AND b.total_price > 0`;
+     AND b.status = 'confirmed' AND b.payment_status = 'unpaid' AND b.total_price > 0
+     AND b.account_id IS NULL`;
 
 /**
  * May this number book here, online, now? null when it may; the reason when
