@@ -23,6 +23,11 @@ import {
   blockSlots,
   getAvailability,
   passOnExpiredOffers,
+  courtsForAnyBooking,
+  moveBooking,
+  moveTargetsFor,
+  rescheduleBooking,
+  searchAvailability,
 } from "../src/lib/store";
 import { getDb } from "../src/lib/db";
 import { addDays, todayISO } from "../src/lib/time";
@@ -396,5 +401,57 @@ describe("waitlists for ordinary slots", () => {
       name: "Waiter2", phone: "0177770002",
     });
     expect(await offerSlotPlace(court.id, date)).toBeNull();
+  });
+});
+
+describe("a place offered to somebody waiting", () => {
+  /** A court hour offered to a waiter: free in the database, but theirs for now. */
+  async function offered(offset: number, hour: number, capacity = 1) {
+    seq++;
+    const venue = (await listVenues())[0];
+    const court = await createCourt({ venueId: venue.id, name: `Held Court ${seq}`, sport: "pickleball", offPeakRate: 15, peakRate: 15, capacity });
+    if (!court.ok) throw new Error("court");
+    const date = futureDate(offset);
+    const phone = `0172${seq}00000`;
+    const holders = [];
+    for (let i = 0; i < capacity; i++) {
+      const made = await createBooking({ courtId: court.court.id, date, hours: [hour], name: "Holder", phone: `0172${seq}0000${i}` });
+      if (!made.ok) throw new Error(made.error);
+      holders.push(made.booking);
+    }
+    expect((await joinSlotWaitlist({ courtId: court.court.id, date, startHour: hour, endHour: hour + 1, name: "Waiter", phone })).ok).toBe(true);
+    await adminCancelBooking(holders[0].code);
+    expect((await listWaitlistFor(phone))[0].status).toBe("offered");
+    return { venueId: venue.id, court: court.court, date, hour };
+  }
+
+  it("is not found by search or by any court", async () => {
+    const { venueId, court, date, hour } = await offered(6, 9);
+    const found = await searchAvailability({ sport: "pickleball", date, fromHour: hour, toHour: hour, venueIds: [venueId] });
+    expect(found.some((r) => r.court.id === court.id && r.startHour === hour)).toBe(false);
+    expect((await courtsForAnyBooking({ venueId, sport: "pickleball", date, hours: [hour] })).some((c) => c.id === court.id)).toBe(false);
+  });
+
+  it("cannot be taken by moving or rescheduling another booking into it", async () => {
+    const { venueId, court, date, hour } = await offered(6, 10);
+    const other = await createCourt({ venueId, name: `Other Court ${seq}`, sport: "pickleball", offPeakRate: 15, peakRate: 15 });
+    if (!other.ok) throw new Error("court");
+    const there = await createBooking({ courtId: other.court.id, date, hours: [hour], name: "Mover", phone: "0179990001" });
+    if (!there.ok) throw new Error(there.error);
+    expect((await moveTargetsFor(there.booking.code)).some((c) => c.id === court.id)).toBe(false);
+    expect((await moveBooking(there.booking.code, court.id)).ok).toBe(false);
+    const earlier = await createBooking({ courtId: court.id, date, hours: [hour - 2], name: "Shifter", phone: "0179990002" });
+    if (!earlier.ok) throw new Error(earlier.error);
+    expect((await rescheduleBooking(earlier.booking.code, { date, startHour: hour, courtId: court.id }, "staff")).ok).toBe(false);
+  });
+
+  it("on a shared floor partly blocked, leaves no place to sell past what the grid shows", async () => {
+    // Three places: one blocked, one booked, one offered to the waiter.
+    const { venueId, court, date, hour } = await offered(6, 11, 2);
+    await getDb().prepare("UPDATE courts SET capacity = 3 WHERE id = ?").run(court.id);
+    expect((await blockSlots(court.id, date, [hour], "Repairs", 1)).ok).toBe(true);
+    const grid = (await getAvailability(venueId, date)).find((d) => d.court.id === court.id)!;
+    expect(grid.slots.find((s) => s.hour === hour)!.available).toBe(false);
+    expect((await createBooking({ courtId: court.id, date, hours: [hour], name: "Extra", phone: "0179990003" })).ok).toBe(false);
   });
 });

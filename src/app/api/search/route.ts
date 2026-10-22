@@ -5,7 +5,7 @@ import { releaseExpiredHolds } from "@/lib/holds";
 import { readFacilityFilters } from "@/lib/facilities";
 import { coversFor } from "@/lib/photos";
 import { isValidDateString, todayISO } from "@/lib/time";
-import { CLOSE_HOUR, MAX_HOURS_PER_BOOKING, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
+import { CLOSE_HOUR, MAX_COURT_HOURS, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
 import { region } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
@@ -40,9 +40,10 @@ export async function GET(req: NextRequest) {
 
   const durationParam = params.get("duration");
   const duration = durationParam ? Number(durationParam) : 1;
-  if (!Number.isInteger(duration) || duration < 1 || duration > MAX_HOURS_PER_BOOKING)
+  // A court may allow up to MAX_COURT_HOURS; the search leaves out those that do not.
+  if (!Number.isInteger(duration) || duration < 1 || duration > MAX_COURT_HOURS)
     return NextResponse.json(
-      { error: `Duration must be 1–${MAX_HOURS_PER_BOOKING} hours.` },
+      { error: `Duration must be 1–${MAX_COURT_HOURS} hours.` },
       { status: 400 }
     );
 

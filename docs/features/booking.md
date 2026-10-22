@@ -39,13 +39,11 @@ takes. Then:
   the four takes the pitch. The four do not take each other, and two big
   courts over the same small one (futsal and netball over the same badminton
   courts) take each other through it.
-- Customers and staff see the other courts as booked; the staff grid shows
-  which booking has them. *Suspected defect:* two big courts over the same
-  small one see each other only at the database: the second big court shows
-  free, and booking it is refused as "filling up" (B1 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects)).
+- Customers and staff see the other courts as booked, two big courts over the
+  same small one included; the staff grid shows which booking has them.
 - A block, a tournament's courts or a court out of service closes the courts
-  it shares the floor with too, and a class on one holds the others.
+  it shares the floor with too (another big court over the same small one
+  included), and a class on one holds the others.
 - It holds under races the same way a single court does: each booked hour is
   mirrored onto the courts it takes as a `shadow` row of the same booking in
   `booking_slots`, written by a database trigger, so the same unique key
@@ -73,9 +71,9 @@ four hours, and a weekly booking of up to eight weeks. A venue can change both:
   a selection at the court's longest, says *2 to 4 consecutive hours per
   booking on Futsal A* on the booking form, and will not book one shorter. A
   booking on *any court* goes to a court that takes that length, and search
-  leaves out courts that would not. Search and the waiting list ask for at
-  most four hours, so a longer booking is made from the venue's page (B6 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects)). Classes are not held to it.
+  leaves out courts that would not. Search asks for up to twelve hours and
+  finds the courts that take that long; a waiting-list place may be as long
+  as the court takes. Classes are not held to it.
 - **Weeks in one weekly booking**, under *House rules*: up to 26, for a team's
   season or a school's term, staff's bookings included. It is not a fair-use
   rule, so on its own it does not put house rules on the venue page. Where the
@@ -237,15 +235,15 @@ Two ways, for two lengths of time:
   closed, and the reports count it as out. If anything is booked in the
   stretch, it lists those bookings and classes and stops; staff move them, or
   choose to cancel them, which refunds each as a staff cancellation would and
-  messages its customer. *Suspected defect:* the check, the cancellations and
-  saving the outage are not one transaction, and classes on a linked court are
-  not listed (B4 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects)). *Back in service today* ends it early.
+  messages its customer. Classes on a court sharing the floor are listed too.
+  The outage is saved in one transaction that finds nothing left in the way: a
+  booking made while the others were being cancelled is cancelled in turn (or,
+  without *cancel them*, listed). *Back in service today* ends it early.
 
 An outage is not a row per hour. The database function `blocks_between`
 (first in `db/migrations/0009_outages_suspensions.sql`, redefined since, last in
-`db/migrations/0072_linked_courts.sql` as `own_blocks_between` plus linked
-courts) answers "what is blocked between these days" with the
+`db/migrations/0087_wholes_over_one_part.sql`: `own_blocks_between` plus what
+linked courts carry) answers "what is blocked between these days" with the
 hours blocked by hand and every trading hour of every outage, and everything
 that asks what is blocked asks it — so availability, search, booking, moving
 a booking, the waitlist, the schedule and the reports close the court without

@@ -105,6 +105,26 @@ export async function setCourtParts(
           )
           .run(part, wholeId, today, wholeId, part, part, today);
       }
+      // Big courts sharing a part take each other through it (migration 0087):
+      // what this court's links now say, for what is sold from today.
+      await db
+        .prepare(
+          `DELETE FROM booking_slots s USING bookings b
+            WHERE s.booking_id = b.id AND s.shadow = 1 AND s.date >= ? AND s.seat = -b.court_id
+              AND (b.court_id = ? OR s.court_id = ?)
+              AND NOT EXISTS (SELECT 1 FROM court_links l WHERE l.whole_id = s.court_id AND l.part_id = b.court_id)`
+        )
+        .run(today, wholeId, wholeId);
+      await db
+        .prepare(
+          `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span, shadow)
+           SELECT DISTINCT s.booking_id, o.whole_id, s.date, s.hour, -s.court_id, s.span, 1
+             FROM booking_slots s
+             JOIN court_links a ON a.whole_id = s.court_id
+             JOIN court_links o ON o.part_id = a.part_id AND o.whole_id <> a.whole_id
+            WHERE s.shadow = 0 AND s.date >= ? AND (s.court_id = ? OR o.whole_id = ?)`
+        )
+        .run(today, wholeId, wholeId);
     })();
   } catch (err) {
     if (!isUniqueViolation(err, "booking_slots")) throw err;

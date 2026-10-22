@@ -6,7 +6,7 @@ import { formatHour, todayISO, addDays } from "@/lib/time";
 import {
   CLOSE_HOUR,
   MAX_ADVANCE_DAYS,
-  MAX_HOURS_PER_BOOKING,
+  MAX_COURT_HOURS,
   MAX_VENUE_AHEAD_DAYS,
   OPEN_HOUR,
   Sport,
@@ -277,7 +277,7 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
               onChange={(e) => setDuration(Number(e.target.value))}
               className={selectClass}
             >
-              {Array.from({ length: MAX_HOURS_PER_BOOKING }, (_, i) => i + 1).map((d) => (
+              {Array.from({ length: MAX_COURT_HOURS }, (_, i) => i + 1).map((d) => (
                 <option key={d} value={d}>
                   {t.plural("search.hours", d)}
                 </option>

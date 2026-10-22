@@ -82,6 +82,26 @@ describe("booking several courts as one", () => {
     expect(await bookingCount()).toBe(before);
   });
 
+  it("is all or nothing even when something breaks part-way", async () => {
+    // The third court's places cannot be written: the database itself refuses.
+    const db = getDb();
+    await db.exec(`
+      CREATE OR REPLACE FUNCTION refuse_test_court() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'disk full'; END $$;
+      CREATE TRIGGER refuse_test_court BEFORE INSERT ON booking_slots
+        FOR EACH ROW WHEN (NEW.court_id = ${courts[2]}) EXECUTE FUNCTION refuse_test_court();
+    `);
+    try {
+      const before = await bookingCount();
+      await expect(
+        createGroupBooking({ courtIds: [courts[0], courts[1], courts[2]], date, hours: [15], name: "Team", phone: phone() })
+      ).rejects.toThrow();
+      expect(await bookingCount()).toBe(before);
+    } finally {
+      await db.exec("DROP TRIGGER refuse_test_court ON booking_slots; DROP FUNCTION refuse_test_court();");
+    }
+  });
+
   it("is 2 to 6 courts, at one venue", async () => {
     expect(await createGroupBooking({ courtIds: [courts[0]], date, hours: [14], name: "One", phone: phone() })).toMatchObject({ ok: false, code: "GROUP_COURTS" });
     expect(await createGroupBooking({ courtIds: [courts[0], otherVenueCourt], date, hours: [14], name: "Two places", phone: phone() })).toMatchObject({

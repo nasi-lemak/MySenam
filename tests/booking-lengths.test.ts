@@ -10,6 +10,7 @@ import {
   createBookingSeries,
   createCourt,
   createVenue,
+  joinSlotWaitlist,
   searchAvailability,
   updateCourt,
 } from "../src/lib/store";
@@ -80,6 +81,22 @@ describe("a court's own booking length", () => {
     expect(one.map((r) => r.court.id)).toEqual([small]);
     const two = await searchAvailability({ sport: "futsal", date, venueIds: [venueId], fromHour: 18, toHour: 18, duration: 2 });
     expect(two.map((r) => r.court.id)).toEqual([pitch]);
+  });
+
+  it("search and the waiting list take as long a booking as the court does", async () => {
+    // The hall takes up to six hours: search finds five, and a waiter can queue for five.
+    const day = addDays(date, 1);
+    const five = await searchAvailability({ sport: "badminton", date: day, venueIds: [venueId], fromHour: 9, toHour: 9, duration: 5 });
+    expect(five.map((r) => [r.court.id, r.endHour - r.startHour])).toEqual([[hall, 5]]);
+    const held = await createBooking({ courtId: hall, date: day, hours: hours(12, 5), name: "Long", phone: phone() });
+    if (!held.ok) throw new Error(held.error);
+    expect(
+      await joinSlotWaitlist({ courtId: hall, date: day, startHour: 12, endHour: 17, name: "Waiter", phone: phone() })
+    ).toMatchObject({ ok: true });
+    // Not past the court's own longest.
+    expect(await joinSlotWaitlist({ courtId: hall, date: day, startHour: 12, endHour: 19, name: "Waiter", phone: phone() })).toMatchObject({
+      ok: false,
+    });
   });
 });
 

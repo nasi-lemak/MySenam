@@ -13,6 +13,7 @@ import {
   createVenue,
   getAvailability,
   getClass,
+  listVenues,
   searchAvailability,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -163,4 +164,27 @@ describe("the route", () => {
     );
     expect(res.status).toBe(403);
   });
+});
+
+describe("a booking made while a court is being taken out", () => {
+  for (let round = 0; round < 3; round++)
+    it(`does not survive inside the outage (round ${round + 1})`, async () => {
+      const [ownerId] = (await listAdmins()).map((a) => a.id);
+      const venue = (await listVenues())[0];
+      const made = await createCourt({ venueId: venue.id, name: `Race Court ${round}`, sport: "badminton", offPeakRate: 10, peakRate: 10 });
+      if (!made.ok) throw new Error(made.error);
+      const on = addDays(todayISO(), 9 + round);
+      const first = await createBooking({ courtId: made.court.id, date: on, hours: [9], name: "First", phone: `01788800${round}1` });
+      if (!first.ok) throw new Error(first.error);
+      await Promise.all([
+        createOutage({ courtId: made.court.id, startsOn: on, endsOn: on, reason: "Flood", adminId: ownerId, cancelAffected: true }),
+        createBooking({ courtId: made.court.id, date: on, hours: [15], name: "Second", phone: `01788800${round}2` }),
+      ]);
+      const left = (await getDb()
+        .prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE court_id = ? AND date = ? AND status = 'confirmed'")
+        .get(made.court.id, on)) as { n: number };
+      const outages = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM court_outages WHERE court_id = ?").get(made.court.id)) as { n: number };
+      // Out of service, and nothing confirmed inside it.
+      expect({ outages: outages.n, confirmed: left.n }).toEqual({ outages: 1, confirmed: 0 });
+    });
 });

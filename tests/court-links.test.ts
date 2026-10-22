@@ -11,6 +11,7 @@ import {
   adminCancelBooking,
   blockSlots,
   createBooking,
+  createClassSessions,
   createCourt,
   createVenue,
   getAvailability,
@@ -147,6 +148,17 @@ describe("blocks and outages across a link", () => {
     expect(await free(pitch, 9, later)).toBe(false);
     expect(await free(b, 9, later)).toBe(true);
   });
+
+  it("taking the pitch out of service names a class on one of its courts", async () => {
+    await ensureBootstrapAdmin();
+    const owner = (await listAdmins())[0].id;
+    const when = addDays(date, 9);
+    const session = await createClassSessions({ courtId: b, name: "Junior smash", instructor: "Lee", date: when, startHour: 18, endHour: 19, capacity: 1, price: 10 });
+    if (!session.ok) throw new Error(session.error);
+    const refused = await createOutage({ courtId: pitch, startsOn: when, endsOn: when, reason: "Floor sanding", adminId: owner });
+    expect(refused).toMatchObject({ ok: false });
+    if (!refused.ok) expect(refused.affected?.map((x) => x.name)).toContain("Junior smash");
+  });
 });
 
 describe("changing the links", () => {
@@ -175,5 +187,45 @@ describe("changing the links", () => {
     expect(await free(b, 9, third)).toBe(true);
     expect(await free(c, 9, third)).toBe(true);
     expect(await free(a, 9, third)).toBe(false);
+  });
+});
+
+describe("two big courts over the same small one", () => {
+  let hallA: number;
+  let hallB: number;
+  let middle: number;
+  const day = addDays(date, 5);
+
+  beforeAll(async () => {
+    hallA = await court("Hall A (netball)", "netball");
+    hallB = await court("Hall B (futsal)", "futsal");
+    middle = await court("Middle court", "badminton");
+    expect((await setCourtParts(hallA, [middle])).ok).toBe(true);
+    expect((await setCourtParts(hallB, [middle])).ok).toBe(true);
+  });
+
+  it("booking one shows the other taken, as booking it would fail", async () => {
+    expect((await book(hallA, 9, day)).ok).toBe(true);
+    expect(await free(middle, 9, day)).toBe(false);
+    expect(await free(hallB, 9, day)).toBe(false);
+    expect(await book(hallB, 9, day)).toMatchObject({ ok: false });
+    // An hour neither has is free on both.
+    expect(await free(hallB, 10, day)).toBe(true);
+  });
+
+  it("a block on one closes the other too", async () => {
+    expect((await blockSlots(hallA, day, [12], "Maintenance")).ok).toBe(true);
+    expect(await free(hallB, 12, day)).toBe(false);
+  });
+
+  it("linked later, what is already sold takes the new big court too", async () => {
+    const hallC = await court("Hall C (volleyball)", "volleyball");
+    expect((await book(hallA, 15, day)).ok).toBe(true);
+    expect(await free(hallC, 15, day)).toBe(true);
+    expect((await setCourtParts(hallC, [middle])).ok).toBe(true);
+    expect(await free(hallC, 15, day)).toBe(false);
+    // And unlinked, lets go again.
+    expect((await setCourtParts(hallC, [])).ok).toBe(true);
+    expect(await free(hallC, 15, day)).toBe(true);
   });
 });

@@ -27,25 +27,26 @@ themselves are in [booking](../features/booking.md).
 
 | Guarantee | Status | Evidence | Gaps |
 | --------- | ------ | -------- | ---- |
-| An exclusive court hour is sold once | Verified on Postgres | Unique key; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/capacity.test.ts` | Eight parallel requests only. Holds only if every row of a court uses the same slot size (B5). |
-| A shared facility never holds more than its capacity | Partial | Seat chosen below capacity inside the serializable transaction; "sells a shared floor's places once each" | No database `CHECK`; capacity net of partial blocks and waiting-list holds is computed in two places that disagree (B3). |
-| Linked courts take each other | Partial | Trigger; `tests/court-links.test.ts` including a two-request race | Two wholes over one part are prevented only by the key, not shown as taken (B1). |
-| Every path sees the same availability | Not met | Grid, search, any court, booking, moving, rescheduling and the waiting list each compute it | Waiting-list holds are seen only by the grid and booking (B2); search caps length at four hours (B6). |
-| An outage or block does not land on a booking made at the same moment | Not met | `createOutage` checks, cancels and inserts without a transaction; moving and rescheduling check blocks outside theirs | B4, B7. |
-| A group booking (several courts) is all or nothing | Partial | Compensating deletes on refusal | Not one transaction; an exception part-way leaves earlier bookings (B8). |
+| An exclusive court hour is sold once | Verified on Postgres | Unique key; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/capacity.test.ts` | Eight parallel requests only. Relies on every row of a court using the same slot size: a booking re-reads the slot length inside its transaction, and changing it checks bookings inside its own (not forced by a test). |
+| A shared facility never holds more than its capacity | Verified | Seat chosen inside the serializable transaction below capacity net of booked, blocked and offered places; "sells a shared floor's places once each"; `tests/waitlist.test.ts` "partly blocked" | No database `CHECK`. |
+| Linked courts take each other | Verified on Postgres | Trigger (`0072_linked_courts.sql`, `0087_wholes_over_one_part.sql`); `tests/court-links.test.ts` including a two-request race and two wholes over one part | One level deep. |
+| Every path sees the same availability | Met | Grid, search, any court, the move picker and the room checks of moving and rescheduling count booked and offered places through one function (`countTakenPlaces`); `tests/waitlist.test.ts` "a place offered to somebody waiting" | Each path still applies its own blocks and classes. |
+| An outage or block does not land on a booking made at the same moment | Met | `createOutage` saves the outage in a transaction that re-checks for bookings and classes; moving and rescheduling check blocks, classes and offers inside theirs; `tests/outages.test.ts` "a booking made while a court is being taken out" | The move and reschedule race is guarded but not forced by a test. |
+| A group booking (several courts) is all or nothing | Verified | One transaction; `tests/group-bookings.test.ts` "even when something breaks part-way" | — |
 | A cancellation refunds once | Verified | Claim on `status = 'confirmed'`; `tests/concurrency.test.ts`, `tests/auto-refunds.test.ts` | — |
 | Credit and pass entries are spent once | Verified on Postgres | "spends credit once", "refunds a pass entry once" | No database constraint against a negative balance (chargebacks may make one deliberately). |
-| A payment notification settles once | Verified | Claim on `status = 'pending'`; unique `bill_id`; `tests/payments.test.ts`, `tests/stripe.test.ts` | No test of two identical callbacks at the same instant; `paySeries` can overwrite an online settlement (M3). |
+| A payment notification settles once | Verified | Claim on `status = 'pending'`; unique `bill_id`; `tests/payments.test.ts`, `tests/stripe.test.ts` | No test of two identical callbacks at the same instant. |
 
-The defects (B…, M…) are described in
-[known limitations](../roadmap/known-limitations.md#suspected-defects).
+The defects these once had (B…, M…) are listed, with the tests that now
+cover them, in [known limitations](../roadmap/known-limitations.md#fixed-since-the-audit).
 
 ## Rules for changing this code
 
 - Put every read that decides a write inside the same `withTransaction`.
 - Do no external side effect (a message, an HTTP call) inside a transaction:
   it may run more than once. Queue messages in the outbox instead.
-- When availability changes, change the shared computation, and add the case
+- When availability changes, change the shared computation
+  (`countTakenPlaces`, `blockedPlacesFor`, `blocks_between`), and add the case
   to the tests of every path listed above.
 - Add a concurrent test (`Promise.all`) for any new check-then-write path, and
   run the suite on Postgres (`TEST_DATABASE_URL`) before relying on it.

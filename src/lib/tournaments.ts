@@ -367,33 +367,41 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (courts.length !== courtIds.length) return { ok: false, error: "Hold only this venue's courts for that sport." };
 
   // A court out of service on any of those days cannot be held for them.
-  const out = (await db
-    .prepare(
-      `SELECT c.name FROM court_outages o JOIN courts c ON c.id = o.court_id
-        WHERE o.court_id IN (${courtIds.map(() => "?").join(",")})
-          AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?) LIMIT 1`
-    )
-    .get(...courtIds, input.endsOn, input.startsOn)) as { name: string } | undefined;
-  if (out) return { ok: false, error: `${out.name} is out of service then. Choose other courts or days.` };
-
-  // Whatever is booked in those hours stays booked: say so, rather than hold over it.
+  // Out of service, or already booked in those hours: say so, rather than
+  // hold over it. Asked again inside the transaction that holds the hours, so
+  // a booking or an outage made meanwhile is seen there.
   const slots = heldSlots({ ...input, courtIds });
-  const { clashes } = (await db
-    .prepare(
-      `SELECT COUNT(DISTINCT s.booking_id)::int AS clashes FROM booking_slots s
-        WHERE s.court_id IN (${courtIds.map(() => "?").join(",")}) AND s.date >= ? AND s.date <= ?
-          AND s.hour >= ? AND s.hour < ?`
-    )
-    .get(...courtIds, input.startsOn, input.endsOn, input.startHour, input.endHour)) as { clashes: number };
-  if (clashes > 0)
-    return {
-      ok: false,
-      error: `${clashes === 1 ? "A booking is" : `${clashes} bookings are`} already in those hours. Move ${clashes === 1 ? "it" : "them"}, or choose other hours or courts.`,
-      clashes,
-    };
+  const inTheWay = async (): Promise<{ ok: false; error: string; clashes?: number } | null> => {
+    const out = (await db
+      .prepare(
+        `SELECT c.name FROM court_outages o JOIN courts c ON c.id = o.court_id
+          WHERE o.court_id IN (${courtIds.map(() => "?").join(",")})
+            AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?) LIMIT 1`
+      )
+      .get(...courtIds, input.endsOn, input.startsOn)) as { name: string } | undefined;
+    if (out) return { ok: false, error: `${out.name} is out of service then. Choose other courts or days.` };
+    const { clashes } = (await db
+      .prepare(
+        `SELECT COUNT(DISTINCT s.booking_id)::int AS clashes FROM booking_slots s
+          WHERE s.court_id IN (${courtIds.map(() => "?").join(",")}) AND s.date >= ? AND s.date <= ?
+            AND s.hour >= ? AND s.hour < ?`
+      )
+      .get(...courtIds, input.startsOn, input.endsOn, input.startHour, input.endHour)) as { clashes: number };
+    if (clashes > 0)
+      return {
+        ok: false,
+        error: `${clashes === 1 ? "A booking is" : `${clashes} bookings are`} already in those hours. Move ${clashes === 1 ? "it" : "them"}, or choose other hours or courts.`,
+        clashes,
+      };
+    return null;
+  };
+  const before = await inTheWay();
+  if (before) return before;
 
   let id = 0;
-  await db.transaction(async () => {
+  const refused = await db.transaction(async () => {
+    const meanwhile = await inTheWay();
+    if (meanwhile) return meanwhile;
     const info = await db
       .prepare(
         `INSERT INTO tournaments (venue_id, name, sport, format, team_size, category, level, entry_fee, max_entries, group_size, advance,
@@ -432,7 +440,9 @@ export async function createTournament(input: TournamentInput, adminId: number):
     for (const s of slots)
       for (const half of step < 1 ? [s.hour, s.hour + step] : [s.hour])
         await hold.run(s.courtId, s.date, half, `Tournament: ${name}`, id);
+    return null;
   })();
+  if (refused) return refused;
   return { ok: true, value: (await tournamentById(id))! };
 }
 

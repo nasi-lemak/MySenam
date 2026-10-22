@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { adminCancelBooking, cancelClassSession } from "./store";
 import { addDays, isValidDateString, todayISO } from "./time";
@@ -96,12 +96,22 @@ export async function affectedBy(courtId: number, startsOn: string, endsOn: stri
         GROUP BY b.id, b.code, b.date, b.name ORDER BY b.date, start_hour`
     )
     .all(courtId, from, to)) as { code: string; date: string; start_hour: number; name: string }[];
+  // A class on a court sharing the floor is in the way too: the outage closes
+  // the courts linked to this one (lib/court-links.ts). Bookings need no such
+  // care: theirs are mirrored onto this court as shadow places.
   const classes = (await db
     .prepare(
       `SELECT id, date, start_hour, name FROM classes
-        WHERE court_id = ? AND date >= ? AND date <= ? AND status = 'scheduled' ORDER BY date, start_hour`
+        WHERE court_id IN (
+                SELECT ?::int
+                UNION SELECT part_id FROM court_links WHERE whole_id = ?
+                UNION SELECT whole_id FROM court_links WHERE part_id = ?
+                UNION SELECT o.whole_id FROM court_links a
+                        JOIN court_links o ON o.part_id = a.part_id AND o.whole_id <> a.whole_id
+                       WHERE a.whole_id = ?)
+          AND date >= ? AND date <= ? AND status = 'scheduled' ORDER BY date, start_hour`
     )
-    .all(courtId, from, to)) as { id: number; date: string; start_hour: number; name: string }[];
+    .all(courtId, courtId, courtId, courtId, from, to)) as { id: number; date: string; start_hour: number; name: string }[];
   return [
     ...bookings.map((b) => ({ kind: "booking" as const, ref: b.code, date: b.date, startHour: b.start_hour, name: b.name })),
     ...classes.map((c) => ({ kind: "class" as const, ref: String(c.id), date: c.date, startHour: c.start_hour, name: c.name })),
@@ -134,52 +144,65 @@ export async function createOutage(input: {
 
   // One outage at a time per court: a second over the same days is a slip,
   // or a double click, and would show customers the same closure twice.
-  const overlapping = (await db
-    .prepare(
-      `SELECT starts_on, ends_on FROM court_outages
-        WHERE court_id = ? AND starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?) LIMIT 1`
-    )
-    .get(input.courtId, input.endsOn ?? "9999-12-31", input.startsOn)) as
-    | { starts_on: string; ends_on: string | null }
-    | undefined;
-  if (overlapping)
-    return {
-      ok: false,
-      error: `It is already out of service then (${overlapping.starts_on} ${
-        overlapping.ends_on ? `to ${overlapping.ends_on}` : "until further notice"
-      }). End that one first, or pick other days.`,
-    };
+  const overlap = async () =>
+    (await db
+      .prepare(
+        `SELECT starts_on, ends_on FROM court_outages
+          WHERE court_id = ? AND starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?) LIMIT 1`
+      )
+      .get(input.courtId, input.endsOn ?? "9999-12-31", input.startsOn)) as { starts_on: string; ends_on: string | null } | undefined;
+  const alreadyOut = (o: { starts_on: string; ends_on: string | null }) => ({
+    ok: false as const,
+    error: `It is already out of service then (${o.starts_on} ${
+      o.ends_on ? `to ${o.ends_on}` : "until further notice"
+    }). End that one first, or pick other days.`,
+  });
 
-  const affected = await affectedBy(input.courtId, input.startsOn, input.endsOn);
-  if (affected.length > 0 && !input.cancelAffected)
-    return {
-      ok: false,
-      error:
-        affected.length === 1
-          ? "There is a booking in that time. Move it, or cancel it and tell the customer."
-          : `There are ${affected.length} bookings and classes in that time. Move them, or cancel them and tell the customers.`,
-      affected,
-    };
-
-  // Cancel what is there before closing the court over it, so nothing is
-  // refunded or messaged for a court that then failed to close.
   let cancelled = 0;
-  for (const a of affected) {
-    if (a.kind === "class") {
-      if ((await cancelClassAndTell(Number(a.ref))).ok) cancelled++;
-      continue;
-    }
-    const done = await adminCancelBooking(a.ref);
-    if (!done.ok) continue;
-    cancelled++;
-    await notifyVenueCancelled(done.booking);
-  }
-  if (cancelled > 0) await tickOutbox();
+  // A booking can land while what was there is being cancelled: the court is
+  // closed in one transaction that finds nothing in the way, or it goes round
+  // again for what arrived (a few times, then it says so).
+  for (let round = 0; round < 3; round++) {
+    const overlapping = await overlap();
+    if (overlapping) return alreadyOut(overlapping);
+    const affected = await affectedBy(input.courtId, input.startsOn, input.endsOn);
+    if (affected.length > 0 && !input.cancelAffected)
+      return {
+        ok: false,
+        error:
+          affected.length === 1
+            ? "There is a booking in that time. Move it, or cancel it and tell the customer."
+            : `There are ${affected.length} bookings and classes in that time. Move them, or cancel them and tell the customers.`,
+        affected,
+      };
 
-  const info = await db
-    .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by) VALUES (?, ?, ?, ?, ?)")
-    .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId);
-  return { ok: true, outage: (await outageById(info.lastInsertRowid as number))!, cancelled };
+    // Cancel what is there before closing the court over it, so nothing is
+    // refunded or messaged for a court that then failed to close.
+    for (const a of affected) {
+      if (a.kind === "class") {
+        if ((await cancelClassAndTell(Number(a.ref))).ok) cancelled++;
+        continue;
+      }
+      const done = await adminCancelBooking(a.ref);
+      if (!done.ok) continue;
+      cancelled++;
+      await notifyVenueCancelled(done.booking);
+    }
+    if (affected.length > 0) await tickOutbox();
+
+    const closed = await withTransaction(async () => {
+      const again = await overlap();
+      if (again) return alreadyOut(again);
+      if ((await affectedBy(input.courtId, input.startsOn, input.endsOn)).length > 0) return null;
+      const info = await db
+        .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by) VALUES (?, ?, ?, ?, ?)")
+        .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId);
+      return { ok: true as const, id: info.lastInsertRowid as number };
+    });
+    if (closed && !closed.ok) return closed;
+    if (closed) return { ok: true, outage: (await outageById(closed.id))!, cancelled };
+  }
+  return { ok: false, error: "Bookings keep arriving for those days. Try again in a moment." };
 }
 
 /**

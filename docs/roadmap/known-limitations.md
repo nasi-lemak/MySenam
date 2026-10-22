@@ -2,11 +2,11 @@
 
 Authoritative list of what is known to be wrong, missing or unverified, kept
 apart from what works ([feature status](../product/feature-status.md)) and
-from ideas ([roadmap](roadmap.md)). Recorded during the
-[documentation audit](../documentation-audit.md) of October 2026 from reading
-the code and running its tests; **no application code was changed by that
-audit**, so every defect below is still open unless a later change says
-otherwise.
+from ideas ([roadmap](roadmap.md)). First recorded by the
+[documentation audit](../documentation-audit.md) of October 2026. The numbered
+defects it found (S, B, M) have since been fixed, each with a test, and are
+listed under [fixed since the audit](#fixed-since-the-audit); what remains
+below is open.
 
 Priorities:
 
@@ -17,9 +17,8 @@ Priorities:
 
 ## Suspected defects
 
-"Confirmed" means the cause was confirmed by reading the code (and, where
-noted, reproduced); none has a failing test in the repository yet. Each has
-the test that should be written before it is fixed.
+A new defect gets a row here with its evidence and the test to write before
+it is fixed, and moves to *fixed since the audit* with that test.
 
 ### Operations and security (S)
 
@@ -31,18 +30,10 @@ stopped by `SameSite=Lax` cookies alone (P3).
 
 ### Booking and availability (B)
 
-| ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
-| -- | --- | --------------- | -------- | -------------- | ---------------- |
-| B1 | P2 | Two big courts over the same small one: booking one does not mark the other taken in the grid, search or any-court; booking it then fails as "filling up". The database still prevents the double booking. Blocks on one big court do not reach the other either. | `db/migrations/0072_linked_courts.sql` trigger shadows whole↔part only | No | Link W1→P and W2→P; book W1; assert W2 shows taken |
-| B2 | P2 | Waiting-list holds are respected only by the grid and the booking path, not by search, any court, moving, rescheduling or the move picker, so a held place can be taken and the waiter's claim then fails. | `offerHolds` callers in `src/lib/store.ts` | No | Offer a slot; move or reschedule another booking into it; expect refusal |
-| B3 | P3 | A partly blocked shared facility with a waiting-list hold can be booked past what the grid shows. | `freeSeat` vs `blockedOut` in `src/lib/store.ts` | No | Capacity 3, one blocked, one held, one booked: expect refusal |
-| B4 | P2 | Creating an outage is not one transaction (check, cancel, insert), and classes on a linked court are not listed; a booking made meanwhile lands in the outage untold. Tournament clash checks are similarly outside their transaction. | `src/lib/outages.ts`, `src/lib/tournaments.ts` | No | On Postgres, create an outage and a booking at once; assert no confirmed booking inside it |
-| B5 | P3 | Changing a venue's slot length can race a booking made with the old length. | `createBookingSeries` reads the step outside its transaction | No | — |
-| B6 | P3 | Courts may allow bookings up to twelve hours, but search and waiting lists accept at most four. | `src/lib/store.ts`, `src/app/api/search/route.ts` | No | Search for a five-hour slot on a court that allows it |
-| B7 | P3 | Moving and rescheduling check blocks and classes outside their transaction. | `moveBooking`, `rescheduleBooking` in `src/lib/store.ts` | No | Concurrent block and move |
-| B8 | P3 | A booking of several courts is undone by compensating deletes rather than one transaction; an exception part-way leaves earlier courts booked. | `createGroupBooking` in `src/lib/store.ts` | No | Force a failure on the third court |
+No numbered booking defect is open; see
+[fixed since the audit](#fixed-since-the-audit).
 
-Also: cancelling a weekly series skips weeks inside the cancellation cutoff
+Also, **awaiting a decision** (the code may be intended): cancelling a weekly series skips weeks inside the cancellation cutoff
 silently rather than applying the late-cancel policy to them; rescheduling
 does not check the target court's booking-length limits (P3, unconfirmed
 whether intended).
@@ -71,6 +62,14 @@ IDs are not reused. Each fix came with the test recommended above.
 | S7 | Sessions keep the SHA-256 of their token; a migration converted those issued | `tests/auth.test.ts` |
 | S8 | The retention run deletes phone check codes after a day | `tests/privacy.test.ts` |
 | S6 | Documented: several instances share one `MYSENAM_SECRET` ([architecture](../architecture/overview.md#more-than-one-instance)) | — (configuration) |
+| B1 | Big courts sharing a part shadow each other, and their blocks carry; migration 0087 | `tests/court-links.test.ts` |
+| B2 | Search, any court, the move picker, moving and rescheduling count waiting-list offers through one function | `tests/waitlist.test.ts` |
+| B3 | Choosing a place counts blocked places as well as offers | `tests/waitlist.test.ts` |
+| B4 | An outage is saved in a transaction that re-checks; classes on linked courts are listed; tournament clashes are re-checked in theirs | `tests/outages.test.ts`, `tests/court-links.test.ts` |
+| B5 | A booking re-reads the slot length in its transaction; changing it checks bookings in its own | — (not forced by a test) |
+| B6 | Search and the waiting list take as long a booking as the court allows | `tests/booking-lengths.test.ts` |
+| B7 | Moving and rescheduling check blocks, classes and offers inside their transaction | `tests/move.test.ts` (guards the outcome; the race is not forced) |
+| B8 | A group booking is one transaction | `tests/group-bookings.test.ts` |
 | M1 | A handed-back share leaves the booker owing it; what they paid online gets its own receipt, dated when paid | `tests/games.test.ts` |
 | M2 | A lost dispute takes back only what went back, and unwinds deposits and parts paid | `tests/stripe-disputes.test.ts` |
 | M4 | A lost dispute is claimed once, in the transaction that acts on it | `tests/stripe-disputes.test.ts` |

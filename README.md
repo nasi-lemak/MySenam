@@ -82,9 +82,8 @@ Read [deployment](docs/operations/deployment.md),
   Billplz, Stripe, WhatsApp, SMS, email delivery, MyInvois and Google sign-in
   are tested against fakes only. Work through the
   [launch checklist](docs/operations/deployment.md#before-going-live-what-only-a-live-account-can-prove).
-- **Known defects and gaps** are listed in
-  [known limitations](docs/roadmap/known-limitations.md), including money
-  edge cases to fix before taking payments at scale.
+- **Known gaps and open questions** are listed in
+  [known limitations](docs/roadmap/known-limitations.md).
 - The terms at `/terms` and privacy notice at `/privacy` are drafts that
   describe the software; have a lawyer review them.
 

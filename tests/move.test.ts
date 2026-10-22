@@ -201,3 +201,27 @@ describe("moving a booking to another court", () => {
     expect(await moveTargetsFor("MS-NOSUCH")).toEqual([]);
   });
 });
+
+/**
+ * The move now checks blocks, classes and waiting-list offers inside its own
+ * transaction. The window this closes is narrow and is not forced here: these
+ * rounds guard the outcome, and passed before the change too.
+ */
+describe("a block and a move at the same moment", () => {
+  for (let round = 0; round < 3; round++)
+    it(`never leave a booking inside the block (round ${round + 1})`, async () => {
+      const date = future(8 + round);
+      const [c1, c2] = await courts();
+      const b = await book(c1.id, [9], date);
+      await Promise.all([blockSlots(c2.id, date, [9], "Leak"), moveBooking(b.code, c2.id)]);
+      const clash = (await getDb()
+        .prepare(
+          `SELECT COUNT(*)::int AS n FROM booking_slots s JOIN slot_blocks k ON k.court_id = s.court_id AND k.date = s.date AND k.hour = s.hour
+            WHERE s.booking_id = ?`
+        )
+        .get(b.id)) as { n: number };
+      expect(clash.n).toBe(0);
+      await getDb().prepare("DELETE FROM slot_blocks WHERE court_id = ? AND date = ?").run(c2.id, date);
+      await adminCancelBooking(b.code);
+    });
+});
