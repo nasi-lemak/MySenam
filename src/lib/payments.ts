@@ -1,6 +1,6 @@
 import { isOpen, venueIsOpen } from "./listing";
 import { creditScope, isMarketplace } from "./mode";
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import {
   gatewayFor,
   offeredGateways,
@@ -29,7 +29,7 @@ import { extendHolds, holdPolicy, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
-import { creditBooking, creditReceipt, entrySale, issueReceipt, paidVia, placeSale, type Line } from "./documents";
+import { creditReceipt, documentFor, entrySale, issueReceipt, keepBookingReceipt, paidVia, placeSale, type Line } from "./documents";
 import { venueTax } from "./tax";
 import { cancelPolicy, struckOut, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
@@ -1700,21 +1700,38 @@ export async function recordDispute(provider: string, billId: string, event: Dis
   if (!payment || payment.venue_id === null) return null;
   const minor = region().currency.minorUnits;
   const amount = roundMoney(event.amountMinor / 10 ** minor);
-  const before = (await db.prepare("SELECT outcome FROM payment_disputes WHERE provider_dispute_id = ?").get(event.disputeId)) as
-    | { outcome: string | null }
-    | undefined;
-  await db
-    .prepare(
-      `INSERT INTO payment_disputes (payment_id, provider_dispute_id, amount, reason, status, due_by, outcome)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (provider_dispute_id) DO UPDATE SET status = excluded.status, due_by = COALESCE(excluded.due_by, payment_disputes.due_by),
-         outcome = COALESCE(excluded.outcome, payment_disputes.outcome), updated_at = datetime('now')`
-    )
-    .run(payment.id, event.disputeId, amount, event.reason, event.status, event.dueBy, event.outcome);
+  // Gateways repeat themselves, sometimes twice at once: whichever copy writes
+  // the dispute down first says it opened, and whichever moves its outcome
+  // acts on it. Each is one statement, inside the transaction that acts.
+  const { opened, decided } = await withTransaction(async () => {
+    const inserted = await db
+      .prepare(
+        `INSERT INTO payment_disputes (payment_id, provider_dispute_id, amount, reason, status, due_by)
+         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider_dispute_id) DO NOTHING RETURNING id`
+      )
+      .get(payment.id, event.disputeId, amount, event.reason, event.status, event.dueBy);
+    if (!inserted)
+      await db
+        .prepare(
+          `UPDATE payment_disputes SET status = ?, due_by = COALESCE(?, due_by), updated_at = datetime('now')
+            WHERE provider_dispute_id = ?`
+        )
+        .run(event.status, event.dueBy, event.disputeId);
+    const moved = event.outcome
+      ? await db
+          .prepare(
+            `UPDATE payment_disputes SET outcome = ?, updated_at = datetime('now')
+              WHERE provider_dispute_id = ? AND outcome IS DISTINCT FROM ? RETURNING id`
+          )
+          .get(event.outcome, event.disputeId, event.outcome)
+      : undefined;
+    if (moved && event.outcome === "lost") await disputeLost(payment, amount);
+    return { opened: Boolean(inserted), decided: moved ? event.outcome : null };
+  });
   const venue = await getVenue(payment.venue_id);
   const name = venue?.name ?? "your venue";
   const gateway = gatewayFor(provider)?.name ?? provider;
-  if (!before)
+  if (opened)
     await tellVenueStaff(
       payment.venue_id,
       `A customer has disputed a payment: ${money(amount)}`,
@@ -1724,46 +1741,84 @@ export async function recordDispute(provider: string, billId: string, event: Dis
         "If the bank decides for the customer, the money goes back to them and the booking shows as unpaid again.",
       ].join("\n\n")
     );
-  if (event.outcome === "lost" && before?.outcome !== "lost") await disputeLost(payment);
-  if (event.outcome && before?.outcome !== event.outcome && before)
+  if (decided && !opened)
     await tellVenueStaff(
       payment.venue_id,
-      `Dispute ${event.outcome}: ${money(amount)}`,
-      event.outcome === "won"
+      `Dispute ${decided}: ${money(amount)}`,
+      decided === "won"
         ? `The bank decided for ${name}: the ${money(amount)} stays yours.`
-        : `The bank decided for the customer: ${money(amount)} has gone back to them. The bookings it paid for show as unpaid again.`
+        : `The bank decided for the customer: ${money(amount)} has gone back to them. What it paid for is owed again: a booking shows as unpaid for that much.`
     );
   return (await disputesFor(payment.venue_id)).find((d) => d.providerDisputeId === event.disputeId) ?? null;
 }
 
-/** The money went back: what it paid for is unpaid again, and its receipt credited. */
-async function disputeLost(payment: PaymentRow): Promise<void> {
+/**
+ * The money went back, all of it or the part disputed: what it paid for is
+ * owed again for that much, and its receipt is credited for it.
+ *
+ * A booking it paid in full keeps its receipt as a document of its own, dated
+ * when it was paid, so the sale stays in that period and the credit note
+ * falls in this one; the booking is unpaid for what was taken back. A deposit,
+ * or a part paid before a share was handed back, stops counting towards its
+ * booking by as much.
+ */
+async function disputeLost(payment: PaymentRow, disputed: number): Promise<void> {
   const db = getDb();
-  const bookings = (await db
+  const paid = Number(payment.amount);
+  const share = paid > 0 ? Math.min(1, disputed / paid) : 1;
+  const credit = new Set<string>();
+  const linked = (await db
     .prepare(
-      `SELECT b.id FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id
-        WHERE pb.payment_id = ? AND b.payment_status = 'paid' AND b.paid_via = 'online'`
+      `SELECT b.id, b.payment_status, b.paid_via, b.paid_at, pb.amount::float AS part
+         FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ?`
     )
-    .all(payment.id)) as { id: number }[];
-  for (const b of bookings) {
-    await creditBooking(b.id, "receipt.why.disputed");
-    await db.prepare("UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL WHERE id = ?").run(b.id);
+    .all(payment.id)) as { id: number; payment_status: string; paid_via: string | null; paid_at: string | null; part: number | null }[];
+  for (const b of linked) {
+    if (payment.deposit === 0 && b.payment_status === "paid" && b.paid_via === "online") {
+      const source = `booking-paid:${b.id}:${payment.id}`;
+      const receipt = await keepBookingReceipt(b.id, source, b.paid_at);
+      const kept = receipt ? roundMoney(receipt.total * (1 - share)) : 0;
+      if (receipt) credit.add(source);
+      await db
+        .prepare(
+          `UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL,
+                  shares_paid = shares_paid + ?, deposit_paid = deposit_paid + ? WHERE id = ?`
+        )
+        .run(kept, kept, b.id);
+      continue;
+    }
+    const source = payment.deposit === 1 ? `payment:${payment.id}` : `booking-part:${b.id}:${payment.id}`;
+    if (!(await documentFor(source))) continue;
+    credit.add(source);
+    // Paid in full another way since: that stands, and the venue is told what went back.
+    if (b.payment_status === "paid") continue;
+    const part = roundMoney(Number(b.part ?? 0) * share);
+    await db
+      .prepare("UPDATE bookings SET shares_paid = GREATEST(0, shares_paid - ?), deposit_paid = GREATEST(0, deposit_paid - ?) WHERE id = ?")
+      .run(part, part, b.id);
   }
-  if (bookings.length === 0) await creditReceipt(`payment:${payment.id}`, "receipt.why.disputed");
-  await takeBackWhatItBought(payment);
-  // The bank has given it all back: nothing more is owed on it, whatever happens to what it paid for.
-  await db.prepare("UPDATE online_payments SET refund_due = amount, refunded = amount WHERE id = ?").run(payment.id);
+  if (linked.length === 0) credit.add(`payment:${payment.id}`);
+  for (const source of credit) await creditReceipt(source, "receipt.why.disputed", share);
+  await takeBackWhatItBought(payment, roundMoney(paid * share));
+  // The bank has given that much back: it is no longer owed, whatever happens to what it paid for.
+  await db
+    .prepare(
+      `UPDATE online_payments SET refunded = LEAST(amount, refunded + ?),
+              refund_due = GREATEST(refund_due, LEAST(amount, refunded + ?)) WHERE id = ?`
+    )
+    .run(disputed, disputed, payment.id);
 }
 
 /**
  * The money behind a payment went back to the cardholder through the bank:
- * what it bought is taken back too, as it would be for a refund. Credit
- * already spent leaves the account below nothing, settled by the next top-up
- * or at the counter.
+ * what it bought is taken back too, as it would be for a refund, as far as
+ * the money that went back. Credit already spent leaves the account below
+ * nothing, settled by the next top-up or at the counter. A membership, a
+ * tournament entry or a league place is not divisible, and goes on any loss.
  */
-async function takeBackWhatItBought(payment: PaymentRow): Promise<void> {
+async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promise<void> {
   const db = getDb();
-  const amount = Number(payment.amount);
+  const whole = amount >= Number(payment.amount) - 0.005;
   const scope = creditScope() === "venue" ? payment.venue_id : null;
   const { unpayShare } = await import("./games");
   switch (payment.purpose) {
@@ -1775,6 +1830,13 @@ async function takeBackWhatItBought(payment: PaymentRow): Promise<void> {
       break;
     case "voucher": {
       if (payment.voucher_id == null) break;
+      // Not yet used: void, or worth less by what went back.
+      if (!whole) {
+        const cut = await db
+          .prepare("UPDATE gift_vouchers SET amount = GREATEST(0, amount - ?) WHERE id = ? AND status = 'active' RETURNING id")
+          .get(amount, payment.voucher_id);
+        if (cut) break;
+      }
       const voucher = (await db
         .prepare("UPDATE gift_vouchers SET status = 'void' WHERE id = ? AND status IN ('active', 'redeemed') RETURNING redeemed_by, status")
         .get(payment.voucher_id)) as { redeemed_by: number | null } | undefined;
@@ -1795,12 +1857,12 @@ async function takeBackWhatItBought(payment: PaymentRow): Promise<void> {
         .prepare("SELECT g.booking_id FROM open_game_players p JOIN open_games g ON g.id = p.game_id WHERE p.id = ? AND p.paid_at IS NOT NULL")
         .get(payment.game_player_id)) as { booking_id: number } | undefined;
       if (!place) break;
-      await db.prepare("UPDATE open_game_players SET paid_at = NULL WHERE id = ?").run(payment.game_player_id);
+      if (whole) await db.prepare("UPDATE open_game_players SET paid_at = NULL WHERE id = ?").run(payment.game_player_id);
       await unpayShare(place.booking_id, amount);
       break;
     }
     case "split": {
-      if (payment.split_id == null || Number(payment.refund_due) >= amount) break;
+      if (payment.split_id == null || Number(payment.refund_due) >= Number(payment.amount)) break;
       const split = (await db.prepare("SELECT booking_id FROM booking_splits WHERE id = ?").get(payment.split_id)) as
         | { booking_id: number }
         | undefined;

@@ -11,7 +11,9 @@ import { documentFor } from "../src/lib/documents";
 import { disputesFor, savePaymentSettings, settleBill, startBookingPayment, startTopUpPayment } from "../src/lib/payments";
 import { registerUser } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { createBooking, createCourt, createVenue, findBooking, getWalletBalance } from "../src/lib/store";
+import { cancelBooking, createBooking, createCourt, createVenue, findBooking, getWalletBalance } from "../src/lib/store";
+import { setHoldPolicy } from "../src/lib/holds";
+import { salesJournal } from "../src/lib/accounting";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as callback } from "../src/app/api/payments/[provider]/callback/route";
 
@@ -72,6 +74,15 @@ async function paidBooking() {
   return { booking: made.booking, billId };
 }
 
+const paymentId = async (billId: string) =>
+  ((await getDb().prepare("SELECT id FROM online_payments WHERE bill_id = ?").get(billId)) as { id: number }).id;
+const creditNoteFor = async (number: string) => {
+  const row = (await getDb().prepare("SELECT source FROM receipts WHERE kind = 'credit_note' AND credits_ref = ?").get(number)) as
+    | { source: string }
+    | undefined;
+  return row ? documentFor(row.source) : null;
+};
+
 beforeAll(async () => {
   const made = await createVenue({ name: "Dispute Courts", area: "Bishan", address: "x", phone: "61230099" });
   if (!made.ok) throw new Error("venue");
@@ -118,7 +129,10 @@ describe("a chargeback", () => {
     await send("charge.dispute.closed", { id: "dp_2", payment_intent: `pi_for_${billId}`, amount: 2000, reason: "product_not_received", status: "lost" });
     const after = (await findBooking(booking.code, booking.phone))!;
     expect(after).toMatchObject({ paymentStatus: "unpaid", status: "confirmed" });
-    expect(await documentFor(`booking:${booking.id}`)).toMatchObject({ kind: "credit_note", note: "receipt.why.disputed" });
+    // Its receipt is kept as a document of its own, and that is what is credited.
+    const receipt = (await documentFor(`booking-paid:${booking.id}:${await paymentId(billId)}`))!;
+    expect(receipt).toMatchObject({ kind: "receipt", total: 20 });
+    expect(await creditNoteFor(receipt.number)).toMatchObject({ kind: "credit_note", note: "receipt.why.disputed", total: 20 });
     expect((await disputesFor(venueId)).find((d) => d.providerDisputeId === "dp_2")).toMatchObject({ outcome: "lost" });
   });
 
@@ -139,6 +153,82 @@ describe("a chargeback", () => {
       refunded: number;
     };
     expect(row).toEqual({ due: 50, refunded: 50 });
+  });
+
+  it("lost long after it was paid: the sale stays in its own period, the credit note in this one", async () => {
+    const { booking, billId } = await paidBooking();
+    const then = addDays(todayISO(), -40);
+    await getDb().prepare("UPDATE bookings SET paid_at = ? WHERE id = ?").run(`${then}T04:00:00.000Z`, booking.id);
+    const net = async (day: string) => (await salesJournal(venueId, day, day)).reduce((sum, r) => sum + r.gross, 0);
+    expect(await net(then)).toBe(20);
+    const today = await net(todayISO());
+    await send("charge.dispute.closed", { id: "dp_6", payment_intent: `pi_for_${billId}`, amount: 2000, reason: "fraudulent", status: "lost" });
+    expect(await net(then)).toBe(20);
+    expect((await salesJournal(venueId, then, then)).map((r) => r.category)).toEqual(["Court hire"]);
+    expect((await net(todayISO())) - today).toBe(-20);
+  });
+
+  it("lost on a deposit: the deposit no longer counts, so the whole price is due", async () => {
+    fakeStripe();
+    expect((await setHoldPolicy(venueId, { on: true, depositPercent: 30 })).ok).toBe(true);
+    try {
+      const made = await createBooking({ courtId, date: addDays(todayISO(), 5), hours: [9], name: "Deposit Payer", phone: "91238001" });
+      if (!made.ok) throw new Error(made.error);
+      const started = await startBookingPayment({ codes: [made.booking.code], phone: made.booking.phone, deposit: true });
+      if (!started.ok) throw new Error("payment");
+      const billId = started.url.split("/").pop()!;
+      await settleBill({ billId, paid: true, paidAt: null });
+      const owed = async () =>
+        (await getDb()
+          .prepare("SELECT (total_price - shares_paid)::float AS due, deposit_paid::float AS deposit FROM bookings WHERE id = ?")
+          .get(made.booking.id)) as { due: number; deposit: number };
+      expect(await owed()).toEqual({ due: 14, deposit: 6 });
+      // The deposit is sold as part of the court hire it holds.
+      const deposit = (await salesJournal(venueId, todayISO(), todayISO())).find((r) => r.gross === 6);
+      expect(deposit?.category).toBe("Court hire");
+      await send("charge.dispute.closed", { id: "dp_7", payment_intent: `pi_for_${billId}`, amount: 600, reason: "fraudulent", status: "lost" });
+      expect(await owed()).toEqual({ due: 20, deposit: 0 });
+      const receipt = (await documentFor(`payment:${await paymentId(billId)}`))!;
+      expect(await creditNoteFor(receipt.number)).toMatchObject({ total: 6, note: "receipt.why.disputed" });
+    } finally {
+      await setHoldPolicy(venueId, { on: false });
+    }
+  });
+
+  it("lost in part: only the part disputed is taken back", async () => {
+    const { booking, billId } = await paidBooking();
+    await send("charge.dispute.closed", { id: "dp_8", payment_intent: `pi_for_${billId}`, amount: 500, reason: "general", status: "lost" });
+    const row = (await getDb()
+      .prepare("SELECT payment_status, (total_price - shares_paid)::float AS due FROM bookings WHERE id = ?")
+      .get(booking.id)) as { payment_status: string; due: number };
+    expect(row).toEqual({ payment_status: "unpaid", due: 5 });
+    const receipt = (await documentFor(`booking-paid:${booking.id}:${await paymentId(billId)}`))!;
+    expect(receipt.total).toBe(20);
+    expect((await creditNoteFor(receipt.number))!.total).toBe(5);
+    const pay = (await getDb().prepare("SELECT refunded::float AS refunded FROM online_payments WHERE bill_id = ?").get(billId)) as { refunded: number };
+    expect(pay.refunded).toBe(5);
+
+    // Called off afterwards: what the bank left is owed back, and credited.
+    expect((await cancelBooking(booking.code, booking.phone)).ok).toBe(true);
+    const after = (await getDb().prepare("SELECT refund_due::float AS due FROM online_payments WHERE bill_id = ?").get(billId)) as { due: number };
+    expect(after.due).toBe(20);
+    const notes = (await getDb()
+      .prepare("SELECT total::float AS total FROM receipts WHERE kind = 'credit_note' AND credits_id = ? ORDER BY id")
+      .all(receipt.id)) as { total: number }[];
+    expect(notes.map((x) => x.total)).toEqual([5, 15]);
+  });
+
+  it("lost, told twice at once: taken back once", async () => {
+    fakeStripe();
+    const user = await registerUser({ name: "Twice", email: "twice@dispute.sg", phone: "91238002", password: "long enough password" });
+    if (!user.ok) throw new Error(user.error);
+    const started = await startTopUpPayment(user.user, venueId, 30);
+    if (!started.ok) throw new Error("topup");
+    const billId = started.url.split("/").pop()!;
+    await settleBill({ billId, paid: true, paidAt: null });
+    const lost = { id: "dp_10", payment_intent: `pi_for_${billId}`, amount: 3000, reason: "fraudulent", status: "lost" };
+    await Promise.all([send("charge.dispute.closed", lost), send("charge.dispute.closed", lost)]);
+    expect(await getWalletBalance(user.user.id, venueId)).toBe(0);
   });
 
   it("won: nothing changes but the record", async () => {

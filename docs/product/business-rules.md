@@ -78,11 +78,15 @@ change, update this page, and update [feature status](feature-status.md).
   the voucher is void, or its credit goes if redeemed; on a membership, it is
   void and renewals stop; on a game or split share, it no longer counts towards
   the booking; on a tournament or league fee, the place is unpaid again.
-  Nothing more is owed back on a payment the bank has already returned.
-  *Suspected defects:* a lost dispute on a deposit is not unwound, the whole
-  payment is taken back even for a partial dispute, and two copies of a lost
-  dispute arriving together may debit twice (M2, M4 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects)).
+  On a booking it paid for, the booking owes what went back again; on a
+  deposit, the deposit stops counting towards the booking. A dispute for part
+  of a payment takes back only that part (a membership, entry or league place,
+  which cannot be split, goes whole). Nothing more is owed back on a payment
+  the bank has already returned, and a lost dispute is acted on once however
+  often, or however simultaneously, the gateway reports it.
+- **A receipt stays in the period it was issued.** A booking that stops being
+  paid (a chargeback lost) keeps its receipt, written down as a document of its
+  own dated when it was paid; the credit note falls in the period of the loss.
 - **Counter sales voided later** come off the takings on the day of the void,
   not the day of the sale, so a day already cashed up does not change.
 - **Promo codes** can be limited per customer (by phone number however typed).

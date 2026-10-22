@@ -4650,22 +4650,27 @@ async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> 
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
          -- Paid for online, or a deposit or other part paid on it (the rest was never paid online).
          AND (p.deposit = 1 OR EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
-              OR EXISTS (SELECT 1 FROM receipts r WHERE r.source = 'booking-part:' || ? || ':' || p.id))
+              OR EXISTS (SELECT 1 FROM receipts r WHERE r.source IN ('booking-part:' || ? || ':' || p.id, 'booking-paid:' || ? || ':' || p.id)))
     `)
-    .run(bookingId, bookingId, bookingId, bookingId, bookingId);
-  // A deposit's own receipt is credited for what goes back.
+    .run(bookingId, bookingId, bookingId, bookingId, bookingId, bookingId);
+  const why = share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled";
+  const code = ((await getDb().prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId)) as { code: string } | undefined)?.code ?? String(bookingId);
+  // A deposit's own receipt is credited for what goes back: this booking's part
+  // of it, since one deposit can hold several bookings (a weekly series).
   const deposits = (await getDb()
     .prepare(
-      `SELECT p.id FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
+      `SELECT p.id, pb.amount::float AS amount FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
         WHERE pb.booking_id = ? AND p.deposit = 1 AND p.status = 'paid'`
     )
-    .all(bookingId)) as { id: number }[];
-  for (const d of deposits) await creditReceipt(`payment:${d.id}`, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
-  // So is a part paid online before a share it counted on was handed back (lib/games.ts, unpayShare).
+    .all(bookingId)) as { id: number; amount: number | null }[];
+  for (const d of deposits)
+    await creditReceipt(`payment:${d.id}`, why, share, d.amount === null ? undefined : { key: code, amount: Number(d.amount) });
+  // So is a part paid online before a share it counted on was handed back (lib/games.ts, unpayShare),
+  // or the part a chargeback left (lib/payments.ts, disputeLost): each is this booking's alone.
   const parts = (await getDb()
-    .prepare("SELECT source FROM receipts WHERE kind = 'receipt' AND source LIKE ?")
-    .all(`booking-part:${bookingId}:%`)) as { source: string }[];
-  for (const p of parts) await creditReceipt(p.source, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
+    .prepare("SELECT source, total::float AS total FROM receipts WHERE kind = 'receipt' AND (source LIKE ? OR source LIKE ?)")
+    .all(`booking-part:${bookingId}:%`, `booking-paid:${bookingId}:%`)) as { source: string; total: number }[];
+  for (const p of parts) await creditReceipt(p.source, why, share, { key: code, amount: Number(p.total) });
 }
 
 /* ---------------- Memberships ---------------- */

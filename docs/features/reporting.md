@@ -64,7 +64,9 @@ in the activity log, since customers' names and numbers leave with it.
 into SQL Accounting, AutoCount, Xero or QuickBooks. It has one row for every
 receipt and credit note dated in the period, on the venue's own calendar,
 including booking receipts, which are drawn from the bookings when they were
-paid. Each row carries the number, the customer, a category (*Court hire*,
+paid; a booking that stops being paid (a chargeback lost) keeps its receipt in
+its own period as a document of its own, and the credit note is dated when it
+was lost. Each row carries the number, the customer, a category (*Court hire*,
 *Classes*, *Memberships*, *Passes*, *Tournament entries*, *League fees*,
 *Game shares*, *Stored credit*, *Gift vouchers*), the net, the tax inside it,
 the gross and how it was paid. Credit notes are negative. Two categories are

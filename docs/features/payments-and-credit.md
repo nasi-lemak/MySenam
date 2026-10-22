@@ -57,7 +57,9 @@ and *Pay a 30% deposit now: RM10.50*, and the booking terms say so.
 - The customer can still move it themselves; only friends' shares stop that.
 - A number past its no-show strikes is offered no deposit: it pays it all.
 - Several bookings paid together (a weekly series) take the share of the
-  whole, split across them.
+  whole, split across them. Cancelling one owes back and credits that
+  booking's part of the deposit only; a receipt is never credited for more
+  than it was.
 
 ### Paying online
 
@@ -103,9 +105,12 @@ running booking software and running a payments business.
   is written to `payment_disputes` once and kept up to date. The venue's staff
   get an email with the amount, the reason and the date to answer by, and it
   shows in red under *Disputed payments* with *Answer it*, a link to the
-  dispute in Stripe. **Lost**: the money went back to the customer, so the
-  bookings it paid for show as unpaid again and get a credit note, and staff
-  are told. **Won**: only the record changes. Billplz (FPX) has no card
+  dispute in Stripe. **Lost**: the money went back to the customer, so what
+  it paid for is owed again for as much as went back, and staff are told. A
+  booking paid in full keeps its receipt (written down, dated when it was paid)
+  and gets a credit note for what went back, and shows as unpaid for that; a
+  deposit stops counting towards its booking, and its receipt is credited.
+  Repeats of the same outcome do nothing. **Won**: only the record changes. Billplz (FPX) has no card
   chargebacks to report.
 - **Refunds when a customer cancels** — a venue can skip the queue for what a
   customer cancels themselves (by code, from their account, or a whole series),

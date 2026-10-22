@@ -24,6 +24,13 @@ beforeAll(async () => {
 const count = async (sql: string, ...args: unknown[]) =>
   (await getDb().prepare(sql).get(...args) as { n: number }).n;
 
+/**
+ * Writing a month of bookings into PGlite takes about 25 seconds on its own,
+ * close to the suite's 30-second default, and more with every other file
+ * running beside it.
+ */
+const SEEDING = 120_000;
+
 describe("filling an empty install", () => {
   it("writes a fortnight either side of today", async () => {
     expect(await hasTradingHistory()).toBe(false);
@@ -43,7 +50,7 @@ describe("filling an empty install", () => {
     expect(await count("SELECT COUNT(*) AS n FROM bookings WHERE date < ?", today)).toBeGreaterThan(10);
     expect(await count("SELECT COUNT(*) AS n FROM bookings WHERE date > ?", today)).toBeGreaterThan(10);
     expect(await count("SELECT COUNT(*) AS n FROM bookings WHERE date > ?", addDays(today, 20))).toBe(0);
-  });
+  }, SEEDING);
 
   it("fills every screen a newcomer would open", async () => {
     expect(await count("SELECT COUNT(*) AS n FROM check_ins")).toBeGreaterThan(0);
@@ -144,7 +151,7 @@ describe("moving an aged demo onto today", () => {
     // for a given day, so the same day rewritten is the same size exactly.
     expect(await count("SELECT COUNT(*) AS n FROM bookings")).toBe(bookingsBefore);
     expect(await count("SELECT COUNT(*) AS n FROM bookings WHERE demo = 0")).toBe(0);
-  });
+  }, SEEDING);
 
   it("is withdrawn for good once a real customer books", async () => {
     const court = (await listVenues())[0].courts[0];

@@ -210,7 +210,7 @@ Authoritative: [reporting](../features/reporting.md).
 | ---------- | ------ | --------------------- | ---- | ----- | --------------------- |
 | Period reports and occupancy | IMPLEMENTED_AND_TESTED | Booked vs collected; utilisation; what is owed | `src/lib/reports.ts` | `tests/reports.test.ts` | Linked courts double-count utilisation |
 | Customer report | IMPLEMENTED_AND_TESTED | New vs returning; top customers; lapsed regulars; no-shows | `src/lib/customer-report.ts` | `tests/customer-report.test.ts` | — |
-| Exports and sales journal | IMPLEMENTED_AND_TESTED | Excel-safe CSV; journal by category, tax and method | `src/lib/export.ts`, `src/lib/accounting.ts` | `tests/export.test.ts`, `tests/accounting.test.ts` | Rebuilt from current state (M6); deposits under *Other* |
+| Exports and sales journal | IMPLEMENTED_AND_TESTED | Excel-safe CSV; journal by category, tax and method | `src/lib/export.ts`, `src/lib/accounting.ts` | `tests/export.test.ts`, `tests/accounting.test.ts` | — |
 
 ## Integrations
 
@@ -227,7 +227,7 @@ mocked mail, a fake LHDN, a local fake S3). Authoritative:
 | Stripe Checkout | INTEGRATION_VERIFICATION_REQUIRED | Session in cents on the venue's key; closes with the hold | `src/lib/gateways/stripe.ts` | `tests/stripe.test.ts` | Key permissions unverified |
 | Stripe webhook and return verification | INTEGRATION_VERIFICATION_REQUIRED | Signature within five minutes; return page re-checks | `src/lib/gateways/stripe.ts`, `src/app/payments/return` | `tests/stripe.test.ts` | — |
 | Stripe refunds | INTEGRATION_VERIFICATION_REQUIRED | One-click and automatic, with an idempotency key | `src/lib/payments.ts` | `tests/stripe-refunds.test.ts` | Needs Refunds: Write |
-| Stripe disputes | INTEGRATION_VERIFICATION_REQUIRED | Recorded once; lost → what it paid for undone | `src/lib/payments.ts` | `tests/stripe-disputes.test.ts` | M2, M4 |
+| Stripe disputes | INTEGRATION_VERIFICATION_REQUIRED | Recorded once; lost → what it paid for undone | `src/lib/payments.ts` | `tests/stripe-disputes.test.ts` | Needs a test-mode dispute against real Stripe |
 | Stripe membership renewals | INTEGRATION_VERIFICATION_REQUIRED | Subscription per plan; `invoice.paid` → next period | `src/lib/payments.ts` | `tests/membership-renewal.test.ts` | Stripe only |
 | MyInvois connection | INTEGRATION_VERIFICATION_REQUIRED | Venue's own client or platform as intermediary | `src/lib/myinvois/client.ts` | `tests/myinvois.test.ts` | Never tried against LHDN |
 | MyInvois consolidated and credit notes | INTEGRATION_VERIFICATION_REQUIRED | Monthly consolidated documents; large sales alone | `src/lib/myinvois.ts`, `src/lib/myinvois/ubl.ts` | `tests/myinvois.test.ts` | Cancelling done in the portal |

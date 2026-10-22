@@ -75,7 +75,8 @@ async function categoryOf(source: string): Promise<Category> {
   const db = getDb();
   switch (kind) {
     case "booking":
-    case "booking-part": {
+    case "booking-part":
+    case "booking-paid": {
       const b = (await db.prepare("SELECT class_id, coach_id FROM bookings WHERE id = ?").get(id)) as
         | { class_id: number | null; coach_id: number | null }
         | undefined;
@@ -100,6 +101,13 @@ async function categoryOf(source: string): Promise<Category> {
       return "Counter sales";
     case "payment": {
       const p = (await db.prepare("SELECT purpose FROM online_payments WHERE id = ?").get(id)) as { purpose: string } | undefined;
+      // A deposit is part of the booking it holds, and sold as that is.
+      if (p?.purpose === "booking") {
+        const held = (await db.prepare("SELECT MIN(booking_id) AS id FROM online_payment_bookings WHERE payment_id = ?").get(id)) as
+          | { id: number | null }
+          | undefined;
+        if (held?.id) return categoryOf(`booking:${held.id}`);
+      }
       return PURPOSE[p?.purpose ?? ""] ?? "Other";
     }
     case "credit": {

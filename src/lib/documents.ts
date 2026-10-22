@@ -228,24 +228,47 @@ export async function issueReceipt(sale: Sale): Promise<Document | null> {
  * Reverse a receipted sale: a credit note for all of it, or for `share` of it
  * (a late cancellation), at the tax it was sold at. Nothing when the sale was
  * never receipted (it was free, or made before receipts were kept). Once only.
+ *
+ * A receipt that covered several things (a deposit on two bookings) is
+ * credited a part at a time: `part` names the thing (`key`, so each is
+ * credited once) and how much of the receipt was for it. However it is cut,
+ * a receipt is never credited for more than it was.
  */
-export async function creditReceipt(source: string, why: string, share = 1): Promise<Document | null> {
+export async function creditReceipt(
+  source: string,
+  why: string,
+  share = 1,
+  part?: { key: string; amount: number }
+): Promise<Document | null> {
   const full = await documentFor(source);
   if (!full || full.kind !== "receipt" || share <= 0) return null;
-  const part = roundMoney(full.total * Math.min(share, 1));
+  const creditSource = part ? `credit:${full.id}:${part.key}` : `credit:${full.id}`;
+  const already = await documentFor(creditSource);
+  if (already) return already;
+  const { credited } = (await getDb()
+    .prepare("SELECT COALESCE(SUM(total), 0)::float AS credited FROM receipts WHERE kind = 'credit_note' AND credits_id = ?")
+    .get(full.id)) as { credited: number };
+  const wanted = roundMoney((part ? Math.min(part.amount, full.total) : full.total) * Math.min(share, 1));
+  const amount = Math.min(wanted, roundMoney(full.total - Number(credited)));
+  if (amount <= 0) return null;
   const receipt =
-    share >= 1
+    amount >= full.total
       ? full
       : {
           ...full,
-          total: part,
-          lines: [{ description: `${Math.round(share * 100)}% of ${full.number}, cancelled late`, amount: part }],
-          tax: full.tax ? { ...full.tax, amount: taxIncluded(part, full.tax.rate) } : null,
+          total: amount,
+          lines: [
+            {
+              description: share < 1 ? `${Math.round(share * 100)}% of ${full.number}${part ? `, ${part.key}` : ""}, cancelled late` : `Part of ${full.number}${part ? `, ${part.key}` : ""}`,
+              amount,
+            },
+          ],
+          tax: full.tax ? { ...full.tax, amount: taxIncluded(amount, full.tax.rate) } : null,
         };
   return write({
     venue_id: receipt.venueId,
     kind: "credit_note",
-    source: `credit:${receipt.id}`,
+    source: creditSource,
     credits_id: receipt.id,
     credits_ref: receipt.number,
     user_id: receipt.userId,
@@ -340,6 +363,37 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     total: roundMoney(b.total_price - b.shares_paid),
     taxRate: b.paid_via === "pass" || b.tax_rate === null ? null : Number(b.tax_rate),
   };
+}
+
+/**
+ * A paid booking's receipt, drawn from the booking, written down as a
+ * document of its own: for when the booking is about to stop being paid (a
+ * chargeback lost), so the sale stays in the period it was paid in rather
+ * than vanishing from it. Dated when it was paid; at the tax it was sold at.
+ */
+export async function keepBookingReceipt(bookingId: number, source: string, paidAt: string | null): Promise<Document | null> {
+  const sale = await bookingSale(bookingId);
+  if (!sale || sale.paymentStatus !== "paid" || sale.total <= 0) return null;
+  const tax = sale.taxRate ? await venueTax(sale.venueId) : null;
+  return write({
+    venue_id: sale.venueId,
+    kind: "receipt",
+    source,
+    credits_id: null,
+    credits_ref: null,
+    user_id: sale.userId,
+    customer_name: sale.name,
+    customer_phone: sale.phone,
+    lines: JSON.stringify(sale.lines),
+    total: sale.total,
+    tax_name: sale.taxRate ? tax!.name : null,
+    tax_rate: sale.taxRate,
+    tax_amount: sale.taxRate ? taxIncluded(sale.total, sale.taxRate) : 0,
+    tax_reg_no: sale.taxRate ? tax!.regNo : null,
+    paid_via: paidVia(sale.paidVia),
+    note: `Booking ${sale.code}`,
+    issued_at: paidAt ? paidAt.replace("T", " ").slice(0, 19) : null,
+  });
 }
 
 /**

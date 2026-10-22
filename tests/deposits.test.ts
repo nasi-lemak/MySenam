@@ -170,4 +170,28 @@ describe("a venue's deposit", () => {
     const { booking } = await deposited(15, "0192220006");
     expect(await rescheduleBooking(booking.code, { date, startHour: 16 }, "customer")).toMatchObject({ ok: true });
   });
+
+  it("on two bookings at once, cancelling one credits that one's part, then the other's", async () => {
+    await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 0 WHERE id = ?").run(venueId);
+    const phone = "0192220007";
+    const a = await post({ hours: [17], phone });
+    const b = await post({ hours: [18], phone });
+    fakeBillplz();
+    const started = await startBookingPayment({ codes: [a.booking.code, b.booking.code], phone, deposit: true });
+    if (!started.ok) throw new Error("start");
+    const bill = (await getDb().prepare("SELECT id, bill_id FROM online_payments ORDER BY id DESC LIMIT 1").get()) as { id: number; bill_id: string };
+    await settleBill({ billId: bill.bill_id, paid: true, paidAt: null });
+    const credited = async () =>
+      ((await getDb()
+        .prepare(
+          `SELECT total::float AS total FROM receipts WHERE kind = 'credit_note'
+            AND credits_id = (SELECT id FROM receipts WHERE source = ?) ORDER BY id`
+        )
+        .all(`payment:${bill.id}`)) as { total: number }[]).map((r) => r.total);
+    expect(await cancelBooking(a.booking.code, phone)).toMatchObject({ ok: true });
+    expect(await credited()).toEqual([10.5]);
+    expect(await cancelBooking(b.booking.code, phone)).toMatchObject({ ok: true });
+    expect(await credited()).toEqual([10.5, 10.5]);
+    expect(await payment(bill.id)).toEqual({ amount: 21, refund_due: 21 });
+  });
 });
