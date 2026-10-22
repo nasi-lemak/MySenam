@@ -203,7 +203,7 @@ export default function CoachBooking({
           ) : (
             <p className="text-xs text-slate-500">{t("err.SERIES_NEEDS_ACCOUNT")}</p>
           )}
-          <BookingTermsNotice venueId={venueId} />
+          <BookingTermsNotice venueId={venueId} sport={sport} />
           <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           <button disabled={busy} className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">

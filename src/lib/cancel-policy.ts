@@ -45,6 +45,16 @@ export async function cancelPolicy(venueId: number): Promise<CancelPolicy> {
   };
 }
 
+/** The venue's policy as it applies to one sport: that sport's own late-cancel share, where it has one. */
+export async function cancelPolicyFor(venueId: number, sport: string): Promise<CancelPolicy> {
+  const policy = await cancelPolicy(venueId);
+  const row = (await getDb().prepare("SELECT late_keep FROM sport_rules WHERE venue_id = ? AND sport = ?").get(venueId, sport)) as
+    | { late_keep: number | null }
+    | undefined;
+  if (row?.late_keep === null || row?.late_keep === undefined) return policy;
+  return { ...policy, lateKeep: row.late_keep === -1 ? null : row.late_keep };
+}
+
 export async function setCancelPolicy(
   venueId: number,
   input: { lateKeep?: unknown; strikeLimit?: unknown; strikeDays?: unknown; onlineRefunds?: unknown }

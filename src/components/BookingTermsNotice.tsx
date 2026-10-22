@@ -29,7 +29,7 @@ function writeLocal(venueId: number, version: string) {
  * away for this venue until its rules change; the customer's own strikes are
  * shown regardless.
  */
-export default function BookingTermsNotice({ venueId }: { venueId: number }) {
+export default function BookingTermsNotice({ venueId, sport }: { venueId: number; sport?: string }) {
   const t = useT();
   const [terms, setTerms] = useState<BookingTerms | null>(null);
   const [you, setYou] = useState<YourStanding | null>(null);
@@ -37,7 +37,7 @@ export default function BookingTermsNotice({ venueId }: { venueId: number }) {
   const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
-    void fetch(`/api/venues/${venueId}/terms`, { cache: "no-store" })
+    void fetch(`/api/venues/${venueId}/terms${sport ? `?sport=${sport}` : ""}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { terms: BookingTerms; dismissed: boolean | null; you: YourStanding | null } | null) => {
         if (!d) return;
@@ -48,7 +48,7 @@ export default function BookingTermsNotice({ venueId }: { venueId: number }) {
         setOpen(!dismissed);
       })
       .catch(() => undefined);
-  }, [venueId]);
+  }, [venueId, sport]);
 
   if (!terms) return null;
 

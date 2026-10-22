@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
+import { sportRules } from "@/lib/sport-rules";
 import { variesByDay, weekLines } from "@/lib/week-hours";
 import { getVenue, listVenueClosures, readNear } from "@/lib/store";
 import { distanceM } from "@/lib/geo";
@@ -128,6 +129,10 @@ export default async function VenuePage({
   const dates = Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i));
 
   const loyalty = await loyaltyEvery(venue.id);
+  // Sports with their own cancellation cutoff here, said beside the venue's.
+  const ownCutoffs = (await sportRules(venue.id)).filter(
+    (r) => r.cutoffHours !== null && r.cutoffHours !== venue.cancelCutoffHours && sports.includes(r.sport)
+  );
   // A weekday's short name in the reader's language: 0 is Sunday.
   const dayName = (day: number) =>
     new Date(Date.UTC(2026, 0, 4 + day)).toLocaleDateString(intlTag(t.locale), { weekday: "short", timeZone: "UTC" });
@@ -235,6 +240,12 @@ export default async function VenuePage({
           {venue.cancelCutoffHours > 0
             ? t.plural("venue.freeCancel", venue.cancelCutoffHours)
             : t("venue.cancelAnyTime")}
+          {ownCutoffs.map((r) => (
+            <span key={r.sport}>
+              {" "}
+              · {sportLabel(t, r.sport)}: {r.cutoffHours! > 0 ? t.plural("venue.freeCancel", r.cutoffHours!) : t("venue.cancelAnyTime")}
+            </span>
+          ))}
         </p>
         {loyalty !== null && <p className="mt-1 text-sm font-medium text-teal-700">🎁 {t("loyalty.note", { n: loyalty })}</p>}
       </div>

@@ -1764,6 +1764,21 @@ four hours, and a weekly booking of up to eight weeks. A venue can change both:
   venue limits how far ahead people may book, every week must still fall in
   that window.
 
+## Rules by sport
+
+A venue's cancellation cutoff, late-cancel share and peak hours apply to all
+its courts. Where one sport needs its own (tennis cancelled a day ahead while
+badminton is two hours; pickleball at peak from 5 PM), *Courts → Rules by
+sport* sets it for that sport (`src/lib/sport-rules.ts`). Anything left on
+*venue's* follows the venue.
+
+- **Cancellation:** free until the sport's own cutoff; after it, the sport's
+  own late-cancel share, or no cancelling online. The booking terms shown
+  before booking, `/my-booking` and the venue page say the sport's rule.
+- **Peak hours:** the sport's own weekday and weekend windows decide which of
+  its courts' two rates an hour costs; the weekend days and holidays stay the
+  venue's. Off-peak-only last-minute prices and concessions follow them.
+
 ## Courts priced per player
 
 Some courts are sold by the head: pickleball at RM8 a player an hour. Under

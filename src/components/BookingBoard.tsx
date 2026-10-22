@@ -1042,7 +1042,7 @@ function BookingForm({
         </label>
       )}
       <div className="mt-3">
-        <BookingTermsNotice venueId={court.venueId} />
+        <BookingTermsNotice venueId={court.venueId} sport={court.sport} />
       </div>
     </form>
   );

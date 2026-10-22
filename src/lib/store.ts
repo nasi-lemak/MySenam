@@ -96,6 +96,7 @@ import {
   onSlot,
   isValidDateString,
   isPeak,
+  forSport,
   lastMinuteOff,
   DEFAULT_PEAK,
   type PeakRules,
@@ -110,7 +111,7 @@ import { phoneKey } from "./phone";
 import { hoursOn, parseWeekHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
-import { cancelPolicy } from "./cancel-policy";
+import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt } from "./documents";
 import { venueTax } from "./tax";
@@ -789,12 +790,13 @@ export async function getAvailability(
       // A partial block shrinks the resource rather than closing it, so the
       // hour stays bookable until the remaining places are gone.
       const shut = closed || booked + out >= court.capacity;
-      const lastMinute = shut || session ? 0 : lastMinuteOff(date, hour, rules, Date.now());
+      const own = forSport(rules, court.sport);
+      const lastMinute = shut || session ? 0 : lastMinuteOff(date, hour, own, Date.now());
       return {
         hour,
         rate: computePrice(court, date, [hour], member, rules, Date.now()),
         ...(lastMinute > 0 ? { lastMinute } : {}),
-        ...(isPeak(date, hour, rules) ? { peak: true } : {}),
+        ...(isPeak(date, hour, own) ? { peak: true } : {}),
         booked,
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
@@ -1375,6 +1377,8 @@ export function computePrice(
    */
   at?: number
 ): number {
+  // The court's sport may have its own peak window here.
+  rules = forSport(rules, court.sport);
   // Each slot costs its share of the hourly rate: half of it, by the half hour.
   const share = rules.slotHours ?? 1;
   // To the sen or cent: rates with cents add up with floating-point noise.
@@ -1728,9 +1732,11 @@ export type CancelResult =
 async function cancelCutoffForBooking(bookingId: number): Promise<number> {
   const row = await getDb()
     .prepare(`
-      SELECT v.cancel_cutoff_hours AS hours FROM bookings b
+      SELECT COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS hours FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
+      -- The sport's own, where the venue gave it one (lib/sport-rules.ts).
+      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = c.sport
       WHERE b.id = ?
     `)
     .get(bookingId) as { hours: number } | undefined;
@@ -1768,7 +1774,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
   if (late) {
     const court = await getCourt(booking.courtId);
-    const { lateKeep } = court ? await cancelPolicy(court.venueId) : { lateKeep: null };
+    const { lateKeep } = court ? await cancelPolicyFor(court.venueId, court.sport) : { lateKeep: null };
     if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone))
       return { ok: false, error: cutoffMessage(cutoff) };
     share = (100 - lateKeep) / 100;
@@ -2814,11 +2820,14 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
       SELECT b.*, c.name AS court_name, c.sport AS court_sport,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
-             v.cancel_cutoff_hours AS venue_cutoff, v.late_cancel_keep AS venue_late_keep, v.strike_limit AS venue_strike_limit,
+             COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
+             CASE WHEN sr.late_keep = -1 THEN NULL ELSE COALESCE(sr.late_keep, v.late_cancel_keep) END AS venue_late_keep,
+             v.strike_limit AS venue_strike_limit,
              ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
+      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = c.sport
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
       WHERE b.user_id = ?
       ORDER BY b.date DESC, b.start_hour DESC

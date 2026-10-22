@@ -1,5 +1,7 @@
 import crypto from "crypto";
-import { cancelPolicy, strikesFor } from "./cancel-policy";
+import { cancelPolicy, cancelPolicyFor, strikesFor } from "./cancel-policy";
+import { cutoffFor } from "./sport-rules";
+import type { Sport } from "./types";
 import { getDb } from "./db";
 import { holdPolicy } from "./holds";
 import { takesPaymentOnline } from "./payments";
@@ -39,12 +41,14 @@ export interface YourStanding {
   out: boolean;
 }
 
-export async function bookingTerms(venueId: number): Promise<BookingTerms | null> {
+/** The rules for booking here, for one sport where given (its own cutoff and late-cancel share: lib/sport-rules.ts). */
+export async function bookingTerms(venueId: number, sport?: Sport): Promise<BookingTerms | null> {
   const row = (await getDb().prepare("SELECT cancel_cutoff_hours FROM venues WHERE id = ?").get(venueId)) as
     | { cancel_cutoff_hours: number }
     | undefined;
   if (!row) return null;
-  const policy = await cancelPolicy(venueId);
+  const policy = sport ? await cancelPolicyFor(venueId, sport) : await cancelPolicy(venueId);
+  if (sport) row.cancel_cutoff_hours = await cutoffFor(venueId, sport, row.cancel_cutoff_hours);
   const hold = await holdPolicy(venueId);
   const terms = {
     venueId,

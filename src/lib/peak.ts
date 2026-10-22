@@ -64,8 +64,14 @@ export async function peakRulesFor(venueIds: number[]): Promise<Map<number, Peak
   const holidays = (await db
     .prepare(`SELECT venue_id, date FROM venue_holidays WHERE venue_id IN (${list}) ORDER BY date`)
     .all(...ids)) as { venue_id: number; date: string }[];
-  for (const row of rows)
-    out.set(row.id, toRules(row, holidays.filter((h) => h.venue_id === row.id).map((h) => h.date)));
+  // Imported here, not at the top: lib/sport-rules.ts is read by modules this one is.
+  const { sportPeaks } = await import("./sport-rules");
+  const peaks = await sportPeaks(rows.map((r) => r.id));
+  for (const row of rows) {
+    const rules = toRules(row, holidays.filter((h) => h.venue_id === row.id).map((h) => h.date));
+    const bySport = peaks.get(row.id);
+    out.set(row.id, bySport ? { ...rules, bySport } : rules);
+  }
   for (const id of ids) if (!out.has(id)) out.set(id, DEFAULT_PEAK);
   return out;
 }

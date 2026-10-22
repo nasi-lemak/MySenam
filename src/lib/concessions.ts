@@ -4,7 +4,7 @@ import { peakRules } from "./peak";
 import { phoneKey } from "./phone";
 import { roundMoney } from "./region";
 import { getBookingById as bookingById, getCourt } from "./store";
-import { addDays, isPeak, isValidDateString, todayISO } from "./time";
+import { addDays, forSport, isPeak, isValidDateString, todayISO } from "./time";
 import { SPORTS, type Booking, type Refusal, type Sport } from "./types";
 import { errorText, translator, type ErrorCode } from "./i18n";
 
@@ -144,7 +144,7 @@ export async function applyConcession(
   };
   if (flags.last_minute === 1 || flags.concession_id !== null) return refuse("ONE_DISCOUNT");
   if (concession.offPeakOnly) {
-    const rules = await peakRules(court.venueId);
+    const rules = forSport(await peakRules(court.venueId), court.sport);
     const step = rules.slotHours ?? 1;
     for (let h = booking.startHour; h < booking.endHour; h += step)
       if (isPeak(booking.date, h, rules)) return refuse("CONCESSION_OFF_PEAK", { name: concession.name });

@@ -116,6 +116,14 @@ export interface PeakRules {
    * `offPeakOnly`. Times are the venue's, in `zone`. Null: none.
    */
   lastMinute?: LastMinute | null;
+  /** A sport's own peak window here, over the venue's (lib/sport-rules.ts); applied by `forSport`. */
+  bySport?: Record<string, { weekdayFrom: number; weekdayUntil: number; weekendFrom: number; weekendUntil: number }>;
+}
+
+/** The rules as they apply to one sport: its own peak window where it has one. */
+export function forSport(rules: PeakRules, sport: string): PeakRules {
+  const own = rules.bySport?.[sport];
+  return own ? { ...rules, ...own, bySport: undefined } : rules;
 }
 
 export interface LastMinute {

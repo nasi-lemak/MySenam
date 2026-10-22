@@ -19,7 +19,8 @@ import {
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
 import { customerMayBook, guestSurge } from "@/lib/limits";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
-import { cancelPolicy, struckOut } from "@/lib/cancel-policy";
+import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
+import { cutoffFor } from "@/lib/sport-rules";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isSlotHour, isValidDateString, todayISO } from "@/lib/time";
@@ -374,9 +375,10 @@ export async function GET(req: NextRequest) {
       name: venue.name,
       area: venue.area,
       address: venue.address,
-      cancelCutoffHours: venue.cancelCutoffHours,
+      // This sport's own, where the venue gave it rules of its own (lib/sport-rules.ts).
+      cancelCutoffHours: await cutoffFor(venue.id, court.sport, venue.cancelCutoffHours),
       timeZone: venue.timeZone,
-      lateCancelKeep: (await cancelPolicy(venue.id)).lateKeep,
+      lateCancelKeep: (await cancelPolicyFor(venue.id, court.sport)).lateKeep,
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
       // As far as it can be moved: the venue's window, a member's where this number is one.
       lastDate: lastBookableDay(
