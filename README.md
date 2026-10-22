@@ -975,6 +975,19 @@ way is called off too; one that has finished is left alone. Bookings on a
 linked court that hold the chosen court's hours are found as well. Front-desk
 staff can do it; it is in the activity log.
 
+### Every week
+
+A school's PE lessons on Tuesday mornings, cleaning on Monday evenings, the
+club's own night: *Schedule → 🔁 Block every week* takes the courts, the days
+of the week, the hours, how many weeks (up to 52, from the day on the
+schedule) and what it is for, which customers see on the blocked hours
+(`repeatBlock` in `src/lib/repeat-blocks.ts`). Each week is an ordinary block,
+so availability, search and booking treat it like any other, and a single
+week can still be released on the schedule. Hours already booked stay booked,
+and are listed for the desk to move or let be. The same panel lists each run
+with weeks still to come and *End it* frees the rest from today. The desk can
+do it; it is in the activity log.
+
 ## Taking some of a shared facility out of service
 
 A court is blocked whole — blocking it *is* taking the unit out, because a

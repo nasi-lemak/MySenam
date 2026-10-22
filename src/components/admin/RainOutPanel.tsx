@@ -63,7 +63,7 @@ export function RainOutPanel({
       </button>
     );
   return (
-    <section className="rounded-xl border border-sky-200 bg-sky-50/50 p-4 text-sm">
+    <section className="basis-full rounded-xl border border-sky-200 bg-sky-50/50 p-4 text-sm">
       <h3 className="font-semibold">Rained off on {date}</h3>
       <p className="mt-1 text-xs text-slate-600">
         Calls off every booking and class on these courts in these hours, gives the money back as for any booking you cancel,

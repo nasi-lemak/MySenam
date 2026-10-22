@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { RainOutPanel } from "./RainOutPanel";
+import { RepeatBlockPanel } from "./RepeatBlockPanel";
 import { formatHour } from "@/lib/time";
 import { SPORT_ICONS, isShared } from "@/lib/types";
 import type { Court, Venue } from "@/lib/types";
@@ -114,13 +115,22 @@ export function ScheduleTab({
       )}
 
       {courts && courts.length > 0 && (
-        <RainOutPanel
-          venueId={venueId}
-          date={date}
-          courts={courts.map((c) => c.court)}
-          hours={courts[0].slots.map((s) => s.hour)}
-          onDone={() => void load()}
-        />
+        <div className="flex flex-wrap items-start gap-2">
+          <RainOutPanel
+            venueId={venueId}
+            date={date}
+            courts={courts.map((c) => c.court)}
+            hours={courts[0].slots.map((s) => s.hour)}
+            onDone={() => void load()}
+          />
+          <RepeatBlockPanel
+            venueId={venueId}
+            date={date}
+            courts={courts.map((c) => c.court)}
+            hours={courts[0].slots.map((s) => s.hour)}
+            onDone={() => void load()}
+          />
+        </div>
       )}
 
       {courts && (
