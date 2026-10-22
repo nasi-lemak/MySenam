@@ -200,13 +200,25 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       ? null
       : Math.round((Number(counts.taxCollected ?? 0) + Number(documents.tax)) * 100) / 100;
 
+  const saleZone = (await venueHours(venueId)).zone;
   const counter = (await db
     .prepare(`
-      SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS total FROM counter_sales
-       WHERE venue_id = ? AND voided_at IS NULL
-         AND to_char((created_at::timestamp AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') BETWEEN ? AND ?
+      SELECT COUNT(*) FILTER (WHERE rung) - COUNT(*) FILTER (WHERE voided) AS n,
+             COALESCE(SUM(total) FILTER (WHERE rung), 0) - COALESCE(SUM(total) FILTER (WHERE voided), 0) AS total
+        FROM (
+          SELECT total,
+                 to_char((created_at::timestamp AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') BETWEEN ? AND ? AS rung,
+                 voided_at IS NOT NULL
+                   AND to_char((voided_at::timestamp AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') BETWEEN ? AND ? AS voided
+            FROM counter_sales WHERE venue_id = ?
+        ) s
     `)
-    .get(venueId, (await venueHours(venueId)).zone, from, to)) as { n: number | string; total: number | string };
+    // A sale counts on the day it was rung up, and a void comes off on the day it was made, so a
+    // day's takings already counted do not change after the till has been cashed up.
+    .get(saleZone, from, to, saleZone, from, to, venueId)) as {
+    n: number | string;
+    total: number | string;
+  };
 
   const collectedBy = (
     (await db

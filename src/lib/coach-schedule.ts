@@ -235,6 +235,9 @@ export interface CoachPayout {
   /** Lessons the student did not turn up to, and the fees on them: the venue decides. */
   noShows: number;
   noShowFees: number;
+  /** Paid lessons cancelled late, and the coach's fee times the share the venue kept: the venue decides. */
+  lateCancels: number;
+  lateCancelFees: number;
 }
 
 /** Per coach, the lessons in a period (on the lesson's date) and the coach's fees on them. */
@@ -247,14 +250,21 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
               COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status = 'paid'), 0)::float AS paid,
               COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status <> 'paid'), 0)::float AS unpaid,
               COUNT(b.id) FILTER (WHERE b.no_show = 1) AS no_shows,
-              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 1), 0)::float AS no_show_fees
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 1), 0)::float AS no_show_fees,
+              MAX(late.n) AS late_cancels, MAX(late.fees)::float AS late_fees
          FROM coaches k
          LEFT JOIN bookings b ON b.coach_id = k.id AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
+         CROSS JOIN LATERAL (
+           SELECT COUNT(*) AS n, COALESCE(SUM(x.coach_fee * x.late_kept_percent / 100.0), 0) AS fees
+             FROM bookings x
+            WHERE x.coach_id = k.id AND x.status = 'cancelled' AND x.late_cancelled = 1 AND x.late_kept_percent > 0
+              AND x.payment_status = 'paid' AND x.demo = 0 AND x.date BETWEEN ? AND ?
+         ) late
         WHERE k.venue_id = ?
         GROUP BY k.id, k.name
         ORDER BY k.name`
     )
-    .all(from, to, venueId)) as {
+    .all(from, to, from, to, venueId)) as {
     id: number;
     name: string;
     lessons: number | string;
@@ -263,6 +273,8 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
     unpaid: number;
     no_shows: number | string;
     no_show_fees: number;
+    late_cancels: number | string;
+    late_fees: number;
   }[];
   return rows
     .map((r) => ({
@@ -274,8 +286,10 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
       unpaidFees: roundMoney(Number(r.unpaid)),
       noShows: Number(r.no_shows),
       noShowFees: roundMoney(Number(r.no_show_fees)),
+      lateCancels: Number(r.late_cancels),
+      lateCancelFees: roundMoney(Number(r.late_fees)),
     }))
-    .filter((p) => p.lessons > 0 || p.noShows > 0);
+    .filter((p) => p.lessons > 0 || p.noShows > 0 || p.lateCancels > 0);
 }
 
 /** The same, one row per lesson, for the venue's books and the coach's own records. */

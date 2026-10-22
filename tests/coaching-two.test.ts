@@ -152,4 +152,15 @@ describe("what a coach is owed", () => {
     expect(csv.split("\n")[0]).toContain(`"Coach","Date","Time","Booking","Student","Court","Coach fee","Paid","Status"`);
     expect(csv).toContain("No-show");
   });
+
+  it("lists paid lessons cancelled late, at the coach's fee times the share the venue kept", async () => {
+    const one = (await getDb()
+      .prepare("SELECT id FROM bookings WHERE coach_id = ? AND status = 'confirmed' AND no_show = 0 AND payment_status <> 'paid' ORDER BY id LIMIT 1")
+      .get(coach.id)) as { id: number };
+    await getDb()
+      .prepare("UPDATE bookings SET status = 'cancelled', late_cancelled = 1, late_kept_percent = 50, payment_status = 'paid' WHERE id = ?")
+      .run(one.id);
+    const [ana] = await coachPayouts(venueId, todayISO(), addDays(todayISO(), 30));
+    expect(ana).toMatchObject({ lateCancels: 1, lateCancelFees: 40, noShows: 1, paidFees: 80 });
+  });
 });

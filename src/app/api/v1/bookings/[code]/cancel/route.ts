@@ -3,6 +3,7 @@ import { apiCaller } from "@/lib/api-keys";
 import { notifyVenueCancelled } from "@/lib/notify";
 import { bookingForVenue } from "@/lib/public-api";
 import { adminCancelBooking } from "@/lib/store";
+import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
   if (!(await bookingForVenue(caller.venueId, code))) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   const done = await adminCancelBooking(code);
   if (!done.ok) return NextResponse.json({ error: done.error, code: done.code }, { status: 409 });
+  await refundCancelled([done.booking.id], { byVenue: true });
   await notifyVenueCancelled(done.booking);
   return NextResponse.json({ booking: await bookingForVenue(caller.venueId, code) });
 }

@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
     validFrom: input.validFrom as string,
     validTo: input.validTo as string,
     maxUses: Number.isInteger(input.maxUses) ? (input.maxUses as number) : null,
+    maxPerCustomer: Number.isInteger(input.maxPerCustomer) ? (input.maxPerCustomer as number) : null,
     adminId: admin.id,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });

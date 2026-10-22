@@ -465,9 +465,9 @@ export async function startBookingPayment(input: {
       )
       .run(account.provider, bill.id, bill.url, venueId, amount, first.name, first.phone);
     const link = db.prepare(
-      "INSERT INTO online_payment_bookings (payment_id, booking_id) VALUES (?, ?)"
+      "INSERT INTO online_payment_bookings (payment_id, booking_id, amount) VALUES (?, ?, ?)"
     );
-    for (const id of ids) await link.run(info.lastInsertRowid, id);
+    for (const b of due) await link.run(info.lastInsertRowid, b.id, Math.round((b.totalPrice - b.sharesPaid) * 100) / 100);
   })();
   return { ok: true, url: bill.url, amount, reused: false };
 }
@@ -729,24 +729,37 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
 
     const linked = await db
       .prepare(`
-        SELECT b.id, b.status, b.payment_status, b.total_price
+        SELECT b.id, b.status, b.payment_status, b.total_price::float AS total_price, b.shares_paid::float AS shares_paid,
+               pb.amount::float AS billed
           FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id
          WHERE pb.payment_id = ?
       `)
-      .all(row.id) as { id: number; status: string; payment_status: string; total_price: number }[];
+      .all(row.id) as { id: number; status: string; payment_status: string; total_price: number; shares_paid: number; billed: number | null }[];
     let owed = 0;
     for (const b of linked) {
-      if (b.status === "confirmed" && b.payment_status === "unpaid") {
+      const due = Math.round((Number(b.total_price) - Number(b.shares_paid)) * 100) / 100;
+      // What this page asked for it; a page made before that was recorded asked what it cost.
+      const billed = b.billed === null ? due : Number(b.billed);
+      if (b.status === "confirmed" && b.payment_status === "unpaid" && billed >= due - 0.005) {
         await db.prepare(
           "UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = 'online' WHERE id = ?"
         ).run(paidAt, b.id);
         newlyPaid.push(b.id);
+        // It came down while the page was open (a promo code, a cheaper time): the difference is owed back,
+        // and what the payment keeps for it is what it now costs.
+        if (billed > due + 0.005) {
+          owed += billed - due;
+          await db.prepare("UPDATE online_payment_bookings SET amount = ? WHERE payment_id = ? AND booking_id = ?").run(due, row.id, b.id);
+        }
       } else {
-        owed += b.total_price;
+        // Cancelled, paid another way, or dearer than the page asked: none of it is kept for this booking.
+        owed += billed;
       }
     }
     if (owed > 0)
-      await db.prepare("UPDATE online_payments SET refund_due = refund_due + ? WHERE id = ?").run(owed, row.id);
+      await db
+        .prepare("UPDATE online_payments SET refund_due = LEAST(amount, refund_due + ?) WHERE id = ?")
+        .run(Math.round(owed * 100) / 100, row.id);
   })();
 
   const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
@@ -941,7 +954,11 @@ export interface CancelRefund {
  * that cannot happen — a gateway with no refund API or that refuses, credit
  * for a booking made without an account — it stays owed for staff, as before.
  */
-export async function refundCancelled(bookingIds: number[]): Promise<CancelRefund[]> {
+export async function refundCancelled(
+  bookingIds: number[],
+  /** The venue called it off: the money goes back to the card where it can, not into credit the customer did not choose. */
+  opts: { byVenue?: boolean } = {}
+): Promise<CancelRefund[]> {
   if (bookingIds.length === 0) return [];
   const marks = bookingIds.map(() => "?").join(",");
   const rows = (await getDb()
@@ -955,7 +972,8 @@ export async function refundCancelled(bookingIds: number[]): Promise<CancelRefun
   const done: CancelRefund[] = [];
   for (const row of rows) {
     const amount = roundMoney(row.refund_due - row.refunded);
-    const { onlineRefunds } = await cancelPolicy(row.venue_id!);
+    const policy = (await cancelPolicy(row.venue_id!)).onlineRefunds;
+    const onlineRefunds = opts.byVenue && policy === "credit" ? "gateway" : policy;
     if (onlineRefunds === "gateway") {
       const sent = await refundOnline(row.id, row.venue_id!).catch(() => null);
       if (sent?.ok) {
@@ -1653,6 +1671,72 @@ async function disputeLost(payment: PaymentRow): Promise<void> {
     await db.prepare("UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL WHERE id = ?").run(b.id);
   }
   if (bookings.length === 0) await creditReceipt(`payment:${payment.id}`, "receipt.why.disputed");
+  await takeBackWhatItBought(payment);
+  // The bank has given it all back: nothing more is owed on it, whatever happens to what it paid for.
+  await db.prepare("UPDATE online_payments SET refund_due = amount, refunded = amount WHERE id = ?").run(payment.id);
+}
+
+/**
+ * The money behind a payment went back to the cardholder through the bank:
+ * what it bought is taken back too, as it would be for a refund. Credit
+ * already spent leaves the account below nothing, settled by the next top-up
+ * or at the counter.
+ */
+async function takeBackWhatItBought(payment: PaymentRow): Promise<void> {
+  const db = getDb();
+  const amount = Number(payment.amount);
+  const scope = creditScope() === "venue" ? payment.venue_id : null;
+  const { unpayShare } = await import("./games");
+  switch (payment.purpose) {
+    case "topup":
+      if (payment.topup_user_id)
+        await db
+          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Top-up charged back', ?)")
+          .run(payment.topup_user_id, -amount, scope);
+      break;
+    case "voucher": {
+      if (payment.voucher_id == null) break;
+      const voucher = (await db
+        .prepare("UPDATE gift_vouchers SET status = 'void' WHERE id = ? AND status IN ('active', 'redeemed') RETURNING redeemed_by, status")
+        .get(payment.voucher_id)) as { redeemed_by: number | null } | undefined;
+      // Already turned into credit: that credit goes.
+      if (voucher?.redeemed_by)
+        await db
+          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Gift voucher charged back', ?)")
+          .run(voucher.redeemed_by, -amount, scope);
+      break;
+    }
+    case "membership":
+      if (payment.membership_id != null)
+        await db.prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(payment.membership_id);
+      if (payment.subscription_id) await stopSubscription(payment.subscription_id);
+      break;
+    case "share": {
+      const place = (await db
+        .prepare("SELECT g.booking_id FROM open_game_players p JOIN open_games g ON g.id = p.game_id WHERE p.id = ? AND p.paid_at IS NOT NULL")
+        .get(payment.game_player_id)) as { booking_id: number } | undefined;
+      if (!place) break;
+      await db.prepare("UPDATE open_game_players SET paid_at = NULL WHERE id = ?").run(payment.game_player_id);
+      await unpayShare(place.booking_id, amount);
+      break;
+    }
+    case "split": {
+      if (payment.split_id == null || Number(payment.refund_due) >= amount) break;
+      const split = (await db.prepare("SELECT booking_id FROM booking_splits WHERE id = ?").get(payment.split_id)) as
+        | { booking_id: number }
+        | undefined;
+      if (split) await unpayShare(split.booking_id, amount);
+      break;
+    }
+    case "entry":
+      if (payment.tournament_entry_id != null)
+        await db.prepare("UPDATE tournament_entries SET paid_at = NULL WHERE id = ?").run(payment.tournament_entry_id);
+      break;
+    case "league":
+      if (payment.league_place_id != null)
+        await db.prepare("UPDATE league_places SET paid_at = NULL WHERE id = ?").run(payment.league_place_id);
+      break;
+  }
 }
 
 /** A venue's disputes: those still open first, then the last few decided. */

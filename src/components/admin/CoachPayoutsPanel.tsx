@@ -25,8 +25,9 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
       </div>
       <p className="mt-1 text-xs text-slate-500">
         The coach&apos;s fee on each lesson dated in the period that went ahead. Fees on lessons not yet paid are owed
-        once you collect them. No-shows are listed apart: whether the coach is paid for them is yours to decide. Late
-        cancellation fees are not counted here.
+        once you collect them. No-shows and paid lessons cancelled late are listed apart: whether the coach is paid
+        for them is yours to decide. For a late cancellation the figure is the coach&apos;s fee times the share you
+        kept.
       </p>
       <table className="mt-2 w-full text-left">
         <thead className="text-xs text-slate-500">
@@ -37,6 +38,7 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
             <th className="py-1 text-right">Fees, paid</th>
             <th className="py-1 text-right">Fees, not yet paid</th>
             <th className="py-1 text-right">No-shows</th>
+            <th className="py-1 text-right">Late cancellations</th>
           </tr>
         </thead>
         <tbody>
@@ -50,6 +52,10 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
               <td className="py-1 text-right tabular-nums">
                 {p.noShows}
                 {p.noShows > 0 && ` (${money(p.noShowFees)})`}
+              </td>
+              <td className="py-1 text-right tabular-nums">
+                {p.lateCancels}
+                {p.lateCancels > 0 && ` (${money(p.lateCancelFees)})`}
               </td>
             </tr>
           ))}

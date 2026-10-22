@@ -3748,6 +3748,47 @@ were unkind to the people using them. What changed, by theme:
   the most a series can be; My Booking does not offer *Change time* for a
   lesson, which the venue moves, and says so.
 
+### Money
+
+- **A payment page settles what it was for.** Each booking on a page records
+  what it was billed (`online_payment_bookings.amount`, migration 0065). If
+  the price came down while the page was open (a promo code), the booking is
+  paid and the difference is owed back; if it went up, the page is not taken
+  as paying for it and its money is owed back instead. Moving an unpaid
+  booking to a dearer time is refused while a page for it is open. What is
+  owed back on a payment is never more than the payment.
+- **Shares handed back are owed again.** A game player who paid a share and
+  then leaves, or is taken out, is refunded by the venue; their share now
+  comes off what the booking has had paid towards it, so the host owes it
+  again rather than the venue being out of pocket.
+- **Chargebacks take back what they paid for.** Lost on a top-up, the credit
+  goes (an account can go below nothing until the next top-up); on a gift
+  voucher, the voucher is void, or its credit goes if it was redeemed; on a
+  membership, the membership is void and its renewals stop; on a game share
+  or a split share, it no longer counts towards the booking; on a tournament
+  or league fee, the place is unpaid again. Nothing more is owed back on a
+  payment the bank has already returned.
+- **Marking unpaid is not a refund.** A booking paid online, with credit or a
+  pass cannot be ticked back to unpaid: the payment is refunded instead. The
+  front desk can take back only a counter payment marked today; anything
+  older is a manager's.
+- **Staff cannot cancel a booking that is over**, which would refund money
+  for an hour that was used (one under way can still be called off, for a
+  leak or a power cut), and a day gone by cannot be closed.
+  A booking staff (or the API, or a closed day) cancel has what was paid
+  online refunded at once, to the card where the venue refunds through its
+  gateway, even if it gives credit when a customer cancels.
+- **Promo codes** can be limited per customer (*Per customer*, by phone number
+  however it is typed; once each to begin with for new codes, no limit for
+  codes made before).
+- **Counter sales** voided later come off the takings on the day of the void,
+  not the day of the sale, so a day already cashed up does not change.
+- **A customer cannot move a booking friends have paid a share of**; the
+  venue can.
+- **Coach payouts** list paid lessons cancelled late, at the coach's fee times
+  the share the venue kept (`bookings.late_kept_percent`), beside no-shows,
+  for the venue to decide on.
+
 ## Renamed from MudahTempah
 
 The project was renamed to **MySenam**. Everything user-facing moved with it —

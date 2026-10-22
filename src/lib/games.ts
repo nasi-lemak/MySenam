@@ -541,10 +541,17 @@ async function shareOwedBack(playerId: number, bookingGone = false): Promise<voi
     .prepare("SELECT g.booking_id FROM open_game_players p JOIN open_games g ON g.id = p.game_id WHERE p.id = ?")
     .get(playerId)) as { booking_id: number } | undefined;
   await db.prepare("UPDATE open_game_players SET paid_at = NULL WHERE id = ?").run(playerId);
-  if (!place) return;
-  await db
-    .prepare("UPDATE bookings SET shares_paid = GREATEST(0, shares_paid - ?) WHERE id = ?")
-    .run(total, place.booking_id);
+  if (place) await unpayShare(place.booking_id, total);
+}
+
+/**
+ * A share paid towards a booking (a game player's, a friend's in a split) no
+ * longer counts: the booking owes it again, and one that shares alone had paid
+ * for is unpaid again, unless the booker paid for it too.
+ */
+export async function unpayShare(bookingId: number, amount: number): Promise<void> {
+  const db = getDb();
+  await db.prepare("UPDATE bookings SET shares_paid = GREATEST(0, shares_paid - ?) WHERE id = ?").run(amount, bookingId);
   await db
     .prepare(
       `UPDATE bookings SET payment_status = 'unpaid', paid_at = NULL, paid_via = NULL
@@ -552,7 +559,7 @@ async function shareOwedBack(playerId: number, bookingGone = false): Promise<voi
           AND NOT EXISTS (SELECT 1 FROM online_payment_bookings pb JOIN online_payments op ON op.id = pb.payment_id
                            WHERE pb.booking_id = bookings.id AND op.status = 'paid')`
     )
-    .run(place.booking_id);
+    .run(bookingId);
 }
 
 /**

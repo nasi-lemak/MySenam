@@ -94,6 +94,7 @@ import {
   isWithinCancelWindow,
   slotStartsAt,
   todayISO,
+  localDateOf,
 } from "./time";
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
@@ -308,6 +309,8 @@ export async function closeVenueDay(venueId: number, date: string, reason?: stri
     const db = getDb();
     const venue = await db.prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
     if (!venue) return refuse("VENUE_NOT_FOUND");
+    // A day gone by cannot be shut; it would only hide what was booked and played.
+    if (date < todayISO((await venueHours(venueId)).zone)) return refuse("CLOSURE_PAST");
     const trimmed = reason?.trim();
     await db.prepare(
       `INSERT INTO venue_closures (venue_id, date, reason) VALUES (?, ?, ?)
@@ -1604,6 +1607,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   const cutoff = await cancelCutoffForBooking(booking.id);
   const zone = await courtZone(booking.courtId);
   let share = 1;
+  let keptPercent: number | null = null;
   // Late: past the free-cancellation cutoff, which the venue may allow for a share of the price.
   const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
   if (late) {
@@ -1612,6 +1616,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
     if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone))
       return { ok: false, error: cutoffMessage(cutoff) };
     share = (100 - lateKeep) / 100;
+    keptPercent = lateKeep;
   }
 
   const db = getDb();
@@ -1620,7 +1625,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
     if (done.changes !== 1) return false;
     await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
-    if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1 WHERE id = ?").run(booking.id);
+    if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
@@ -1816,6 +1821,11 @@ export async function adminCancelBooking(code: string): Promise<CancelResult> {
   // against it, so settle the hire first even from the admin side.
   if (await hasOpenHire(booking.id))
     return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
+  // Over: there is nothing left to cancel, and a refund would be money out for
+  // an hour that was used. One under way can still be called off (a leak, a
+  // power cut) and refunded.
+  const { zone } = await venueHours((await getCourt(booking.courtId))!.venueId);
+  if (isPastSlot(booking.date, booking.endHour, zone)) return refuse("CANCEL_PLAYED");
 
   const claimed = await db.transaction(async () => {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
@@ -1880,6 +1890,8 @@ export async function rescheduleBooking(
   if (booking.checkedInAt) return refuse("RESCHEDULE_CHECKED_IN");
   if (await db.prepare("SELECT 1 AS n FROM open_games WHERE booking_id = ?").get(booking.id))
     return refuse("RESCHEDULE_GAME");
+  // Friends have paid their share for this time: moving it is for the venue, who can square it with them.
+  if (by === "customer" && booking.sharesPaid > 0) return refuse("RESCHEDULE_SHARED");
   // A coach's time is not the court's: moving it is a conversation with the venue.
   if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
@@ -1962,6 +1974,8 @@ export async function rescheduleBooking(
     const delta = Math.round((computePrice(court, to.date, hours, newMember, rules) - oldCourtPrice) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
+    // A payment page open for the old price would settle it short.
+    if (!paid && delta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
     const priceChange = paid ? 0 : Math.max(-booking.totalPrice, delta);
     try {
       await db.transaction(async () => {
@@ -2681,7 +2695,13 @@ export async function cancelUserBooking(userId: number, bookingId: number): Prom
 export type PaymentResult = { ok: true; booking: Booking } | Refusal;
 
 /** Front-desk payment toggle for a single booking (admin only). */
-export async function setPaymentStatus(code: string, paid: boolean, via: CounterMethod | null = null): Promise<PaymentResult> {
+export async function setPaymentStatus(
+  code: string,
+  paid: boolean,
+  via: CounterMethod | null = null,
+  /** Front desk: may take back only a counter payment it marked today. */
+  by: "manager" | "desk" = "manager"
+): Promise<PaymentResult> {
   return withTransaction(async () => {
     const db = getDb();
     const row = await db
@@ -2693,6 +2713,15 @@ export async function setPaymentStatus(code: string, paid: boolean, via: Counter
       return { ok: false, error: "This booking is cancelled." };
     if ((booking.paymentStatus === "paid") === paid)
       return { ok: false, error: `This booking is already marked ${paid ? "paid" : "unpaid"}.` };
+    if (!paid) {
+      // Paid online, with credit or a pass: that money is given back by refunding it, not by a tick.
+      if (booking.paidVia === "online" || booking.paidVia === "credit" || booking.paidVia === "pass")
+        return refuse("UNPAY_NOT_COUNTER");
+      // The desk can put right its own slip on the day; anything older is a manager's.
+      const zone = (await venueHours((await getCourt(booking.courtId))!.venueId)).zone;
+      if (by === "desk" && (!booking.paidAt || localDateOf(booking.paidAt, zone) !== todayISO(zone)))
+        return refuse("UNPAY_MANAGER");
+    }
 
     // Marked by hand: whatever the desk says it was paid with, never the gateway.
     await db.prepare(
@@ -4218,6 +4247,17 @@ export async function settleCancelled(bookingId: number): Promise<void> {
   await refundBooking(bookingId);
 }
 
+/** Is a payment page for this booking still open, unpaid, within the day a page lasts? */
+async function paymentPageOpen(bookingId: number): Promise<boolean> {
+  return !!(await getDb()
+    .prepare(
+      `SELECT 1 FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
+        WHERE pb.booking_id = ? AND p.status = 'pending' AND p.purpose = 'booking'
+          AND p.created_at > datetime('now', '-24 hours')`
+    )
+    .get(bookingId));
+}
+
 async function refundBooking(bookingId: number, share = 1): Promise<void> {
   // A paid booking's receipt is reversed, whoever gives the money back and how.
   await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
@@ -4242,15 +4282,18 @@ async function refundBooking(bookingId: number, share = 1): Promise<void> {
  * the payment, and the venue is shown what it owes until staff say it is done.
  */
 async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> {
+  // What the payment took for this booking, where it says; never more than it took in all.
   await getDb()
     .prepare(`
-      UPDATE online_payments
-         SET refund_due = refund_due + ROUND((SELECT total_price - shares_paid FROM bookings WHERE id = ?) * ${Number(share)}, 2)
-       WHERE status = 'paid'
-         AND id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
+      UPDATE online_payments p
+         SET refund_due = LEAST(p.amount, p.refund_due + ROUND(COALESCE(
+               (SELECT pb.amount FROM online_payment_bookings pb WHERE pb.payment_id = p.id AND pb.booking_id = ?),
+               (SELECT total_price - shares_paid FROM bookings WHERE id = ?)) * ${Number(share)}, 2))
+       WHERE p.status = 'paid'
+         AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
          AND EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
     `)
-    .run(bookingId, bookingId, bookingId);
+    .run(bookingId, bookingId, bookingId, bookingId);
 }
 
 /* ---------------- Memberships ---------------- */
@@ -4470,13 +4513,14 @@ interface PromoRow {
   valid_from: string;
   valid_to: string;
   max_uses: number | null;
+  max_per_customer: number | null;
   status: PromoStatus;
   used: number;
 }
 
 const PROMO_SELECT = `
   SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.description,
-         p.kind, p.value, p.min_hours, p.valid_from, p.valid_to, p.max_uses, p.status,
+         p.kind, p.value, p.min_hours, p.valid_from, p.valid_to, p.max_uses, p.max_per_customer, p.status,
          (SELECT COUNT(*) FROM promo_uses u WHERE u.promo_id = p.id) AS used
   FROM promo_codes p JOIN venues v ON v.id = p.venue_id
 `;
@@ -4495,6 +4539,7 @@ function toPromo(r: PromoRow): PromoCode {
     validFrom: r.valid_from,
     validTo: r.valid_to,
     maxUses: r.max_uses,
+    maxPerCustomer: r.max_per_customer,
     used: r.used,
     status: r.status,
   };
@@ -4545,6 +4590,7 @@ export async function createPromoCode(input: {
   validFrom: string;
   validTo: string;
   maxUses?: number | null;
+  maxPerCustomer?: number | null;
   adminId: number;
 }): Promise<PromoEditResult> {
   return withTransaction(async () => {
@@ -4576,6 +4622,9 @@ export async function createPromoCode(input: {
     if (input.maxUses !== undefined && input.maxUses !== null &&
         (!Number.isInteger(input.maxUses) || input.maxUses < 1))
       return { ok: false, error: "A usage limit must be a whole number above zero." };
+    if (input.maxPerCustomer !== undefined && input.maxPerCustomer !== null &&
+        (!Number.isInteger(input.maxPerCustomer) || input.maxPerCustomer < 1))
+      return { ok: false, error: "A limit per customer must be a whole number above zero." };
     if (input.sport && !SPORTS.includes(input.sport))
       return refuse("UNKNOWN_SPORT");
     if (input.sport) {
@@ -4590,12 +4639,12 @@ export async function createPromoCode(input: {
     const info = await db
       .prepare(`
         INSERT INTO promo_codes (code, venue_id, sport, description, kind, value,
-                                 min_hours, valid_from, valid_to, max_uses, admin_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 min_hours, valid_from, valid_to, max_uses, max_per_customer, admin_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         code, input.venueId, input.sport ?? null, input.description.trim(), input.kind,
-        input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.adminId
+        input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.maxPerCustomer ?? null, input.adminId
       );
     return { ok: true, promo: (await promoById(Number(info.lastInsertRowid)))! };
   });
@@ -4706,6 +4755,16 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
       // Re-derive against the live price, not the quoted one.
       const discount = promoDiscount(fresh, booking.totalPrice - (booking.coachFee ?? 0));
       if (discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
+      // One customer cannot take a code's every use: counted by phone, however it is typed.
+      if (fresh.maxPerCustomer !== null) {
+        const mine = (await db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM promo_uses u JOIN bookings b ON b.id = u.booking_id
+              WHERE u.promo_id = ? AND b.phone_key = phone_key(?) AND b.status = 'confirmed'`
+          )
+          .get(fresh.id, booking.phone)) as { n: number | string };
+        if (Number(mine.n) >= fresh.maxPerCustomer) throw new Error("LIMIT");
+      }
       await db.prepare(
         "INSERT INTO promo_uses (promo_id, booking_id, discount) VALUES (?, ?, ?)"
       ).run(fresh.id, booking.id, discount);
@@ -4715,6 +4774,7 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))
       return { ok: false, error: err.message.slice("BLOCKED:".length) };
+    if (err instanceof Error && err.message === "LIMIT") return refuse("PROMO_YOUR_LIMIT");
     if (isUniqueViolation(err, "promo_uses"))
       return refuse("PROMO_ALREADY_USED");
     throw err;

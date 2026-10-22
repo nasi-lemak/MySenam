@@ -9,6 +9,7 @@ import {
 } from "@/lib/store";
 import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
 import { logAction } from "@/lib/activity";
+import { refusal } from "@/lib/api";
 import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
@@ -58,8 +59,8 @@ export async function POST(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  const result = await setPaymentStatus(code, paid, method);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  const result = await setPaymentStatus(code, paid, method, admin.role);
+  if (!result.ok) return refusal(result);
   await logAction(admin, {
     venueId,
     action: paid ? "payment.paid" : "payment.unpaid",

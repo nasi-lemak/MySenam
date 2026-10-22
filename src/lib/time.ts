@@ -65,6 +65,12 @@ export function todayISO(zone: string = installZone()): string {
   return formatters(zone).date.format(new Date());
 }
 
+/** The date (YYYY-MM-DD) in a zone of a stored moment: an ISO time, or the database's UTC "YYYY-MM-DD HH:MM:SS". */
+export function localDateOf(stamp: string, zone: string = installZone()): string {
+  const at = new Date(/[TZ+]/.test(stamp.slice(10)) ? stamp : `${stamp.replace(" ", "T")}Z`);
+  return formatters(zone).date.format(at);
+}
+
 /** The hour now (0-23) in a zone. */
 export function currentHour(zone: string = installZone()): number {
   return wallClock(new Date(), zone).h;

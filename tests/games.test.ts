@@ -224,6 +224,19 @@ describe("shares", () => {
     expect((await findGames({})).some((g) => g.id === game.id)).toBe(false);
   });
 
+  it("handed back to a player who leaves, are owed by the host again", async () => {
+    fakeBillplz();
+    const { host, game, booking: b } = await hostGame({ autoAccept: true, share: 6 });
+    const a = await player();
+    await askToJoin(a, game.id);
+    await startSharePayment(a, game.id);
+    await settleBill({ billId: lastBill(), paid: true, paidAt: null });
+    expect(await startBookingPayment({ codes: [b.code], phone: host.phone })).toMatchObject({ ok: true, amount: b.totalPrice - 6 });
+    await leaveGame(a.id, game.id);
+    // The venue gives the 6 back, so it is not off the host's part any more.
+    expect(await startBookingPayment({ codes: [b.code], phone: host.phone })).toMatchObject({ ok: true, amount: b.totalPrice });
+  });
+
   it("arriving after the player left is owed back at once", async () => {
     fakeBillplz();
     const { game } = await hostGame({ autoAccept: true, share: 3 });

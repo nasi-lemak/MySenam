@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 import { registerUser } from "../src/lib/auth";
+import { getDb } from "../src/lib/db";
 import { authenticateAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import {
   adminCancelBooking,
@@ -313,7 +314,8 @@ describe("claiming a payment", () => {
     const made = await book(user.id, user.phone, 4, 16);
     if (!made.ok) return;
     expect(await claimPayment(made.booking.id, "credit")).toBe(true);
-    await setPaymentStatus(made.booking.code, false);
+    // As a refund leaves it (a tick cannot undo a credit payment).
+    await getDb().prepare("UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL WHERE id = ?").run(made.booking.id);
     expect(await claimPayment(made.booking.id, "credit")).toBe(true);
   });
 });

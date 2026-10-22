@@ -388,6 +388,8 @@ export interface PromoCode {
   validTo: string;
   /** null means unlimited. */
   maxUses: number | null;
+  /** How many bookings one phone number may use it on; null means no limit. */
+  maxPerCustomer: number | null;
   used: number;
   status: PromoStatus;
   /** Why it cannot be used today, if it cannot. */

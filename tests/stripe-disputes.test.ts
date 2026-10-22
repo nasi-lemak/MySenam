@@ -8,8 +8,10 @@ process.env.MYSENAM_COUNTRY = "SG";
 import { NextRequest } from "next/server";
 import { createAdmin } from "../src/lib/admin-auth";
 import { documentFor } from "../src/lib/documents";
-import { disputesFor, savePaymentSettings, settleBill, startBookingPayment } from "../src/lib/payments";
-import { createBooking, createCourt, createVenue, findBooking } from "../src/lib/store";
+import { disputesFor, savePaymentSettings, settleBill, startBookingPayment, startTopUpPayment } from "../src/lib/payments";
+import { registerUser } from "../src/lib/auth";
+import { getDb } from "../src/lib/db";
+import { createBooking, createCourt, createVenue, findBooking, getWalletBalance } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as callback } from "../src/app/api/payments/[provider]/callback/route";
 
@@ -118,6 +120,25 @@ describe("a chargeback", () => {
     expect(after).toMatchObject({ paymentStatus: "unpaid", status: "confirmed" });
     expect(await documentFor(`booking:${booking.id}`)).toMatchObject({ kind: "credit_note", note: "receipt.why.disputed" });
     expect((await disputesFor(venueId)).find((d) => d.providerDisputeId === "dp_2")).toMatchObject({ outcome: "lost" });
+  });
+
+  it("lost on a top-up: the credit it bought goes, and nothing more is owed on it", async () => {
+    fakeStripe();
+    const user = await registerUser({ name: "Top Up", email: "topup@dispute.sg", phone: "91239999", password: "long enough password" });
+    if (!user.ok) throw new Error(user.error);
+    const started = await startTopUpPayment(user.user, venueId, 50);
+    if (!started.ok) throw new Error("topup");
+    const billId = started.url.split("/").pop()!;
+    await settleBill({ billId, paid: true, paidAt: null });
+    expect(await getWalletBalance(user.user.id, venueId)).toBe(50);
+    await send("charge.dispute.created", { id: "dp_9", payment_intent: `pi_for_${billId}`, amount: 5000, reason: "fraudulent", status: "needs_response" });
+    await send("charge.dispute.closed", { id: "dp_9", payment_intent: `pi_for_${billId}`, amount: 5000, reason: "fraudulent", status: "lost" });
+    expect(await getWalletBalance(user.user.id, venueId)).toBe(0);
+    const row = (await getDb().prepare("SELECT refund_due::float AS due, refunded::float AS refunded FROM online_payments WHERE bill_id = ?").get(billId)) as {
+      due: number;
+      refunded: number;
+    };
+    expect(row).toEqual({ due: 50, refunded: 50 });
   });
 
   it("won: nothing changes but the record", async () => {

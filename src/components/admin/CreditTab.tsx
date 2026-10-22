@@ -533,6 +533,8 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
     validFrom: todayLocal(),
     validTo: "",
     maxUses: "",
+    // Once each to begin with: a code passed round should not go to one person's every booking.
+    maxPerCustomer: "1",
   });
 
   const venue = venues.find((v) => v.id === venueId) ?? null;
@@ -569,6 +571,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           validFrom: form.validFrom,
           validTo: form.validTo,
           maxUses: form.maxUses === "" ? null : Number(form.maxUses),
+          maxPerCustomer: form.maxPerCustomer === "" ? null : Number(form.maxPerCustomer),
         }),
       });
       const data = await res.json();
@@ -736,6 +739,18 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-20 ${inputClass}`}
           />
         </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Per customer
+          <input
+            type="number"
+            min={1}
+            value={form.maxPerCustomer}
+            onChange={(e) => setForm({ ...form, maxPerCustomer: e.target.value })}
+            placeholder="∞"
+            title="How many bookings one phone number can use it on. Leave blank for no limit."
+            className={`mt-1 w-20 ${inputClass}`}
+          />
+        </label>
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -775,6 +790,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="whitespace-nowrap px-3 py-2">
                   {p.used}
                   <span className="text-slate-400"> / {p.maxUses ?? "∞"}</span>
+                  {p.maxPerCustomer !== null && <span className="block text-xs text-slate-400">{p.maxPerCustomer} per customer</span>}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {p.validFrom} → {p.validTo}

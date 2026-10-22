@@ -4,6 +4,8 @@ import { adminCancelBooking, getVenueIdForBookingCode } from "@/lib/store";
 import { notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
+import { refusal } from "@/lib/api";
+import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +29,9 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
 
   const result = await adminCancelBooking(code);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return refusal(result);
+  // Paid online: it goes back now, as when a customer cancels, rather than waiting on staff.
+  await refundCancelled([result.booking.id], { byVenue: true });
   await logAction(admin, {
     venueId,
     action: "booking.cancelled",

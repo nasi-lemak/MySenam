@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { refundCancelled } from "@/lib/payments";
+import { refusal } from "@/lib/api";
 import { adminCancelBooking, closeVenueDay, listVenueClosures, reopenVenueDay } from "@/lib/store";
 import { getDb } from "@/lib/db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "@/lib/notify";
@@ -75,12 +77,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const done = await adminCancelBooking(b.code);
     if (!done.ok) continue;
     cancelled++;
+    await refundCancelled([done.booking.id], { byVenue: true });
     await notifyVenueCancelled(done.booking);
   }
   if (cancelled > 0) await tickOutbox();
 
   const result = await closeVenueDay(venueId, date, reason);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  if (!result.ok) return refusal(result, 400);
   return NextResponse.json({ closure: result.closure, cancelled }, { status: 201 });
 }
 
