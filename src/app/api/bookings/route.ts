@@ -19,7 +19,7 @@ import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, struckOut } from "@/lib/cancel-policy";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { addDays, isValidDateString, todayISO } from "@/lib/time";
+import { addDays, isSlotHour, isValidDateString, todayISO } from "@/lib/time";
 import { houseRules, isMemberHere, lastBookableDay } from "@/lib/house-rules";
 import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
   }
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-  if (!Array.isArray(hours) || hours.some((h) => !Number.isInteger(h)))
-    return NextResponse.json({ error: "hours must be an array of integers." }, { status: 400 });
+  if (!Array.isArray(hours) || hours.length === 0 || !hours.every(isSlotHour))
+    return NextResponse.json({ error: "hours must be a list of slot start times (whole or half hours)." }, { status: 400 });
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Please provide your name." }, { status: 400 });
   if (typeof phone !== "string" || !/^\+?[0-9 -]{7,20}$/.test(phone.trim()))

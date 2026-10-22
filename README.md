@@ -1818,19 +1818,28 @@ blocked, class-reserved or past hour is not queueable, and the booking grid
 only turns those cells into a waitlist button when they are genuinely just
 taken.
 
-There is no scheduler, so stale offers are expired **lazily**: every waitlist
-read or write first times out any hold that has run out, then the next person
-can be offered the place. The queue is only ever reached through one of those
-operations, so nobody is blocked for long by someone who walked away.
+A live offer **holds the place**: the grid shows it taken and nobody can book
+it directly for those 30 minutes, so the person offered it does not tap the
+link to find it gone. Stale offers are expired whenever the waitlist is read or
+written, and by the scheduler every few minutes (`passOnExpiredOffers()`),
+which offers each freed place to the next person in the queue, so a place
+nobody claims does not sit empty until somebody happens to look.
+
+Joining the queue goes through the same checks as booking
+(`customerMayBook()`): a refused number, a members-only venue, the house rules
+and the unpaid-bookings limit all apply, so a queue is not a way round them.
 
 Claiming is deliberately a tap rather than automatic on page load, because
 unlike check-in it creates a booking that costs money. Claiming enrols the
-holder at the class price (or makes an ordinary booking for a court slot) and
-closes their queue entry; the token is then spent.
+holder at the class price (or makes an ordinary booking for a court slot,
+through the same path as any booking, closures and limits included) and
+closes their queue entry; the token is then spent. A venue that holds
+bookings until they are paid holds a claimed one the same way, and the
+confirmation goes out like any other booking's.
 
-If somebody books the slot directly between the offer and the claim, the claim
-fails and the waiter is put **back at the front of the queue** rather than
-losing their turn for someone else's race.
+If the place is gone anyway (staff booked over it, or blocked the court), the
+claim fails and the waiter is put **back at the front of the queue** rather
+than losing their turn.
 
 ## Peak hours and holidays
 
@@ -1870,9 +1879,13 @@ that regulars may learn to wait for the lower price on busy evenings.
   the venue's usual cancellation rules apply. Search results show the price
   as it is now.
 - It is a price for a booking made now (`computePrice(..., at)`): a booking
-  already made keeps what it cost, a booking moved into such an hour pays
-  the usual price, and later weeks of a weekly series are too far ahead to
-  qualify.
+  already made keeps what it cost, a booking moved into such an hour keeps
+  the price it was booked at, and later weeks of a weekly series are too far
+  ahead to qualify.
+- It cannot be had by cancelling and booking again: somebody who cancelled a
+  booking at that venue for that day pays the usual price for a new one there
+  that day. A booking at a last-minute price is marked (`last_minute`,
+  migration 0064) and takes no promo code on top.
 - A member's rate is discounted the same way.
 
 ## Memberships and member rates
@@ -3151,7 +3164,9 @@ For customers who *don't* mind, an **Any court** row sits above the grid. Each
 hour shows the cheapest rate among the courts free that hour (so it reads RM18
 in an hour when only the premium court is left), and booking it takes the
 cheapest court free for the **whole** slot, not hour by hour — nobody is moved
-mid-session.
+mid-session. The price on the form is that court's price for the whole time,
+not the cheapest hour of each court added up, and a run of hours no single
+court is free for cannot be picked.
 
 `createBookingOnAnyCourt()` re-reads the candidate list server-side rather than
 trusting the client, orders it by what that slot actually costs (peak-aware, so
@@ -3694,6 +3709,44 @@ shows two weeks ahead and at most six of one venue's sessions a day (a venue's
 own page shows all of them). A venue's own staff can add up to 50 courts and
 keep up to 300 class sessions in the diary; the platform owner can add more,
 and is emailed each time a venue passes another 10 courts or 50 sessions.
+
+## Audit fixes
+
+A pass over the whole product for rules that were wrong, could be gamed, or
+were unkind to the people using them. What changed, by theme:
+
+### Bookings
+
+- **Half hours through every route.** The booking, waitlist, add-on, move and
+  block routes checked for whole hours, so a half-hour venue could only be
+  booked on the hour from some of them. They all use `isSlotHour()` now.
+- **Phone numbers however they are typed.** Finding a booking, cancelling a
+  series, class and waitlist duplicates and inductions compare
+  `phone_key()`, so `012-345 6789` and `+60123456789` are the same person.
+- **Weekly bookings skip closed weeks** rather than booking into a day the
+  venue is shut, and say which week and why.
+- **Cancelling happens once.** A cancel claims the booking
+  (`... WHERE status = 'confirmed'`) before refunding, so two taps, or a
+  customer and the desk at the same moment, cannot refund it twice. Cancelling
+  a weekly series sends one message, not one per week, and offers each freed
+  place to the waitlist.
+- **Booking codes** come from a cryptographic random source, and code lookups
+  have an index on `UPPER(code)` (migration 0064).
+- **Unpaid holds** can be extended once, while they are still running and
+  within the payment page's own expiry; a hold released for not being paid
+  settles anything already paid against it (a split share, credit) instead
+  of leaving it.
+- **Open games** cannot be opened on a court that is held until paid and not
+  yet paid for.
+- **Any court** prices and picks one court for the whole time (above).
+- **Waitlists** hold an offered place, pass on unclaimed offers from the
+  scheduler, and apply the booking checks to joining (see *Waitlists*).
+- **Last-minute prices** cannot be had by cancelling and rebooking, by moving
+  an older booking, or with a promo code on top (see *Last-minute prices*).
+- **Lessons**: the confirmation pays for every week of a weekly lesson in
+  one go and says how long an unpaid one is held; the weeks offered stop at
+  the most a series can be; My Booking does not offer *Change time* for a
+  lesson, which the venue moves, and says so.
 
 ## Renamed from MudahTempah
 

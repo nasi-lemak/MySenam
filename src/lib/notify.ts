@@ -228,6 +228,39 @@ export async function notifyBookingCancelled(
   });
 }
 
+/** Tell a customer the weeks of a series they cancelled are off: one message, not one a week. */
+export async function notifySeriesCancelled(
+  bookings: Booking[],
+  locale: Locale,
+  outcome: { refunds?: CancelRefund[] } = {}
+): Promise<OutboxMessage | null> {
+  if (bookings.length === 0) return null;
+  const first = [...bookings].sort((a, b) => a.date.localeCompare(b.date))[0];
+  const court = await getCourt(first.courtId);
+  if (!court) return null;
+  const venue = await getVenue(court.venueId);
+  if (!venue || !hasBeenLive(venue)) return null;
+  const t = translator(locale);
+  const where = slot(locale, court.name, venue.name, first);
+  return await deliver(first, {
+    bookingId: first.id,
+    venueId: venue.id,
+    kind: "booking_cancelled",
+    locale,
+    subject: "msg.cancelledSubject",
+    body: "msg.cancelled",
+    dedupeKey: `cancelled-series:${first.seriesCode ?? first.code}:${first.code}`,
+    vars: {
+      name: firstName(first.name),
+      code: first.seriesCode ?? first.code,
+      venue: venue.name,
+      where: where.where,
+      when: t("msg.seriesWhen", { n: bookings.length, from: where.when }),
+      money: cancelMoney(locale, outcome),
+    },
+  });
+}
+
 /** The money line of a cancellation: a fee kept, refunds on their way, or nothing owed. */
 function cancelMoney(locale: Locale, outcome: { kept?: number | null; refunds?: CancelRefund[] }): string {
   const t = translator(locale);

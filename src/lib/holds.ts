@@ -1,6 +1,6 @@
 import { getDb } from "./db";
 import { takesPaymentOnline } from "./payments";
-import { offerSlotPlace } from "./store";
+import { offerSlotPlace, settleCancelled } from "./store";
 
 /**
  * Paying online to hold a booking.
@@ -72,14 +72,19 @@ export async function holdNewBookings(bookingIds: number[], minutes: number): Pr
   return row.until;
 }
 
-/** The customer has the payment page open: give them time to finish. */
+/**
+ * The customer has the payment page open: give them time to finish. Once per
+ * booking, and only while the hold is still running, so opening the page over
+ * and over cannot keep a court held without paying.
+ */
 export async function extendHolds(bookingIds: number[]): Promise<void> {
   if (bookingIds.length === 0) return;
   await getDb()
     .prepare(
-      `UPDATE bookings SET hold_until = datetime('now', '+${PAYMENT_PAGE_MINUTES} minutes')
-        WHERE id IN (${bookingIds.map(() => "?").join(",")}) AND hold_until IS NOT NULL
-          AND payment_status = 'unpaid' AND hold_until < datetime('now', '+${PAYMENT_PAGE_MINUTES} minutes')`
+      `UPDATE bookings SET hold_until = datetime('now', '+${PAYMENT_PAGE_MINUTES} minutes'), hold_extended = 1
+        WHERE id IN (${bookingIds.map(() => "?").join(",")}) AND hold_until IS NOT NULL AND hold_extended = 0
+          AND payment_status = 'unpaid' AND hold_until > datetime('now')
+          AND hold_until < datetime('now', '+${PAYMENT_PAGE_MINUTES} minutes')`
     )
     .run(...bookingIds);
 }
@@ -114,6 +119,8 @@ export async function releaseExpiredHolds(): Promise<number> {
     })();
     if (done) released.push(b);
   }
+  // As any cancellation: a promo use given back, an open game called off and its shares owed back.
+  for (const b of released) await settleCancelled(b.id);
   for (const place of new Set(released.map((b) => `${b.court_id}|${b.date}`))) {
     const [court, date] = place.split("|");
     await offerSlotPlace(Number(court), date);

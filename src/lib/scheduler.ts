@@ -10,6 +10,7 @@ import { runEInvoicing } from "./myinvois";
 import { askForReviews } from "./reviews";
 import { notifyCoaches } from "./coach-schedule";
 import { runWebhooks } from "./webhooks";
+import { passOnExpiredOffers } from "./store";
 import { releaseExpiredHolds } from "./holds";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 import { region } from "./region";
@@ -106,6 +107,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
     await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Waiting-list offers nobody took pass to the next person in the queue.
+    await passOnExpiredOffers();
+  } catch (err) {
+    console.error("[mysenam] passing on waiting-list offers failed:", err);
+    await raiseAlert("scheduler:waitlist-offers-failed", "Scheduled work failed: waiting-list offers", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

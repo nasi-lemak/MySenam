@@ -210,6 +210,14 @@ export function onSlot(hour: number, step = 1): boolean {
   return Number.isFinite(hour) && Math.abs(hour / step - Math.round(hour / step)) < 1e-9;
 }
 
+/**
+ * A slot's start as a request may give it: on the hour or the half hour,
+ * within the day. Whether the venue sells halves is checked where it books.
+ */
+export function isSlotHour(h: unknown): h is number {
+  return typeof h === "number" && onSlot(h, 0.5) && h >= 0 && h < 24;
+}
+
 /** Hours from now until a slot starts; negative once it has begun. */
 export function hoursUntilSlot(date: string, hour: number, zone: string = installZone()): number {
   return (slotStartsAt(date, hour, zone).getTime() - Date.now()) / 3_600_000;

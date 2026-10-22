@@ -29,7 +29,7 @@ import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
-import { money, intlTag, region, plainAmount } from "@/lib/region";
+import { money, intlTag, region, plainAmount, localTimeOf } from "@/lib/region";
 
 interface Props {
   venueId: number;
@@ -80,18 +80,28 @@ const BUSY_STYLES: Record<string, string> = {
  * A taken slot can be queued for; a blocked, class-reserved or past one
  * cannot, because no cancellation will ever free it. Past by the venue's clock.
  */
+/**
+ * The cheapest court free for every one of these hours, and what it costs;
+ * null when no single court is. The server picks the same way.
+ */
+function cheapestWholeCourt(
+  availability: CourtAvailability[] | null | undefined,
+  hours: number[]
+): { total: number; lastMinute: number } | null {
+  let best: { total: number; lastMinute: number } | null = null;
+  for (const a of availability ?? []) {
+    const slots = hours.map((h) => a.slots.find((s) => s.hour === h));
+    if (slots.some((s) => !s || !s.available)) continue;
+    const total = slots.reduce((sum, s) => sum + s!.rate, 0);
+    if (!best || total < best.total)
+      best = { total, lastMinute: Math.max(0, ...slots.map((s) => s!.lastMinute ?? 0)) };
+  }
+  return best;
+}
+
 function canQueue(slot: CourtAvailability["slots"][number], date: string, zone: string): boolean {
   if (slot.available || slot.blocked || slot.className) return false;
   return !isPastSlot(date, slot.hour, zone);
-}
-
-/** A UTC "YYYY-MM-DD HH:MM:SS" as the venue's HH:MM, for the customer. */
-function localTimeOf(utc: string, zone: string = region().timeZone): string {
-  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
-    timeZone: zone,
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function formatDateLabel(t: T, date: string): { day: string; num: string } {
@@ -243,28 +253,34 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
   }, [availability, selection, t]);
 
+  /**
+   * For "Any court", the court the server will give: the cheapest one free for
+   * every hour picked. The cheapest rate per hour across all courts would add
+   * up to a price no single court charges.
+   */
+  const anyChoice = useMemo(
+    () => (selection?.courtId === ANY_COURT ? cheapestWholeCourt(availability, selection.hours) : null),
+    [selection, availability]
+  );
+
   const totalPrice = useMemo(() => {
     if (!selection || !availability) return 0;
-    if (selection.courtId === ANY_COURT) {
-      return selection.hours.reduce(
-        (sum, h) => sum + (anyRow?.find((s) => s.hour === h)?.rate ?? 0),
-        0
-      );
-    }
+    if (selection.courtId === ANY_COURT) return anyChoice?.total ?? 0;
     const courtAvail = availability.find((a) => a.court.id === selection.courtId);
     if (!courtAvail) return 0;
     return selection.hours.reduce(
       (sum, h) => sum + (courtAvail.slots.find((s) => s.hour === h)?.rate ?? 0),
       0
     );
-  }, [selection, availability, anyRow]);
+  }, [selection, availability, anyChoice]);
 
   /** The last-minute discount on the hours picked, if any: the form says what it is. */
   const lastMinute = useMemo(() => {
-    if (!selection || !availability || selection.courtId === ANY_COURT) return 0;
+    if (!selection || !availability) return 0;
+    if (selection.courtId === ANY_COURT) return anyChoice?.lastMinute ?? 0;
     const slots = availability.find((a) => a.court.id === selection.courtId)?.slots ?? [];
     return Math.max(0, ...selection.hours.map((h) => slots.find((s) => s.hour === h)?.lastMinute ?? 0));
-  }, [selection, availability]);
+  }, [selection, availability, anyChoice]);
 
   function toggleSlot(courtId: number, hour: number) {
     setError(null);
@@ -277,6 +293,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       // Keep the selection contiguous: if toggling breaks contiguity, restart from this slot.
       if (!consecutive(hours, step)) return { courtId, hours: [hour] };
       if (hours.length * step > MAX_HOURS_PER_BOOKING) return prev;
+      // "Any court" still means one court for the whole booking.
+      if (courtId === ANY_COURT && !cheapestWholeCourt(availability, hours)) return { courtId, hours: [hour] };
       return { courtId, hours };
     });
   }

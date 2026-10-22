@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { rateLimit } from "@/lib/rate-limit";
-import { cancelSeries } from "@/lib/store";
+import { cancelSeries, getBookingById } from "@/lib/store";
+import { notifySeriesCancelled, tickOutbox } from "@/lib/notify";
+import { currentLocale } from "@/lib/locale";
 import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
@@ -22,5 +24,9 @@ export async function POST(req: NextRequest) {
 
   const result = await cancelSeries(seriesCode, phone);
   if (!result.ok) return refusal(result);
-  return NextResponse.json({ cancelled: result.cancelled, refunds: await refundCancelled(result.bookingIds) });
+  const refunds = await refundCancelled(result.bookingIds);
+  const cancelled = (await Promise.all(result.bookingIds.map((id) => getBookingById(id)))).filter((b): b is NonNullable<typeof b> => b !== null);
+  await notifySeriesCancelled(cancelled, await currentLocale(), { refunds });
+  await tickOutbox();
+  return NextResponse.json({ cancelled: result.cancelled, refunds });
 }

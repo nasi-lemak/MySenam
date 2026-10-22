@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { classRefusal } from "@/lib/who";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
-import { isBlocked, phoneBlocked, venueNotOpen } from "@/lib/limits";
-import { venueIsOpen } from "@/lib/listing";
-import { accessRefusal } from "@/lib/access";
+import { customerMayBook } from "@/lib/limits";
+import { takesPaymentOnline } from "@/lib/payments";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
-import { isValidDateString } from "@/lib/time";
+import { isSlotHour, isValidDateString } from "@/lib/time";
 import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
@@ -32,9 +31,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "classId or courtId is required." }, { status: 400 });
     if (typeof date !== "string" || !isValidDateString(date))
       return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-    if (!Number.isInteger(startHour) || !Number.isInteger(endHour))
+    if (!isSlotHour(startHour) || !(isSlotHour(endHour) || endHour === 24) || (endHour as number) <= (startHour as number))
       return NextResponse.json(
-        { error: "startHour and endHour must be whole hours." },
+        { error: "startHour and endHour must be whole or half hours, the end after the start." },
         { status: 400 }
       );
   }
@@ -64,17 +63,20 @@ export async function POST(req: NextRequest) {
     if (notFor) return refusal(notFor, 403);
   }
 
-  // A number the venue has refused does not queue for it either.
-  const venueId = forClass
-    ? (await getClass(classId as number))?.venueId
-    : (await getCourt(courtId as number))?.venueId;
-  if (venueId !== undefined && (await isBlocked(venueId, person.phone)))
-    return refusal(phoneBlocked());
-  if (venueId !== undefined && !(await venueIsOpen(venueId))) return refusal(venueNotOpen());
-  // Members only, or private: nobody else queues for it either.
+  // Whoever could not book it cannot queue for it either: a refused number, a
+  // venue not open, members only, the house rules, too many unpaid bookings.
+  const session = forClass ? await getClass(classId as number) : null;
+  const venueId = forClass ? session?.venueId : (await getCourt(courtId as number))?.venueId;
   if (venueId !== undefined) {
-    const notHere = await accessRefusal(venueId, user?.id ?? null);
-    if (notHere) return refusal(notHere, 403);
+    const refused = await customerMayBook({
+      venueId,
+      phone: person.phone,
+      signedIn: user !== null,
+      userId: user?.id ?? null,
+      dates: [forClass ? session!.date : (date as string)],
+      canPayOnline: await takesPaymentOnline(venueId),
+    });
+    if (refused) return refusal(refused, 403);
   }
 
   const result = forClass

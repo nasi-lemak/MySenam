@@ -949,6 +949,7 @@ const EN = {
   "pay.unknownBody": "If money left your account, the venue will see it shortly. Look your booking up under My Booking to check.",
   "pay.toMyBooking": "Go to My Booking",
   "msg.cancelledSubject": "Booking {code} cancelled — {venue}",
+  "msg.seriesWhen": "{n} weekly sessions, the first {from}",
   "msg.cancelled":
     "Hi {name}, booking {code} has been cancelled.\n\n{where}\n{when}\n\nThe slot is free again.\n{money}\n\nSee you another time.",
   "msg.owedNothing": "Nothing is owed for it.",
@@ -1291,6 +1292,7 @@ const EN = {
   "err.EINVOICE_OFF": "This venue does not issue e-invoices online. Ask the venue directly.",
   "err.EINVOICE_TOO_LATE": "That month has already gone to LHDN in the venue's consolidated e-invoice. Ask the venue directly.",
   "err.EINVOICE_ALREADY": "An e-invoice has already been asked for on this receipt.",
+  "err.PROMO_NOT_LAST_MINUTE": "A promo code does not come off a last-minute price.",
   "err.REVIEW_NOT_FOUND": "That review link is not valid.",
   "err.REVIEW_NOT_PLAYED": "Only a booking that went ahead can be reviewed.",
   "err.REVIEW_NOT_YET": "You can review this once your booking is over.",
@@ -2276,6 +2278,7 @@ const MS: Record<Phrase, string> = {
   "pay.unknownBody": "Jika wang telah keluar dari akaun anda, pihak tempat akan melihatnya sebentar lagi. Cari tempahan anda di Tempahan Saya untuk menyemak.",
   "pay.toMyBooking": "Pergi ke Tempahan Saya",
   "msg.cancelledSubject": "Tempahan {code} dibatalkan — {venue}",
+  "msg.seriesWhen": "{n} sesi mingguan, yang pertama {from}",
   "msg.cancelled":
     "Hai {name}, tempahan {code} telah dibatalkan.\n\n{where}\n{when}\n\nWaktu itu kosong semula.\n{money}\n\nJumpa lagi.",
   "msg.owedNothing": "Tiada apa-apa yang perlu dibayar untuknya.",
@@ -2618,6 +2621,7 @@ const MS: Record<Phrase, string> = {
   "err.EINVOICE_OFF": "Tempat ini tidak mengeluarkan e-invois dalam talian. Tanya tempat itu terus.",
   "err.EINVOICE_TOO_LATE": "Bulan itu sudah dihantar ke LHDN dalam e-invois disatukan tempat ini. Tanya tempat itu terus.",
   "err.EINVOICE_ALREADY": "E-invois sudah diminta untuk resit ini.",
+  "err.PROMO_NOT_LAST_MINUTE": "Kod promosi tidak boleh digunakan bersama harga saat akhir.",
   "err.REVIEW_NOT_FOUND": "Pautan ulasan itu tidak sah.",
   "err.REVIEW_NOT_PLAYED": "Hanya tempahan yang berlangsung boleh diulas.",
   "err.REVIEW_NOT_YET": "Anda boleh mengulas selepas tempahan anda tamat.",

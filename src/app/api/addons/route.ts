@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { offered } from "@/lib/addons";
 import { mayShowVenue } from "@/lib/listing";
 import { getClass, getCourt } from "@/lib/store";
-import { isValidDateString } from "@/lib/time";
+import { isSlotHour, isValidDateString } from "@/lib/time";
 import { SPORTS, type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Give a courtId, a venueId and sport, or a classId." }, { status: 400 });
   }
   if (!isValidDateString(date)) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-  if (hours.length > 24 || hours.some((h) => !Number.isInteger(h) || h < 0 || h > 23))
+  if (hours.length > 24 || !hours.every(isSlotHour))
     return NextResponse.json({ error: "hours must be a list of hours." }, { status: 400 });
   if (!(await mayShowVenue(venueId, req)).show) return NextResponse.json({ addons: [] });
   const list = await offered(venueId, sport, date, hours);

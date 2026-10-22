@@ -6,9 +6,9 @@ import { useT } from "@/components/Language";
 import PayOnline from "@/components/PayOnline";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { sportLabel, translateError } from "@/lib/i18n";
-import { money } from "@/lib/region";
+import { localTimeOf, money } from "@/lib/region";
 import { formatHour, slotsBetween } from "@/lib/time";
-import type { Booking, Sport } from "@/lib/types";
+import { MAX_RECUR_WEEKS, type Booking, type Sport } from "@/lib/types";
 
 /** A day, a free time with the coach, a length, and who is coming: then a lesson booked. */
 export default function CoachBooking({
@@ -17,12 +17,14 @@ export default function CoachBooking({
   dates,
   step,
   payOnline,
+  timeZone,
 }: {
   venueId: number;
   coach: { id: number; name: string; sports: Sport[] };
   dates: string[];
   step: number;
   payOnline: boolean;
+  timeZone: string;
 }) {
   const t = useT();
   const [sport, setSport] = useState<Sport>(coach.sports[0]);
@@ -34,6 +36,9 @@ export default function CoachBooking({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [booked, setBooked] = useState<Booking | null>(null);
+  // Every lesson booked, one or several weeks of them, and how long they are held unpaid.
+  const [all, setAll] = useState<Booking[]>([]);
+  const [holdUntil, setHoldUntil] = useState<string | null>(null);
   // Weekly lessons, for a signed-in customer, like a weekly court.
   const [signedIn, setSignedIn] = useState(false);
   const [weeks, setWeeks] = useState(1);
@@ -78,6 +83,8 @@ export default function CoachBooking({
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
       setBooked(data.booking);
+      setAll(data.bookings ?? [data.booking]);
+      setHoldUntil(data.holdUntil ?? null);
       if (weeks > 1) setSeries({ count: data.bookings?.length ?? 1, skipped: data.skipped ?? [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("pay.failed"));
@@ -85,6 +92,11 @@ export default function CoachBooking({
       setBusy(false);
     }
   }
+
+  // A weekly run is paid for in one go, like weekly courts.
+  const total = Math.round(all.reduce((sum, b) => sum + b.totalPrice, 0) * 100) / 100;
+  const unpaid = all.filter((b) => b.paymentStatus === "unpaid" && b.totalPrice > 0);
+  const unpaidTotal = Math.round(unpaid.reduce((sum, b) => sum + b.totalPrice, 0) * 100) / 100;
 
   if (booked)
     return (
@@ -103,9 +115,13 @@ export default function CoachBooking({
         <p>
           {booked.date} {formatHour(booked.startHour)}–{formatHour(booked.endHour)} · {t("coach.with", { name: coach.name })} ·{" "}
           {money(booked.totalPrice)}
+          {all.length > 1 && <> · {t("done.total")} {money(total)}</>}
         </p>
-        {payOnline && booked.paymentStatus === "unpaid" && booked.totalPrice > 0 && (
-          <PayOnline codes={[booked.code]} phone={booked.phone} amount={booked.totalPrice} held={!!booked.holdUntil} />
+        {holdUntil && unpaid.length > 0 && (
+          <p className="font-medium text-amber-800">{t("hold.body", { time: localTimeOf(holdUntil, timeZone) })}</p>
+        )}
+        {payOnline && unpaid.length > 0 && (
+          <PayOnline codes={unpaid.map((b) => b.code)} phone={booked.phone} amount={unpaidTotal} held={!!holdUntil} />
         )}
         <Link href="/my-booking" className="inline-block font-medium text-teal-800 underline">
           {t("nav.myBooking")}
@@ -175,7 +191,7 @@ export default function CoachBooking({
               {t("form.repeat")}
               <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))} className={input}>
                 <option value={1}>{t("form.justOnce")}</option>
-                {[2, 4, 6, 8, 10, 12].map((w) => (
+                {Array.from({ length: MAX_RECUR_WEEKS - 1 }, (_, i) => i + 2).map((w) => (
                   <option key={w} value={w}>
                     {t("form.weekly", { n: w })}
                   </option>

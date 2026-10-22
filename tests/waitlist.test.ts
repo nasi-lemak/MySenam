@@ -22,7 +22,9 @@ import {
   cancelBooking,
   blockSlots,
   getAvailability,
+  passOnExpiredOffers,
 } from "../src/lib/store";
+import { getDb } from "../src/lib/db";
 import { addDays, todayISO } from "../src/lib/time";
 import { WAITLIST_OFFER_MINUTES } from "../src/lib/types";
 
@@ -347,26 +349,33 @@ describe("waitlists for ordinary slots", () => {
     expect(await listWaitlistFor("0175550001")).toHaveLength(0);
   });
 
-  it("keeps a waiter's place if the slot is gone by the time they claim", async () => {
+  it("holds the place for the waiter until they claim it, and passes it on if they do not", async () => {
     const { court, date, hour, holder, holderPhone } = await takenSlot(9, 18);
     await joinSlotWaitlist({
       courtId: court.id, date, startHour: hour, endHour: hour + 1,
       name: "Slow", phone: "0176660001",
     });
+    await joinSlotWaitlist({
+      courtId: court.id, date, startHour: hour, endHour: hour + 1,
+      name: "Next", phone: "0176660003",
+    });
     await cancelBooking(holder.code, holderPhone);
     const offer = (await listWaitlistFor("0176660001"))[0];
     expect(offer.status).toBe("offered");
 
-    // somebody books it directly before the offer is claimed
+    // nobody else can book it while the offer is live
     expect(
       (await createBooking({
         courtId: court.id, date, hours: [hour], name: "Quick", phone: "0176660002",
       })).ok
-    ).toBe(true);
+    ).toBe(false);
 
-    expect(await claimWaitlistOffer(offer.offerToken!)).toMatchObject({ ok: false });
-    // they go back in the queue rather than losing their turn
-    expect((await listWaitlistFor("0176660001"))[0].status).toBe("waiting");
+    // the offer runs out: it goes to the next person straight away
+    await getDb().prepare("UPDATE waitlist SET offered_at = datetime('now', '-31 minutes') WHERE id = ?").run(offer.id);
+    expect(await passOnExpiredOffers()).toBe(1);
+    const next = (await listWaitlistFor("0176660003"))[0];
+    expect(next.status).toBe("offered");
+    expect(await claimWaitlistOffer(next.offerToken!)).toMatchObject({ ok: true });
   });
 
   it("does not offer a slot that staff have blocked", async () => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { blockSlots, getCourt, unblockSlots } from "@/lib/store";
-import { isValidDateString } from "@/lib/time";
+import { isSlotHour, isValidDateString } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ async function parseBody(req: NextRequest) {
     const { courtId, date, hours, reason, places } = body ?? {};
     if (!Number.isInteger(courtId) || (courtId as number) <= 0) return null;
     if (typeof date !== "string" || !isValidDateString(date)) return null;
-    if (!Array.isArray(hours) || hours.length === 0 || hours.some((h) => !Number.isInteger(h)))
+    if (!Array.isArray(hours) || hours.length === 0 || !hours.every(isSlotHour))
       return null;
     return {
       courtId: courtId as number,

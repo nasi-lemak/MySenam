@@ -210,7 +210,7 @@ export async function openGame(
   const booking = (await db
     .prepare(
       `SELECT b.id, b.user_id, b.date, b.start_hour, b.status, b.class_id, b.total_price::float AS total_price,
-              v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open
+              b.hold_until, b.payment_status, v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE UPPER(b.code) = UPPER(?)`
     )
@@ -218,6 +218,7 @@ export async function openGame(
     | {
         id: number; user_id: number | null; date: string; start_hour: number; status: string; class_id: number | null;
         total_price: number; open: boolean; time_zone: string | null; lat: number | null; lng: number | null;
+        hold_until: string | null; payment_status: string;
       }
     | undefined;
   if (!booking || booking.user_id !== hostId) return { ok: false, error: "That is not one of your bookings.", status: 404 };
@@ -225,6 +226,9 @@ export async function openGame(
   if (booking.class_id !== null) return { ok: false, error: "A class place cannot be shared." };
   if (isPastSlot(booking.date, booking.start_hour, venueZoneOf(booking))) return { ok: false, error: "That booking has already started." };
   if (!booking.open) return { ok: false, error: "That venue is not taking bookings at the moment." };
+  // Held only until paid: players' shares could arrive after it was let go.
+  if (booking.hold_until && booking.payment_status === "unpaid")
+    return { ok: false, error: "Pay for the court first: this venue holds it only until it is paid." };
   if (!Number.isInteger(input.spots) || input.spots < 1 || input.spots > MAX_SPOTS)
     return { ok: false, error: `Look for 1 to ${MAX_SPOTS} players.` };
   if (input.level !== null && !LEVELS.includes(input.level)) return { ok: false, error: "Unknown level." };
@@ -516,14 +520,39 @@ export async function myGames(userId: number): Promise<{ hosting: OpenGame[]; pl
  * A player who paid their share and is no longer playing — they left, were
  * removed, or the booking went — is owed it back, by the venue, like any
  * online payment for something that did not happen.
+ *
+ * Where the game goes on without them, their share comes off what the booking
+ * has had paid towards it, so the host owes it again: the venue is not out of
+ * pocket for a share it handed back. A booking that shares alone had paid
+ * for is unpaid again, unless the host paid for it too.
  */
-async function shareOwedBack(playerId: number): Promise<void> {
-  await getDb()
+async function shareOwedBack(playerId: number, bookingGone = false): Promise<void> {
+  const db = getDb();
+  const repaid = (await db
     .prepare(
-      `UPDATE online_payments SET refund_due = refund_due + amount
-        WHERE game_player_id = ? AND purpose = 'share' AND status = 'paid' AND refund_due < amount`
+      `UPDATE online_payments SET refund_due = amount
+        WHERE game_player_id = ? AND purpose = 'share' AND status = 'paid' AND refund_due < amount
+        RETURNING amount::float AS amount`
     )
-    .run(playerId);
+    .all(playerId)) as { amount: number }[];
+  const total = Math.round(repaid.reduce((sum, r) => sum + Number(r.amount), 0) * 100) / 100;
+  if (total <= 0 || bookingGone) return;
+  const place = (await db
+    .prepare("SELECT g.booking_id FROM open_game_players p JOIN open_games g ON g.id = p.game_id WHERE p.id = ?")
+    .get(playerId)) as { booking_id: number } | undefined;
+  await db.prepare("UPDATE open_game_players SET paid_at = NULL WHERE id = ?").run(playerId);
+  if (!place) return;
+  await db
+    .prepare("UPDATE bookings SET shares_paid = GREATEST(0, shares_paid - ?) WHERE id = ?")
+    .run(total, place.booking_id);
+  await db
+    .prepare(
+      `UPDATE bookings SET payment_status = 'unpaid', paid_at = NULL, paid_via = NULL
+        WHERE id = ? AND payment_status = 'paid' AND paid_via = 'online' AND shares_paid < total_price
+          AND NOT EXISTS (SELECT 1 FROM online_payment_bookings pb JOIN online_payments op ON op.id = pb.payment_id
+                           WHERE pb.booking_id = bookings.id AND op.status = 'paid')`
+    )
+    .run(place.booking_id);
 }
 
 /**
@@ -541,7 +570,7 @@ export async function bookingCancelled(bookingId: number): Promise<void> {
     .all(game.id)) as { id: number; user_id: number }[];
   const details = await gameById(game.id);
   for (const p of players) {
-    await shareOwedBack(p.id);
+    await shareOwedBack(p.id, true);
     if (details) await tellPlayer(p.user_id, details, "cancelled");
   }
 }

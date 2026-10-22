@@ -46,6 +46,7 @@ export default async function CoachPage({ params }: { params: Promise<{ id: stri
           dates={Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i))}
           step={step}
           payOnline={await takesPaymentOnline(id)}
+          timeZone={zone}
         />
       </div>
     </div>

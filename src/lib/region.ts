@@ -204,3 +204,12 @@ export function intlTag(locale: string): string {
   // Simplified script, as Malaysia and Singapore write it.
   return `${locale === "zh" ? "zh-Hans" : locale}-${region().country}`;
 }
+
+/** A UTC "YYYY-MM-DD HH:MM:SS" as the venue's HH:MM, for the customer. */
+export function localTimeOf(utc: string, zone: string = region().timeZone): string {
+  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
+    timeZone: zone,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isSlotHour } from "@/lib/time";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { getCourt, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const { code, date, startHour, courtId } = body ?? {};
-  if (typeof code !== "string" || typeof date !== "string" || !Number.isInteger(startHour))
+  if (typeof code !== "string" || typeof date !== "string" || !isSlotHour(startHour))
     return NextResponse.json({ error: "code, date and startHour are required." }, { status: 400 });
   if (courtId !== undefined && courtId !== null && !Number.isInteger(courtId))
     return NextResponse.json({ error: "courtId must be a court's id." }, { status: 400 });

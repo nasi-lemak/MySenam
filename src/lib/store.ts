@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomBytes, randomInt } from "crypto";
 import { reviewPath } from "./review-links";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
@@ -197,6 +197,43 @@ export async function venueHours(venueId: number): Promise<{ openHour: number; c
 /** The slots a booking holds: its hours, or half hours where its venue sells halves. */
 export async function bookingHours(b: { courtId: number; startHour: number; endHour: number }): Promise<number[]> {
   return slotsBetween(b.startHour, b.endHour, (await courtVenueHours(b.courtId)).step);
+}
+
+/**
+ * Places held by live waiting-list offers on a date, per `courtId:hour`: an
+ * offer keeps the place for its person until it is claimed or runs out, so
+ * nobody else can take it meanwhile. `except` is the offer being claimed.
+ */
+async function offerHolds(date: string, opts: { venueId?: number; courtId?: number; except?: number } = {}): Promise<Map<string, number>> {
+  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
+  const rows = (await getDb()
+    .prepare(
+      `SELECT w.id, w.court_id, w.start_hour, w.end_hour FROM waitlist w JOIN courts c ON c.id = w.court_id
+        WHERE w.status = 'offered' AND w.date = ? AND w.offered_at > ?
+          ${opts.venueId ? "AND c.venue_id = ?" : ""} ${opts.courtId ? "AND w.court_id = ?" : ""}`
+    )
+    .all(date, since, ...(opts.venueId ? [opts.venueId] : []), ...(opts.courtId ? [opts.courtId] : []))) as {
+    id: number;
+    court_id: number;
+    start_hour: number;
+    end_hour: number;
+  }[];
+  const held = new Map<string, number>();
+  for (const r of rows) {
+    if (r.id === opts.except || r.start_hour === null) continue;
+    for (const h of await bookingHours({ courtId: r.court_id, startHour: Number(r.start_hour), endHour: Number(r.end_hour) }))
+      held.set(`${r.court_id}:${h}`, (held.get(`${r.court_id}:${h}`) ?? 0) + 1);
+  }
+  return held;
+}
+
+/** Class places held by live waiting-list offers, other than `except`. */
+async function classOfferHolds(classId: number, except?: number): Promise<number> {
+  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
+  const r = (await getDb()
+    .prepare("SELECT COUNT(*) AS n FROM waitlist WHERE class_id = ? AND status = 'offered' AND offered_at > ? AND id <> ?")
+    .get(classId, since, except ?? 0)) as { n: number | string };
+  return Number(r.n);
 }
 
 /** The trading hours and slot length of the venue a court belongs to. */
@@ -623,6 +660,8 @@ export async function getAvailability(
   if (sport) courts = courts.filter((c) => c.sport === sport);
 
   const takenCounts = await countTakenPlaces(date, venueId);
+  // A place offered to somebody on the waiting list is theirs until it runs out.
+  for (const [key, n] of await offerHolds(date, { venueId })) takenCounts.set(key, (takenCounts.get(key) ?? 0) + n);
 
   const blockedPlaces = await blockedPlacesOn(date, venueId);
   const classHours = await classHoursOn(date, venueId);
@@ -1229,7 +1268,8 @@ export function hasMemberRate(court: Court): boolean {
 function randomCode(prefix: string): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let code = prefix;
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  // Unpredictable: a code and a phone number together unlock a booking.
+  for (let i = 0; i < 6; i++) code += chars[randomInt(chars.length)];
   return code;
 }
 
@@ -1283,6 +1323,8 @@ export async function createBookingSeries(input: {
   skipConflicts?: boolean;
   /** Set when this booking is an enrolment, which may use the class's hours. */
   classId?: number;
+  /** The waiting-list offer this booking claims: its own hold does not count against it. */
+  waitlistId?: number;
 }, attempt = 0): Promise<CreateSeriesResult> {
   const { courtId, date, weeks, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
@@ -1343,11 +1385,14 @@ export async function createBookingSeries(input: {
     `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${step})`
   );
 
-  /** Lowest unused place for an hour, or null when the resource is full. */
+  /** Lowest unused place for an hour, or null when the resource is full (counting places held by waiting-list offers). */
+  const holds = new Map<string, Map<string, number>>();
   const freeSeat = async (weekDate: string, hour: number): Promise<number | null> => {
     const used = new Set(
       (await seatsTaken.all(courtId, weekDate, hour) as { seat: number }[]).map((r) => r.seat)
     );
+    if (!holds.has(weekDate)) holds.set(weekDate, await offerHolds(weekDate, { courtId, except: input.waitlistId }));
+    if (used.size + (holds.get(weekDate)!.get(`${courtId}:${hour}`) ?? 0) >= court.capacity) return null;
     for (let seat = 0; seat < court.capacity; seat++) {
       if (!used.has(seat)) return seat;
     }
@@ -1362,6 +1407,17 @@ export async function createBookingSeries(input: {
   const memberOn = async (weekDate: string) =>
     await activeMembership(court.venueId, phone, weekDate) !== null;
   const rules = await peakRules(court.venueId);
+  // A last-minute price is for an hour nobody wanted, not for a number that
+  // cancelled at this venue on this day and is booking again at the lower price.
+  const cancelledHere = rules.lastMinute
+    ? await db
+        .prepare(
+          `SELECT 1 FROM bookings b JOIN courts c ON c.id = b.court_id
+            WHERE c.venue_id = ? AND b.date = ? AND b.status = 'cancelled' AND b.phone_key = phone_key(?) LIMIT 1`
+        )
+        .get(court.venueId, date, phone)
+    : undefined;
+  const bookedAt = cancelledHere ? undefined : Date.now();
 
   try {
     const result = await db.transaction(async () => {
@@ -1376,6 +1432,8 @@ export async function createBookingSeries(input: {
         const classes = await classHoursOn(weekDate, court.venueId);
         if (seats.some((seat) => seat === null)) {
           reason = court.capacity > 1 ? "fully booked" : "already booked";
+        } else if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) {
+          reason = "venue closed";
         } else if (await blockedOut(weekDate)) {
           reason = "closed for maintenance";
         } else if (!input.classId && hours.some((h) => classes.has(`${courtId}:${h}`))) {
@@ -1386,12 +1444,16 @@ export async function createBookingSeries(input: {
           skipped.push({ date: weekDate, reason });
           continue;
         }
+        const member = await memberOn(weekDate);
+        const price = computePrice(court, weekDate, hours, member, rules, bookedAt);
         const bookingId = (await insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + step,
-          name, phone, email ?? null, computePrice(court, weekDate, hours, await memberOn(weekDate), rules, Date.now()),
+          name, phone, email ?? null, price,
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
           input.classId ?? null
         )).lastInsertRowid as number;
+        if (price < computePrice(court, weekDate, hours, member, rules))
+          await db.prepare("UPDATE bookings SET last_minute = 1 WHERE id = ?").run(bookingId);
         for (const [i, hour] of hours.entries()) await insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!);
         bookings.push((await getBookingById(bookingId))!);
       }
@@ -1444,7 +1506,7 @@ export async function cancelSeries(
   const db = getDb();
   const rows = await db
     .prepare(
-      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND phone = ? AND status = 'confirmed'"
+      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND phone_key = phone_key(?) AND status = 'confirmed'"
     )
     .all(seriesCode.trim(), phone.trim()) as BookingRow[];
   if (rows.length === 0)
@@ -1456,17 +1518,23 @@ export async function cancelSeries(
   if (future.length === 0)
     return { ...refuse("SERIES_NONE_LEFT", { n: cutoff }), cancelled: 0 };
 
+  // Claimed one by one, so a second request at the same moment cancels (and refunds) nothing twice.
+  const claimed: BookingRow[] = [];
   await db.transaction(async () => {
     for (const row of future) {
-      await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
+      const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
+      if (done.changes !== 1) continue;
       await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+      claimed.push(row);
     }
   })();
-  for (const row of future) await refundBooking(row.id);
-  return { ok: true, cancelled: future.length, bookingIds: future.map((r) => r.id) };
+  for (const row of claimed) await refundBooking(row.id);
+  // Each freed week goes to whoever has waited longest for it.
+  for (const row of claimed) await offerSlotPlace(row.court_id, row.date);
+  return { ok: true, cancelled: claimed.length, bookingIds: claimed.map((r) => r.id) };
 }
 
-async function getBookingById(id: number): Promise<Booking | null> {
+export async function getBookingById(id: number): Promise<Booking | null> {
   const db = getDb();
   const row = await db.prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?").get(id) as BookingRow | undefined;
   return row ? toBooking(row) : null;
@@ -1483,7 +1551,7 @@ export async function findBookingByCode(code: string): Promise<Booking | null> {
 export async function findBooking(code: string, phone: string): Promise<Booking | null> {
   const db = getDb();
   const row = await db
-    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?) AND b.phone = ?")
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?) AND b.phone_key = phone_key(?)")
     .get(code.trim(), phone.trim()) as BookingRow | undefined;
   return row ? toBooking(row) : null;
 }
@@ -1547,11 +1615,15 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   }
 
   const db = getDb();
-  await db.transaction(async () => {
-    await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+  // Claimed in one statement: of two cancels at the same moment, only one refunds.
+  const claimed = await db.transaction(async () => {
+    const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
+    if (done.changes !== 1) return false;
     await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
     if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1 WHERE id = ?").run(booking.id);
+    return true;
   })();
+  if (!claimed) return refuse("ALREADY_CANCELLED");
   await refundBooking(booking.id, share);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
@@ -1745,10 +1817,13 @@ export async function adminCancelBooking(code: string): Promise<CancelResult> {
   if (await hasOpenHire(booking.id))
     return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
 
-  await db.transaction(async () => {
-    await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
+  const claimed = await db.transaction(async () => {
+    const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
+    if (done.changes !== 1) return false;
     await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+    return true;
   })();
+  if (!claimed) return refuse("ALREADY_CANCELLED");
   await refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
@@ -1873,7 +1948,10 @@ export async function rescheduleBooking(
 
   const member = async (date: string) => (await activeMembership(fromCourt.venueId, booking.phone, date)) !== null;
   const rules = await peakRules(fromCourt.venueId);
-  const oldCourtPrice = computePrice(fromCourt, booking.date, oldHours, await member(booking.date), rules);
+  // What the old time cost when booked: a last-minute price stays with the hour
+  // it was given for, so moving away from it costs the difference.
+  const bookedAt = Date.parse(`${booking.createdAt.replace(" ", "T")}${booking.createdAt.includes("Z") ? "" : "Z"}`);
+  const oldCourtPrice = computePrice(fromCourt, booking.date, oldHours, await member(booking.date), rules, Number.isFinite(bookedAt) ? bookedAt : undefined);
   const newMember = await member(to.date);
 
   const seatsTaken = db.prepare(
@@ -2782,7 +2860,7 @@ const INDUCTION_SELECT = `
 export async function isInducted(venueId: number, phone: string): Promise<boolean> {
   const row = await getDb()
     .prepare(
-      "SELECT 1 AS n FROM inductions WHERE venue_id = ? AND phone = ? AND revoked_at IS NULL"
+      "SELECT 1 AS n FROM inductions WHERE venue_id = ? AND phone_key(phone) = phone_key(?) AND revoked_at IS NULL"
     )
     .get(venueId, normalisePhone(phone)) as { n: number } | undefined;
   return row !== undefined;
@@ -2816,7 +2894,7 @@ export async function recordInduction(input: {
     const note = nullIfBlank(input.note ?? null);
 
     const existing = await db
-      .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone = ?")
+      .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone_key(phone) = phone_key(?)")
       .get(input.venueId, phone) as { id: number; revoked_at: string | null } | undefined;
 
     if (existing && existing.revoked_at === null)
@@ -3767,6 +3845,8 @@ export async function enrolInClass(input: {
   phone: string;
   email?: string;
   userId?: number;
+  /** The waiting-list offer being claimed, whose own hold does not count. */
+  waitlistId?: number;
 }): Promise<EnrolResult> {
   return withTransaction(async () => {
     const session = await getClass(input.classId);
@@ -3774,7 +3854,7 @@ export async function enrolInClass(input: {
     if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
     if (isPastSlot(session.date, session.startHour, (await venueHours(session.venueId)).zone))
       return refuse("CLASS_STARTED");
-    if (session.enrolled >= session.capacity)
+    if (session.enrolled + (await classOfferHolds(session.id, input.waitlistId)) >= session.capacity)
       return refuse("CLASS_FULL");
     // The day may have been closed after the class was put in the diary.
     if (await getVenueClosure(session.venueId, session.date))
@@ -3782,7 +3862,7 @@ export async function enrolInClass(input: {
 
     const already = await getDb()
       .prepare(
-        "SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'"
+        "SELECT id FROM bookings WHERE class_id = ? AND phone_key = phone_key(?) AND status = 'confirmed'"
       )
       .get(session.id, input.phone.trim());
     if (already) return refuse("ALREADY_ENROLLED");
@@ -4133,6 +4213,11 @@ export async function refundBookingToWallet(bookingId: number, share = 1): Promi
  * it (`share` 1), or what is left after a venue keeps its fee for a late
  * cancellation.
  */
+/** What follows a booking being cancelled however it was, for callers outside this module (a hold let go). */
+export async function settleCancelled(bookingId: number): Promise<void> {
+  await refundBooking(bookingId);
+}
+
 async function refundBooking(bookingId: number, share = 1): Promise<void> {
   // A paid booking's receipt is reversed, whoever gives the money back and how.
   await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
@@ -4596,6 +4681,8 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.paymentStatus === "paid")
     return refuse("PROMO_TOO_LATE");
+  // One discount at a time: a last-minute price is already one.
+  if ((row as BookingRow & { last_minute?: number }).last_minute === 1) return refuse("PROMO_NOT_LAST_MINUTE");
 
   const court = await getCourt(booking.courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
@@ -5104,24 +5191,48 @@ function parseUtc(stamp: string): number {
 }
 
 /**
- * Time out offers nobody claimed. There is no scheduler, so this runs at the
- * start of every waitlist operation — the queue is only ever read through one
- * of these, so a stale offer never blocks the next person for long.
+ * Time out offers nobody claimed, at the start of every waitlist operation
+ * and on every scheduler tick. Returns where places came free again, for the
+ * next person in each queue to be offered them.
  */
-async function expireStaleOffers(): Promise<void> {
+async function expireStaleOffers(): Promise<{ classIds: number[]; slots: { courtId: number; date: string }[] }> {
   const db = getDb();
   const rows = await db
-    .prepare("SELECT id, offered_at FROM waitlist WHERE status = 'offered'")
-    .all() as { id: number; offered_at: string | null }[];
+    .prepare("SELECT id, offered_at, class_id, court_id, date FROM waitlist WHERE status = 'offered'")
+    .all() as { id: number; offered_at: string | null; class_id: number | null; court_id: number | null; date: string | null }[];
   const now = Date.now();
+  const freed = { classIds: [] as number[], slots: [] as { courtId: number; date: string }[] };
   for (const row of rows) {
     if (!row.offered_at) continue;
     if (parseUtc(row.offered_at) + WAITLIST_OFFER_MINUTES * 60_000 <= now) {
-      await db.prepare(
-        "UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ?"
+      const done = await db.prepare(
+        "UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ? AND status = 'offered'"
       ).run(row.id);
+      if (done.changes !== 1) continue;
+      if (row.class_id) freed.classIds.push(row.class_id);
+      else if (row.court_id && row.date) freed.slots.push({ courtId: row.court_id, date: row.date });
     }
   }
+  return freed;
+}
+
+/**
+ * The scheduler's part: offers that ran out pass straight to the next person
+ * waiting, rather than sitting until somebody else happens to cancel. The
+ * offers made are told by the outbox's sweep (notifyPendingOffers).
+ */
+export async function passOnExpiredOffers(): Promise<number> {
+  const freed = await expireStaleOffers();
+  let offered = 0;
+  for (const id of new Set(freed.classIds)) if (await offerClassPlace(id)) offered++;
+  const seen = new Set<string>();
+  for (const s of freed.slots) {
+    const key = `${s.courtId}:${s.date}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (await offerSlotPlace(s.courtId, s.date)) offered++;
+  }
+  return offered;
 }
 
 export type WaitlistResult =
@@ -5151,12 +5262,12 @@ export async function joinClassWaitlist(input: {
     const db = getDb();
     const already = await db
       .prepare(
-        "SELECT id FROM waitlist WHERE class_id = ? AND phone = ? AND status IN ('waiting','offered')"
+        "SELECT id FROM waitlist WHERE class_id = ? AND phone_key(phone) = phone_key(?) AND status IN ('waiting','offered')"
       )
       .get(input.classId, input.phone.trim());
     if (already) return refuse("ALREADY_WAITING");
     const enrolled = await db
-      .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone = ? AND status = 'confirmed'")
+      .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone_key = phone_key(?) AND status = 'confirmed'")
       .get(input.classId, input.phone.trim());
     if (enrolled) return refuse("ALREADY_ENROLLED");
 
@@ -5239,19 +5350,22 @@ export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
         phone: row.phone,
         email: row.email ?? undefined,
         userId: row.user_id ?? undefined,
+        waitlistId: row.id,
       });
       if (!enrolled.ok) return { ok: false, error: enrolled.error };
       booking = enrolled.booking;
     } else if (row.court_id && row.date && row.start_hour !== null && row.end_hour !== null) {
       const hours = await bookingHours({ courtId: row.court_id, startHour: row.start_hour, endHour: row.end_hour });
-      const created = await createBooking({
+      const created = await createBookingSeries({
         courtId: row.court_id,
         date: row.date,
         hours,
+        weeks: 1,
         name: row.name,
         phone: row.phone,
         email: row.email ?? undefined,
         userId: row.user_id ?? undefined,
+        waitlistId: row.id,
       });
       if (!created.ok) {
         // Somebody beat them to it. Keep their place rather than burning it.
@@ -5260,7 +5374,7 @@ export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
         ).run(row.id);
         return { ok: false, error: created.error };
       }
-      booking = created.booking;
+      booking = created.bookings[0];
     } else {
       return refuse("OFFER_INVALID");
     }
@@ -5281,7 +5395,7 @@ export async function leaveWaitlist(entryId: number, phone: string): Promise<{ o
   return withTransaction(async () => {
     const db = getDb();
     const row = await db
-      .prepare("SELECT * FROM waitlist WHERE id = ? AND phone = ?")
+      .prepare("SELECT * FROM waitlist WHERE id = ? AND phone_key(phone) = phone_key(?)")
       .get(entryId, phone.trim()) as WaitlistRow | undefined;
     if (!row) return refuse("WAITLIST_NOT_FOUND");
     if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
@@ -5310,7 +5424,7 @@ export async function listWaitlistFor(phone: string): Promise<WaitlistEntry[]> {
   await expireStaleOffers();
   const rows = await getDb()
     .prepare(
-      "SELECT * FROM waitlist WHERE phone = ? AND status IN ('waiting','offered') ORDER BY id DESC"
+      "SELECT * FROM waitlist WHERE phone_key(phone) = phone_key(?) AND status IN ('waiting','offered') ORDER BY id DESC"
     )
     .all(phone.trim()) as WaitlistRow[];
   const entries: WaitlistEntry[] = [];
@@ -5396,7 +5510,7 @@ export async function joinSlotWaitlist(input: {
     const already = await db
       .prepare(`
         SELECT id FROM waitlist
-        WHERE court_id = ? AND date = ? AND start_hour = ? AND phone = ?
+        WHERE court_id = ? AND date = ? AND start_hour = ? AND phone_key(phone) = phone_key(?)
           AND status IN ('waiting','offered')
       `)
       .get(courtId, date, startHour, input.phone.trim());

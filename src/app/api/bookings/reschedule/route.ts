@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isSlotHour } from "@/lib/time";
 import { refusal } from "@/lib/api";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const { code, phone, date, startHour } = body ?? {};
-  if (typeof code !== "string" || typeof phone !== "string" || typeof date !== "string" || !Number.isInteger(startHour))
+  if (typeof code !== "string" || typeof phone !== "string" || typeof date !== "string" || !isSlotHour(startHour))
     return NextResponse.json({ error: "code, phone, date and startHour are required." }, { status: 400 });
   const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
