@@ -340,6 +340,23 @@ describe("keeping nothing longer than it is needed", () => {
     ).toBe(1);
   });
 
+  it("clears phone check codes after a day, whether or not anybody asks for another", async () => {
+    const db = getDb();
+    const user = await customer("codes@example.com", "0195000030");
+    const insert = (createdAt: string | null) =>
+      db
+        .prepare(
+          `INSERT INTO phone_codes (user_id, phone, number, code_hash, expires_at, created_at)
+           VALUES (?, '0195000030', '60195000030', 'x', datetime('now'), COALESCE(?, datetime('now')))`
+        )
+        .run(user.id, createdAt);
+    await insert(`${addDays(todayISO(), -3)} 12:00:00`);
+    await insert(null);
+    await pruneOldData();
+    const left = (await db.prepare("SELECT COUNT(*)::int AS n FROM phone_codes WHERE user_id = ?").get(user.id)) as { n: number };
+    expect(left.n).toBe(1);
+  });
+
   it("clears old messages once sent, but never one still waiting to go", async () => {
     const db = getDb();
     const booking = await book("0195000022", addDays(todayISO(), 6), 13);

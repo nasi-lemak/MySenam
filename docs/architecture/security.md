@@ -9,7 +9,7 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 
 | Endpoint | Budget |
 | -------- | ------ |
-| Admin & customer sign-in | 10 per 10 min, per pair of IP and email (so many addresses trying one account are not limited together: S5 in [known limitations](../roadmap/known-limitations.md#suspected-defects)) |
+| Admin & customer sign-in | 10 per 10 min, per pair of IP and email; and 20 wrong passwords per 30 min for one account from any address (a right password is never counted; somebody failing on purpose can hold an account at this for the window) |
 | Forgot / reset / change password | Same budget as signing in |
 | Registration | 5 per hour |
 | Booking lookup / cancel by code | 20 per 10 min |

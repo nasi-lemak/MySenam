@@ -26,11 +26,6 @@ the test that should be written before it is fixed.
 | ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
 | -- | --- | --------------- | -------- | -------------- | ---------------- |
 | S3 | P2 | The scheduler lease (three minutes) is renewed when a tick starts, not during it; a long tick (large `pg_dump` plus upload) lets a second instance start the same work. Webhook deliveries have no per-delivery claim, so they could go out twice. | `src/lib/scheduler.ts`, `src/lib/webhooks.ts` | Only for several instances | Hold the lease, stall past it, assert a second instance does no work |
-| S4 | P3 | Sessions stay valid until the end of the UTC day they expire: `expires_at` is ISO text compared as text with `datetime('now')`. | `src/lib/auth.ts`, `src/lib/admin-auth.ts` | No | Set `expires_at` an hour in the past; expect the session refused |
-| S5 | P3 | Sign-in is limited per pair of address and email, so attempts on one account spread over many addresses are not limited together. | `src/lib/rate-limit.ts` | No | Many addresses, one email: expect a `429` |
-| S6 | P2 | Several instances need the same `MYSENAM_SECRET`; without it each makes its own key and cannot read what another sealed. Documentation gap, now documented. | `src/lib/secrets.ts` | Only for several instances | — (configuration) |
-| S7 | P3 | Session tokens are stored as they are, not hashed, and so are in every backup (reset tokens are hashed). | `src/lib/auth.ts` | No | — |
-| S8 | P3 | Phone verification codes are deleted only when the next code is asked for, not by the retention run. | `src/lib/phone-check.ts` | No | Retention run removes codes older than a day |
 
 Also: there is **no CSRF token or `Origin` check**; cross-site requests are
 stopped by `SameSite=Lax` cookies alone (P3).
@@ -71,6 +66,11 @@ IDs are not reused. Each fix came with the test recommended above.
 | -- | -------- | ---- |
 | S1 | Script-loaded modules import with file extensions | `tests/backup-scripts.test.ts` |
 | S2 | Erasure takes the account off waiting lists before deleting it | `tests/privacy.test.ts` |
+| S4 | Session expiry is written in `datetime()` form, so it compares to the second | `tests/auth.test.ts` |
+| S5 | Wrong passwords for one account are also counted from any address | `tests/login-limits.test.ts` |
+| S7 | Sessions keep the SHA-256 of their token; a migration converted those issued | `tests/auth.test.ts` |
+| S8 | The retention run deletes phone check codes after a day | `tests/privacy.test.ts` |
+| S6 | Documented: several instances share one `MYSENAM_SECRET` ([architecture](../architecture/overview.md#more-than-one-instance)) | — (configuration) |
 | M1 | A handed-back share leaves the booker owing it; what they paid online gets its own receipt, dated when paid | `tests/games.test.ts` |
 | M2 | A lost dispute takes back only what went back, and unwinds deposits and parts paid | `tests/stripe-disputes.test.ts` |
 | M4 | A lost dispute is claimed once, in the transaction that acts on it | `tests/stripe-disputes.test.ts` |

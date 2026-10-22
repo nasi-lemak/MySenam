@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { getDb } from "./db";
 import { ensureBootstrapAdmin } from "./admin-auth";
-import { hashPassword, verifyPassword } from "./auth";
+import { hashPassword, sessionKey, verifyPassword } from "./auth";
 import { keyedHash } from "./secrets";
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
@@ -132,7 +132,7 @@ export async function changePassword(
   if (row.password_hash !== "" && !verifyPassword(current, row.password_hash))
     return refuse("PASSWORD_WRONG");
   await db.prepare(`UPDATE ${t.accounts} SET password_hash = ? WHERE id = ?`).run(hashPassword(next), accountId);
-  await db.prepare(`DELETE FROM ${t.sessions} WHERE ${t.sessionColumn} = ? AND token <> ?`).run(accountId, keepToken ?? "");
+  await db.prepare(`DELETE FROM ${t.sessions} WHERE ${t.sessionColumn} = ? AND token <> ?`).run(accountId, keepToken ? sessionKey(keepToken) : "");
   return { ok: true };
 }
 

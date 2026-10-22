@@ -63,6 +63,11 @@ export const RETENTION = {
   unconfirmedApplicationDays: 7,
   /** A private hire enquiry: answered long since, or never will be. */
   enquiryDays: 365,
+  /**
+   * A phone check's code or link, used or not: a number, and who claimed it.
+   * Only the last day's count matters (the daily caps).
+   */
+  phoneCodeDays: 1,
 } as const;
 
 export interface RetentionLine {
@@ -97,6 +102,13 @@ interface Rule {
 }
 
 const RULES: Rule[] = [
+  {
+    what: "Phone check codes",
+    days: RETENTION.phoneCodeDays,
+    action: "deleted",
+    table: "phone_codes",
+    where: "created_at < ?",
+  },
   {
     what: "Private hire enquiries",
     days: RETENTION.enquiryDays,

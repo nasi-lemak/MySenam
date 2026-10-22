@@ -22,6 +22,13 @@ const MINUTE = 60_000;
 export const POLICIES = {
   /** Password endpoints: slow guessing without locking out a shared office IP. */
   login: { limit: 10, windowMs: 10 * MINUTE },
+  /**
+   * Wrong passwords for one account, from any address: guessing spread across
+   * many addresses. Far more than a person mistyping makes; a right password
+   * is never counted. Somebody can hold an account at this for its window by
+   * failing on purpose, which is the price of stopping the guessing.
+   */
+  loginFailures: { limit: 20, windowMs: 30 * MINUTE },
   register: { limit: 5, windowMs: 60 * MINUTE },
   /** Each photo is drawn three times over; plenty for a venue, too few to keep a server busy. */
   photoUpload: { limit: 30, windowMs: 60 * MINUTE },
@@ -162,6 +169,38 @@ export function addressBucket(ip: string): string {
   const groups = tail === undefined ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
   if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return bare;
   return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+/**
+ * A count kept against one thing (an account), from anywhere, that only
+ * failures add to: `refusedFor` says whether it is used up, `failedFor`
+ * adds one.
+ */
+export async function refusedFor(name: PolicyName, subject: string, now = Date.now()): Promise<NextResponse | null> {
+  const policy = POLICIES[name];
+  const key = `${name}:${subject.trim().toLowerCase()}`;
+  let count = 0;
+  let resetAt = 0;
+  if (sharedLimits()) {
+    const row = (await getDb().prepare("SELECT count, reset_at FROM rate_limits WHERE key = ?").get(key)) as
+      | { count: number; reset_at: number | string }
+      | undefined;
+    if (row) [count, resetAt] = [Number(row.count), Number(row.reset_at)];
+  } else {
+    const win = windows.get(key);
+    if (win) [count, resetAt] = [win.count, win.resetAt];
+  }
+  if (resetAt <= now || count < policy.limit) return null;
+  return NextResponse.json(
+    { error: "Too many attempts. Please wait a moment and try again." },
+    { status: 429, headers: { "Retry-After": String(Math.ceil((resetAt - now) / 1000)) } }
+  );
+}
+
+export async function failedFor(name: PolicyName, subject: string): Promise<void> {
+  const key = `${name}:${subject.trim().toLowerCase()}`;
+  if (sharedLimits()) await checkSharedRateLimit(key, POLICIES[name]);
+  else checkRateLimit(key, POLICIES[name]);
 }
 
 /**

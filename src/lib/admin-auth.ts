@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { hasTwoFactor, twoFactorRequired } from "./two-factor";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, withTransaction } from "./db";
-import { hashPassword, verifyPassword } from "./auth";
+import { hashPassword, sessionExpiry, sessionKey, verifyPassword } from "./auth";
 import { deskRefusal, type StaffRole } from "./roles";
 
 export const ADMIN_SESSION_COOKIE = "ms_admin";
@@ -116,16 +116,16 @@ export async function createAdminSession(adminId: number): Promise<{ token: stri
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 3600 * 1000);
   await db.prepare("INSERT INTO admin_sessions (token, admin_id, expires_at) VALUES (?, ?, ?)").run(
-    token,
+    sessionKey(token),
     adminId,
-    expiresAt.toISOString()
+    sessionExpiry(expiresAt)
   );
   await markSeen(adminId);
   return { token, expiresAt };
 }
 
 export async function destroyAdminSession(token: string): Promise<void> {
-  await getDb().prepare("DELETE FROM admin_sessions WHERE token = ?").run(token);
+  await getDb().prepare("DELETE FROM admin_sessions WHERE token = ?").run(sessionKey(token));
 }
 
 export async function getAdminByToken(token: string): Promise<Admin | null> {
@@ -135,7 +135,7 @@ export async function getAdminByToken(token: string): Promise<Admin | null> {
       JOIN ${ADMIN_FROM} ON a.id = s.admin_id
       WHERE s.token = ? AND s.expires_at >= datetime('now')
     `)
-    .get(token) as AdminRow | undefined;
+    .get(sessionKey(token)) as AdminRow | undefined;
   return row ? await toAdmin(row) : null;
 }
 

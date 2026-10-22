@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import fs from "fs";
+import path from "path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -11,6 +13,8 @@ import {
   registerUser,
   verifyPassword,
 } from "../src/lib/auth";
+import { createAdminSession, ensureBootstrapAdmin, getAdminByToken, listAdmins } from "../src/lib/admin-auth";
+import { getDb } from "../src/lib/db";
 import { cancelUserBooking, createBooking, listUserBookings, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 
@@ -61,6 +65,50 @@ describe("sessions", () => {
     expect(await getUserByToken("not-a-token")).toBeNull();
     await destroySession(token);
     expect(await getUserByToken(token)).toBeNull();
+  });
+});
+
+describe("a session that has run out", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** Made long enough ago that it ran out a minute ago. */
+  async function lapsed<T>(days: number, make: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() - days * 86_400_000 - 60_000);
+    try {
+      return await make();
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("is refused at once, not at the end of its day", async () => {
+    const user = await registerUser({ name: "Lapsed", email: "lapsed@example.com", phone: "0121113333", password: "password1" });
+    if (!user.ok) throw new Error(user.error);
+    const { token } = await lapsed(30, () => createSession(user.user.id));
+    expect(await getUserByToken(token)).toBeNull();
+  });
+
+  it("issued before tokens were hashed, still works once the migration has run", async () => {
+    const user = await registerUser({ name: "Old Session", email: "old@example.com", phone: "0121114444", password: "password1" });
+    if (!user.ok) throw new Error(user.error);
+    const token = "a".repeat(64);
+    const later = new Date(Date.now() + 86_400_000).toISOString();
+    await getDb().prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, user.user.id, later);
+    const migration = fs.readFileSync(path.join(__dirname, "..", "db", "migrations", "0086_session_tokens.sql"), "utf8");
+    // Run against this one row only, so the suite's other sessions are left alone.
+    await getDb().exec(migration.replace(/;\s*$/gm, ` WHERE token = '${token}';`));
+    expect(await getUserByToken(token)).toMatchObject({ email: "old@example.com" });
+    const stored = (await getDb().prepare("SELECT token, expires_at FROM sessions WHERE user_id = ?").get(user.user.id)) as { token: string; expires_at: string };
+    expect(stored.token).not.toBe(token);
+    expect(stored.expires_at).toBe(later.replace("T", " ").slice(0, 19));
+  });
+
+  it("is refused at once for staff too", async () => {
+    await ensureBootstrapAdmin();
+    const admin = (await listAdmins())[0];
+    const { token } = await lapsed(7, () => createAdminSession(admin.id));
+    expect(await getAdminByToken(token)).toBeNull();
   });
 });
 

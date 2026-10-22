@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession, getAdminById } from "@/lib/admin-auth";
 import { hasTwoFactor, issueLoginTicket, redeemLoginTicket } from "@/lib/two-factor";
-import { rateLimit } from "@/lib/rate-limit";
+import { failedFor, rateLimit, refusedFor } from "@/lib/rate-limit";
 import { sessionCookieOptions } from "@/lib/session-cookie";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +27,14 @@ export async function POST(req: NextRequest) {
   if (typeof email !== "string" || typeof password !== "string")
     return NextResponse.json({ error: "email and password are required." }, { status: 400 });
 
-  const limited = await rateLimit(req, "login", email);
+  const limited = (await rateLimit(req, "login", email)) ?? (await refusedFor("loginFailures", `admin:${email}`));
   if (limited) return limited;
 
   const admin = await authenticateAdmin(email, password);
-  if (!admin) return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
+  if (!admin) {
+    await failedFor("loginFailures", `admin:${email}`);
+    return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
+  }
 
   // The password alone is not enough for an account with two-factor on.
   if (await hasTwoFactor(admin.id)) return NextResponse.json({ twoFactor: true, ticket: await issueLoginTicket(admin.id) });

@@ -87,6 +87,7 @@ the account would destroy the only record of whose money the venue is holding.
 | ---- | ---- | ---- |
 | Door codes shown | 180 days | deleted |
 | Arrivals at the desk | 365 days | deleted |
+| Phone check codes and links | 1 day | deleted |
 | Settled waiting-list entries | 90 days | deleted |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |

@@ -23,8 +23,9 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
 - **Times are text.** Timestamps are stored as UTC text
   `YYYY-MM-DD HH:MM:SS`, produced by an SQL function `datetime()` defined in
   `0001_initial.sql`, so they sort and compare as strings. A value written in
-  another shape (for example ISO text with a `T`) compares wrongly; see S4 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects).
+  another shape (for example ISO text with a `T`) compares wrongly against
+  `datetime('now')`, so write such columns through `datetime()` or in that
+  exact form.
 - **Dates and hours are the venue's own.** A booking's `date` and
   `start_hour`/`end_hour` are in the venue's local time zone; hours may run
   past 24 for opening hours after midnight

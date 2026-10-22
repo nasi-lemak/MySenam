@@ -148,9 +148,9 @@ Authoritative: [authentication](../architecture/authentication.md), [privacy](..
 
 | Capability | Status | Implemented behaviour | Code | Tests | Gaps and dependencies |
 | ---------- | ------ | --------------------- | ---- | ----- | --------------------- |
-| Register, sign in, sessions | IMPLEMENTED_AND_TESTED | scrypt passwords; HttpOnly cookie, Secure on HTTPS | `src/lib/auth.ts`, `src/lib/session-cookie.ts` | `tests/auth.test.ts`, `tests/session-cookie.test.ts` | Expiry late by up to a day (S4); tokens unhashed (S7); no CSRF token |
+| Register, sign in, sessions | IMPLEMENTED_AND_TESTED | scrypt passwords; HttpOnly cookie, Secure on HTTPS | `src/lib/auth.ts`, `src/lib/session-cookie.ts` | `tests/auth.test.ts`, `tests/session-cookie.test.ts` | No CSRF token or `Origin` check |
 | Password reset and change | IMPLEMENTED_AND_TESTED | Single-use hashed token; signs out everywhere | `src/lib/password-reset.ts` | `tests/password-reset.test.ts` | Email delivery live-unverified |
-| Phone verification | IMPLEMENTED_AND_TESTED | Inbound WhatsApp token or a code by SMS or WhatsApp; caps | `src/lib/phone-check.ts` | `tests/phone-methods.test.ts`, `tests/sign-in.test.ts` | Old codes linger (S8); live channels below |
+| Phone verification | IMPLEMENTED_AND_TESTED | Inbound WhatsApp token or a code by SMS or WhatsApp; caps | `src/lib/phone-check.ts` | `tests/phone-methods.test.ts`, `tests/sign-in.test.ts` | Live channels below |
 | Account page and phone-is-not-identity guards | IMPLEMENTED_AND_TESTED | Passes, memberships, wallet keyed on the account | `src/app/account`, `src/app/api/my/passes/route.ts` | `tests/impersonation.test.ts` | — |
 | Data export, erasure, retention | IMPLEMENTED_AND_TESTED | Export and close account (books kept); retention schedule | `src/lib/privacy.ts` | `tests/privacy.test.ts`, `tests/data-request.test.ts` | Erasure clears only what is provably the account's; rows sharing just a phone number wait for retention |
 | Privacy notice and terms | PARTIALLY_IMPLEMENTED | Pages describe what the software does | `src/app/privacy/page.tsx`, `src/app/terms/page.tsx` | — | Drafts; need a lawyer, a Malay version and a named contact |
@@ -267,7 +267,7 @@ Authoritative: [deployment](../operations/deployment.md), [backups](../operation
 | Capability | Status | Implemented behaviour | Code | Tests | Gaps and dependencies |
 | ---------- | ------ | --------------------- | ---- | ----- | --------------------- |
 | Scheduler and its lease | IMPLEMENTED_AND_TESTED | Minute tick; one instance works | `src/lib/scheduler.ts` | `tests/scheduler.test.ts`, `tests/scale-out.test.ts` | Lease can lapse mid-tick (S3) |
-| Rate limiting | IMPLEMENTED_AND_TESTED | In memory or shared in Postgres; IPv6 per /64 | `src/lib/rate-limit.ts` | `tests/rate-limit.test.ts` | Per address-and-email pair (S5) |
+| Rate limiting | IMPLEMENTED_AND_TESTED | In memory or shared in Postgres; IPv6 per /64 | `src/lib/rate-limit.ts` | `tests/rate-limit.test.ts` | — |
 | Nightly backups by the app | IMPLEMENTED_AND_TESTED | `pg_dump` or PGlite snapshot; verified; kept 14 | `src/lib/backup.ts` | `tests/backup.test.ts` | A `pg_dump` copy is listed, not loaded |
 | Backup, restore and import scripts | IMPLEMENTED_AND_TESTED | `npm run backup`, `npm run restore`, `npm run import-sqlite` | `scripts/backup.mjs`, `scripts/restore.mjs`, `scripts/import-sqlite.mjs` | `tests/backup-scripts.test.ts` | Backup and restore round-trip on a fresh database; the SQLite import is tested only for starting, not on a real old file |
 | Alerts, health, error log | IMPLEMENTED_AND_TESTED | Alert once, again after six hours; `/api/health` | `src/lib/alerts.ts`, `src/app/api/health/route.ts` | `tests/alerts.test.ts`, `tests/error-log.test.ts` | — |

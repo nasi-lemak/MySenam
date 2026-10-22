@@ -58,18 +58,15 @@ reset) goes through one `sessionCookieOptions()` helper, so another cannot
 quietly ship without the flags.
 
 Sessions last 30 days for customers and 7 for staff (`SESSION_DAYS` in
-`src/lib/auth.ts` and `src/lib/admin-auth.ts`), and are rows in `sessions` and `admin_sessions`, holding the token itself rather
-than a hash of it (S7). Known limitations:
+`src/lib/auth.ts` and `src/lib/admin-auth.ts`), to the second. They are rows
+in `sessions` and `admin_sessions` that hold the SHA-256 of the token, not the
+token (`sessionKey`), so a backup or a read of the table hands out no live
+sign-in; migration `0086_session_tokens.sql` converted sessions already issued.
 
-- **Expiry is late by up to a day** (S4): `expires_at` is written as ISO text
-  (`2026-10-22T13:47:00Z`) and compared as text with `datetime('now')`
-  (`2026-10-22 13:47:00`), so a session stays valid until the end of the UTC
-  day on which it expires.
-- **No CSRF token or `Origin` check.** Cross-site requests are held off by
-  `SameSite=Lax` alone, which stops cross-site `POST`s carrying the cookie in
-  current browsers but is not a second line of defence.
-
-Both are in [known limitations](../roadmap/known-limitations.md#suspected-defects).
+**No CSRF token or `Origin` check.** Cross-site requests are held off by
+`SameSite=Lax` alone, which stops cross-site `POST`s carrying the cookie in
+current browsers but is not a second line of defence
+([known limitations](../roadmap/known-limitations.md#operations-and-security-s)).
 
 ## Signing in with Google
 
@@ -132,9 +129,9 @@ proves it holds its number, once. *Verify your phone number* offers two ways:
   adds its number there.
 - **The code** lasts 10 minutes and allows 5 tries; an account may ask for 3
   an hour (6 WhatsApp verifications) and a number be sent 5 a day, so nobody
-  can use it to flood a phone. Only a keyed hash of the code is stored. Old codes are deleted when a
-  new one is asked for, not by the daily retention run (S8 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects)).
+  can use it to flood a phone. Only a keyed hash of the code is stored, and
+  codes are deleted after a day by the retention run
+  ([privacy](privacy.md#retention)), or sooner when a new one is asked for.
 - **Checked stays checked** until the number on the account changes. If
   another account proves the same number, the first loses its check: only one
   of them can be holding that phone now.

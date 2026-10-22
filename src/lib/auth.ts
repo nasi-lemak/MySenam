@@ -5,6 +5,20 @@ import { getDb } from "./db";
 export const SESSION_COOKIE = "ms_session";
 const SESSION_DAYS = 30;
 
+/**
+ * What the database keeps of a session token: its SHA-256, so a backup or a
+ * read of the table hands out no live sign-in. A plain hash is enough for 32
+ * random bytes, and lets a migration convert tokens already issued.
+ */
+export function sessionKey(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+/** When a session runs out, in the form datetime('now') compares with. */
+export function sessionExpiry(expiresAt: Date): string {
+  return expiresAt.toISOString().replace("T", " ").slice(0, 19);
+}
+
 export interface User {
   id: number;
   name: string;
@@ -67,15 +81,15 @@ export async function createSession(userId: number): Promise<{ token: string; ex
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 3600 * 1000);
   await db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(
-    token,
+    sessionKey(token),
     userId,
-    expiresAt.toISOString()
+    sessionExpiry(expiresAt)
   );
   return { token, expiresAt };
 }
 
 export async function destroySession(token: string) {
-  await getDb().prepare("DELETE FROM sessions WHERE token = ?").run(token);
+  await getDb().prepare("DELETE FROM sessions WHERE token = ?").run(sessionKey(token));
 }
 
 export async function getUserByToken(token: string): Promise<User | null> {
@@ -86,7 +100,7 @@ export async function getUserByToken(token: string): Promise<User | null> {
       JOIN users u ON u.id = s.user_id
       WHERE s.token = ? AND s.expires_at >= datetime('now')
     `)
-    .get(token) as User | undefined;
+    .get(sessionKey(token)) as User | undefined;
   return row ?? null;
 }
 

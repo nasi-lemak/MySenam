@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticate, createSession, SESSION_COOKIE } from "@/lib/auth";
-import { rateLimit } from "@/lib/rate-limit";
+import { failedFor, rateLimit, refusedFor } from "@/lib/rate-limit";
 import { sessionCookieOptions } from "@/lib/session-cookie";
 
 export const dynamic = "force-dynamic";
@@ -16,12 +16,14 @@ export async function POST(req: NextRequest) {
   if (typeof email !== "string" || typeof password !== "string")
     return NextResponse.json({ error: "email and password are required." }, { status: 400 });
 
-  const limited = await rateLimit(req, "login", email);
+  const limited = (await rateLimit(req, "login", email)) ?? (await refusedFor("loginFailures", email));
   if (limited) return limited;
 
   const user = await authenticate(email, password);
-  if (!user)
+  if (!user) {
+    await failedFor("loginFailures", email);
     return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
+  }
 
   const session = await createSession(user.id);
   const res = NextResponse.json({ user });
