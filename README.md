@@ -2094,8 +2094,19 @@ setting):
   Terengganu the weekend is Friday and Saturday, so a venue there picks those.
 - **Holidays**: dates priced like the weekend: public holidays as they are
   gazetted, school holidays, festive days. Named, listed from today, up to 60
-  ahead; nothing is filled in automatically, since holiday dates differ by
-  state and some are only fixed weeks before.
+  ahead. *Fill in* adds the public holidays still to come in one go, in
+  Malaysia for the venue's state (its own days as well as the national ones;
+  or only the days every state keeps), in Singapore with the Monday after a
+  holiday on a Sunday. Days already listed keep their names, and any can be
+  removed. Nothing is added without the button: holiday dates differ by state,
+  Islamic holidays can move a day once the moon is sighted, and some venues
+  open at their usual prices on a holiday anyway.
+
+The list (`src/lib/holiday-calendar.ts`) is Singapore's from the Ministry of
+Manpower and Malaysia's federal and state schedule from the Prime Minister's
+Department: the rest of 2026 and all of 2027. The settings page says how far
+it reaches. Each new year's schedule is added there when it is published,
+usually in the middle of the year before.
 
 The rules price the slot grid, search results, cheapest-court ordering,
 bookings, weekly series and moves. A change applies from then on: a booking

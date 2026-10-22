@@ -1,6 +1,8 @@
 import { getDb } from "./db";
 import { DEFAULT_PEAK, isValidDateString, todayISO, type LastMinute, type PeakRules } from "./time";
 import { venueZoneOf } from "./zones";
+import { isMyState, publicHolidays } from "./holiday-calendar";
+import { region } from "./region";
 
 /**
  * Each venue's peak hours, weekend and holidays: when its courts' peak rates
@@ -163,6 +165,35 @@ export async function addHoliday(venueId: number, input: { date?: unknown; name?
     )
     .run(venueId, date, name);
   return { ok: true, holiday: { date, name } };
+}
+
+/**
+ * Every public holiday still to come from the gazetted list (lib/holiday-calendar.ts):
+ * in Malaysia, the state's own as well, or with `state` "" only the days every
+ * state keeps. Days the venue listed already keep their own names; it stops at
+ * the most a venue may list.
+ */
+export async function fillHolidays(venueId: number, state: unknown): Promise<Result<{ added: number }>> {
+  const country = region().country;
+  if (country === "MY" && state !== "" && !isMyState(state)) return { ok: false, error: "Choose the venue's state." };
+  const db = getDb();
+  const today = todayISO();
+  const listed = (await db.prepare("SELECT COUNT(*)::int AS n FROM venue_holidays WHERE venue_id = ? AND date >= ?").get(venueId, today)) as {
+    n: number;
+  };
+  let room = MAX_HOLIDAYS - listed.n;
+  let added = 0;
+  for (const h of publicHolidays(country, isMyState(state) ? state : null, today)) {
+    if (room <= 0) break;
+    const done = await db
+      .prepare("INSERT INTO venue_holidays (venue_id, date, name) VALUES (?, ?, ?) ON CONFLICT (venue_id, date) DO NOTHING")
+      .run(venueId, h.date, h.name);
+    if (done.changes > 0) {
+      added++;
+      room--;
+    }
+  }
+  return { ok: true, added };
 }
 
 export async function removeHoliday(venueId: number, date: string): Promise<boolean> {

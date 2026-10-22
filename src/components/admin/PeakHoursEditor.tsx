@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { Holiday } from "@/lib/peak";
+import { calendarUntil, MY_STATES } from "@/lib/holiday-calendar";
+import { region } from "@/lib/region";
 import { formatHour, todayISO, type PeakRules } from "@/lib/time";
 
 type Rules = Omit<PeakRules, "holidays">;
@@ -20,6 +22,8 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
   const [rules, setRules] = useState<Rules | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [day, setDay] = useState({ date: "", name: "" });
+  // Which state's own holidays to fill in, in Malaysia; "" for those every state keeps.
+  const [state, setState] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -104,6 +108,17 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     if (!data) return;
     setHolidays(data.holidays as Holiday[]);
     setDay({ date: "", name: "" });
+  }
+
+  async function fill() {
+    const data = await send("/api/admin/holidays", "POST", { venueId, fill: true, state });
+    if (!data) return;
+    setHolidays(data.holidays as Holiday[]);
+    setNotice(
+      data.added === 0
+        ? "Nothing to add: every public holiday listed so far is on your list."
+        : `Added ${data.added} public holiday${data.added === 1 ? "" : "s"}. Remove any you open as usual.`
+    );
   }
 
   async function removeDay(date: string) {
@@ -292,6 +307,27 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
         >
           Add holiday
         </button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <span>Or fill in the public holidays{region().country === "MY" ? " for" : ""}</span>
+        {region().country === "MY" && (
+          <select aria-label="State" value={state} onChange={(e) => setState(e.target.value)} className={input}>
+            <option value="">every state (national only)</option>
+            {MY_STATES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          disabled={busy}
+          onClick={fill}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+        >
+          Fill in
+        </button>
+        <span className="text-slate-500">As gazetted, to {calendarUntil(region().country)}. Islamic holidays can move a day once announced.</span>
       </div>
       {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-xs text-emerald-700">{notice}</p>}
