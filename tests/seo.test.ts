@@ -82,8 +82,20 @@ describe("a venue page", () => {
       "@type": "SportsActivityLocation",
       address: { addressLocality: "Petaling Jaya", addressCountry: "MY" },
       geo: { latitude: 3.1 },
-      openingHoursSpecification: { opens: "08:00", closes: "23:00" },
+      openingHoursSpecification: [{ opens: "08:00", closes: "23:00", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] }],
       keywords: "Badminton, Futsal",
     });
+  });
+
+  it("gives each run of days its own hours, late ones past midnight too, and leaves closed days out", () => {
+    const ld = venueJsonLd({
+      name: "Late Arena", address: "x", area: "PJ", phone: "1", openHour: 16, closeHour: 24, lat: null, lng: null, url: "https://x", image: null, sports: ["futsal"],
+      weekHours: ["closed", null, null, null, null, { open: 16, close: 26 }, { open: 8, close: 26 }],
+    });
+    expect(ld.openingHoursSpecification).toEqual([
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"], opens: "16:00", closes: "00:00" },
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Friday"], opens: "16:00", closes: "02:00" },
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Saturday"], opens: "08:00", closes: "02:00" },
+    ]);
   });
 });

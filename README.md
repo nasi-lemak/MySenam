@@ -3474,7 +3474,8 @@ there are to pay.
 ## Operating hours and closed days
 
 Hours are a property of the venue, not the platform. Every venue carries an
-`open_hour` and a `close_hour` (defaults 8 and 23, bounds 0–24): the first
+`open_hour` and a `close_hour` (defaults 8 and 23, bounds 0–28, past 24 being
+after midnight): the first
 bookable hour starts at `open_hour` and the last one ends at `close_hour`. That
 single pair sizes the customer grid, the admin schedule, the occupancy
 denominator, and the hours accepted by booking, class scheduling, slot blocking
@@ -3495,6 +3496,32 @@ date, and customers see the reason both as an upcoming-closures banner on the
 venue page and on the grid itself. Staff still see the day in the schedule,
 marked with the closure reason rather than blank, so bookings taken before the
 closure was declared remain visible for them to handle.
+
+### Hours by weekday, and after midnight
+
+A weekday can keep the usual hours, have its own, or be closed every week
+(*Venues & staff → the venue → Different hours on some days*;
+`venues.week_hours`, migration 0070, `src/lib/week-hours.ts`). A weekday
+closed every week is a closure like any other: nothing can be booked, it is
+out of search, weekly bookings skip it, and the report counts it as a closed
+day. The venue page lists the week (Mon–Thu 4:00 PM – 12:00 AM, Fri 4:00 PM
+– 2:00 AM, Sun closed) when the days differ, and search engines get one
+opening-hours entry per run of days.
+
+Hours may run **past midnight**, to 4 AM at the latest: a close of 26 is 2
+AM. Those hours belong to the evening they started on, so a futsal booking
+from 1 AM on a Friday night is a Friday booking (hour 25), on Friday's grid,
+priced by Friday's rules (after midnight is off-peak unless the venue's
+peak window says otherwise), and its check-in, reminders and "has it
+started" are worked out from the real time. A day's late hours may not run
+into the next day's own opening, so the same moment is never two slots. The
+desk sees a 1 AM booking on the evening's date in the Bookings tab.
+
+Every check that used the venue's one pair of hours now asks for that
+date's: the grid, booking, moving a booking, blocks, classes, waiting lists,
+coaching slots, tournaments and the report's "could have been sold". Changing
+the hours, or closing a weekday, is refused while bookings already sold fall
+outside them, naming the first such date.
 
 ## Signing in with Google
 

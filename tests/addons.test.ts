@@ -225,7 +225,7 @@ describe("the routes", () => {
     expect(byVenue.addons.map((a: { name: string }) => a.name).sort()).toEqual(["Bibs", "Racket", "Shuttle tube"]);
     expect((await mod.GET(req(`/api/addons?venueId=${venueId}&sport=curling&date=${day}`))).status).toBe(400);
     expect((await mod.GET(req(`/api/addons?courtId=${court.id}&date=soon`))).status).toBe(400);
-    expect((await mod.GET(req(`/api/addons?courtId=${court.id}&date=${day}&hours=25`))).status).toBe(400);
+    expect((await mod.GET(req(`/api/addons?courtId=${court.id}&date=${day}&hours=29`))).status).toBe(400);
     expect((await (await mod.GET(req(`/api/addons?courtId=999999&date=${day}`))).json()).addons).toEqual([]);
     expect((await (await mod.GET(req("/api/addons?classId=999999"))).json()).addons).toEqual([]);
 

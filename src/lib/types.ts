@@ -1,3 +1,4 @@
+import type { WeekHours } from "./week-hours";
 import type { ErrorCode } from "./i18n";
 import type { Amenity, CourtFeatures } from "./facilities";
 import { region } from "./region";
@@ -48,9 +49,11 @@ export interface Venue {
   phone: string;
   /** Customers may cancel until this many hours before the booking starts. */
   cancelCutoffHours: number;
-  /** Trading hours: the first bookable hour, and when the last one ends. */
+  /** Trading hours: the first bookable hour, and when the last one ends (past 24 is after midnight). */
   openHour: number;
   closeHour: number;
+  /** Weekdays with hours of their own, or closed; null when every day keeps the usual ones (lib/week-hours.ts). */
+  weekHours?: WeekHours | null;
   /** Sold by the hour (60) or the half hour (30). */
   slotMinutes: 30 | 60;
   /** The venue's time zone (IANA), which its courts' times are in. */
@@ -559,6 +562,11 @@ export interface CourtAvailability {
 // limits the UI offers.
 export const OPEN_HOUR = 0;
 export const CLOSE_HOUR = 24;
+/**
+ * The latest a day's hours may run, into the next morning: 28 is 4 AM. Hours
+ * past 24 belong to the day they started on (lib/week-hours.ts).
+ */
+export const LATEST_CLOSE_HOUR = 28;
 export const DEFAULT_OPEN_HOUR = 8;
 export const DEFAULT_CLOSE_HOUR = 23;
 export const MAX_HOURS_PER_BOOKING = 4;

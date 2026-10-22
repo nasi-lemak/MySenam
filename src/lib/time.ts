@@ -176,9 +176,11 @@ export function isBookableDate(date: string, zone: string = installZone(), ahead
  */
 export function isPastSlot(date: string, hour: number, zone: string = installZone()): boolean {
   const today = todayISO(zone);
-  if (date < today) return true;
   if (date > today) return false;
-  return hour <= currentTime(zone);
+  if (date === today && hour < 24) return hour <= currentTime(zone);
+  // Yesterday's hours after midnight (hour 25 is 1 AM today) are worked out to the minute.
+  if (hour >= 24 && date >= addDays(today, -2)) return slotStartsAt(date, hour, zone).getTime() <= Date.now();
+  return date < today || hour <= currentTime(zone);
 }
 
 /**
@@ -221,7 +223,8 @@ export function onSlot(hour: number, step = 1): boolean {
  * within the day. Whether the venue sells halves is checked where it books.
  */
 export function isSlotHour(h: unknown): h is number {
-  return typeof h === "number" && onSlot(h, 0.5) && h >= 0 && h < 24;
+  // Past 24 for a venue open after midnight: its 1 AM is hour 25 of the evening before.
+  return typeof h === "number" && onSlot(h, 0.5) && h >= 0 && h < 28;
 }
 
 /** Hours from now until a slot starts; negative once it has begun. */

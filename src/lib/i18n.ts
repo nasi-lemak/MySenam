@@ -389,6 +389,7 @@ const EN = {
 
   // Venue
   "venue.openDaily": "Open daily {from} – {to}",
+  "venue.closedDay": "Closed",
   "venue.freeCancel_one": "free cancellation until {n} hour before your slot",
   "venue.freeCancel_other": "free cancellation until {n} hours before your slot",
   "venue.cancelAnyTime": "cancel any time before your slot starts",
@@ -1725,6 +1726,7 @@ const MS: Record<Phrase, string> = {
 
   // Venue
   "venue.openDaily": "Buka setiap hari {from} – {to}",
+  "venue.closedDay": "Tutup",
   "venue.freeCancel_one": "pembatalan percuma sehingga {n} jam sebelum waktu anda",
   "venue.freeCancel_other": "pembatalan percuma sehingga {n} jam sebelum waktu anda",
   "venue.cancelAnyTime": "batal bila-bila masa sebelum waktu anda bermula",

@@ -5,7 +5,8 @@ import { formatHour } from "@/lib/time";
 import { CLOSE_HOUR, MAX_EMERGENCY_INFO } from "@/lib/types";
 import type { Venue, VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
-import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
+import { closeLabel, HOUR_CHOICES, localTime, todayLocal } from "./shared";
+import { WEEKDAYS, type DayHours, type WeekHours } from "@/lib/week-hours";
 import { MessagesPanel } from "./MessagesPanel";
 import { BlockedPhonesPanel } from "./BlockedPhonesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
@@ -519,6 +520,7 @@ function VenueRow({
     cancelCutoffHours: venue.cancelCutoffHours,
     openHour: venue.openHour,
     closeHour: venue.closeHour,
+    weekHours: (venue.weekHours ?? null) as WeekHours | null,
     staffedFrom: venue.staffedFrom,
     staffedTo: venue.staffedTo,
     emergencyPhone: venue.emergencyPhone ?? "",
@@ -532,6 +534,7 @@ function VenueRow({
     fields.cancelCutoffHours !== venue.cancelCutoffHours ||
     fields.openHour !== venue.openHour ||
     fields.closeHour !== venue.closeHour ||
+    JSON.stringify(fields.weekHours) !== JSON.stringify(venue.weekHours ?? null) ||
     fields.staffedFrom !== venue.staffedFrom ||
     fields.staffedTo !== venue.staffedTo ||
     fields.emergencyPhone !== (venue.emergencyPhone ?? "") ||
@@ -601,11 +604,74 @@ function VenueRow({
         >
           {HOUR_CHOICES.filter((h) => h > fields.openHour).map((h) => (
             <option key={h} value={h}>
-              {formatHour(h)}
+              {closeLabel(h)}
             </option>
           ))}
         </select>
       </label>
+      <details className="w-full text-xs text-slate-600" open={fields.weekHours !== null}>
+        <summary className="cursor-pointer font-medium text-slate-500">Different hours on some days</summary>
+        <p className="mt-1 text-slate-500">
+          Each day keeps the hours above unless it has its own, or is closed every week. Hours after midnight belong to the
+          evening they started on, and may not run into the next day&apos;s opening.
+        </p>
+        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          {[1, 2, 3, 4, 5, 6, 0].map((day) => {
+            const d = fields.weekHours?.[day] ?? null;
+            const setDay = (value: DayHours) => {
+              const week = [...(fields.weekHours ?? Array(7).fill(null))] as WeekHours;
+              week[day] = value;
+              setFields({ ...fields, weekHours: week.every((x) => x === null) ? null : week });
+            };
+            return (
+              <div key={day} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-24 font-medium">{WEEKDAYS[day]}</span>
+                <select
+                  aria-label={`${WEEKDAYS[day]} hours`}
+                  value={d === null ? "usual" : d === "closed" ? "closed" : "own"}
+                  onChange={(e) =>
+                    setDay(e.target.value === "usual" ? null : e.target.value === "closed" ? "closed" : { open: fields.openHour, close: fields.closeHour })
+                  }
+                  className={inputClass}
+                >
+                  <option value="usual">Usual hours</option>
+                  <option value="own">Its own hours</option>
+                  <option value="closed">Closed</option>
+                </select>
+                {d !== null && d !== "closed" && (
+                  <>
+                    <select
+                      aria-label={`${WEEKDAYS[day]} opens`}
+                      value={d.open}
+                      onChange={(e) => setDay({ open: Number(e.target.value), close: Math.max(d.close, Number(e.target.value) + 1) })}
+                      className={inputClass}
+                    >
+                      {HOUR_CHOICES.filter((h) => h < CLOSE_HOUR).map((h) => (
+                        <option key={h} value={h}>
+                          {formatHour(h)}
+                        </option>
+                      ))}
+                    </select>
+                    to
+                    <select
+                      aria-label={`${WEEKDAYS[day]} closes`}
+                      value={d.close}
+                      onChange={(e) => setDay({ open: d.open, close: Number(e.target.value) })}
+                      className={inputClass}
+                    >
+                      {HOUR_CHOICES.filter((h) => h > d.open).map((h) => (
+                        <option key={h} value={h}>
+                          {closeLabel(h)}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </details>
       <label className="flex flex-col text-xs font-medium text-slate-500">
         Cancel cutoff (hrs)
         <input

@@ -124,7 +124,8 @@ describe("per-venue operating hours", () => {
       error: "A venue must be open for at least an hour.",
     });
     expect(await updateVenue(venue.id, { openHour: -1 })).toMatchObject({ ok: false });
-    expect(await updateVenue(venue.id, { closeHour: 25 })).toMatchObject({ ok: false });
+    // Past midnight is fine, to 4 AM; not later.
+    expect(await updateVenue(venue.id, { closeHour: 29 })).toMatchObject({ ok: false });
 
     const date = futureDate(5);
     const court = venue.courts[0];
@@ -132,7 +133,7 @@ describe("per-venue operating hours", () => {
       .toMatchObject({ ok: true });
     expect(await updateVenue(venue.id, { openHour: 12 })).toMatchObject({
       ok: false,
-      error: "Bookings already exist outside those hours. Cancel or move them first.",
+      error: `Bookings already exist outside those hours (the first on ${date}). Cancel or move them first.`,
     });
 
     expect(await updateVenue(venue.id, { openHour: 6 })).toMatchObject({

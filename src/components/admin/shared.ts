@@ -1,4 +1,5 @@
-import { CLOSE_HOUR, Court, OPEN_HOUR, Venue } from "@/lib/types";
+import { CLOSE_HOUR, Court, LATEST_CLOSE_HOUR, OPEN_HOUR, Venue } from "@/lib/types";
+import { formatHour } from "@/lib/time";
 import { intlTag, region } from "@/lib/region";
 
 /** A venue as the admin panel sees it: the venue and everything bookable in it. */
@@ -15,11 +16,17 @@ export function localTime(iso: string): string {
     });
 }
 
-/** Every hour a venue may open or close on. */
+/** Every hour a venue may open or close on, closing up to the small hours of the next morning. */
 export const HOUR_CHOICES = Array.from(
-  { length: CLOSE_HOUR - OPEN_HOUR + 1 },
+  { length: LATEST_CLOSE_HOUR - OPEN_HOUR + 1 },
   (_, i) => OPEN_HOUR + i
 );
+
+/** A closing hour as staff read it: past midnight says so. */
+export function closeLabel(h: number): string {
+  if (h === 24) return "Midnight";
+  return h > 24 ? `${formatHour(h)} (next day)` : formatHour(h);
+}
 
 /** Today, local time, as the date input wants it. */
 export function todayLocal(): string {

@@ -6,7 +6,7 @@ import { getVenue, setVenueAmenities, setVenuePin, updateVenue } from "@/lib/sto
 import { isAmenity } from "@/lib/facilities";
 import { formatDistance, inCountry, readPoint } from "@/lib/geo";
 import { FAR_FROM_ADDRESS_M } from "@/lib/applications";
-import { CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
+import { LATEST_CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
 import { logFromRequest } from "@/lib/activity";
 import { region } from "@/lib/region";
 
@@ -44,6 +44,7 @@ export async function PATCH(
     cancelCutoffHours?: number;
     openHour?: number;
     closeHour?: number;
+    weekHours?: unknown;
     staffedFrom?: number | null;
     staffedTo?: number | null;
     emergencyPhone?: string | null;
@@ -70,13 +71,15 @@ export async function PATCH(
   for (const field of ["openHour", "closeHour"] as const) {
     const value = input[field];
     if (value === undefined) continue;
-    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > CLOSE_HOUR)
+    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > LATEST_CLOSE_HOUR)
       return NextResponse.json(
-        { error: `Opening hours must be whole hours between ${OPEN_HOUR} and ${CLOSE_HOUR}.` },
+        { error: `Opening hours must be whole hours, from midnight to ${LATEST_CLOSE_HOUR - 24} AM the next morning.` },
         { status: 400 }
       );
     changes[field] = value as number;
   }
+  // Weekdays with their own hours, or closed: checked in lib/week-hours.ts.
+  if (input.weekHours !== undefined) changes.weekHours = input.weekHours;
 
   // null on both ends means "always staffed", which is every venue by default.
   for (const field of ["staffedFrom", "staffedTo"] as const) {
@@ -86,9 +89,9 @@ export async function PATCH(
       changes[field] = null;
       continue;
     }
-    if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 24)
+    if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > LATEST_CLOSE_HOUR)
       return NextResponse.json(
-        { error: "A staffed hour must be a whole hour between 0 and 24." },
+        { error: "A staffed hour must be a whole hour between midnight and the latest close." },
         { status: 400 }
       );
     changes[field] = value as number;

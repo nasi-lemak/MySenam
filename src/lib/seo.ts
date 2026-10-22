@@ -1,3 +1,4 @@
+import { WEEKDAYS, weekLines, type WeekHours } from "./week-hours";
 import { getDb } from "./db";
 import { LISTED_PUBLICLY, listRule } from "./listing";
 import { baseUrl } from "./outbox";
@@ -48,6 +49,7 @@ export function venueJsonLd(venue: {
   phone: string;
   openHour: number;
   closeHour: number;
+  weekHours?: WeekHours | null;
   lat: number | null;
   lng: number | null;
   url: string;
@@ -66,12 +68,18 @@ export function venueJsonLd(venue: {
     address: { "@type": "PostalAddress", streetAddress: venue.address, addressLocality: venue.area, addressCountry: region().country },
     ...(venue.lat !== null && venue.lng !== null ? { geo: { "@type": "GeoCoordinates", latitude: venue.lat, longitude: venue.lng } } : {}),
     ...(venue.image ? { image: venue.image } : {}),
-    openingHoursSpecification: {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-      opens: hh(venue.openHour),
-      closes: hh(venue.closeHour),
-    },
+    // One entry per run of days with the same hours; closed days are left out, as schema.org reads them.
+    openingHoursSpecification: weekLines(venue)
+      .filter((l) => l.hours !== "closed")
+      .map((l) => {
+        const days: string[] = [];
+        for (let d = l.from; ; d = (d + 1) % 7) {
+          days.push(WEEKDAYS[d]);
+          if (d === l.to) break;
+        }
+        const hours = l.hours as { open: number; close: number };
+        return { "@type": "OpeningHoursSpecification", dayOfWeek: days, opens: hh(hours.open), closes: hh(hours.close) };
+      }),
     keywords: venue.sports.map((s) => SPORT_LABELS[s] ?? s).join(", "),
     ...(venue.rating
       ? { aggregateRating: { "@type": "AggregateRating", ratingValue: venue.rating.average, reviewCount: venue.rating.count, bestRating: 5, worstRating: 1 } }

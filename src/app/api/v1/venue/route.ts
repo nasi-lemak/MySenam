@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
       timeZone: v.timeZone,
       openHour: v.openHour,
       closeHour: v.closeHour,
+      // Weekdays with their own hours, or closed; null when every day keeps the usual ones.
+      weekHours: v.weekHours ?? null,
       courts: v.courts.map((c) => ({ id: c.id, name: c.name, sport: c.sport, offPeakRate: c.offPeakRate, peakRate: c.peakRate, capacity: c.capacity })),
     },
   });

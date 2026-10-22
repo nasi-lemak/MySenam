@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { hoursOn, parseWeekHours } from "./week-hours";
 import { receiptFee } from "./documents";
 import {
   bracketSize,
@@ -342,15 +343,22 @@ export async function createTournament(input: TournamentInput, adminId: number):
     return { ok: false, error: "Between 2 and 128 entries." };
   if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
   const venue = (await db
-    .prepare("SELECT open_hour, close_hour, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
+    .prepare("SELECT open_hour, close_hour, week_hours, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
     .get(input.venueId)) as
-    | { open_hour: number; close_hour: number; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
+    | { open_hour: number; close_hour: number; week_hours: string | null; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
     | undefined;
   if (!venue) return { ok: false, error: "Venue not found." };
   // Today where the venue is.
   if (input.startsOn <= todayISO(venueZoneOf(venue))) return { ok: false, error: "It has to start after today, so players can enter." };
-  if (input.startHour < venue.open_hour || input.endHour > venue.close_hour || input.endHour <= input.startHour)
-    return { ok: false, error: "The hours must be within the venue's opening hours." };
+  if (input.endHour <= input.startHour) return { ok: false, error: "The hours must be within the venue's opening hours." };
+  // Every day of it, by that day's own hours.
+  const usual = { openHour: venue.open_hour, closeHour: venue.close_hour, weekHours: parseWeekHours(venue.week_hours) };
+  for (let d = input.startsOn; d <= input.endsOn; d = addDays(d, 1)) {
+    const on = hoursOn(usual, d);
+    if (on.closed) return { ok: false, error: `The venue is closed on ${d}.` };
+    if (input.startHour < on.openHour || input.endHour > on.closeHour)
+      return { ok: false, error: `The hours must be within the venue's opening hours, which on ${d} are ${formatHour(on.openHour)}–${formatHour(on.closeHour)}.` };
+  }
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length === 0) return { ok: false, error: "Hold at least one court." };
   const courts = (await db

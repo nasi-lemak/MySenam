@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { createVenue } from "@/lib/store";
-import { CLOSE_HOUR, OPEN_HOUR } from "@/lib/types";
+import { LATEST_CLOSE_HOUR, OPEN_HOUR } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +31,9 @@ export async function POST(req: NextRequest) {
   for (const field of ["openHour", "closeHour"] as const) {
     const value = input[field];
     if (value === undefined) continue;
-    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > CLOSE_HOUR)
+    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > LATEST_CLOSE_HOUR)
       return NextResponse.json(
-        { error: `Opening hours must be whole hours between ${OPEN_HOUR} and ${CLOSE_HOUR}.` },
+        { error: `Opening hours must be whole hours, from midnight to ${LATEST_CLOSE_HOUR - 24} AM the next morning.` },
         { status: 400 }
       );
     hours[field] = value as number;

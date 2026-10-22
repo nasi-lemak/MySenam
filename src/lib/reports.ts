@@ -5,6 +5,7 @@ import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
 import { venueTax } from "./tax";
 import { venueHours } from "./store";
+import { hoursOn, parseWeekHours } from "./week-hours";
 
 /**
  * Reporting for the person who pays for the software.
@@ -127,7 +128,7 @@ function monthsIn(from: string, to: string): string[] {
 export async function venueReport(venueId: number, from: string, to: string): Promise<VenueReport | null> {
   const db = getDb();
   const venue = await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as
-    | { id: number; name: string; open_hour: number; close_hour: number }
+    | { id: number; name: string; open_hour: number; close_hour: number; week_hours: string | null }
     | undefined;
   if (!venue) return null;
 
@@ -140,11 +141,27 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
   );
 
-  const { closedDays } = await db
-    .prepare(
-      `SELECT COUNT(*) AS "closedDays" FROM venue_closures WHERE venue_id = ? AND date >= ? AND date <= ?`
-    )
-    .get(venueId, from, to) as { closedDays: number };
+  const closures = new Set(
+    ((await db
+      .prepare("SELECT date FROM venue_closures WHERE venue_id = ? AND date >= ? AND date <= ?")
+      .all(venueId, from, to)) as { date: string }[]).map((r) => r.date)
+  );
+  // Each day by its own hours: a weekday the venue never opens is a closed day too.
+  const usual = { openHour: venue.open_hour, closeHour: venue.close_hour, weekHours: parseWeekHours(venue.week_hours) };
+  let closedDays = 0;
+  let openHoursInPeriod = 0;
+  let firstHour = venue.open_hour;
+  let lastHour = venue.close_hour;
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const on = hoursOn(usual, d);
+    if (closures.has(d) || on.closed) {
+      closedDays++;
+      continue;
+    }
+    openHoursInPeriod += on.closeHour - on.openHour;
+    firstHour = Math.min(firstHour, on.openHour);
+    lastHour = Math.max(lastHour, on.closeHour);
+  }
 
   // Every query below picks the venue's rows by their own court_id rather than
   // by joining to courts and filtering there: the index on (court_id, date)
@@ -247,8 +264,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   // --- what could have been sold ------------------------------------------
   // The trading day, times capacity, times the days the venue was open, less
   // whatever staff took out of service.
-  const tradingHours = Math.max(0, venue.close_hour - venue.open_hour);
-  const openDays = days - closedDays;
+  const tradingHours = Math.max(0, lastHour - firstHour);
   const blockedByCourt = new Map<number, number>();
   for (const row of await db
     .prepare(`
@@ -262,7 +278,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     blockedByCourt.set(row.courtId, row.blocked);
 
   const sellableFor = (court: { id: number; capacity: number }) =>
-    Math.max(0, tradingHours * court.capacity * openDays - (blockedByCourt.get(court.id) ?? 0));
+    Math.max(0, openHoursInPeriod * court.capacity - (blockedByCourt.get(court.id) ?? 0));
 
   // --- per court -----------------------------------------------------------
   const soldByCourt = new Map<number, { hours: number; expected: number }>();
@@ -374,7 +390,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     `)
     .all(venueId, from, to) as { hour: number; hours: number }[];
   const byHour: HourLine[] = Array.from({ length: tradingHours }, (_, i) => {
-    const hour = venue.open_hour + i;
+    const hour = firstHour + i;
     return { hour, hours: hourRows.find((r) => r.hour === hour)?.hours ?? 0 };
   });
 

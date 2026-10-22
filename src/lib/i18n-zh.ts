@@ -318,6 +318,7 @@ export const ZH: Record<Phrase, string> = {
   "sport.swimming": "游泳",
   "sport.kayak": "皮划艇租借",
   "venue.openDaily": "每天营业 {from} – {to}",
+  "venue.closedDay": "休息",
   "venue.freeCancel_one": "最迟可在开场前 {n} 小时免费取消",
   "venue.freeCancel_other": "最迟可在开场前 {n} 小时免费取消",
   "venue.cancelAnyTime": "开场前随时可取消",

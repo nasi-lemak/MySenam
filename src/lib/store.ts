@@ -28,6 +28,7 @@ import {
   CourtAvailability,
   OPEN_HOUR,
   CLOSE_HOUR,
+  LATEST_CLOSE_HOUR,
   DEFAULT_OPEN_HOUR,
   DEFAULT_CLOSE_HOUR,
   MAX_ADVANCE_DAYS,
@@ -97,9 +98,11 @@ import {
   slotStartsAt,
   todayISO,
   localDateOf,
+  dayOfWeek,
 } from "./time";
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
+import { hoursOn, parseWeekHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { cancelPolicy } from "./cancel-policy";
@@ -136,6 +139,7 @@ interface VenueRow {
   cancel_cutoff_hours: number;
   open_hour: number;
   close_hour: number;
+  week_hours?: string | null;
   slot_minutes?: number;
   time_zone?: string | null;
   staffed_from: number | null;
@@ -162,6 +166,7 @@ function toVenue(r: VenueRow): Venue {
     cancelCutoffHours: r.cancel_cutoff_hours,
     openHour: r.open_hour,
     closeHour: r.close_hour,
+    weekHours: parseWeekHours(r.week_hours),
     slotMinutes: r.slot_minutes === 30 ? 30 : 60,
     timeZone: venueZoneOf(r),
     staffedFrom: r.staffed_from,
@@ -183,15 +188,35 @@ function toVenue(r: VenueRow): Venue {
  * A venue's trading hours, falling back to the defaults if it has vanished,
  * and how long each of its slots is in hours (`step`: 1, or 0.5).
  */
-export async function venueHours(venueId: number): Promise<{ openHour: number; closeHour: number; step: number; zone: string }> {
+export async function venueHours(
+  venueId: number,
+  /** The hours on this date, where the weekday has its own; the usual hours without one. */
+  date?: string
+): Promise<{ openHour: number; closeHour: number; step: number; zone: string }> {
   const row = await getDb()
-    .prepare("SELECT open_hour, close_hour, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
+    .prepare("SELECT open_hour, close_hour, week_hours, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
     .get(venueId) as
-    | { open_hour: number; close_hour: number; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
+    | { open_hour: number; close_hour: number; week_hours: string | null; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
     | undefined;
+  return withHours(row, date);
+}
+
+type HoursRow = {
+  open_hour: number;
+  close_hour: number;
+  week_hours: string | null;
+  slot_minutes: number;
+  time_zone: string | null;
+  lat: number | null;
+  lng: number | null;
+};
+
+function withHours(row: HoursRow | undefined, date?: string): { openHour: number; closeHour: number; step: number; zone: string } {
+  const usual = { openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR, closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR };
+  const on = date ? hoursOn({ ...usual, weekHours: parseWeekHours(row?.week_hours) }, date) : usual;
   return {
-    openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR,
-    closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR,
+    openHour: on.openHour,
+    closeHour: on.closeHour,
     step: (row?.slot_minutes ?? 60) / 60,
     zone: venueZoneOf(row ?? {}),
   };
@@ -240,22 +265,19 @@ async function classOfferHolds(classId: number, except?: number): Promise<number
 }
 
 /** The trading hours and slot length of the venue a court belongs to. */
-export async function courtVenueHours(courtId: number): Promise<{ openHour: number; closeHour: number; step: number; zone: string }> {
+export async function courtVenueHours(
+  courtId: number,
+  /** The hours on this date, where the weekday has its own; the usual hours without one. */
+  date?: string
+): Promise<{ openHour: number; closeHour: number; step: number; zone: string }> {
   const row = await getDb()
     .prepare(`
-      SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour, v.slot_minutes AS slot_minutes,
-             v.time_zone AS time_zone, v.lat AS lat, v.lng AS lng
+      SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour, v.week_hours AS week_hours,
+             v.slot_minutes AS slot_minutes, v.time_zone AS time_zone, v.lat AS lat, v.lng AS lng
       FROM courts c JOIN venues v ON v.id = c.venue_id WHERE c.id = ?
     `)
-    .get(courtId) as
-    | { id: number; open_hour: number; close_hour: number; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
-    | undefined;
-  return {
-    openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR,
-    closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR,
-    step: (row?.slot_minutes ?? 60) / 60,
-    zone: venueZoneOf(row ?? {}),
-  };
+    .get(courtId) as (HoursRow & { id: number }) | undefined;
+  return withHours(row, date);
 }
 
 /** The time zone of the venue a court belongs to. */
@@ -268,7 +290,10 @@ export async function getVenueClosure(venueId: number, date: string): Promise<Ve
   const row = await getDb()
     .prepare("SELECT date, reason FROM venue_closures WHERE venue_id = ? AND date = ?")
     .get(venueId, date) as { date: string; reason: string | null } | undefined;
-  return row ? { date: row.date, reason: row.reason } : null;
+  if (row) return { date: row.date, reason: row.reason };
+  // A weekday the venue never opens on is closed like any closed day.
+  const week = (await getDb().prepare("SELECT week_hours FROM venues WHERE id = ?").get(venueId)) as { week_hours: string | null } | undefined;
+  return parseWeekHours(week?.week_hours)?.[dayOfWeek(date)] === "closed" ? { date, reason: null } : null;
 }
 
 /** Every closure a venue has from `from` onwards, soonest first. */
@@ -340,7 +365,17 @@ async function closedDatesIn(venueIds: number[], from: string, to: string): Prom
        WHERE venue_id IN (${list}) AND date >= ? AND date <= ?`
     )
     .all(...venueIds, from, to) as { venue_id: number; date: string }[];
-  return new Set(rows.map((r) => `${r.venue_id}:${r.date}`));
+  const closed = new Set(rows.map((r) => `${r.venue_id}:${r.date}`));
+  // And the weekdays each never opens on.
+  const weeks = (await getDb()
+    .prepare(`SELECT id, week_hours FROM venues WHERE id IN (${list}) AND week_hours IS NOT NULL`)
+    .all(...venueIds)) as { id: number; week_hours: string }[];
+  for (const w of weeks) {
+    const week = parseWeekHours(w.week_hours);
+    if (!week) continue;
+    for (let d = from; d <= to; d = addDays(d, 1)) if (week[dayOfWeek(d)] === "closed") closed.add(`${w.id}:${d}`);
+  }
+  return closed;
 }
 
 interface BookingRow {
@@ -670,7 +705,7 @@ export async function getAvailability(
 
   const blockedPlaces = await blockedPlacesOn(date, venueId);
   const classHours = await classHoursOn(date, venueId);
-  const { openHour, closeHour, step, zone } = await venueHours(venueId);
+  const { openHour, closeHour, step, zone } = await venueHours(venueId, date);
   // A closed day reads like every hour is blocked, so nothing can be picked.
   const closed = await getVenueClosure(venueId, date) !== null;
   const rules = await peakRules(venueId);
@@ -1047,7 +1082,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   // The window of start hours asked for, clamped per venue below to that
   // venue's own trading hours.
   const wantFrom = Math.max(input.fromHour ?? OPEN_HOUR, OPEN_HOUR);
-  const wantTo = Math.min(input.toHour ?? CLOSE_HOUR, CLOSE_HOUR);
+  // Past midnight too, for a venue open late, unless a time of day was asked for.
+  const wantTo = Math.min(input.toHour ?? LATEST_CLOSE_HOUR, LATEST_CLOSE_HOUR);
   const limit = Math.min(Math.max(input.limit ?? 60, 1), 200);
   if (wantFrom > wantTo) return [];
 
@@ -1056,7 +1092,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
            v.address AS v_address, v.phone AS v_phone,
            v.cancel_cutoff_hours AS v_cutoff,
-           v.open_hour AS v_open, v.close_hour AS v_close, v.slot_minutes AS v_slot_minutes, v.time_zone AS v_time_zone,
+           v.open_hour AS v_open, v.close_hour AS v_close, v.week_hours AS v_week_hours, v.slot_minutes AS v_slot_minutes, v.time_zone AS v_time_zone,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
@@ -1093,6 +1129,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_cutoff: number;
     v_open: number;
     v_close: number;
+    v_week_hours: string | null;
     v_slot_minutes: number;
     v_time_zone: string | null;
     v_staffed_from: number | null;
@@ -1136,6 +1173,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     const zone = venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng });
     if (!isBookableDate(input.date, zone, Math.min(row.v_ahead ?? MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS))) continue;
     const court = toCourt(row);
+    // That day's hours, where its weekday has its own.
+    const dayHours = hoursOn({ openHour: row.v_open, closeHour: row.v_close, weekHours: parseWeekHours(row.v_week_hours) }, input.date);
     const venue: Venue = {
       id: row.v_id,
       name: row.v_name,
@@ -1143,8 +1182,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       address: row.v_address,
       phone: row.v_phone,
       cancelCutoffHours: row.v_cutoff,
-      openHour: row.v_open,
-      closeHour: row.v_close,
+      openHour: dayHours.openHour,
+      closeHour: dayHours.closeHour,
       slotMinutes: row.v_slot_minutes === 30 ? 30 : 60,
       timeZone: venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng }),
       staffedFrom: row.v_staffed_from,
@@ -1346,18 +1385,19 @@ export async function createBookingSeries(input: {
     return refuse("DATE_OUT_OF_WINDOW_FIRST");
   if (hours.length === 0) return refuse("NO_HOURS");
   // Slots are hours, or half hours where the venue sells halves.
-  const { openHour, closeHour, step } = await courtVenueHours(courtId);
+  const { openHour, closeHour, step } = await courtVenueHours(courtId, date);
   if (!hours.every((h) => onSlot(h, step))) return refuse("NO_HOURS");
   if (hours.length * step > MAX_HOURS_PER_BOOKING)
     return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
   if (!consecutive(hours, step))
     return refuse("HOURS_NOT_CONSECUTIVE");
+  // Closed that day (a closure, or a weekday it never opens) says so, rather than "outside the hours".
+  if (await getVenueClosure(court.venueId, date))
+    return refuse("VENUE_CLOSED");
   if (hours[0] < openHour || hours[hours.length - 1] >= closeHour)
     return refuse("HOURS_OUTSIDE_OPENING");
   if (isPastSlot(date, hours[0], zone))
     return refuse("SLOT_PAST");
-  if (await getVenueClosure(court.venueId, date))
-    return refuse("VENUE_CLOSED");
 
   const db = getDb();
   const placeholders = hours.map(() => "?").join(",");
@@ -1692,7 +1732,7 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
   const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b]));
   const blockedPlaces = await blockedPlacesOn(date, venueId);
 
-  const { openHour, closeHour, step, zone } = await venueHours(venueId);
+  const { openHour, closeHour, step, zone } = await venueHours(venueId, date);
   const closure = await getVenueClosure(venueId, date);
 
   return courts.map((court) => ({
@@ -1753,7 +1793,7 @@ export async function blockSlots(
 ): Promise<BlockResult> {
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
-  const { openHour, closeHour, step } = await courtVenueHours(courtId);
+  const { openHour, closeHour, step } = await courtVenueHours(courtId, date);
   const valid = [...new Set(hours)].filter((h) => h >= openHour && h < closeHour && onSlot(h, step));
   if (valid.length === 0) return { ok: false, error: "No valid hours given." };
 
@@ -1898,7 +1938,8 @@ export async function rescheduleBooking(
   if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
-  const { openHour, closeHour, step, zone } = await courtVenueHours(booking.courtId);
+  // The hours of the day it is moving to, which may not be the day it is on.
+  const { openHour, closeHour, step, zone } = await courtVenueHours(booking.courtId, to.date);
   const length = booking.endHour - booking.startHour;
   const oldHours = slotsBetween(booking.startHour, booking.endHour, step);
   if (by === "customer") {
@@ -1915,8 +1956,8 @@ export async function rescheduleBooking(
   const hours = slotsBetween(to.startHour, to.startHour + length, step);
   if (!isBookableDate(to.date, zone, await venueAheadDays(fromCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
   if (isPastSlot(to.date, hours[0], zone)) return refuse("SLOT_PAST");
-  if (hours[0] < openHour || hours[hours.length - 1] >= closeHour) return refuse("HOURS_OUTSIDE_OPENING");
   if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
+  if (hours[0] < openHour || hours[hours.length - 1] >= closeHour) return refuse("HOURS_OUTSIDE_OPENING");
 
   // The courts it could go to, its own first.
   let candidates: Court[];
@@ -2414,8 +2455,8 @@ function normaliseHours(
   const closeHour = close ?? DEFAULT_CLOSE_HOUR;
   if (!Number.isInteger(openHour) || !Number.isInteger(closeHour))
     return { ok: false, error: "Opening hours must be whole hours." };
-  if (openHour < OPEN_HOUR || closeHour > CLOSE_HOUR)
-    return { ok: false, error: `Hours must be between ${OPEN_HOUR}:00 and ${CLOSE_HOUR}:00.` };
+  if (openHour < OPEN_HOUR || openHour > 23 || closeHour > LATEST_CLOSE_HOUR)
+    return { ok: false, error: `Open from midnight, and close by ${LATEST_CLOSE_HOUR - 24} AM the next morning at the latest.` };
   if (closeHour - openHour < 1)
     return { ok: false, error: "A venue must be open for at least an hour." };
   return { ok: true, openHour, closeHour };
@@ -2433,6 +2474,9 @@ export async function createVenue(input: {
 }): Promise<VenueEditResult> {
   const hours = normaliseHours(input.openHour, input.closeHour);
   if (!hours.ok) return hours;
+  // A late close may not run into the next morning's opening.
+  const overlap = validateWeekHours(null, hours);
+  if (!overlap.ok) return overlap;
   const db = getDb();
   const info = await db
     .prepare(
@@ -2494,6 +2538,8 @@ export async function updateVenue(
     cancelCutoffHours?: number;
     openHour?: number;
     closeHour?: number;
+    /** Weekdays with hours of their own, or closed (lib/week-hours.ts); null puts every day back on the usual hours. */
+    weekHours?: unknown;
     /** null for both means always staffed; equal values mean never staffed. */
     staffedFrom?: number | null;
     staffedTo?: number | null;
@@ -2511,18 +2557,24 @@ export async function updateVenue(
     changes.closeHour ?? current.closeHour
   );
   if (!hours.ok) return hours;
-  // Narrowing the day would strand anything already sold outside the new hours.
-  const stranded = await db
+  const week = validateWeekHours(changes.weekHours !== undefined ? changes.weekHours : current.weekHours ?? null, hours);
+  if (!week.ok) return week;
+  // Narrowing a day, or closing one, would strand anything already sold outside the new hours.
+  const sold = (await db
     .prepare(`
-      SELECT COUNT(*) AS n FROM booking_slots s
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
-        AND s.date >= ? AND (s.hour < ? OR s.hour >= ?)
+      SELECT DISTINCT s.date, s.hour FROM booking_slots s
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ?
     `)
-    .get(venueId, todayISO(), hours.openHour, hours.closeHour) as { n: number };
-  if (stranded.n > 0)
+    .all(venueId, todayISO())) as { date: string; hour: number }[];
+  const next = { openHour: hours.openHour, closeHour: hours.closeHour, weekHours: week.week };
+  const stranded = sold.filter((r) => {
+    const on = hoursOn(next, r.date);
+    return on.closed || Number(r.hour) < on.openHour || Number(r.hour) >= on.closeHour;
+  });
+  if (stranded.length > 0)
     return {
       ok: false,
-      error: "Bookings already exist outside those hours. Cancel or move them first.",
+      error: `Bookings already exist outside those hours (the first on ${stranded.map((r) => r.date).sort()[0]}). Cancel or move them first.`,
     };
 
   const staffedFrom =
@@ -2531,8 +2583,8 @@ export async function updateVenue(
   if ((staffedFrom === null) !== (staffedTo === null))
     return { ok: false, error: "Give both ends of the staffed window, or neither." };
   for (const hour of [staffedFrom, staffedTo]) {
-    if (hour !== null && (!Number.isInteger(hour) || hour < 0 || hour > 24))
-      return { ok: false, error: "A staffed hour must be between 0 and 24." };
+    if (hour !== null && (!Number.isInteger(hour) || hour < 0 || hour > LATEST_CLOSE_HOUR))
+      return { ok: false, error: "A staffed hour must be between midnight and the latest close." };
   }
   // Unstaffed hours only mean anything where a resource can be let into, and
   // taking the counter away from kit that is on loan is the one combination
@@ -2545,7 +2597,7 @@ export async function updateVenue(
 
   await db.prepare(
     `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
-                       open_hour = ?, close_hour = ?, staffed_from = ?, staffed_to = ?,
+                       open_hour = ?, close_hour = ?, week_hours = ?, staffed_from = ?, staffed_to = ?,
                        emergency_phone = ?, emergency_info = ? WHERE id = ?`
   ).run(
     changes.name?.trim() ?? current.name,
@@ -2555,6 +2607,7 @@ export async function updateVenue(
     changes.cancelCutoffHours ?? current.cancelCutoffHours,
     hours.openHour,
     hours.closeHour,
+    week.week ? JSON.stringify(week.week) : null,
     staffedFrom,
     staffedTo,
     changes.emergencyPhone !== undefined
@@ -3841,7 +3894,7 @@ export async function createClassSessions(input: {
   if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
     return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
-  const { openHour, closeHour, step, zone } = await courtVenueHours(courtId);
+  const { openHour, closeHour, step, zone } = await courtVenueHours(courtId, date);
   if (startHour < openHour || endHour > closeHour || endHour <= startHour)
     return { ok: false, error: "Class hours are outside operating hours." };
   if (await getVenueClosure(court.venueId, date))
@@ -5616,7 +5669,7 @@ export async function joinSlotWaitlist(input: {
 
     const waitCourt = await getCourt(courtId);
     if (!waitCourt) return refuse("COURT_NOT_FOUND");
-    const { openHour, closeHour, step, zone } = await courtVenueHours(courtId);
+    const { openHour, closeHour, step, zone } = await courtVenueHours(courtId, date);
     if (endHour <= startHour || startHour < openHour || endHour > closeHour || !onSlot(startHour, step) || !onSlot(endHour, step))
       return refuse("THOSE_HOURS_OUTSIDE_OPENING");
     if (await getVenueClosure(waitCourt.venueId, date))

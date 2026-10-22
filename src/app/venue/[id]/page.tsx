@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
+import { variesByDay, weekLines } from "@/lib/week-hours";
 import { getVenue, listVenueClosures, readNear } from "@/lib/store";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays, formatHour, onSlot, slotsBetween } from "@/lib/time";
@@ -23,7 +24,7 @@ import { joinTerms, listPlans } from "@/lib/membership-plans";
 import { onlineTopUpsAllowed, renewalFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
 import { listCoaches } from "@/lib/coaching";
 import { sportLabel } from "@/lib/i18n";
-import { money } from "@/lib/region";
+import { intlTag, money } from "@/lib/region";
 import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
@@ -127,6 +128,9 @@ export default async function VenuePage({
   const dates = Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i));
 
   const loyalty = await loyaltyEvery(venue.id);
+  // A weekday's short name in the reader's language: 0 is Sunday.
+  const dayName = (day: number) =>
+    new Date(Date.UTC(2026, 0, 4 + day)).toLocaleDateString(intlTag(t.locale), { weekday: "short", timeZone: "UTC" });
   const initial = parseInitialSelection(query, sports, dates, venue.slotMinutes / 60);
   // Only closures inside the booking window are worth warning about.
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
@@ -205,12 +209,29 @@ export default async function VenuePage({
             {t("review.summary", { avg: rating.average.toFixed(1), count: rating.count })}
           </a>
         )}
-        <p className="mt-1 text-sm text-slate-500">
-          {t("venue.openDaily", {
-            from: formatHour(venue.openHour),
-            to: formatHour(venue.closeHour),
-          })}{" "}
-          ·{" "}
+        {variesByDay(venue.weekHours) && (
+          <ul className="mt-1 text-sm text-slate-500">
+            {weekLines(venue).map((l) => (
+              <li key={l.from}>
+                <span className="inline-block min-w-24 font-medium text-slate-600">
+                  {dayName(l.from)}
+                  {l.to !== l.from && `–${dayName(l.to)}`}
+                </span>{" "}
+                {l.hours === "closed" ? t("venue.closedDay") : `${formatHour(l.hours.open)} – ${formatHour(l.hours.close)}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className={`mt-1 text-sm text-slate-500 ${variesByDay(venue.weekHours) ? "first-letter:uppercase" : ""}`}>
+          {!variesByDay(venue.weekHours) && (
+            <>
+              {t("venue.openDaily", {
+                from: formatHour(venue.openHour),
+                to: formatHour(venue.closeHour),
+              })}{" "}
+              ·{" "}
+            </>
+          )}
           {venue.cancelCutoffHours > 0
             ? t.plural("venue.freeCancel", venue.cancelCutoffHours)
             : t("venue.cancelAnyTime")}
