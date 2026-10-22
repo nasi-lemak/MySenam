@@ -1,6 +1,7 @@
 "use client";
 
 import { AttentionPanel } from "./AttentionPanel";
+import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
 import { useCallback, useEffect, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
@@ -392,6 +393,7 @@ export function BookingsTab() {
   return (
     <div className="space-y-4">
       <AttentionPanel />
+      <EnquiriesPanel />
       <form
         className="flex flex-wrap items-center gap-2"
         onSubmit={async (e) => {

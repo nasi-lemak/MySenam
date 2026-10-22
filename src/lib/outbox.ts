@@ -55,14 +55,16 @@ export type MessageKind =
   /** By email only: a free hour earned by playing at a venue (lib/loyalty.ts). */
   | "loyalty_reward"
   /** By email only, to a company or school account: its monthly invoice (lib/accounts.ts). */
-  | "account_invoice";
+  | "account_invoice"
+  /** By email only, to the venue: a private hire enquiry from its page (lib/enquiries.ts). */
+  | "hire_enquiry";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "hire_enquiry"];
 
 export interface OutboxMessage {
   id: number;

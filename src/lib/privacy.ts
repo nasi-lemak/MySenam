@@ -61,6 +61,8 @@ export const RETENTION = {
    * name, email and password hash, with nobody shown to want it kept.
    */
   unconfirmedApplicationDays: 7,
+  /** A private hire enquiry: answered long since, or never will be. */
+  enquiryDays: 365,
 } as const;
 
 export interface RetentionLine {
@@ -95,6 +97,13 @@ interface Rule {
 }
 
 const RULES: Rule[] = [
+  {
+    what: "Private hire enquiries",
+    days: RETENTION.enquiryDays,
+    action: "deleted",
+    table: "hire_enquiries",
+    where: "created_at < ?",
+  },
   {
     what: "Door codes shown",
     days: RETENTION.accessRevealDays,
@@ -313,6 +322,8 @@ export interface CustomerExport {
   concessionProofs: unknown[];
   /** Notes venues' staff keep on their number (lib/customer-notes.ts). */
   staffNotes: unknown[];
+  /** Private hire enquiries they sent from their number or address (lib/enquiries.ts). */
+  enquiries: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
@@ -468,6 +479,13 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE n.phone_key = phone_key(?) ORDER BY v.name`,
       account.phone
     ),
+    enquiries: await all(
+      `SELECT v.name AS venue, e.created_at, e.kind, e.wanted_on, e.people, e.message, e.status
+         FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id
+        WHERE e.phone_key = phone_key(?) OR lower(e.email) = lower(?) ORDER BY e.id`,
+      account.phone,
+      account.email
+    ),
     messages: await all(
       `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
          FROM messages m
@@ -505,6 +523,8 @@ export interface PhoneExport {
   accountBookers: unknown[];
   /** The venue's staff's note on this customer (lib/customer-notes.ts). */
   staffNotes: unknown[];
+  /** Private hire enquiries from this number (lib/enquiries.ts). */
+  enquiries: unknown[];
   messages: unknown[];
 }
 
@@ -622,6 +642,13 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       ...venueIds,
       phone
     ),
+    enquiries: await all(
+      `SELECT v.name AS venue, e.created_at, e.name, e.phone, e.email, e.kind, e.wanted_on, e.people, e.message, e.status
+         FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id
+        WHERE e.venue_id IN (${marks}) AND e.phone_key = phone_key(?) ORDER BY e.id`,
+      ...venueIds,
+      phone
+    ),
     messages: await all(
       `SELECT created_at, channel, kind, recipient, status, subject, body FROM messages
         WHERE venue_id IN (${marks}) AND channel = 'whatsapp' AND phone_key(recipient) = phone_key(?) ORDER BY id`,
@@ -727,6 +754,10 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     await forgetLeaguePlayer(userId, ANONYMOUS);
     // Nor a concession proof remembered against the account's number.
     await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);
+    // Nor their enquiries about private hire.
+    await db
+      .prepare("DELETE FROM hire_enquiries WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?)) OR lower(email) = lower(?)")
+      .run(userId, account.email);
     // Nor a note staff kept on that number, or the one proved.
     await db
       .prepare(

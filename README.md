@@ -1299,6 +1299,26 @@ bookings to them and marks invoices paid. Every step is in the activity log.
 The numbers listed on an account go out with what a venue holds against a
 number, and come off every account when the customer erases their own.
 
+## Private hire enquiries
+
+A tournament, a company sports day, a birthday party, a school's sports day:
+not a slot on the grid but a conversation, where the date may move, it may
+want every court, and the price is the venue's to quote. Every venue page ends
+with *Private hire and events*: name, phone, an email if they like, what it is
+for, the date if they know it, roughly how many people, and what they have in
+mind (`src/lib/enquiries.ts`).
+
+It lands on the *Bookings* tab under *Private hire enquiries*, open ones first,
+with buttons to call, WhatsApp or email the person, and to mark it replied,
+booked or declined (and by whom). Where the venue gave an address for new
+bookings, it is emailed there too. Staff then book the courts themselves,
+blocking them or booking them in the customer's name.
+
+A number can send three a day to one venue, the form has a field only scripts
+fill in, and the route is rate-limited. An enquiry goes out with what the venue
+holds against the number and with the customer's own data, is erased with
+their account, and is deleted after a year.
+
 ## Reviews
 
 Stars and a few words about a venue, from somebody who played there
@@ -1687,6 +1707,7 @@ the account would destroy the only record of whose money the venue is holding.
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
+| Private hire enquiries | 365 days | deleted |
 | Draft venues never live, nobody signed in | 90 days | deleted, unless they hold a customer's pass, membership, credit or payment |
 | Expired sessions | — | deleted |
 

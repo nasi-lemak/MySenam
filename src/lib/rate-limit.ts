@@ -31,6 +31,8 @@ export const POLICIES = {
   bookingLookup: { limit: 20, windowMs: 10 * MINUTE },
   /** Stops a script filling a venue's day with junk bookings. */
   booking: { limit: 20, windowMs: 60 * MINUTE },
+  /** Private hire enquiries from venue pages: a person sends one or two. */
+  enquiry: { limit: 5, windowMs: 60 * MINUTE },
   /**
    * A door code plus a booking code is the door, so this is tighter than an
    * ordinary lookup: enough for a customer who reopens the page a few times,

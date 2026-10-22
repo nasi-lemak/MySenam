@@ -33,6 +33,7 @@ import { photoAt } from "@/lib/photos-shared";
 import { siteName } from "@/lib/site";
 import { venueRating, venueReviews } from "@/lib/reviews";
 import { VenueReviews } from "@/components/VenueReviews";
+import HireEnquiry from "@/components/HireEnquiry";
 import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
@@ -365,6 +366,7 @@ export default async function VenuePage({
         {venue.lat !== null && venue.lng !== null && <PinMap pin={{ lat: venue.lat, lng: venue.lng }} height={180} />}
       </div>
       <VenueReviews t={t} locale={await currentLocale()} venueName={venue.name} rating={rating} reviews={reviews} />
+      <HireEnquiry venueId={venue.id} venueName={venue.name} />
     </div>
   );
 }
