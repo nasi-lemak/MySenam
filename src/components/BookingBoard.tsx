@@ -13,6 +13,7 @@ import {
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
   MAX_GROUP_COURTS,
+  DEFAULT_MAX_PLAYERS,
   bookingLengths,
   Sport,
   SPORT_ICONS,
@@ -474,7 +475,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                     <div className="text-xs font-normal text-slate-400">
                       {court.offPeakRate === 0 && court.peakRate === 0
                         ? t("price.free")
-                        : t("board.rateRange", { from: court.offPeakRate, to: plainAmount(court.peakRate) })}
+                        : t(court.perPlayer ? "board.rateRangePlayer" : "board.rateRange", { from: court.offPeakRate, to: plainAmount(court.peakRate) })}
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
@@ -668,7 +669,11 @@ function BookingForm({
   // A concession price: that share off the court time, shown at the counter.
   const [concessionId, setConcessionId] = useState<number | null>(null);
   const concession = concessions.find((c) => c.id === concessionId) ?? null;
-  const courtsTotal = courtPrice + moreChosen.reduce((sum, a) => sum + a.price, 0);
+  // On a court priced per player, how many play: the price is for each of them.
+  const [players, setPlayers] = useState(2);
+  const mostPlayers = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
+  const perHead = court.perPlayer ? players : 1;
+  const courtsTotal = courtPrice * perHead + moreChosen.reduce((sum, a) => sum + a.price * (a.court.perPlayer ? players : 1), 0);
   const totalPrice = Math.round(courtsTotal * (1 - (concession?.percent ?? 0) / 100) * 100) / 100;
   // This court's own shortest and longest booking, when it has them.
   const lengths = bookingLengths(court, step);
@@ -757,6 +762,7 @@ function BookingForm({
           marketing: email.trim() !== "" && marketing,
           ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((a) => a.court.id) } : {}),
           ...(concession ? { concessionId: concession.id } : {}),
+          ...(court.perPlayer ? { players } : {}),
         }),
       });
       const data = await res.json();
@@ -872,6 +878,25 @@ function BookingForm({
               : t("form.book", { amount: withExtras })}
         </button>
       </div>
+      {court.perPlayer && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <label className="flex items-center gap-2">
+            {t("form.players")}
+            <select
+              value={players}
+              onChange={(e) => setPlayers(Number(e.target.value))}
+              className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+            >
+              {Array.from({ length: mostPlayers }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="text-slate-500">{t("form.playersNote", { n: players, price: money(courtPrice) })}</span>
+        </div>
+      )}
       {concessions.length > 0 && (
         <div className="mt-2 text-xs text-slate-600">
           <label className="flex flex-wrap items-center gap-2">
@@ -1092,6 +1117,7 @@ function ConfirmationModal({
               ? ([] as [string, string][])
               : ([[t("done.date"), booking.date]] as [string, string][])),
             [t("done.time"), `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
+            ...((booking.players ?? 1) > 1 ? ([[t("done.players"), String(booking.players)]] as [string, string][]) : ([] as [string, string][])),
             ...(confirmation.addons?.length
               ? ([
                   [

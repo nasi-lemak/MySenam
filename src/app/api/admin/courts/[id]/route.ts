@@ -69,6 +69,8 @@ export async function PATCH(
     accessCode,
     minHours,
     maxHours,
+    perPlayer,
+    maxPlayers,
   } = (body ?? {}) as Record<string, unknown>;
 
   const changes: {
@@ -83,7 +85,17 @@ export async function PATCH(
     accessCode?: string | null;
     minHours?: number | null;
     maxHours?: number | null;
+    perPlayer?: boolean;
+    maxPlayers?: number | null;
   } = {};
+  if (perPlayer !== undefined) {
+    if (typeof perPlayer !== "boolean") return NextResponse.json({ error: "perPlayer must be true or false." }, { status: 400 });
+    changes.perPlayer = perPlayer;
+  }
+  if (maxPlayers !== undefined) {
+    if (maxPlayers !== null && typeof maxPlayers !== "number") return NextResponse.json({ error: "maxPlayers must be a number, or null." }, { status: 400 });
+    changes.maxPlayers = maxPlayers as number | null;
+  }
   // The shortest and longest one booking may be; null for the usual (checked in lib/store.ts).
   for (const [key, h] of [["minHours", minHours], ["maxHours", maxHours]] as const) {
     if (h === undefined) continue;

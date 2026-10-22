@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -169,6 +169,8 @@ export async function POST(req: NextRequest) {
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
     skipConflicts: skipConflicts === true,
+    // How many play, where the court is priced per player (checked there).
+    ...(players !== undefined ? { players: Number(players) } : {}),
   };
 
   const result = anyCourt

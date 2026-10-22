@@ -415,6 +415,7 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
                       </div>
                       <div className="text-right">
                         <div className="font-bold">{money(cheapest.totalPrice)}</div>
+                        {cheapest.court.perPlayer && <div className="text-xs text-slate-400">{t("search.perPlayer")}</div>}
                         {others > 0 && cheapest.pricesVary && (
                           <div className="text-xs text-slate-400">{t("search.fromPrice")}</div>
                         )}
@@ -530,7 +531,11 @@ function VenueResults({
                     href={bookHref(r)}
                     className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-sm font-medium text-teal-800 hover:border-teal-500"
                   >
-                    {formatHour(r.startHour)} <span className="font-normal text-teal-700">· {money(r.totalPrice)}</span>
+                    {formatHour(r.startHour)}{" "}
+                    <span className="font-normal text-teal-700">
+                      · {money(r.totalPrice)}
+                      {r.court.perPlayer && ` ${t("search.perPlayer")}`}
+                    </span>
                   </Link>
                 ))}
               </div>

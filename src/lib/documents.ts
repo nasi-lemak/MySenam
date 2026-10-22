@@ -281,7 +281,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
       `SELECT b.code, b.user_id, b.name, b.phone, b.date, b.start_hour, b.end_hour, b.total_price::float AS total_price,
               b.shares_paid::float AS shares_paid, b.deposit_paid::float AS deposit_paid, b.tax_rate, b.status, b.payment_status, b.paid_via,
               b.coach_fee::float AS coach_fee, k.name AS coach_name,
-              b.concession_name, b.concession_off::float AS concession_off, b.concession_check,
+              b.concession_name, b.concession_off::float AS concession_off, b.concession_check, b.players,
               c.name AS court_name, c.sport, c.venue_id
          FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id WHERE b.id = ?`
     )
@@ -291,7 +291,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
         total_price: number; shares_paid: number; deposit_paid: number; tax_rate: number | string | null; status: string; payment_status: string;
         paid_via: string | null; court_name: string; sport: string; venue_id: number;
         coach_fee: number; coach_name: string | null;
-        concession_name: string | null; concession_off: number; concession_check: string | null;
+        concession_name: string | null; concession_off: number; concession_check: string | null; players: number;
       }
     | undefined;
   if (!b) return null;
@@ -308,7 +308,9 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   const discount = (promo?.discount ?? 0) + concession;
   const lines: Line[] = [
     {
-      description: `${b.court_name} (${SPORT_LABELS[b.sport as keyof typeof SPORT_LABELS] ?? b.sport}), ${b.date} ${formatHour(b.start_hour)}–${formatHour(b.end_hour)}`,
+      description: `${b.court_name} (${SPORT_LABELS[b.sport as keyof typeof SPORT_LABELS] ?? b.sport}), ${b.date} ${formatHour(b.start_hour)}–${formatHour(b.end_hour)}${
+        Number(b.players) > 1 ? `, ${b.players} players` : ""
+      }`,
       amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee),
     },
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),

@@ -1764,6 +1764,22 @@ four hours, and a weekly booking of up to eight weeks. A venue can change both:
   venue limits how far ahead people may book, every week must still fall in
   that window.
 
+## Courts priced per player
+
+Some courts are sold by the head: pickleball at RM8 a player an hour. Under
+*Courts → How one booking is sold*, a court booked whole can be priced *per
+player*, taking up to 8 players in one booking unless the venue says
+otherwise (`courtPrice` in `src/lib/store.ts`).
+
+- Its rates are then per player: the grid reads *RM8–10/player/hr*, search
+  results say *per player*, and the booking form asks how many play and
+  shows *4 × RM16*.
+- The booking keeps the number (`bookings.players`): the price, a move to
+  another time and its difference, the receipt (*Pickle 1, …, 4 players*) and
+  the staff list all follow it.
+- A shared facility already sells one place per person, so it cannot also be
+  priced per player.
+
 ## Several courts in one booking
 
 A company night or a club session wants three badminton courts at 8 PM, not

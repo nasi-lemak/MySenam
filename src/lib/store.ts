@@ -38,6 +38,8 @@ import {
   MAX_HOURS_PER_BOOKING,
   MAX_COURT_HOURS,
   MAX_GROUP_COURTS,
+  DEFAULT_MAX_PLAYERS,
+  MAX_PLAYERS,
   bookingLengths,
   MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
@@ -133,6 +135,8 @@ interface CourtRow {
   surface: Surface | null;
   min_hours?: number | null;
   max_hours?: number | null;
+  per_player?: number;
+  max_players?: number | null;
 }
 
 interface VenueRow {
@@ -406,6 +410,7 @@ interface BookingRow {
   shares_paid?: number | string;
   deposit_paid?: number | string;
   group_code?: string | null;
+  players?: number;
   concession_name?: string | null;
   concession_off?: number | string;
   concession_check?: "due" | "seen" | "refused" | null;
@@ -438,6 +443,8 @@ function toCourt(r: CourtRow): Court {
     surface: r.surface ?? null,
     minHours: r.min_hours == null ? null : Number(r.min_hours),
     maxHours: r.max_hours == null ? null : Number(r.max_hours),
+    perPlayer: r.per_player === 1,
+    maxPlayers: r.max_players ?? null,
   };
 }
 
@@ -470,6 +477,7 @@ function toBooking(r: BookingRow): Booking {
     sharesPaid: Number(r.shares_paid ?? 0),
     depositPaid: Number(r.deposit_paid ?? 0),
     groupCode: r.group_code ?? null,
+    players: r.players ?? 1,
     concessionName: r.concession_name ?? null,
     concessionOff: Number(r.concession_off ?? 0),
     concessionCheck: r.concession_check ?? null,
@@ -586,6 +594,7 @@ export async function createBookingOnAnyCourt(input: {
   phone: string;
   email?: string;
   userId?: number;
+  players?: number;
 }): Promise<CreateSeriesResult> {
   const { venueId, sport, date, hours, ...rest } = input;
 
@@ -649,6 +658,7 @@ export async function createGroupBooking(input: {
   phone: string;
   email?: string;
   userId?: number;
+  players?: number;
 }): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
@@ -1381,6 +1391,20 @@ export function computePrice(
   );
 }
 
+/** What a booking of these hours costs: the court's price, times the players on a court priced per player. */
+export function courtPrice(
+  court: Court,
+  date: string,
+  hours: number[],
+  member: boolean,
+  rules: PeakRules,
+  at: number | undefined,
+  players = 1
+): number {
+  const price = computePrice(court, date, hours, member, rules, at);
+  return court.perPlayer ? roundMoney(price * players) : price;
+}
+
 /** Does this court charge members less, at any hour? */
 export function hasMemberRate(court: Court): boolean {
   return court.memberOffPeakRate !== null || court.memberPeakRate !== null;
@@ -1421,6 +1445,7 @@ export async function createBooking(input: {
   phone: string;
   email?: string;
   userId?: number;
+  players?: number;
 }): Promise<CreateBookingResult> {
   const result = await createBookingSeries({ ...input, weeks: 1 });
   if (!result.ok) return result;
@@ -1446,6 +1471,8 @@ export async function createBookingSeries(input: {
   classId?: number;
   /** The waiting-list offer this booking claims: its own hold does not count against it. */
   waitlistId?: number;
+  /** How many play, on a court priced per player. */
+  players?: number;
 }, attempt = 0): Promise<CreateSeriesResult> {
   const { courtId, date, weeks, name, phone, email, userId } = input;
   const hours = [...new Set(input.hours)].sort((a, b) => a - b);
@@ -1453,6 +1480,10 @@ export async function createBookingSeries(input: {
 
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
+  // A court priced per player says how many; any other court is one booking, whoever plays.
+  const players = court.perPlayer ? (input.players ?? 1) : 1;
+  const mostPlayers = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
+  if (!Number.isInteger(players) || players < 1 || players > mostPlayers) return refuse("PLAYERS_RANGE", { max: mostPlayers });
   // As many weeks as the venue allows (eight unless it says), staff too.
   const weeksAllowed = await seriesWeeks(court.venueId);
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > weeksAllowed)
@@ -1506,8 +1537,8 @@ export async function createBookingSeries(input: {
     return false;
   };
   const insertBooking = db.prepare(`
-    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token, class_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token, class_id, players)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSlot = db.prepare(
     `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${step})`
@@ -1573,14 +1604,14 @@ export async function createBookingSeries(input: {
           continue;
         }
         const member = await memberOn(weekDate);
-        const price = computePrice(court, weekDate, hours, member, rules, bookedAt);
+        const price = courtPrice(court, weekDate, hours, member, rules, bookedAt, players);
         const bookingId = (await insertBooking.run(
           generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + step,
           name, phone, email ?? null, price,
           userId ?? null, seriesCode, randomBytes(16).toString("hex"),
-          input.classId ?? null
+          input.classId ?? null, players
         )).lastInsertRowid as number;
-        if (price < computePrice(court, weekDate, hours, member, rules))
+        if (price < courtPrice(court, weekDate, hours, member, rules, undefined, players))
           await db.prepare("UPDATE bookings SET last_minute = 1 WHERE id = ?").run(bookingId);
         for (const [i, hour] of hours.entries()) await insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!);
         bookings.push((await getBookingById(bookingId))!);
@@ -2092,7 +2123,8 @@ export async function rescheduleBooking(
   // What the old time cost when booked: a last-minute price stays with the hour
   // it was given for, so moving away from it costs the difference.
   const bookedAt = Date.parse(`${booking.createdAt.replace(" ", "T")}${booking.createdAt.includes("Z") ? "" : "Z"}`);
-  const oldCourtPrice = computePrice(fromCourt, booking.date, oldHours, await member(booking.date), rules, Number.isFinite(bookedAt) ? bookedAt : undefined);
+  const players = booking.players ?? 1;
+  const oldCourtPrice = courtPrice(fromCourt, booking.date, oldHours, await member(booking.date), rules, Number.isFinite(bookedAt) ? bookedAt : undefined, players);
   const newMember = await member(to.date);
 
   const seatsTaken = db.prepare(
@@ -2100,7 +2132,7 @@ export async function rescheduleBooking(
   );
   for (const court of candidates) {
     if (!(await fits(court))) continue;
-    const delta = Math.round((computePrice(court, to.date, hours, newMember, rules) - oldCourtPrice) * 100) / 100;
+    const delta = Math.round((courtPrice(court, to.date, hours, newMember, rules, undefined, players) - oldCourtPrice) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     // A payment page open for the old price would settle it short.
@@ -2175,12 +2207,14 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   const length = booking.endHour - booking.startHour;
   const member = (await activeMembership(court.venueId, booking.phone, date)) !== null;
   const rules = await peakRules(court.venueId);
-  const now = computePrice(
+  const now = courtPrice(
     court,
     booking.date,
     slotsBetween(booking.startHour, booking.endHour, step),
     (await activeMembership(court.venueId, booking.phone, booking.date)) !== null,
-    rules
+    rules,
+    undefined,
+    booking.players ?? 1
   );
   const grid = await getAvailability(court.venueId, date, court.sport, member);
   grid.sort((a, b) => (a.court.id === court.id ? -1 : b.court.id === court.id ? 1 : a.court.id - b.court.id));
@@ -2200,7 +2234,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
     if (isPastSlot(date, start, zone)) continue;
     const fitting = grid.find((c) => hours.every((h) => free(c, h)));
     if (fitting) {
-      const price = computePrice(fitting.court, date, hours, member, rules);
+      const price = courtPrice(fitting.court, date, hours, member, rules, undefined, booking.players ?? 1);
       options.push({
         startHour: start,
         courtId: fitting.court.id,
@@ -3630,6 +3664,9 @@ export async function updateCourt(
     /** The shortest and longest one booking may be, in hours; null for one slot, and four hours. */
     minHours?: number | null;
     maxHours?: number | null;
+    /** Priced per player, and the most one booking takes (null for DEFAULT_MAX_PLAYERS). */
+    perPlayer?: boolean;
+    maxPlayers?: number | null;
   }
 ): Promise<CourtEditResult> {
   const db = getDb();
@@ -3731,13 +3768,22 @@ export async function updateCourt(
   if (minHours !== null && minHours > (maxHours ?? MAX_HOURS_PER_BOOKING))
     return { ok: false, error: "The shortest booking is longer than the longest." };
 
+  const perPlayer = changes.perPlayer ?? court.perPlayer ?? false;
+  const maxPlayers = changes.maxPlayers !== undefined ? changes.maxPlayers : court.maxPlayers ?? null;
+  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > MAX_PLAYERS))
+    return { ok: false, error: `Up to 2 to ${MAX_PLAYERS} players in one booking.` };
+  // A shared facility already sells places, one per person.
+  if (perPlayer && (changes.capacity ?? court.capacity) > 1)
+    return { ok: false, error: "This sells places already, one per person: price it per place instead." };
+
   const codeChanged = codeGiven && newCode !== stored.code;
 
   await db.transaction(async () => {
     await db.prepare(`
       UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
                         member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
-                        deposit = ?, unmanned = ?, access_code = ?, min_hours = ?, max_hours = ?
+                        deposit = ?, unmanned = ?, access_code = ?, min_hours = ?, max_hours = ?,
+                        per_player = ?, max_players = ?
       WHERE id = ?
     `).run(
       changes.name?.trim() ?? court.name,
@@ -3751,6 +3797,8 @@ export async function updateCourt(
       newCode,
       minHours,
       maxHours,
+      perPlayer ? 1 : 0,
+      maxPlayers,
       courtId
     );
     // Only a genuine change restarts the clock, so re-saving the same code

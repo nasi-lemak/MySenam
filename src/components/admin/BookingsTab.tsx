@@ -815,6 +815,7 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
   if (!b.addons?.length)
     return (
       <>
+        {(b.players ?? 1) > 1 && <div className="mt-1 text-xs text-slate-600">👥 {b.players} players</div>}
         {b.coachName && <Coach b={b} />}
         <ConcessionCheck b={b} act={act} />
       </>
@@ -822,6 +823,7 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <div className="mt-1 text-xs text-slate-600">
       {b.coachName && <Coach b={b} />}
+      {(b.players ?? 1) > 1 && <div>👥 {b.players} players</div>}
       🎒 {b.addons.map((a) => `${a.quantity} × ${a.name}${a.kind === "rental" ? " (hire)" : ""}`).join(", ")}
       <ConcessionCheck b={b} act={act} />
     </div>

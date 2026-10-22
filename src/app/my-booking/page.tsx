@@ -242,6 +242,7 @@ export default function MyBookingPage() {
               [t("mine.venue"), `${result.venue.name} (${result.venue.area})`],
               [t("mine.address"), result.venue.address],
               [t("mine.court"), result.court.name],
+              ...((b.players ?? 1) > 1 ? [[t("done.players"), String(b.players)]] : []),
               [t("mine.date"), b.date],
               [t("mine.time"), `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
               [t("mine.bookedBy"), b.name],

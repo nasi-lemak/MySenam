@@ -127,6 +127,9 @@ export interface Court extends CourtFeatures {
   /** The shortest and longest one booking of it may be, in hours; null: one slot, and MAX_HOURS_PER_BOOKING. */
   minHours?: number | null;
   maxHours?: number | null;
+  /** Its rates are per player, and a booking says how many play, up to `maxPlayers` (DEFAULT_MAX_PLAYERS). */
+  perPlayer?: boolean;
+  maxPlayers?: number | null;
   /**
    * What the desk holds while this resource is out on hire, in ringgit. 0 is
    * the normal case: a court cannot be carried off.
@@ -256,6 +259,8 @@ export interface Booking {
   seriesCode: string | null;
   /** Booked with other courts at the same time, as one (lib/store.ts `createGroupBooking`). */
   groupCode?: string | null;
+  /** How many play, on a court priced per player; 1 elsewhere. */
+  players?: number;
   /** A concession price (lib/concessions.ts): which, what it took off, and whether proof was seen. */
   concessionName?: string | null;
   concessionOff?: number;
@@ -597,6 +602,9 @@ export const MAX_RECUR_WEEKS = 8;
 export const MAX_SERIES_WEEKS = 26;
 /** The longest a venue may let one court be booked at a time, in hours. */
 export const MAX_COURT_HOURS = 12;
+/** The most players a per-player court takes in one booking, unless the venue says. */
+export const DEFAULT_MAX_PLAYERS = 8;
+export const MAX_PLAYERS = 50;
 /** The most courts one person may book together at the same time. */
 export const MAX_GROUP_COURTS = 6;
 /** Customers may check in from this long before their slot until it ends. */

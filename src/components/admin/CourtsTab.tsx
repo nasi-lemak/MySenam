@@ -113,7 +113,10 @@ export function CourtsTab({
     }
   }
 
-  async function saveLengths(court: Court, change: { minHours?: number | null; maxHours?: number | null }) {
+  async function saveLengths(
+    court: Court,
+    change: { minHours?: number | null; maxHours?: number | null; perPlayer?: boolean; maxPlayers?: number | null }
+  ) {
     setError(null);
     setNotice(null);
     try {
@@ -124,7 +127,7 @@ export function CourtsTab({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Update failed");
-      setNotice(`Saved how long ${data.court.name} may be booked for.`);
+      setNotice(`Saved how ${data.court.name} is booked.`);
       refreshVenues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
@@ -317,10 +320,11 @@ export function CourtsTab({
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold">How long one booking may be</h3>
+          <h3 className="font-semibold">How one booking is sold</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Court by court: futsal booked two hours at least, or a hall for a whole afternoon. The usual is one slot up to four
-            hours. Classes are not held to it.
+            Court by court: futsal booked two hours at least, or a hall for a whole afternoon (the usual is one slot up to four
+            hours; classes are not held to it). And a court can be priced per player, its rates then a head an hour, with the
+            customer saying how many play.
           </p>
           <table className="mt-2 w-full min-w-[480px] text-sm">
             <tbody>
@@ -360,6 +364,34 @@ export function CourtsTab({
                         ))}
                       </select>
                     </label>
+                  </td>
+                  <td className="py-1.5 pl-3">
+                    {court.capacity === 1 && (
+                      <span className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <label className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={!!court.perPlayer}
+                            onChange={(e) => saveLengths(court, { perPlayer: e.target.checked })}
+                          />
+                          Per player
+                        </label>
+                        {court.perPlayer && (
+                          <select
+                            value={court.maxPlayers ?? ""}
+                            onChange={(e) => saveLengths(court, { maxPlayers: e.target.value === "" ? null : Number(e.target.value) })}
+                            className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+                          >
+                            <option value="">up to 8</option>
+                            {[2, 4, 6, 10, 12, 16, 20, 30].map((n) => (
+                              <option key={n} value={n}>
+                                up to {n}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
