@@ -112,6 +112,24 @@ export function CourtsTab({
     }
   }
 
+  async function saveLengths(court: Court, change: { minHours?: number | null; maxHours?: number | null }) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/courts/${court.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(change),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      setNotice(`Saved how long ${data.court.name} may be booked for.`);
+      refreshVenues();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
   /** Open the door panel for a court, fetching its current code. */
   async function openDoor(court: Court) {
     setError(null);
@@ -288,6 +306,59 @@ export function CourtsTab({
             <tbody>
               {venue.courts.map((court) => (
                 <CourtFeaturesRow key={court.id} court={court} onFeatures={(change) => saveFeatures(court, change)} />
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {venue && venue.courts.length > 0 && (
+        <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="font-semibold">How long one booking may be</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Court by court: futsal booked two hours at least, or a hall for a whole afternoon. The usual is one slot up to four
+            hours. Classes are not held to it.
+          </p>
+          <table className="mt-2 w-full min-w-[480px] text-sm">
+            <tbody>
+              {venue.courts.map((court) => (
+                <tr key={court.id} className="border-t border-slate-100">
+                  <td className="py-1.5 pr-3 font-medium">{court.name}</td>
+                  <td className="py-1.5 pr-3">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                      At least
+                      <select
+                        value={court.minHours ?? ""}
+                        onChange={(e) => saveLengths(court, { minHours: e.target.value === "" ? null : Number(e.target.value) })}
+                        className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+                      >
+                        <option value="">one slot</option>
+                        {[1, 1.5, 2, 3, 4].map((h) => (
+                          <option key={h} value={h}>
+                            {h} {h === 1 ? "hour" : "hours"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </td>
+                  <td className="py-1.5">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                      At most
+                      <select
+                        value={court.maxHours ?? ""}
+                        onChange={(e) => saveLengths(court, { maxHours: e.target.value === "" ? null : Number(e.target.value) })}
+                        className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+                      >
+                        <option value="">4 hours</option>
+                        {[1, 2, 3, 5, 6, 8, 10, 12].map((h) => (
+                          <option key={h} value={h}>
+                            {h} {h === 1 ? "hour" : "hours"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>

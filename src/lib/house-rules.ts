@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { addDays, todayISO } from "./time";
-import { MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, type Refusal } from "./types";
+import { MAX_ADVANCE_DAYS, MAX_RECUR_WEEKS, MAX_SERIES_WEEKS, MAX_VENUE_AHEAD_DAYS, type Refusal } from "./types";
 import { phoneKey } from "./phone";
 
 /**
@@ -32,9 +32,14 @@ export interface HouseRules {
   aheadDays: number | null;
   /** How many days ahead members may book, further than everybody else. Null: the same. */
   memberAheadDays: number | null;
+  /**
+   * The most weeks one weekly booking may run, staff's too; null: eight. Not a
+   * fair-use limit (it is no reason to show the rules), but kept with them.
+   */
+  seriesWeeks: number | null;
 }
 
-export const NO_RULES: HouseRules = { upcoming: null, perWeek: null, perDay: null, aheadDays: null, memberAheadDays: null };
+export const NO_RULES: HouseRules = { upcoming: null, perWeek: null, perDay: null, aheadDays: null, memberAheadDays: null, seriesWeeks: null };
 
 const ENGLISH = translator("en");
 function refuse(code: ErrorCode, n: number, vars: Record<string, number> = {}): Refusal {
@@ -74,7 +79,7 @@ export async function isMemberHere(venueId: number, phones: (string | null | und
 
 export async function houseRules(venueId: number): Promise<HouseRules> {
   const row = (await getDb()
-    .prepare("SELECT limit_upcoming, limit_per_week, limit_per_day, book_ahead_days, member_ahead_days FROM venues WHERE id = ?")
+    .prepare("SELECT limit_upcoming, limit_per_week, limit_per_day, book_ahead_days, member_ahead_days, series_weeks FROM venues WHERE id = ?")
     .get(venueId)) as
     | {
         limit_upcoming: number | null;
@@ -82,6 +87,7 @@ export async function houseRules(venueId: number): Promise<HouseRules> {
         limit_per_day: number | null;
         book_ahead_days: number | null;
         member_ahead_days: number | null;
+        series_weeks: number | null;
       }
     | undefined;
   if (!row) return NO_RULES;
@@ -91,7 +97,13 @@ export async function houseRules(venueId: number): Promise<HouseRules> {
     perDay: row.limit_per_day,
     aheadDays: row.book_ahead_days,
     memberAheadDays: row.member_ahead_days,
+    seriesWeeks: row.series_weeks ?? null,
   };
+}
+
+/** The most weeks one weekly booking may run here. */
+export async function seriesWeeks(venueId: number): Promise<number> {
+  return (await houseRules(venueId)).seriesWeeks ?? MAX_RECUR_WEEKS;
 }
 
 export function hasRules(r: HouseRules): boolean {
@@ -112,6 +124,7 @@ export async function setHouseRules(venueId: number, input: Partial<Record<keyof
     perDay: read(input.perDay, 1, 20, "Bookings a day"),
     aheadDays: read(input.aheadDays, 0, MAX_VENUE_AHEAD_DAYS, "Days ahead"),
     memberAheadDays: read(input.memberAheadDays, 1, MAX_VENUE_AHEAD_DAYS, "Days ahead for members"),
+    seriesWeeks: read(input.seriesWeeks, 2, MAX_SERIES_WEEKS, "Weeks in a weekly booking"),
   };
   for (const v of Object.values(rules)) if (typeof v === "string") return { ok: false, error: v };
   const r = rules as HouseRules;
@@ -119,9 +132,9 @@ export async function setHouseRules(venueId: number, input: Partial<Record<keyof
     return { ok: false, error: `Members' days ahead must be more than everybody else's (${publicAhead(r)}), or blank.` };
   await getDb()
     .prepare(
-      "UPDATE venues SET limit_upcoming = ?, limit_per_week = ?, limit_per_day = ?, book_ahead_days = ?, member_ahead_days = ? WHERE id = ?"
+      "UPDATE venues SET limit_upcoming = ?, limit_per_week = ?, limit_per_day = ?, book_ahead_days = ?, member_ahead_days = ?, series_weeks = ? WHERE id = ?"
     )
-    .run(r.upcoming, r.perWeek, r.perDay, r.aheadDays, r.memberAheadDays, venueId);
+    .run(r.upcoming, r.perWeek, r.perDay, r.aheadDays, r.memberAheadDays, r.seriesWeeks, venueId);
   return { ok: true, rules: await houseRules(venueId) };
 }
 

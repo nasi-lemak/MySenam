@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { HouseRules } from "@/lib/house-rules";
 
-const FIELDS: { key: keyof HouseRules; label: string; hint: string; max: number; min: number }[] = [
+const FIELDS: { key: keyof HouseRules; label: string; hint: string; max: number; min: number; blank?: string }[] = [
   { key: "upcoming", label: "Bookings coming up at once", hint: "e.g. 2 — a third waits until one is played or cancelled", min: 1, max: 50 },
   { key: "perWeek", label: "Bookings a week", hint: "Monday to Sunday", min: 1, max: 50 },
   { key: "perDay", label: "Bookings a day", hint: "", min: 1, max: 20 },
@@ -14,6 +14,14 @@ const FIELDS: { key: keyof HouseRules; label: string; hint: string; max: number;
     hint: "Longer than everybody's, so members get first pick; blank is the same",
     min: 1,
     max: 90,
+  },
+  {
+    key: "seriesWeeks",
+    label: "Weeks in one weekly booking",
+    hint: "For a team's or a school's term; blank is 8, up to 26. Your staff too.",
+    min: 2,
+    max: 26,
+    blank: "8",
   },
 ];
 
@@ -36,6 +44,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
       perDay: r.perDay?.toString() ?? "",
       aheadDays: r.aheadDays?.toString() ?? "",
       memberAheadDays: r.memberAheadDays?.toString() ?? "",
+      seriesWeeks: r.seriesWeeks?.toString() ?? "",
     });
 
   useEffect(() => {
@@ -87,7 +96,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
                   min={f.min}
                   max={f.max}
                   value={values[f.key]}
-                  placeholder="no limit"
+                  placeholder={f.blank ?? "no limit"}
                   onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
                   className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1"
                 />

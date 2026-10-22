@@ -124,6 +124,9 @@ export interface Court extends CourtFeatures {
   memberOffPeakRate: number | null;
   memberPeakRate: number | null;
   capacity: number;
+  /** The shortest and longest one booking of it may be, in hours; null: one slot, and MAX_HOURS_PER_BOOKING. */
+  minHours?: number | null;
+  maxHours?: number | null;
   /**
    * What the desk holds while this resource is out on hire, in ringgit. 0 is
    * the normal case: a court cannot be carried off.
@@ -580,8 +583,12 @@ export const MAX_ADVANCE_DAYS = 14;
 /** The furthest ahead a venue may choose to take bookings, for everybody or its members. */
 export const MAX_VENUE_AHEAD_DAYS = 90;
 // Weekly series may extend past the normal advance window; only the first
-// session must fall inside it.
+// session must fall inside it. Eight weeks unless the venue allows more
+// (lib/house-rules.ts `seriesWeeks`), up to half a year.
 export const MAX_RECUR_WEEKS = 8;
+export const MAX_SERIES_WEEKS = 26;
+/** The longest a venue may let one court be booked at a time, in hours. */
+export const MAX_COURT_HOURS = 12;
 /** Customers may check in from this long before their slot until it ends. */
 export const CHECK_IN_OPENS_MINUTES_BEFORE = 60;
 
@@ -603,3 +610,9 @@ export interface Refusal {
 
 /** The deposits a venue may take online to hold a booking, as a percent of the price (lib/holds.ts). */
 export const DEPOSIT_PERCENTS = [10, 20, 25, 30, 40, 50] as const;
+
+/** How short and how long one booking of this court may be, in hours, where a slot is `step` hours. */
+export function bookingLengths(court: Pick<Court, "minHours" | "maxHours">, step: number): { min: number; max: number } {
+  const max = court.maxHours ?? MAX_HOURS_PER_BOOKING;
+  return { min: Math.min(Math.max(court.minHours ?? step, step), max), max };
+}

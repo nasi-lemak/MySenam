@@ -67,6 +67,8 @@ export async function PATCH(
     deposit,
     unmanned,
     accessCode,
+    minHours,
+    maxHours,
   } = (body ?? {}) as Record<string, unknown>;
 
   const changes: {
@@ -79,7 +81,15 @@ export async function PATCH(
     deposit?: number;
     unmanned?: boolean;
     accessCode?: string | null;
+    minHours?: number | null;
+    maxHours?: number | null;
   } = {};
+  // The shortest and longest one booking may be; null for the usual (checked in lib/store.ts).
+  for (const [key, h] of [["minHours", minHours], ["maxHours", maxHours]] as const) {
+    if (h === undefined) continue;
+    if (h !== null && typeof h !== "number") return NextResponse.json({ error: `${key} must be a number of hours, or null.` }, { status: 400 });
+    changes[key] = h as number | null;
+  }
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length < 2)
       return NextResponse.json({ error: "Court name is too short." }, { status: 400 });

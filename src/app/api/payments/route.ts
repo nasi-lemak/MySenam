@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { startBookingPayment } from "@/lib/payments";
-import { MAX_RECUR_WEEKS } from "@/lib/types";
+import { MAX_SERIES_WEEKS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   }
   const { code, codes, phone, deposit } = (body ?? {}) as Record<string, unknown>;
   const list = Array.isArray(codes) ? codes : typeof code === "string" ? [code] : [];
-  if (list.length === 0 || list.length > MAX_RECUR_WEEKS || list.some((c) => typeof c !== "string"))
+  if (list.length === 0 || list.length > MAX_SERIES_WEEKS || list.some((c) => typeof c !== "string"))
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });
   if (typeof phone !== "string" || phone.trim() === "")
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });

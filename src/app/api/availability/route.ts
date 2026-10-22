@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { seriesWeeks } from "@/lib/house-rules";
 import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
 import { shows, storefrontForRequest } from "@/lib/storefront";
@@ -53,5 +54,7 @@ export async function GET(req: NextRequest) {
     closure: await getVenueClosure(venueId, date),
     memberRates: membership !== null,
     timeZone: venue.timeZone,
+    // The most weeks one weekly booking may run here.
+    seriesWeeks: await seriesWeeks(venueId),
   });
 }

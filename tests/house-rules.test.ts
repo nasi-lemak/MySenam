@@ -148,7 +148,7 @@ describe("house rules", () => {
         body: JSON.stringify({ venueId, upcoming: 3, perWeek: "", perDay: "", aheadDays: "" }),
       })
     );
-    expect(await res.json()).toEqual({ rules: { upcoming: 3, perWeek: null, perDay: null, aheadDays: null, memberAheadDays: null } });
+    expect(await res.json()).toEqual({ rules: { upcoming: 3, perWeek: null, perDay: null, aheadDays: null, memberAheadDays: null, seriesWeeks: null } });
     const anonymous = await rulesPost(
       new NextRequest("http://localhost/api/admin/house-rules", { method: "POST", body: JSON.stringify({ venueId }) })
     );

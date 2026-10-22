@@ -36,6 +36,8 @@ import {
   type CounterMethod,
   type PaidVia,
   MAX_HOURS_PER_BOOKING,
+  MAX_COURT_HOURS,
+  bookingLengths,
   MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
   ClassSession,
@@ -106,7 +108,7 @@ import { hoursOn, parseWeekHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { cancelPolicy } from "./cancel-policy";
-import { venueAheadDays } from "./house-rules";
+import { seriesWeeks, venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt } from "./documents";
 import { venueTax } from "./tax";
 
@@ -128,6 +130,8 @@ interface CourtRow {
   aircon: number;
   floodlit: number;
   surface: Surface | null;
+  min_hours?: number | null;
+  max_hours?: number | null;
 }
 
 interface VenueRow {
@@ -427,6 +431,8 @@ function toCourt(r: CourtRow): Court {
     aircon: r.aircon === 1,
     floodlit: r.floodlit === 1,
     surface: r.surface ?? null,
+    minHours: r.min_hours == null ? null : Number(r.min_hours),
+    maxHours: r.max_hours == null ? null : Number(r.max_hours),
   };
 }
 
@@ -611,8 +617,10 @@ export async function createBookingOnAnyCourt(input: {
     if (result.ok) return result;
     lastError = result.error;
     // Anything that is not "someone took it" applies to every court equally,
-    // so there is no point walking the rest of the list.
-    if (!TAKEN_ERROR.test(result.error)) return result;
+    // so there is no point walking the rest of the list; bar a court's own
+    // booking length, which the next court may not share.
+    const code = (result as { code?: string }).code;
+    if (!TAKEN_ERROR.test(result.error) && code !== "MIN_HOURS" && code !== "MAX_HOURS") return result;
   }
   return { ok: false, error: lastError };
 }
@@ -1158,6 +1166,11 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_access: "public" | "members" | "private";
     v_ahead: number | null;
   })[];
+  // Not a court that will not take a booking that long, or that short.
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const lengths = bookingLengths(toCourt(rows[i]), (rows[i].v_slot_minutes ?? 60) / 60);
+    if (duration < lengths.min || duration > lengths.max) rows.splice(i, 1);
+  }
   if (rows.length === 0) return [];
 
   // A venue shut for the day has nothing to offer, whatever its courts say.
@@ -1391,8 +1404,10 @@ export async function createBookingSeries(input: {
 
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
-  if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_RECUR_WEEKS)
-    return refuse("WEEKS_RANGE", { max: MAX_RECUR_WEEKS });
+  // As many weeks as the venue allows (eight unless it says), staff too.
+  const weeksAllowed = await seriesWeeks(court.venueId);
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > weeksAllowed)
+    return refuse("WEEKS_RANGE", { max: weeksAllowed });
   // Today, and what has passed, are the venue's.
   const zone = await courtZone(courtId);
   // As far ahead as the venue takes bookings at all; who may book how far is lib/house-rules.ts.
@@ -1402,8 +1417,12 @@ export async function createBookingSeries(input: {
   // Slots are hours, or half hours where the venue sells halves.
   const { openHour, closeHour, step } = await courtVenueHours(courtId, date);
   if (!hours.every((h) => onSlot(h, step))) return refuse("NO_HOURS");
-  if (hours.length * step > MAX_HOURS_PER_BOOKING)
-    return refuse("MAX_HOURS", { max: MAX_HOURS_PER_BOOKING });
+  // How short and how long a booking of this court may be: its own, or one slot to four hours.
+  const lengths = bookingLengths(court, step);
+  if (hours.length * step > lengths.max && !input.classId)
+    return refuse("MAX_HOURS", { max: lengths.max });
+  if (hours.length * step < lengths.min && !input.classId)
+    return refuse("MIN_HOURS", { min: lengths.min });
   if (!consecutive(hours, step))
     return refuse("HOURS_NOT_CONSECUTIVE");
   // Closed that day (a closure, or a weekday it never opens) says so, rather than "outside the hours".
@@ -3559,6 +3578,9 @@ export async function updateCourt(
     unmanned?: boolean;
     /** null clears the stored code, which also switches unmanned off. */
     accessCode?: string | null;
+    /** The shortest and longest one booking may be, in hours; null for one slot, and four hours. */
+    minHours?: number | null;
+    maxHours?: number | null;
   }
 ): Promise<CourtEditResult> {
   const db = getDb();
@@ -3652,13 +3674,21 @@ export async function updateCourt(
       error: "Something hired out against a deposit needs someone at the counter, so it cannot be unmanned.",
     };
 
+  const minHours = changes.minHours !== undefined ? changes.minHours : court.minHours ?? null;
+  const maxHours = changes.maxHours !== undefined ? changes.maxHours : court.maxHours ?? null;
+  const lengthOk = (h: number | null) => h === null || (Number.isFinite(h) && h >= 0.5 && h <= MAX_COURT_HOURS && Number.isInteger(h * 2));
+  if (!lengthOk(minHours) || !lengthOk(maxHours))
+    return { ok: false, error: `A booking's length is in half hours, up to ${MAX_COURT_HOURS} hours.` };
+  if (minHours !== null && minHours > (maxHours ?? MAX_HOURS_PER_BOOKING))
+    return { ok: false, error: "The shortest booking is longer than the longest." };
+
   const codeChanged = codeGiven && newCode !== stored.code;
 
   await db.transaction(async () => {
     await db.prepare(`
       UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
                         member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
-                        deposit = ?, unmanned = ?, access_code = ?
+                        deposit = ?, unmanned = ?, access_code = ?, min_hours = ?, max_hours = ?
       WHERE id = ?
     `).run(
       changes.name?.trim() ?? court.name,
@@ -3670,6 +3700,8 @@ export async function updateCourt(
       deposit,
       unmanned ? 1 : 0,
       newCode,
+      minHours,
+      maxHours,
       courtId
     );
     // Only a genuine change restarts the clock, so re-saving the same code

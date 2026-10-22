@@ -21,7 +21,7 @@ import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isSlotHour, isValidDateString, todayISO } from "@/lib/time";
 import { houseRules, isMemberHere, lastBookableDay } from "@/lib/house-rules";
-import { MAX_RECUR_WEEKS, Sport, SPORTS } from "@/lib/types";
+import { MAX_SERIES_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
 import { takesPaymentOnline } from "@/lib/payments";
@@ -73,9 +73,9 @@ export async function POST(req: NextRequest) {
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
   if (weeks !== undefined &&
-      (!Number.isInteger(weeks) || (weeks as number) < 1 || (weeks as number) > MAX_RECUR_WEEKS))
+      (!Number.isInteger(weeks) || (weeks as number) < 1 || (weeks as number) > MAX_SERIES_WEEKS))
     return NextResponse.json(
-      { error: `weeks must be between 1 and ${MAX_RECUR_WEEKS}.` },
+      { error: `weeks must be between 1 and ${MAX_SERIES_WEEKS}.` },
       { status: 400 }
     );
 

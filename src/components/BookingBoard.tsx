@@ -12,6 +12,7 @@ import {
   isShared,
   MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
+  bookingLengths,
   Sport,
   SPORT_ICONS,
   Pass,
@@ -134,6 +135,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   const [memberRates, setMemberRates] = useState(false);
   // The venue's clock, which the slots and "already passed" go by.
   const [zone, setZone] = useState(region().timeZone);
+  // The most weeks one weekly booking may run at this venue.
+  const [maxWeeks, setMaxWeeks] = useState(MAX_RECUR_WEEKS);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +182,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       setClosure(data.closure ?? null);
       setMemberRates(data.memberRates === true);
       if (typeof data.timeZone === "string") setZone(data.timeZone);
+      if (Number.isInteger(data.seriesWeeks)) setMaxWeeks(data.seriesWeeks);
 
       const pending = pendingInitial.current;
       if (pending) {
@@ -294,7 +298,10 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       if (hours.length === 0) return null;
       // Keep the selection contiguous: if toggling breaks contiguity, restart from this slot.
       if (!consecutive(hours, step)) return { courtId, hours: [hour] };
-      if (hours.length * step > MAX_HOURS_PER_BOOKING) return prev;
+      // As long as this court may be booked for: its own limit, or four hours.
+      const court = availability?.find((a) => a.court.id === courtId)?.court;
+      const longest = court ? bookingLengths(court, step).max : MAX_HOURS_PER_BOOKING;
+      if (hours.length * step > longest) return prev;
       // "Any court" still means one court for the whole booking.
       if (courtId === ANY_COURT && !cheapestWholeCourt(availability, hours)) return { courtId, hours: [hour] };
       return { courtId, hours };
@@ -514,7 +521,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
               {t("board.legendTaken")}
             </span>
             <span className="ml-auto">
-              {t("board.maxHours", { n: MAX_HOURS_PER_BOOKING })}
+              {t("board.maxHours", {
+                n: Math.max(MAX_HOURS_PER_BOOKING, ...(availability ?? []).map((a) => bookingLengths(a.court, step).max)),
+              })}
             </span>
           </div>
         </div>
@@ -533,6 +542,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           date={date}
           hours={selection.hours}
           step={step}
+          maxWeeks={maxWeeks}
           totalPrice={totalPrice}
           lastMinute={lastMinute}
           onBooked={(c) => {
@@ -572,6 +582,7 @@ function BookingForm({
   date,
   hours,
   step,
+  maxWeeks = MAX_RECUR_WEEKS,
   totalPrice,
   lastMinute = 0,
   onBooked,
@@ -584,6 +595,8 @@ function BookingForm({
   hours: number[];
   /** One slot's length in hours. */
   step: number;
+  /** The most weeks one weekly booking may run here. */
+  maxWeeks?: number;
   totalPrice: number;
   /** Percent off the hours picked, for booking them now. */
   lastMinute?: number;
@@ -596,6 +609,10 @@ function BookingForm({
   // News from this venue: asked, never ticked for them (lib/marketing.ts).
   const [marketing, setMarketing] = useState(false);
   const [weeks, setWeeks] = useState(1);
+  // This court's own shortest and longest booking, when it has them.
+  const lengths = bookingLengths(court, step);
+  const ownLengths = court.id !== ANY_COURT && (court.minHours != null || court.maxHours != null);
+  const tooShort = court.id !== ANY_COURT && hours.length * step < lengths.min;
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
   const [passCode, setPassCode] = useState("");
@@ -771,7 +788,7 @@ function BookingForm({
             className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none"
           >
             <option value={1}>{t("form.justOnce")}</option>
-            {Array.from({ length: MAX_RECUR_WEEKS - 1 }, (_, i) => i + 2).map((w) => (
+            {Array.from({ length: maxWeeks - 1 }, (_, i) => i + 2).map((w) => (
               <option key={w} value={w}>
                 {t("form.weekly", { n: w })}
               </option>
@@ -780,7 +797,7 @@ function BookingForm({
         </label>
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || tooShort}
           className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50"
         >
           {submitting
@@ -790,6 +807,11 @@ function BookingForm({
               : t("form.book", { amount: withExtras })}
         </button>
       </div>
+      {(tooShort || ownLengths) && (
+        <p className={`mt-2 text-xs ${tooShort ? "font-medium text-amber-700" : "text-slate-500"}`}>
+          {t("board.lengths", { min: lengths.min, max: lengths.max, court: court.name })}
+        </p>
+      )}
       <AddonPicker
         t={t}
         query={`${court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`}&date=${date}&hours=${hours.join(",")}`}

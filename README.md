@@ -15,7 +15,7 @@ equipment hire such as kayaks, and instructor-led classes.
 - **Peak / off-peak pricing** — each venue sets when its peak rate applies: weekday hours, weekend hours, which days are the weekend, and holidays priced like it (weekday evenings from 6 PM and all weekend until it does); prices shown per slot
 - **"Any court"** — a row above the grid for customers who do not mind which court; it shows the cheapest free rate each hour and books the cheapest court free for the whole slot
 - **Instant booking** — pick up to 4 consecutive hours, enter name + phone, get a booking code (e.g. `MS-8F3K2A`); pay at the counter
-- **Weekly recurring bookings** — repeat the same slot for up to 8 weeks (leagues, training); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
+- **Weekly recurring bookings** — repeat the same slot for up to 8 weeks, or up to 26 where the venue allows it (a team's season, a school's term); each session gets its own code plus a shared series code (`SR-…`), clashing weeks can be skipped or fail the whole series, and a series cancels in one action
 - **Double-booking proof** — slot uniqueness is enforced at the database level, so concurrent bookings can never collide
 - **Memberships and member rates** — each court can carry a member price alongside its public one; a member of that venue is charged it automatically, and sees it on the grid when signed in; clubs can sell and renew memberships online
 - **Promo codes** — a venue advertises a percentage or fixed discount, optionally limited to one sport, a minimum booking length, a date range and a number of uses; customers type the code when booking and it comes off the total
@@ -1746,6 +1746,23 @@ why — and leaves the ledger alone.
 
 Customers see the deposit before they commit: on the grid row, on the booking
 panel and on the confirmation, phrased as what it is rather than as a charge.
+
+## How long a booking may be
+
+The usual: one slot (an hour, or half an hour where a venue sells halves) up to
+four hours, and a weekly booking of up to eight weeks. A venue can change both:
+
+- **Court by court**, under *Courts → How long one booking may be*: a futsal
+  pitch booked for two hours at least, a hall for up to twelve. The grid stops
+  a selection at the court's longest, says *2 to 4 consecutive hours per
+  booking on Futsal A* on the booking form, and will not book one shorter. A
+  booking on *any court* goes to a court that takes that length, and search
+  leaves out courts that would not. Classes are not held to it.
+- **Weeks in one weekly booking**, under *House rules*: up to 26, for a team's
+  season or a school's term, staff's bookings included. It is not a fair-use
+  rule, so on its own it does not put house rules on the venue page. Where the
+  venue limits how far ahead people may book, every week must still fall in
+  that window.
 
 ## Exclusive courts vs shared facilities
 

@@ -495,6 +495,7 @@ const EN = {
   "board.legendSelected": "Selected",
   "board.legendTaken": "Booked / past",
   "board.maxHours": "Max {n} consecutive hours per booking",
+  "board.lengths": "{min} to {max} consecutive hours per booking on {court}",
   "board.noCourts": "No {sport} courts at this venue.",
 
   // The booking bar
@@ -1035,6 +1036,7 @@ const EN = {
   "err.DATE_OUT_OF_WINDOW": "Date is outside the booking window.",
   "err.NO_HOURS": "Select at least one hour.",
   "err.MAX_HOURS": "Maximum {max} hours per booking.",
+  "err.MIN_HOURS": "A booking here is at least {min} hours.",
   "err.HOURS_NOT_CONSECUTIVE": "Selected hours must be consecutive.",
   "err.HOURS_OUTSIDE_OPENING": "Selected hours are outside operating hours.",
   "err.PHONE_BLOCKED": "This venue is not taking online bookings from this number. Please call the venue.",
@@ -1836,6 +1838,7 @@ const MS: Record<Phrase, string> = {
   "board.legendSelected": "Dipilih",
   "board.legendTaken": "Ditempah / sudah lepas",
   "board.maxHours": "Maksimum {n} jam berturut-turut setiap tempahan",
+  "board.lengths": "{min} hingga {max} jam berturut-turut setiap tempahan di {court}",
   "board.noCourts": "Tiada gelanggang {sport} di pusat ini.",
 
   // Bar tempahan
@@ -2389,6 +2392,7 @@ const MS: Record<Phrase, string> = {
   "err.DATE_OUT_OF_WINDOW": "Tarikh itu di luar tempoh tempahan yang dibenarkan.",
   "err.NO_HOURS": "Pilih sekurang-kurangnya satu jam.",
   "err.MAX_HOURS": "Maksimum {max} jam bagi setiap tempahan.",
+  "err.MIN_HOURS": "Tempahan di sini sekurang-kurangnya {min} jam.",
   "err.HOURS_NOT_CONSECUTIVE": "Jam yang dipilih mesti berturut-turut.",
   "err.HOURS_OUTSIDE_OPENING": "Jam yang dipilih di luar waktu operasi.",
   "err.PHONE_BLOCKED": "Pusat ini tidak menerima tempahan dalam talian daripada nombor ini. Sila hubungi pusat tersebut.",
