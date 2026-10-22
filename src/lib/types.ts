@@ -321,6 +321,8 @@ export interface ClassSession {
   enrolled: number;
   /** Anyone, women only or men only (lib/who.ts). */
   who: "anyone" | "women" | "men";
+  /** A share off each session for joining every one left in the series at once (lib/store.ts `enrolInTerm`). */
+  termOffPercent?: number | null;
 }
 
 export const MAX_CLASS_WEEKS = 12;

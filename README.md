@@ -1984,6 +1984,19 @@ series code. Cancelling a class releases every enrolment and returns the hours
 to general booking. Staff see a roster per class with each attendee's check-in
 state.
 
+
+### Terms
+
+A class scheduled weekly can be joined for every session left at once, from
+the classes page: *Every week to the end: 8 sessions, RM216*
+(`enrolInTerm` in `src/lib/store.ts`). Each session is its own enrolment, as
+if joined one by one, sharing a series code so they are confirmed in one
+message and paid in one bill. A session that is full, or that the customer
+is already in, is skipped and named. When scheduling a weekly class, the
+venue can take a share off each session (up to 50%) for joining the whole
+term. A class in the diary can be joined however far ahead it is: the
+booking window is for courts, while the venue's house rules on how far ahead
+people may book still apply.
 ## Waitlists
 
 A full class *or a taken court hour* can still be joined — as a queue. When it

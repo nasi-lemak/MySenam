@@ -206,7 +206,18 @@ function EnrolModal({
   const [extrasNote, setExtrasNote] = useState<string | null>(null);
   const [chat, setChat] = useState<string | null>(null);
   const isFull = session.enrolled >= session.capacity;
-  const total = Math.round((session.price + pickedTotal(offered, picked)) * 100) / 100;
+  // A weekly class can be joined for every session left at once (lib/store.ts `enrolInTerm`).
+  const [term, setTerm] = useState<{ sessions: number; total: number; offPercent: number } | null>(null);
+  const [wholeTerm, setWholeTerm] = useState(false);
+  const [termNote, setTermNote] = useState<string | null>(null);
+  const total = wholeTerm && term ? term.total : Math.round((session.price + pickedTotal(offered, picked)) * 100) / 100;
+  useEffect(() => {
+    if (!session.seriesCode || isFull) return;
+    fetch(`/api/classes/term?classId=${session.id}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setTerm(d.term ?? null))
+      .catch(() => {});
+  }, [session.id, session.seriesCode, isFull]);
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
@@ -244,7 +255,7 @@ function EnrolModal({
           phone,
           email,
           confirmWho,
-          ...(isFull ? {} : { addons: pickedList(picked) }),
+          ...(isFull ? {} : wholeTerm ? { term: true } : { addons: pickedList(picked) }),
         }),
       });
       const data = await res.json();
@@ -255,7 +266,15 @@ function EnrolModal({
         );
       if (!signedIn) rememberGuest({ name, phone, email });
       if (isFull) setQueued(data.position);
-      else {
+      else if (wholeTerm) {
+        setCode(data.seriesCode);
+        setTermNote(
+          [
+            t("classes.termEnrolled", { n: data.bookings.length, code: data.seriesCode }),
+            ...(data.skipped?.length ? [t("classes.termSkipped", { dates: (data.skipped as { date: string }[]).map((x) => x.date).join(", ") })] : []),
+          ].join(" ")
+        );
+      } else {
         setCode(data.booking.code);
         setChat(data.chatNumber ?? null);
         if (data.addonError) setExtrasNote(t("done.addonRejected", { reason: translateError(t, data.addonError) }));
@@ -308,6 +327,7 @@ function EnrolModal({
               {code}
             </div>
             {extrasNote && <p className="mt-2 text-xs text-slate-600">{extrasNote}</p>}
+            {termNote && <p className="mt-2 text-xs text-slate-600">{termNote}</p>}
             <ChatLink t={t} number={chat} code={code} />
             <p className="mt-2 text-xs text-slate-500">
               {t("classes.enrolledNote")}
@@ -370,7 +390,16 @@ function EnrolModal({
                   {t(`who.confirm.${session.who}`)}
                 </label>
               )}
-              {!isFull && (
+              {term && (
+                <label className="flex items-start gap-2 rounded-lg bg-violet-50 p-3 text-sm text-violet-900">
+                  <input type="checkbox" checked={wholeTerm} onChange={(e) => setWholeTerm(e.target.checked)} className="mt-0.5" />
+                  <span>
+                    {t("classes.termOption", { n: term.sessions, total: term.total.toFixed(2) })}
+                    {term.offPercent > 0 && <span className="block text-xs">{t("classes.termOff", { pct: term.offPercent })}</span>}
+                  </span>
+                </label>
+              )}
+              {!isFull && !wholeTerm && (
                 <AddonPicker t={t} query={`classId=${session.id}`} picked={picked} onChange={setPicked} onList={setOffered} />
               )}
               {error && <p className="text-sm text-red-600">{error}</p>}

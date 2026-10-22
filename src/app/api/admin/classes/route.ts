@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { courtId, name, instructor, date, startHour, endHour, capacity, price, weeks, who } =
+  const { courtId, name, instructor, date, startHour, endHour, capacity, price, weeks, who, termOffPercent } =
     (body ?? {}) as Record<string, unknown>;
 
   if (!Number.isInteger(courtId) || (courtId as number) <= 0)
@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
     price: price as number,
     weeks: (weeks as number) ?? 1,
     who: who === "women" || who === "men" ? who : "anyone",
+    termOffPercent: termOffPercent === undefined || termOffPercent === null || termOffPercent === "" ? null : Number(termOffPercent),
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   const after = before + result.classes.length;

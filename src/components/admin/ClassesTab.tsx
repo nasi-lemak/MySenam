@@ -32,6 +32,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     capacity: "12",
     price: "25",
     weeks: "1",
+    termOff: "0",
     who: "anyone",
   });
 
@@ -75,6 +76,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           capacity: Number(form.capacity),
           price: Number(form.price),
           weeks: Number(form.weeks),
+          termOffPercent: Number(form.weeks) > 1 ? Number(form.termOff) : null,
           who: form.who,
         }),
       });
@@ -318,6 +320,20 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
               </option>
             ))}
           </select>
+          {Number(form.weeks) > 1 && (
+            <select
+              value={form.termOff}
+              onChange={(e) => setForm({ ...form, termOff: e.target.value })}
+              title="A share off each session for joining the whole term at once"
+              className={inputClass}
+            >
+              {[0, 5, 10, 15, 20, 25, 30].map((p) => (
+                <option key={p} value={p}>
+                  {p === 0 ? "No term discount" : `${p}% off for the whole term`}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="submit"
             className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"

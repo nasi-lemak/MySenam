@@ -1512,7 +1512,8 @@ export async function createBookingSeries(input: {
   // Today, and what has passed, are the venue's.
   const zone = await courtZone(courtId);
   // As far ahead as the venue takes bookings at all; who may book how far is lib/house-rules.ts.
-  if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)))
+  // A class the venue has put in the diary can be joined whenever it is (a term runs past the window).
+  if (!input.classId && !isBookableDate(date, zone, await venueAheadDays(court.venueId)))
     return refuse("DATE_OUT_OF_WINDOW_FIRST");
   if (hours.length === 0) return refuse("NO_HOURS");
   // Slots are hours, or half hours where the venue sells halves.
@@ -3957,6 +3958,7 @@ interface ClassRow {
   venue_area: string;
   enrolled: number;
   who: ClassSession["who"];
+  term_off_percent?: number | null;
 }
 
 const CLASS_SELECT = `
@@ -3989,6 +3991,7 @@ function toClass(r: ClassRow): ClassSession {
     seriesCode: r.series_code,
     enrolled: r.enrolled,
     who: r.who ?? "anyone",
+    termOffPercent: r.term_off_percent ?? null,
   };
 }
 
@@ -4060,6 +4063,8 @@ export async function createClassSessions(input: {
   weeks?: number;
   /** Anyone, women only or men only. */
   who?: ClassSession["who"];
+  /** A share off each session for joining the whole term at once. */
+  termOffPercent?: number | null;
 }): Promise<CreateClassResult> {
   const { courtId, date, startHour, endHour } = input;
   const weeks = input.weeks ?? 1;
@@ -4070,6 +4075,9 @@ export async function createClassSessions(input: {
   if (!court) return refuse("COURT_NOT_FOUND");
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_CLASS_WEEKS)
     return { ok: false, error: `Weeks must be between 1 and ${MAX_CLASS_WEEKS}.` };
+  const termOff = input.termOffPercent ?? null;
+  if (termOff !== null && (!Number.isInteger(termOff) || termOff < 0 || termOff > 50))
+    return { ok: false, error: "Take 0 to 50 percent off for the whole term." };
   const { openHour, closeHour, step, zone } = await courtVenueHours(courtId, date);
   if (startHour < openHour || endHour > closeHour || endHour <= startHour)
     return { ok: false, error: "Class hours are outside operating hours." };
@@ -4094,8 +4102,8 @@ export async function createClassSessions(input: {
       .join(",")})`
   );
   const insert = db.prepare(`
-    INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price, series_code, who)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price, series_code, who, term_off_percent)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
@@ -4111,7 +4119,7 @@ export async function createClassSessions(input: {
 
         const id = (await insert.run(
           courtId, input.name.trim(), input.instructor.trim(), weekDate,
-          startHour, endHour, input.capacity, input.price, seriesCode, who
+          startHour, endHour, input.capacity, input.price, seriesCode, who, seriesCode ? termOff : null
         )).lastInsertRowid as number;
         sessions.push((await getClass(id))!);
       }
@@ -4182,6 +4190,64 @@ export async function enrolInClass(input: {
       .run(session.price, result.bookings[0].id);
     return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price } };
   });
+}
+
+export interface TermInfo {
+  /** Sessions from this one on that still have a place. */
+  sessions: ClassSession[];
+  /** What they come to, the term's share off taken. */
+  total: number;
+  offPercent: number;
+}
+
+/** Every session left in a weekly class from this one, for joining the term at once. */
+export async function classTerm(classId: number): Promise<TermInfo | null> {
+  const session = await getClass(classId);
+  if (!session?.seriesCode) return null;
+  const zone = (await venueHours(session.venueId)).zone;
+  const rows = (await getDb()
+    .prepare(`${CLASS_SELECT} WHERE cl.series_code = ? AND cl.status = 'scheduled' AND cl.date >= ? ORDER BY cl.date`)
+    .all(session.seriesCode, session.date)) as ClassRow[];
+  const sessions = rows.map(toClass).filter((c) => c.enrolled < c.capacity && !isPastSlot(c.date, c.startHour, zone));
+  if (sessions.length < 2) return null;
+  const offPercent = session.termOffPercent ?? 0;
+  const total = roundMoney(sessions.reduce((sum, c) => sum + roundMoney((c.price * (100 - offPercent)) / 100), 0));
+  return { sessions, total, offPercent };
+}
+
+export type TermResult =
+  | { ok: true; bookings: Booking[]; skipped: SeriesSkip[]; seriesCode: string }
+  | Refusal;
+
+/**
+ * Join a weekly class for every session left, from this one: one enrolment
+ * each, as `enrolInClass` makes them, sharing a series code so they are
+ * confirmed and paid as one, at the term's share off. A session that has
+ * filled, or that this number is in already, is skipped and said.
+ */
+export async function enrolInTerm(input: { classId: number; name: string; phone: string; email?: string; userId?: number }): Promise<TermResult> {
+  const term = await classTerm(input.classId);
+  if (!term) return refuse("CLASS_NO_TERM");
+  const bookings: Booking[] = [];
+  const skipped: SeriesSkip[] = [];
+  for (const session of term.sessions) {
+    const made = await enrolInClass({ ...input, classId: session.id });
+    if (!made.ok) {
+      skipped.push({ date: session.date, reason: made.error });
+      continue;
+    }
+    bookings.push(made.booking);
+  }
+  if (bookings.length === 0) return { ok: false, error: skipped[0]?.reason ?? "No session left to join.", code: "CLASS_FULL" } as Refusal;
+  const seriesCode = generateSeriesCode();
+  const db = getDb();
+  for (const b of bookings) {
+    const price = roundMoney((b.totalPrice * (100 - term.offPercent)) / 100);
+    await db.prepare("UPDATE bookings SET series_code = ?, total_price = ? WHERE id = ?").run(seriesCode, price, b.id);
+    b.seriesCode = seriesCode;
+    b.totalPrice = price;
+  }
+  return { ok: true, bookings, skipped, seriesCode };
 }
 
 /** Cancel a class and release every enrolment in it. */

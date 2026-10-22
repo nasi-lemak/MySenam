@@ -6,9 +6,9 @@ import { getSessionUser } from "@/lib/auth";
 import { customerMayBook } from "@/lib/limits";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { enrolInClass, getClass, payBookingFromWallet } from "@/lib/store";
+import { classTerm, enrolInClass, enrolInTerm, getClass, payBookingFromWallet } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
-import { notifyClassEnrolled, rememberLocale, tickOutbox } from "@/lib/notify";
+import { notifyBookingConfirmed, notifyClassEnrolled, rememberLocale, tickOutbox } from "@/lib/notify";
 import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, name, phone, email, payFromWallet, confirmWho, addons } = (body ?? {}) as Record<
+  const { classId, name, phone, email, payFromWallet, confirmWho, addons, term } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -54,12 +54,15 @@ export async function POST(req: NextRequest) {
     // A women-only or men-only class: by the account, or a guest saying so.
     const notFor = await classRefusal(forClass.who, user?.id ?? null, confirmWho === true);
     if (notFor) return refusal(notFor, 403);
+    // The whole term counts as a booking a session, as a weekly series does.
+    const termInfo = term === true ? await classTerm(forClass.id) : null;
     const refused = await customerMayBook({
       venueId: forClass.venueId,
       phone,
       signedIn: user !== null,
       userId: user?.id ?? null,
       preview: (await mayShowVenue(forClass.venueId, req)).preview,
+      ...(termInfo ? { dates: termInfo.sessions.map((c) => c.date) } : {}),
     });
     if (refused) return refusal(refused);
     // A mat or a towel that has run out is said before the place is taken.
@@ -73,6 +76,33 @@ export async function POST(req: NextRequest) {
       if (!priced.ok) return refusal(priced);
     }
   }
+  // Every session left, at once: one confirmation, one bill (lib/store.ts `enrolInTerm`). Extras go on one session at a time.
+  if (term === true) {
+    const joined = await enrolInTerm({
+      classId: classId as number,
+      name: name.trim(),
+      phone: phone.trim(),
+      email: typeof email === "string" && email !== "" ? email.trim() : undefined,
+      userId: user?.id,
+    });
+    if (!joined.ok) return refusal(joined);
+    let walletError: string | null = null;
+    if (payFromWallet === true && user)
+      for (const b of joined.bookings) {
+        const paid = await payBookingFromWallet(b.id);
+        if (paid.ok) b.paymentStatus = "paid";
+        else walletError ??= paid.error;
+      }
+    const locale = await currentLocale();
+    await rememberLocale(joined.bookings.map((b) => b.id), locale);
+    await notifyBookingConfirmed(joined.bookings, locale, joined.seriesCode);
+    await tickOutbox();
+    return NextResponse.json(
+      { bookings: joined.bookings, skipped: joined.skipped, seriesCode: joined.seriesCode, session: await getClass(classId as number), walletError },
+      { status: 201 }
+    );
+  }
+
   const result = await enrolInClass({
     classId: classId as number,
     name: name.trim(),
