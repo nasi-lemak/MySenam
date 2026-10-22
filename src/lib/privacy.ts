@@ -309,6 +309,8 @@ export interface CustomerExport {
   reviews: unknown[];
   /** Venues they agreed to hear from by email, in the words agreed to, and when they stopped. */
   marketing: unknown[];
+  /** Concession proof a venue saw at its counter for their number: the fact and until when, no proof itself. */
+  concessionProofs: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
@@ -453,6 +455,12 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId,
       account.email
     ),
+    concessionProofs: await all(
+      `SELECT v.name AS venue, c.name AS concession, p.seen_on, p.valid_until
+         FROM concession_proofs p JOIN concessions c ON c.id = p.concession_id JOIN venues v ON v.id = p.venue_id
+        WHERE p.phone_key = phone_key(?) ORDER BY p.seen_on`,
+      account.phone
+    ),
     messages: await all(
       `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
          FROM messages m
@@ -484,6 +492,8 @@ export interface PhoneExport {
   giftVouchers: unknown[];
   reviews: unknown[];
   counterSales: unknown[];
+  /** Concession proof seen at the counter: the fact, by whom and until when; no proof itself is kept. */
+  concessionProofs: unknown[];
   messages: unknown[];
 }
 
@@ -577,6 +587,14 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
     counterSales: await all(
       `SELECT created_at, customer_name, customer_phone, lines, total, paid_via, voided_at FROM counter_sales
         WHERE venue_id IN (${marks}) AND phone_key(customer_phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    concessionProofs: await all(
+      `SELECT v.name AS venue, c.name AS concession, p.seen_on, p.valid_until, a.name AS seen_by
+         FROM concession_proofs p JOIN concessions c ON c.id = p.concession_id JOIN venues v ON v.id = p.venue_id
+         LEFT JOIN admins a ON a.id = p.seen_by
+        WHERE p.venue_id IN (${marks}) AND p.phone_key = phone_key(?) ORDER BY p.seen_on`,
       ...venueIds,
       phone
     ),
@@ -683,6 +701,8 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);
+    // Nor a concession proof remembered against the account's number.
+    await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);
     // Nobody left to send news to.
     await db.prepare("DELETE FROM marketing_consents WHERE user_id = ? OR email_key = lower(?)").run(userId, account.email);
     // Their reviews go: an opinion is theirs, not the venue's record.

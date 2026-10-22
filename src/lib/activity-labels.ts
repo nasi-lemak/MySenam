@@ -21,6 +21,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "booking.moved": "Moved a booking",
   "booking.rescheduled": "Changed a booking's time",
   "booking.no_show": "Marked a no-show",
+  "booking.concession": "Checked a concession price",
   "payment.paid": "Marked paid",
   "payment.unpaid": "Marked unpaid",
   "payment.refunded": "Recorded a refund",

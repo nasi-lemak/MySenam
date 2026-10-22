@@ -256,6 +256,10 @@ export interface Booking {
   seriesCode: string | null;
   /** Booked with other courts at the same time, as one (lib/store.ts `createGroupBooking`). */
   groupCode?: string | null;
+  /** A concession price (lib/concessions.ts): which, what it took off, and whether proof was seen. */
+  concessionName?: string | null;
+  concessionOff?: number;
+  concessionCheck?: "due" | "seen" | "refused" | null;
   paymentStatus: PaymentStatus;
   paidAt: string | null;
   /** Paid through the venue's online gateway: the money is there, not in the till. */
@@ -519,6 +523,8 @@ export interface SlotInfo {
   rate: number;
   /** A last-minute price: this percent off, for booking it now. */
   lastMinute?: number;
+  /** In the venue's peak hours: an off-peak-only concession does not apply. */
+  peak?: boolean;
   available: boolean;
   /** Places already taken, and the resource's total, for this hour. */
   booked: number;

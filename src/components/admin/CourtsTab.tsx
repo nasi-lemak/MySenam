@@ -4,6 +4,7 @@ import { PeakHoursEditor } from "./PeakHoursEditor";
 import { SlotLengthEditor } from "./SlotLengthEditor";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
+import { ConcessionsEditor } from "./ConcessionsEditor";
 import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS } from "@/lib/types";
 import type { Court, Induction, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
@@ -294,6 +295,8 @@ export function CourtsTab({
       {venue && <SlotLengthEditor key={`slots-${venue.id}`} venueId={venue.id} />}
 
       {venue && <PeakHoursEditor key={venue.id} venueId={venue.id} />}
+
+      {venue && <ConcessionsEditor key={`concessions-${venue.id}`} venueId={venue.id} />}
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyConcession, concessionById } from "@/lib/concessions";
 import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
@@ -7,6 +8,7 @@ import {
   createBookingOnAnyCourt,
   createBookingSeries,
   createGroupBooking,
+  getBookingById,
   findBooking,
   getCourt,
   getVenue,
@@ -45,7 +47,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -207,6 +209,22 @@ export async function POST(req: NextRequest) {
     result.bookings.splice(0, result.bookings.length, ...kept);
   }
 
+  // A concession price the customer said is theirs (lib/concessions.ts), shown
+  // at the counter. Like a code, best-effort: refused, the booking stands at
+  // the full price and says why. It is one discount, so it comes before a code.
+  let concessionError: { error: string; code?: string; vars?: Record<string, string | number> } | null = null;
+  if (Number.isInteger(concessionId)) {
+    for (const booking of result.bookings) {
+      const applied = await applyConcession(booking.id, concessionId as number);
+      if (!applied.ok) {
+        if (!concessionError) concessionError = { error: applied.error, code: applied.code, vars: applied.vars };
+        continue;
+      }
+      // As stored now: the lower price, and which concession, for the confirmation.
+      Object.assign(booking, (await getBookingById(booking.id)) ?? {});
+    }
+  }
+
   // A code is claimed before anything is settled, so paying from credit or a
   // pass charges the discounted figure. Like paying, it is best-effort: a code
   // that has run out leaves the booking standing at full price with the reason.
@@ -310,6 +328,9 @@ export async function POST(req: NextRequest) {
       depositPercent: holdUntil && policy.active && !(await struckOut(venue.id, phone)).out ? policy.depositPercent : null,
       promoError,
       discount,
+      concessionError,
+      // What to bring for the concession price that went on.
+      concession: result.bookings.some((b) => b.concessionName) && Number.isInteger(concessionId) ? await concessionById(concessionId as number) : null,
       addons: addonLines,
       addonError,
       // The customer can open the chat themselves and have it there for free.

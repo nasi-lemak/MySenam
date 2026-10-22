@@ -1783,6 +1783,30 @@ one of those hours (and that take a booking that long), with what each costs.
   booking does. 2 to 6 courts, at one venue, on one date, without extras or a
   coach (book those on one court).
 
+## Concession prices
+
+A student, senior, child or OKU price, under *Courts → Concession prices*
+(`src/lib/concessions.ts`): a name, a share off (5–100%), what to bring ("your
+student card"), and optionally one sport or off-peak hours only.
+
+- **Booking:** the customer picks it from *Price* on the booking form and gets
+  the lower price at once. The form, the confirmation and `/my-booking` say what
+  to bring, and that without it the full price is charged at the counter. It is
+  one discount: not with a promo code or a last-minute price. Where it does not
+  apply (another sport, a peak hour), the booking stands at the full price and
+  says why.
+- **At the counter:** the booking shows *Student price (RM10 off): check proof*.
+  Staff look at the card and press *Proof seen* (and say until when not to ask
+  again: next visit, month end, year end or twelve months) or *No proof*. No
+  proof on an unpaid booking adds the difference to what is owed; on one already
+  paid, the difference is sold at the counter and receipted like any sale.
+- **No proof is ever stored.** No photo, no card or IC number: only that this
+  number was seen to qualify, by whom, and until when. A card's image would make
+  the venue hold sensitive personal data under the PDPA, to check something a
+  person can see in two seconds. The record goes out in the customer's data
+  export and the venue's phone-number export, and is erased with the account.
+- The receipt shows the concession as its own line.
+
 ## Exclusive courts vs shared facilities
 
 Every bookable resource carries a `capacity`:

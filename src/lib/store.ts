@@ -406,6 +406,9 @@ interface BookingRow {
   shares_paid?: number | string;
   deposit_paid?: number | string;
   group_code?: string | null;
+  concession_name?: string | null;
+  concession_off?: number | string;
+  concession_check?: "due" | "seen" | "refused" | null;
   coach_id?: number | null;
   coach_fee?: number | string;
   user_id: number | null;
@@ -467,6 +470,9 @@ function toBooking(r: BookingRow): Booking {
     sharesPaid: Number(r.shares_paid ?? 0),
     depositPaid: Number(r.deposit_paid ?? 0),
     groupCode: r.group_code ?? null,
+    concessionName: r.concession_name ?? null,
+    concessionOff: Number(r.concession_off ?? 0),
+    concessionCheck: r.concession_check ?? null,
     coachId: r.coach_id ?? null,
     coachFee: Number(r.coach_fee ?? 0),
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
@@ -778,6 +784,7 @@ export async function getAvailability(
         hour,
         rate: computePrice(court, date, [hour], member, rules, Date.now()),
         ...(lastMinute > 0 ? { lastMinute } : {}),
+        ...(isPeak(date, hour, rules) ? { peak: true } : {}),
         booked,
         capacity: court.capacity,
         // A class owns the hour: enrolling is the only way in.
@@ -4953,6 +4960,8 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
     return refuse("PROMO_TOO_LATE");
   // One discount at a time: a last-minute price is already one.
   if ((row as BookingRow & { last_minute?: number }).last_minute === 1) return refuse("PROMO_NOT_LAST_MINUTE");
+  // Nor on a concession price.
+  if (row.concession_name) return refuse("ONE_DISCOUNT");
 
   const court = await getCourt(booking.courtId);
   if (!court) return refuse("COURT_NOT_FOUND");

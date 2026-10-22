@@ -206,6 +206,22 @@ export function BookingsTab() {
     }
   }
 
+  async function checkConcession(b: AdminBookingRow, outcome: "seen" | "refused", remember?: string, via?: CounterMethod) {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/concessions/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: b.id, outcome, remember, via }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not record it");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not record it");
+    }
+  }
+
   async function togglePaid(code: string, paid: boolean, via?: CounterMethod) {
     setError(null);
     setPaying(null);
@@ -337,6 +353,7 @@ export function BookingsTab() {
     paySeries,
     blockNumber,
     forgiveStrikes,
+    checkConcession,
   };
 
   return (
@@ -658,7 +675,7 @@ export function BookingsTab() {
                     {b.phone}
                   </a>
                   <CheckedPhone b={b} />
-                  <Extras b={b} />
+                  <Extras b={b} act={act} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -702,7 +719,7 @@ export function BookingsTab() {
                       {b.name}
                       <NoShowBadge b={b} />
                   <StrikesBadge b={b} act={act} />
-                      <Extras b={b} />
+                      <Extras b={b} act={act} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -765,6 +782,7 @@ interface Act {
   paySeries: (seriesCode: string, via?: CounterMethod) => void;
   blockNumber: (b: AdminBookingRow) => void;
   forgiveStrikes: (b: AdminBookingRow) => void;
+  checkConcession: (b: AdminBookingRow, outcome: "seen" | "refused", remember?: string, via?: CounterMethod) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -793,12 +811,86 @@ function CheckedPhone({ b }: { b: AdminBookingRow }) {
 }
 
 /** Rackets, shuttles or drinks to hand over with the booking. */
-function Extras({ b }: { b: AdminBookingRow }) {
-  if (!b.addons?.length) return b.coachName ? <Coach b={b} /> : null;
+function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (!b.addons?.length)
+    return (
+      <>
+        {b.coachName && <Coach b={b} />}
+        <ConcessionCheck b={b} act={act} />
+      </>
+    );
   return (
     <div className="mt-1 text-xs text-slate-600">
       {b.coachName && <Coach b={b} />}
       🎒 {b.addons.map((a) => `${a.quantity} × ${a.name}${a.kind === "rental" ? " (hire)" : ""}`).join(", ")}
+      <ConcessionCheck b={b} act={act} />
+    </div>
+  );
+}
+
+/**
+ * A concession price (lib/concessions.ts): look at the proof and say so. Seen,
+ * it can be remembered for a while; not shown, the full price is charged. The
+ * proof itself is never kept, only that it was seen.
+ */
+function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const [step, setStep] = useState<"seen" | "refused" | null>(null);
+  if (!b.concessionName || !b.concessionCheck) return null;
+  const off = money(b.concessionOff ?? 0);
+  if (b.concessionCheck === "seen") return <div className="mt-1 text-xs text-emerald-700">🎫 {b.concessionName} price · proof seen</div>;
+  if (b.concessionCheck === "refused") return <div className="mt-1 text-xs text-slate-500">🎫 No {b.concessionName} proof: full price</div>;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-amber-800">
+      <span title="Look at the proof: nothing is photographed or kept, only that you saw it.">
+        🎫 {b.concessionName} price ({off} off): check proof
+      </span>
+      {b.status === "confirmed" && step === null && (
+        <>
+          <button onClick={() => setStep("seen")} className={`${CHIP} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200`}>
+            Proof seen
+          </button>
+          <button onClick={() => setStep("refused")} className={`${CHIP} bg-amber-50 text-amber-800 ring-1 ring-amber-200`}>
+            No proof
+          </button>
+        </>
+      )}
+      {step === "seen" && (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span className="text-slate-500">Don&apos;t ask again until</span>
+          {(
+            [
+              ["visit", "next visit"],
+              ["month", "month end"],
+              ["year", "year end"],
+              ["twelve", "12 months"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => act.checkConcession(b, "seen", value)}
+              className={`${CHIP} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200`}
+            >
+              {label}
+            </button>
+          ))}
+          <button onClick={() => setStep(null)} aria-label="Cancel" className="px-1 text-slate-400">
+            ✕
+          </button>
+        </span>
+      )}
+      {step === "refused" &&
+        (b.paymentStatus === "paid" ? (
+          <MethodPicker label={`Take ${off} more by`} onPick={(via) => act.checkConcession(b, "refused", undefined, via)} onCancel={() => setStep(null)} />
+        ) : (
+          <span className="inline-flex items-center gap-1">
+            <button onClick={() => act.checkConcession(b, "refused")} className={`${CHIP} bg-amber-600 text-white`}>
+              Charge full price (+{off})
+            </button>
+            <button onClick={() => setStep(null)} aria-label="Cancel" className="px-1 text-slate-400">
+              ✕
+            </button>
+          </span>
+        ))}
     </div>
   );
 }

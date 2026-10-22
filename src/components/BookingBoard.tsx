@@ -72,6 +72,19 @@ interface Confirmation {
   depositPercent?: number | null;
   /** Courts booked together: each one's name, by id. */
   courtNames?: Record<number, string>;
+  /** The concession price that went on, and what to bring for it; or why it did not. */
+  concession?: { name: string; proof: string } | null;
+  concessionError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
+}
+
+/** A concession price the venue offers (lib/concessions.ts). */
+interface Concession {
+  id: number;
+  name: string;
+  percent: number;
+  proof: string;
+  sport: Sport | null;
+  offPeakOnly: boolean;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -140,6 +153,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   const [zone, setZone] = useState(region().timeZone);
   // The most weeks one weekly booking may run at this venue.
   const [maxWeeks, setMaxWeeks] = useState(MAX_RECUR_WEEKS);
+  // Concession prices offered here.
+  const [concessions, setConcessions] = useState<Concession[]>([]);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +201,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       setMemberRates(data.memberRates === true);
       if (typeof data.timeZone === "string") setZone(data.timeZone);
       if (Number.isInteger(data.seriesWeeks)) setMaxWeeks(data.seriesWeeks);
+      setConcessions(Array.isArray(data.concessions) ? data.concessions : []);
 
       const pending = pendingInitial.current;
       if (pending) {
@@ -567,6 +583,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           step={step}
           maxWeeks={maxWeeks}
           alsoFree={alsoFree}
+          concessions={concessions.filter(
+            (c) =>
+              (c.sport === null || c.sport === selectedCourt.sport) &&
+              !(c.offPeakOnly && selection.hours.some((h) => availability?.find((a) => a.court.id === selectedCourt.id)?.slots.find((sl) => sl.hour === h)?.peak))
+          )}
           totalPrice={totalPrice}
           lastMinute={lastMinute}
           onBooked={(c) => {
@@ -608,6 +629,7 @@ function BookingForm({
   step,
   maxWeeks = MAX_RECUR_WEEKS,
   alsoFree = [],
+  concessions = [],
   totalPrice: courtPrice,
   lastMinute = 0,
   onBooked,
@@ -624,6 +646,8 @@ function BookingForm({
   maxWeeks?: number;
   /** Other courts free then, to book with this one as one, and what those hours cost on each. */
   alsoFree?: { court: Court; price: number }[];
+  /** Concession prices that apply to these hours on this court. */
+  concessions?: Concession[];
   totalPrice: number;
   /** Percent off the hours picked, for booking them now. */
   lastMinute?: number;
@@ -641,7 +665,11 @@ function BookingForm({
   const hoursKey = hours.join(",");
   useEffect(() => setMore([]), [court.id, hoursKey, date]);
   const moreChosen = alsoFree.filter((a) => more.includes(a.court.id));
-  const totalPrice = Math.round((courtPrice + moreChosen.reduce((sum, a) => sum + a.price, 0)) * 100) / 100;
+  // A concession price: that share off the court time, shown at the counter.
+  const [concessionId, setConcessionId] = useState<number | null>(null);
+  const concession = concessions.find((c) => c.id === concessionId) ?? null;
+  const courtsTotal = courtPrice + moreChosen.reduce((sum, a) => sum + a.price, 0);
+  const totalPrice = Math.round(courtsTotal * (1 - (concession?.percent ?? 0) / 100) * 100) / 100;
   // This court's own shortest and longest booking, when it has them.
   const lengths = bookingLengths(court, step);
   const ownLengths = court.id !== ANY_COURT && (court.minHours != null || court.maxHours != null);
@@ -728,6 +756,7 @@ function BookingForm({
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
           ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((a) => a.court.id) } : {}),
+          ...(concession ? { concessionId: concession.id } : {}),
         }),
       });
       const data = await res.json();
@@ -843,6 +872,26 @@ function BookingForm({
               : t("form.book", { amount: withExtras })}
         </button>
       </div>
+      {concessions.length > 0 && (
+        <div className="mt-2 text-xs text-slate-600">
+          <label className="flex flex-wrap items-center gap-2">
+            {t("form.price")}
+            <select
+              value={concessionId ?? ""}
+              onChange={(e) => setConcessionId(e.target.value === "" ? null : Number(e.target.value))}
+              className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+            >
+              <option value="">{t("form.standardPrice")}</option>
+              {concessions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {t("form.concessionOption", { name: c.name, pct: c.percent })}
+                </option>
+              ))}
+            </select>
+          </label>
+          {concession && <p className="mt-1 font-medium text-amber-800">{t("form.concessionProof", { proof: concession.proof })}</p>}
+        </div>
+      )}
       {alsoFree.length > 0 && weeks === 1 && !hasExtras && (
         <details className="mt-2 text-xs text-slate-600" open={more.length > 0}>
           <summary className="cursor-pointer font-medium text-teal-700">{t("form.alsoBook")}</summary>
@@ -890,6 +939,8 @@ function BookingForm({
         </label>
       )}
 
+      {/* One discount at a time: a concession price is one. */}
+      {!concession && (
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
         <label htmlFor="promo-code">{t("form.promoLabel")}</label>
         <input
@@ -903,6 +954,7 @@ function BookingForm({
           <span className="text-slate-500">{t("form.promoChecked")}</span>
         )}
       </div>
+      )}
 
       {/* A pass covers one entry per booked hour, so it settles the whole slot —
           court time only, so not a booking with extras. */}
@@ -1074,6 +1126,16 @@ function ConfirmationModal({
         {confirmation.promoError && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {t("done.promoRejected", { reason: confirmation.promoError })}
+          </p>
+        )}
+        {confirmation.concession && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+            {t("done.concession", { name: confirmation.concession.name, proof: confirmation.concession.proof })}
+          </p>
+        )}
+        {confirmation.concessionError && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {t("done.concessionRejected", { reason: translateError(t, confirmation.concessionError) })}
           </p>
         )}
         {confirmation.addonError && (
