@@ -46,7 +46,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/notices(\/\d+)?$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/online-payments$/, methods: ["POST"] },
   { path: /^\/api\/admin\/outages$/, methods: ["POST", "DELETE"] },
-  { path: /^\/api\/admin\/reports$/, methods: "all" },
+  { path: /^\/api\/admin\/reports(\/customers)?$/, methods: "all" },
   { path: /^\/api\/admin\/activity$/, methods: "all" },
   { path: /^\/api\/admin\/export$/, methods: "all" },
   { path: /^\/api\/admin\/venues\/\d+$/, methods: ["PATCH"] },

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
+import { CustomerReportPanel } from "./CustomerReportPanel";
 import { formatHour } from "@/lib/time";
 import { PAID_VIA_LABELS, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
 import type { PaidVia } from "@/lib/types";
@@ -476,6 +477,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
           </a>
         ))}
       </div>
+      <CustomerReportPanel venueId={venueId} from={range.from} to={range.to} />
       <CoachPayoutsPanel venueId={venueId} from={range.from} to={range.to} />
       <ActivityPanel venueId={venueId} from={range.from} to={range.to} />
     </div>

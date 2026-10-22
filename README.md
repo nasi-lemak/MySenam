@@ -1807,6 +1807,19 @@ contrast rather than chosen by eye, both are direct-labelled and legended, and
 every figure is also available as a number, so nothing is readable by colour
 alone.
 
+### Customers
+
+Below the money, *Reports* says who the customers were in the period
+(`src/lib/customer-report.ts`): how many, how many booked here for the first
+time ever and how many came back, bookings per customer, the share of bookings
+played that nobody turned up for, and late cancellations. Then the ten best
+customers by what they spent, with their hours and since when they have been
+coming; and the regulars who have stopped: four or more bookings in the six
+months before, none in the last 45 days and none coming, with a number to
+call. A customer is a phone number however it was typed; demo bookings,
+class enrolments and bookings whose names the retention policy removed are
+left out. Managers only, like the other reports.
+
 ## Equipment hire and deposits
 
 Most resources stay where they are: you cannot walk off with a badminton court.
