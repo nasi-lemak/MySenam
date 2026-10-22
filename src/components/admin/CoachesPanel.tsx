@@ -112,7 +112,8 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       <p className="mt-1 text-xs text-slate-500">
         Customers book a lesson from your venue page: a free court is picked for them, and the coach&apos;s fee goes on top of
         its price. A coach can only be booked once at a time. A coach&apos;s schedule link shows their lessons and
-        students&apos; numbers to whoever has it: give it to the coach alone, and withdraw it when they leave.
+        students&apos; numbers to whoever has it: give it to the coach alone, and withdraw it when they leave. There the
+        coach can also set their own weekly hours and time off; changing a coach&apos;s days here replaces the hours they set.
       </p>
       <ul className="mt-2 divide-y divide-slate-100">
         {coaches.map((c) => (
@@ -124,6 +125,12 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                   ? c.hours.map((h) => `${DAYS[h.weekday]} ${formatHour(h.from)}–${formatHour(h.until)}`).join(", ") || "No hours set"
                   : "Not taking lessons"}
               </span>
+              {/* Set by the coach at their own link (lib/coaching.ts): days off, when nobody can book them. */}
+              {c.active && c.timeOff.length > 0 && (
+                <span className="block text-xs text-amber-800">
+                  Away: {c.timeOff.map((o) => (o.from === o.until ? o.from : `${o.from} – ${o.until}`) + (o.reason ? ` (${o.reason})` : "")).join(", ")}
+                </span>
+              )}
               {c.active && (
                 <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                   <input

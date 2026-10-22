@@ -1,7 +1,7 @@
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { isAmount, money, roundMoney } from "./region";
-import { isPastSlot, slotsBetween } from "./time";
+import { addDays, isPastSlot, isValidDateString, slotsBetween, todayISO } from "./time";
 import { SPORTS, type Refusal, type Sport } from "./types";
 
 /**
@@ -33,6 +33,15 @@ export interface Coach {
   rate: number;
   active: boolean;
   hours: CoachHours[];
+  /** Days off, from today on: no lessons booked then. */
+  timeOff: CoachTimeOff[];
+}
+
+export interface CoachTimeOff {
+  id: number;
+  from: string;
+  until: string;
+  reason: string | null;
 }
 
 const ENGLISH = translator("en");
@@ -55,6 +64,12 @@ async function withHours(rows: CoachRow[]): Promise<Coach[]> {
   const hours = (await getDb()
     .prepare(`SELECT coach_id, weekday, from_hour, until_hour FROM coach_hours WHERE coach_id IN (${rows.map(() => "?").join(",")}) ORDER BY weekday, from_hour`)
     .all(...rows.map((r) => r.id))) as { coach_id: number; weekday: number; from_hour: number; until_hour: number }[];
+  const off = (await getDb()
+    .prepare(
+      `SELECT id, coach_id, from_date, until_date, reason FROM coach_time_off
+        WHERE coach_id IN (${rows.map(() => "?").join(",")}) AND until_date >= ? ORDER BY from_date`
+    )
+    .all(...rows.map((r) => r.id), addDays(todayISO(), -1))) as { id: number; coach_id: number; from_date: string; until_date: string; reason: string | null }[];
   return rows.map((r) => ({
     id: r.id,
     venueId: r.venue_id,
@@ -66,6 +81,7 @@ async function withHours(rows: CoachRow[]): Promise<Coach[]> {
     hours: hours
       .filter((h) => h.coach_id === r.id)
       .map((h) => ({ weekday: h.weekday, from: Number(h.from_hour), until: Number(h.until_hour) })),
+    timeOff: off.filter((o) => o.coach_id === r.id).map((o) => ({ id: o.id, from: o.from_date, until: o.until_date, reason: o.reason })),
   }));
 }
 
@@ -96,17 +112,71 @@ function readInput(input: CoachInput): { ok: true; value: { name: string; bio: s
   const sports = Array.isArray(input.sports) ? [...new Set(input.sports.filter((s): s is Sport => SPORTS.includes(s as Sport)))] : [];
   if (sports.length === 0) return { ok: false, error: "Choose at least one sport they coach." };
   if (!isAmount(input.rate, 0, 2000)) return { ok: false, error: `Their fee for an hour: ${money(0)} to ${money(2000)}.` };
-  if (!Array.isArray(input.hours)) return { ok: false, error: "Give the hours they take lessons." };
+  const hours = readHours(input.hours);
+  if (typeof hours === "string") return { ok: false, error: hours };
+  return { ok: true, value: { name, bio, sports, rate: roundMoney(input.rate as number), hours } };
+}
+
+/** Weekly stretches of lesson hours as given, checked; or why not. */
+function readHours(raw: unknown): CoachHours[] | string {
+  if (!Array.isArray(raw)) return "Give the hours they take lessons.";
+  if (raw.length > 28) return "At most 28 stretches of hours in a week.";
   const hours: CoachHours[] = [];
-  for (const h of input.hours as Record<string, unknown>[]) {
+  for (const h of raw as Record<string, unknown>[]) {
     const weekday = Number(h?.weekday);
     const from = Number(h?.from);
     const until = Number(h?.until);
     if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6 || !(from >= 0 && until <= 24 && from < until) || from * 2 !== Math.round(from * 2) || until * 2 !== Math.round(until * 2))
-      return { ok: false, error: "Each stretch of hours needs a day, and a start before its end, on the hour or half hour." };
+      return "Each stretch of hours needs a day, and a start before its end, on the hour or half hour.";
     hours.push({ weekday, from, until });
   }
-  return { ok: true, value: { name, bio, sports, rate: roundMoney(input.rate as number), hours } };
+  return hours;
+}
+
+/**
+ * The coach's own week, set at their private link (lib/coach-schedule.ts):
+ * the hours they take lessons. Lessons already booked stand.
+ */
+export async function setCoachHours(coachId: number, raw: unknown): Promise<{ ok: true; coach: Coach } | { ok: false; error: string }> {
+  const hours = readHours(raw);
+  if (typeof hours === "string") return { ok: false, error: hours };
+  return withTransaction(async () => {
+    const db = getDb();
+    await db.prepare("DELETE FROM coach_hours WHERE coach_id = ?").run(coachId);
+    for (const h of hours)
+      await db.prepare("INSERT INTO coach_hours (coach_id, weekday, from_hour, until_hour) VALUES (?, ?, ?, ?)").run(coachId, h.weekday, h.from, h.until);
+    await db.prepare("UPDATE coaches SET self_changed_at = datetime('now') WHERE id = ?").run(coachId);
+    return { ok: true as const, coach: (await coachById(coachId))! };
+  });
+}
+
+/** Days off for a coach, from today on, up to a year away. What they already have booked then is said, for the venue to move. */
+export async function addTimeOff(
+  coachId: number,
+  input: { from?: unknown; until?: unknown; reason?: unknown }
+): Promise<{ ok: true; coach: Coach; clashes: number } | { ok: false; error: string }> {
+  const from = typeof input.from === "string" ? input.from : "";
+  const until = typeof input.until === "string" && input.until ? input.until : from;
+  if (!isValidDateString(from) || !isValidDateString(until)) return { ok: false, error: "Give the first and last day off." };
+  if (until < from) return { ok: false, error: "The last day is before the first." };
+  if (from < todayISO() || until > addDays(todayISO(), 366)) return { ok: false, error: "Time off runs from today, up to a year ahead." };
+  const reason = typeof input.reason === "string" && input.reason.trim() ? input.reason.trim().slice(0, 120) : null;
+  const db = getDb();
+  if (((await db.prepare("SELECT COUNT(*)::int AS n FROM coach_time_off WHERE coach_id = ? AND until_date >= ?").get(coachId, todayISO())) as { n: number }).n >= 20)
+    return { ok: false, error: "At most 20 stretches of time off ahead." };
+  await db.prepare("INSERT INTO coach_time_off (coach_id, from_date, until_date, reason) VALUES (?, ?, ?, ?)").run(coachId, from, until, reason);
+  await db.prepare("UPDATE coaches SET self_changed_at = datetime('now') WHERE id = ?").run(coachId);
+  const clashes = (await db
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM bookings WHERE coach_id = ? AND status = 'confirmed' AND date >= ? AND date <= ?`
+    )
+    .get(coachId, from, until)) as { n: number };
+  return { ok: true, coach: (await coachById(coachId))!, clashes: clashes.n };
+}
+
+export async function removeTimeOff(coachId: number, id: number): Promise<boolean> {
+  const done = await getDb().prepare("DELETE FROM coach_time_off WHERE id = ? AND coach_id = ?").run(id, coachId);
+  return done.changes === 1;
 }
 
 /** Add a coach (no `id`) or change one. */
@@ -145,6 +215,7 @@ const weekdayOf = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay();
 
 /** Does the coach take lessons through all of these slots on that day? */
 export function coachWorks(coach: Coach, date: string, hours: number[], step: number): boolean {
+  if (coach.timeOff.some((o) => date >= o.from && date <= o.until)) return false;
   const day = coach.hours.filter((h) => h.weekday === weekdayOf(date));
   return hours.every((h) => day.some((w) => h >= w.from && h + step <= w.until));
 }

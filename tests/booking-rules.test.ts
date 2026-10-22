@@ -129,11 +129,13 @@ describe("last-minute prices", () => {
   it("are not had by cancelling a booking and booking the same day again", async () => {
     await setLastMinute(venueId, { hours: 24, percent: 50, offPeakOnly: false });
     const who = phone();
+    // Booked well before the window, whatever the time of day the suite runs.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(slotStartsAt(tomorrow, 20, ZONE).getTime() - 30 * 3_600_000);
     const early = await createBooking({ courtId, date: tomorrow, hours: [20], name: "Gamer", phone: who });
     if (!early.ok) throw new Error(early.error);
     expect(early.booking.totalPrice).toBe(20);
     // It is now within the window; cancel and book it again at half price?
-    vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(slotStartsAt(tomorrow, 20, ZONE).getTime() - 2 * 3_600_000);
     expect(await cancelBooking(early.booking.code, who)).toMatchObject({ ok: true });
     const again = await createBooking({ courtId, date: tomorrow, hours: [20], name: "Gamer", phone: who });

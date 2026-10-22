@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { serverT } from "@/lib/locale";
 import { coachForToken, coachLessons } from "@/lib/coach-schedule";
 import { addDays, formatHour, todayISO } from "@/lib/time";
+import CoachSelfService from "@/components/CoachSelfService";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
       <a href={`/api/coach-calendar/${token}.ics`} className="inline-block text-sm font-semibold text-teal-700 underline">
         📅 {t("coachpage.subscribe")}
       </a>
+      <CoachSelfService token={token} hours={found.coach.hours} timeOff={found.coach.timeOff} />
       {lessons.length === 0 ? (
         <p className="text-sm text-slate-600">{t("coachpage.none")}</p>
       ) : (

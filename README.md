@@ -1955,6 +1955,17 @@ venue's call). *Every lesson (CSV)* has one row per lesson for the venue's
 books and the coach's records (`/api/admin/coach-payouts`, managers only).
 Late-cancellation fees are not split with the coach.
 
+
+### A coach's own week and time off
+
+At their private schedule link (`/coach/<token>`), a coach can also set the
+hours they take lessons each week (several stretches a day, on the hour or
+half hour) and add time off, a day or a stretch of days up to a year ahead
+(`setCoachHours`, `addTimeOff` in `src/lib/coaching.ts`). Nobody can book a
+lesson with them in time off; lessons already booked then stand, and the
+coach is told how many, to ask the venue to move them. Staff see the time
+off beside the coach. The link is the coach's key: the venue replaces or
+withdraws it as before, and a withdrawn link changes nothing.
 ## Classes
 
 A class is an instructor-led session held on a shared facility. While it runs
