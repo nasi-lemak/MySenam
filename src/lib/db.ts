@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import fs from "fs";
 import path from "path";
-import { region } from "./region";
+import { region } from "./region.ts";
 
 /**
  * The database: Postgres.

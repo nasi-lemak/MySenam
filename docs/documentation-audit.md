@@ -2,6 +2,9 @@
 
 A one-off record of how the documentation was checked against the code and
 restructured. It is not maintained; the documents it points to are.
+Defects found here are tracked, and marked fixed, in
+[known limitations](roadmap/known-limitations.md#fixed-since-the-audit); this
+report describes the state when it was written.
 **No application behaviour was changed**: the only edits outside documentation
 are three source comments that named README sections, two tests that read the
 WhatsApp templates from their new home, the documentation checks, a

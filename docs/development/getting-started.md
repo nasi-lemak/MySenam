@@ -43,7 +43,7 @@ venue's day list.
 | `npm run docs:check` | Checks the documentation's links and references; see [testing](testing.md#documentation-checks) |
 | `npm run build` | Production build |
 | `npm start` | Serves the build; see [deployment](../operations/deployment.md) |
-| `npm run backup`, `npm run restore` | See [backups](../operations/backups.md) (currently broken: S1) |
+| `npm run backup`, `npm run restore` | See [backups](../operations/backups.md) |
 | `npm run import-sqlite` | Only for an install from before Postgres; see [legacy installs](../archive/migrations/legacy-installs.md) |
 
 `npm run lint` is declared but no ESLint configuration is committed, so it is

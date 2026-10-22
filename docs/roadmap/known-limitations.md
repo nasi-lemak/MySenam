@@ -25,7 +25,6 @@ the test that should be written before it is fixed.
 
 | ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
 | -- | --- | --------------- | -------- | -------------- | ---------------- |
-| S1 | P1 | `npm run backup`, `npm run restore` and `npm run import-sqlite` fail to start on Node 22 (`ERR_MODULE_NOT_FOUND` for `src/lib/region`): `src/lib/backup.ts` and `src/lib/db.ts` import `./region` without an extension, which Node's own loader cannot resolve when the scripts load the TypeScript directly. The DigitalOcean deploy stops at its pre-deploy backup; restores must be done by hand. The app's nightly backup is unaffected. | Reproduced with `node scripts/backup.mjs` | **Yes** — no working restore path | A CI step that runs `scripts/backup.mjs` then `scripts/restore.mjs --force` against a throwaway database and compares row counts |
 | S2 | P1 | Closing an account fails with a foreign-key error when the customer has any waiting-list entry (`waitlist.user_id` has no `ON DELETE` action; `eraseCustomer` deletes the user without clearing it). Entries are kept 90 days, so a PDPA erasure can be blocked that long. | `db/migrations/0001_initial.sql` (waitlist), `src/lib/privacy.ts` | Yes, for a public launch under PDPA | Add a waitlist row with `user_id`, call `eraseCustomer`, expect success |
 | S3 | P2 | The scheduler lease (three minutes) is renewed when a tick starts, not during it; a long tick (large `pg_dump` plus upload) lets a second instance start the same work. Webhook deliveries have no per-delivery claim, so they could go out twice. | `src/lib/scheduler.ts`, `src/lib/webhooks.ts` | Only for several instances | Hold the lease, stall past it, assert a second instance does no work |
 | S4 | P3 | Sessions stay valid until the end of the UTC day they expire: `expires_at` is ISO text compared as text with `datetime('now')`. | `src/lib/auth.ts`, `src/lib/admin-auth.ts` | No | Set `expires_at` an hour in the past; expect the session refused |
@@ -73,6 +72,14 @@ can go back twice at the gateway (reported, not prevented); deposit receipts
 are categorised as *Other* in the sales journal; disputes on the platform's
 own Stripe account (venue invoices) are ignored.
 
+### Fixed since the audit
+
+IDs are not reused. Each fix came with the test recommended above.
+
+| ID | Fixed by | Test |
+| -- | -------- | ---- |
+| S1 | Script-loaded modules import with file extensions | `tests/backup-scripts.test.ts` |
+
 ## Integrations awaiting live verification or a partner
 
 Implemented and tested against fakes only. Each needs one real check before it
@@ -114,7 +121,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
 | No automated browser (end-to-end) tests | Pages are checked by hand only | P2 |
-| No test restores a backup | A broken restore is found when it is needed (as S1 shows) | P1 (with S1) |
 | No ESLint configuration; `npm run lint` is not a working check | Style and some bug classes unchecked | P3 |
 | `.env.example` lists about half the variables | New installs miss settings; [configuration](../development/configuration.md) is complete | P3 |
 | [HTTP routes](../architecture/http-api.md) lists a subset of routes | Developers read the `route.ts` files for the rest | P3 |

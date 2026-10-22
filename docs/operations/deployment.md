@@ -42,8 +42,7 @@ the load balancer is reachable by everyone else too.
 ## Upgrading
 
 Migrations run when the app starts, so a deploy is build, restart, done.
-**Take a backup first** (`npm run backup`; see the known defect S1 in
-[backups](backups.md)), because a migration cannot be undone
+**Take a backup first** (`npm run backup`; see [backups](backups.md)), because a migration cannot be undone
 from inside the app. The DigitalOcean kit's deploy script takes one with the
 live version, just before it switches to the new one, and puts the old version
 back if the new one does not answer.

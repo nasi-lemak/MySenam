@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { dataDirectory, databaseTarget, getDb } from "./db.ts";
-import { isoOffset, region } from "./region";
+import { isoOffset, region } from "./region.ts";
 
 const run = promisify(execFile);
 

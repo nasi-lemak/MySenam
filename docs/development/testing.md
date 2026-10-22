@@ -33,10 +33,11 @@ requests truly interleaving (`tests/concurrency.test.ts`).
 - **Browsers** are not driven by the suite. Pages were checked by hand with a
   headless browser while features were built; there is no automated
   end-to-end test.
-- **Restoring** a backup is not tested at all: no test runs
-  `scripts/restore.mjs`, and the scripts currently fail to start
-  ([S1](../roadmap/known-limitations.md#operations-and-security-s)); see
-  [backups](../operations/backups.md).
+- **Restoring** is tested on a fresh database only:
+  `tests/backup-scripts.test.ts` runs `scripts/backup.mjs` and
+  `scripts/restore.mjs` with `node`, as an operator would, on both engines.
+  Nothing restores a full-size production backup; try one before relying on
+  it ([backups](../operations/backups.md)).
 
 ## Documentation checks
 

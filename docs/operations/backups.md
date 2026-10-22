@@ -4,15 +4,6 @@ Authoritative for backup and restore. Disaster recovery comes down to these proc
 
 ## Backups
 
-> **Known defect (S1):** `npm run backup`, `npm run restore` and
-> `npm run import-sqlite` currently fail to start on Node 22
-> (`ERR_MODULE_NOT_FOUND` for `src/lib/region`: an import without a file
-> extension that Node's own loader cannot resolve). The nightly backup taken
-> by the running app is not affected. Until it is fixed, the DigitalOcean
-> kit's deploy stops at its pre-deploy backup, and a restore has to be done by
-> hand with `pg_restore`. See
-> [known limitations](../roadmap/known-limitations.md#suspected-defects).
-
 Everything is in one database. Losing it loses every booking, the credit
 ledger, and the record of who opened which door.
 

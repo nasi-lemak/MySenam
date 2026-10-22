@@ -33,10 +33,10 @@ defect does not change a status by itself; it is named in the gaps.
 
 | Status | Capabilities |
 | ------ | ------------ |
-| IMPLEMENTED_AND_TESTED | 104 |
+| IMPLEMENTED_AND_TESTED | 105 |
 | INTEGRATION_VERIFICATION_REQUIRED | 20 |
 | PARTIALLY_IMPLEMENTED | 3 |
-| IMPLEMENTED_UNTESTED | 3 |
+| IMPLEMENTED_UNTESTED | 2 |
 | BLOCKED | 2 |
 | UNSUPPORTED | 1 |
 
@@ -269,8 +269,8 @@ Authoritative: [deployment](../operations/deployment.md), [backups](../operation
 | Scheduler and its lease | IMPLEMENTED_AND_TESTED | Minute tick; one instance works | `src/lib/scheduler.ts` | `tests/scheduler.test.ts`, `tests/scale-out.test.ts` | Lease can lapse mid-tick (S3) |
 | Rate limiting | IMPLEMENTED_AND_TESTED | In memory or shared in Postgres; IPv6 per /64 | `src/lib/rate-limit.ts` | `tests/rate-limit.test.ts` | Per address-and-email pair (S5) |
 | Nightly backups by the app | IMPLEMENTED_AND_TESTED | `pg_dump` or PGlite snapshot; verified; kept 14 | `src/lib/backup.ts` | `tests/backup.test.ts` | A `pg_dump` copy is listed, not loaded |
-| Backup, restore and import scripts | IMPLEMENTED_UNTESTED | `npm run backup`, `npm run restore`, `npm run import-sqlite` | `scripts/backup.mjs`, `scripts/restore.mjs`, `scripts/import-sqlite.mjs` | — | **Fail to start on Node 22 (S1)**; no restore drill |
+| Backup, restore and import scripts | IMPLEMENTED_AND_TESTED | `npm run backup`, `npm run restore`, `npm run import-sqlite` | `scripts/backup.mjs`, `scripts/restore.mjs`, `scripts/import-sqlite.mjs` | `tests/backup-scripts.test.ts` | Backup and restore round-trip on a fresh database; the SQLite import is tested only for starting, not on a real old file |
 | Alerts, health, error log | IMPLEMENTED_AND_TESTED | Alert once, again after six hours; `/api/health` | `src/lib/alerts.ts`, `src/app/api/health/route.ts` | `tests/alerts.test.ts`, `tests/error-log.test.ts` | — |
 | Database layer and migrations | IMPLEMENTED_AND_TESTED | Postgres or PGlite; migrations under a lock | `src/lib/db.ts` | `tests/db.test.ts`, `tests/query-plans.test.ts` | Migration lock not tested directly |
-| DigitalOcean kit and CI | IMPLEMENTED_UNTESTED | Droplet set-up, deploy with rollback; CI on both engines | `deploy/digitalocean/setup.sh`, `deploy/digitalocean/deploy.sh`, `.github/workflows/ci.yml` | — | Deploy blocked by S1 |
+| DigitalOcean kit and CI | IMPLEMENTED_UNTESTED | Droplet set-up, deploy with rollback; CI on both engines | `deploy/digitalocean/setup.sh`, `deploy/digitalocean/deploy.sh`, `.github/workflows/ci.yml` | — | Not run on a real droplet by any test |
 | Documentation checks | IMPLEMENTED_AND_TESTED | Links, paths, scripts, variables, routes, this matrix | `tests/docs.test.ts` | `tests/docs.test.ts` | Cannot check behaviour |
