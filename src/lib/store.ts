@@ -77,6 +77,8 @@ import {
   Sport,
   Venue,
   VenueClosure,
+  type BookingStatus,
+  type PaymentStatus,
 } from "./types";
 import {
   addDays,
@@ -5670,4 +5672,73 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
     }
     return null;
   });
+}
+
+/* ---------------- Finding a booking, for staff ---------------- */
+
+export interface BookingHit {
+  code: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  courtName: string;
+  venueName: string;
+  name: string;
+  phone: string;
+  status: BookingStatus;
+  paymentStatus: PaymentStatus;
+}
+
+/**
+ * The bookings at these venues a customer at the desk is asking about: by
+ * code, phone number (however typed), email or part of a name, from 90 days
+ * back to 90 ahead, newest first. Not the whole history: a desk looking up
+ * somebody standing in front of it.
+ */
+export async function searchBookings(query: string, venueIds?: number[]): Promise<BookingHit[]> {
+  const q = query.trim();
+  if (q.length < 3) return [];
+  const venues = venueIds === undefined ? { sql: "", params: [] as number[] } : { sql: ` AND c.venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"})`, params: venueIds };
+  const digits = q.replace(/\D/g, "");
+  const rows = (await getDb()
+    .prepare(
+      `SELECT b.code, b.date, b.start_hour, b.end_hour, c.name AS court_name, v.name AS venue_name, b.name, b.phone, b.status, b.payment_status
+         FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE b.date BETWEEN ? AND ?${venues.sql}
+          AND (UPPER(b.code) = UPPER(?) OR (? <> '' AND b.phone_key = phone_key(?)) OR LOWER(b.email) = LOWER(?) OR b.name ILIKE ?)
+        ORDER BY b.date DESC, b.start_hour DESC LIMIT 50`
+    )
+    .all(
+      addDays(todayISO(), -90),
+      addDays(todayISO(), 90),
+      ...venues.params,
+      q,
+      digits.length >= 7 ? digits : "",
+      q,
+      q,
+      `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    )) as {
+    code: string;
+    date: string;
+    start_hour: number;
+    end_hour: number;
+    court_name: string;
+    venue_name: string;
+    name: string;
+    phone: string;
+    status: BookingStatus;
+    payment_status: PaymentStatus;
+  }[];
+  return rows.map((r) => ({
+    code: r.code,
+    date: r.date,
+    startHour: Number(r.start_hour),
+    endHour: Number(r.end_hour),
+    courtName: r.court_name,
+    venueName: r.venue_name,
+    name: r.name,
+    phone: r.phone,
+    status: r.status,
+    paymentStatus: r.payment_status,
+  }));
 }

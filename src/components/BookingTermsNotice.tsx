@@ -72,6 +72,7 @@ export default function BookingTermsNotice({ venueId }: { venueId: number }) {
       ? [t(terms.struckOutPays ? "terms.strikes" : "terms.strikesCounter", { n: terms.strikeLimit, days: terms.strikeDays })]
       : []),
     ...(terms.holdMinutes !== null ? [t("terms.hold", { m: terms.holdMinutes })] : []),
+    ...(terms.refundsAsCredit ? [t("terms.creditRefund")] : []),
   ];
 
   return (
@@ -81,7 +82,10 @@ export default function BookingTermsNotice({ venueId }: { venueId: number }) {
           role="alert"
           className={`rounded-lg px-3 py-2 font-medium ${you.out ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-900"}`}
         >
-          ⚠ {you.out ? t("terms.struck", { limit: you.limit }) : t("terms.yours", { n: you.strikes, limit: you.limit })}
+          ⚠{" "}
+          {you.out
+            ? t(terms.struckOutPays ? "terms.struck" : "terms.struckCounter", { limit: you.limit })
+            : t("terms.yours", { n: you.strikes, limit: you.limit })}
         </p>
       )}
       {open ? (

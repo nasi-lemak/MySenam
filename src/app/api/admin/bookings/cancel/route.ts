@@ -5,6 +5,7 @@ import { notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
 import { refusal } from "@/lib/api";
+import { formatHour } from "@/lib/time";
 import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     venueId,
     action: "booking.cancelled",
     bookingCode: result.booking.code,
-    detail: `${result.booking.date} ${result.booking.startHour}:00, ${result.booking.name}, ${money(result.booking.totalPrice)}${
+    detail: `${result.booking.date} ${formatHour(result.booking.startHour)}, ${result.booking.name}, ${money(result.booking.totalPrice)}${
       result.booking.paymentStatus === "paid" ? " (was paid)" : ""
     }`,
   });

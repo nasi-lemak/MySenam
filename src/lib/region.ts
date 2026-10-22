@@ -66,6 +66,8 @@ export interface Region {
   qrName: string;
   /** What every business SMS must start with here, if anything. */
   smsPrefix: string;
+  /** Who to call when somebody is hurt or in danger, as it is dialled there. */
+  emergencyNumber: string;
   legal: {
     /** "the laws of Malaysia" */
     governingLaw: string;
@@ -96,6 +98,7 @@ const REGIONS: Record<CountryCode, Region> = {
     qrName: "DuitNow QR",
     // Malaysian rules want a text from a business to start with "RM0".
     smsPrefix: "RM0",
+    emergencyNumber: "999",
     legal: {
       governingLaw: "the laws of Malaysia",
       consumerAct: "the Consumer Protection Act 1999",
@@ -118,6 +121,8 @@ const REGIONS: Record<CountryCode, Region> = {
     tax: { name: "GST", venueRate: 9 },
     qrName: "PayNow QR",
     smsPrefix: "",
+    // Ambulance and fire on 995, police on 999.
+    emergencyNumber: "995 / 999",
     legal: {
       governingLaw: "the laws of Singapore",
       consumerAct: "the Consumer Protection (Fair Trading) Act 2003",

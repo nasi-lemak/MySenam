@@ -79,6 +79,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
   }
 
   async function end(o: Outage) {
+    if (!window.confirm("End this outage now? The court can be booked again straight away.")) return;
     const res = await fetch(`/api/admin/outages?id=${o.id}`, { method: "DELETE" });
     if (res.ok) {
       setNotice(`${o.courtName} is back in service from today.`);

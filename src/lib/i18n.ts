@@ -957,7 +957,7 @@ const EN = {
   "msg.lesson": "{court}, lesson with {coach}",
   "msg.offerSubject": "A place has opened up — {venue}",
   "msg.offer":
-    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for a short while, and then goes to the next person waiting. Claim it at {link} while it is yours.",
+    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for 30 minutes, and then goes to the next person waiting. Claim it at {link} while it is yours.",
   "msg.enrolledSubject": "Enrolled in {what} — {venue}",
   "msg.enrolled":
     "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{when}\nTotal: {total}\n\nShow the code at the front desk.",
@@ -1274,6 +1274,8 @@ const EN = {
   "terms.hold": "Pay online within {m} minutes of booking, or the booking is let go.",
   "terms.yours": "You have {n} of {limit} so far here.",
   "terms.struck": "You have reached {limit} here: bookings from your number must be paid online.",
+  "terms.creditRefund": "If you cancel a booking you paid for online, what comes back is stored credit at this venue, not money to your card.",
+  "terms.struckCounter": "You have reached {limit} here: your number can only book here at the counter.",
   "terms.dismiss": "Don't show again for this venue",
   "terms.dismissNote": "It shows again if the venue changes these rules.",
   "gift.terms": "Good for 12 months from purchase. It becomes credit at {venue} when used, cannot be exchanged for cash, and is refunded only if the venue cancels it.",
@@ -2301,7 +2303,7 @@ const MS: Record<Phrase, string> = {
   "msg.lesson": "{court}, kelas dengan {coach}",
   "msg.offerSubject": "Ada tempat kosong — {venue}",
   "msg.offer":
-    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
+    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda selama 30 minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
   "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
   "msg.enrolled":
     "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan.",
@@ -2618,6 +2620,8 @@ const MS: Record<Phrase, string> = {
   "terms.hold": "Bayar dalam talian dalam masa {m} minit selepas menempah, atau tempahan akan dilepaskan.",
   "terms.yours": "Anda mempunyai {n} daripada {limit} setakat ini di sini.",
   "terms.struck": "Anda telah mencapai {limit} di sini: tempahan dari nombor anda mesti dibayar dalam talian.",
+  "terms.creditRefund": "Jika anda membatalkan tempahan yang dibayar dalam talian, wang dipulangkan sebagai kredit tersimpan di pusat ini, bukan ke kad anda.",
+  "terms.struckCounter": "Anda telah mencapai {limit} di sini: nombor anda hanya boleh menempah di kaunter.",
   "terms.dismiss": "Jangan tunjuk lagi untuk pusat ini",
   "terms.dismissNote": "Ia akan ditunjukkan semula jika pusat mengubah peraturan ini.",
   "gift.terms": "Sah selama 12 bulan dari pembelian. Ia menjadi kredit di {venue} apabila digunakan, tidak boleh ditukar kepada wang tunai, dan hanya dipulangkan jika pusat membatalkannya.",

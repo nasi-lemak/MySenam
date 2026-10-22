@@ -493,7 +493,11 @@ export interface WaitlistEntry {
   expiresInSeconds?: number;
 }
 
-/** How long someone gets to claim a place before it passes to the next. */
+/**
+ * How long someone gets to claim a place before it passes to the next. The
+ * offer message says "30 minutes" in so many words (msg.offer, and its
+ * WhatsApp template): change them together.
+ */
 export const WAITLIST_OFFER_MINUTES = 30;
 
 export interface SlotInfo {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isSlotHour } from "@/lib/time";
+import { formatHour, isSlotHour } from "@/lib/time";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { getCourt, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     venueId,
     action: "booking.rescheduled",
     bookingCode: result.booking.code,
-    detail: `${result.from.date} ${result.from.startHour}:00 → ${result.booking.date} ${result.booking.startHour}:00${
+    detail: `${result.from.date} ${formatHour(result.from.startHour)} → ${result.booking.date} ${formatHour(result.booking.startHour)}${
       result.priceChange !== 0 ? `, price ${result.priceChange > 0 ? "+" : ""}${money(result.priceChange)}` : ""
     }`,
   });

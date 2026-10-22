@@ -2486,7 +2486,7 @@ English (`en`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, 
 ```text
 Hi {{1}}, a place has opened up for {{2}} at {{3}}, {{4}} {{5}}.
 
-It is held for you for a short while, and then goes to the next person waiting. Claim it at {{6}} while it is yours.
+It is held for you for 30 minutes, and then goes to the next person waiting. Claim it at {{6}} while it is yours.
 ```
 
 Malay (`ms`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
@@ -2494,7 +2494,7 @@ Malay (`ms`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{
 ```text
 Hai {{1}}, ada tempat kosong untuk {{2}} di {{3}}, {{4}} {{5}}.
 
-Ia ditahan untuk anda seketika sahaja, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {{6}} selagi ia milik anda.
+Ia ditahan untuk anda selama 30 minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {{6}} selagi ia milik anda.
 ```
 
 Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} what, {{4}} date, {{5}} from, {{6}} link
@@ -2502,7 +2502,7 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} what, {{4}} date, {{5}} fro
 ```text
 您好，{{1}}！{{2}} 的 {{3}}（{{4}} {{5}}）有名额空出。
 
-名额会为您短暂保留，之后将转给下一位候补者。请趁名额仍属于您时在 {{6}} 领取。
+名额会为您保留 30 分钟，之后将转给下一位候补者。请趁名额仍属于您时在 {{6}} 领取。
 ```
 
 #### `mysenam_class_enrolled`
@@ -3853,6 +3853,26 @@ were unkind to the people using them. What changed, by theme:
   removes webhook deliveries older than 30 days (delivered, or given up on);
   the dashboard still runs it where the scheduler is off. The deliveries
   still to go have a partial index of their own (migration 0068).
+
+### Staff tools and what customers are told
+
+- **Find a booking** at the top of the Bookings tab: by code, phone number
+  (however typed), email or part of a name, 90 days either side of today, at
+  the venues the staff member works at. Picking one opens its day with the
+  booking picked out (`GET /api/admin/bookings?q=`).
+- **Asked before it happens**: withdrawing a promo code, cancelling a
+  membership, retiring a plan, taking a notice down and ending an outage now
+  ask first, like the other destructive buttons.
+- **Half hours** read as 10:30 in the bookings export and the activity log,
+  not 10.5:00.
+- **Emergency numbers** follow the country: 999 in Malaysia, 995 (ambulance
+  and fire) and 999 (police) in Singapore.
+- **The waiting-list offer** says the place is held for 30 minutes, rather
+  than "a short while".
+- **Booking terms** say when a venue gives stored credit, not money back to
+  the card, for a booking paid online and cancelled; and a number past its
+  strikes at a venue that sends such numbers to the counter is told that,
+  rather than to pay online.
 
 ## Renamed from MudahTempah
 

@@ -585,6 +585,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
   }
 
   async function withdraw(promo: PromoCode) {
+    if (!window.confirm(`Withdraw ${promo.code}? Nobody can use it after this; bookings it is already on keep their discount.`)) return;
     setError(null);
     setNotice(null);
     try {
@@ -879,6 +880,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
   }
 
   async function cancel(m: Membership) {
+    if (!window.confirm(`Cancel ${m.holderName}'s membership (${m.code})? Member rates stop for them at once.`)) return;
     setError(null);
     setNotice(null);
     try {
@@ -1102,6 +1104,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
   }
 
   async function retire(plan: Plan) {
+    if (!window.confirm(`Stop selling the ${plan.name} plan online? Memberships already bought on it stand.`)) return;
     setError(null);
     const res = await fetch(`/api/admin/membership-plans?venueId=${venueId}&id=${plan.id}`, { method: "DELETE" });
     const data = await res.json().catch(() => ({}));

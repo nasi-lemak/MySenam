@@ -23,7 +23,8 @@ export function toCsv(header: string[], rows: unknown[][]): string {
   return "﻿" + [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
 }
 
-const hour = (h: number) => `${String(h).padStart(2, "0")}:00`;
+/** 24-hour clock for a spreadsheet, half hours included: 10.5 → "10:30". */
+const hour = (h: number) => `${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ? "30" : "00"}`;
 
 /** Every booking played in the period, cancelled ones too, with what was paid and how. */
 export async function bookingsCsv(venueId: number, from: string, to: string): Promise<string> {

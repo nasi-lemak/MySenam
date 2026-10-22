@@ -7,7 +7,7 @@ import { addDays, formatHour, todayISO } from "@/lib/time";
 import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS, SPORT_ICONS } from "@/lib/types";
 import type { CounterMethod } from "@/lib/types";
 import type { Court, HireCondition, Venue } from "@/lib/types";
-import type { AdminBookingRow } from "@/lib/store";
+import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import { localTime, todayLocal } from "./shared";
 import { money, currencySymbol } from "@/lib/region";
 
@@ -30,6 +30,11 @@ const COLUMNS = [
 
 export function BookingsTab() {
   const [date, setDate] = useState(todayLocal);
+  // A customer at the desk asking about a booking: by code, number, email or name.
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<BookingHit[] | null>(null);
+  // The booking a search led to, picked out in the day's list.
+  const [found, setFound] = useState<string | null>(null);
   const [bookings, setBookings] = useState<AdminBookingRow[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // The booking being moved, and the courts it could go to.
@@ -337,6 +342,67 @@ export function BookingsTab() {
   return (
     <div className="space-y-4">
       <AttentionPanel />
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (query.trim().length < 3) return setHits(null);
+          const res = await fetch(`/api/admin/bookings?q=${encodeURIComponent(query.trim())}`, { cache: "no-store" });
+          setHits(res.ok ? ((await res.json()).hits as BookingHit[]) : []);
+        }}
+      >
+        <input
+          type="search"
+          aria-label="Find a booking"
+          placeholder="Find a booking: code, phone, email or name"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (e.target.value === "") setHits(null);
+          }}
+          className="min-h-10 w-80 max-w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+        />
+        <button type="submit" className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-teal-500">
+          Find
+        </button>
+      </form>
+      {hits && (
+        <div className="rounded-lg border border-slate-200 bg-white text-sm shadow-sm">
+          {hits.length === 0 ? (
+            <p className="px-4 py-3 text-slate-500">No booking 90 days either side of today matches that.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {hits.map((h) => (
+                <li key={h.code}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDate(h.date);
+                      setFound(h.code);
+                      setHits(null);
+                    }}
+                    className="flex w-full flex-wrap gap-x-3 px-4 py-2 text-left hover:bg-teal-50"
+                  >
+                    <span className="font-mono font-semibold">{h.code}</span>
+                    <span>
+                      {h.date} {formatHour(h.startHour)}–{formatHour(h.endHour)}
+                    </span>
+                    <span className="text-slate-600">
+                      {h.courtName}, {h.venueName}
+                    </span>
+                    <span>{h.name}</span>
+                    <span className="text-slate-500">{h.phone}</span>
+                    <span className={h.status === "cancelled" ? "text-red-600" : h.paymentStatus === "paid" ? "text-emerald-700" : "text-amber-700"}>
+                      {h.status === "cancelled" ? "Cancelled" : h.paymentStatus === "paid" ? "Paid" : "Unpaid"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {hits.length >= 50 && <li className="px-4 py-2 text-xs text-slate-500">The 50 nearest the end of the range; type more to narrow it down.</li>}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm font-medium text-slate-600">
           <span className="sr-only">Day to show</span>
@@ -563,7 +629,7 @@ export function BookingsTab() {
             {bookings.map((b) => (
               <li
                 key={b.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                className={`rounded-xl border bg-white p-4 shadow-sm ${b.code === found ? "border-teal-500 ring-2 ring-teal-200" : "border-slate-200"}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -620,7 +686,7 @@ export function BookingsTab() {
               </thead>
               <tbody>
                 {bookings.map((b) => (
-                  <tr key={b.id} className="border-b border-slate-100 last:border-0">
+                  <tr key={b.id} className={`border-b border-slate-100 last:border-0 ${b.code === found ? "bg-teal-50" : ""}`}>
                     <td className="px-3 py-2 font-mono font-medium text-teal-700">
                       {b.code}
                       <SeriesChip b={b} act={act} />

@@ -320,7 +320,7 @@ export default function MyBookingPage() {
                         {t("door.emergencyTitle")}
                       </p>
                       <p className="mt-1 text-xs text-slate-700">
-                        {t("door.emergencyServices")} <strong>999</strong>
+                        {t("door.emergencyServices")} <strong>{region().emergencyNumber}</strong>
                         {door.emergencyPhone && (
                           <>
                             {" · "}

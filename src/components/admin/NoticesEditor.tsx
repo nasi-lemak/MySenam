@@ -47,6 +47,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
                 </span>
                 <button
                   onClick={async () => {
+                    if (!window.confirm("Take this notice down?")) return;
                     const res = await fetch(`/api/admin/notices/${n.id}`, { method: "DELETE" });
                     if (res.ok) setNotices((await res.json()).notices);
                   }}

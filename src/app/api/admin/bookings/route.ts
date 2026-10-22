@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { listBookingsForDate } from "@/lib/store";
+import { listBookingsForDate, searchBookings } from "@/lib/store";
 import { isValidDateString, todayISO } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+
+  // A customer at the desk: their bookings by code, number, email or name.
+  const q = req.nextUrl.searchParams.get("q");
+  if (q !== null) return NextResponse.json({ hits: await searchBookings(q, admin.venueIds ?? undefined) });
 
   const date = req.nextUrl.searchParams.get("date") ?? todayISO();
   if (!isValidDateString(date)) {
