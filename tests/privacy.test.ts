@@ -17,6 +17,7 @@ import { ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import {
   createBooking,
   issuePass,
+  joinSlotWaitlist,
   listVenues,
   sellMembership,
   topUpWallet,
@@ -173,6 +174,28 @@ describe("forgetting somebody", () => {
     expect(erased.cancelled).toBeGreaterThan(0);
 
     expect(await exportCustomerData(user.id)).toBeNull();
+  });
+
+  it("takes them off waiting lists rather than failing on them", async () => {
+    const user = await customer("waiting@example.com", "0195000019");
+    const date = addDays(todayISO(), 3);
+    await book("0195000020", date, 14);
+    const joined = await joinSlotWaitlist({
+      courtId: (await VENUE()).courts[0].id,
+      date,
+      startHour: 14,
+      endHour: 15,
+      name: "Data Subject",
+      phone: "0195000019",
+      userId: user.id,
+    });
+    expect(joined.ok).toBe(true);
+
+    expect((await eraseCustomer(user.id)).ok).toBe(true);
+    const left = await getDb()
+      .prepare("SELECT COUNT(*) AS n FROM waitlist WHERE user_id = ? OR phone = ?")
+      .get(user.id, "0195000019") as { n: number };
+    expect(Number(left.n)).toBe(0);
   });
 
   it("refuses while the customer is still owed credit", async () => {

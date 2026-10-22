@@ -757,6 +757,14 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       cancelled++;
     }
     await forgetPlayer(userId);
+    // Off every waiting list. A place they were waiting for, or were offered,
+    // goes to the next person in line, as if they had left it themselves.
+    const { leaveWaitlist } = await import("./store");
+    const waiting = (await db
+      .prepare("SELECT id, phone FROM waitlist WHERE user_id = ? AND status IN ('waiting', 'offered')")
+      .all(userId)) as { id: number; phone: string }[];
+    for (const w of waiting) await leaveWaitlist(w.id, w.phone);
+    await db.prepare("DELETE FROM waitlist WHERE user_id = ?").run(userId);
     // Out of tournaments still to come; and off every draw, past or not, by name.
     const entered = (await db
       .prepare(

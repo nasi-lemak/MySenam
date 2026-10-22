@@ -69,17 +69,13 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 - replaces the name, phone and email on every booking it owns with `(removed)`,
   **keeping the hour and the price**;
 - strips the holder from spent passes and lapsed memberships;
+- takes it off every waiting list it joined, passing a place it was waiting
+  for or had been offered to the next person, and deletes those entries;
 - deletes the account and its sessions;
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
   consent ([venue operations](../features/venue-operations.md#waivers)).
-
-> **Known defect (S2):** erasure fails with a foreign-key error for an
-> account with any waiting-list entry (`waitlist.user_id` has no
-> `ON DELETE` action and `eraseCustomer` does not clear it), and waiting-list
-> rows are kept 90 days. See
-> [known limitations](../roadmap/known-limitations.md#suspected-defects).
 
 It refuses while the customer is owed something — stored credit, a live pass, a
 running membership — because `wallet_entries` cascades from `users`, so erasing

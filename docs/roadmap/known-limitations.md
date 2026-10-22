@@ -25,7 +25,6 @@ the test that should be written before it is fixed.
 
 | ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
 | -- | --- | --------------- | -------- | -------------- | ---------------- |
-| S2 | P1 | Closing an account fails with a foreign-key error when the customer has any waiting-list entry (`waitlist.user_id` has no `ON DELETE` action; `eraseCustomer` deletes the user without clearing it). Entries are kept 90 days, so a PDPA erasure can be blocked that long. | `db/migrations/0001_initial.sql` (waitlist), `src/lib/privacy.ts` | Yes, for a public launch under PDPA | Add a waitlist row with `user_id`, call `eraseCustomer`, expect success |
 | S3 | P2 | The scheduler lease (three minutes) is renewed when a tick starts, not during it; a long tick (large `pg_dump` plus upload) lets a second instance start the same work. Webhook deliveries have no per-delivery claim, so they could go out twice. | `src/lib/scheduler.ts`, `src/lib/webhooks.ts` | Only for several instances | Hold the lease, stall past it, assert a second instance does no work |
 | S4 | P3 | Sessions stay valid until the end of the UTC day they expire: `expires_at` is ISO text compared as text with `datetime('now')`. | `src/lib/auth.ts`, `src/lib/admin-auth.ts` | No | Set `expires_at` an hour in the past; expect the session refused |
 | S5 | P3 | Sign-in is limited per pair of address and email, so attempts on one account spread over many addresses are not limited together. | `src/lib/rate-limit.ts` | No | Many addresses, one email: expect a `429` |
@@ -79,6 +78,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | ID | Fixed by | Test |
 | -- | -------- | ---- |
 | S1 | Script-loaded modules import with file extensions | `tests/backup-scripts.test.ts` |
+| S2 | Erasure takes the account off waiting lists before deleting it | `tests/privacy.test.ts` |
 
 ## Integrations awaiting live verification or a partner
 

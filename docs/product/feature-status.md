@@ -152,7 +152,7 @@ Authoritative: [authentication](../architecture/authentication.md), [privacy](..
 | Password reset and change | IMPLEMENTED_AND_TESTED | Single-use hashed token; signs out everywhere | `src/lib/password-reset.ts` | `tests/password-reset.test.ts` | Email delivery live-unverified |
 | Phone verification | IMPLEMENTED_AND_TESTED | Inbound WhatsApp token or a code by SMS or WhatsApp; caps | `src/lib/phone-check.ts` | `tests/phone-methods.test.ts`, `tests/sign-in.test.ts` | Old codes linger (S8); live channels below |
 | Account page and phone-is-not-identity guards | IMPLEMENTED_AND_TESTED | Passes, memberships, wallet keyed on the account | `src/app/account`, `src/app/api/my/passes/route.ts` | `tests/impersonation.test.ts` | — |
-| Data export, erasure, retention | IMPLEMENTED_AND_TESTED | Export and close account (books kept); retention schedule | `src/lib/privacy.ts` | `tests/privacy.test.ts`, `tests/data-request.test.ts` | Erasure fails with a waiting-list row (S2) |
+| Data export, erasure, retention | IMPLEMENTED_AND_TESTED | Export and close account (books kept); retention schedule | `src/lib/privacy.ts` | `tests/privacy.test.ts`, `tests/data-request.test.ts` | Erasure clears only what is provably the account's; rows sharing just a phone number wait for retention |
 | Privacy notice and terms | PARTIALLY_IMPLEMENTED | Pages describe what the software does | `src/app/privacy/page.tsx`, `src/app/terms/page.tsx` | — | Drafts; need a lawyer, a Malay version and a named contact |
 
 ## Staff, roles and tenancy
