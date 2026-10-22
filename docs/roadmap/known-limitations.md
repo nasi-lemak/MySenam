@@ -55,10 +55,7 @@ whether intended).
 
 ### Money (M)
 
-| ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
-| -- | --- | --------------- | -------- | -------------- | ---------------- |
-| M3 | P2 | Marking a whole series paid at the counter can overwrite an online payment that lands at the same moment, losing the record that money came online and is owed back. | `paySeries` in `src/lib/store.ts` reads outside its transaction | No | Concurrent settlement and `paySeries` |
-| M8 | P3 | Refunds to stored credit are written to the venue regardless of `MYSENAM_CREDIT_SCOPE`, so on a marketplace set to `platform` one venue's money becomes credit spendable anywhere. | `refundToCredit` in `src/lib/payments.ts` | No (non-default setting) | — |
+No numbered money defect is open; see [fixed since the audit](#fixed-since-the-audit).
 
 Also: if a manual "refunded" mark and a Stripe one-click refund race, money
 can go back twice at the gateway (reported, not prevented); disputes on the
@@ -77,9 +74,11 @@ IDs are not reused. Each fix came with the test recommended above.
 | M1 | A handed-back share leaves the booker owing it; what they paid online gets its own receipt, dated when paid | `tests/games.test.ts` |
 | M2 | A lost dispute takes back only what went back, and unwinds deposits and parts paid | `tests/stripe-disputes.test.ts` |
 | M4 | A lost dispute is claimed once, in the transaction that acts on it | `tests/stripe-disputes.test.ts` |
+| M3 | Marking a series paid at the counter is one statement that skips weeks already paid | `tests/series-payment.test.ts` |
 | M5 | The set-up text is built from the events the webhook handles | `tests/stripe-disputes.test.ts` |
 | M6 | A booking that stops being paid keeps its receipt, dated when paid | `tests/stripe-disputes.test.ts` |
 | M7 | A receipt covering several bookings is credited one booking's part at a time, never past its total | `tests/deposits.test.ts` |
+| M8 | A refund as credit goes into the pot the credit scope names | `tests/auto-refunds.test.ts` |
 
 ## Integrations awaiting live verification or a partner
 

@@ -170,7 +170,8 @@ account:
   venue's customers' money with that venue. It is not legal advice — ask a
   lawyer before taking any money on behalf of venues.
 
-Switching from `platform` to `venue` shrinks nobody's balance: credit bought
+A refund given as credit goes into the same pot a top-up at that venue
+would. Switching from `platform` to `venue` shrinks nobody's balance: credit bought
 before the switch stays spendable anywhere. A booking is paid from the venue's
 own credit first and then from that older pot, a ledger line for each, and a
 refund puts each line back where it came from.

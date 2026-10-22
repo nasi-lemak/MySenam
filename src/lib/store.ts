@@ -2957,26 +2957,17 @@ export async function paySeries(
   seriesCode: string,
   via: CounterMethod | null = null
 ): Promise<{ ok: boolean; paid: number; error?: string }> {
-  const db = getDb();
-  const rows = await db
+  // One statement: a week paid online a moment ago is not still "unpaid" here,
+  // so the counter never writes over it (and the online money is not lost).
+  const paid = (await getDb()
     .prepare(
-      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND status = 'confirmed' AND payment_status = 'unpaid'"
+      `UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ?
+        WHERE UPPER(series_code) = UPPER(?) AND status = 'confirmed' AND payment_status = 'unpaid'
+        RETURNING id`
     )
-    .all(seriesCode.trim()) as BookingRow[];
-  if (rows.length === 0)
-    return { ok: false, paid: 0, error: "No unpaid sessions found for that series." };
-
-  const now = new Date().toISOString();
-  await db.transaction(async () => {
-    for (const row of rows) {
-      await db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ? WHERE id = ?").run(
-        now,
-        via,
-        row.id
-      );
-    }
-  })();
-  return { ok: true, paid: rows.length };
+    .all(new Date().toISOString(), via, seriesCode.trim())) as { id: number }[];
+  if (paid.length === 0) return { ok: false, paid: 0, error: "No unpaid sessions found for that series." };
+  return { ok: true, paid: paid.length };
 }
 
 export type CheckInResult = { ok: true; booking: Booking } | Refusal;

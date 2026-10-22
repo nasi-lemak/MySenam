@@ -1084,7 +1084,8 @@ async function refundToCredit(row: PaymentRow, bookingIds: number[], amount: num
     return await recordRefund(row, amount, `credit-${row.id}-${Math.round(row.refund_due * 100)}`, false, null, async () => {
       await db
         .prepare("INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)")
-        .run(booking.user_id, amount, `Refund for ${booking.code}, as credit`, booking.id, row.venue_id);
+        // Into the same pot a top-up there would go: the venue's own, or the one spendable anywhere.
+        .run(booking.user_id, amount, `Refund for ${booking.code}, as credit`, booking.id, creditScope() === "venue" ? row.venue_id : null);
     });
   } catch {
     return false;

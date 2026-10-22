@@ -14,6 +14,7 @@ import { registerUser, type User } from "../src/lib/auth";
 import { setCancelPolicy, type OnlineRefunds } from "../src/lib/cancel-policy";
 import { refundCancelled, refundsOwed, savePaymentSettings, settleBill, startBookingPayment } from "../src/lib/payments";
 import { cancelBooking, createBookingSeries, createCourt, createVenue, getWalletBalance } from "../src/lib/store";
+import { getDb } from "../src/lib/db";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as cancelRoute } from "../src/app/api/bookings/cancel/route";
 import { POST as cancelSeriesRoute } from "../src/app/api/bookings/cancel-series/route";
@@ -145,6 +146,11 @@ describe("when a customer cancels", () => {
     expect(refundCalls).toBe(0);
     expect(await refundCancelled([made.booking.id])).toEqual([]);
     expect(await getWalletBalance(customer.id, venueId)).toBe(balance + 20);
+    // Into the pot the install's credit scope says: here (not a marketplace) the one spendable anywhere.
+    const entry = (await getDb()
+      .prepare("SELECT venue_id FROM wallet_entries WHERE booking_id = ? AND amount > 0")
+      .get(made.booking.id)) as { venue_id: number | null };
+    expect(entry.venue_id).toBeNull();
   });
 
   it("stays with staff as credit when there is no account to put it on", async () => {
