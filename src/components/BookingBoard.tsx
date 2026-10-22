@@ -21,6 +21,7 @@ import {
   VenueClosure,
 } from "@/lib/types";
 import { consecutive, formatHour, isPastSlot } from "@/lib/time";
+import WaiverTick from "@/components/WaiverTick";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -689,6 +690,8 @@ function BookingForm({
   // Company or school accounts here this customer may charge to (lib/accounts.ts).
   const [accounts, setAccounts] = useState<{ id: number; name: string }[]>([]);
   const [chargeTo, setChargeTo] = useState<number | null>(null);
+  // The venue's waiver, where it has one (lib/waivers.ts).
+  const [agreeWaiver, setAgreeWaiver] = useState(false);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -768,6 +771,7 @@ function BookingForm({
           payFromWallet: chargeTo === null && (hasExtras || passCode.trim() === "") && payFromWallet,
           payWithPass: (chargeTo === null && !hasExtras && passCode.trim()) || undefined,
           ...(chargeTo !== null ? { chargeTo } : {}),
+          ...(agreeWaiver ? { agreeWaiver: true } : {}),
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
@@ -963,6 +967,7 @@ function BookingForm({
         onList={setOffered}
       />
       )}
+      <WaiverTick venueId={court.venueId} venueName={venueName} checked={agreeWaiver} onChange={setAgreeWaiver} />
       {accounts.length > 0 && (
         <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
           {t("form.whoPays")}

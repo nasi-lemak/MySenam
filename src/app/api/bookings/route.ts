@@ -36,6 +36,7 @@ import { receiptPath } from "@/lib/receipts";
 import { reviewable, reviewPath } from "@/lib/reviews";
 import { recordConsent } from "@/lib/marketing";
 import { accountsForUser, chargeToAccount } from "@/lib/accounts";
+import { signWaiver, waiverRefusal } from "@/lib/waivers";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo } =
+  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -135,6 +136,9 @@ export async function POST(req: NextRequest) {
       canPayOnline: await takesPaymentOnline(venueOfBooking),
     });
     if (refused) return refusal(refused);
+    // The venue's waiver, agreed to once per version (lib/waivers.ts).
+    const unsigned = await waiverRefusal(venueOfBooking, phone, agreeWaiver);
+    if (unsigned) return refusal(unsigned);
   }
 
   // A lesson: a coach of this sport, here, working then (lib/coaching.ts),
@@ -308,6 +312,7 @@ export async function POST(req: NextRequest) {
 
   const court = (await getCourt(result.bookings[0].courtId))!;
   const venue = (await getVenue(court.venueId))!;
+  if (agreeWaiver === true) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id });
 
   // A venue asking for payment online to hold a booking: what is still
   // unpaid is held for a few minutes, and confirmed once it is paid.

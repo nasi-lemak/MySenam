@@ -241,6 +241,19 @@ export function BookingsTab() {
     load();
   }
 
+  /** The customer signed the venue's waiver on paper at the desk (lib/waivers.ts). */
+  async function paperWaiver(b: AdminBookingRow) {
+    if (!window.confirm(`Has ${b.name} signed the waiver on paper? It is recorded in your name.`)) return;
+    setError(null);
+    const res = await fetch("/api/admin/waiver/sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId: b.id }),
+    });
+    if (!res.ok) setError((await res.json()).error ?? "Could not record it");
+    load();
+  }
+
   /** Onto a company or school account (lib/accounts.ts), or off it again. */
   async function charge(b: AdminBookingRow, accountId: number | null) {
     setError(null);
@@ -388,6 +401,7 @@ export function BookingsTab() {
     checkConcession,
     charge,
     writeNote,
+    paperWaiver,
   };
 
   return (
@@ -712,6 +726,7 @@ export function BookingsTab() {
                   <CheckedPhone b={b} />
                   <Extras b={b} act={act} />
                   <StaffNote b={b} act={act} />
+                  <WaiverChip b={b} act={act} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -758,6 +773,7 @@ export function BookingsTab() {
                   <StrikesBadge b={b} act={act} />
                       <Extras b={b} act={act} />
                       <StaffNote b={b} act={act} />
+                      <WaiverChip b={b} act={act} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -824,6 +840,7 @@ interface Act {
   checkConcession: (b: AdminBookingRow, outcome: "seen" | "refused", remember?: string, via?: CounterMethod) => void;
   charge: (b: AdminBookingRow, accountId: number | null) => void;
   writeNote: (b: AdminBookingRow) => void;
+  paperWaiver: (b: AdminBookingRow) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -867,6 +884,21 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
       className="mt-1 block max-w-xs rounded bg-amber-50 px-2 py-0.5 text-left text-xs text-amber-900 ring-1 ring-amber-200"
     >
       📝 {b.staffNote}
+    </button>
+  );
+}
+
+/** Not yet agreed to the venue's waiver: to sign at the desk. Nothing where it is signed, or asked for none. */
+function WaiverChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  if (b.waiverSigned || b.status !== "confirmed") return null;
+  return (
+    <button
+      type="button"
+      onClick={() => act.paperWaiver(b)}
+      title="Has not agreed to your waiver. Click once they have signed it on paper."
+      className="mt-1 block rounded bg-rose-50 px-2 py-0.5 text-left text-xs font-medium text-rose-800 ring-1 ring-rose-200"
+    >
+      ✍ No waiver yet: signed on paper?
     </button>
   );
 }

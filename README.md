@@ -1620,6 +1620,29 @@ factual: it goes out with what the venue holds against the number and with
 the customer's own data when they ask for it, and it is erased with their
 account, by the number on the account and the one they proved.
 
+## Waivers
+
+A climbing wall, a gym floor, kayaks on a lake, or any court that wants one:
+*Venues & staff → Waiver* holds the venue's words (`src/lib/waivers.ts`). With
+a waiver in force, the booking form and the class enrolment form show *I have
+read and agree to the venue's waiver*, with the waiver a click away at
+`/venue/{id}/waiver`, and a booking or enrolment is refused until it is ticked.
+What is kept is the agreement: which version, by which number (however it is
+typed), in whose name, on which booking, and when. A number is asked once,
+until the venue changes the words: new words are a new version that everybody
+agrees to afresh, and the editor says how many have agreed to the one in
+force. The box is shown to everyone, since whether a number has agreed is not
+something to tell a stranger.
+
+The day's bookings flag anybody who has not agreed (a walk-in booked at the
+desk, say) with *No waiver yet: signed on paper?*, which records a paper
+signature in the name of the member of staff. Managers write the waiver; the
+desk records paper ones, which go in the activity log.
+
+A signature is the venue's record of consent, so like the money on a booking
+it is kept when a customer erases their account; it goes out with what the
+venue holds against the number and with the customer's own data.
+
 ## Personal data
 
 Malaysia's PDPA gives a person the right to see what is held about them and to

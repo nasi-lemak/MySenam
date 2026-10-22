@@ -1,6 +1,7 @@
 "use client";
 
 import { accountDetour } from "@/lib/phone-detour";
+import WaiverTick from "@/components/WaiverTick";
 import { useCallback, useEffect, useState } from "react";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
@@ -200,6 +201,8 @@ function EnrolModal({
   const [queued, setQueued] = useState<number | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [confirmWho, setConfirmWho] = useState(false);
+  // The venue's waiver, where it has one (lib/waivers.ts).
+  const [agreeWaiver, setAgreeWaiver] = useState(false);
   const [remembered, setRemembered] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked>({});
   const [offered, setOffered] = useState<OfferedAddon[]>([]);
@@ -255,6 +258,7 @@ function EnrolModal({
           phone,
           email,
           confirmWho,
+          ...(agreeWaiver ? { agreeWaiver: true } : {}),
           ...(isFull ? {} : wholeTerm ? { term: true } : { addons: pickedList(picked) }),
         }),
       });
@@ -383,6 +387,7 @@ function EnrolModal({
                 {t("form.emailOptional")}
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
               </label>
+              <WaiverTick venueId={session.venueId} venueName={session.venueName} checked={agreeWaiver} onChange={setAgreeWaiver} />
               {/* A guest says it for themselves; an account has said it already. */}
               {session.who !== "anyone" && !signedIn && (
                 <label className="flex items-start gap-2 rounded-lg bg-fuchsia-50 p-3 text-sm text-fuchsia-900">

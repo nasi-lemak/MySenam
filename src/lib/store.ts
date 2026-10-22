@@ -1,5 +1,6 @@
 import { randomBytes, randomInt } from "crypto";
 import { notesFor } from "./customer-notes";
+import { signaturesFor } from "./waivers";
 import { reviewPath } from "./review-links";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
@@ -2818,6 +2819,8 @@ export interface AdminBookingRow extends Booking {
   invoiced: boolean;
   /** The venue's own note on this customer, by number (lib/customer-notes.ts). */
   staffNote: string | null;
+  /** Agreed to the venue's waiver as it stands; true where it asks for none (lib/waivers.ts). */
+  waiverSigned: boolean;
 }
 
 export interface UserBookingRow extends Booking {
@@ -3885,6 +3888,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   }
   const extras = await addonsFor(rows.map((r) => r.id));
   const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
+  const waivers = await signaturesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
   const policies = new Map<number, Awaited<ReturnType<typeof cancelPolicy>>>();
   for (const r of rows) if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
 
@@ -3947,6 +3951,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       accountName: r.account_name,
       invoiced: r.account_invoice_id !== null,
       staffNote: notes.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? null,
+      waiverSigned: waivers.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? true,
     });
   }
   return list;

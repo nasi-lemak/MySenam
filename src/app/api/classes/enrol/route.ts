@@ -4,6 +4,7 @@ import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { customerMayBook } from "@/lib/limits";
+import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { classTerm, enrolInClass, enrolInTerm, getClass, payBookingFromWallet } from "@/lib/store";
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, name, phone, email, payFromWallet, confirmWho, addons, term } = (body ?? {}) as Record<
+  const { classId, name, phone, email, payFromWallet, confirmWho, addons, term, agreeWaiver } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -65,6 +66,10 @@ export async function POST(req: NextRequest) {
       ...(termInfo ? { dates: termInfo.sessions.map((c) => c.date) } : {}),
     });
     if (refused) return refusal(refused);
+    // The venue's waiver, agreed to once per version (lib/waivers.ts).
+    const unsigned = await waiverRefusal(forClass.venueId, phone, agreeWaiver);
+    if (unsigned) return refusal(unsigned);
+    if (agreeWaiver === true) await signWaiver(forClass.venueId, { phone, name });
     // A mat or a towel that has run out is said before the place is taken.
     if (chosen.length > 0) {
       const priced = await priceChoice(chosen, {

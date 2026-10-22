@@ -25,6 +25,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/holidays$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/loyalty$/, methods: ["POST"] },
   { path: /^\/api\/admin\/concessions$/, methods: ["POST", "DELETE"] },
+  { path: /^\/api\/admin\/waiver$/, methods: ["POST"] },
   // Opening an account gives credit; the desk charges bookings to it and takes its payments.
   { path: /^\/api\/admin\/accounts(\/bookers|\/invoices)?$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/accounts\/invoices\/\d+$/, methods: ["DELETE"] },

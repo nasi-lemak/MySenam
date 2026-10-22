@@ -324,6 +324,8 @@ export interface CustomerExport {
   staffNotes: unknown[];
   /** Private hire enquiries they sent from their number or address (lib/enquiries.ts). */
   enquiries: unknown[];
+  /** Venues' waivers agreed to from their number: kept, as each venue's record of consent (lib/waivers.ts). */
+  waivers: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
@@ -486,6 +488,12 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       account.phone,
       account.email
     ),
+    waivers: await all(
+      `SELECT v.name AS venue, s.name, s.signed_at, w.text
+         FROM waiver_signatures s JOIN venue_waivers w ON w.id = s.waiver_id JOIN venues v ON v.id = w.venue_id
+        WHERE s.phone_key = phone_key(?) ORDER BY s.signed_at`,
+      account.phone
+    ),
     messages: await all(
       `SELECT m.created_at, m.channel, m.kind, m.recipient, m.status, m.subject, m.body
          FROM messages m
@@ -525,6 +533,8 @@ export interface PhoneExport {
   staffNotes: unknown[];
   /** Private hire enquiries from this number (lib/enquiries.ts). */
   enquiries: unknown[];
+  /** The venue's waivers this number agreed to, and when (lib/waivers.ts). */
+  waivers: unknown[];
   messages: unknown[];
 }
 
@@ -646,6 +656,14 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       `SELECT v.name AS venue, e.created_at, e.name, e.phone, e.email, e.kind, e.wanted_on, e.people, e.message, e.status
          FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id
         WHERE e.venue_id IN (${marks}) AND e.phone_key = phone_key(?) ORDER BY e.id`,
+      ...venueIds,
+      phone
+    ),
+    waivers: await all(
+      `SELECT v.name AS venue, s.name, s.signed_at, w.created_at AS version_of, w.text, a.name AS recorded_by
+         FROM waiver_signatures s JOIN venue_waivers w ON w.id = s.waiver_id JOIN venues v ON v.id = w.venue_id
+         LEFT JOIN admins a ON a.id = s.recorded_by
+        WHERE w.venue_id IN (${marks}) AND s.phone_key = phone_key(?) ORDER BY s.signed_at`,
       ...venueIds,
       phone
     ),
