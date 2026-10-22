@@ -214,6 +214,47 @@ On a production start the server warns about a default `ADMIN_PASSWORD` and an
 unset backup directory. It warns rather than refuses, because a venue in the
 middle of a Saturday does not want its booking system declining to boot.
 
+### Before going live: what only a live account can prove
+
+The tests run every gateway and API against recorded answers, not the real
+services. Before taking real money or sending real messages, check each of
+these once with a real account, in its sandbox where it has one:
+
+- [ ] **Secrets**: `ADMIN_EMAIL` and a strong `ADMIN_PASSWORD` set before the
+      first start (the default is in this README); `MYSENAM_SECRET` set and
+      kept out of backups; two-factor sign-in on for the owner account.
+- [ ] **Email**: `SMTP_URL` and `MAIL_FROM` send a booking confirmation that
+      arrives in an inbox, not spam (SPF/DKIM on the sending domain), with
+      its calendar invite, and a venue's news shows the mail app's own
+      unsubscribe button.
+- [ ] **WhatsApp**: every template under *Messages to customers* submitted
+      and approved by Meta in each language, word for word; a confirmation
+      and a waitlist offer arrive; the delivery webhook reaches
+      `/api/whatsapp/webhook` (a message shows *delivered* under Messages).
+- [ ] **Billplz** (Malaysia): a sandbox bill paid by FPX and by card marks
+      the booking paid by callback and by redirect; the X-Signature key is
+      checked (a tampered callback is refused); a held booking's bill expires
+      with its hold.
+- [ ] **Stripe** (Singapore, renewals): a test-mode checkout paid; the
+      webhook secret checked; a refund from *Refunds owed* goes through; a
+      test dispute (card `4000 0000 0000 0259`) shows under Disputes and, lost,
+      takes back what it paid for; a renewing membership charges again.
+- [ ] **MyInvois** (Malaysia): the sandbox (preprod) accepts a consolidated
+      e-invoice and a single one, with the venue's own TIN and certificate.
+- [ ] **Google sign-in**: the redirect URI registered matches
+      `<MYSENAM_URL>/api/auth/google/callback`.
+- [ ] **Backups**: the nightly backup runs, the off-site copy lands, and a
+      restore into a spare database works (see *Restoring*).
+- [ ] **The scheduler**: `/api/health` shows its heartbeat a minute old at
+      most, so holds, reminders, offers and backups happen on time.
+- [ ] **A real venue, end to end**: book, pay online, get the messages,
+      check in at the desk, cancel one late, see it in the reports and the
+      accounting export.
+
+Not built here, and needing a partner or a contract first: Reserve with
+Google's live booking server (the feeds are ready), Singapore's InvoiceNow,
+smart locks, Stripe Connect payouts to venues, web push, LINE and Zalo.
+
 ### Behind a proxy
 
 Two things depend on the proxy being configured properly:
@@ -3873,6 +3914,32 @@ were unkind to the people using them. What changed, by theme:
   the card, for a booking paid online and cancelled; and a number past its
   strikes at a venue that sends such numbers to the counter is told that,
   rather than to pay online.
+
+### Friendlier extras
+
+- **A free hour for regulars** (*Courts & rates → When peak rates apply*,
+  migration 0069, `src/lib/loyalty.ts`): every 5 to 50 paid hours somebody
+  plays at a venue, the next hour is free, given once a day as a one-hour
+  pass (90 days) and told by email; the venue page says so. Classes,
+  no-shows, unpaid hours and hours paid with a free hour do not count. Off
+  unless the venue turns it on. It is the reward offered instead of prices
+  that move with demand (see below).
+- **Days back on a membership** (*Credit & passes → Memberships → Give days
+  back*, managers): 1 to 90 days for an injury, time away or a long closure,
+  with a reason in the activity log. Not for one already over.
+
+### Deliberately not built
+
+- **Demand-based ("surge") pricing.** Raising prices when a venue is busy and
+  lowering them when it is quiet teaches regulars to wait, reads as a trick
+  in a market where a court is a known price, and lands hardest on the
+  people who keep a venue going. Venues have fixed peak and off-peak bands,
+  holidays at weekend prices, an opt-in last-minute discount for hours that
+  would otherwise go empty (off-peak only by default), and the free hour for
+  regulars above.
+- **Referral credit** ("give RM10, get RM10"): with bookings by phone number
+  and no proof that two numbers are two people, it pays people to refer
+  themselves.
 
 ## Renamed from MudahTempah
 

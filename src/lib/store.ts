@@ -4540,6 +4540,27 @@ export async function voidMembership(id: number): Promise<MembershipResult> {
   });
 }
 
+/** The most days a membership can be given back at once. */
+export const MAX_MEMBERSHIP_EXTENSION_DAYS = 90;
+
+/**
+ * Days given back on a membership: somebody injured, away, or shut out by a
+ * long closure. Its end moves later; nothing is charged. Staff do it, and it
+ * is logged; a membership already over cannot be brought back this way.
+ */
+export async function extendMembership(id: number, days: number): Promise<MembershipResult> {
+  if (!Number.isInteger(days) || days < 1 || days > MAX_MEMBERSHIP_EXTENSION_DAYS)
+    return { ok: false, error: `Give back 1 to ${MAX_MEMBERSHIP_EXTENSION_DAYS} days.` };
+  return withTransaction(async () => {
+    const m = await membershipById(id);
+    if (!m) return { ok: false, error: "Membership not found." };
+    if (m.status === "void") return { ok: false, error: "This membership is cancelled." };
+    if (m.expiresOn < todayISO()) return { ok: false, error: "This membership has already ended. Sell a new one instead." };
+    await getDb().prepare("UPDATE memberships SET expires_on = ? WHERE id = ?").run(addDays(m.expiresOn, days), id);
+    return { ok: true, membership: (await membershipById(id))! };
+  });
+}
+
 /* ---------------- Promo codes ---------------- */
 
 interface PromoRow {
@@ -4984,7 +5005,8 @@ export async function issuePass(input: {
   holderName: string;
   holderPhone: string;
   expiresOn: string;
-  adminId: number;
+  /** null: given by the system itself, a loyalty reward (lib/loyalty.ts). */
+  adminId: number | null;
   userId?: number;
   /** A pack of lessons with this coach. */
   coachId?: number | null;
@@ -5054,7 +5076,7 @@ export async function issuePass(input: {
       name: holderName,
       phone: holderPhone,
       lines: [{ description: `${name} (${pass.code}), ${input.entries} entries, until ${input.expiresOn}`, amount: input.price }],
-      paidVia: "At the counter",
+      paidVia: input.price === 0 ? null : "At the counter",
       taxable: true,
     });
     return { ok: true, pass };

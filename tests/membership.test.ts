@@ -14,6 +14,7 @@ import {
   sellMembership,
   updateCourt,
   voidMembership,
+  extendMembership,
 } from "../src/lib/store";
 import { registerUser } from "../src/lib/auth";
 import { authenticateAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
@@ -103,6 +104,15 @@ describe("selling a membership", () => {
     await getDb().prepare("UPDATE memberships SET expires_on = ? WHERE id = ?")
       .run(addDays(todayISO(), -1), lapsed.id);
     expect(await activeMembership((await venue()).id, "0193330000")).toBeNull();
+  });
+
+  it("can be given days back, while it is still running", async () => {
+    const m = await sell({ holderPhone: "0193330000" });
+    expect(await extendMembership(m.id, 0)).toMatchObject({ ok: false });
+    expect(await extendMembership(m.id, 91)).toMatchObject({ ok: false });
+    expect(await extendMembership(m.id, 14)).toMatchObject({ ok: true, membership: { expiresOn: addDays(m.expiresOn, 14) } });
+    await voidMembership(m.id);
+    expect(await extendMembership(m.id, 7)).toMatchObject({ ok: false });
   });
 
   it("is per venue", async () => {

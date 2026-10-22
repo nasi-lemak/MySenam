@@ -879,6 +879,24 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     }
   }
 
+  /** Days given back: an injury, time away, a long closure. */
+  async function extend(m: Membership) {
+    const answer = window.prompt(`Give ${m.holderName} days back on ${m.code}: how many (1–90)? It now ends ${m.expiresOn}.`, "14");
+    if (answer === null) return;
+    const reason = window.prompt("Why, for the activity log (optional)?", "") ?? "";
+    setError(null);
+    setNotice(null);
+    const res = await fetch(`/api/admin/memberships/${m.id}/extend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days: Number(answer), reason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(data.error ?? "Could not extend the membership");
+    setNotice(`${m.code} now runs until ${data.membership.expiresOn}.`);
+    await load();
+  }
+
   async function cancel(m: Membership) {
     if (!window.confirm(`Cancel ${m.holderName}'s membership (${m.code})? Member rates stop for them at once.`)) return;
     setError(null);
@@ -1039,12 +1057,20 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                   {m.unusableReason ? (
                     <span className="text-xs text-slate-400">{m.unusableReason}</span>
                   ) : (
-                    <button
-                      onClick={() => cancel(m)}
-                      className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                    >
-                      Cancel
-                    </button>
+                    <>
+                      <button
+                        onClick={() => extend(m)}
+                        className="mr-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Give days back
+                      </button>
+                      <button
+                        onClick={() => cancel(m)}
+                        className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                      >
+                        Cancel
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>

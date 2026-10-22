@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { loyaltyEvery } from "@/lib/loyalty";
 import { getVenue, listVenueClosures, readNear } from "@/lib/store";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays, formatHour, onSlot, slotsBetween } from "@/lib/time";
@@ -125,6 +126,7 @@ export default async function VenuePage({
   const ahead = await aheadFor(venue.id, viewer.userId);
   const dates = Array.from({ length: ahead + 1 }, (_, i) => addDays(today, i));
 
+  const loyalty = await loyaltyEvery(venue.id);
   const initial = parseInitialSelection(query, sports, dates, venue.slotMinutes / 60);
   // Only closures inside the booking window are worth warning about.
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
@@ -213,6 +215,7 @@ export default async function VenuePage({
             ? t.plural("venue.freeCancel", venue.cancelCutoffHours)
             : t("venue.cancelAnyTime")}
         </p>
+        {loyalty !== null && <p className="mt-1 text-sm font-medium text-teal-700">🎁 {t("loyalty.note", { n: loyalty })}</p>}
       </div>
       {access.access === "members" &&
         (member ? (

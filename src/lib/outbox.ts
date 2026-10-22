@@ -51,7 +51,9 @@ export type MessageKind =
   /** By email only: asking an address to confirm it wants a venue's news, before any is sent. */
   | "marketing_confirm"
   /** By email only, to a coach: a lesson booked with them, or cancelled (lib/coach-schedule.ts). */
-  | "coach_lesson";
+  | "coach_lesson"
+  /** By email only: a free hour earned by playing at a venue (lib/loyalty.ts). */
+  | "loyalty_reward";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

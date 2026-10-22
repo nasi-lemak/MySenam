@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { getDb } from "./db";
 import { pruneIfDue } from "./privacy";
+import { grantLoyaltyIfDue } from "./loyalty";
 import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
@@ -108,6 +109,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
     await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Free hours earned by regulars at venues that give them, once a day.
+    await grantLoyaltyIfDue();
+  } catch (err) {
+    console.error("[mysenam] giving loyalty hours failed:", err);
+    await raiseAlert("scheduler:loyalty-failed", "Scheduled work failed: loyalty hours", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

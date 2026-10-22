@@ -23,6 +23,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/go-live$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(hold-policy|house-rules|venue-access|venue-tax|booking-alerts|peak-rules|slot-length|venue-time-zone|cancel-policy|calendar-feed)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/holidays$/, methods: ["POST", "DELETE"] },
+  { path: /^\/api\/admin\/loyalty$/, methods: ["POST"] },
   { path: /^\/api\/admin\/data-request$/, methods: "all" },
   { path: /^\/api\/admin\/coaches$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/strikes$/, methods: ["POST"] },
@@ -35,6 +36,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   // Calling one off refunds every entry; drawing and seasons shape what people paid for.
   { path: /^\/api\/admin\/(leagues|tournaments)\/\d+$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },
   { path: /^\/api\/admin\/membership-plans$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/notices(\/\d+)?$/, methods: ["POST", "DELETE"] },

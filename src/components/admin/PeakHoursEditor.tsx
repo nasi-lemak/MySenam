@@ -24,6 +24,29 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [lm, setLm] = useState({ on: false, hours: 3, percent: 20, offPeakOnly: true });
+  // A free hour every so many paid hours played (lib/loyalty.ts): null is off.
+  const [loyalty, setLoyalty] = useState<number | null>(null);
+
+  useEffect(() => {
+    void fetch(`/api/admin/loyalty?venueId=${venueId}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { every: number | null } | null) => setLoyalty(d?.every ?? null));
+  }, [venueId]);
+
+  async function saveLoyalty(every: number | null) {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/admin/loyalty", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, every }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return setError(d.error ?? "Could not save");
+    setLoyalty(d.every);
+    setNotice(d.every === null ? "Free hours for regulars are off." : `One free hour for every ${d.every} hours played.`);
+  }
 
   useEffect(() => {
     setRules(null);
@@ -205,6 +228,29 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
           Peak hours too: regulars may learn to wait for the lower price on your busiest evenings.
         </p>
       )}
+
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">A free hour for regulars</h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Rather than prices that move with demand, thank the people who keep coming: every so many paid hours somebody
+        plays here, the next hour is on you. It goes to them once a day as a one-hour pass (90 days to use it), by email.
+        Classes, no-shows and hours paid with a free hour do not count.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Free hour for regulars"
+          value={loyalty ?? ""}
+          disabled={busy}
+          onChange={(e) => void saveLoyalty(e.target.value === "" ? null : Number(e.target.value))}
+          className={input}
+        >
+          <option value="">Off</option>
+          {[5, 8, 10, 12, 15, 20, 30].map((n) => (
+            <option key={n} value={n}>
+              One free hour every {n} hours played
+            </option>
+          ))}
+        </select>
+      </div>
 
       <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Holidays at weekend prices</h4>
       {holidays.length > 0 ? (
