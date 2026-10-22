@@ -11,7 +11,7 @@ import type { T } from "@/lib/i18n";
 import { addDays, formatHour, slotStartsAt, todayISO } from "@/lib/time";
 import { SPORT_ICONS, SPORTS, type Sport } from "@/lib/types";
 import type { GamePlayer, Level, OpenGame } from "@/lib/games";
-import { intlTag } from "@/lib/region";
+import { shortDate } from "@/lib/region";
 
 const LEVELS: Level[] = ["beginner", "intermediate", "advanced", "competitive"];
 const levelLabel = (t: T, level: Level) => t(`games.level.${level}`);
@@ -105,13 +105,7 @@ export default function GamesPage() {
     `shrink-0 rounded-full px-3 py-1 text-sm font-medium transition ${
       on ? "bg-teal-600 text-white shadow" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
     }`;
-  const dayLabel = (d: string) =>
-    new Date(`${d}T00:00:00Z`).toLocaleDateString(intlTag(t.locale), {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      timeZone: "UTC",
-    });
+  const dayLabel = (d: string) => shortDate(d, t.locale, true);
 
   return (
     <div className="space-y-6">

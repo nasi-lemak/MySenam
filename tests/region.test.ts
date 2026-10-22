@@ -12,10 +12,10 @@ afterEach(() => {
 });
 
 describe("Malaysia, the default", () => {
-  it("is ringgit, Billplz, English, Malay and Chinese", () => {
+  it("is ringgit, Billplz, English, Malay, Chinese and Tamil", () => {
     expect(region().country).toBe("MY");
     expect(money(25)).toBe("RM25");
-    expect(offeredLocales()).toEqual(["en", "ms", "zh"]);
+    expect(offeredLocales()).toEqual(["en", "ms", "zh", "ta"]);
     const t = translator("en");
     expect(t("pay.how")).toBe("FPX online banking or card, through Billplz. Or pay at the counter as usual.");
     expect(translator("ms")("pay.how")).toBe("Perbankan dalam talian FPX atau kad, melalui Billplz. Atau bayar di kaunter seperti biasa.");
@@ -25,13 +25,13 @@ describe("Malaysia, the default", () => {
 });
 
 describe("Singapore", () => {
-  it("is dollars, Stripe, English and Chinese, on Singapore's map and clock", () => {
+  it("is dollars, Stripe, English, Chinese and Tamil, on Singapore's map and clock", () => {
     process.env.MYSENAM_COUNTRY = "SG";
     expect(money(18.5)).toBe("S$18.50");
     expect(money(4.8 * 3)).toBe("S$14.40");
     expect(money(20)).toBe("S$20");
     expect(currencySymbol()).toBe("S$");
-    expect(offeredLocales()).toEqual(["en", "zh"]);
+    expect(offeredLocales()).toEqual(["en", "zh", "ta"]);
     const t = translator("en");
     expect(t("pay.how")).toBe("Card or PayNow, through Stripe. Or pay at the counter as usual.");
     expect(t("home.fromRate", { rate: 15 })).toContain("S$15");

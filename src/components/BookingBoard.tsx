@@ -31,7 +31,7 @@ import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
-import { money, intlTag, region, plainAmount, localTimeOf } from "@/lib/region";
+import { money, intlTag, region, plainAmount, localTimeOf, shortDate } from "@/lib/region";
 
 interface Props {
   venueId: number;
@@ -128,7 +128,7 @@ function formatDateLabel(t: T, date: string): { day: string; num: string } {
   const tag = intlTag(t.locale);
   return {
     day: d.toLocaleDateString(tag, { weekday: "short", timeZone: "UTC" }),
-    num: d.toLocaleDateString(tag, { day: "numeric", month: "short", timeZone: "UTC" }),
+    num: shortDate(date, t.locale),
   };
 }
 

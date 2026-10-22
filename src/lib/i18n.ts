@@ -18,8 +18,9 @@
 import { siteName } from "./site";
 import { currencySymbol, plainAmount, region } from "./region";
 import { CUSTOMER_ERRORS_ZH, ZH } from "./i18n-zh";
+import { CUSTOMER_ERRORS_TA, TA } from "./i18n-ta";
 
-export const LOCALES = ["en", "ms", "zh"] as const;
+export const LOCALES = ["en", "ms", "zh", "ta"] as const;
 export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = "en";
@@ -30,6 +31,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   en: "English",
   ms: "Bahasa Malaysia",
   zh: "中文",
+  ta: "தமிழ்",
 };
 
 /** On the language switch (shown upper-case): a code where that reads, the script where it does not. */
@@ -37,6 +39,7 @@ export const LOCALE_SHORT: Record<Locale, string> = {
   en: "en",
   ms: "ms",
   zh: "中文",
+  ta: "தமிழ்",
 };
 
 /** Gateways by name, for copy (the gateways themselves are server code). */
@@ -2798,7 +2801,7 @@ const MS: Record<Phrase, string> = {
 };
 
 /** Exported so a test can hold the two languages against each other. */
-export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms: MS, zh: ZH };
+export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms: MS, zh: ZH, ta: TA };
 
 export type Vars = Record<string, string | number>;
 
@@ -2991,7 +2994,7 @@ export function translateError(t: T, body: string | RefusalBody | null | undefin
   if (t.locale === "en") return sentence;
   if (code && (hasPhrase(`err.${code}`) || hasPhrase(`err.${code}_one`)))
     return errorText(t, code as ErrorCode, typeof body === "string" ? undefined : body?.vars);
-  return (t.locale === "zh" ? CUSTOMER_ERRORS_ZH : CUSTOMER_ERRORS_MS)[sentence] ?? sentence;
+  return (t.locale === "zh" ? CUSTOMER_ERRORS_ZH : t.locale === "ta" ? CUSTOMER_ERRORS_TA : CUSTOMER_ERRORS_MS)[sentence] ?? sentence;
 }
 
 /**

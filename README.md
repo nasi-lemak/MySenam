@@ -2477,7 +2477,7 @@ the email is, and what fills it is sent as its parameters.
    access token for a system user. Its token is `WHATSAPP_TOKEN`; the number's
    *Phone number ID* is `WHATSAPP_PHONE_NUMBER_ID`.
 2. In WhatsApp Manager, create the templates below, category **Utility**,
-   each with an English (`en`), a Malay (`ms`) and a Chinese (`zh_CN`) translation, the body exactly
+   each with an English (`en`), a Malay (`ms`), a Chinese (`zh_CN`) and a Tamil (`ta`) translation, the body exactly
    as given. The name must match, prefix included.
 3. Wait for approval, then set the two variables. Anything that failed while
    waiting can be retried from the dashboard.
@@ -2527,6 +2527,19 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} tot
 请在前台出示代码。如需查看、付款或取消，请打开 {{6}} 并输入代码。
 ```
 
+Tamil (`ta`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} total, {{6}} link
+
+```text
+வணக்கம் {{1}}, உங்கள் முன்பதிவு உறுதியானது.
+
+குறியீடு: {{2}}
+{{3}}
+{{4}}
+மொத்தம்: {{5}}
+
+முன் மேசையில் குறியீட்டைக் காட்டுங்கள். அதைப் பார்க்க, செலுத்த அல்லது ரத்து செய்ய, {{6}} ஐத் திறந்து குறியீட்டை உள்ளிடுங்கள்.
+```
+
 #### `mysenam_booking_series_confirmed`
 
 English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} weeks, {{5}} when, {{6}} total, {{7}} link
@@ -2566,6 +2579,19 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} wee
 总额：{{6}}
 
 请在前台出示代码。如需查看、付款或取消，请打开 {{7}} 并输入系列代码。
+```
+
+Tamil (`ta`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} weeks, {{6}} total, {{7}} link
+
+```text
+வணக்கம் {{1}}, உங்கள் வாராந்திர அமர்வுகள் முன்பதிவு செய்யப்பட்டன.
+
+தொடர் குறியீடு: {{2}}
+{{3}}
+{{4}} முதல் {{5}} வாரங்கள்
+மொத்தம்: {{6}}
+
+முன் மேசையில் குறியீட்டைக் காட்டுங்கள். பார்க்க, செலுத்த அல்லது ரத்து செய்ய, {{7}} ஐத் திறந்து தொடர் குறியீட்டை உள்ளிடுங்கள்.
 ```
 
 #### `mysenam_booking_cancelled`
@@ -2612,6 +2638,20 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} mon
 期待下次再见。
 ```
 
+Tamil (`ta`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} money
+
+```text
+வணக்கம் {{1}}, முன்பதிவு {{2}} ரத்து செய்யப்பட்டது.
+
+{{3}}
+{{4}}
+
+அந்த நேரம் மீண்டும் காலியாக உள்ளது.
+{{5}}
+
+மற்றொரு முறை சந்திப்போம்.
+```
+
 #### `mysenam_waitlist_offer`
 
 English (`en`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
@@ -2636,6 +2676,14 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} what, {{4}} date, {{5}} fro
 您好，{{1}}！{{2}} 的 {{3}}（{{4}} {{5}}）有名额空出。
 
 名额会为您保留 30 分钟，之后将转给下一位候补者。请趁名额仍属于您时在 {{6}} 领取。
+```
+
+Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} date, {{4}} from, {{5}} what, {{6}} link
+
+```text
+வணக்கம் {{1}}, {{2}} இல் {{3}} {{4}} அன்று {{5}} க்கு ஓர் இடம் காலியாகியுள்ளது.
+
+அது உங்களுக்காக 30 நிமிடங்கள் ஒதுக்கப்பட்டிருக்கும், பின்னர் காத்திருக்கும் அடுத்தவருக்குச் செல்லும். அது உங்களுடையதாக இருக்கும்போதே {{6}} இல் அதைப் பெற்றுக்கொள்ளுங்கள்.
 ```
 
 #### `mysenam_class_enrolled`
@@ -2679,6 +2727,19 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} instructor, {{3}} what, {{4}} code, {{5}
 请在前台出示代码。
 ```
 
+Tamil (`ta`) — {{1}} name, {{2}} instructor, {{3}} what, {{4}} code, {{5}} venue, {{6}} when, {{7}} total
+
+```text
+வணக்கம் {{1}}, {{2}} உடன் {{3}} இல் நீங்கள் சேர்ந்துவிட்டீர்கள்.
+
+குறியீடு: {{4}}
+{{5}}
+{{6}}
+மொத்தம்: {{7}}
+
+முன் மேசையில் குறியீட்டைக் காட்டுங்கள்.
+```
+
 #### `mysenam_booking_cancelled_by_venue`
 
 English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
@@ -2717,6 +2778,18 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} wh
 请点击 {{7}} 告知对方您已看到此消息。
 ```
 
+Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+வணக்கம் {{1}}, மன்னிக்கவும்: {{2}} முன்பதிவு {{3}} ஐ ரத்து செய்ய வேண்டியதாயிற்று.
+
+{{4}}
+{{5}}
+{{6}}
+
+நீங்கள் இதைப் பார்த்துவிட்டீர்கள் என்று அவர்களுக்குத் தெரிவிக்க {{7}} ஐத் தட்டுங்கள்.
+```
+
 #### `mysenam_booking_moved`
 
 English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} ack
@@ -2750,6 +2823,17 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} wh
 {{5}}
 
 时间不变，价格不变。请点击 {{6}} 告知对方您已看到此消息。
+```
+
+Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} ack
+
+```text
+வணக்கம் {{1}}, {{2}} முன்பதிவு {{3}} ஐ வேறொரு கோர்ட்டுக்கு மாற்றியுள்ளது.
+
+இப்போது: {{4}}
+{{5}}
+
+அதே நேரம், அதே விலை. நீங்கள் இதைப் பார்த்துவிட்டீர்கள் என்று அவர்களுக்குத் தெரிவிக்க {{6}} ஐத் தட்டுங்கள்.
 ```
 
 #### `mysenam_booking_rescheduled`
@@ -2792,6 +2876,18 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} wh
 请点击 {{7}} 告知对方您已看到此消息。
 ```
 
+Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
+
+```text
+வணக்கம் {{1}}, {{2}} முன்பதிவு {{3}} இன் நேரத்தை மாற்றியுள்ளது.
+
+இப்போது: {{4}}
+{{5}}
+{{6}}
+
+நீங்கள் இதைப் பார்த்துவிட்டீர்கள் என்று அவர்களுக்குத் தெரிவிக்க {{7}} ஐத் தட்டுங்கள்.
+```
+
 #### `mysenam_booking_reminder`
 
 English (`en`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
@@ -2828,6 +2924,18 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} lin
 {{4}}
 
 无法前来？请在 {{5}} 取消，让其他人可以打球。
+```
+
+Tamil (`ta`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} link
+
+```text
+வணக்கம் {{1}}, உங்கள் முன்பதிவுக்கான நினைவூட்டல்.
+
+குறியீடு: {{2}}
+{{3}}
+{{4}}
+
+வர முடியவில்லையா? வேறொருவர் விளையாடும்படி {{5}} இல் ரத்து செய்யுங்கள்.
 ```
 
 #### `mysenam_venue_new_booking`
@@ -2870,6 +2978,18 @@ Chinese (`zh_CN`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} co
 代码 {{5}}，{{6}}，{{7}}。已列入您的预订列表。
 ```
 
+Tamil (`ta`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {{6}} amount, {{7}} paid
+
+```text
+புதிய முன்பதிவு.
+
+{{1}}, {{2}}
+{{3}}
+{{4}}
+
+குறியீடு {{5}}, {{6}}, {{7}}. இது உங்கள் முன்பதிவுகள் பட்டியலில் உள்ளது.
+```
+
 ## Countries
 
 MySenam runs **one install per country**. `MYSENAM_COUNTRY` (`MY`, the
@@ -2881,7 +3001,7 @@ table in `src/lib/region.ts`:
 | Currency | RM, ringgit | S$, dollars |
 | Time zone | Asia/Kuala_Lumpur | Asia/Singapore |
 | Phone numbers | +60, written locally with a leading 0 | +65, eight digits |
-| Languages | English, Bahasa Malaysia and Simplified Chinese | English and Simplified Chinese |
+| Languages | English, Bahasa Malaysia, Simplified Chinese and Tamil | English, Simplified Chinese and Tamil |
 | Map and address lookups | Malaysia | Singapore |
 | Default payment gateway | Billplz (FPX, cards) | Stripe (cards, PayNow) |
 | Counter QR scheme | DuitNow QR | PayNow QR |
@@ -2911,13 +3031,19 @@ table in `src/lib/region.ts`:
   privacy notice and terms, which need a lawyer in each country. Demo data
   (`src/lib/demo.ts`) fills whatever venues the install has, with phone
   numbers in its country's shape.
-- **Languages** are English, Bahasa Malaysia (`ms`) and Simplified Chinese
-  (`zh`), each country offering its own; the switch in the header sets a
-  cookie. The Malay and Chinese dictionaries (`src/lib/i18n.ts`,
-  `src/lib/i18n-zh.ts`) are typed against the English, so a phrase missing
-  from either does not compile, and the tests check each fills the same
-  placeholders. Dates are formatted for `zh-Hans`; WhatsApp templates go to
-  Meta as `zh_CN`.
+- **Languages** are English, Bahasa Malaysia (`ms`), Simplified Chinese
+  (`zh`) and Tamil (`ta`), each country offering its own; the switch in the
+  header sets a cookie. The Malay, Chinese and Tamil dictionaries
+  (`src/lib/i18n.ts`, `src/lib/i18n-zh.ts`, `src/lib/i18n-ta.ts`) are typed
+  against the English, so a phrase missing from any does not compile, and the
+  tests check each fills the same placeholders. Dates are formatted for
+  `zh-Hans`; WhatsApp templates go to Meta as `zh_CN` and `ta`.
+- **The Tamil is a machine translation awaiting a native speaker's review**
+  before a venue relies on it: in particular the words chosen for venue
+  (மையம்) and court (கோர்ட்), sports terms such as walkover and bye, and the
+  sentences put together from pieces (search results, the booking
+  confirmation, the privacy page). To take it off an install until then, drop
+  `"ta"` from the country's `locales` in `src/lib/region.ts`.
 - **Time zones, venue by venue.** Each venue's courts run on its own clock:
   bookings are wall-clock times there (18:00 on the 4th), and its zone turns
   them into moments: when a slot has passed, the booking window, the

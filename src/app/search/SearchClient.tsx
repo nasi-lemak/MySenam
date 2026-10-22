@@ -23,7 +23,7 @@ import { DAY_PARTS, dayPartOf, type DayPart } from "@/lib/day-parts";
 import { Highlights } from "@/components/VenueFacilities";
 import { FILTER_CHIPS, FILTER_ICONS, highlights, type FilterChip } from "@/lib/facilities";
 import { photoAt, type Photo } from "@/lib/photos-shared";
-import { money, intlTag } from "@/lib/region";
+import { money, shortDate } from "@/lib/region";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
@@ -35,13 +35,7 @@ const chipClass = (on: boolean) =>
 const HOURS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
 
 function dateLabel(t: T, date: string): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  return d.toLocaleDateString(intlTag(t.locale), {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
+  return shortDate(date, t.locale, true);
 }
 
 interface ResultGroup {

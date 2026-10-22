@@ -11,15 +11,10 @@ import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
-import { money, intlTag } from "@/lib/region";
+import { money, shortDate } from "@/lib/region";
 
 function dateLabel(t: T, date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString(intlTag(t.locale), {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
+  return shortDate(date, t.locale, true);
 }
 
 export default function ClassesPage() {

@@ -43,6 +43,7 @@ export default async function TermsPage() {
           <p className="mt-2 text-slate-500">Terma ini disediakan dalam Bahasa Inggeris.</p>
         )}
         {locale === "zh" && <p className="mt-2 text-slate-500">本条款以英文提供。</p>}
+        {locale === "ta" && <p className="mt-2 text-slate-500">இந்த விதிமுறைகள் ஆங்கிலத்தில் வழங்கப்படுகின்றன.</p>}
         {!operator.name && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
             These terms have not been completed by the operator of this site yet.

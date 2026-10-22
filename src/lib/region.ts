@@ -53,7 +53,7 @@ export interface Region {
   /** The line under the site's name in the footer. */
   tagline: string;
   /** The languages offered, the first the default. */
-  locales: ("en" | "ms" | "zh")[];
+  locales: ("en" | "ms" | "zh" | "ta")[];
   map: {
     bounds: { south: number; north: number; west: number; east: number };
     center: [number, number];
@@ -88,7 +88,7 @@ const REGIONS: Record<CountryCode, Region> = {
     phone: { countryCode: "60", trunk: "0", minDigits: 9, example: "012-345 6789" },
     placeExample: "Bangsar, KLCC",
     tagline: "gelanggang, gim dan kelas, satu tempahan",
-    locales: ["en", "ms", "zh"],
+    locales: ["en", "ms", "zh", "ta"],
     // Perlis to Sabah, Johor to the Thai border.
     map: { bounds: { south: 0.85, north: 7.4, west: 99.6, east: 119.3 }, center: [4.2, 108], zoom: 5 },
     gateway: "billplz",
@@ -115,7 +115,7 @@ const REGIONS: Record<CountryCode, Region> = {
     phone: { countryCode: "65", trunk: "", minDigits: 8, example: "9123 4567" },
     placeExample: "Tampines, Bishan",
     tagline: "courts, gyms and classes, one booking",
-    locales: ["en", "zh"],
+    locales: ["en", "zh", "ta"],
     map: { bounds: { south: 1.15, north: 1.48, west: 103.59, east: 104.1 }, center: [1.352, 103.82], zoom: 11 },
     gateway: "stripe",
     tax: { name: "GST", venueRate: 9 },
@@ -208,6 +208,24 @@ export function offsetMs(): number {
 export function intlTag(locale: string): string {
   // Simplified script, as Malaysia and Singapore write it.
   return `${locale === "zh" ? "zh-Hans" : locale}-${region().country}`;
+}
+
+/**
+ * A date as a short label: "24 Oct", or "Sat, 24 Oct" with the weekday.
+ *
+ * Tamil is put together from its parts, day before month: the CLDR data that
+ * orders them differs between Node and browsers (and browser to browser), so
+ * a whole-date format would read one way on the server and another on the
+ * page, and React would throw the server's render away.
+ */
+export function shortDate(date: string, locale: string, weekday = false): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  const tag = intlTag(locale);
+  if (locale !== "ta")
+    return d.toLocaleDateString(tag, { ...(weekday ? { weekday: "short" } : {}), day: "numeric", month: "short", timeZone: "UTC" });
+  const part = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString(tag, { ...o, timeZone: "UTC" });
+  const dayMonth = `${d.getUTCDate()} ${part({ month: "short" })}`;
+  return weekday ? `${part({ weekday: "short" })}, ${dayMonth}` : dayMonth;
 }
 
 /** A UTC "YYYY-MM-DD HH:MM:SS" as the venue's HH:MM, for the customer. */
