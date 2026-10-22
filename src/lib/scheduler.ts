@@ -221,7 +221,8 @@ export const LEASE_MS = 3 * MINUTE;
  * The scheduled work runs on one instance at a time, however many there are:
  * backups, reminders, invoices and released holds must not happen twice. The
  * lease is a row in `settings` naming the instance and when it runs out; an
- * instance takes it when it is free or has run out, and renews it each tick.
+ * instance takes it when it is free or has run out, and renews it each tick
+ * and every minute while one runs (`withSchedulerLease`).
  * Works with any connection pooling, and on PGlite.
  */
 export async function holdSchedulerLease(instance = INSTANCE, now = Date.now()): Promise<boolean> {
@@ -236,6 +237,24 @@ export async function holdSchedulerLease(instance = INSTANCE, now = Date.now()):
   return row !== undefined;
 }
 
+/**
+ * Run work holding the lease, renewed every minute while it runs: a tick that
+ * outlasts the lease (a large backup and its upload) does not let another
+ * instance decide this one has stopped and start the same work. False, and
+ * nothing run, when another instance has it.
+ */
+export async function withSchedulerLease(work: () => Promise<void>, instance = INSTANCE): Promise<boolean> {
+  if (!(await holdSchedulerLease(instance).catch(() => false))) return false;
+  const renew = setInterval(() => void holdSchedulerLease(instance).catch(() => false), MINUTE);
+  renew.unref?.();
+  try {
+    await work();
+  } finally {
+    clearInterval(renew);
+  }
+  return true;
+}
+
 /** Start ticking, once per process. */
 export function startScheduler(): void {
   if (state.__mysenamScheduler || !schedulerEnabled()) return;
@@ -246,8 +265,9 @@ export function startScheduler(): void {
     busy = true;
     try {
       // Another instance has it: this one serves pages and leaves the rest.
-      if (!(await holdSchedulerLease().catch(() => false))) return;
-      await runScheduledWork();
+      await withSchedulerLease(async () => {
+        await runScheduledWork();
+      });
     } finally {
       busy = false;
     }

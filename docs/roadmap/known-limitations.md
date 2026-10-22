@@ -23,9 +23,8 @@ the test that should be written before it is fixed.
 
 ### Operations and security (S)
 
-| ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
-| -- | --- | --------------- | -------- | -------------- | ---------------- |
-| S3 | P2 | The scheduler lease (three minutes) is renewed when a tick starts, not during it; a long tick (large `pg_dump` plus upload) lets a second instance start the same work. Webhook deliveries have no per-delivery claim, so they could go out twice. | `src/lib/scheduler.ts`, `src/lib/webhooks.ts` | Only for several instances | Hold the lease, stall past it, assert a second instance does no work |
+No numbered operations or security defect is open; see
+[fixed since the audit](#fixed-since-the-audit).
 
 Also: there is **no CSRF token or `Origin` check**; cross-site requests are
 stopped by `SameSite=Lax` cookies alone (P3).
@@ -66,6 +65,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | -- | -------- | ---- |
 | S1 | Script-loaded modules import with file extensions | `tests/backup-scripts.test.ts` |
 | S2 | Erasure takes the account off waiting lists before deleting it | `tests/privacy.test.ts` |
+| S3 | The lease is renewed every minute while a tick runs; each webhook delivery is claimed before it is sent | `tests/scale-out.test.ts`, `tests/public-api.test.ts` |
 | S4 | Session expiry is written in `datetime()` form, so it compares to the second | `tests/auth.test.ts` |
 | S5 | Wrong passwords for one account are also counted from any address | `tests/login-limits.test.ts` |
 | S7 | Sessions keep the SHA-256 of their token; a migration converted those issued | `tests/auth.test.ts` |

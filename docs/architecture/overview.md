@@ -75,10 +75,10 @@ Several app instances can share one database. Three things need attention:
   codes and recovery codes sealed or hashed by one cannot be read by another
   (`src/lib/secrets.ts`). The DigitalOcean kit sets it.
 
-The lease is renewed when a tick starts, not while it runs, so a tick longer
-than the lease (three minutes, e.g. a large `pg_dump` plus its upload) can let
-a second instance start the same work (S3 in
-[known limitations](../roadmap/known-limitations.md#suspected-defects)).
+The lease (three minutes) is renewed when a tick starts and every minute while
+it runs, so a long tick (a large `pg_dump` plus its upload) keeps it. Outgoing
+webhook deliveries are each claimed before they are sent, so two instances
+delivering at once send each one once.
 
 Backups are written to the data folder of whichever instance holds the lease,
 so with several instances set up an [off-site copy](../operations/backups.md#off-site-copies)

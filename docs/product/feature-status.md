@@ -243,7 +243,7 @@ mocked mail, a fake LHDN, a local fake S3). Authoritative:
 | Geocoding | INTEGRATION_VERIFICATION_REQUIRED | Address and pin lookups, cached | `src/lib/geo.ts` | `tests/geo.test.ts` | Public server's usage policy |
 | Error and alert sinks | INTEGRATION_VERIFICATION_REQUIRED | Sentry envelope; chat webhooks | `src/lib/error-log.ts`, `src/lib/alerts.ts` | `tests/error-log.test.ts` | — |
 | Public API and keys | IMPLEMENTED_AND_TESTED | Read, write and availability keys; venue-scoped | `src/lib/api-keys.ts`, `src/lib/public-api.ts` | `tests/public-api.test.ts` | — |
-| Outgoing signed webhooks | IMPLEMENTED_AND_TESTED | Sweep, HMAC, retries, private addresses refused | `src/lib/webhooks.ts` | `tests/public-api.test.ts` | No per-delivery claim (S3); address not pinned per connection |
+| Outgoing signed webhooks | IMPLEMENTED_AND_TESTED | Sweep, HMAC, retries, private addresses refused | `src/lib/webhooks.ts` | `tests/public-api.test.ts` | Address not pinned per connection |
 | Reserve with Google feeds | PARTIALLY_IMPLEMENTED | Merchant, service and availability feeds, downloaded by owners | `src/lib/google-feeds.ts` | `tests/public-api.test.ts` | No upload; field names unchecked; no partner status |
 | Reserve with Google booking server | BLOCKED | Not built | — | — | Actions Center partner approval |
 | Smart-lock credentials | BLOCKED | Not built | — | — | Vendor credentials |
@@ -266,7 +266,7 @@ Authoritative: [deployment](../operations/deployment.md), [backups](../operation
 
 | Capability | Status | Implemented behaviour | Code | Tests | Gaps and dependencies |
 | ---------- | ------ | --------------------- | ---- | ----- | --------------------- |
-| Scheduler and its lease | IMPLEMENTED_AND_TESTED | Minute tick; one instance works | `src/lib/scheduler.ts` | `tests/scheduler.test.ts`, `tests/scale-out.test.ts` | Lease can lapse mid-tick (S3) |
+| Scheduler and its lease | IMPLEMENTED_AND_TESTED | Minute tick; one instance works | `src/lib/scheduler.ts` | `tests/scheduler.test.ts`, `tests/scale-out.test.ts` | — |
 | Rate limiting | IMPLEMENTED_AND_TESTED | In memory or shared in Postgres; IPv6 per /64 | `src/lib/rate-limit.ts` | `tests/rate-limit.test.ts` | — |
 | Nightly backups by the app | IMPLEMENTED_AND_TESTED | `pg_dump` or PGlite snapshot; verified; kept 14 | `src/lib/backup.ts` | `tests/backup.test.ts` | A `pg_dump` copy is listed, not loaded |
 | Backup, restore and import scripts | IMPLEMENTED_AND_TESTED | `npm run backup`, `npm run restore`, `npm run import-sqlite` | `scripts/backup.mjs`, `scripts/restore.mjs`, `scripts/import-sqlite.mjs` | `tests/backup-scripts.test.ts` | Backup and restore round-trip on a fresh database; the SQLite import is tested only for starting, not on a real old file |

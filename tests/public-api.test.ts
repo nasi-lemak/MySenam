@@ -185,6 +185,27 @@ describe("webhooks", () => {
     expect((await listEndpoints(venueId))[0]).toMatchObject({ active: false });
   });
 
+  it("go out once each when two instances deliver at the same moment", async () => {
+    const added = await addEndpoint(otherVenueId, "https://twice.example.com/hook");
+    if (!added.ok) throw new Error(added.error);
+    for (const n of [1, 2, 3])
+      await getDb().prepare("INSERT INTO webhook_deliveries (endpoint_id, event, payload) VALUES (?, 'ping', ?)").run(added.endpoint.id, `{"n":${n}}`);
+    vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        bodies.push(init.body);
+        return new Response("ok", { status: 200 });
+      })
+    );
+    const [a, b] = await Promise.all([deliverWebhooks(), deliverWebhooks()]);
+    expect(a.sent + b.sent).toBe(3);
+    expect(bodies.sort()).toEqual(['{"n":1}', '{"n":2}', '{"n":3}']);
+    await getDb().prepare("DELETE FROM webhook_deliveries WHERE endpoint_id = ?").run(added.endpoint.id);
+    await getDb().prepare("DELETE FROM webhook_endpoints WHERE id = ?").run(added.endpoint.id);
+  });
+
   it("refuse an address that resolves somewhere private", async () => {
     const added = await addEndpoint(otherVenueId, "https://sneaky.example.com/x");
     if (!added.ok) throw new Error(added.error);

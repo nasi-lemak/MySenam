@@ -288,7 +288,15 @@ export async function deliverWebhooks(now = new Date()): Promise<{ sent: number;
   }[];
   let sent = 0;
   let failed = 0;
+  // Each one is claimed before it goes, by moving when it is next due past
+  // the send's own time limit: another instance delivering at the same moment
+  // finds it taken, and one that dies mid-send leaves it to be tried again.
+  const claim = db.prepare(
+    "UPDATE webhook_deliveries SET next_at = ? WHERE id = ? AND delivered_at IS NULL AND next_at <= ? RETURNING id"
+  );
+  const held = new Date(now.getTime() + 2 * 60_000).toISOString().replace("T", " ").slice(0, 19);
   for (const d of due) {
+    if (!(await claim.get(held, d.id, stamp))) continue;
     let status: number | null = null;
     let error: string | null = null;
     const secret = unseal(d.secret);
