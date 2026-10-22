@@ -960,6 +960,21 @@ that asks what is blocked asks it — so availability, search, booking, moving
 a booking, the waitlist, the schedule and the reports close the court without
 knowing outages exist. Where an hour is both, the hand-made block wins.
 
+### Rained off
+
+Outdoor courts lose an afternoon at a time to the weather. *Schedule →
+🌧️ Rained off?* takes the courts (outdoor ones ticked to start), the hours
+and a reason, and first says what it would call off: each booking by code and
+name, and how many classes. *Call them off* then cancels every booking and
+class on those courts in those hours, refunds each as a staff cancellation
+would (the venue's choice, so no late-cancel fee), messages each customer and
+keeps them on the desk's *needs attention* list until they have seen it, and
+blocks the rest of those hours with the reason so nobody books them
+meanwhile (`rainOut` in `src/lib/rain-outs.ts`). A booking already under
+way is called off too; one that has finished is left alone. Bookings on a
+linked court that hold the chosen court's hours are found as well. Front-desk
+staff can do it; it is in the activity log.
+
 ## Taking some of a shared facility out of service
 
 A court is blocked whole — blocking it *is* taking the unit out, because a

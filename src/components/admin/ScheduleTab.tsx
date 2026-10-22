@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { RainOutPanel } from "./RainOutPanel";
 import { formatHour } from "@/lib/time";
 import { SPORT_ICONS, isShared } from "@/lib/types";
 import type { Court, Venue } from "@/lib/types";
@@ -110,6 +111,16 @@ export function ScheduleTab({
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
+      )}
+
+      {courts && courts.length > 0 && (
+        <RainOutPanel
+          venueId={venueId}
+          date={date}
+          courts={courts.map((c) => c.court)}
+          hours={courts[0].slots.map((s) => s.hour)}
+          onDone={() => void load()}
+        />
       )}
 
       {courts && (
