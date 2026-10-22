@@ -1770,6 +1770,38 @@ For a customer this is the forward-looking crowd signal: a shared facility shows
 **places left** rather than a price in each cell, shaded from quiet through
 filling to busy, so you can see that Monday 7pm is always packed.
 
+## Courts that share a floor
+
+A multi-purpose hall is often sold more than one way: one futsal pitch, or
+four badminton courts on the same floor. Under *Courts → Courts that share a
+floor* (`src/lib/court-links.ts`), a manager says which courts the bigger one
+takes. Then:
+
+- Booking the pitch takes all four courts for those hours; booking any one of
+  the four takes the pitch. The four do not take each other, and two big
+  courts over the same small one (futsal and netball over the same badminton
+  courts) take each other through it.
+- Customers and staff simply see the other courts as booked; the staff grid
+  shows which booking has them.
+- A block, a tournament's courts or a court out of service closes the courts
+  it shares the floor with too, and a class on one holds the others.
+- It holds under races the same way a single court does: each booked hour is
+  mirrored onto the courts it takes as a `shadow` row of the same booking in
+  `booking_slots`, written by a database trigger, so the same unique key
+  refuses the second booking (`db/migrations/0072_linked_courts.sql`).
+  Shadows leave with the booking, and reports count only the court actually
+  booked.
+- Only courts booked whole can be linked, one level deep (a court that takes
+  others is not itself part of one), and a linked court cannot start selling
+  places. Linking is refused, naming the first date, while both sides are
+  already booked at the same time; what is sold from today on takes the new
+  court as soon as it is linked, and lets go when unlinked.
+
+Known limits: utilisation counts the pitch and the courts as separate
+sellable hours, so a hall that is busy every evening as a pitch still shows
+its badminton courts as sold for those hours rather than as one floor; and a
+waiting-list offer holds only its own court.
+
 ## One-to-one coaching
 
 A venue lists its coaches under *Classes → Coaches* (`lib/coaching.ts`): a name,

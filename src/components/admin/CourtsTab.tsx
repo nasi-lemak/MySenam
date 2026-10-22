@@ -269,6 +269,10 @@ export function CourtsTab({
         </div>
       )}
 
+      {venue && venue.courts.filter((c) => c.capacity === 1).length > 1 && (
+        <CourtLinksEditor key={`links-${venue.id}`} venueId={venue.id} courts={venue.courts.filter((c) => c.capacity === 1)} />
+      )}
+
       {venue && <SlotLengthEditor key={`slots-${venue.id}`} venueId={venue.id} />}
 
       {venue && <PeakHoursEditor key={venue.id} venueId={venue.id} />}
@@ -847,5 +851,139 @@ function InductionsPanel({ venueId }: { venueId: number }) {
           </div>
         ))}
     </div>
+  );
+}
+
+/**
+ * One floor sold more than one way (lib/court-links.ts): a futsal pitch that
+ * is also four badminton courts. Booking the pitch takes the four; booking
+ * any of the four takes the pitch.
+ */
+function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[] }) {
+  const [links, setLinks] = useState<{ wholeId: number; partId: number }[] | null>(null);
+  const [editing, setEditing] = useState<{ wholeId: number; parts: number[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/admin/court-links?venueId=${venueId}`, { cache: "no-store" });
+    const data = await res.json();
+    if (res.ok) setLinks(data.links);
+  }, [venueId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const name = (id: number) => courts.find((c) => c.id === id)?.name ?? `Court ${id}`;
+  const partsOf = (id: number) => (links ?? []).filter((l) => l.wholeId === id).map((l) => l.partId);
+  const isPart = (id: number) => (links ?? []).some((l) => l.partId === id);
+  const wholes = [...new Set((links ?? []).map((l) => l.wholeId))];
+
+  async function save() {
+    if (!editing) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/court-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courtId: editing.wholeId, parts: editing.parts }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!links) return null;
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <h3 className="font-semibold">Courts that share a floor</h3>
+      <p className="mt-1 text-xs text-slate-500">
+        For a hall sold more than one way, like a futsal pitch that is also four badminton courts. Say which courts the bigger
+        one takes: booking it then takes all of them, and booking any of them takes it. A block or a court out of service
+        closes the courts it shares the floor with too. Only courts booked whole can be linked.
+      </p>
+      {wholes.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {wholes.map((w) => (
+            <li key={w} className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{name(w)}</span>
+              <span className="text-slate-500">takes {partsOf(w).map(name).join(", ")}</span>
+              <button
+                onClick={() => setEditing({ wholeId: w, parts: partsOf(w) })}
+                className="text-xs font-semibold text-teal-700 underline"
+              >
+                Change
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing ? (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-center gap-2">
+            Booking
+            <select
+              value={editing.wholeId}
+              onChange={(e) => setEditing({ wholeId: Number(e.target.value), parts: partsOf(Number(e.target.value)) })}
+              className="rounded-md border border-slate-300 px-2 py-1"
+            >
+              {courts
+                .filter((c) => !isPart(c.id))
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+            also takes:
+          </label>
+          <div className="mt-2 flex flex-wrap gap-3">
+            {courts
+              .filter((c) => c.id !== editing.wholeId && !wholes.includes(c.id))
+              .map((c) => (
+                <label key={c.id} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={editing.parts.includes(c.id)}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        parts: e.target.checked ? [...editing.parts, c.id] : editing.parts.filter((p) => p !== c.id),
+                      })
+                    }
+                  />
+                  {c.name}
+                </label>
+              ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button disabled={busy} onClick={() => void save()} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+              Save
+            </button>
+            <button onClick={() => setEditing(null)} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => {
+            const first = courts.find((c) => !isPart(c.id) && !wholes.includes(c.id)) ?? courts[0];
+            setEditing({ wholeId: first.id, parts: partsOf(first.id) });
+          }}
+          className="mt-3 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold"
+        >
+          Link courts
+        </button>
+      )}
+      {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
+    </section>
   );
 }

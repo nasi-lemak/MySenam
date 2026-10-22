@@ -146,6 +146,13 @@ async function postgresDriver(url: string): Promise<Driver> {
   // a network blip. Unheard, that error would take the whole process down;
   // the pool has already thrown the connection away and opens a new one.
   pool.on("error", (err) => console.error(`[db] idle connection lost: ${err.message}`));
+  // No JIT: every query here is a short lookup, and a plan the planner merely
+  // guesses is dear (blocks_between, with its generated hours, easily is)
+  // would spend over a second compiling to save a millisecond. Queued ahead of
+  // the connection's first query; a pooler that drops it only costs speed.
+  pool.on("connect", (client) => {
+    client.query("SET jit = off").catch(() => {});
+  });
   const toResult = (r: { rows: Record<string, unknown>[]; rowCount: number | null }): QueryResult => ({
     rows: r.rows,
     rowCount: r.rowCount ?? 0,

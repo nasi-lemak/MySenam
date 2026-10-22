@@ -257,7 +257,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       SELECT COALESCE(SUM(s.span), 0) AS "soldHours" FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
     `)
     .get(venueId, from, to) as { soldHours: number };
 
@@ -288,7 +288,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
       GROUP BY b.court_id
     `)
     .all(venueId, from, to) as { courtId: number; hours: number }[])
@@ -366,7 +366,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
       GROUP BY month
     `)
     .all(venueId, from, to) as { month: string; hours: number }[];
@@ -385,7 +385,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       FROM booking_slots s
       JOIN bookings b ON b.id = s.booking_id
       JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed'
+      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
       GROUP BY FLOOR(s.hour)
     `)
     .all(venueId, from, to) as { hour: number; hours: number }[];

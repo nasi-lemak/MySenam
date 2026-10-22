@@ -2,7 +2,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+import { ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
+import { createOutage } from "../src/lib/outages";
 import { venueReport } from "../src/lib/reports";
 import {
   createBooking,
@@ -121,6 +123,16 @@ describe("a venue with its own hours by weekday", () => {
     const made = await createBookingSeries({ courtId, date: next(0), hours: [20], weeks: 2, skipConflicts: true, name: "Sunday League", phone: phone() });
     if (!made.ok) throw new Error(made.error);
     expect(made.bookings).toHaveLength(2);
+  });
+
+  it("a court out of service is out in the late hours too", async () => {
+    await ensureBootstrapAdmin();
+    const friday = next(FRIDAY, 8);
+    const made = await createOutage({ courtId, startsOn: friday, endsOn: friday, reason: "Lights", adminId: (await listAdmins())[0].id });
+    expect(made.ok).toBe(true);
+    const slots = (await getAvailability(venueId, friday))[0].slots;
+    expect(slots.find((s) => s.hour === 25)!.available).toBe(false);
+    expect(slots.every((s) => !s.available)).toBe(true);
   });
 
   it("will not close a weekday, or shorten it, with bookings already sold in the hours that go", async () => {

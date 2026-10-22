@@ -765,9 +765,22 @@ async function classHoursOn(
   // By the half hour, whichever way the venue sells: a lookup by the hour
   // finds its hour, and one by the half hour finds both halves.
   const map = new Map<string, { id: number; name: string }>();
+  // A class on a linked court holds the courts it shares the floor with too (lib/court-links.ts).
+  const links = rows.length
+    ? ((await getDb()
+        .prepare(
+          `SELECT whole_id AS court_id, part_id AS other FROM court_links WHERE whole_id IN (${rows.map(() => "?").join(",")})
+           UNION ALL SELECT part_id, whole_id FROM court_links WHERE part_id IN (${rows.map(() => "?").join(",")})`
+        )
+        .all(...rows.map((r) => r.court_id), ...rows.map((r) => r.court_id))) as { court_id: number; other: number }[])
+    : [];
   for (const row of rows) {
+    const courts = [row.court_id, ...links.filter((l) => l.court_id === row.court_id).map((l) => l.other)];
     for (const hour of slotsBetween(row.start_hour, row.end_hour, 0.5)) {
-      map.set(`${row.court_id}:${hour}`, { id: row.id, name: row.name });
+      for (const court of courts) {
+        const key = `${court}:${hour}`;
+        if (court === row.court_id || !map.has(key)) map.set(key, { id: row.id, name: row.name });
+      }
     }
   }
   return map;
@@ -2415,7 +2428,7 @@ export async function setSlotMinutes(venueId: number, minutes: unknown): Promise
         .prepare(
           `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span)
            SELECT booking_id, court_id, date, hour + 0.5, seat, 0.5 FROM booking_slots
-            WHERE court_id IN ${courts} AND date >= ? AND span = 1`
+            WHERE court_id IN ${courts} AND date >= ? AND span = 1 AND shadow = 0`
         )
         .run(venueId, today);
       await db.prepare(`UPDATE booking_slots SET span = 0.5 WHERE court_id IN ${courts} AND date >= ? AND span = 1`).run(venueId, today);
@@ -3551,6 +3564,10 @@ export async function updateCourt(
   const db = getDb();
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
+
+  // A linked court is sold whole: places would not hold the floor (lib/court-links.ts).
+  if (changes.capacity !== undefined && changes.capacity > 1 && (await db.prepare("SELECT 1 FROM court_links WHERE whole_id = ? OR part_id = ?").get(courtId, courtId)))
+    return { ok: false, error: "This court shares its floor with others, so it is booked whole. Unlink it first." };
 
   // Shrinking capacity below what is already booked would strand those
   // bookings, so refuse rather than silently overbook.
