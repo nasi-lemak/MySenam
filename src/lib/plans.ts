@@ -31,7 +31,7 @@ export const MAX_TIERS = 8;
 
 /**
  * A starting point the owner can adopt and change: the tiers the pricing
- * analysis settled on (README, "Plans by size"), in ringgit.
+ * analysis settled on (docs/business/pricing.md), in ringgit.
  */
 export const SUGGESTED_TIERS: PlanTiers = {
   tiers: [

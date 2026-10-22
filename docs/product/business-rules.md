@@ -1,0 +1,144 @@
+# Cross-cutting business rules
+
+Rules that hold across features and must not be broken by a change to any one
+of them. Rules that belong to a single feature are in that feature's document
+under [`docs/features/`](../features/); this page links there rather than
+repeating them. Changing one of these is a product decision: say so in the
+change, update this page, and update [feature status](feature-status.md).
+
+## Identity
+
+- **A phone number is not identity.** A typed number proves nothing; data
+  export and erasure follow the account (`user_id`), and anything granted by
+  a number uses the number an account has *proved* (`users.verified_phone`).
+  See [privacy](../architecture/privacy.md#a-phone-number-is-not-identity).
+- **Numbers are compared however they are typed.** Finding a booking,
+  cancelling a series, duplicates in classes and waitlists, inductions,
+  limits, notes and waivers all compare `phone_key()`, so `012-345 6789`,
+  `+60123456789` and `0060123456789` are the same person (migration
+  `0066_phone_key_00.sql`).
+- **Signing in with Google** to an account that already has that address
+  clears the account's password and signs it out everywhere: nothing proved
+  that whoever set the password owned the address.
+
+## Bookings
+
+- **One slot rule everywhere.** Every route that takes a time (booking,
+  waitlist, extras, moving, blocking) accepts half hours only where the venue
+  books in half hours (`isSlotHour()`), and uses the same availability:
+  bookings, blocks, outages, closures and linked courts
+  ([booking](../features/booking.md)).
+- **Weekly bookings skip closed weeks**, saying which and why, rather than
+  booking into a day the venue is shut.
+- **Cancelling happens once.** A cancellation claims the booking
+  (`… WHERE status = 'confirmed'`) before any refund, so two taps, or a
+  customer and the desk at the same moment, cannot refund it twice.
+  Cancelling a weekly series sends one message and offers each freed place to
+  the waitlist.
+- **Staff cannot cancel a booking that is over** (that would refund an hour
+  that was used); one under way can still be called off, for a leak or a
+  power cut. A day gone by cannot be closed.
+- **Booking codes** come from a cryptographic random source; lookups match the
+  whole code, case-insensitively.
+- **Unpaid holds** can be extended once, while still running and within the
+  payment page's own expiry. A hold released for not being paid settles
+  anything already paid against it (a split share, credit).
+- **Open games** cannot be opened on a court held until paid and not yet paid.
+- **Last-minute prices** cannot be had by cancelling and rebooking, by moving
+  an older booking, or with a promo code on top
+  ([pricing](../features/pricing.md#last-minute-prices)).
+- **Customers cannot move a booking friends have paid a share of**; the venue
+  can.
+
+## Money
+
+- **A payment page settles what it was for.** Each booking on a page records
+  what it was billed (`online_payment_bookings.amount`). If the price came
+  down while the page was open, the booking is paid and the difference is
+  owed back; if it went up, the page does not pay for it and its money is owed
+  back instead. Moving an unpaid booking to a dearer time is refused while a
+  page for it is open. What is owed back on a payment is never more than the
+  payment.
+- **Marking unpaid is not a refund.** A booking paid online, with credit or
+  with a pass cannot be ticked back to unpaid; it is refunded instead. Front
+  desk can take back only a counter payment marked today; anything older is a
+  manager's.
+- **What staff cancel is refunded at once**: a booking cancelled by staff, by
+  the API or by a closed day has what was paid online refunded, to the card
+  where the venue refunds through its gateway, even if it gives credit when a
+  customer cancels.
+- **Shares handed back are owed again.** A player who paid a game share and
+  leaves, or is taken out, is refunded by the venue; the share comes off what
+  the booking has had paid towards it, so the host owes it again. *Suspected
+  defect:* not once the host has paid the rest online, when the booking stays
+  paid and the share is owed by nobody (M1 in
+  [known limitations](../roadmap/known-limitations.md#suspected-defects)).
+- **Chargebacks take back what they paid for.** Lost on a top-up, the credit
+  goes (a balance can go below zero until the next top-up); on a gift voucher,
+  the voucher is void, or its credit goes if redeemed; on a membership, it is
+  void and renewals stop; on a game or split share, it no longer counts towards
+  the booking; on a tournament or league fee, the place is unpaid again.
+  Nothing more is owed back on a payment the bank has already returned.
+  *Suspected defects:* a lost dispute on a deposit is not unwound, the whole
+  payment is taken back even for a partial dispute, and two copies of a lost
+  dispute arriving together may debit twice (M2, M4 in
+  [known limitations](../roadmap/known-limitations.md#suspected-defects)).
+- **Counter sales voided later** come off the takings on the day of the void,
+  not the day of the sale, so a day already cashed up does not change.
+- **Promo codes** can be limited per customer (by phone number however typed).
+- **Coach payouts** list paid lessons cancelled late at the coach's fee times
+  the share the venue kept (`bookings.late_kept_percent`), beside no-shows,
+  for the venue to decide on.
+
+## Trust and abuse
+
+- **Reviews** come only from a booking that was paid for or checked in.
+  Venue staff do not see which booking wrote a review (platform owners do, on
+  a reported one). Rewriting a review clears a report on the old words;
+  reporting one twice tells the owners once.
+- **Resending a message** is only for one not sent (failed or held back); a
+  new address must look like one for its channel; a venue's news, a review
+  request and a marketing confirmation go only to whoever they were written
+  for; the daily limit per recipient holds for the new recipient.
+- **Marketing email** goes only to an address that said yes itself; a box
+  ticked for an address that is not the signed-in account's own sends one
+  email asking first ([messaging](../integrations/messaging.md)).
+- **Stored credit at the counter** shows only that venue's entries.
+- **Tournaments and leagues**: closing entries, drawing, calling off (which
+  refunds every entry) and starting or ending a season are a manager's, and
+  each is in the activity log.
+- **API keys** can be *availability only*: the venue and its free times, no
+  customer's name or number.
+- **A flood of guest bookings** (past 30 unpaid bookings without an account at
+  one venue in an hour): the next guest pays online to hold theirs where the
+  venue takes payment online, or signs in where it does not.
+- Rate limits, phone-number limits, blocked numbers and the fair ordering of
+  venues are in [security](../architecture/security.md).
+
+## Reliability
+
+- **A message is sent once** however many drains run at the same moment: each
+  claims a message by moving its next try ten minutes on before sending, and
+  only the one whose claim landed sends. A server that dies mid-send leaves it
+  to be tried again when that runs out.
+- **Reminders** are looked for at most once a minute per server.
+- **The retention policy** runs from the scheduler once a day (and from the
+  dashboard where the scheduler is off).
+
+## What customers are told
+
+- **Emergency numbers** follow the country: 999 in Malaysia; 995 (ambulance
+  and fire) and 999 (police) in Singapore.
+- **A waiting-list offer** says the place is held for 30 minutes.
+- **Booking terms** say when a venue gives stored credit rather than money
+  back for a booking paid online and cancelled; a number past its strikes at a
+  venue that sends such numbers to the counter is told that, rather than to
+  pay online.
+- Destructive staff actions (withdrawing a promo code, cancelling a
+  membership, retiring a plan, taking down a notice, ending an outage) ask
+  first.
+
+## Deliberately not built
+
+Decisions not to build something are recorded in
+[known limitations](../roadmap/known-limitations.md#deliberately-unsupported).

@@ -85,7 +85,14 @@ the site answers within a minute. If it does not, the previous version goes
 straight back and the deploy fails with the app's last log lines. The last three
 versions are kept in `/srv/mysenam/releases`.
 
-**Backups** are taken by the app every night at 03:00 Malaysia time with
+> **Known defect:** the pre-deploy backup runs `scripts/backup.mjs`, which
+> currently fails to start on Node 22 (`ERR_MODULE_NOT_FOUND` for
+> `src/lib/region`), so `mysenam-deploy` stops with "Backup failed; not
+> deploying", and `npm run backup` / `npm run restore` fail the same way. The
+> app's own nightly backups are not affected. See S1 in
+> [known limitations](../../docs/roadmap/known-limitations.md#suspected-defects).
+
+**Backups** are taken by the app every night at 03:00 local time with
 `pg_dump`, checked by reading them back, and kept in `/var/lib/mysenam/backups`
 (the last 14). Copies on the same disk do not survive losing the disk, so set
 up off-site copies: create a Cloudflare R2 bucket and an API token that can only

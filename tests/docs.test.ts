@@ -1,0 +1,184 @@
+import fs from "fs";
+import path from "path";
+import { describe, expect, it } from "vitest";
+
+/**
+ * The documentation's references to the repository, checked without a
+ * network: links, file paths, npm scripts, environment variables, routes and
+ * the feature-status matrix. It cannot check that documented behaviour is
+ * true; see docs/development/testing.md.
+ */
+
+const ROOT = path.join(__dirname, "..");
+const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
+const exists = (p: string) => fs.existsSync(path.join(ROOT, p));
+
+function walk(dir: string, ext: string, out: string[] = []): string[] {
+  for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = path.posix.join(dir, e.name);
+    if (e.isDirectory()) walk(rel, ext, out);
+    else if (rel.endsWith(ext)) out.push(rel);
+  }
+  return out;
+}
+
+const DOCS = ["README.md", "AGENTS.md", "deploy/digitalocean/README.md", ...walk("docs", ".md")];
+
+/** The text outside fenced code blocks. */
+function prose(text: string): string {
+  let fence = false;
+  return text
+    .split("\n")
+    .filter((l) => {
+      if (/^\s*```/.test(l)) {
+        fence = !fence;
+        return false;
+      }
+      return !fence;
+    })
+    .join("\n");
+}
+
+/** GitHub's anchors for a document's headings. */
+function anchors(text: string): Set<string> {
+  const seen = new Map<string, number>();
+  const out = new Set<string>();
+  for (const line of prose(text).split("\n")) {
+    const m = /^#{1,6}\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const base = m[1]
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+      .replace(/\s/g, "-");
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    out.add(n === 0 ? base : `${base}-${n}`);
+  }
+  return out;
+}
+
+describe("documentation links", () => {
+  for (const doc of DOCS) {
+    it(`${doc}: every relative link and anchor resolves`, () => {
+      const text = prose(read(doc));
+      const broken: string[] = [];
+      for (const m of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+        const target = m[1];
+        if (/^(https?:|mailto:|tel:)/.test(target)) continue;
+        const [file, anchor] = target.split("#");
+        const resolved = file === "" ? doc : path.posix.normalize(path.posix.join(path.posix.dirname(doc), file));
+        if (!exists(resolved)) {
+          broken.push(target);
+          continue;
+        }
+        if (anchor && resolved.endsWith(".md") && !anchors(read(resolved)).has(anchor)) broken.push(target);
+      }
+      expect(broken).toEqual([]);
+    });
+  }
+});
+
+describe("documentation references to the repository", () => {
+  it("names only files and folders that exist", () => {
+    const missing: string[] = [];
+    for (const doc of DOCS) {
+      for (const m of prose(read(doc)).matchAll(/`((?:src|tests|db|scripts|deploy|docs|\.github)\/[^`\s]*)`/g)) {
+        const p = m[1].replace(/[.,:;)]+$/, "");
+        if (/[*<>…{}]/.test(p)) continue;
+        // A module may be named as it is imported, without its extension.
+        if (!exists(p) && !exists(`${p}.ts`)) missing.push(`${doc}: ${p}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("names only npm scripts that exist", () => {
+    const scripts = Object.keys(JSON.parse(read("package.json")).scripts);
+    const missing: string[] = [];
+    for (const doc of DOCS)
+      for (const m of read(doc).matchAll(/npm run ([a-z][\w:-]*)/g))
+        if (!scripts.includes(m[1])) missing.push(`${doc}: npm run ${m[1]}`);
+    expect(missing).toEqual([]);
+  });
+});
+
+describe("configuration", () => {
+  const config = read("docs/development/configuration.md");
+  const documented = new Set([...config.matchAll(/`([A-Z][A-Z0-9_]+)(\*?)`/g)].map((m) => m[1] + m[2]));
+  const covered = (name: string) =>
+    documented.has(name) || [...documented].some((d) => d.endsWith("*") && name.startsWith(d.slice(0, -1)));
+  const code = [...walk("src", ".ts"), ...walk("src", ".tsx"), ...walk("scripts", ".mjs"), "next.config.ts"].map(read).join("\n");
+
+  it("documents every environment variable the code reads", () => {
+    const read = new Set([...code.matchAll(/process\.env\.([A-Z][A-Z0-9_]+)|process\.env\[["']([A-Z][A-Z0-9_]+)["']\]/g)].map((m) => m[1] ?? m[2]));
+    // Gateway keys for the platform's own account are read by destructuring the environment (src/lib/gateways).
+    for (const m of code.matchAll(/\b((?:STRIPE|BILLPLZ)_[A-Z][A-Z0-9_]+)\b/g)) read.add(m[1]);
+    expect([...read].filter((v) => !covered(v)).sort()).toEqual([]);
+  });
+
+  it("lists no variable the code does not read", () => {
+    const table = [...config.matchAll(/^\|\s*(`[^|]+`)\s*\|/gm)].flatMap((m) => [...m[1].matchAll(/`([A-Z][A-Z0-9_]+\*?)`/g)].map((x) => x[1]));
+    const unused = table.filter((v) => (v.endsWith("*") ? !code.includes(v.slice(0, -1)) : !new RegExp(`\\b${v}\\b`).test(code)));
+    expect(unused).toEqual([]);
+  });
+});
+
+describe("the HTTP route reference", () => {
+  it("lists only routes that have a route.ts", () => {
+    const missing: string[] = [];
+    for (const m of read("docs/architecture/http-api.md").matchAll(/^\|\s*[A-Z/]+\s*\|\s*`(\/api\/[^`?]*)/gm)) {
+      const parts = m[1].replace(/\/$/, "").split("/").filter(Boolean);
+      // Walk the route folders, letting :param match any [dynamic] folder.
+      let dirs = [path.join(ROOT, "src", "app")];
+      for (const part of parts) {
+        dirs = dirs.flatMap((d) => {
+          if (!fs.existsSync(d)) return [];
+          if (!part.startsWith(":")) return [path.join(d, part)];
+          return fs.readdirSync(d).filter((e) => e.startsWith("[")).map((e) => path.join(d, e));
+        });
+      }
+      if (!dirs.some((d) => fs.existsSync(path.join(d, "route.ts")))) missing.push(m[1]);
+    }
+    expect(missing).toEqual([]);
+  });
+});
+
+describe("the feature-status matrix", () => {
+  const STATUSES = [
+    "IMPLEMENTED_AND_TESTED",
+    "IMPLEMENTED_UNTESTED",
+    "INTEGRATION_VERIFICATION_REQUIRED",
+    "PARTIALLY_IMPLEMENTED",
+    "PLANNED",
+    "BLOCKED",
+    "DEFERRED",
+    "UNSUPPORTED",
+    "UNKNOWN",
+  ];
+  const matrix = read("docs/product/feature-status.md");
+  // Capability rows: | Capability | Status | Behaviour | Code | Tests | Gaps |
+  const rows = matrix
+    .split("\n")
+    .filter((l) => /^\|\s*[^-|\s]/.test(l) && l.split("|").length >= 8 && !/^\|\s*Capability\s*\|/.test(l));
+
+  it("gives every capability a known status", () => {
+    const bad = rows.filter((r) => !STATUSES.includes(r.split("|")[2].trim()));
+    expect(bad).toEqual([]);
+  });
+
+  it("marks a capability tested only with a test file to show for it", () => {
+    const bad = rows.filter((r) => r.split("|")[2].trim() === "IMPLEMENTED_AND_TESTED" && !/`tests\/[^`]+`/.test(r.split("|")[5]));
+    expect(bad).toEqual([]);
+  });
+
+  it("states summary counts that match the rows", () => {
+    const summary = new Map([...matrix.matchAll(/^\|\s*([A-Z_]+)\s*\|\s*(\d+)\s*\|\s*$/gm)].map((m) => [m[1], Number(m[2])]));
+    const counted = new Map<string, number>();
+    for (const r of rows) {
+      const s = r.split("|")[2].trim();
+      counted.set(s, (counted.get(s) ?? 0) + 1);
+    }
+    expect(Object.fromEntries(summary)).toEqual(Object.fromEntries(counted));
+  });
+});

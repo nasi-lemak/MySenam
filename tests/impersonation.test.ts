@@ -11,8 +11,8 @@ import { addDays, todayISO } from "../src/lib/time";
 /**
  * A phone number is not identity.
  *
- * Nothing verifies the number somebody types when they register — the README
- * says so, the privacy notice says so, and the PDPA export path was already
+ * Nothing verifies the number somebody types when they register (a phone
+ * check is a separate, later step) — the docs say so, the privacy notice says so, and the PDPA export path was already
  * fixed for exactly this. Anything a signed-in customer is shown about
  * themselves therefore has to be found by who they are, not by what they
  * typed. A pass code is bearer money: whoever reads it can spend it, because
@@ -112,7 +112,7 @@ describe("registering with somebody else's phone number", () => {
    * Not a leak, and deliberately left alone — but worth pinning so that
    * changing it is a decision rather than an accident.
    *
-   * A membership is held against a phone number on purpose: the README says a
+   * A membership is held against a phone number on purpose: the docs say a
    * member who books as a guest, without signing in, still gets their price.
    * That means anyone who types a member's number gets the member rate, signed
    * in or not, and this test only shows the same thing through the account

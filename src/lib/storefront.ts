@@ -10,7 +10,7 @@ import { getVenue } from "./store";
  * bookings, payments, admin and credit behind them already belong to venues,
  * and are untouched; a storefront is a window onto some of them. A business
  * that wants its customers and data apart from everybody else's gets its own
- * install instead (see the README).
+ * install instead (docs/architecture/tenancy.md, "A venue business's own copy").
  *
  * Which storefront a request is for comes from the hostname it was made to,
  * matched exactly against the ones the platform owner registered. Anything

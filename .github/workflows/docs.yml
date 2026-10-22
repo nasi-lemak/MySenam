@@ -1,0 +1,33 @@
+name: Docs
+
+# The documentation checks (tests/docs.test.ts) alone: links, file paths, npm
+# scripts, environment variables, routes and the feature-status matrix. No
+# database or network needed, so it takes seconds. It runs on the changes the
+# main CI skips (Markdown only) as well as every other pull request.
+on:
+  pull_request:
+  push:
+    branches: [main, claude/sports-court-booking-w99x22]
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check documentation references
+        run: npm run docs:check

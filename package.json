@@ -14,7 +14,8 @@
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs",
     "import-sqlite": "node scripts/import-sqlite.mjs",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "docs:check": "vitest run tests/docs.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

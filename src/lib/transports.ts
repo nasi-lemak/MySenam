@@ -23,7 +23,7 @@ import { internationalNumber } from "./phone";
  * has approved, so the finished text in the outbox cannot simply be posted.
  * Instead each kind of message is a template, made from the same phrase the
  * email is, and what fills it is sent as its parameters. One wording, two
- * channels: change a phrase and the README's copy of its template, which is
+ * channels: change a phrase and its template in docs/integrations/whatsapp-templates.md, which is
  * what gets resubmitted to Meta, fails a test until it is brought up to date.
  */
 export const TEMPLATE_PHRASES: Partial<Record<MessageKind, Phrase>> = {

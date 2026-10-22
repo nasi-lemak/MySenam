@@ -118,12 +118,12 @@ describe("the templates Meta is asked to approve", () => {
     });
   }
 
-  it("is what the README tells you to submit", () => {
-    const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+  it("is what the documentation tells you to submit", () => {
+    const doc = fs.readFileSync(path.join(__dirname, "..", "docs", "integrations", "whatsapp-templates.md"), "utf8");
     for (const kind of KINDS)
       for (const locale of LOCALES) {
         const t = templateText(kind, locale);
-        expect(readme, `${t.name} (${locale}) in README`).toContain("```text\n" + t.body + "\n```");
+        expect(doc, `${t.name} (${locale}) in docs/integrations/whatsapp-templates.md`).toContain("```text\n" + t.body + "\n```");
       }
   });
 
