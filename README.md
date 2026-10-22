@@ -2138,6 +2138,23 @@ charges every 3 months), on the venue's own account:
   webhook the `invoice.paid` and `customer.subscription.deleted` events.
   Billplz has no subscriptions, so venues on Billplz sell one period at a time.
 
+
+### Tiers
+
+A plan can be a tier with benefits of its own (`src/lib/membership-plans.ts`),
+set under *Credit → Plans and tiers*:
+
+- **Price:** members on it pay a share of the public price (Gold at 70%)
+  instead of each court's member rate. The grid shows a signed-in member
+  their own price.
+- **Booking window:** they book further ahead than other members (Gold 30
+  days); the venue's outer window grows to the longest tier's, and everybody
+  else stays on theirs, refused with the reason.
+- A membership sold at the counter can be put on a plan too, for its
+  benefits (`memberships.tier_id`); one bought online is on the plan it was
+  bought on. Changing a tier's benefits applies to its members from then on;
+  bookings already made keep their price.
+- The venue page lists each plan's benefits beside its price.
 ## Promo codes
 
 A venue advertises a code — `RAYA20` for 20% off, `NEWBIE5` for RM5 — and a

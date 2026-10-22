@@ -473,6 +473,8 @@ export const ZH: Record<Phrase, string> = {
   "member.earlyBody": "您的会员资格有效至 {until}。您可从 {from} 起在线续费。",
   "member.months_one": "{n} 个月",
   "member.months_other": "{n} 个月",
+  "member.tierRate": "场地 {pct}% 折扣",
+  "member.tierAhead": "可提前 {n} 天预订",
   "member.join": "加入 · {cur}{price}",
   "member.renew": "续费 · {cur}{price}",
   "member.signIn": "登录后在线加入",

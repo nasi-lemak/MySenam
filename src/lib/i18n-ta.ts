@@ -476,6 +476,8 @@ export const TA: Record<Phrase, string> = {
   "member.earlyBody": "உங்கள் உறுப்பினர் சந்தா {until} வரை செல்லுபடியாகும். {from} முதல் ஆன்லைனில் புதுப்பிக்கலாம்.",
   "member.months_one": "{n} மாதம்",
   "member.months_other": "{n} மாதங்கள்",
+  "member.tierRate": "கோர்ட்டுகளுக்கு {pct}% தள்ளுபடி",
+  "member.tierAhead": "{n} நாட்கள் முன்னதாக முன்பதிவு",
   "member.join": "சேருங்கள் · {cur}{price}",
   "member.renew": "புதுப்பி · {cur}{price}",
   "member.signIn": "ஆன்லைனில் சேர உள்நுழையுங்கள்",

@@ -24,7 +24,7 @@ import { cutoffFor } from "@/lib/sport-rules";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isSlotHour, isValidDateString, todayISO } from "@/lib/time";
-import { houseRules, isMemberHere, lastBookableDay } from "@/lib/house-rules";
+import { windowFor } from "@/lib/house-rules";
 import { MAX_SERIES_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
@@ -381,11 +381,7 @@ export async function GET(req: NextRequest) {
       lateCancelKeep: (await cancelPolicyFor(venue.id, court.sport)).lateKeep,
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
       // As far as it can be moved: the venue's window, a member's where this number is one.
-      lastDate: lastBookableDay(
-        await houseRules(venue.id),
-        todayISO(venue.timeZone),
-        await isMemberHere(venue.id, [booking.phone])
-      ),
+      lastDate: addDays(todayISO(venue.timeZone), await windowFor(venue.id, [booking.phone])),
     },
     payOnline: await takesPaymentOnline(venue.id),
     // A deposit to hold it, while it is held and none is paid yet.

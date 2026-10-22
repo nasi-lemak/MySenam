@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { planById } from "@/lib/membership-plans";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/lib/store";
 import { logAction } from "@/lib/activity";
@@ -59,7 +60,16 @@ export async function POST(req: NextRequest) {
     userId = account.id;
   }
 
+  // On one of the venue's plans, for its benefits (a tier): any plan offered here.
+  let tierId: number | undefined;
+  if (input.tierId !== undefined && input.tierId !== null) {
+    const plan = Number.isInteger(input.tierId) ? await planById(input.tierId as number) : null;
+    if (!plan || plan.venueId !== venueId) return NextResponse.json({ error: "That plan is not offered here." }, { status: 400 });
+    tierId = plan.id;
+  }
+
   const result = await sellMembership({
+    tierId,
     venueId: venueId as number,
     holderName: input.holderName as string,
     holderPhone: input.holderPhone as string,

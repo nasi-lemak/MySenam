@@ -90,6 +90,9 @@ export default function JoinMembership({
             <span>
               <span className="font-medium">{p.name}</span>{" "}
               <span className="text-slate-500">· {t.plural("member.months", p.months)}</span>
+              {/* A tier's own benefits, where it has them. */}
+              {p.ratePercent !== null && <span className="text-violet-700"> · {t("member.tierRate", { pct: 100 - p.ratePercent })}</span>}
+              {p.aheadDays !== null && <span className="text-violet-700"> · {t("member.tierAhead", { n: p.aheadDays })}</span>}
             </span>
             {canPay ? (
               <button

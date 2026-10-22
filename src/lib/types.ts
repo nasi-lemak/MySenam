@@ -437,6 +437,12 @@ export interface Membership {
   status: MembershipStatus;
   /** Bought online on one of the venue's plans, rather than sold at the counter. */
   online?: boolean;
+  /** The plan (tier) it is on, however it was sold: its benefits are the plan's (lib/membership-plans.ts). */
+  tierId?: number | null;
+  tierName?: string | null;
+  /** The tier's benefits: this share of the public price, and how far ahead (null: the venue's). */
+  ratePercent?: number | null;
+  aheadDays?: number | null;
   /** Why it is not giving member rates today, if it is not. */
   unusableReason?: string;
 }

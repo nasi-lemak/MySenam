@@ -837,7 +837,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     startsOn: todayLocal(),
     expiresOn: "",
     price: "300",
+    tierId: "",
   });
+  // The venue's plans, to put a membership sold here on one for its benefits.
+  const [tiers, setTiers] = useState<Plan[]>([]);
 
   const load = useCallback(async () => {
     if (!venueId) return;
@@ -845,6 +848,8 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     if (!res.ok) return;
     const data = await res.json();
     setMembers(data.memberships);
+    const plans = await fetch(`/api/admin/membership-plans?venueId=${venueId}`, { cache: "no-store" });
+    if (plans.ok) setTiers((await plans.json()).plans);
   }, [venueId]);
 
   useEffect(() => {
@@ -867,6 +872,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           startsOn: form.startsOn,
           expiresOn: form.expiresOn,
           price: Number(form.price),
+          ...(form.tierId ? { tierId: Number(form.tierId) } : {}),
         }),
       });
       const data = await res.json();
@@ -972,6 +978,23 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-36 ${inputClass}`}
           />
         </label>
+        {tiers.length > 0 && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            Plan
+            <select
+              value={form.tierId}
+              onChange={(e) => setForm({ ...form, tierId: e.target.value })}
+              className={`mt-1 w-56 ${inputClass}`}
+            >
+              <option value="">None: member rates</option>
+              {tiers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({tierBenefits(p)})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
           From
           <input
@@ -1044,7 +1067,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   {m.holderName}
-                  <span className="block text-xs text-slate-400">{m.holderPhone}</span>
+                  <span className="block text-xs text-slate-400">
+                    {m.holderPhone}
+                    {m.tierName && ` · ${m.tierName}`}
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {m.startsOn} → {m.expiresOn}
@@ -1094,13 +1120,28 @@ interface Plan {
   name: string;
   months: number;
   price: number;
+  /** A tier's own benefits (lib/membership-plans.ts): this share of the public price, and how far ahead; null: the venue's. */
+  ratePercent: number | null;
+  aheadDays: number | null;
+}
+
+const RATE_CHOICES = [95, 90, 85, 80, 75, 70, 60, 50];
+const AHEAD_CHOICES = [7, 14, 21, 30, 45, 60, 90];
+
+/** What a tier gives, in a few words. */
+function tierBenefits(p: Plan): string {
+  const parts = [
+    p.ratePercent !== null ? `pays ${p.ratePercent}% of the price` : "member rates",
+    p.aheadDays !== null ? `books ${p.aheadDays} days ahead` : null,
+  ];
+  return parts.filter(Boolean).join(", ");
 }
 
 /** Membership plans customers can join or renew on online, paid to the venue. */
 function MembershipPlans({ venueId }: { venueId: number }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [online, setOnline] = useState(true);
-  const [form, setForm] = useState({ name: "", months: "12", price: "" });
+  const [form, setForm] = useState({ name: "", months: "12", price: "", ratePercent: "", aheadDays: "" });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -1121,11 +1162,30 @@ function MembershipPlans({ venueId }: { venueId: number }) {
     const res = await fetch("/api/admin/membership-plans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ venueId, name: form.name, months: Number(form.months), price: Number(form.price) }),
+      body: JSON.stringify({
+        venueId,
+        name: form.name,
+        months: Number(form.months),
+        price: Number(form.price),
+        ratePercent: form.ratePercent ? Number(form.ratePercent) : null,
+        aheadDays: form.aheadDays ? Number(form.aheadDays) : null,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return setError(data.error ?? "Could not add the plan");
-    setForm({ name: "", months: "12", price: "" });
+    setForm({ name: "", months: "12", price: "", ratePercent: "", aheadDays: "" });
+    await load();
+  }
+
+  async function benefits(plan: Plan, change: { ratePercent?: number | null; aheadDays?: number | null }) {
+    setError(null);
+    const res = await fetch("/api/admin/membership-plans", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, id: plan.id, ratePercent: plan.ratePercent, aheadDays: plan.aheadDays, ...change }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(data.error ?? "Could not change the plan");
     await load();
   }
 
@@ -1141,11 +1201,13 @@ function MembershipPlans({ venueId }: { venueId: number }) {
   const inputClass = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
   return (
     <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
-      <h3 className="font-semibold">Join online</h3>
+      <h3 className="font-semibold">Plans and tiers</h3>
       <p className="mt-0.5 text-sm text-slate-600">
         Plans shown on your venue page. A signed-in customer pays you through your own online payment account and the
         membership is made when the money is in, against their account&apos;s phone number. A member renews from{" "}
-        45 days before theirs ends, and the new one runs on from the old.
+        45 days before theirs ends, and the new one runs on from the old. A plan can also be a tier with benefits of its own,
+        a lower price or a longer booking window (Gold pays 70% and books 30 days ahead), and memberships sold at the counter
+        can be put on it too.
       </p>
       {!online && (
         <p className="mt-2 text-sm font-medium text-amber-700">
@@ -1161,6 +1223,34 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                 <span className="font-medium">{p.name}</span>{" "}
                 <span className="text-slate-500">
                   · {p.months} month{p.months === 1 ? "" : "s"} · {money(p.price)}
+                </span>
+                <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                  Members on it pay
+                  <select
+                    value={p.ratePercent ?? ""}
+                    onChange={(e) => benefits(p, { ratePercent: e.target.value === "" ? null : Number(e.target.value) })}
+                    className="rounded border border-slate-300 px-1 py-0.5"
+                  >
+                    <option value="">each court&apos;s member rate</option>
+                    {RATE_CHOICES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}% of the public price
+                      </option>
+                    ))}
+                  </select>
+                  and book
+                  <select
+                    value={p.aheadDays ?? ""}
+                    onChange={(e) => benefits(p, { aheadDays: e.target.value === "" ? null : Number(e.target.value) })}
+                    className="rounded border border-slate-300 px-1 py-0.5"
+                  >
+                    <option value="">as far ahead as members do</option>
+                    {AHEAD_CHOICES.map((d) => (
+                      <option key={d} value={d}>
+                        {d} days ahead
+                      </option>
+                    ))}
+                  </select>
                 </span>
               </span>
               <button

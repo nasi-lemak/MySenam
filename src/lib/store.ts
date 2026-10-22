@@ -759,8 +759,8 @@ export async function getAvailability(
   venueId: number,
   date: string,
   sport?: Sport,
-  /** Price the grid at member rates, for a caller known to be a member. */
-  member = false
+  /** Price the grid at member rates (or a tier's share), for a caller known to be a member. */
+  member: MemberPricing = false
 ): Promise<CourtAvailability[]> {
   const db = getDb();
   let courts = (
@@ -1368,7 +1368,11 @@ export function computePrice(
   court: Court,
   date: string,
   hours: number[],
-  member = false,
+  /**
+   * A member pays the court's member rates; a number is a tier's own price
+   * level, that percent of the public price (lib/membership-plans.ts).
+   */
+  member: MemberPricing = false,
   /** The venue's peak hours and holidays, from `peakRules`. */
   rules: PeakRules = DEFAULT_PEAK,
   /**
@@ -1386,6 +1390,7 @@ export function computePrice(
     hours.reduce((sum, h) => {
       const peak = isPeak(date, h, rules);
       const off = at === undefined ? 1 : 1 - lastMinuteOff(date, h, rules, at) / 100;
+      if (typeof member === "number") return sum + ((peak ? court.peakRate : court.offPeakRate) * member / 100) * share * off;
       if (member) {
         const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
         if (rate !== null) return sum + rate * share * off;
@@ -1395,12 +1400,24 @@ export function computePrice(
   );
 }
 
+/**
+ * How a number pays here on a date: not a member (false), a member at the
+ * courts' member rates (true), or a tier's own share of the public price.
+ */
+export type MemberPricing = boolean | number;
+
+export async function memberPricing(venueId: number, phone: string, date?: string): Promise<MemberPricing> {
+  const m = await activeMembership(venueId, phone, date);
+  if (!m) return false;
+  return m.ratePercent ?? true;
+}
+
 /** What a booking of these hours costs: the court's price, times the players on a court priced per player. */
 export function courtPrice(
   court: Court,
   date: string,
   hours: number[],
-  member: boolean,
+  member: MemberPricing,
   rules: PeakRules,
   at: number | undefined,
   players = 1
@@ -1567,8 +1584,7 @@ export async function createBookingSeries(input: {
   // Member rates are decided per session, against the date that session falls
   // on: a membership that lapses part-way through a weekly series discounts
   // the weeks it covers and no more.
-  const memberOn = async (weekDate: string) =>
-    await activeMembership(court.venueId, phone, weekDate) !== null;
+  const memberOn = (weekDate: string) => memberPricing(court.venueId, phone, weekDate);
   const rules = await peakRules(court.venueId);
   // A last-minute price is for an hour nobody wanted, not for a number that
   // cancelled at this venue on this day and is booking again at the lower price.
@@ -2124,7 +2140,7 @@ export async function rescheduleBooking(
     return true;
   };
 
-  const member = async (date: string) => (await activeMembership(fromCourt.venueId, booking.phone, date)) !== null;
+  const member = (date: string) => memberPricing(fromCourt.venueId, booking.phone, date);
   const rules = await peakRules(fromCourt.venueId);
   // What the old time cost when booked: a last-minute price stays with the hour
   // it was given for, so moving away from it costs the difference.
@@ -2211,13 +2227,13 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   const { step, zone } = await venueHours(court.venueId);
   if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)) || (await getVenueClosure(court.venueId, date))) return [];
   const length = booking.endHour - booking.startHour;
-  const member = (await activeMembership(court.venueId, booking.phone, date)) !== null;
+  const member = await memberPricing(court.venueId, booking.phone, date);
   const rules = await peakRules(court.venueId);
   const now = courtPrice(
     court,
     booking.date,
     slotsBetween(booking.startHour, booking.endHour, step),
-    (await activeMembership(court.venueId, booking.phone, booking.date)) !== null,
+    await memberPricing(court.venueId, booking.phone, booking.date),
     rules,
     undefined,
     booking.players ?? 1
@@ -4574,12 +4590,18 @@ interface MembershipRow {
   price: number;
   status: MembershipStatus;
   plan_id: number | null;
+  tier_id?: number | null;
+  tier_name?: string | null;
+  tier_rate?: number | null;
+  tier_ahead?: number | null;
 }
 
 const MEMBERSHIP_SELECT = `
   SELECT m.id, m.code, m.venue_id, v.name AS venue_name, m.holder_name, m.holder_phone,
-         m.starts_on, m.expires_on, m.price, m.status, m.plan_id
+         m.starts_on, m.expires_on, m.price, m.status, m.plan_id,
+         m.tier_id, t.name AS tier_name, t.rate_percent AS tier_rate, t.ahead_days AS tier_ahead
   FROM memberships m JOIN venues v ON v.id = m.venue_id
+  LEFT JOIN membership_plans t ON t.id = m.tier_id
 `;
 
 function toMembership(r: MembershipRow): Membership {
@@ -4595,6 +4617,10 @@ function toMembership(r: MembershipRow): Membership {
     price: r.price,
     status: r.status,
     online: r.plan_id !== null,
+    tierId: r.tier_id ?? null,
+    tierName: r.tier_name ?? null,
+    ratePercent: r.tier_rate ?? null,
+    aheadDays: r.tier_ahead ?? null,
   };
   const reason = membershipBlockedReason(m);
   return reason ? { ...m, unusableReason: reason } : m;
@@ -4678,6 +4704,8 @@ export async function sellMembership(input: {
   adminId?: number;
   userId?: number;
   planId?: number;
+  /** The plan whose benefits it carries, sold at the counter (bought online, it is `planId`). */
+  tierId?: number;
   /** How it was paid, for its receipt: "Online (Stripe)". At the counter when staff sell it. */
   paidVia?: string;
 }): Promise<MembershipResult> {
@@ -4728,12 +4756,13 @@ export async function sellMembership(input: {
     const info = await db
       .prepare(`
         INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
-                                 starts_on, expires_on, price, admin_id, plan_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 starts_on, expires_on, price, admin_id, plan_id, tier_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
-        input.startsOn, input.expiresOn, input.price, input.adminId ?? null, input.planId ?? null
+        input.startsOn, input.expiresOn, input.price, input.adminId ?? null, input.planId ?? null,
+        input.tierId ?? input.planId ?? null
       );
     const membership = (await membershipById(Number(info.lastInsertRowid)))!;
     await issueReceipt({

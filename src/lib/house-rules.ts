@@ -56,25 +56,48 @@ export function memberAhead(rules: HouseRules): number {
   return Math.max(publicAhead(rules), Math.min(rules.memberAheadDays ?? 0, MAX_VENUE_AHEAD_DAYS));
 }
 
+/** The furthest ahead any member books here: the venue's members' window, or a tier's own, whichever is further. */
+async function anyMemberAhead(venueId: number, rules: HouseRules): Promise<number> {
+  // Imported here, not at the top: lib/membership-plans.ts reads lib/store.ts, which reads this module.
+  const { longestPlanWindow } = await import("./membership-plans");
+  return Math.max(memberAhead(rules), Math.min((await longestPlanWindow(venueId)) ?? 0, MAX_VENUE_AHEAD_DAYS));
+}
+
 /** The furthest ahead anybody may book this venue: the outer edge every booking is checked against. */
 export async function venueAheadDays(venueId: number): Promise<number> {
-  return memberAhead(await houseRules(venueId));
+  return anyMemberAhead(venueId, await houseRules(venueId));
+}
+
+/** How many days ahead these numbers may book here: a member's window (their tier's, where it has one), or everybody's. */
+export async function windowFor(venueId: number, phones: (string | null | undefined)[], rules?: HouseRules): Promise<number> {
+  const r = rules ?? (await houseRules(venueId));
+  const membership = await membershipHere(venueId, phones);
+  if (!membership) return publicAhead(r);
+  return Math.max(publicAhead(r), Math.min(membership.aheadDays ?? memberAhead(r), MAX_VENUE_AHEAD_DAYS));
 }
 
 /** How many days ahead this account (or nobody signed in) may book here. */
 export async function aheadFor(venueId: number, userId: number | null): Promise<number> {
   const rules = await houseRules(venueId);
-  if (memberAhead(rules) === publicAhead(rules) || userId === null) return publicAhead(rules);
+  if (userId === null || (await anyMemberAhead(venueId, rules)) === publicAhead(rules)) return publicAhead(rules);
   const user = (await getDb().prepare("SELECT phone FROM users WHERE id = ?").get(userId)) as { phone: string } | undefined;
-  return (await isMemberHere(venueId, [user?.phone])) ? memberAhead(rules) : publicAhead(rules);
+  return windowFor(venueId, [user?.phone], rules);
+}
+
+/** The live membership here this number, or the account's, holds. */
+async function membershipHere(venueId: number, phones: (string | null | undefined)[]) {
+  // Imported here, not at the top: lib/store.ts reads from this module.
+  const { activeMembership } = await import("./store");
+  for (const phone of phones) {
+    const m = phone ? await activeMembership(venueId, phone) : null;
+    if (m) return m;
+  }
+  return null;
 }
 
 /** Does this number, or the account's, hold a live membership here? */
 export async function isMemberHere(venueId: number, phones: (string | null | undefined)[]): Promise<boolean> {
-  // Imported here, not at the top: lib/store.ts reads from this module.
-  const { activeMembership } = await import("./store");
-  for (const phone of phones) if (phone && (await activeMembership(venueId, phone))) return true;
-  return false;
+  return (await membershipHere(venueId, phones)) !== null;
 }
 
 export async function houseRules(venueId: number): Promise<HouseRules> {
@@ -163,19 +186,23 @@ export async function houseRuleRefusal(input: {
   excluding?: number;
 }): Promise<Refusal | null> {
   const rules = await houseRules(input.venueId);
-  if (!hasRules(rules) || input.dates.length === 0) return null;
+  if (input.dates.length === 0) return null;
+  // A tier's longer window is a rule too, even at a venue with none of its own.
+  const membersAhead = await anyMemberAhead(input.venueId, rules);
+  if (!hasRules(rules) && membersAhead === publicAhead(rules)) return null;
   const today = todayISO();
   const db = getDb();
   const account = input.userId
     ? ((await db.prepare("SELECT phone FROM users WHERE id = ?").get(input.userId)) as { phone: string } | undefined)?.phone
     : undefined;
   if (input.dates.some((d) => d > lastBookableDay(rules, today))) {
-    // Past everybody's window: only a member, and only inside theirs.
-    const members = memberAhead(rules);
-    if (members === publicAhead(rules) || input.dates.some((d) => d > lastBookableDay(rules, today, true)))
-      return refuse("LIMIT_AHEAD", members);
+    // Past everybody's window: only a member, and only inside theirs (their tier's, where it has one).
+    if (membersAhead === publicAhead(rules) || input.dates.some((d) => d > addDays(today, membersAhead)))
+      return refuse("LIMIT_AHEAD", membersAhead);
     if (!(await isMemberHere(input.venueId, [input.phone, account])))
-      return refuse("LIMIT_AHEAD_MEMBERS", publicAhead(rules), { m: members });
+      return refuse("LIMIT_AHEAD_MEMBERS", publicAhead(rules), { m: membersAhead });
+    const theirs = await windowFor(input.venueId, [input.phone, account], rules);
+    if (input.dates.some((d) => d > addDays(today, theirs))) return refuse("LIMIT_AHEAD", theirs);
   }
   if (rules.upcoming === null && rules.perWeek === null && rules.perDay === null) return null;
 

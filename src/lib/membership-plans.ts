@@ -22,6 +22,13 @@ export interface MembershipPlan {
   name: string;
   months: number;
   price: number;
+  /**
+   * A tier's own benefits. `ratePercent`: members on it pay this share of the
+   * public price, instead of each court's member rate. `aheadDays`: how far
+   * ahead they may book, instead of the venue's members' window. Null: the venue's.
+   */
+  ratePercent: number | null;
+  aheadDays: number | null;
 }
 
 export const MAX_PLAN_MONTHS = 12;
@@ -40,6 +47,8 @@ interface PlanRow {
   name: string;
   months: number;
   price: number;
+  rate_percent: number | null;
+  ahead_days: number | null;
 }
 
 const toPlan = (r: PlanRow): MembershipPlan => ({
@@ -48,13 +57,17 @@ const toPlan = (r: PlanRow): MembershipPlan => ({
   name: r.name,
   months: r.months,
   price: Number(r.price),
+  ratePercent: r.rate_percent ?? null,
+  aheadDays: r.ahead_days ?? null,
 });
+
+const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days";
 
 /** The plans a venue has on offer, cheapest first. */
 export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
   const rows = (await getDb()
     .prepare(
-      "SELECT id, venue_id, name, months, price::float AS price FROM membership_plans WHERE venue_id = ? AND retired_at IS NULL ORDER BY months, price, id"
+      `SELECT ${PLAN_COLUMNS} FROM membership_plans WHERE venue_id = ? AND retired_at IS NULL ORDER BY months, price, id`
     )
     .all(venueId)) as PlanRow[];
   return rows.map(toPlan);
@@ -63,7 +76,7 @@ export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
 export async function planById(id: number, opts: { retired?: boolean } = {}): Promise<MembershipPlan | null> {
   const row = (await getDb()
     .prepare(
-      `SELECT id, venue_id, name, months, price::float AS price FROM membership_plans WHERE id = ?${opts.retired ? "" : " AND retired_at IS NULL"}`
+      `SELECT ${PLAN_COLUMNS} FROM membership_plans WHERE id = ?${opts.retired ? "" : " AND retired_at IS NULL"}`
     )
     .get(id)) as PlanRow | undefined;
   return row ? toPlan(row) : null;
@@ -71,7 +84,44 @@ export async function planById(id: number, opts: { retired?: boolean } = {}): Pr
 
 export type PlanResult = { ok: true; plan: MembershipPlan } | { ok: false; error: string };
 
-export async function createPlan(venueId: number, input: { name: unknown; months: unknown; price: unknown }): Promise<PlanResult> {
+/** A tier's benefits as given: each null for the venue's. */
+function readBenefits(input: { ratePercent?: unknown; aheadDays?: unknown }): { ratePercent: number | null; aheadDays: number | null } | string {
+  const rate = input.ratePercent ?? null;
+  if (rate !== null && (!Number.isInteger(rate) || (rate as number) < 10 || (rate as number) > 99))
+    return "Members on a plan pay 10–99% of the public price, or each court's member rate.";
+  const ahead = input.aheadDays ?? null;
+  if (ahead !== null && (!Number.isInteger(ahead) || (ahead as number) < 1 || (ahead as number) > 90))
+    return "Members on a plan book 1–90 days ahead, or the venue's members' window.";
+  return { ratePercent: rate as number | null, aheadDays: ahead as number | null };
+}
+
+/** Change a plan's benefits. Memberships already on it get them from now. */
+export async function setPlanBenefits(
+  venueId: number,
+  planId: number,
+  input: { ratePercent?: unknown; aheadDays?: unknown }
+): Promise<PlanResult> {
+  const benefits = readBenefits(input);
+  if (typeof benefits === "string") return { ok: false, error: benefits };
+  const done = await getDb()
+    .prepare("UPDATE membership_plans SET rate_percent = ?, ahead_days = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL")
+    .run(benefits.ratePercent, benefits.aheadDays, planId, venueId);
+  if (done.changes !== 1) return { ok: false, error: "That plan is not offered here." };
+  return { ok: true, plan: (await planById(planId))! };
+}
+
+/** The furthest ahead any plan's members book here, for the venue's outer window. */
+export async function longestPlanWindow(venueId: number): Promise<number | null> {
+  const row = (await getDb()
+    .prepare("SELECT MAX(ahead_days) AS n FROM membership_plans WHERE venue_id = ? AND retired_at IS NULL")
+    .get(venueId)) as { n: number | null } | undefined;
+  return row?.n ?? null;
+}
+
+export async function createPlan(
+  venueId: number,
+  input: { name: unknown; months: unknown; price: unknown; ratePercent?: unknown; aheadDays?: unknown }
+): Promise<PlanResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 60) return { ok: false, error: "Give the plan a name of 2–60 characters." };
   if (!Number.isInteger(input.months) || (input.months as number) < 1 || (input.months as number) > MAX_PLAN_MONTHS)
@@ -80,9 +130,11 @@ export async function createPlan(venueId: number, input: { name: unknown; months
     return { ok: false, error: `The fee is at least ${money(1)}, to the ${region().currency.minor}. Free memberships are given at the counter.` };
   if ((await listPlans(venueId)).length >= MAX_PLANS_PER_VENUE)
     return { ok: false, error: `A venue offers up to ${MAX_PLANS_PER_VENUE} plans. Retire one first.` };
+  const benefits = readBenefits(input);
+  if (typeof benefits === "string") return { ok: false, error: benefits };
   const info = await getDb()
-    .prepare("INSERT INTO membership_plans (venue_id, name, months, price) VALUES (?, ?, ?, ?)")
-    .run(venueId, name, input.months, input.price);
+    .prepare("INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays);
   return { ok: true, plan: (await planById(Number(info.lastInsertRowid)))! };
 }
 

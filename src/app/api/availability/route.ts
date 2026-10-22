@@ -51,7 +51,8 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     date,
-    availability: await getAvailability(venueId, date, sport, membership !== null),
+    // A tier with its own price level prices the grid at that.
+    availability: await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false),
     closure: await getVenueClosure(venueId, date),
     memberRates: membership !== null,
     timeZone: venue.timeZone,
