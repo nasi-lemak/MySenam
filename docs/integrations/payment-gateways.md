@@ -4,8 +4,6 @@ Connecting Billplz and Stripe.
 
 How payments behave is in [payments and credit](../features/payments-and-credit.md). None of this has been verified against a live gateway account; see [feature status](../product/feature-status.md).
 
-> **Known gap:** the set-up text shown in the venue's settings form (`src/lib/gateways/stripe.ts`) does not mention the `charge.dispute.*` events, so a venue following it will not receive disputes (M5 in [known limitations](../roadmap/known-limitations.md#suspected-defects)).
-
 Billplz is the first gateway, not the only one the code can have. Everything
 gateway-specific sits behind one interface in `src/lib/gateways/`; the rest of
 MySenam (what a payment is for, settling it once, money owed back, holds)

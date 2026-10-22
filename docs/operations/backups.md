@@ -45,6 +45,9 @@ Either way, a snapshot that does not verify is deleted rather than kept, and
 the script exits non-zero so a failing backup shows up as a failing cron job
 instead of a quiet no-op. It is written under a temporary name and renamed on
 success, so an interrupted run never leaves a half-file that looks real.
+Snapshots are named by local time (`mysenam-2026-09-26-030000.dump`); a second
+one in the same second, such as the copy a restore keeps of what was there,
+gets `-2` after the time.
 
 A platform owner can see the same list under *Venues & staff → Backups*, take
 one by hand before a risky change, and is told in red when the newest snapshot

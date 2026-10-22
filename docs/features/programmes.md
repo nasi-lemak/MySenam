@@ -221,7 +221,10 @@ account.
   being removed, or the booking being cancelled by anyone, puts their paid
   share on the venue's list of refunds to make, like any online payment for
   something that did not happen. A share that arrives after the court was paid
-  for in full, or after they left, is owed back at once.
+  for in full, or after they left, is owed back at once. The host owes a
+  handed-back share again; one who had already paid the rest online owes just
+  that share, and what they paid keeps its own receipt
+  ([business rules](../product/business-rules.md#money)).
 - **Privacy.** Players see each other's first name and level, never a phone
   number or email. Levels are self-rated per sport: beginner, intermediate,
   advanced or competitive.

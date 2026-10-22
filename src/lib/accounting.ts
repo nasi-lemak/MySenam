@@ -74,7 +74,8 @@ async function categoryOf(source: string): Promise<Category> {
   const id = Number.parseInt(rest ?? "", 10);
   const db = getDb();
   switch (kind) {
-    case "booking": {
+    case "booking":
+    case "booking-part": {
       const b = (await db.prepare("SELECT class_id, coach_id FROM bookings WHERE id = ?").get(id)) as
         | { class_id: number | null; coach_id: number | null }
         | undefined;

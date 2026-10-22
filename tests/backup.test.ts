@@ -92,6 +92,20 @@ describe("taking a snapshot", () => {
   });
 });
 
+describe("two snapshots in the same second", () => {
+  it("both kept, the later listed first", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-26T03:00:00+08:00"));
+    const first = await createBackup({ dir });
+    const second = await createBackup({ dir });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.file.name).not.toBe(first.file.name);
+    expect(second.file.takenAt).toBe(first.file.takenAt);
+    expect(listBackups(dir).map((b) => b.name)).toEqual([second.file.name, first.file.name]);
+  });
+});
+
 describe("keeping the folder tidy", () => {
   async function snapshotsAt(hours: number[]) {
     vi.useFakeTimers({ toFake: ["Date"] });

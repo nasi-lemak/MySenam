@@ -33,6 +33,9 @@ const SUBSCRIPTION_EVENTS = new Set(["invoice.paid", "customer.subscription.dele
 /** A chargeback opened, moving on, or decided. */
 const DISPUTE_EVENTS = new Set(["charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"]);
 
+/** Every event the webhook acts on: what a venue is told to send, so the two cannot drift apart. */
+export const HANDLED_EVENTS = [...PAYMENT_EVENTS, ...SUBSCRIPTION_EVENTS, ...DISPUTE_EVENTS];
+
 interface Dispute {
   id: string;
   object: "dispute";
@@ -159,7 +162,10 @@ export const stripe: PaymentGateway = {
   ],
   webhook: true,
   setup:
-    "In Stripe, add a webhook endpoint at the address below, sending checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, invoice.paid and customer.subscription.deleted (the last two for memberships that renew themselves). Turn on PayNow and cards under Settings → Payment methods.",
+    `In Stripe, add a webhook endpoint at the address below, sending ${[...PAYMENT_EVENTS].join(", ")}; ` +
+    `${[...SUBSCRIPTION_EVENTS].join(" and ")} (for memberships that renew themselves); ` +
+    `and ${[...DISPUTE_EVENTS].join(", ")} (so a chargeback is recorded and its booking or credit taken back). ` +
+    "Turn on PayNow and cards under Settings → Payment methods.",
 
   checkCredentials(c) {
     if (!/^(rk|sk)_(live|test)_[A-Za-z0-9]{10,}$/.test(c.secretKey)) return "That does not look like a Stripe key (rk_live_… or sk_live_…).";

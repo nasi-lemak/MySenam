@@ -57,7 +57,9 @@ function snapshotName(extension: string, now = new Date()): string {
   return `mysenam-${parts.year}-${parts.month}-${parts.day}-${hour}${parts.minute}${parts.second}.${extension}`;
 }
 
-const NAME = /^mysenam-(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})\.(dump|tar\.gz|db)$/;
+// A second snapshot in the same second (a backup, then a restore keeping what
+// was there) takes a -2 after the time rather than failing.
+const NAME = /^mysenam-(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})(?:-(\d+))?\.(dump|tar\.gz|db)$/;
 
 /** Read the timestamp back out of a snapshot's name. */
 function takenAtFrom(name: string): string {
@@ -65,6 +67,12 @@ function takenAtFrom(name: string): string {
   if (!m) return "";
   const [, y, mo, d, h, mi, sec] = m;
   return `${y}-${mo}-${d} ${h}:${mi}:${sec}`;
+}
+
+/** Newest first; within a second, the later of the two first. */
+function newerFirst(a: string, b: string): number {
+  const seq = (name: string) => Number(name.match(NAME)?.[7] ?? 1);
+  return takenAtFrom(b).localeCompare(takenAtFrom(a)) || seq(b) - seq(a);
 }
 
 function describe(dir: string, name: string): BackupFile {
@@ -78,7 +86,7 @@ export function listBackups(dir = backupDir()): BackupFile[] {
   return fs
     .readdirSync(dir)
     .filter((f) => takenAtFrom(f) !== "")
-    .sort((a, b) => takenAtFrom(b).localeCompare(takenAtFrom(a)))
+    .sort(newerFirst)
     .map((name) => describe(dir, name));
 }
 
@@ -175,7 +183,11 @@ export async function createBackup(opts: { dir?: string; keep?: number } = {}): 
     return { ok: false, error: err instanceof Error ? err.message : "Cannot create backup folder" };
   }
 
-  const name = snapshotName(target.kind === "postgres" ? "dump" : "tar.gz");
+  const extension = target.kind === "postgres" ? "dump" : "tar.gz";
+  const now = new Date();
+  let name = snapshotName(extension, now);
+  for (let n = 2; fs.existsSync(path.join(dir, name)) && n < 100; n++)
+    name = snapshotName(extension, now).replace(`.${extension}`, `-${n}.${extension}`);
   const final = path.join(dir, name);
   // The temporary name keeps the real extension last, so the checks that go by
   // it still know what the file is.

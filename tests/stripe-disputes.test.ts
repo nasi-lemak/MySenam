@@ -154,3 +154,11 @@ describe("a chargeback", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("the set-up a venue follows", () => {
+  it("names every event the webhook handles, disputes included", async () => {
+    const { stripe, HANDLED_EVENTS } = await import("../src/lib/gateways/stripe");
+    expect(HANDLED_EVENTS).toEqual(expect.arrayContaining(["charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"]));
+    for (const event of HANDLED_EVENTS) expect(stripe.setup).toContain(event);
+  });
+});

@@ -547,19 +547,61 @@ async function shareOwedBack(playerId: number, bookingGone = false): Promise<voi
 /**
  * A share paid towards a booking (a game player's, a friend's in a split) no
  * longer counts: the booking owes it again, and one that shares alone had paid
- * for is unpaid again, unless the booker paid for it too.
+ * for is unpaid again.
+ *
+ * One the booker had paid the rest of online is short by the share, and the
+ * booker owes just that. What they paid becomes a part paid, as a deposit is:
+ * on a receipt of its own, dated when it was paid so it stays in that period,
+ * and counted towards the booking, which is unpaid for the share.
  */
 export async function unpayShare(bookingId: number, amount: number): Promise<void> {
   const db = getDb();
-  await db.prepare("UPDATE bookings SET shares_paid = GREATEST(0, shares_paid - ?) WHERE id = ?").run(amount, bookingId);
+  const before = (await db
+    .prepare(
+      `SELECT b.code, b.user_id, b.name, b.phone, b.payment_status, b.paid_via, b.paid_at, b.total_price::float AS total_price,
+              b.shares_paid::float AS shares_paid, c.venue_id
+         FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
+    )
+    .get(bookingId)) as
+    | { code: string; user_id: number | null; name: string; phone: string; payment_status: string; paid_via: string | null;
+        paid_at: string | null; total_price: number; shares_paid: number; venue_id: number }
+    | undefined;
+  if (!before) return;
+  const sharesNow = Math.max(0, Math.round((before.shares_paid - amount) * 100) / 100);
+  await db.prepare("UPDATE bookings SET shares_paid = ? WHERE id = ?").run(sharesNow, bookingId);
+  if (before.payment_status !== "paid" || before.paid_via !== "online" || sharesNow >= before.total_price) return;
+
+  const parts = (await db
+    .prepare(
+      `SELECT op.id, pb.amount::float AS amount FROM online_payment_bookings pb JOIN online_payments op ON op.id = pb.payment_id
+        WHERE pb.booking_id = ? AND op.status = 'paid' AND op.deposit = 0 AND op.purpose = 'booking'
+          AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.source = 'booking-part:' || pb.booking_id || ':' || op.id)
+        ORDER BY op.id`
+    )
+    .all(bookingId)) as { id: number; amount: number | null }[];
+  // A page made before what it billed was recorded asked for what was due then.
+  const paid = parts.map((p) => ({ id: p.id, amount: p.amount === null ? before.total_price - before.shares_paid : Number(p.amount) }));
+  const part = Math.round(paid.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
   await db
     .prepare(
-      `UPDATE bookings SET payment_status = 'unpaid', paid_at = NULL, paid_via = NULL
-        WHERE id = ? AND payment_status = 'paid' AND paid_via = 'online' AND shares_paid < total_price
-          AND NOT EXISTS (SELECT 1 FROM online_payment_bookings pb JOIN online_payments op ON op.id = pb.payment_id
-                           WHERE pb.booking_id = bookings.id AND op.status = 'paid')`
+      `UPDATE bookings SET payment_status = 'unpaid', paid_at = NULL, paid_via = NULL,
+              shares_paid = shares_paid + ?, deposit_paid = deposit_paid + ? WHERE id = ?`
     )
-    .run(bookingId);
+    .run(part, part, bookingId);
+  const { issueReceipt } = await import("./documents");
+  const issuedAt = before.paid_at ? before.paid_at.replace("T", " ").slice(0, 19) : null;
+  for (const p of paid)
+    await issueReceipt({
+      source: `booking-part:${bookingId}:${p.id}`,
+      venueId: before.venue_id,
+      userId: before.user_id,
+      name: before.name,
+      phone: before.phone,
+      lines: [{ description: `Paid online towards ${before.code}`, amount: Math.round(p.amount * 100) / 100 }],
+      paidVia: "online",
+      taxable: true,
+      issuedAt,
+    });
 }
 
 /**

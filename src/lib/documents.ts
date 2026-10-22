@@ -137,6 +137,8 @@ type Fields = Omit<Row, "id" | "number" | "issued_at" | "total" | "tax_rate" | "
   total: number;
   tax_rate: number | null;
   tax_amount: number;
+  /** When it was paid, if not now (YYYY-MM-DD HH:MM:SS, UTC). */
+  issued_at?: string | null;
 };
 
 /**
@@ -159,13 +161,13 @@ async function write(fields: Fields): Promise<Document> {
         const made = (await db
           .prepare(
             `INSERT INTO receipts (venue_id, kind, seq, number, source, credits_id, credits_ref, user_id, customer_name,
-               customer_phone, lines, total, tax_name, tax_rate, tax_amount, tax_reg_no, paid_via, note)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+               customer_phone, lines, total, tax_name, tax_rate, tax_amount, tax_reg_no, paid_via, note, issued_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now'))) RETURNING id`
           )
           .get(
             fields.venue_id, fields.kind, seq, number, fields.source, fields.credits_id, fields.credits_ref, fields.user_id,
             fields.customer_name, fields.customer_phone, fields.lines, fields.total, fields.tax_name, fields.tax_rate,
-            fields.tax_amount, fields.tax_reg_no, fields.paid_via, fields.note
+            fields.tax_amount, fields.tax_reg_no, fields.paid_via, fields.note, fields.issued_at ?? null
           )) as { id: number };
         return made.id;
       })();
@@ -191,6 +193,8 @@ export interface Sale {
    */
   taxable: boolean;
   note?: string | null;
+  /** When it was paid, if before now (YYYY-MM-DD HH:MM:SS, UTC), so it falls in the right period. */
+  issuedAt?: string | null;
 }
 
 /** Receipt a sale. Nothing for a free one. */
@@ -216,6 +220,7 @@ export async function issueReceipt(sale: Sale): Promise<Document | null> {
     tax_reg_no: rate ? tax!.regNo : null,
     paid_via: sale.paidVia,
     note: sale.note ?? null,
+    issued_at: sale.issuedAt ?? null,
   });
 }
 

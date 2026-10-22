@@ -69,10 +69,10 @@ change, update this page, and update [feature status](feature-status.md).
   customer cancels.
 - **Shares handed back are owed again.** A player who paid a game share and
   leaves, or is taken out, is refunded by the venue; the share comes off what
-  the booking has had paid towards it, so the host owes it again. *Suspected
-  defect:* not once the host has paid the rest online, when the booking stays
-  paid and the share is owed by nobody (M1 in
-  [known limitations](../roadmap/known-limitations.md#suspected-defects)).
+  the booking has had paid towards it, so the host owes it again. If the host
+  had already paid the rest online, what they paid stands on a receipt of its
+  own, dated when it was paid, and the booking is unpaid for just the share.
+  The same holds for a friend's share in a split cost.
 - **Chargebacks take back what they paid for.** Lost on a top-up, the credit
   goes (a balance can go below zero until the next top-up); on a gift voucher,
   the voucher is void, or its credit goes if redeemed; on a membership, it is

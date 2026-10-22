@@ -237,6 +237,42 @@ describe("shares", () => {
     expect(await startBookingPayment({ codes: [b.code], phone: host.phone })).toMatchObject({ ok: true, amount: b.totalPrice });
   });
 
+  it("handed back after the host paid the rest online, leave the host owing just that share", async () => {
+    fakeBillplz();
+    const { host, game, booking: b } = await hostGame({ autoAccept: true, share: 6 });
+    const a = await player();
+    await askToJoin(a, game.id);
+    await startSharePayment(a, game.id);
+    await settleBill({ billId: lastBill(), paid: true, paidAt: null });
+    const rest = b.totalPrice - 6;
+    expect(await startBookingPayment({ codes: [b.code], phone: host.phone })).toMatchObject({ ok: true, amount: rest });
+    await settleBill({ billId: lastBill(), paid: true, paidAt: null });
+    const hostBill = lastBill();
+
+    await leaveGame(a.id, game.id);
+    // The venue handed the 6 back, so the booking is 6 short: the host owes it, and only it.
+    const row = (await getDb()
+      .prepare("SELECT payment_status, (total_price - shares_paid)::float AS due FROM bookings WHERE id = ?")
+      .get(b.id)) as { payment_status: string; due: number };
+    expect(row).toEqual({ payment_status: "unpaid", due: 6 });
+    expect(await startBookingPayment({ codes: [b.code], phone: host.phone })).toMatchObject({ ok: true, amount: 6 });
+    // What the host did pay stays on the books, on a receipt of its own.
+    const hostPayment = (await getDb().prepare("SELECT id FROM online_payments WHERE bill_id = ?").get(hostBill)) as { id: number };
+    const receipt = (await getDb()
+      .prepare("SELECT total::float AS total FROM receipts WHERE kind = 'receipt' AND source = ?")
+      .get(`booking-part:${b.id}:${hostPayment.id}`)) as { total: number } | undefined;
+    expect(receipt?.total).toBe(rest);
+
+    // Called off now: the host's part is owed back, and its receipt credited.
+    expect((await cancelBooking(b.code, host.phone)).ok).toBe(true);
+    const owed = (await getDb().prepare("SELECT refund_due::float AS due FROM online_payments WHERE id = ?").get(hostPayment.id)) as { due: number };
+    expect(owed.due).toBe(rest);
+    const credited = (await getDb()
+      .prepare("SELECT COUNT(*)::int AS n FROM receipts WHERE kind = 'credit_note' AND credits_ref = (SELECT number FROM receipts WHERE source = ?)")
+      .get(`booking-part:${b.id}:${hostPayment.id}`)) as { n: number };
+    expect(credited.n).toBe(1);
+  });
+
   it("arriving after the player left is owed back at once", async () => {
     fakeBillplz();
     const { game } = await hostGame({ autoAccept: true, share: 3 });

@@ -92,7 +92,7 @@ Authoritative: [payments and credit](../features/payments-and-credit.md), [busin
 | Refund when a customer cancels | IMPLEMENTED_AND_TESTED | By staff, through Stripe, or as venue credit; idempotent | `src/lib/payments.ts` | `tests/auto-refunds.test.ts` | Credit ignores `MYSENAM_CREDIT_SCOPE` (M8) |
 | Receipts, credit notes, venue tax | IMPLEMENTED_AND_TESTED | Per-venue numbering; signed receipt links; SST/GST inside prices | `src/lib/documents.ts`, `src/lib/receipts.ts`, `src/lib/tax.ts` | `tests/receipts.test.ts`, `tests/tax.test.ts` | — |
 | Gateway layer and sealed keys | IMPLEMENTED_AND_TESTED | One interface; per-venue keys sealed with `MYSENAM_SECRET` | `src/lib/gateways/index.ts`, `src/lib/secrets.ts` | `tests/gateways.test.ts` | Keys must be re-entered after a restore without the secret |
-| Open-game shares | IMPLEMENTED_AND_TESTED | Players pay their share to the venue | `src/lib/games.ts` | `tests/games.test.ts` | Share lost when a player leaves after the host paid (M1) |
+| Open-game shares | IMPLEMENTED_AND_TESTED | Players pay their share to the venue | `src/lib/games.ts` | `tests/games.test.ts` | Shares to real gateways need live verification |
 
 ## Memberships, passes and credit
 
@@ -119,7 +119,7 @@ Authoritative: [programmes](../features/programmes.md).
 | Coach link, feed, alerts, payouts | IMPLEMENTED_AND_TESTED | Private coach page and calendar; own hours and time off; payouts | `src/lib/coach-schedule.ts`, `src/app/coach/[token]` | `tests/coaching-two.test.ts`, `tests/coach-self.test.ts` | Email delivery live-unverified |
 | Tournaments | IMPLEMENTED_AND_TESTED | Courts held; entries and fees; draws; results; call-off | `src/lib/tournaments.ts`, `src/lib/brackets.ts` | `tests/tournaments.test.ts`, `tests/brackets.test.ts` | Clash check outside its transaction (B4) |
 | Box leagues | IMPLEMENTED_AND_TESTED | Seasons, boxes, promotion, results | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts` | — |
-| Open games | IMPLEMENTED_AND_TESTED | Host opens a booking; players join | `src/lib/games.ts` | `tests/games.test.ts` | M1 |
+| Open games | IMPLEMENTED_AND_TESTED | Host opens a booking; players join | `src/lib/games.ts` | `tests/games.test.ts` | — |
 | Women-only and men-only | IMPLEMENTED_AND_TESTED | Self-declared gates on games, leagues, classes, tournaments | `src/lib/who.ts` | `tests/who.test.ts` | Cannot be verified |
 
 ## Venue operations
@@ -227,7 +227,7 @@ mocked mail, a fake LHDN, a local fake S3). Authoritative:
 | Stripe Checkout | INTEGRATION_VERIFICATION_REQUIRED | Session in cents on the venue's key; closes with the hold | `src/lib/gateways/stripe.ts` | `tests/stripe.test.ts` | Key permissions unverified |
 | Stripe webhook and return verification | INTEGRATION_VERIFICATION_REQUIRED | Signature within five minutes; return page re-checks | `src/lib/gateways/stripe.ts`, `src/app/payments/return` | `tests/stripe.test.ts` | — |
 | Stripe refunds | INTEGRATION_VERIFICATION_REQUIRED | One-click and automatic, with an idempotency key | `src/lib/payments.ts` | `tests/stripe-refunds.test.ts` | Needs Refunds: Write |
-| Stripe disputes | INTEGRATION_VERIFICATION_REQUIRED | Recorded once; lost → what it paid for undone | `src/lib/payments.ts` | `tests/stripe-disputes.test.ts` | M2, M4, M5 |
+| Stripe disputes | INTEGRATION_VERIFICATION_REQUIRED | Recorded once; lost → what it paid for undone | `src/lib/payments.ts` | `tests/stripe-disputes.test.ts` | M2, M4 |
 | Stripe membership renewals | INTEGRATION_VERIFICATION_REQUIRED | Subscription per plan; `invoice.paid` → next period | `src/lib/payments.ts` | `tests/membership-renewal.test.ts` | Stripe only |
 | MyInvois connection | INTEGRATION_VERIFICATION_REQUIRED | Venue's own client or platform as intermediary | `src/lib/myinvois/client.ts` | `tests/myinvois.test.ts` | Never tried against LHDN |
 | MyInvois consolidated and credit notes | INTEGRATION_VERIFICATION_REQUIRED | Monthly consolidated documents; large sales alone | `src/lib/myinvois.ts`, `src/lib/myinvois/ubl.ts` | `tests/myinvois.test.ts` | Cancelling done in the portal |

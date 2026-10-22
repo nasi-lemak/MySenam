@@ -57,11 +57,9 @@ whether intended).
 
 | ID | Pri | What goes wrong | Evidence | Launch blocker | Recommended test |
 | -- | --- | --------------- | -------- | -------------- | ---------------- |
-| M1 | P1 | A game player who leaves after the host has paid the rest online is refunded, but the booking stays paid and nobody owes the share: the venue is short by it, and the sales journal still shows the full price. | `unpayShare` in `src/lib/games.ts` keeps the booking paid when the host's payment exists | For open games with online shares | Share paid → host pays rest → player leaves → assert the share is owed again |
 | M2 | P2 | A lost chargeback on a deposit is not unwound, and the whole payment is taken back even when the dispute is for part of it. | `disputeLost` / `takeBackWhatItBought` in `src/lib/payments.ts` | Before taking deposits through Stripe | Deposit paid → dispute lost → expect deposit cleared, full price due |
 | M3 | P2 | Marking a whole series paid at the counter can overwrite an online payment that lands at the same moment, losing the record that money came online and is owed back. | `paySeries` in `src/lib/store.ts` reads outside its transaction | No | Concurrent settlement and `paySeries` |
 | M4 | P2 | Two copies of a lost-dispute notice arriving together can debit stored credit twice. | `recordDispute` in `src/lib/payments.ts` has no claim | No | Two `charge.dispute.closed` events at once on a top-up |
-| M5 | P2 | The Stripe set-up text in the venue's settings form omits the `charge.dispute.*` events, so venues following it never receive disputes. | `src/lib/gateways/stripe.ts` (set-up text vs `DISPUTE_EVENTS`) | Before taking Stripe payments | Assert the set-up text names every handled event |
 | M6 | P2 | The sales journal is rebuilt from bookings as they are now: after a lost dispute marks a booking unpaid, its receipt drops out of past periods while the credit note stays, reversing the sale twice. | `src/lib/accounting.ts` | For accounting use | Lost dispute → original month still shows the receipt |
 | M7 | P2 | Cancelling one week of a weekly series paid by deposit issues a credit note for the whole deposit. | `noteOnlineRefundDue` in `src/lib/store.ts` | No | Two-week deposit series, cancel one week |
 | M8 | P3 | Refunds to stored credit are written to the venue regardless of `MYSENAM_CREDIT_SCOPE`, so on a marketplace set to `platform` one venue's money becomes credit spendable anywhere. | `refundToCredit` in `src/lib/payments.ts` | No (non-default setting) | — |
@@ -79,6 +77,8 @@ IDs are not reused. Each fix came with the test recommended above.
 | -- | -------- | ---- |
 | S1 | Script-loaded modules import with file extensions | `tests/backup-scripts.test.ts` |
 | S2 | Erasure takes the account off waiting lists before deleting it | `tests/privacy.test.ts` |
+| M1 | A handed-back share leaves the booker owing it; what they paid online gets its own receipt, dated when paid | `tests/games.test.ts` |
+| M5 | The set-up text is built from the events the webhook handles | `tests/stripe-disputes.test.ts` |
 
 ## Integrations awaiting live verification or a partner
 

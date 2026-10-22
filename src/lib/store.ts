@@ -4648,10 +4648,11 @@ async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> 
                (SELECT total_price - shares_paid FROM bookings WHERE id = ?)) * ${Number(share)}, 2))
        WHERE p.status = 'paid'
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
-         -- Paid for online, or a deposit paid on it (the rest was never paid online).
-         AND (p.deposit = 1 OR EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online'))
+         -- Paid for online, or a deposit or other part paid on it (the rest was never paid online).
+         AND (p.deposit = 1 OR EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
+              OR EXISTS (SELECT 1 FROM receipts r WHERE r.source = 'booking-part:' || ? || ':' || p.id))
     `)
-    .run(bookingId, bookingId, bookingId, bookingId);
+    .run(bookingId, bookingId, bookingId, bookingId, bookingId);
   // A deposit's own receipt is credited for what goes back.
   const deposits = (await getDb()
     .prepare(
@@ -4660,6 +4661,11 @@ async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> 
     )
     .all(bookingId)) as { id: number }[];
   for (const d of deposits) await creditReceipt(`payment:${d.id}`, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
+  // So is a part paid online before a share it counted on was handed back (lib/games.ts, unpayShare).
+  const parts = (await getDb()
+    .prepare("SELECT source FROM receipts WHERE kind = 'receipt' AND source LIKE ?")
+    .all(`booking-part:${bookingId}:%`)) as { source: string }[];
+  for (const p of parts) await creditReceipt(p.source, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
 }
 
 /* ---------------- Memberships ---------------- */
