@@ -42,11 +42,13 @@ change:
 7. **Say how something was verified.** A test against a fake gateway is not a
    live check; payments, WhatsApp, email, SMS, MyInvois, Google sign-in,
    off-site storage and smart locks stay `INTEGRATION_VERIFICATION_REQUIRED`
-   until checked against the real service.
+   until checked against the real service. A row whose workflow pays or messages
+   through one of them names that integration row in its gaps.
 8. **Record limitations.** Known defects, restrictions and integration
    dependencies go in [known limitations](docs/roadmap/known-limitations.md),
    not out of sight. A fixed one moves to *fixed since the audit* with its
-   test; identifiers (S1, B2, M3…) are never reused or renumbered.
+   test; identifiers (S1, B2, M3…) are never reused or renumbered, and a new
+   defect takes the next number of its letter.
 9. **Never change a business rule silently.** When code and documentation
    disagree, find out which is intended and flag it (in known limitations, or
    to the person you work for) rather than picking one.

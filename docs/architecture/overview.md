@@ -59,7 +59,7 @@ and is not proven about this is in
 
 ## More than one instance
 
-Several app instances can share one database. Three things need attention:
+Several app instances can share one database. Four things need attention:
 
 - **Rate limits** are counted in each process's memory by default. Behind
   several instances, set `MYSENAM_RATE_LIMITS=shared` so the counters live in
@@ -76,6 +76,9 @@ Several app instances can share one database. Three things need attention:
   instance makes its own `secret.key`, and payment keys, reset tokens, phone
   codes and recovery codes sealed or hashed by one cannot be read by another
   (`src/lib/secrets.ts`). The DigitalOcean kit sets it.
+- **Photos** are files in the data folder unless a bucket is set
+  (`PHOTOS_S3_*`), so behind several instances each would see only its own
+  uploads. Set the bucket ([discovery](../features/discovery.md)).
 
 The lease (three minutes) is renewed when a tick starts and every minute while
 it runs, so a long tick (a large `pg_dump` plus its upload) keeps it. Outgoing

@@ -76,10 +76,13 @@ takes. Then:
   already booked at the same time; what is sold from today on takes the new
   court as soon as it is linked, and lets go when unlinked.
 
-Known limits: utilisation counts the pitch and the courts as separate
-sellable hours, so a hall that is busy every evening as a pitch still shows
-its badminton courts as sold for those hours rather than as one floor; and a
-waiting-list offer holds only its own court.
+A waiting-list offer is held like a booking, on every space its court
+covers, so it keeps the linked courts too.
+
+Known limit: utilisation counts the pitch and the courts as separate
+sellable hours, so in a hall booked every evening as a pitch its badminton
+courts read as idle for those hours, and the floor's utilisation reads low
+(B11 in [known limitations](../roadmap/known-limitations.md)).
 
 ## Booking rules: starts, lengths, buffers
 

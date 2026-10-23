@@ -61,10 +61,11 @@ booking is paid.
   booked; lesson starts and lengths follow the court's
   [booking rules](booking.md#booking-rules-starts-lengths-buffers).
 - **Weekly lessons**, for a signed-in customer, as with a weekly court:
-  *Repeat* on the lesson form books the same time for up to 12 weeks, and a
-  week the coach or every court is already taken is skipped and listed
-  (`skipConflicts`). A customer cannot move a lesson to another time: they ask
-  the venue, since it is the coach's time too.
+  *Repeat* on the lesson form books the same time for up to 8 weeks
+  (`MAX_RECUR_WEEKS`), and a week the coach or every court is already taken
+  is skipped and listed (`skipConflicts`). Nobody can move a lesson to
+  another time, staff included (`RESCHEDULE_COACH`): it is cancelled and
+  booked again. Staff can move it to another court at the same time.
 - Staff see *🎓 Lesson with Ana Lim* on the booking, and the staff calendar
   feed names the coach. *Stop* retires a coach; lessons already booked stand.
 
@@ -99,7 +100,9 @@ that went ahead and their hours, the coach's fees on those paid and on those
 not yet paid, and no-shows apart (whether a coach is paid for those is the
 venue's call). *Every lesson (CSV)* has one row per lesson for the venue's
 books and the coach's records (`/api/admin/coach-payouts`, managers only).
-Late-cancellation fees are not split with the coach.
+Lessons cancelled late are listed apart, with the coach's fee times the share
+the venue kept, for the venue to decide whether the coach is paid for them.
+The report says what is owed; paying the coach happens outside MySenam.
 
 
 ### A coach's own week and time off
@@ -139,8 +142,10 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   won — a score that says the other side won is refused — or a walkover.
   Winners move on by themselves; the last group match fills the knockout from
   the tables (wins, then sets, then points, then who beat whom); the final
-  finishes it. A result can be put right until the match it fed has been
-  played.
+  finishes it. A knockout result can be put right until the match it fed has
+  been played. A group result can still be changed after the knockout has
+  been filled, but the knockout is not filled again
+  ([known limitations](../roadmap/known-limitations.md)).
 - **Court time goes back as soon as it is not needed.** Until the draw, every
   hour is held, since nobody knows which will be used. Once it is made, each
   court keeps only the hours from its first match still to play that day to
@@ -152,7 +157,11 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   Anybody on the waiting list for that court and day is offered what comes
   free, as with a cancellation.
 - **Withdrawals** before the draw free the place for the waiting list and owe
-  back a fee paid online; after it, every match still to play is a walkover.
+  back a fee paid online. After the draw, a match whose opponent is already
+  known becomes a walkover at once; a later match the withdrawn player would
+  have reached is not, and staff enter that walkover by hand when the
+  opponent arrives. Nothing is owed back after the draw. Players withdraw
+  themselves only before the draw; staff can at any time.
   **Calling it off** gives the courts back (offering them to the waiting
   list), tells every entrant, and owes back every fee paid online.
 - The public page shows entries, then the groups, the bracket and every
@@ -161,6 +170,25 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
 The draw's arithmetic — seeding, byes, round-robins, tables, fitting matches
 into court time — is in `src/lib/brackets.ts`, apart from the database, and
 tested on its own.
+
+**What tournaments do not do** (the [roadmap](../roadmap/roadmap.md) has
+what is planned):
+
+- Only two formats: a knockout, or groups then a knockout. No double
+  elimination, Swiss, plain round robin or consolation draw.
+- One event per tournament: one sport, category, level and format. No
+  divisions in one tournament; run one tournament per event.
+- Singles or doubles pairs only, and a doubles partner is a name, not an
+  account. No teams.
+- The level is shown, not enforced; there is no age limit.
+- No closing date: entries close when staff close them or make the draw.
+- Seeds are set by staff; there is no seeding by rating or ranking, and no
+  ranking across tournaments.
+- Matches are scheduled automatically; one cannot be moved to another court
+  or time by hand.
+- No check-in of players on the day. Only staff enter results.
+- Emails go out on entering, coming off the waiting list, the draw and a
+  call-off; not on results, the next match, a walkover or the finish.
 
 ## Box leagues
 
@@ -204,18 +232,28 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
   back.
 - Closing an account takes the player out of their leagues and their name
   off every box; the personal data export includes leagues and seasons.
+- Staff can stop a league (`close`) or remove a player.
+
+**What leagues do not do**: they are box leagues of singles or doubles pairs
+only (no team leagues, no fixed fixture dates: players arrange their matches
+and book courts themselves); the level is shown, not enforced; a doubles
+partner is a name, and only the player who joins is held to a women-only or
+men-only rule; there is no ranking across seasons beyond the box a player
+carries into the next; players are not emailed when staff decide a disputed
+result or give a walkover.
 
 The box arithmetic — sizes, who moves, the order for next season — is in
 `src/lib/boxes.ts`, apart from the database, and tested on its own.
 
-## Open games: finding players
+## Open games: recruiting players
 
 A player who has booked a court can open it to others at `/games` (*Games* in
 the menu): how many players they want, at what level, and what each pays
 towards the court — split evenly unless they say otherwise. Others find open
-games by sport, day, level, or *Near me*, and ask to join; the host accepts or
-declines from the same page, or lets anybody straight in. Everything needs an
-account.
+games by sport, day, area, level, who can join, or *Near me* (the next 14 days
+by default; full games are not listed), and ask to join; the host accepts or
+declines from the same page, or lets anybody straight in. The `/play` page
+gathers games, tournaments and leagues. Everything needs an account.
 
 - **Money goes to the venue.** A player who joins pays their share online to
   the venue's own Billplz account, towards the host's booking; staff see
@@ -236,10 +274,27 @@ account.
   advanced or competitive.
 - **No-shows.** After the game, the host can mark a player who did not come.
   Three in 90 days, and that player cannot join games until they age out.
+- **The host's tools**: accept, decline, remove a player (who is emailed and
+  owed back), close the game to new requests, and mark no-shows. There is no
+  "cancel the game" of its own: cancelling the booking calls the game off.
+  A booking that has had a game cannot be moved to another time by anyone
+  (`RESCHEDULE_GAME`); staff can move it to another court.
 - Everyone is emailed when it matters: the host when somebody asks, joins or
   leaves; the player when accepted, declined, removed, or the game is off.
+  These go straight out by email, not through the message queue, and there
+  are no reminders before a game.
 - Closing an account takes the player out of games to come, and calls off
   games they were hosting; the personal data export includes games and levels.
+
+**What is recruitment, and what is not.** Open games are **player
+recruitment**: a host advertises places and others ask to join. Customers can
+**discover games** by filtering the list. There is **no player discovery**
+(searching for people rather than games), **no matchmaking** (the system never
+suggests players or games from levels, availability or history; saved levels
+only filter the list), no invite-only or private games, no inviting a named
+player, no waiting list for a full game, no messaging between host and
+players, no recurring games (one game per booking), and no team formation.
+These are proposals in the [roadmap](../roadmap/roadmap.md).
 
 ## Women-only and men-only
 

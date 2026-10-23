@@ -4,9 +4,11 @@ Authoritative list of what is known to be wrong, missing or unverified, kept
 apart from what works ([feature status](../product/feature-status.md)) and
 from ideas ([roadmap](roadmap.md)). First recorded by the
 [documentation audit](../documentation-audit.md) of October 2026. The numbered
-defects it found (S, B, M) have since been fixed, each with a test, and are
-listed under [fixed since the audit](#fixed-since-the-audit); what remains
-below is open.
+defects it found (S1–S8, B1–B8, M1–M11) have since been fixed, each with a
+test, and are listed under [fixed since the audit](#fixed-since-the-audit). The
+feature inventory audit later that month found B9–B11, M12–M15 and S9–S10,
+open below; what stands between the code and a production launch is under
+[production readiness](#production-readiness).
 
 Priorities:
 
@@ -22,8 +24,14 @@ it is fixed, and moves to *fixed since the audit* with that test.
 
 ### Operations and security (S)
 
-No numbered operations or security defect is open; see
-[fixed since the audit](#fixed-since-the-audit).
+| ID | Defect | Evidence | Test to write first | Priority |
+| -- | ------ | -------- | ------------------- | -------- |
+| S9 | Tournament, league and open-game emails (and venue applications, password reset and owner alerts) are sent once, directly, not through the [outbox](../integrations/messaging.md): no retry when SMTP fails, no daily cap, not in the venue's delivery list | `sendPlainEmail` in `src/lib/transports.ts` logs a failure and returns; called from `src/lib/tournaments.ts`, `src/lib/leagues.ts`, `src/lib/games.ts` | A failing transport leaves a tournament draw email queued for retry | P2 |
+| S10 | Photos kept on the server's disk (no `PHOTOS_S3_*` bucket) are in no backup: they are files, not database rows, and the backup is the database | `src/lib/photo-store.ts`; [discovery](../features/discovery.md); [backups](../operations/backups.md) | — (documented; a production install sets a bucket) | P2 |
+
+Also: a staff member who loses both their phone and their recovery codes is
+locked out until somebody edits the database; there is no owner reset of two-factor
+(`disableTwoFactor` needs the account's own code) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -32,8 +40,11 @@ nonces is open for review (P3).
 
 ### Booking and availability (B)
 
-No numbered booking defect is open; see
-[fixed since the audit](#fixed-since-the-audit).
+| ID | Defect | Evidence | Test to write first | Priority |
+| -- | ------ | -------- | ------------------- | -------- |
+| B9 | In a groups-then-knockout tournament, a group result changed after the knockout is filled does not refill it: the old group placings stay in the knockout | `fillKnockoutIfGroupsDone` returns once round one is filled (`src/lib/tournaments.ts`) | Correcting the last group result changes who is in the knockout, or is refused once it is filled | P2 |
+| B10 | A withdrawal after the draw settles only matches whose opponent is known: later rounds wait for staff to enter a walkover, and the withdrawn player's group wins still count in the standings | `withdraw` and `settleMatch` in `src/lib/tournaments.ts` | A player withdrawn in the groups loses their remaining group matches and their later knockout match by walkover | P2 |
+| B11 | Utilisation counts a pitch and the courts under it as separate sellable hours, so a hall sold as one pitch every evening shows its courts idle then and its utilisation low; time sold is counted once | `src/lib/reports.ts` sums open hours × capacity per court; `tests/court-links.test.ts` ("counts time sold once") | A pitch booked for an evening shows the floor as used, not half idle | P3 |
 
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly
 series skips weeks inside the cancellation cutoff silently rather than
@@ -44,9 +55,9 @@ Known limits of the [booking time model](../architecture/interval-booking-review
 (the owner's decisions and the defaults chosen for open questions are listed
 there):
 
-- **No load benchmark yet** of availability and search on claims at
-  marketplace size (hundreds of venues, weeks of bookings); `tests/query-plans.test.ts`
-  checks the indexes are used, not the timings (P2).
+- **Measured at marketplace size once, by hand** ([marketplace benchmark](../development/testing.md#marketplace-benchmark)):
+  not in CI, so a slower query is noticed only when somebody runs it again;
+  `tests/query-plans.test.ts` checks the indexes are used, not the timings (P2).
 - **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), and
   whether a booking is unstaffed is decided by its start alone
   (`isUnstaffedHour`): a booking from 21:30 to 23:00 at a venue staffed
@@ -113,7 +124,16 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 
 ### Money (M)
 
-No numbered money defect is open; see [fixed since the audit](#fixed-since-the-audit).
+| ID | Defect | Evidence | Test to write first | Priority |
+| -- | ------ | -------- | ------------------- | -------- |
+| M12 | A tournament entry fee paid online after staff marked it paid at the counter is kept as a second payment, with a second receipt, instead of being owed back (league places get this right) | The `entry` branch of settlement in `src/lib/payments.ts` checks for a withdrawal or call-off, not `tournament_entries.paid_at` | Mark an entry paid at the counter, settle its pending online bill: the bill is owed back and no second receipt is issued | P1 |
+| M13 | Money kept back from a hire deposit on return is recorded only on the hire: no receipt, no tax, not in takings, reports or the accounting export | `returnHire` in `src/lib/store.ts` writes `hire_records.withheld`; nothing in `src/lib/reports.ts`, `src/lib/accounting.ts` or `src/lib/documents.ts` reads it | Keeping RM20 back appears in the day's takings and the sales journal with a receipt | P2 |
+| M14 | A chargeback on credit already spent leaves the account below nothing, deliberately ([business rules](../product/business-rules.md)), but the liability reports count only balances above nothing, so what customers owe in credit appears nowhere | `takeBackWhatItBought` in `src/lib/payments.ts`; `HAVING SUM(amount) > 0` in `src/lib/reports.ts`; no database constraint on `wallet_entries` | A top-up charged back after being spent shows as owed in a report | P2 |
+| M15 | Refunding a cancelled booking (receipt credit, credit, pass, online refund owed, promo, game shares, split shares) runs as separate steps after the cancellation commits: a crash between them leaves the booking cancelled and part refunded, and the integrity check looks at time held, not money | `refundBooking` in `src/lib/store.ts`; `src/lib/integrity.ts` | A failure injected after the credit step is found by the integrity check or completed on retry | P2 |
+
+Also: refunding to credit checks "already refunded" outside its transaction
+and has no unique index; it is safe only because its one caller runs after
+the cancellation is claimed (`refundBookingToWallet` in `src/lib/store.ts`).
 
 Also: a deposit charged back after the rest was paid online leaves the
 booking paid, and staff collect the difference by hand; a lost dispute on
@@ -153,6 +173,25 @@ IDs are not reused. Each fix came with the test recommended above.
 | M9 | A Stripe refund is claimed before Stripe is asked, so a hand mark or second click cannot send it twice; an interrupted one is asked again under its key | `tests/stripe-refunds.test.ts` |
 | M10 | Disputes on the platform's own Stripe account are recorded and put to the platform owners | `tests/stripe-disputes.test.ts` |
 | M11 | A deposit charged back after the rest was paid at the counter leaves the booking owing the deposit's part | `tests/stripe-disputes.test.ts` |
+
+## Production readiness
+
+Implementation status ([feature status](../product/feature-status.md)) says
+what is built and tested; this is what that does not show. Evidence is from
+the code and tests as of the feature inventory audit.
+
+| Concern | State | Evidence and what remains |
+| ------- | ----- | ------------------------- |
+| Double booking and capacity | Enforced by the database | An exclusion constraint on held time per space and a capacity trigger refuse overlaps whatever writes them, raw SQL included (`tests/capacity.test.ts`, "is still the database that prevents overbooking"); expired offers are let go before a claim. Truly parallel only on the Postgres run ([booking concurrency](../architecture/booking-concurrency.md)) |
+| Spending credit and pass entries | Spent once | Serializable transactions with retry; `tests/concurrency.test.ts` ("spends credit once", "refunds a pass entry once") on Postgres |
+| Refund races | Stripe refunds claimed before Stripe is asked (M9, `tests/stripe-refunds.test.ts`); a cancellation claimed once (`tests/booking-rules.test.ts`, on an unpaid booking) | No test races two cancellations of a *paid* booking; the refund steps are not atomic (M15); an online tournament fee after a counter mark is kept (M12) |
+| Negative stored credit | Possible on purpose after a chargeback | Not in liability reports (M14); no database guard |
+| Money outside the books | Hire deposits kept back (M13) | Everything else that takes money is receipted |
+| Linked courts in reports | Time sold counted once; sellable time counted per court (B11) | Utilisation reads low for halls sold as one floor |
+| Identity | Accounts are identities; phone numbers are not, unless proved | A number is proved only where WhatsApp or SMS is configured, and those are tested against fakes; without them numbers are taken as given. A member's number typed by anyone gets the member rate (by design); reviews are one per number; sign-offs online need the account's own or proved number ([authentication](../architecture/authentication.md), [privacy](../architecture/privacy.md)) |
+| Integrations | None checked against the live service | Every payment, message, e-invoice, sign-in and storage integration is tested against fakes ([below](#integrations-awaiting-live-verification-or-a-partner)); rows that take money or send messages name their leg in feature status |
+| Backup and restore | Scripts run on both engines | The restore test checks the scripts succeed on a database with no bookings, not that what comes back matches; a `pg_dump` copy made by the app is listed, not loaded; nothing restores from the off-site copy (`src/lib/offsite.ts` only uploads); photos on disk are in no backup (S10). Try a full restore before launch ([backups](../operations/backups.md)) |
+| Operational dependencies | Documented | The scheduler runs inside a long-running `next start` (or the operator's cron with `MYSENAM_SCHEDULER=off`); more than one instance needs `MYSENAM_RATE_LIMITS=shared`, one `MYSENAM_SECRET`, a photo bucket, and accepts a minute's lag on catalogue changes ([architecture](../architecture/overview.md#more-than-one-instance)); programme emails are not retried (S9) |
 
 ## Integrations awaiting live verification or a partner
 
@@ -194,5 +233,8 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| End-to-end tests cover a few journeys only ([testing](../development/testing.md#end-to-end-tests)) | Most pages are checked by route and component tests, not a browser | P2 |
+| End-to-end tests cover a few journeys only ([testing](../development/testing.md#end-to-end-tests)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones | P2 |
+| The restore test does not compare data before and after ([backups](../operations/backups.md)) | A restore that loses rows would pass | P1 before launch |
+| [Booking concurrency](../architecture/booking-concurrency.md) cites a cancellation race on an unpaid booking only | A double refund of a paid booking under concurrent cancels is prevented by the claim but not tested | P2 |
+| Untested paths named in feature status: refund on tournament withdrawal before the draw, a league fee paid after leaving, removing a player from a game, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1 before public launch |

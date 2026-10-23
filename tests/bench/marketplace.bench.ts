@@ -138,14 +138,24 @@ describe.skipIf(!url)("a marketplace at scale", () => {
             WHERE b.code LIKE 'BN-%' AND c.capacity = 1`
         )
         .run();
-      await db
-        .prepare(
-          `INSERT INTO claims (venue_id, court_id, space_id, places, kind, booking_id, during, occupied)
-           SELECT c.venue_id, b.court_id, NULL, 1, 'booking', b.id, tstzrange(b.starts_at, b.ends_at), tstzrange(b.starts_at, b.ends_at)
-             FROM bookings b JOIN courts c ON c.id = b.court_id
-            WHERE b.code LIKE 'BN-%' AND c.capacity > 1`
-        )
-        .run();
+      console.log(`BENCH fill, whole courts held: ${Math.round((performance.now() - t0) / 1000)} s`);
+      // Places on shared floors. The capacity trigger checks each row as it goes in, at about
+      // ten rows a second here (docs/development/testing.md#marketplace-benchmark), so the fill
+      // turns it off for this one insert: at most three places an hour, on floors of four or more,
+      // cannot go over. What a live booking pays for the check is timed below.
+      await db.prepare("ALTER TABLE claims DISABLE TRIGGER claims_capacity").run();
+      try {
+        await db
+          .prepare(
+            `INSERT INTO claims (venue_id, court_id, space_id, places, kind, booking_id, during, occupied)
+             SELECT c.venue_id, b.court_id, NULL, 1, 'booking', b.id, tstzrange(b.starts_at, b.ends_at), tstzrange(b.starts_at, b.ends_at)
+               FROM bookings b JOIN courts c ON c.id = b.court_id
+              WHERE b.code LIKE 'BN-%' AND c.capacity > 1`
+          )
+          .run();
+      } finally {
+        await db.prepare("ALTER TABLE claims ENABLE TRIGGER claims_capacity").run();
+      }
       await db.prepare("ANALYZE").run();
       out.fill = { seconds: Math.round((performance.now() - t0) / 1000) };
       console.log(`BENCH fill: ${JSON.stringify(out.fill)}`);
@@ -202,6 +212,21 @@ describe.skipIf(!url)("a marketplace at scale", () => {
       const r = await store.createBooking({ ...f, end: f.start + 60, name: "Bench Live", phone: `017${String(1000000 + i + 1000)}` });
       if (r.ok) made++;
     }, out);
+    // A place on a shared floor: the capacity trigger sums what else is held then.
+    const floors = (await db
+      .prepare("SELECT c.id FROM courts c JOIN venues v ON v.id = c.venue_id AND v.name LIKE 'Bench %' WHERE c.capacity > 1 ORDER BY c.id")
+      .all()) as { id: number }[];
+    if (floors.length > 0)
+      await time("book a place on a shared floor (customer)", RUNS, async (i) => {
+        await store.createBooking({
+          courtId: floors[i % floors.length].id,
+          date: date(i + 3),
+          start: 7 * 60,
+          end: 8 * 60,
+          name: "Bench Place",
+          phone: `019${String(1000000 + i)}`,
+        });
+      }, out);
     const one = (await db.prepare("SELECT code FROM bookings WHERE name = 'Bench Live' ORDER BY id DESC LIMIT 1").get()) as { code: string } | undefined;
     if (one) await time("reschedule: free times on a day", RUNS, (i) => store.rescheduleOptions(one.code, date(i + 2)), out);
 

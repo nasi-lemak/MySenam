@@ -41,7 +41,7 @@ themselves are in [booking](../features/booking.md).
 | Bookings and held time agree | Checked daily | `src/lib/integrity.ts` from the scheduler; each race test above ends with it finding nothing; `tests/integrity.test.ts` | Finds, does not repair: putting a mismatch right is the platform owner's call. |
 | Every path sees the same availability | Met | Grid, search, any court, waiting lists, the move picker and rescheduling read one list of claims (`occupantsOn` in `src/lib/claims.ts`); the database refuses whatever a stale read lets through | — |
 | A group booking (several courts) is all or nothing | Verified | One transaction; `tests/group-bookings.test.ts` "even when something breaks part-way" | — |
-| A cancellation refunds once | Verified | Claim on `status = 'confirmed'`; `tests/concurrency.test.ts`, `tests/auto-refunds.test.ts` | — |
+| A cancellation refunds once | Verified for the claim | Claim on `status = 'confirmed'`: three cancels at once, one succeeds (`tests/booking-rules.test.ts`, "happens once, however many times it is asked for at once", on an unpaid booking); each refund path once (`tests/auto-refunds.test.ts`, sequential) | No concurrent cancel of a *paid* booking is tested; the refund steps run after the claim commits, not in its transaction (M15) |
 | Credit and pass entries are spent once | Verified on Postgres | "spends credit once", "refunds a pass entry once" | No database constraint against a negative balance (chargebacks may make one deliberately). |
 | A payment notification settles once | Verified | Claim on `status = 'pending'`; unique `bill_id`; `tests/payments.test.ts`, `tests/stripe.test.ts` | No test of two identical callbacks at the same instant. |
 

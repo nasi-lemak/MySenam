@@ -179,17 +179,32 @@ describe("the feature-status matrix", () => {
     .split("\n")
     .filter((l) => /^\|\s*[^-|\s]/.test(l) && l.split("|").length >= 8 && !/^\|\s*Capability\s*\|/.test(l));
 
+  const cell = (r: string, i: number) => r.split(/(?<!\\)\|/)[i]?.trim() ?? "";
+
   it("gives every capability a known status", () => {
-    const bad = rows.filter((r) => !STATUSES.includes(r.split("|")[2].trim()));
+    const bad = rows.filter((r) => !STATUSES.includes(cell(r, 2)));
     expect(bad).toEqual([]);
   });
 
   it("marks a capability tested only with a test file to show for it", () => {
-    const bad = rows.filter((r) => r.split("|")[2].trim() === "IMPLEMENTED_AND_TESTED" && !/`tests\/[^`]+`/.test(r.split("|")[5]));
+    const bad = rows.filter((r) => cell(r, 2) === "IMPLEMENTED_AND_TESTED" && !/`tests\/[^`]+`/.test(cell(r, 5)));
     expect(bad).toEqual([]);
   });
 
-  const cell = (r: string, i: number) => r.split(/(?<!\\)\|/)[i]?.trim() ?? "";
+  it("claims no tests for what is untested or not built", () => {
+    const NONE = ["IMPLEMENTED_UNTESTED", "PLANNED", "BLOCKED", "DEFERRED", "UNSUPPORTED"];
+    const bad = rows.filter((r) => NONE.includes(cell(r, 2)) && cell(r, 5) !== "—");
+    expect(bad).toEqual([]);
+  });
+
+  it("names code that exists, at the root too", () => {
+    const bad: string[] = [];
+    for (const r of rows)
+      for (const m of cell(r, 4).matchAll(/`([^`\s]+)`/g))
+        if ((m[1].includes("/") || /^[\w.-]+\.(m?[jt]s|mts|ya?ml|json)$/.test(m[1])) && !exists(m[1]))
+          bad.push(`${cell(r, 1)}: ${m[1]}`);
+    expect(bad).toEqual([]);
+  });
 
   it("names each capability once", () => {
     const names = rows.map((r) => cell(r, 1));
@@ -216,9 +231,25 @@ describe("the feature-status matrix", () => {
     const summary = new Map([...matrix.matchAll(/^\|\s*([A-Z_]+)\s*\|\s*(\d+)\s*\|\s*$/gm)].map((m) => [m[1], Number(m[2])]));
     const counted = new Map<string, number>();
     for (const r of rows) {
-      const s = r.split("|")[2].trim();
+      const s = cell(r, 2);
       counted.set(s, (counted.get(s) ?? 0) + 1);
     }
     expect(Object.fromEntries(summary)).toEqual(Object.fromEntries(counted));
+  });
+});
+
+describe("known limitations", () => {
+  const limits = read("docs/roadmap/known-limitations.md");
+  const ids = [...limits.matchAll(/^\|\s*([SBM]\d+)\s*\|/gm)].map((m) => m[1]);
+
+  it("gives each defect one identifier, never reused", () => {
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+  });
+
+  it("records every defect the other documents cite", () => {
+    const bad: string[] = [];
+    for (const file of DOCS.filter((f) => !f.endsWith("known-limitations.md")))
+      for (const m of read(file).matchAll(/\(([SBM]\d{1,2})\)/g)) if (!ids.includes(m[1])) bad.push(`${file}: ${m[1]}`);
+    expect(bad).toEqual([]);
   });
 });

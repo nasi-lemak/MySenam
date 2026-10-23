@@ -5,7 +5,10 @@ Authoritative for backup and restore. Disaster recovery comes down to these proc
 ## Backups
 
 Everything is in one database. Losing it loses every booking, the credit
-ledger, and the record of who opened which door.
+ledger, and the record of who opened which door. Venue photos are not in it: they are
+files, in their bucket when `PHOTOS_S3_*` is set and otherwise in `photos/` in
+the data folder, which no backup copies; copy that folder yourself or set a
+bucket ([known limitations](../roadmap/known-limitations.md), S10).
 
 ```bash
 npm run backup                       # one snapshot, verified, oldest retired

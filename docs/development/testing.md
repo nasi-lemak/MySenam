@@ -94,15 +94,21 @@ checks that:
   code;
 - every route listed in [HTTP routes](../architecture/http-api.md) has a
   `route.ts`;
-- every source and test path in [feature status](../product/feature-status.md)
-  exists, every capability there has a known status, every
-  `IMPLEMENTED_AND_TESTED` row names a test file, and the summary counts match
-  the rows.
+- in [feature status](../product/feature-status.md): every capability is
+  named once with a known status and every column filled; everything built
+  names its code, and every code path exists (root files included); every
+  `IMPLEMENTED_AND_TESTED` row names test files (`.test` or `.e2e`, not
+  helpers or benchmarks), and untested or unbuilt rows name none; the summary
+  counts match the rows;
+- every defect cited in parentheses, such as (M12), anywhere in the
+  documentation is a row of [known limitations](../roadmap/known-limitations.md),
+  and no identifier there is used twice.
 
 They are part of `npm test` too. Checked by hand, because no script can:
 that each authoritative document still describes the code; that statuses
-reflect real verification; that external links are alive (no network is
-used).
+reflect real verification and a cited test exercises the claim; that a row
+taking money or sending messages names its integration leg; that external
+links are alive (no network is used).
 
 It cannot check that documented *behaviour* is true: that a route exists says
 nothing about what it does. That is what the feature tests and review are for.
