@@ -6,8 +6,8 @@ import { CounterSalesPanel } from "./CounterSalesPanel";
 import { AccountsPanel } from "./AccountsPanel";
 import { useCallback, useEffect, useState } from "react";
 import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
-import type { Membership, Pass, PromoCode, Venue, WalletEntry } from "@/lib/types";
-import { percent, todayLocal } from "./shared";
+import type { Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
+import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { money, currencySymbol, region } from "@/lib/region";
 

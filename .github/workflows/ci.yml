@@ -50,6 +50,9 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       - name: Test (PGlite)
         run: npm test
 

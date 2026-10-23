@@ -89,7 +89,7 @@ nothing about what it does. That is what the feature tests and review are for.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on pull requests, on pushes to `main` and the
-demo branch, and by hand. It type-checks, runs the suite on PGlite and again
+demo branch, and by hand. It type-checks, lints, runs the suite on PGlite and again
 on Postgres 16, builds, and runs the end-to-end tests against that build. It
 skips changes that touch only Markdown, so
 `.github/workflows/docs.yml` runs the documentation checks on those (and on

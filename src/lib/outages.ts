@@ -1,6 +1,6 @@
 import { getDb, withTransaction } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
-import { adminCancelBooking, cancelClassSession } from "./store";
+import { adminCancelBooking } from "./store";
 import { addDays, isValidDateString, todayISO } from "./time";
 
 /**

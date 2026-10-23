@@ -401,7 +401,7 @@ function Manage({
               </div>
             ))}
           </div>
-          {lastBox > 0 && <p className="text-xs text-slate-500">Scores are written with the first-named player's games first.</p>}
+          {lastBox > 0 && <p className="text-xs text-slate-500">Scores are written with the first-named player&apos;s games first.</p>}
         </section>
       )}
 

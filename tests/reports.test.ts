@@ -11,7 +11,6 @@ import {
   createCourt,
   createVenue,
   issuePass,
-  listVenues,
   payBookingWithPass,
   sellMembership,
   setNoShow,

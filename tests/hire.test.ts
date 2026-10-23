@@ -5,7 +5,6 @@ process.env.MYSENAM_DB = ":memory:";
 import {
   adminCancelBooking,
   cancelBooking,
-  checkIn,
   createBooking,
   createCourt,
   hasOpenHire,

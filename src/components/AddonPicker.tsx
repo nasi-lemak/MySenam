@@ -70,6 +70,9 @@ export default function AddonPicker({
     return () => {
       live = false;
     };
+    // Fetched again only when what is being booked changes. What is picked is
+    // read as it stands then; following it too would fetch again on every pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   if (list.length === 0) return null;

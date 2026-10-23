@@ -7,7 +7,6 @@ import {
   createClassSessions,
   createPromoCode,
   enrolInClass,
-  getCourt,
   issuePass,
   listVenues,
   recordInduction,

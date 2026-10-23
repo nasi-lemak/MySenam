@@ -29,7 +29,6 @@ import {
   Court,
   CourtAvailability,
   OPEN_HOUR,
-  CLOSE_HOUR,
   LATEST_CLOSE_HOUR,
   DEFAULT_OPEN_HOUR,
   DEFAULT_CLOSE_HOUR,
@@ -43,7 +42,6 @@ import {
   DEFAULT_MAX_PLAYERS,
   MAX_PLAYERS,
   bookingLengths,
-  MAX_RECUR_WEEKS,
   CHECK_IN_OPENS_MINUTES_BEFORE,
   ClassSession,
   ClassStatus,
@@ -1584,7 +1582,6 @@ export async function createBookingSeries(input: {
     return refuse("SLOT_PAST");
 
   const db = getDb();
-  const placeholders = hours.map(() => "?").join(",");
   const seatsTaken = db.prepare(
     "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
   );

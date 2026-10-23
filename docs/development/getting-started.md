@@ -40,15 +40,13 @@ venue's day list.
 | ------- | ------------ |
 | `npm run dev` | Development server on port 3000 |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint with Next.js's and TypeScript's recommended rules (`eslint.config.mjs`); any warning fails it, in CI as here |
 | `npm test` | The whole suite on PGlite; see [testing](testing.md) |
 | `npm run docs:check` | Checks the documentation's links and references; see [testing](testing.md#documentation-checks) |
 | `npm run build` | Production build |
 | `npm start` | Serves the build; see [deployment](../operations/deployment.md) |
 | `npm run backup`, `npm run restore` | See [backups](../operations/backups.md) |
 | `npm run import-sqlite` | Only for an install from before Postgres; see [legacy installs](../archive/migrations/legacy-installs.md) |
-
-`npm run lint` is declared but no ESLint configuration is committed, so it is
-not a working check and CI does not run it.
 
 Before changing behaviour, read [`AGENTS.md`](../../AGENTS.md): documentation,
 feature status and tests change with the code.

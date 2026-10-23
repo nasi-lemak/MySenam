@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { CLOSE_HOUR, MAX_EMERGENCY_INFO } from "@/lib/types";
-import type { Venue, VenueClosure } from "@/lib/types";
+import type { VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import { closeLabel, HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { WEEKDAYS, type DayHours, type WeekHours } from "@/lib/week-hours";

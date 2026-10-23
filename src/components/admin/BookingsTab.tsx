@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS, SPORT_ICONS } from "@/lib/types";
 import type { CounterMethod } from "@/lib/types";
-import type { Court, HireCondition, Venue } from "@/lib/types";
+import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import { localTime, todayLocal } from "./shared";
 import { money, currencySymbol } from "@/lib/region";

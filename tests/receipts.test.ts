@@ -41,7 +41,6 @@ let courtId: number;
 let adminId: number;
 let customer: User;
 let date: string;
-let n = 0;
 
 const open = (ref: string) => receiptFor(ref, receiptToken(ref));
 

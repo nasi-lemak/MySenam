@@ -136,7 +136,7 @@ export function PlanTiersEditor({
             + Add a tier
           </button>
           <label className="block text-sm text-slate-700">
-            Past the last tier's limit, each extra court or room adds {money(" ")}
+            Past the last tier&apos;s limit, each extra court or room adds {money(" ")}
             <input aria-label="Each extra" value={extra} inputMode="decimal" onChange={(e) => setExtra(e.target.value)} className={`${input} w-20`} />
           </label>
           <div className="flex gap-3">

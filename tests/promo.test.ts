@@ -133,7 +133,7 @@ describe("quoting a code against a booking", () => {
 
 describe("claiming a code", () => {
   it("reduces what is owed and records the use", async () => {
-    const p = await makeCode({ code: "HALF", kind: "percent", value: 50 });
+    await makeCode({ code: "HALF", kind: "percent", value: 50 });
     const b = await book([10, 11], future(4));
     const before = b.totalPrice;
 

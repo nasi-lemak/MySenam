@@ -58,7 +58,6 @@ export interface DocInput {
 export const GENERAL_PUBLIC_TIN = "EI00000000010";
 
 export { STATE_CODES } from "./states";
-import { STATE_CODES } from "./states";
 
 const v = (value: string | number, attrs: Record<string, string> = {}) => [{ _: value, ...attrs }];
 const round = (n: number) => Math.round(n * 100) / 100;

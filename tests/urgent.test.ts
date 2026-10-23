@@ -8,7 +8,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { NextRequest } from "next/server";
-import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
 import { notifyPaid, notifyReminders, rememberLocale } from "../src/lib/notify";
 import { drainOutbox, messagesForBooking, recordDelivery, setTransport, type OutboxMessage } from "../src/lib/outbox";
@@ -23,7 +23,6 @@ import type { Court } from "../src/lib/types";
 let venueId: number;
 let otherVenueId: number;
 let courts: Court[];
-let ownerCookie: string;
 let deskCookie: string;
 let outsiderCookie: string;
 let hour = 9;
@@ -58,8 +57,6 @@ beforeAll(async () => {
   venueId = v.id;
   courts = v.courts.filter((c) => c.capacity === 1 && c.sport === "badminton");
   otherVenueId = venues.find((x) => x.id !== venueId)!.id;
-  const owner = (await listAdmins()).find((a) => a.venueId === null && a.businessId === null)!;
-  ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(owner.id)).token}`;
   const desk = await createAdmin({ name: "Desk", email: "desk@urgent.my", password: "desk-password", venueId });
   const outsider = await createAdmin({ name: "Out", email: "out@urgent.my", password: "desk-password", venueId: otherVenueId });
   if (!desk.ok || !outsider.ok) throw new Error("admins");

@@ -46,7 +46,7 @@ interface Sent {
   hashOk: boolean;
   onbehalfof: string | null;
 }
-let sent: Sent[] = [];
+const sent: Sent[] = [];
 let verdict: "Valid" | "Invalid" | "Submitted" = "Valid";
 let rejectNext: string | null = null;
 

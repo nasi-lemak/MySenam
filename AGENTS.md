@@ -6,7 +6,7 @@ which names the one authoritative document for each subject.
 
 ## Working on the code
 
-- Run `npm run typecheck` and `npm test` before committing; see
+- Run `npm run typecheck`, `npm run lint` and `npm test` before committing; see
   [testing](docs/development/testing.md) for running the suite against Postgres
   as CI does.
 - Schema changes are new files in `db/migrations/`; never edit or delete an

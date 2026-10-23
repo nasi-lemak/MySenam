@@ -1,4 +1,4 @@
-import { CLOSE_HOUR, Court, LATEST_CLOSE_HOUR, OPEN_HOUR, Venue } from "@/lib/types";
+import { Court, LATEST_CLOSE_HOUR, OPEN_HOUR, Venue } from "@/lib/types";
 import { formatHour } from "@/lib/time";
 import { intlTag, region } from "@/lib/region";
 

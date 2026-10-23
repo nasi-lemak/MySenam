@@ -124,5 +124,4 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
 | End-to-end tests cover a few journeys only ([testing](../development/testing.md#end-to-end-tests)) | Most pages are checked by route and component tests, not a browser | P2 |
-| No ESLint configuration; `npm run lint` is not a working check | Style and some bug classes unchecked | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1 before public launch |
