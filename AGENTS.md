@@ -22,9 +22,13 @@ change:
 1. **Documentation changes go with behaviour changes.** Adding, changing or
    removing behaviour updates its authoritative document
    ([index](docs/index.md)) in the same change.
-2. **Keep [feature status](docs/product/feature-status.md) accurate.** Change a
-   status when implementation or verification changes. Written code is not
-   `IMPLEMENTED_AND_TESTED`; that status needs a test file in the row.
+2. **Keep [feature status](docs/product/feature-status.md) accurate.** Add,
+   change or remove its row when a capability is added, changed or removed,
+   and change a status when implementation or verification changes. Written
+   code is not `IMPLEMENTED_AND_TESTED`; that status needs a test file in the
+   row that exercises the behaviour claimed. A table, route or helper alone is
+   not a working feature. One row per independently verifiable capability:
+   split a row only when it hides workflows in different states.
 3. **Keep `README.md` short.** It links to detail; it does not hold it.
 4. **Say it once.** Update the authoritative section and link to it from
    elsewhere rather than repeating it.
@@ -33,14 +37,16 @@ change:
    [migration note](docs/archive/migrations/legacy-installs.md).
 6. **Keep plans apart from what works.** Planned, blocked and deferred work
    lives in the [roadmap](docs/roadmap/roadmap.md) and is never described as
-   operational.
+   operational. When planned work is built, changed or deferred, update its
+   roadmap row in the same change.
 7. **Say how something was verified.** A test against a fake gateway is not a
    live check; payments, WhatsApp, email, SMS, MyInvois, Google sign-in,
    off-site storage and smart locks stay `INTEGRATION_VERIFICATION_REQUIRED`
    until checked against the real service.
 8. **Record limitations.** Known defects, restrictions and integration
    dependencies go in [known limitations](docs/roadmap/known-limitations.md),
-   not out of sight.
+   not out of sight. A fixed one moves to *fixed since the audit* with its
+   test; identifiers (S1, B2, M3…) are never reused or renumbered.
 9. **Never change a business rule silently.** When code and documentation
    disagree, find out which is intended and flag it (in known limitations, or
    to the person you work for) rather than picking one.

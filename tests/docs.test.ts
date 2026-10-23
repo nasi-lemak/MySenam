@@ -189,6 +189,29 @@ describe("the feature-status matrix", () => {
     expect(bad).toEqual([]);
   });
 
+  const cell = (r: string, i: number) => r.split(/(?<!\\)\|/)[i]?.trim() ?? "";
+
+  it("names each capability once", () => {
+    const names = rows.map((r) => cell(r, 1));
+    expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
+  });
+
+  it("fills every column, with the code for anything built", () => {
+    const BUILT = ["IMPLEMENTED_AND_TESTED", "IMPLEMENTED_UNTESTED", "INTEGRATION_VERIFICATION_REQUIRED", "PARTIALLY_IMPLEMENTED"];
+    const bad = rows.filter(
+      (r) => [1, 3, 4, 5, 6].some((i) => cell(r, i) === "") || (BUILT.includes(cell(r, 2)) && !/`[^`]*\/[^`]*`/.test(cell(r, 4)))
+    );
+    expect(bad).toEqual([]);
+  });
+
+  it("shows a tested capability's tests, not helpers or benchmarks", () => {
+    const bad: string[] = [];
+    for (const r of rows.filter((r) => cell(r, 2) === "IMPLEMENTED_AND_TESTED"))
+      for (const m of cell(r, 5).matchAll(/`(tests\/[^`]+)`/g))
+        if (!/\.(test|e2e)\.tsx?$/.test(m[1])) bad.push(`${cell(r, 1)}: ${m[1]}`);
+    expect(bad).toEqual([]);
+  });
+
   it("states summary counts that match the rows", () => {
     const summary = new Map([...matrix.matchAll(/^\|\s*([A-Z_]+)\s*\|\s*(\d+)\s*\|\s*$/gm)].map((m) => [m[1], Number(m[2])]));
     const counted = new Map<string, number>();
