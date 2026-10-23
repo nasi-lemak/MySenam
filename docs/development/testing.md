@@ -20,7 +20,9 @@ real route, its authorisation and the database together. Component tests
 
 Run it on both engines before relying on a change that touches SQL or
 concurrency: PGlite runs one connection, so only the Postgres run shows
-requests truly interleaving (`tests/concurrency.test.ts`).
+requests truly interleaving (`tests/concurrency.test.ts`). On Postgres that file
+sometimes times out at 30 seconds, a real stall in the code rather than a
+slow machine ([known limitations](../roadmap/known-limitations.md), B14).
 
 ## What the tests do not prove
 

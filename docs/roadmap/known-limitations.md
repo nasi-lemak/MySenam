@@ -6,7 +6,7 @@ from ideas ([roadmap](roadmap.md)). First recorded by the
 [documentation audit](../documentation-audit.md) of October 2026. The numbered
 defects it found (S1–S8, B1–B8, M1–M11) have since been fixed, each with a
 test, and are listed under [fixed since the audit](#fixed-since-the-audit). The
-feature inventory audit later that month found B9–B13, M12–M15 and S9–S10,
+feature inventory audit later that month found B9–B14, M12–M15 and S9–S10,
 open below; what stands between the code and a production launch is under
 [production readiness](#production-readiness).
 
@@ -46,6 +46,7 @@ nonces is open for review (P3).
 | B10 | A withdrawal after the draw settles only matches whose opponent is known: later rounds wait for staff to enter a walkover, and the withdrawn player's group wins still count in the standings | `withdraw` and `settleMatch` in `src/lib/tournaments.ts` | A player withdrawn in the groups loses their remaining group matches and their later knockout match by walkover | P2 |
 | B12 | Claims are read by time, not by court: search, grids and the capacity trigger read every claim in the time asked for across the marketplace and then filter by court. At 400 venues a search near a point takes 2.4 s (p50) and 3.7 s (p95), an area search 0.7 s, and each capacity check 55 ms where 0.03 ms is possible | `src/lib/claims.ts` (`court_id IN`, `court_spaces` joins), `claim_within_capacity` in `db/migrations/0089_interval_schema.sql`; the indexes key on `int4range(court_id)`/`int4range(space_id)`; [marketplace benchmark](../development/testing.md#results) | `tests/query-plans.test.ts` asserts the court or space is in the index condition, not only the time | P1 for the marketplace; P3 for one venue's install |
 | B13 | Fifty bookings at once, each at a different venue, left 17 customers with an error (a serialization failure after eight tries) rather than a booking or a refusal | `src/lib/db.ts` retries `40001` eight times; the reads in B12 span the marketplace, so unrelated bookings conflict; [marketplace benchmark](../development/testing.md#results) | The benchmark's burst ends with no errors; a route answers a lost race with a refusal, never a 500 | P1 for the marketplace |
+| B14 | Bookings that race for the same court or coach can wait on each other in a cycle: each claim waits on another's uncommitted claim, Postgres breaks the deadlock after a second, and the retries (eight, with at most 10 ms of jitter) collide again, so a handful of requests can take over 30 seconds | Seen on Postgres 16 in `tests/concurrency.test.ts`: "sells the last court to one person" and "puts a coach in one lesson at a time" timed out at 30 s in 3 of about 25 runs (once in the full suite, twice alone), with five transactions each blocked by another's `INSERT INTO claims` for 1–6 s at a time; retries in `src/lib/db.ts` | The concurrency tests finish within a few seconds every time in a loop of 50 runs | P1 |
 | B11 | Utilisation counts a pitch and the courts under it as separate sellable hours, so a hall sold as one pitch every evening shows its courts idle then and its utilisation low; time sold is counted once | `src/lib/reports.ts` sums open hours × capacity per court; `tests/court-links.test.ts` ("counts time sold once") | A pitch booked for an evening shows the floor as used, not half idle | P3 |
 
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly
@@ -185,7 +186,7 @@ the code and tests as of the feature inventory audit.
 
 | Concern | State | Evidence and what remains |
 | ------- | ----- | ------------------------- |
-| Load at marketplace size | Not ready | Search takes seconds near a point (B12), and a burst of fifty bookings gave seventeen errors (B13), at 400 venues ([benchmark](../development/testing.md#results)). One venue's install is not affected in the same way: its claims are only its own |
+| Load at marketplace size | Not ready | Search takes seconds near a point (B12), and a burst of fifty bookings gave seventeen errors (B13), at 400 venues; bookings racing for one court or coach can stall for over 30 s (B14) ([benchmark](../development/testing.md#results)). One venue's install is not affected in the same way: its claims are only its own |
 | Double booking and capacity | Enforced by the database | An exclusion constraint on held time per space and a capacity trigger refuse overlaps whatever writes them, raw SQL included (`tests/capacity.test.ts`, "is still the database that prevents overbooking"); expired offers are let go before a claim. Truly parallel only on the Postgres run ([booking concurrency](../architecture/booking-concurrency.md)) |
 | Spending credit and pass entries | Spent once | Serializable transactions with retry; `tests/concurrency.test.ts` ("spends credit once", "refunds a pass entry once") on Postgres |
 | Refund races | Stripe refunds claimed before Stripe is asked (M9, `tests/stripe-refunds.test.ts`); a cancellation claimed once (`tests/booking-rules.test.ts`, on an unpaid booking) | No test races two cancellations of a *paid* booking; the refund steps are not atomic (M15); an online tournament fee after a counter mark is kept (M12) |
