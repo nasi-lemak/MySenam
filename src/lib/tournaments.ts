@@ -23,7 +23,7 @@ import { siteName } from "./site";
 import { offerSlotPlace, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
 import { sendPlainEmail } from "./transports";
-import { addDays, formatHour, isPastSlot, isValidDateString, todayISO } from "./time";
+import { addDays, formatHour, isPastSlot, isValidDateString, SLOT, todayISO } from "./time";
 import { SPORTS, type Sport } from "./types";
 import type { Level } from "./games";
 import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
@@ -429,16 +429,15 @@ export async function createTournament(input: TournamentInput, adminId: number):
       );
     id = info.lastInsertRowid as number;
     for (const c of courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
-    // The hours, held. An hour staff had already blocked stays theirs, and is
-    // simply not one the draw can use. Where the venue sells half hours, both
-    // halves are held; matches are still drawn by the hour.
-    const step = venue.slot_minutes / 60;
+    // The hours, held: both halves of each in the diary. An hour staff had
+    // already blocked stays theirs, and is simply not one the draw can use.
+    // Matches are drawn by the hour.
     const hold = db.prepare(
-      `INSERT INTO slot_blocks (court_id, date, hour, reason, tournament_id, span) VALUES (?, ?, ?, ?, ?, ${step})
+      `INSERT INTO slot_blocks (court_id, date, hour, reason, tournament_id, span) VALUES (?, ?, ?, ?, ?, ${SLOT})
        ON CONFLICT (court_id, date, hour) DO NOTHING`
     );
     for (const s of slots)
-      for (const half of step < 1 ? [s.hour, s.hour + step] : [s.hour])
+      for (const half of [s.hour, s.hour + SLOT])
         await hold.run(s.courtId, s.date, half, `Tournament: ${name}`, id);
     return null;
   })();

@@ -71,10 +71,8 @@ describe("changing a booking's time", () => {
     if (!done.ok) return;
     expect(done.booking).toMatchObject({ code: b.code, date: later, startHour: 14, endHour: 16, courtId: c1.id, totalPrice: b.totalPrice });
     expect(done.from).toMatchObject({ date, startHour: 10 });
-    expect(await slotsOf(b.id)).toEqual([
-      { court_id: c1.id, date: later, hour: 14 },
-      { court_id: c1.id, date: later, hour: 15 },
-    ]);
+    // Held as the diary's half hours.
+    expect(await slotsOf(b.id)).toEqual([14, 14.5, 15, 15.5].map((hour) => ({ court_id: c1.id, date: later, hour })));
     // The old time is somebody else's to book now.
     await book(c1.id, [10, 11], date);
   });
@@ -87,7 +85,7 @@ describe("changing a booking's time", () => {
     expect(options.find((o) => o.startHour === 11 && o.courtId === c1.id)).toBeTruthy();
     expect(options.some((o) => o.startHour === 10)).toBe(false);
     expect(await rescheduleBooking(b.code, { date, startHour: 11 }, "customer")).toMatchObject({ ok: true });
-    expect((await slotsOf(b.id)).map((s) => s.hour)).toEqual([11, 12]);
+    expect((await slotsOf(b.id)).map((s) => s.hour)).toEqual([11, 11.5, 12, 12.5]);
   });
 
   it("goes to another court of the sport when its own is taken, and refuses when none is free", async () => {

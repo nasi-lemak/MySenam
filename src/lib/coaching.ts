@@ -1,7 +1,7 @@
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { isAmount, money, roundMoney } from "./region";
-import { addDays, isPastSlot, isValidDateString, slotsBetween, todayISO } from "./time";
+import { addDays, isPastSlot, isValidDateString, SLOT, slotsBetween, todayISO } from "./time";
 import { SPORTS, type Refusal, type Sport } from "./types";
 
 /**
@@ -213,7 +213,7 @@ export async function retireCoach(id: number, venueId: number): Promise<boolean>
 
 const weekdayOf = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay();
 
-/** Does the coach take lessons through all of these slots on that day? */
+/** Does the coach take lessons through all of these slots, each `step` hours long, on that day? */
 export function coachWorks(coach: Coach, date: string, hours: number[], step: number): boolean {
   if (coach.timeOff.some((o) => date >= o.from && date <= o.until)) return false;
   const day = coach.hours.filter((h) => h.weekday === weekdayOf(date));
@@ -240,11 +240,17 @@ export async function lessonSlots(
   coach: Coach,
   date: string,
   freeCourtAt: (hour: number) => boolean,
-  venue: { openHour: number; closeHour: number; step: number; zone: string }
+  venue: { openHour: number; closeHour: number; zone: string },
+  /** What the lesson's sport is sold by here: each slot is that long. */
+  unit: number
 ): Promise<number[]> {
   const taken = await takenSlots(coach.id, date);
-  return slotsBetween(venue.openHour, venue.closeHour, venue.step).filter(
-    (h) => coachWorks(coach, date, [h], venue.step) && !taken.has(h) && !isPastSlot(date, h, venue.zone) && freeCourtAt(h)
+  return slotsBetween(venue.openHour, venue.closeHour, unit).filter(
+    (h) =>
+      coachWorks(coach, date, [h], unit) &&
+      slotsBetween(h, h + unit, SLOT).every((half) => !taken.has(half)) &&
+      !isPastSlot(date, h, venue.zone) &&
+      freeCourtAt(h)
   );
 }
 
@@ -255,16 +261,17 @@ export type AttachResult = { ok: true; fee: number } | Refusal;
  * price. Refused, and nothing changed, when the coach is taken or not working
  * then; the caller lets the booking go.
  */
-export async function attachCoach(bookingId: number, coach: Coach, step: number): Promise<AttachResult> {
+export async function attachCoach(bookingId: number, coach: Coach): Promise<AttachResult> {
   const db = getDb();
   const booking = (await db
     .prepare("SELECT b.id, b.date, b.start_hour, b.end_hour, c.sport, c.venue_id FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?")
     .get(bookingId)) as { id: number; date: string; start_hour: number; end_hour: number; sport: Sport; venue_id: number } | undefined;
   if (!booking || booking.venue_id !== coach.venueId || !coach.active) return refuse("COACH_NOT_FOUND");
   if (!coach.sports.includes(booking.sport)) return refuse("COACH_NOT_FOUND");
-  const hours = slotsBetween(Number(booking.start_hour), Number(booking.end_hour), step);
-  if (!coachWorks(coach, booking.date, hours, step)) return refuse("COACH_NOT_WORKING", { name: coach.name });
-  const fee = roundMoney(coach.rate * hours.length * step);
+  // The coach's time is kept in the diary's half hours, as the court's is.
+  const hours = slotsBetween(Number(booking.start_hour), Number(booking.end_hour), SLOT);
+  if (!coachWorks(coach, booking.date, hours, SLOT)) return refuse("COACH_NOT_WORKING", { name: coach.name });
+  const fee = roundMoney(coach.rate * hours.length * SLOT);
   try {
     await withTransaction(async () => {
       // Rows left by a lesson since cancelled are stale: clear them first.

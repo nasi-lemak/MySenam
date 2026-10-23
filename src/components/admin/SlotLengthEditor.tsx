@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 
 /**
- * Whether a venue's courts are booked by the hour or the half hour. Rates
- * stay per hour; a half hour costs half.
+ * Whether a venue's sports are booked by the hour or the half hour, unless a
+ * sport has its own (Rules by sport). Rates stay per hour; a half hour costs half.
  */
 export function SlotLengthEditor({ venueId }: { venueId: number }) {
   const [minutes, setMinutes] = useState<number | null>(null);
@@ -35,8 +35,8 @@ export function SlotLengthEditor({ venueId }: { venueId: number }) {
       setMinutes(data.slotMinutes);
       setNotice(
         next === 30
-          ? "Saved. Customers can now book by the half hour; bookings already made are unchanged."
-          : "Saved. Courts are booked by the hour again."
+          ? "Saved. Sports without their own rule are now booked by the half hour; bookings already made are unchanged."
+          : "Saved. Sports without their own rule are booked by the hour again; bookings already made are unchanged."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save");
@@ -63,7 +63,8 @@ export function SlotLengthEditor({ venueId }: { venueId: number }) {
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <h3 className="font-semibold">Booked by</h3>
       <p className="mt-1 text-xs text-slate-500">
-        By the hour, or by the half hour (18:00, 18:30, 19:00…). Rates stay per hour, so a half hour costs half. Classes and
+        By the hour, or by the half hour (18:00, 18:30, 19:00…), for every sport here unless Rules by sport gives it its own
+        (padel is by the half hour unless told otherwise). Rates stay per hour, so a half hour costs half. Classes and
         tournaments stay on the hour.
       </p>
       <div className="mt-2 flex gap-2">

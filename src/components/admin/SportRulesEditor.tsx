@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { MAX_CANCEL_CUTOFF_HOURS, SPORT_LABELS, type Sport } from "@/lib/types";
+import { MAX_CANCEL_CUTOFF_HOURS, SPORT_LABELS, usualHours, type Sport } from "@/lib/types";
 
 interface SportPeak {
   weekdayFrom: number;
@@ -16,6 +16,7 @@ interface Rules {
   cutoffHours: number | null;
   lateKeep: number | "none" | null;
   peak: SportPeak | null;
+  slotMinutes: 30 | 60 | null;
 }
 
 const CUTOFFS = [0, 1, 2, 3, 6, 12, 24, 48, MAX_CANCEL_CUTOFF_HOURS];
@@ -24,7 +25,8 @@ const HOURS = Array.from({ length: 25 }, (_, h) => h);
 
 /**
  * A sport's own rules here, over the venue's (lib/sport-rules.ts): when it can
- * be cancelled for free, what a late cancellation keeps, and its peak hours.
+ * be cancelled for free, what a late cancellation keeps, its peak hours, and
+ * whether it is sold by the hour or the half hour.
  * Anything left as "venue's" follows the venue's settings.
  */
 export function SportRulesEditor({ venueId, sports }: { venueId: number; sports: Sport[] }) {
@@ -41,7 +43,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
     void load();
   }, [load]);
 
-  const of = (sport: Sport): Rules => rules?.find((r) => r.sport === sport) ?? { sport, cutoffHours: null, lateKeep: null, peak: null };
+  const of = (sport: Sport): Rules => rules?.find((r) => r.sport === sport) ?? { sport, cutoffHours: null, lateKeep: null, peak: null, slotMinutes: null };
 
   async function save(next: Rules) {
     setError(null);
@@ -57,13 +59,15 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
     await load();
   }
 
-  if (!rules || sports.length < 2) return null;
+  // One sport has the venue's settings to itself, unless its usual game is
+  // not whole hours (padel's 90 minutes), when what it is sold by is its own.
+  if (!rules || (sports.length < 2 && sports.every((s) => Number.isInteger(usualHours(s))))) return null;
   return (
     <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <h3 className="font-semibold">Rules by sport</h3>
       <p className="mt-1 text-xs text-slate-500">
         Where one sport needs different rules from the rest: tennis cancelled a day ahead while badminton is two hours, or pickleball
-        at peak from 5 PM. Anything left on <em>venue&apos;s</em> follows the venue&apos;s settings. Customers see the sport&apos;s
+        at peak from 5 PM, or padel sold by the hour. Anything left on <em>venue&apos;s</em> follows the venue&apos;s settings. Customers see the sport&apos;s
         own rules before they book it.
       </p>
       <table className="mt-2 w-full min-w-[640px] text-xs">
@@ -72,6 +76,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
             <th className="py-1 pr-2 font-medium">Sport</th>
             <th className="py-1 pr-2 font-medium">Free cancellation until</th>
             <th className="py-1 pr-2 font-medium">Cancelled later, online</th>
+            <th className="py-1 pr-2 font-medium">Sold by</th>
             <th className="py-1 font-medium">Peak hours</th>
           </tr>
         </thead>
@@ -121,6 +126,17 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
                         keep {k}%
                       </option>
                     ))}
+                  </select>
+                </td>
+                <td className="py-1.5 pr-2">
+                  <select
+                    value={r.slotMinutes ?? ""}
+                    onChange={(e) => save({ ...r, slotMinutes: e.target.value === "" ? null : (Number(e.target.value) as 30 | 60) })}
+                    className={sel}
+                  >
+                    <option value="">{Number.isInteger(usualHours(sport)) ? "venue's" : "half hour (usual)"}</option>
+                    <option value={60}>the hour</option>
+                    <option value={30}>the half hour</option>
                   </select>
                 </td>
                 <td className="py-1.5">

@@ -61,7 +61,7 @@ describe("a coach's own week", () => {
   it("time off: nobody can book them then, and what is already booked is said", async () => {
     const lesson = await createBooking({ courtId, date: monday, hours: [9], name: "Student", phone: "0123334444" });
     if (!lesson.ok) throw new Error(lesson.error);
-    expect(await attachCoach(lesson.booking.id, (await coachById(coachId))!, 1)).toMatchObject({ ok: true });
+    expect(await attachCoach(lesson.booking.id, (await coachById(coachId))!)).toMatchObject({ ok: true });
     const off = await call(takeOff, "POST", { from: monday, until: addDays(monday, 2), reason: "Tournament" });
     expect(off.status).toBe(200);
     expect(off.body.clashes).toBe(1);

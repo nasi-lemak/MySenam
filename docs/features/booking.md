@@ -11,16 +11,13 @@ courts and pitches; gyms and pools; and kayak hire. Customers are offered
 only the sports somebody on the site (or the storefront) has a court for, in
 that order (`GET /api/sports`).
 
-**Padel** is played in 90-minute games. A venue selling padel sells by the
-half hour (*Booked by*, below), so a game is three halves; a padel court can
-be given 1½ hours as its shortest booking. At a half-hour venue any court can
-otherwise be booked for half an hour, so a hall with badminton beside the
-padel gives its badminton courts an hour as their shortest booking (they can
-still start on the half hour). Search asks for 90 minutes when
-padel is picked, and finds games starting on the hour and the half hour. The
-slot length stays the venue's, not each court's
-([ADR 0008](../architecture/decisions/0008-slot-length-per-venue.md)); adding
-a padel court to a venue that sells by the hour says so. A **football** pitch
+**Padel** is played in 90-minute games, so it is sold by the half hour
+wherever it is (a game is three halves), unless *Rules by sport* says
+otherwise; a padel court can be given 1½ hours as its shortest booking. The
+venue's other sports keep what the venue sells by, so badminton beside the
+padel still starts on the hour ([half hours](#half-hour-bookings)). Search
+asks for 90 minutes when padel is picked, and finds games starting on the
+hour and the half hour. A **football** pitch
 that is also two smaller pitches is a set of [linked courts](#courts-that-share-a-floor).
 
 ## Exclusive courts vs shared facilities
@@ -103,40 +100,43 @@ four hours, and a weekly booking of up to eight weeks. A venue can change both:
 
 ## Half-hour bookings
 
-A venue sells its courts **by the hour** (the default) or **by the half
-hour**, chosen under *Courts & rates → Booked by* (a manager's setting,
-`venues.slot_minutes`, 60 or 30):
+Every court's diary is kept in **half hours**, whatever it is sold by
+([ADR 0009](../architecture/decisions/0009-half-hour-diary-sold-by-sport.md)).
+What each sport is **sold by**, the hour or the half hour, is its own at the
+venue (*Courts → Rules by sport → Sold by*), else padel's half hours, else
+the venue's default, chosen under *Courts & rates → Booked by* (a manager's
+setting, `venues.slot_minutes`, 60 or 30; `unitFor` in `src/lib/store.ts`):
 
-- **The grid** shows a column every half hour (8AM, 8:30AM, 9AM…). Customers
-  pick consecutive halves, up to the same four hours. A half hour costs half
-  the hourly rate, peak or off-peak by when it starts, and the legend says
-  the numbers are per half hour.
+- **The grid** for a sport shows a column for each unit it is sold by (8AM,
+  8:30AM, 9AM… by the half hour). Customers pick consecutive units, up to the
+  same four hours. A half hour costs half the hourly rate, peak or off-peak by
+  when it starts, and the legend says the numbers are per half hour. A sport
+  sold by the hour cannot start on the half hour, even beside one that can.
 - **Times** are hours with a fraction (18.5 is 18:30) in `start_hour`,
-  `end_hour`, `booking_slots.hour`, `slot_blocks.hour` and the waitlist
-  (migration 0042). Each slot row carries its length (`span`), so reports
-  count hours sold correctly whichever way the venue sold them. Calendar
-  invites, messages and receipts show 6:30 PM.
-- **Moving, rescheduling, blocking, waitlists and outages** all work in the
-  venue's own slots. Search offers whole-hour start times, made of a
-  half-hour venue's halves; a search for a length that is not whole hours
-  (an hour and a half) also offers the half hours, and finds only venues that
-  sell half hours.
-- **Classes and tournaments stay on the hour.** At a half-hour venue they hold
-  both halves of each hour they use.
+  `end_hour`, `booking_slots.hour`, `slot_blocks.hour` and the waitlist. Each
+  slot row is half an hour (`span` 0.5; migration 0088 split rows stored by
+  the hour into their halves). Calendar invites, messages and receipts show
+  6:30 PM.
+- **Moving, rescheduling, waitlists and coaching** start on the unit the
+  sport is sold by. **Blocking** and the staff schedule work in the finest
+  unit any of the venue's sports is sold by; outages close every half hour.
+  Search offers whole-hour start times; a search for a length that is not
+  whole hours (an hour and a half) also offers the half hours, and finds only
+  courts whose sport is sold by the half hour there.
+- **Classes and tournaments stay on the hour**, holding both halves of each
+  hour they use.
 - **Passes** spend one entry an hour, so a booking with a half hour in it
   (an hour and a half, say) spends the whole of that hour (two entries).
-- **Switching to half hours** at any time splits everything already in the
-  diary from today on into its two halves, each keeping its place, so
-  nothing moves. **Switching back to hours** is refused while anything from
-  today on starts or ends on the half hour; otherwise the halves are put back
-  together.
+- **Changing what a sport is sold by** moves nothing: bookings stand where
+  they are, and new ones follow the new unit.
 
 ## Rules by sport
 
-A venue's cancellation cutoff, late-cancel share and peak hours apply to all
-its courts. Where one sport needs its own (tennis cancelled a day ahead while
-badminton is two hours; pickleball at peak from 5 PM), *Courts → Rules by
-sport* sets it for that sport (`src/lib/sport-rules.ts`). Anything left on
+A venue's cancellation cutoff, late-cancel share, peak hours and what it
+sells by apply to all its courts. Where one sport needs its own (tennis
+cancelled a day ahead while badminton is two hours; pickleball at peak from
+5 PM; padel sold by the hour), *Courts → Rules by sport* sets it for that
+sport (`src/lib/sport-rules.ts`). Anything left on
 *venue's* follows the venue.
 
 - **Cancellation:** free until the sport's own cutoff; after it, the sport's

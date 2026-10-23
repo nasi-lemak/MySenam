@@ -52,7 +52,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0005 Marketplace and own installs](architecture/decisions/0005-shared-marketplace-and-own-installs.md) ·
 [0006 Per-venue payment accounts](architecture/decisions/0006-per-venue-payment-accounts.md) ·
 [0007 Stored-credit ownership](architecture/decisions/0007-stored-credit-ownership.md) ·
-[0008 Slot length per venue](architecture/decisions/0008-slot-length-per-venue.md)
+[0008 Slot length per venue](architecture/decisions/0008-slot-length-per-venue.md) (superseded) ·
+[0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md)
 
 ## Integrations
 

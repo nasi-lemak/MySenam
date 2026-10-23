@@ -113,8 +113,11 @@ export async function availabilityFeed(days = FEED_DAYS): Promise<Record<string,
         const grid = await getAvailability(v.id, date, sport);
         const hours = [...new Set(grid.flatMap((g) => g.slots.map((s) => s.hour)))].filter((h) => Number.isInteger(h));
         for (const hour of hours) {
-          const slots = grid.map((g) => g.slots.find((s) => s.hour === hour)).filter(Boolean);
-          const open = slots.filter((s) => s!.available).length;
+          // Each court's hour from here: whole, so both halves where it sells halves.
+          const slots = grid
+            .map((g) => g.slots.filter((s) => s.hour >= hour && s.hour < hour + 1))
+            .filter((within, i) => within.length * grid[i].unit === 1);
+          const open = slots.filter((within) => within.every((s) => s.available)).length;
           if (slots.length === 0) continue;
           availability.push({
             merchant_id: merchantId(v.id),

@@ -94,7 +94,7 @@ describe("booking a lesson", () => {
 
   it("offers only the times the coach is free and a court is", async () => {
     const venue = await venueHours(venueId);
-    const free = await lessonSlots(coach, date, () => true, venue);
+    const free = await lessonSlots(coach, date, () => true, venue, 1);
     expect(free).not.toContain(10);
     expect(free).toContain(11);
     expect(free).not.toContain(20);

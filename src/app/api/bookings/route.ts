@@ -14,7 +14,7 @@ import {
   getVenue,
   payBookingFromWallet,
   payBookingWithPass,
-  venueHours,
+  sellUnit,
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
 import { customerMayBook, guestSurge } from "@/lib/limits";
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
     const lessonSport = anyCourt ? (sport as Sport) : (await getCourt(courtId as number))?.sport;
     if (!coach || !coach.active || coach.venueId !== venueOfBooking || !lessonSport || !coach.sports.includes(lessonSport))
       return refusal({ ok: false, error: "That coach does not give lessons in this sport here.", code: "COACH_NOT_FOUND" });
-    if (!coachWorks(coach, date, hours as number[], (await venueHours(coach.venueId)).step))
+    if (!coachWorks(coach, date, hours as number[], await sellUnit(coach.venueId, lessonSport)))
       return refusal({
         ok: false,
         error: `${coach.name} does not take lessons at that time. Pick one of the times shown.`,
@@ -205,10 +205,9 @@ export async function POST(req: NextRequest) {
   // The coach goes on before anything is paid, so the fee is in every total
   // that follows. Taken meanwhile by somebody else: the court goes too.
   if (coach) {
-    const { step } = await venueHours(coach.venueId);
     const kept: typeof result.bookings = [];
     for (const booking of result.bookings) {
-      const attached = await attachCoach(booking.id, coach, step);
+      const attached = await attachCoach(booking.id, coach);
       if (!attached.ok) {
         // A week the coach is already taken: skipped like a taken court, if the customer said so.
         if (result.bookings.length > 1 && skipConflicts === true) {

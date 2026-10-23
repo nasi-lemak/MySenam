@@ -20,13 +20,13 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ rules: await sportRules(venueId) }, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** `{ venueId, sport, cutoffHours, lateKeep, peak }`, each null for the venue's (managers). */
+/** `{ venueId, sport, cutoffHours, lateKeep, peak, slotMinutes }`, each null for the venue's (managers). */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   const venueId = await venueOf(req, body.venueId);
   if (venueId instanceof NextResponse) return venueId;
-  const set = await setSportRules(venueId, body.sport, { cutoffHours: body.cutoffHours, lateKeep: body.lateKeep, peak: body.peak });
+  const set = await setSportRules(venueId, body.sport, { cutoffHours: body.cutoffHours, lateKeep: body.lateKeep, peak: body.peak, slotMinutes: body.slotMinutes });
   if (!set.ok) return NextResponse.json(set, { status: 400 });
   await logFromRequest(req, {
     venueId,

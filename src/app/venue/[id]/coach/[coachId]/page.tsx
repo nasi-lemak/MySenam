@@ -7,7 +7,7 @@ import { mayShowVenue, pageViewer } from "@/lib/listing";
 import { serverT } from "@/lib/locale";
 import { takesPaymentOnline } from "@/lib/payments";
 import { money } from "@/lib/region";
-import { getVenue, venueHours } from "@/lib/store";
+import { getVenue, sellUnit, venueHours } from "@/lib/store";
 import { currentStorefront, shows } from "@/lib/storefront";
 import { addDays, todayISO } from "@/lib/time";
 import { sportLabel } from "@/lib/i18n";
@@ -26,7 +26,9 @@ export default async function CoachPage({ params }: { params: Promise<{ id: stri
   const [venue, coach] = await Promise.all([getVenue(id), coachById(Number(coachId))]);
   if (!venue || !coach || !coach.active || coach.venueId !== id) notFound();
   const t = await serverT();
-  const { step, zone } = await venueHours(id);
+  const { zone } = await venueHours(id);
+  // What the coach's first sport is sold by; the form follows the sport picked.
+  const step = await sellUnit(id, coach.sports[0]);
   const today = todayISO(zone);
   const ahead = await aheadFor(id, viewer.userId);
   return (

@@ -23,9 +23,10 @@ change, update this page, and update [feature status](feature-status.md).
 
 ## Bookings
 
-- **One slot rule everywhere.** Every route that takes a time (booking,
-  waitlist, extras, moving, blocking) accepts half hours only where the venue
-  books in half hours (`isSlotHour()`), and uses the same availability:
+- **One slot rule everywhere.** Every court's diary is half hours. Every
+  route that takes a time (booking, waitlist, extras, moving, blocking)
+  accepts starts on the unit the sport is sold by there (`unitFor()`; blocking
+  the venue's finest), and uses the same availability:
   bookings, blocks, outages, closures and linked courts
   ([booking](../features/booking.md)).
 - **Weekly bookings skip closed weeks**, saying which and why, rather than

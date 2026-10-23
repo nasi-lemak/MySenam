@@ -6,7 +6,12 @@ import { SPORTS, type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price and whether they are free. */
+/**
+ * `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price
+ * and whether they are free. A court's `unit` is what its sport is sold by
+ * here, in hours (1 or 0.5): each slot is that long, and a booking's `hours`
+ * are starts of slots that long.
+ */
 export async function GET(req: NextRequest) {
   const caller = await apiCaller(req, "availability");
   if (caller instanceof NextResponse) return caller;
@@ -21,6 +26,7 @@ export async function GET(req: NextRequest) {
       id: g.court.id,
       name: g.court.name,
       sport: g.court.sport,
+      unit: g.unit,
       slots: g.slots.map((s) => ({ hour: s.hour, rate: s.rate, available: s.available, booked: s.booked, capacity: s.capacity })),
     })),
   });

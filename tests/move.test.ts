@@ -76,7 +76,7 @@ describe("moving a booking to another court", () => {
 
     // The slots followed, and nothing was left behind on the old court.
     const slots = await slotsOf(b.id);
-    expect(slots.map((s) => s.hour)).toEqual([10, 11]);
+    expect(slots.map((s) => s.hour)).toEqual([10, 10.5, 11, 11.5]);
     expect(slots.every((s) => s.court_id === c2.id)).toBe(true);
   });
 
@@ -104,7 +104,8 @@ describe("moving a booking to another court", () => {
 
     // Critically, the booking is untouched — not half-moved.
     const slots = await slotsOf(b.id);
-    expect(slots).toHaveLength(3);
+    // Three hours: six halves of the diary.
+    expect(slots).toHaveLength(6);
     expect(slots.every((s) => s.court_id === c1.id)).toBe(true);
   });
 

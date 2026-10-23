@@ -24,7 +24,6 @@ interface Row {
   peak_weekend_days: string;
   peak_weekend_from: number;
   peak_weekend_until: number;
-  slot_minutes: number;
   last_minute_hours: number | null;
   last_minute_percent: number | null;
   last_minute_off_peak: number;
@@ -43,7 +42,6 @@ const toRules = (row: Row, holidays: string[]): PeakRules => ({
   weekendFrom: row.peak_weekend_from,
   weekendUntil: row.peak_weekend_until,
   holidays,
-  slotHours: row.slot_minutes / 60,
   ...(row.last_minute_hours && row.last_minute_percent
     ? { lastMinute: { hours: row.last_minute_hours, percent: row.last_minute_percent, offPeakOnly: row.last_minute_off_peak === 1, zone: venueZoneOf(row) } }
     : {}),
@@ -58,7 +56,7 @@ export async function peakRulesFor(venueIds: number[]): Promise<Map<number, Peak
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until, slot_minutes,
+      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until,
               last_minute_hours, last_minute_percent, last_minute_off_peak, time_zone, lat, lng
        FROM venues WHERE id IN (${list})`
     )

@@ -16,7 +16,7 @@ import {
 } from "./store";
 import { registerUser } from "./auth";
 import { Court } from "./types";
-import { addDays, todayISO } from "./time";
+import { addDays, SLOT, todayISO } from "./time";
 import { peakRules } from "./peak";
 import { money, region } from "./region";
 
@@ -271,7 +271,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     opts2: { paid: boolean; cancelled: boolean; noShow: boolean; checkedIn: boolean }
   ) => {
     if (!rulesOf.has(court.venueId)) rulesOf.set(court.venueId, await peakRules(court.venueId));
-    const price = computePrice(court, date, [hour], false, rulesOf.get(court.venueId));
+    const price = computePrice(court, date, [hour, hour + SLOT], false, rulesOf.get(court.venueId));
     const code = `MS-${Math.floor(rng() * 1e9).toString(36).toUpperCase().padStart(6, "0").slice(0, 6)}`;
     const status = opts2.cancelled ? "cancelled" : "confirmed";
     const info = await db
@@ -299,17 +299,20 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
 
     if (!opts2.cancelled) {
       // The UNIQUE constraint still decides: if this hour is taken, so be it.
-      // The lowest free place, in one statement rather than one try per place.
+      // The lowest place free for both of its half hours, in one statement
+      // rather than one try per place, the same place in each.
       const slot = await db.prepare(
-        `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat)
-         SELECT ?, ?, ?, ?, seat FROM generate_series(0, ? - 1) AS seat
-          WHERE NOT EXISTS (
-            SELECT 1 FROM booking_slots t WHERE t.court_id = ? AND t.date = ? AND t.hour = ? AND t.seat = seat.seat
-          )
-          ORDER BY seat LIMIT 1
+        `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span)
+         SELECT ?, ?, ?, h.h, s.seat, ${SLOT}
+           FROM (SELECT seat FROM generate_series(0, ? - 1) AS seat
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM booking_slots t WHERE t.court_id = ? AND t.date = ? AND t.hour IN (?, ?) AND t.seat = seat.seat
+                  )
+                  ORDER BY seat LIMIT 1) s
+          CROSS JOIN (VALUES (?::double precision), (?::double precision)) AS h(h)
          ON CONFLICT DO NOTHING`
-      ).run(bookingId, court.id, date, hour, court.capacity, court.id, date, hour);
-      if (slot.changes !== 1) {
+      ).run(bookingId, court.id, date, court.capacity, court.id, date, hour, hour + SLOT, hour, hour + SLOT);
+      if (slot.changes !== 2) {
         await db.prepare("DELETE FROM bookings WHERE id = ?").run(bookingId);
         return null;
       }

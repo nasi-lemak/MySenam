@@ -136,7 +136,8 @@ describe("a phone number is not proof of identity", () => {
           )
           .get(walkIn.code) as { n: number }
       ).n
-    ).toBe(1);
+      // Its hour: both halves of the diary.
+    ).toBe(2);
   });
 });
 

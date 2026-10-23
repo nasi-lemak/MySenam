@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { setSlotMinutes, venueHours } from "@/lib/store";
+import { getDb } from "@/lib/db";
+import { setSlotMinutes } from "@/lib/store";
 import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +14,12 @@ async function venueOf(req: NextRequest, raw: unknown) {
   return denyVenue(admin, venueId) ?? venueId;
 }
 
-/** `?venueId` → whether the venue sells by the hour or the half hour. */
+/** `?venueId` → whether the venue's sports are sold by the hour or the half hour, unless a sport says otherwise. */
 export async function GET(req: NextRequest) {
   const venueId = await venueOf(req, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
-  return NextResponse.json({ slotMinutes: (await venueHours(venueId)).step * 60 });
+  const row = (await getDb().prepare("SELECT slot_minutes FROM venues WHERE id = ?").get(venueId)) as { slot_minutes: number } | undefined;
+  return NextResponse.json({ slotMinutes: row?.slot_minutes === 30 ? 30 : 60 });
 }
 
 /** `{ venueId, minutes }`: 60 or 30. */
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
   await logFromRequest(req, {
     venueId,
     action: "settings.changed",
-    detail: result.slotMinutes === 30 ? "Courts sold by the half hour" : "Courts sold by the hour",
+    detail: result.slotMinutes === 30 ? "Sports sold by the half hour, unless their own rule says" : "Sports sold by the hour, unless their own rule says",
   });
   return NextResponse.json(result);
 }

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
 import { sportRules } from "@/lib/sport-rules";
 import { variesByDay, weekLines } from "@/lib/week-hours";
-import { getVenue, listVenueClosures, readNear } from "@/lib/store";
+import { getVenue, listVenueClosures, readNear, sellUnits } from "@/lib/store";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays, formatHour, onSlot, slotsBetween } from "@/lib/time";
 import { MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
@@ -137,7 +137,7 @@ export default async function VenuePage({
   // A weekday's short name in the reader's language: 0 is Sunday.
   const dayName = (day: number) =>
     new Date(Date.UTC(2026, 0, 4 + day)).toLocaleDateString(intlTag(t.locale), { weekday: "short", timeZone: "UTC" });
-  const initial = parseInitialSelection(query, sports, dates, venue.slotMinutes / 60);
+  const initial = parseInitialSelection(query, sports, dates, await sellUnits(venue.id));
   // Only closures inside the booking window are worth warning about.
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
   // Courts out for a stretch that touches the booking window.
@@ -376,8 +376,8 @@ function parseInitialSelection(
   query: Record<string, string | string[] | undefined>,
   sports: Sport[],
   dates: string[],
-  /** The venue's slot length in hours: 1, or 0.5 where it sells half hours. */
-  step = 1
+  /** What each sport is sold by here, in hours: 1, or 0.5 by the half hour. */
+  units: Record<Sport, number>
 ) {
   const one = (key: string) => {
     const value = query[key];
@@ -389,6 +389,8 @@ function parseInitialSelection(
   const courtId = Number(one("court"));
   const hour = Number(one("hour"));
   const duration = Number(one("duration") ?? 1);
+  const shown = sport && sports.includes(sport as Sport) ? (sport as Sport) : sports[0];
+  const step = shown ? units[shown] : 1;
 
   const validDuration =
     onSlot(duration, step) && duration >= step && duration <= MAX_HOURS_PER_BOOKING;

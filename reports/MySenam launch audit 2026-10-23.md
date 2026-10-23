@@ -55,7 +55,7 @@ decisions listed at the end, and the customer evidence the research's
 | Stripe absent; one Malaysian gateway | Billplz and Stripe; **no iPay88, senangPay, toyyibPay, Curlec, eGHL, HitPay** | `tests/payments.test.ts`, `tests/gateways.test.ts`, `tests/stripe.test.ts` |
 | No PWA manifest | Manifest and icons; **no service worker, offline mode or push** | — |
 | No browser end-to-end tests | Six browser tests of the main journeys on the production build; CI is set to run them | `tests/e2e/launch.e2e.ts` |
-| No padel; no 90-minute slots; no squash, basketball, volleyball, table tennis or sepak takraw | Built: padel, squash, table tennis, football, basketball, volleyball, netball and sepak takraw, in four languages; padel searched in its 90 minutes at half-hour venues ([ADR 0008](../docs/architecture/decisions/0008-slot-length-per-venue.md)) | `tests/sports.test.ts`, `tests/e2e/sports.e2e.ts` |
+| No padel; no 90-minute slots; no squash, basketball, volleyball, table tennis or sepak takraw | Built: padel, squash, table tennis, football, basketball, volleyball, netball and sepak takraw, in four languages; padel sold by the half hour beside sports sold by the hour, and searched in its 90 minutes ([ADR 0009](../docs/architecture/decisions/0009-half-hour-diary-sold-by-sport.md)) | `tests/sports.test.ts`, `tests/e2e/sports.e2e.ts` |
 | No DUPR or player ratings | **Not built**: levels and box leagues only | — |
 | No IoT lighting (competitors sell it at RM199) | **Not built** | — |
 | No Apple sign-in | **Not built** (the identity table allows it) | — |
@@ -130,13 +130,18 @@ the product's shape. Each is recorded where it lives.
 8. **Web push** is a feature with a migration, a service worker and a product
    question (what is worth a push beside email and WhatsApp), not a launch
    requirement; it is left PLANNED.
-9. **Legal**: `/terms` and `/privacy` are drafts; no lawyer has read them or
+9. **The half-hour diary** ([ADR 0009](../docs/architecture/decisions/0009-half-hour-diary-sold-by-sport.md))
+   replaced ADR 0008 before production, as agreed, and is the one item here
+   that was changed rather than left: migration 0088 rewrites every slot
+   stored by the hour into its two halves, and the public API's booking
+   `hours` are starts of each court's `unit`, now given in its availability.
+10. **Legal**: `/terms` and `/privacy` are drafts; no lawyer has read them or
    their translations. The privacy notice now names the operator to write to
    once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set.
 
 ## How this was verified
 
-Locally, in this session: the whole suite (1,764 tests) on PGlite and on
+Locally, in this session: the whole suite (1,786 tests) on PGlite and on
 Postgres 16, the end-to-end tests on a production build in Chromium,
 `npm run lint`, `npm run typecheck` and `npm run docs:check`. **Not in CI:**
 every GitHub Actions run on this branch since 22 October (run 156 onwards)

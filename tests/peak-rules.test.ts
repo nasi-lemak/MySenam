@@ -71,7 +71,7 @@ describe("a venue's settings", () => {
     expect(await setPeakRules(venueId, { ...base, weekendUntil: 25 })).toMatchObject({ ok: false });
     expect(await setPeakRules(venueId, { ...base, weekendDays: [7] })).toMatchObject({ ok: false });
     expect(await setPeakRules(venueId, { ...base, weekendDays: [0, 1, 2, 3] })).toMatchObject({ ok: false });
-    expect(await setPeakRules(venueId, { ...base, weekendDays: [6, 5, 6] })).toEqual({ ok: true, rules: { ...base, holidays: [], slotHours: 1 } });
+    expect(await setPeakRules(venueId, { ...base, weekendDays: [6, 5, 6] })).toEqual({ ok: true, rules: { ...base, holidays: [] } });
   });
 
   it("price the venue's grid, bookings and search, and nobody else's", async () => {

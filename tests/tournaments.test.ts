@@ -279,12 +279,16 @@ describe("groups, then a knockout", () => {
 });
 
 describe("court time", () => {
-  const heldHours = async (id: number) =>
-    (
-      (await getDb()
-        .prepare("SELECT court_id, hour FROM slot_blocks WHERE tournament_id = ? ORDER BY court_id, hour")
-        .all(id)) as { court_id: number; hour: number }[]
-    ).map((b) => `${b.court_id}:${b.hour}`);
+  // The hours held, each as both its halves of the diary.
+  const heldHours = async (id: number) => {
+    const rows = (await getDb()
+      .prepare("SELECT court_id, hour FROM slot_blocks WHERE tournament_id = ? ORDER BY court_id, hour")
+      .all(id)) as { court_id: number; hour: number }[];
+    const held = rows.map((b) => `${b.court_id}:${b.hour}`);
+    const hours = [...new Set(rows.map((b) => `${b.court_id}:${Math.floor(Number(b.hour))}`))];
+    expect(held).toEqual(hours.flatMap((h) => [h, `${h.split(":")[0]}:${Number(h.split(":")[1]) + 0.5}`]));
+    return hours;
+  };
 
   it("is held whole until the draw, then only from each court's first match to its last", async () => {
     const t = await tournament();

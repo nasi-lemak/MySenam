@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { getDb } from "./db";
-import { blockSlots, courtVenueHours, getCourt } from "./store";
-import { addDays, dayOfWeek, isPastSlot, isValidDateString, slotsBetween, todayISO } from "./time";
+import { blockSlots, courtVenueHours, getCourt, scheduleUnit } from "./store";
+import { addDays, dayOfWeek, isPastSlot, isValidDateString, SLOT, slotsBetween, todayISO } from "./time";
 
 /**
  * Repeating blocks: the same hours taken out every week, for as many weeks as
@@ -72,22 +72,28 @@ export async function repeatBlock(input: RepeatInput): Promise<RepeatResult> {
   const db = getDb();
   let blocked = 0;
   const clashes: { courtName: string; date: string; hour: number }[] = [];
+  // Clashes named as the schedule shows them: 9 AM, not 9 and 9:30.
+  const unit = await scheduleUnit(input.venueId);
   for (let i = 0; i < input.weeks * 7; i++) {
     const date = addDays(input.from, i);
     if (!days.includes(dayOfWeek(date))) continue;
     for (const court of courts) {
-      const { openHour, closeHour, step, zone } = await courtVenueHours(court.id, date);
-      const hours = slotsBetween(Math.max(input.fromHour, openHour), Math.min(input.untilHour, closeHour), step).filter(
+      const { openHour, closeHour, zone } = await courtVenueHours(court.id, date);
+      const hours = slotsBetween(Math.max(input.fromHour, openHour), Math.min(input.untilHour, closeHour), SLOT).filter(
         (h) => !isPastSlot(date, h, zone)
       );
       if (hours.length === 0) continue;
       const booked = (await db
         .prepare(`SELECT DISTINCT hour FROM booking_slots WHERE court_id = ? AND date = ? AND hour IN (${hours.map(() => "?").join(",")})`)
         .all(court.id, date, ...hours)) as { hour: number | string }[];
-      for (const b of booked) clashes.push({ courtName: court.name, date, hour: Number(b.hour) });
+      for (const b of booked) {
+        const hour = Math.floor(Number(b.hour) / unit + 1e-9) * unit;
+        if (!clashes.some((c) => c.courtName === court.name && c.date === date && c.hour === hour))
+          clashes.push({ courtName: court.name, date, hour });
+      }
       const free = hours.filter((h) => !booked.some((b) => Number(b.hour) === h));
       if (free.length === 0) continue;
-      const done = await blockSlots(court.id, date, free, reason);
+      const done = await blockSlots(court.id, date, free, reason, undefined, SLOT);
       if (!done.ok) continue;
       await db
         .prepare(`UPDATE slot_blocks SET repeat_code = ? WHERE court_id = ? AND date = ? AND hour IN (${free.map(() => "?").join(",")})`)
@@ -114,7 +120,7 @@ export async function listRepeatBlocks(venueId: number): Promise<RepeatBlock[]> 
   for (const r of rows) byCode.set(r.repeat_code, [...(byCode.get(r.repeat_code) ?? []), r]);
   return [...byCode].map(([code, list]) => {
     const hours = list.map((r) => Number(r.hour));
-    const step = Number(list[0].span ?? 1) || 1;
+    const step = Number(list[0].span ?? SLOT) || SLOT;
     return {
       code,
       reason: list[0].reason ?? "",
@@ -129,13 +135,15 @@ export async function listRepeatBlocks(venueId: number): Promise<RepeatBlock[]> 
   });
 }
 
-/** The rest of a run, from today, taken off. Weeks already past stay as they were. */
+/** The rest of a run, from today, taken off: the court hours it frees. Weeks already past stay as they were. */
 export async function endRepeatBlock(venueId: number, code: string): Promise<number> {
-  const done = await getDb()
+  const gone = (await getDb()
     .prepare(
       `DELETE FROM slot_blocks WHERE repeat_code = ? AND date >= ?
-          AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)`
+          AND court_id IN (SELECT id FROM courts WHERE venue_id = ?)
+        RETURNING span`
     )
-    .run(code, todayISO(), venueId);
-  return done.changes;
+    .all(code, todayISO(), venueId)) as { span: number | string }[];
+  // Court hours freed: each row is a half hour of the diary.
+  return gone.reduce((sum, g) => sum + Number(g.span), 0);
 }

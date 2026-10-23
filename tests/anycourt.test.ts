@@ -60,8 +60,8 @@ describe("booking without naming a court", () => {
     const morning = await courtsForAnyBooking({ venueId: (await venue()).id, sport: "badminton", date: weekday, hours: [10] });
     expect(morning.length).toBe((await badminton()).length);
     for (let i = 1; i < morning.length; i++) {
-      expect(computePrice(morning[i - 1], weekday, [10]))
-        .toBeLessThanOrEqual(computePrice(morning[i], weekday, [10]));
+      expect(computePrice(morning[i - 1], weekday, [10, 10.5]))
+        .toBeLessThanOrEqual(computePrice(morning[i], weekday, [10, 10.5]));
     }
     // The dear one sorts last whichever slot is asked for.
     expect(morning[0].id).not.toBe(premium.id);
@@ -72,8 +72,8 @@ describe("booking without naming a court", () => {
     expect(isPeak(weekend, 10)).toBe(true);
     const wk = await courtsForAnyBooking({ venueId: (await venue()).id, sport: "badminton", date: weekend, hours: [10] });
     for (let i = 1; i < wk.length; i++) {
-      expect(computePrice(wk[i - 1], weekend, [10]))
-        .toBeLessThanOrEqual(computePrice(wk[i], weekend, [10]));
+      expect(computePrice(wk[i - 1], weekend, [10, 10.5]))
+        .toBeLessThanOrEqual(computePrice(wk[i], weekend, [10, 10.5]));
     }
     expect(wk[wk.length - 1].id).toBe(premium.id);
 
@@ -97,7 +97,7 @@ describe("booking without naming a court", () => {
     if (!r.ok) return;
     expect(r.bookings[0].courtId).toBe(nextCheapest.id);
     // And it costs what that court costs, not what the premium one would.
-    expect(r.bookings[0].totalPrice).toBe(computePrice(nextCheapest, date, [10, 11]));
+    expect(r.bookings[0].totalPrice).toBe(computePrice(nextCheapest, date, [10, 10.5, 11, 11.5]));
   });
 
   it("only offers a court free for every hour, not just some of them", async () => {

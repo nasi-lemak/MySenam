@@ -67,7 +67,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B2 | Search, any court, the move picker, moving and rescheduling count waiting-list offers through one function | `tests/waitlist.test.ts` |
 | B3 | Choosing a place counts blocked places as well as offers | `tests/waitlist.test.ts` |
 | B4 | An outage is saved in a transaction that re-checks; classes on linked courts are listed; tournament clashes are re-checked in theirs | `tests/outages.test.ts`, `tests/court-links.test.ts` |
-| B5 | A booking re-reads the slot length in its transaction; changing it checks bookings in its own | — (not forced by a test) |
+| B5 | Every slot row is half an hour, so a change of selling unit cannot meet a booking of another size ([ADR 0009](../architecture/decisions/0009-half-hour-diary-sold-by-sport.md)) | `tests/half-hour.test.ts` |
 | B6 | Search and the waiting list take as long a booking as the court allows | `tests/booking-lengths.test.ts` |
 | B7 | Moving and rescheduling check blocks, classes and offers inside their transaction | `tests/move.test.ts` (guards the outcome; the race is not forced) |
 | B8 | A group booking is one transaction | `tests/group-bookings.test.ts` |

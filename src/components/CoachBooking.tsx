@@ -15,7 +15,7 @@ export default function CoachBooking({
   venueId,
   coach,
   dates,
-  step,
+  step: firstStep,
   payOnline,
   timeZone,
 }: {
@@ -30,6 +30,8 @@ export default function CoachBooking({
   const [sport, setSport] = useState<Sport>(coach.sports[0]);
   const [date, setDate] = useState(dates[0]);
   const [slots, setSlots] = useState<number[] | null>(null);
+  // What the sport picked is sold by here, as the slots come back with it.
+  const [step, setStep] = useState(firstStep);
   const [start, setStart] = useState<number | null>(null);
   const [length, setLength] = useState(1);
   const [who, setWho] = useState({ name: "", phone: "", email: "" });
@@ -62,7 +64,10 @@ export default function CoachBooking({
     setStart(null);
     void fetch(`/api/coaching/slots?coachId=${coach.id}&date=${date}&sport=${sport}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((d: { slots?: number[] }) => setSlots(d.slots ?? []));
+      .then((d: { slots?: number[]; step?: number }) => {
+        if (d.step) setStep(d.step);
+        setSlots(d.slots ?? []);
+      });
   }, [coach.id, date, sport]);
 
   // Lengths that fit from the chosen start, every slot of them free.

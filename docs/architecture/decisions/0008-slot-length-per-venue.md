@@ -1,6 +1,7 @@
 # ADR 0008: Slot length stays per venue
 
-- **Status:** current.
+- **Status:** superseded by [ADR 0009](0009-half-hour-diary-sold-by-sport.md), before
+  it reached production.
 - **Context:** padel is sold in 90-minute games, badminton by the hour. A
   hall with both wants each court booked its own way. A venue sells by the
   hour or by the half hour (`venues.slot_minutes`), and every part of the

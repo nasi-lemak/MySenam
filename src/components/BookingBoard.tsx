@@ -236,11 +236,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     [availability]
   );
 
-  /** How long one slot is, in hours: 1, or 0.5 where the venue sells half hours. */
-  const step = useMemo(() => {
-    const slots = availability?.[0]?.slots;
-    return slots && slots.length > 1 ? slots[1].hour - slots[0].hour : 1;
-  }, [availability]);
+  /** What this sport is sold by here, in hours: 1, or 0.5 by the half hour. */
+  const step = useMemo(() => availability?.[0]?.unit ?? 1, [availability]);
 
   /**
    * A synthetic row standing for "whichever court, pick the cheapest". Worth

@@ -106,11 +106,6 @@ export interface PeakRules {
   /** Dates priced as the weekend: public, school and festive holidays. */
   holidays: string[];
   /**
-   * How long one of the venue's slots is, in hours: 1, or 0.5 where it sells
-   * by the half hour. A slot costs its share of the hourly rate.
-   */
-  slotHours?: number;
-  /**
    * Last-minute prices: an hour starting within `hours` of now costs
    * `percent` less, for a booking made now; only off-peak hours where
    * `offPeakOnly`. Times are the venue's, in `zone`. Null: none.
@@ -140,7 +135,6 @@ export const DEFAULT_PEAK: PeakRules = {
   weekendFrom: 0,
   weekendUntil: 24,
   holidays: [],
-  slotHours: 1,
 };
 
 /**
@@ -206,8 +200,18 @@ export function slotStartsAt(date: string, hour: number, zone: string = installZ
   return new Date(at);
 }
 
-/** A slot's length in hours: 1 by the hour, 0.5 by the half hour. */
-export const slotHours = (slotMinutes: number) => slotMinutes / 60;
+/**
+ * How time is kept: every court's diary is in half hours, whatever it is sold
+ * by (ADR 0008). A booking of 10–11 holds the slots 10 and 10.5; a block, a
+ * class or an outage covers each half it falls on. What a customer may pick
+ * is the sport's own unit (`sellUnit` in lib/store.ts), made of these.
+ */
+export const SLOT = 0.5;
+
+/** The half hours that slots of `unit` hours starting at `hours` cover: [10, 11] by the hour is 10, 10.5, 11, 11.5. */
+export function expandSlots(hours: number[], unit: number): number[] {
+  return hours.flatMap((h) => slotsBetween(h, h + unit, SLOT));
+}
 
 /** The slots from `start` up to `end`, each `step` hours long: 18, 18.5, 19… */
 export function slotsBetween(start: number, end: number, step = 1): number[] {

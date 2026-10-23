@@ -8,7 +8,7 @@ A reference to every one of the application's own HTTP routes: each is a `route.
 | ------ | --------------------- | -------------------------------------------------- |
 | GET    | `/api/health`         | `{ok}` while the database answers, `503` when it does not |
 | GET    | `/api/venues`         | All venues with their courts                        |
-| GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → hourly grid    |
+| GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → each court's grid, in the `unit` its sport is sold by (1 or 0.5 hours) |
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
 | GET    | `/api/classes`        | `?venueId=&sport=&from=&to=` → upcoming classes     |
 | POST   | `/api/classes/enrol`  | `{classId, name, phone, email?}` → take a place     |
@@ -151,7 +151,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/receipts/einvoice` | `{ ref, t, name, tin, idType, idNumber, sst?, email, phone, addressLine, city, postcode, stateCode }` → an LHDN e-invoice made out to the customer for this receipt, sent at once. The receipt's signed link is the proof they hold it |
 | POST | `/api/reviews` | `{ code, t, rating, body? }` → this number's review of the venue, written or written again |
 | GET | `/api/sports` | The sports somebody here offers, in the usual order (on a storefront, its venues'), for the sport choices on search, classes and games |
-| GET | `/api/search` | `?sport=&date=&from=&to=&duration=&area=`, or `&near=lat,lng&km=` in place of an area → free courts, one result per venue and start time. `duration` is in half hours (1.5 for padel), found at venues that sell half hours |
+| GET | `/api/search` | `?sport=&date=&from=&to=&duration=&area=`, or `&near=lat,lng&km=` in place of an area → free courts, one result per venue and start time. `duration` is in half hours (1.5 for padel), found where the sport is sold by the half hour |
 | POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
 | GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
 | GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry |
@@ -310,10 +310,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/reviews` | `{ venueId, action }`: - `reply` with `id`, `text` (empty takes the reply away); - `report` with `id`, `reason`: ask the platform to look at it; - `requests` with `on`: email customers once after a first visit, or not; - `hide` with `id`, `reason`, or `show` with `id`: the platform's owners only |
 | GET | `/api/admin/setup` | How far this venue has got with setting itself up |
 | POST | `/api/admin/setup` | `{ venueId?, action: "detailsChecked" \| "dismiss" }` |
-| GET | `/api/admin/slot-length` | `?venueId` → whether the venue sells by the hour or the half hour |
+| GET | `/api/admin/slot-length` | `?venueId` → whether the venue's sports are sold by the hour or the half hour, unless a sport has its own |
 | POST | `/api/admin/slot-length` | `{ venueId, minutes }`: 60 or 30 |
 | GET | `/api/admin/sport-rules` | `?venueId` → each sport's own rules here, over the venue's |
-| POST | `/api/admin/sport-rules` | `{ venueId, sport, cutoffHours, lateKeep, peak }`, each null for the venue's (managers) |
+| POST | `/api/admin/sport-rules` | `{ venueId, sport, cutoffHours, lateKeep, peak, slotMinutes }`, each null for the venue's (managers); `slotMinutes` 60 or 30 |
 | GET | `/api/admin/storefronts` | Every storefront: domain, name, look and venues (platform owner) |
 | POST | `/api/admin/storefronts` | Create, or with `id` update: `{ id?, hostname, name, tagline?, accentColor?, logoUrl?, venueIds }` |
 | DELETE | `/api/admin/storefronts` | `?id=` |
@@ -353,9 +353,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/v1/availability` | `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price and whether they are free |
+| GET | `/api/v1/availability` | `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price and whether they are free. Each court's `unit` (1 or 0.5 hours) is what its sport is sold by: how long each slot is, and what a booking's `hours` are starts of |
 | GET | `/api/v1/bookings` | `?from=&to=` (at most 31 days) → the venue's bookings, cancelled ones included |
-| POST | `/api/v1/bookings` | `{ courtId, date, hours: [9, 10], name, phone, email? }` → a booking, as the venue's own system makes it (write keys). The customer is sent the usual confirmation. Unpaid; the venue settles it as any other |
+| POST | `/api/v1/bookings` | `{ courtId, date, hours: [9, 10], name, phone, email? }`, `hours` in the court's `unit` → a booking, as the venue's own system makes it (write keys). The customer is sent the usual confirmation. Unpaid; the venue settles it as any other |
 | GET | `/api/v1/bookings/:code` | One of the venue's bookings, by its code |
 | POST | `/api/v1/bookings/:code/cancel` | Cancel one of the venue's bookings, as its staff would (write keys). The customer is told |
 | GET | `/api/v1/venue` | The key's venue: its details, hours and courts with their rates |

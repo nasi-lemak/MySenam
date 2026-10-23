@@ -4,6 +4,7 @@ process.env.MYSENAM_DB = ":memory:";
 
 import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
+import { setSportRules } from "../src/lib/sport-rules";
 import { DICTIONARIES, LOCALES, type Phrase } from "../src/lib/i18n";
 import { SURFACE_SPORTS } from "../src/lib/facilities";
 import {
@@ -22,7 +23,8 @@ import { GET as sportsGet } from "../src/app/api/sports/route";
 
 /**
  * The sports a court can be: the racquet and team sports Malaysian and
- * Singaporean venues sell, padel among them in its 90-minute games (ADR 0008).
+ * Singaporean venues sell, padel among them in its 90-minute games, sold by
+ * the half hour wherever it is (ADR 0009).
  */
 
 const ADDED: Sport[] = ["padel", "squash", "table_tennis", "football", "basketball", "volleyball", "netball", "sepak_takraw"];
@@ -94,19 +96,30 @@ describe("padel's 90 minutes", () => {
   });
 
   it("are found at a venue selling half hours, starting on the hour and the half hour", async () => {
-    const found = await searchAvailability({ sport: "padel", date, venueIds: [halfHourVenue, hourVenue], fromHour: 9, toHour: 11, duration: 1.5 });
+    const found = await searchAvailability({ sport: "padel", date, venueIds: [halfHourVenue], fromHour: 9, toHour: 11, duration: 1.5 });
     expect(found.every((r) => r.court.id === padel && r.endHour - r.startHour === 1.5)).toBe(true);
     expect(found.map((r) => r.startHour)).toEqual([9, 9.5, 10, 10.5, 11]);
     // 90 minutes at 80 an hour.
     expect(found[0].totalPrice).toBe(120);
   });
 
-  it("are not offered where a venue sells whole hours, which cannot make them", async () => {
+  it("are found where the venue sells its other sports by the hour, padel being sold by the half hour", async () => {
+    const found = await searchAvailability({ sport: "padel", date, venueIds: [hourVenue], fromHour: 9, toHour: 10, duration: 1.5 });
+    expect(found.map((r) => [r.venue.id, r.startHour, r.endHour])).toEqual([
+      [hourVenue, 9, 10.5],
+      [hourVenue, 9.5, 11],
+      [hourVenue, 10, 11.5],
+    ]);
+  });
+
+  it("are not offered where the venue sells padel by the hour, which cannot make them", async () => {
+    expect(await setSportRules(hourVenue, "padel", { slotMinutes: 60 })).toMatchObject({ ok: true });
     const found = await searchAvailability({ sport: "padel", date, venueIds: [hourVenue], fromHour: 9, toHour: 12, duration: 1.5 });
     expect(found).toEqual([]);
     const hours = await searchAvailability({ sport: "padel", date, venueIds: [hourVenue], fromHour: 9, toHour: 9, duration: 2 });
     // One result per venue and start time: here the cheaper of its two padel courts.
     expect(hours.map((r) => [r.venue.id, r.court.sport, r.endHour - r.startHour])).toEqual([[hourVenue, "padel", 2]]);
+    expect(await setSportRules(hourVenue, "padel", {})).toMatchObject({ ok: true, rules: null });
   });
 
   it("can be booked, and the game after it found back to back", async () => {

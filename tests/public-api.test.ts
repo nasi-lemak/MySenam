@@ -80,6 +80,8 @@ describe("the public API", () => {
   it("reads availability and bookings, a month at most", async () => {
     const av = await (await availabilityGet(call(`/api/v1/availability?date=${day}`, readKey))).json();
     expect(av.courts[0].slots.some((s: { available: boolean }) => s.available)).toBe(true);
+    // A badminton court at a venue selling hours: slots, and booking starts, an hour apart.
+    expect(av.courts[0].unit).toBe(1);
     expect((await bookingsGet(call(`/api/v1/bookings?from=${day}&to=${addDays(day, 40)}`, readKey))).status).toBe(400);
   });
 

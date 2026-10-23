@@ -629,6 +629,8 @@ export interface LiveOccupancy {
 
 export interface CourtAvailability {
   court: Court;
+  /** What the court's sport is sold by here, in hours (1 or 0.5): each slot is that long. */
+  unit: number;
   slots: SlotInfo[];
 }
 

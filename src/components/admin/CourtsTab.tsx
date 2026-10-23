@@ -603,27 +603,26 @@ export function CourtsTab({
         >
           Add
         </button>
-        <UsualLengthHint sport={newCourt.sport as Sport} slotMinutes={venue?.slotMinutes ?? 60} />
+        <UsualLengthHint sport={newCourt.sport as Sport} />
       </form>
     </div>
   );
 }
 
 /**
- * A sport whose game is not an hour (padel's is 90 minutes): what selling it
- * here takes. Slots stay the venue's, so a mixed hall sells by the half hour
- * and gives this court its own shortest booking (ADR 0008).
+ * A sport whose game is not an hour (padel's is 90 minutes): it is sold by the
+ * half hour, whatever the venue's other sports are, unless Rules by sport says
+ * otherwise (ADR 0008).
  */
-function UsualLengthHint({ sport, slotMinutes }: { sport: Sport; slotMinutes: number }) {
+function UsualLengthHint({ sport }: { sport: Sport }) {
   const hours = usualHours(sport);
   if (hours === 1) return null;
   const length = `${hours * 60} minutes`;
   return (
     <p className="basis-full text-xs text-slate-500">
-      {SPORT_LABELS[sport]} is usually booked for {length}.{" "}
-      {slotMinutes === 30
-        ? `This venue sells by the half hour, so a ${length} game is three halves; to sell nothing shorter, set this court's shortest booking to ${hours} hours once it is added. Courts sold by the hour beside it want an hour as their shortest.`
-        : `This venue sells by the hour, which cannot make a ${length} game. Switch Booked by to half hours (everything already booked stays where it is), then set this court's shortest booking to ${hours} hours if that is all it sells, and the other courts' to an hour.`}
+      {SPORT_LABELS[sport]} is usually booked for {length}, so it is sold by the half hour here whatever the venue&apos;s other
+      sports are sold by (Rules by sport can change that). To sell nothing shorter than a game, set this court&apos;s shortest
+      booking to {hours} hours once it is added.
     </p>
   );
 }

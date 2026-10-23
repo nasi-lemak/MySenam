@@ -2,7 +2,7 @@ import { getDb } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { refundCancelled } from "./payments";
 import { adminCancelBooking, blockSlots, getCourt, venueHours } from "./store";
-import { isPastSlot, isValidDateString, slotsBetween, todayISO } from "./time";
+import { isPastSlot, isValidDateString, SLOT, slotsBetween, todayISO } from "./time";
 import type { Booking } from "./types";
 
 /**
@@ -37,7 +37,7 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
     const court = await getCourt(id);
     if (!court || court.venueId !== input.venueId) return { ok: false, error: "Those courts are not all at this venue." };
   }
-  const { openHour, closeHour, step, zone } = await venueHours(input.venueId, input.date);
+  const { openHour, closeHour, zone } = await venueHours(input.venueId, input.date);
   if (!(input.fromHour < input.untilHour) || input.fromHour < openHour || input.untilHour > closeHour)
     return { ok: false, error: "Give hours inside the day's opening hours, the first before the last." };
 
@@ -75,11 +75,11 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
     cancelled.push(done.booking);
   }
   // Nobody books what is left of those hours meanwhile.
-  const hours = slotsBetween(input.fromHour, input.untilHour, step).filter((h) => !isPastSlot(input.date, h, zone));
+  const hours = slotsBetween(input.fromHour, input.untilHour, SLOT).filter((h) => !isPastSlot(input.date, h, zone));
   let blocked = 0;
   const reason = (input.reason ?? "").trim().slice(0, 80) || "Rained off";
   if (hours.length > 0)
-    for (const id of courtIds) if ((await blockSlots(id, input.date, hours, reason)).ok) blocked++;
+    for (const id of courtIds) if ((await blockSlots(id, input.date, hours, reason, undefined, SLOT)).ok) blocked++;
   await tickOutbox();
   return { ok: true, bookings: cancelled, classes: classesOff, blocked };
 }

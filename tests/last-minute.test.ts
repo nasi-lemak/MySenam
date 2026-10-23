@@ -51,9 +51,9 @@ describe("the rule", () => {
 
   it("prices only a booking being made, not one already made", () => {
     const court = { offPeakRate: 20, peakRate: 30, memberOffPeakRate: 16, memberPeakRate: null } as Parameters<typeof computePrice>[0];
-    expect(computePrice(court, day, [10], false, rules, start - 3_600_000)).toBe(15);
-    expect(computePrice(court, day, [10], true, rules, start - 3_600_000)).toBe(12);
-    expect(computePrice(court, day, [10], false, rules)).toBe(20);
+    expect(computePrice(court, day, [10, 10.5], false, rules, start - 3_600_000)).toBe(15);
+    expect(computePrice(court, day, [10, 10.5], true, rules, start - 3_600_000)).toBe(12);
+    expect(computePrice(court, day, [10, 10.5], false, rules)).toBe(20);
   });
 });
 

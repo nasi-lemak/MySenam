@@ -4,8 +4,9 @@ import { launch } from "./browser";
 
 /**
  * Sports on the production build: a customer is offered only the sports
- * somebody has a court for, and padel is searched for in its 90-minute games
- * at a venue selling half hours (ADR 0008).
+ * somebody has a court for, and padel is searched for in its 90-minute games,
+ * sold by the half hour at a venue that sells its other sports by the hour
+ * (ADR 0009).
  */
 
 const url = inject("e2eUrl");
@@ -57,14 +58,13 @@ describe("sports", () => {
     await page.close();
   });
 
-  it("finds padel's 90-minute games, on the half hour too, once a venue sells it", async () => {
+  it("finds padel's 90-minute games, on the half hour too, at a venue selling hours", async () => {
     const { venue } = (await admin("/api/admin/venues", {
       name: "E2E Padel Club",
       area: "Mont Kiara",
       address: "1 Jalan Padel",
       phone: "0312345678",
     })) as { venue: { id: number } };
-    await admin("/api/admin/slot-length", { venueId: venue.id, minutes: 30 });
     await admin("/api/admin/courts", { venueId: venue.id, name: "Padel 1", sport: "padel", offPeakRate: 80, peakRate: 80 });
 
     const { sports } = (await (await fetch(`${url}/api/sports`)).json()) as { sports: string[] };

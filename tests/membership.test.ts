@@ -128,18 +128,18 @@ describe("member rates", () => {
     const court = (await venue()).courts.find((c) => c.sport === "badminton")!;
     expect(hasMemberRate(court)).toBe(false);
     // With no member rate, a member pays the public price.
-    expect(computePrice(court, weekday, [10], true)).toBe(computePrice(court, weekday, [10], false));
+    expect(computePrice(court, weekday, [10, 10.5], true)).toBe(computePrice(court, weekday, [10, 10.5], false));
 
     expect(await updateCourt(court.id, { memberOffPeakRate: 10 })).toMatchObject({ ok: true });
     const rated = (await getCourt(court.id))!;
     expect(hasMemberRate(rated)).toBe(true);
-    expect(computePrice(rated, weekday, [10], true)).toBe(10);
-    expect(computePrice(rated, weekday, [10], false)).toBe(rated.offPeakRate);
+    expect(computePrice(rated, weekday, [10, 10.5], true)).toBe(10);
+    expect(computePrice(rated, weekday, [10, 10.5], false)).toBe(rated.offPeakRate);
 
     // Peak is untouched until its own member rate is set.
-    expect(computePrice(rated, weekday, [19], true)).toBe(rated.peakRate);
+    expect(computePrice(rated, weekday, [19, 19.5], true)).toBe(rated.peakRate);
     await updateCourt(court.id, { memberPeakRate: 18 });
-    expect(computePrice((await getCourt(court.id))!, weekday, [19], true)).toBe(18);
+    expect(computePrice((await getCourt(court.id))!, weekday, [19, 19.5], true)).toBe(18);
 
     // Clearing it puts members back on the public rate.
     await updateCourt(court.id, { memberOffPeakRate: null, memberPeakRate: null });
@@ -202,7 +202,7 @@ describe("member rates", () => {
     });
     expect(after).toMatchObject({ ok: true });
     if (after.ok)
-      expect(after.booking.totalPrice).toBe(computePrice((await getCourt(court.id))!, lapsedDate, [14], false));
+      expect(after.booking.totalPrice).toBe(computePrice((await getCourt(court.id))!, lapsedDate, [14, 14.5], false));
 
     await updateCourt(court.id, { memberOffPeakRate: null, memberPeakRate: null });
   });
