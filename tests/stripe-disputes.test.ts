@@ -5,13 +5,22 @@ process.env.MYSENAM_DB = ":memory:";
 process.env.MYSENAM_URL = "https://book.example.sg";
 process.env.MYSENAM_COUNTRY = "SG";
 
+const emails: { to: string; subject: string; text: string }[] = [];
+vi.mock("../src/lib/transports", async (original) => ({
+  ...(await original<typeof import("../src/lib/transports")>()),
+  sendPlainEmail: async (to: string, subject: string, text: string) => {
+    emails.push({ to, subject, text });
+    return true;
+  },
+}));
+
 import { NextRequest } from "next/server";
 import { createAdmin } from "../src/lib/admin-auth";
 import { documentFor } from "../src/lib/documents";
 import { disputesFor, savePaymentSettings, settleBill, startBookingPayment, startTopUpPayment } from "../src/lib/payments";
 import { registerUser } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { cancelBooking, createBooking, createCourt, createVenue, findBooking, getWalletBalance } from "../src/lib/store";
+import { cancelBooking, createBooking, createCourt, createVenue, findBooking, getWalletBalance, setPaymentStatus } from "../src/lib/store";
 import { setHoldPolicy } from "../src/lib/holds";
 import { salesJournal } from "../src/lib/accounting";
 import { addDays, todayISO } from "../src/lib/time";
@@ -27,6 +36,8 @@ const SECRET = "whsec_disputesecret1234567890";
 let venueId: number;
 let courtId: number;
 let n = 0;
+// Payment pages have their own count, so each paid booking below takes the next free hour.
+let pages = 0;
 
 function fakeStripe() {
   vi.stubGlobal(
@@ -37,7 +48,7 @@ function fakeStripe() {
         return Response.json({ object: "list", data: [{ id: pi.replace("pi_for_", "") }] });
       }
       if (init.method === "POST") {
-        const id = `cs_test_disputed${++n}`;
+        const id = `cs_test_disputed${++pages}`;
         return Response.json({ id, url: `https://checkout.stripe.com/c/pay/${id}` });
       }
       const id = decodeURIComponent(url.split("/").pop()!);
@@ -195,6 +206,66 @@ describe("a chargeback", () => {
     }
   });
 
+  it("lost on a deposit after the rest was paid at the counter: the cash stands, the deposit is owed again", async () => {
+    fakeStripe();
+    expect((await setHoldPolicy(venueId, { on: true, depositPercent: 30 })).ok).toBe(true);
+    try {
+      const made = await createBooking({ courtId, date: addDays(todayISO(), 6), hours: [9], name: "Counter Payer", phone: "91238003" });
+      if (!made.ok) throw new Error(made.error);
+      const started = await startBookingPayment({ codes: [made.booking.code], phone: made.booking.phone, deposit: true });
+      if (!started.ok) throw new Error("payment");
+      const billId = started.url.split("/").pop()!;
+      await settleBill({ billId, paid: true, paidAt: null });
+      expect((await setPaymentStatus(made.booking.code, true, "cash")).ok).toBe(true);
+      const net = async () => (await salesJournal(venueId, todayISO(), todayISO())).reduce((sum, r) => sum + r.gross, 0);
+      const before = await net();
+
+      await send("charge.dispute.closed", { id: "dp_12", payment_intent: `pi_for_${billId}`, amount: 600, reason: "fraudulent", status: "lost" });
+      const after = (await findBooking(made.booking.code, made.booking.phone))!;
+      expect(after.paymentStatus).toBe("unpaid");
+      const due = (await getDb().prepare("SELECT (total_price - shares_paid)::float AS due FROM bookings WHERE id = ?").get(made.booking.id)) as {
+        due: number;
+      };
+      expect(due.due).toBe(6);
+      // The cash taken at the counter keeps its receipt; the deposit's is credited.
+      const cash = (await documentFor(`booking-paid:${made.booking.id}:${await paymentId(billId)}`))!;
+      expect(cash).toMatchObject({ total: 14, paidVia: expect.stringMatching(/cash/i) });
+      const deposit = (await documentFor(`payment:${await paymentId(billId)}`))!;
+      expect(await creditNoteFor(deposit.number)).toMatchObject({ total: 6, note: "receipt.why.disputed" });
+      expect((await net()) - before).toBe(-6);
+
+      // Collected again at the counter: a receipt for what was owed, and the books whole.
+      expect((await setPaymentStatus(made.booking.code, true, "cash")).ok).toBe(true);
+      expect((await net()) - before).toBe(0);
+    } finally {
+      await setHoldPolicy(venueId, { on: false });
+    }
+  });
+
+  it("lost on a deposit for a booking since called off: nothing more is owed", async () => {
+    fakeStripe();
+    expect((await setHoldPolicy(venueId, { on: true, depositPercent: 30 })).ok).toBe(true);
+    try {
+      const made = await createBooking({ courtId, date: addDays(todayISO(), 6), hours: [10], name: "Called Off", phone: "91238004" });
+      if (!made.ok) throw new Error(made.error);
+      const started = await startBookingPayment({ codes: [made.booking.code], phone: made.booking.phone, deposit: true });
+      if (!started.ok) throw new Error("payment");
+      const billId = started.url.split("/").pop()!;
+      await settleBill({ billId, paid: true, paidAt: null });
+      expect((await setPaymentStatus(made.booking.code, true, "cash")).ok).toBe(true);
+      expect((await cancelBooking(made.booking.code, made.booking.phone)).ok).toBe(true);
+      await send("charge.dispute.closed", { id: "dp_13", payment_intent: `pi_for_${billId}`, amount: 600, reason: "fraudulent", status: "lost" });
+      const row = (await getDb().prepare("SELECT status, payment_status FROM bookings WHERE id = ?").get(made.booking.id)) as {
+        status: string;
+        payment_status: string;
+      };
+      expect(row.status).toBe("cancelled");
+      expect(await documentFor(`booking-paid:${made.booking.id}:${await paymentId(billId)}`)).toBeNull();
+    } finally {
+      await setHoldPolicy(venueId, { on: false });
+    }
+  });
+
   it("lost in part: only the part disputed is taken back", async () => {
     const { booking, billId } = await paidBooking();
     await send("charge.dispute.closed", { id: "dp_8", payment_intent: `pi_for_${billId}`, amount: 500, reason: "general", status: "lost" });
@@ -250,5 +321,54 @@ describe("the set-up a venue follows", () => {
     const { stripe, HANDLED_EVENTS } = await import("../src/lib/gateways/stripe");
     expect(HANDLED_EVENTS).toEqual(expect.arrayContaining(["charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"]));
     for (const event of HANDLED_EVENTS) expect(stripe.setup).toContain(event);
+  });
+});
+
+describe("a chargeback on what a venue paid the platform", () => {
+  const PLATFORM_SECRET = "whsec_platformsecret1234567890";
+
+  it("is written down and put to the platform owners, not the venue, and changes nothing by itself", async () => {
+    vi.stubEnv("MYSENAM_PAYMENT_PROVIDER", "stripe");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_platformkey123456");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", PLATFORM_SECRET);
+    try {
+      fakeStripe();
+      await createAdmin({ name: "Owner", email: "owner@platform.sg", password: "long enough password", venueId: null });
+      const db = getDb();
+      const invoice = (await db
+        .prepare(
+          `INSERT INTO venue_invoices (venue_id, period, amount, status, issued_on, due_on, paid_at, paid_via)
+           VALUES (?, '2026-09', 99, 'paid', '2026-10-01', '2026-10-15', '2026-10-02 10:00:00', 'online') RETURNING id`
+        )
+        .get(venueId)) as { id: number };
+      await db
+        .prepare(
+          `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, purpose, invoice_id, status)
+           VALUES ('stripe', 'cs_test_invoicepaid', 'https://checkout.stripe.com/c/pay/x', ?, 99, 'Mgr', 'invoice', ?, 'paid')`
+        )
+        .run(venueId, invoice.id);
+      emails.length = 0;
+
+      const dispute = { id: "dp_platform", payment_intent: "pi_for_cs_test_invoicepaid", amount: 9900, reason: "general" };
+      const opened = await send("charge.dispute.created", { ...dispute, status: "needs_response" }, PLATFORM_SECRET);
+      expect(opened.status).toBe(200);
+      expect(emails.map((e) => e.to)).toEqual(["owner@platform.sg"]);
+      expect(emails[0].text).toContain(`its invoice (number ${invoice.id})`);
+      // Not the venue's to answer, nor shown among its customers' disputes.
+      expect((await disputesFor(venueId)).find((d) => d.providerDisputeId === "dp_platform")).toBeUndefined();
+
+      emails.length = 0;
+      await send("charge.dispute.closed", { ...dispute, status: "lost" }, PLATFORM_SECRET);
+      await send("charge.dispute.closed", { ...dispute, status: "lost" }, PLATFORM_SECRET);
+      expect(emails.map((e) => e.subject)).toEqual([expect.stringContaining("Dispute lost")]);
+      const row = (await db.prepare("SELECT outcome FROM payment_disputes WHERE provider_dispute_id = 'dp_platform'").get()) as { outcome: string };
+      expect(row.outcome).toBe("lost");
+      expect(((await db.prepare("SELECT status FROM venue_invoices WHERE id = ?").get(invoice.id)) as { status: string }).status).toBe("paid");
+
+      // Signed by nobody we know: still refused.
+      expect((await send("charge.dispute.created", { ...dispute, id: "dp_forged", status: "needs_response" }, "whsec_somebodyelse12345678")).status).toBe(400);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

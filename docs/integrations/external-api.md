@@ -48,7 +48,10 @@ there when an address is added are not sent.
 - **Only the public internet:** the address must be HTTPS, and a host that
   resolves to a private, loopback, link-local or similar address is refused
   when sending, so a webhook cannot be pointed at the server's own network.
-  Redirects are not followed.
+  The check is made by the lookup the connection itself uses, and the
+  connection goes to an address that passed it (`pinnedLookup` in
+  `src/lib/webhooks.ts`), so a name that answers differently a moment later
+  (DNS rebinding) cannot get past it. Redirects are not followed.
 
 ## Reserve with Google (readiness only)
 

@@ -865,6 +865,11 @@ const EN = {
     "on the same page. Upcoming bookings made from the account are cancelled and your name comes off the past ones. A booking you made as a guest, without signing in, is not linked to the account — ask the venue to remove those. If a venue still owes you credit, a pass or a membership, settle that first: we will not erase the record of whose money it is.",
   "privacy.doGuestLead": "Book without an account at all.",
   "privacy.doGuestBody": "A name and a phone number is enough, and then there is no account to close.",
+  "privacy.contactTitle": "Who to write to",
+  "privacy.contactBody":
+    "{name} is responsible for what this site holds about you. To ask what it holds, to have it corrected, or to complain about how it is used, write to:",
+  "privacy.draftBodyNamed":
+    "This notice describes what the software actually does, which is the hard part — but it is not legal advice. It is written for {dataAct}, but no lawyer has checked it, or any translation of it. Have a lawyer read it before taking a real customer's booking.",
   "privacy.draftTitle": "Before this site goes live",
   "privacy.draftBody":
     "This notice describes what the software actually does, which is the hard part — but it is not legal advice and it is not finished. It is written for {dataAct}, but no lawyer has checked it, or any translation of it, and there is still no named person to write to. Add both, and have a lawyer read it, before taking a real customer's booking.",
@@ -2301,6 +2306,11 @@ const MS: Record<Phrase, string> = {
   "privacy.doGuestLead": "Tempah tanpa akaun langsung.",
   "privacy.doGuestBody":
     "Nama dan nombor telefon sudah memadai, dan kemudian tiada akaun untuk ditutup.",
+  "privacy.contactTitle": "Siapa yang boleh dihubungi",
+  "privacy.contactBody":
+    "{name} bertanggungjawab atas apa yang laman ini simpan tentang anda. Untuk bertanya apa yang disimpan, meminta ia dibetulkan, atau membuat aduan tentang cara ia digunakan, tulis kepada:",
+  "privacy.draftBodyNamed":
+    "Notis ini menerangkan apa yang perisian ini benar-benar lakukan, iaitu bahagian yang sukar — tetapi ia bukan nasihat guaman. Ia ditulis untuk {dataAct}, tetapi belum disemak oleh peguam, begitu juga terjemahannya. Minta peguam membacanya sebelum menerima tempahan pelanggan sebenar.",
   "privacy.draftTitle": "Sebelum laman ini beroperasi",
   "privacy.draftBody":
     "Notis ini menerangkan apa yang perisian ini benar-benar lakukan, iaitu bahagian yang sukar — tetapi ia bukan nasihat guaman dan ia belum selesai. Ia ditulis untuk {dataAct}, tetapi belum disemak oleh peguam, begitu juga terjemahannya, dan masih tiada nama orang yang boleh dihubungi. Tambah kedua-duanya, dan minta peguam membacanya, sebelum menerima tempahan pelanggan sebenar.",

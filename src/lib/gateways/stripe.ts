@@ -222,6 +222,7 @@ export const stripe: PaymentGateway = {
   },
 
   async refund(account, request): Promise<RefundResult> {
+    let asked = false;
     try {
       const session = await call(account, "GET", `/checkout/sessions/${encodeURIComponent(request.billId)}`);
       if (!session.payment_intent) return { ok: false, error: "Stripe has no payment on that page to refund." };
@@ -230,6 +231,7 @@ export const stripe: PaymentGateway = {
         amount: String(Math.round(request.amount * 10 ** request.currency.minorUnits)),
         "metadata[mysenam_bill]": request.billId,
       });
+      asked = true;
       const refund = await call<Refund>(account, "POST", "/refunds", form, request.idempotencyKey);
       if (refund.status === "failed" || refund.status === "canceled")
         return { ok: false, error: `Stripe could not make that refund (${refund.status}). Refund it in Stripe instead.` };
@@ -240,7 +242,19 @@ export const stripe: PaymentGateway = {
           ok: false,
           error: "The venue's Stripe key cannot make refunds. Edit the restricted key in Stripe and set Refunds to Write, or refund it in Stripe and mark it refunded.",
         };
-      return { ok: false, error: err instanceof Error ? err.message : "Stripe could not be reached. Try again." };
+      // Sent, and no clear answer: no reply, Stripe's own error, an answer we
+      // could not read, or the same key still being worked on (409).
+      const unknown =
+        asked && (!(err instanceof StripeError) || err.status >= 500 || err.status === 409 || (err.status >= 200 && err.status < 300));
+      return {
+        ok: false,
+        error: unknown
+          ? "Stripe did not say whether it made that refund. It will be asked again in a few minutes, under the same key, so it is made once."
+          : err instanceof Error
+            ? err.message
+            : "Stripe could not be reached. Try again.",
+        ...(unknown ? { unknown: true } : {}),
+      };
     }
   },
 

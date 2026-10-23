@@ -25,7 +25,7 @@ Several servers sharing one database do not need this: only the instance
 holding the scheduler's lease does scheduled work
 ([architecture](../architecture/overview.md#more-than-one-instance)). With the
 scheduler off, the rest of its work (sending messages, releasing unpaid holds,
-invoices, offers) happens only lazily, when requests or dashboard buttons
+settling interrupted refunds, invoices, offers) happens only lazily, when requests or dashboard buttons
 trigger it (`src/lib/scheduler.ts`). The backup then needs a cron line such as:
 
 ```cron

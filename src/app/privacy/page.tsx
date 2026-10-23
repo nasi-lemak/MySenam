@@ -26,8 +26,16 @@ function heldRows(t: T) {
   }));
 }
 
+/** Who answers for the data, from the same OPERATOR_* settings as the terms. Named only with a way to write to them. */
+function dataUser(): { name: string; address: string | null; email: string } | null {
+  const name = process.env.OPERATOR_NAME?.trim();
+  const email = process.env.OPERATOR_EMAIL?.trim();
+  return name && email ? { name, address: process.env.OPERATOR_ADDRESS?.trim() || null, email } : null;
+}
+
 export default async function PrivacyPage() {
   const t = await serverT();
+  const contact = dataUser();
 
   return (
     <div className="mx-auto max-w-2xl space-y-8 py-2">
@@ -104,9 +112,29 @@ export default async function PrivacyPage() {
         </ul>
       </section>
 
+      {contact && (
+        <section>
+          <h2 className="text-lg font-bold">{t("privacy.contactTitle")}</h2>
+          <p className="mt-2 text-sm text-slate-700">{t("privacy.contactBody", { name: contact.name })}</p>
+          <address className="mt-2 text-sm not-italic text-slate-700">
+            {contact.name}
+            {contact.address && (
+              <>
+                <br />
+                {contact.address}
+              </>
+            )}
+            <br />
+            <a className="underline" href={`mailto:${contact.email}`}>
+              {contact.email}
+            </a>
+          </address>
+        </section>
+      )}
+
       <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
         <h2 className="text-sm font-bold text-amber-900">{t("privacy.draftTitle")}</h2>
-        <p className="mt-1 text-sm text-amber-800">{t("privacy.draftBody")}</p>
+        <p className="mt-1 text-sm text-amber-800">{t(contact ? "privacy.draftBodyNamed" : "privacy.draftBody")}</p>
       </section>
     </div>
   );

@@ -156,7 +156,7 @@ Authoritative: [authentication](../architecture/authentication.md), [privacy](..
 | Phone verification | IMPLEMENTED_AND_TESTED | Inbound WhatsApp token or a code by SMS or WhatsApp; caps | `src/lib/phone-check.ts` | `tests/phone-methods.test.ts`, `tests/sign-in.test.ts` | Live channels below |
 | Account page and phone-is-not-identity guards | IMPLEMENTED_AND_TESTED | Passes, memberships, wallet keyed on the account | `src/app/account`, `src/app/api/my/passes/route.ts` | `tests/impersonation.test.ts` | — |
 | Data export, erasure, retention | IMPLEMENTED_AND_TESTED | Export and close account (books kept); retention schedule | `src/lib/privacy.ts` | `tests/privacy.test.ts`, `tests/data-request.test.ts` | Erasure clears only what is provably the account's; rows sharing just a phone number wait for retention |
-| Privacy notice and terms | PARTIALLY_IMPLEMENTED | Pages describe what the software does | `src/app/privacy/page.tsx`, `src/app/terms/page.tsx` | — | Drafts; need a lawyer, a Malay version and a named contact |
+| Privacy notice and terms | PARTIALLY_IMPLEMENTED | Pages describe what the software does; the notice is in all four languages and names the operator to write to from `OPERATOR_*` | `src/app/privacy/page.tsx`, `src/app/terms/page.tsx` | `tests/privacy-notice.test.tsx` | Drafts: no lawyer has read them or any translation; the terms are in English only |
 
 ## Staff, roles and tenancy
 
@@ -203,7 +203,7 @@ Authoritative: [discovery](../features/discovery.md), [marketplace](marketplace.
 | Storefront domains | IMPLEMENTED_AND_TESTED | Branded subset by hostname | `src/lib/storefront.ts`, `src/app/api/tls-check/route.ts` | `tests/storefront.test.ts` | A window, not a data wall |
 | Venue sign-up and location checks | IMPLEMENTED_AND_TESTED | Apply, confirm email, pin and address checks | `src/lib/applications.ts` | `tests/applications.test.ts` | Geocoder live-unverified |
 | Drafts and going live | IMPLEMENTED_AND_TESTED | Draft hidden; owner approves | `src/lib/drafts.ts` | `tests/drafts.test.ts` | — |
-| Venue billing, tiers, platform tax | IMPLEMENTED_AND_TESTED | Monthly invoices; tiers by size; operator SST/GST | `src/lib/billing.ts`, `src/lib/plans.ts` | `tests/billing.test.ts`, `tests/plans.test.ts`, `tests/platform-tax.test.ts` | Tier prices are assumptions; disputes on the platform account ignored |
+| Venue billing, tiers, platform tax | IMPLEMENTED_AND_TESTED | Monthly invoices; tiers by size; operator SST/GST | `src/lib/billing.ts`, `src/lib/plans.ts` | `tests/billing.test.ts`, `tests/plans.test.ts`, `tests/platform-tax.test.ts` | Tier prices are assumptions; a lost dispute on the platform account is put to the owners, not undone |
 
 ## Reporting
 
@@ -229,8 +229,8 @@ mocked mail, a fake LHDN, a local fake S3). Authoritative:
 | Billplz callback verification | INTEGRATION_VERIFICATION_REQUIRED | X-Signature on callback and redirect; settled once | `src/app/api/payments/[provider]/callback/route.ts` | `tests/payments.test.ts` | Checked against Billplz's documented example only |
 | Stripe Checkout | INTEGRATION_VERIFICATION_REQUIRED | Session in cents on the venue's key; closes with the hold | `src/lib/gateways/stripe.ts` | `tests/stripe.test.ts` | Key permissions unverified |
 | Stripe webhook and return verification | INTEGRATION_VERIFICATION_REQUIRED | Signature within five minutes; return page re-checks | `src/lib/gateways/stripe.ts`, `src/app/payments/return` | `tests/stripe.test.ts` | — |
-| Stripe refunds | INTEGRATION_VERIFICATION_REQUIRED | One-click and automatic, with an idempotency key | `src/lib/payments.ts` | `tests/stripe-refunds.test.ts` | Needs Refunds: Write |
-| Stripe disputes | INTEGRATION_VERIFICATION_REQUIRED | Recorded once; lost → what it paid for undone | `src/lib/payments.ts` | `tests/stripe-disputes.test.ts` | Needs a test-mode dispute against real Stripe |
+| Stripe refunds | INTEGRATION_VERIFICATION_REQUIRED | One-click and automatic, with an idempotency key; claimed before Stripe is asked, interrupted ones asked again | `src/lib/payments.ts`, `src/lib/scheduler.ts` | `tests/stripe-refunds.test.ts` | Needs Refunds: Write |
+| Stripe disputes | INTEGRATION_VERIFICATION_REQUIRED | Recorded once; lost → what it paid for undone; on the platform's account → owners told | `src/lib/payments.ts` | `tests/stripe-disputes.test.ts` | Needs a test-mode dispute against real Stripe |
 | Stripe membership renewals | INTEGRATION_VERIFICATION_REQUIRED | Subscription per plan; `invoice.paid` → next period | `src/lib/payments.ts` | `tests/membership-renewal.test.ts` | Stripe only |
 | MyInvois connection | INTEGRATION_VERIFICATION_REQUIRED | Venue's own client or platform as intermediary | `src/lib/myinvois/client.ts` | `tests/myinvois.test.ts` | Never tried against LHDN |
 | MyInvois consolidated and credit notes | INTEGRATION_VERIFICATION_REQUIRED | Monthly consolidated documents; large sales alone | `src/lib/myinvois.ts`, `src/lib/myinvois/ubl.ts` | `tests/myinvois.test.ts` | Cancelling done in the portal |
@@ -246,7 +246,7 @@ mocked mail, a fake LHDN, a local fake S3). Authoritative:
 | Geocoding | INTEGRATION_VERIFICATION_REQUIRED | Address and pin lookups, cached | `src/lib/geo.ts` | `tests/geo.test.ts` | Public server's usage policy |
 | Error and alert sinks | INTEGRATION_VERIFICATION_REQUIRED | Sentry envelope; chat webhooks | `src/lib/error-log.ts`, `src/lib/alerts.ts` | `tests/error-log.test.ts` | — |
 | Public API and keys | IMPLEMENTED_AND_TESTED | Read, write and availability keys; venue-scoped | `src/lib/api-keys.ts`, `src/lib/public-api.ts` | `tests/public-api.test.ts` | — |
-| Outgoing signed webhooks | IMPLEMENTED_AND_TESTED | Sweep, HMAC, retries, private addresses refused | `src/lib/webhooks.ts` | `tests/public-api.test.ts` | Address not pinned per connection |
+| Outgoing signed webhooks | IMPLEMENTED_AND_TESTED | Sweep, HMAC, retries, private addresses refused by the connection's own lookup | `src/lib/webhooks.ts` | `tests/public-api.test.ts` | — |
 | Reserve with Google feeds | PARTIALLY_IMPLEMENTED | Merchant, service and availability feeds, downloaded by owners | `src/lib/google-feeds.ts` | `tests/public-api.test.ts` | No upload; field names unchecked; no partner status |
 | Reserve with Google booking server | BLOCKED | Not built | — | — | Actions Center partner approval |
 | Smart-lock credentials | BLOCKED | Not built | — | — | Vendor credentials |

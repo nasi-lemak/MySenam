@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import dns from "dns";
+import https from "https";
 import net from "net";
 import { getDb } from "./db";
 import { tellVenueStaff } from "./owner-alerts";
@@ -22,7 +23,9 @@ import { addDays } from "./time";
  *   to eight times; an endpoint failing for a day is turned off and the
  *   venue's staff told. Each event has an `id` to recognise a repeat by.
  * - **Only to the public internet:** an address must be HTTPS and must not
- *   resolve to a private, loopback or link-local address, checked when sent.
+ *   resolve to a private, loopback or link-local address. The check is the
+ *   lookup the connection itself uses (`pinnedLookup`), so a name that
+ *   answers differently a moment later (DNS rebinding) cannot slip past it.
  */
 
 export const WEBHOOK_EVENTS = ["booking.created", "booking.cancelled", "booking.paid", "booking.changed"] as const;
@@ -253,17 +256,57 @@ export function signature(secret: string, body: string, at: number): string {
   return `t=${at},v1=${crypto.createHmac("sha256", secret).update(`${at}.${body}`).digest("hex")}`;
 }
 
-/** Where a host name points, refused when any of it is not public. */
-async function publicAddress(host: string): Promise<boolean> {
-  if (isPrivate(host)) return false;
-  if (net.isIP(host)) return true;
-  try {
-    const found = await dns.promises.lookup(host, { all: true });
-    return found.length > 0 && found.every((a) => !isPrivate(a.address));
-  } catch {
-    return false;
-  }
+const NOT_PUBLIC = "The address does not lead to the public internet.";
+
+/**
+ * Where a webhook's host is, for the connection itself: every address the
+ * name resolves to must be public, and the connection is made to one of
+ * exactly those. Checking with one lookup and connecting after another would
+ * let a name that changes in between reach the server's own network.
+ */
+export function pinnedLookup(
+  hostname: string,
+  options: dns.LookupOptions,
+  callback: (err: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void
+): void {
+  dns.promises
+    .lookup(hostname, { all: true })
+    .then((all) => {
+      const found = options.family === 4 || options.family === 6 ? all.filter((a) => a.family === options.family) : all;
+      if (found.length === 0 || all.some((a) => isPrivate(a.address))) return callback(Object.assign(new Error(NOT_PUBLIC), { code: "ENOTPUBLIC" }), []);
+      if (options.all) callback(null, found);
+      else callback(null, found[0].address, found[0].family);
+    })
+    .catch((err: NodeJS.ErrnoException) => callback(err, []));
 }
+
+/** How a delivery goes out: one HTTPS POST, its status. A seam for the tests. */
+export const transport = {
+  post(url: URL, headers: Record<string, string>, body: string, timeoutMs = 10_000): Promise<number> {
+    // An address written as a number is not looked up: it is judged as it is.
+    if (net.isIP(url.hostname.replace(/^\[|\]$/g, "")) && isPrivate(url.hostname)) return Promise.reject(new Error(NOT_PUBLIC));
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: url.hostname.replace(/^\[|\]$/g, ""),
+          port: url.port || 443,
+          path: `${url.pathname}${url.search}`,
+          method: "POST",
+          headers: { ...headers, "Content-Length": Buffer.byteLength(body) },
+          lookup: pinnedLookup as never,
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+        (res) => {
+          // Redirects are not followed: the status is the answer.
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        }
+      );
+      req.on("error", reject);
+      req.end(body);
+    });
+  },
+};
 
 /** Send what is due; retry what failed, later. */
 export async function deliverWebhooks(now = new Date()): Promise<{ sent: number; failed: number }> {
@@ -302,18 +345,13 @@ export async function deliverWebhooks(now = new Date()): Promise<{ sent: number;
     const secret = unseal(d.secret);
     try {
       if (!secret) throw new Error("The signing secret cannot be read on this install. Add the address again.");
-      const url = new URL(d.url);
-      if (!(await publicAddress(url.hostname))) throw new Error("The address does not lead to the public internet.");
       const at = Math.floor(now.getTime() / 1000);
-      const res = await fetch(d.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": `${siteName()}-Webhooks/1`, "MySenam-Signature": signature(secret, d.payload, at) },
-        body: d.payload,
-        redirect: "manual",
-        signal: AbortSignal.timeout(10_000),
-      });
-      status = res.status;
-      if (res.status < 200 || res.status >= 300) error = `Answered ${res.status}`;
+      status = await transport.post(
+        new URL(d.url),
+        { "Content-Type": "application/json", "User-Agent": `${siteName()}-Webhooks/1`, "MySenam-Signature": signature(secret, d.payload, at) },
+        d.payload
+      );
+      if (status < 200 || status >= 300) error = `Answered ${status}`;
     } catch (err) {
       error = err instanceof Error ? err.message.slice(0, 300) : "Could not be reached";
     }

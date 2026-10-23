@@ -122,6 +122,13 @@ describe("configuration", () => {
     const unused = table.filter((v) => (v.endsWith("*") ? !code.includes(v.slice(0, -1)) : !new RegExp(`\\b${v}\\b`).test(code)));
     expect(unused).toEqual([]);
   });
+
+  it("puts every one of them in .env.example", () => {
+    const example = read(".env.example");
+    const table = [...config.matchAll(/^\|\s*(`[^|]+`)\s*\|/gm)].flatMap((m) => [...m[1].matchAll(/`([A-Z][A-Z0-9_]+\*?)`/g)].map((x) => x[1]));
+    const absent = table.filter((v) => !new RegExp(`^# ?${v.endsWith("*") ? v.slice(0, -1) + "[A-Z_]+" : v}=`, "m").test(example));
+    expect(absent).toEqual([]);
+  });
 });
 
 describe("the HTTP route reference", () => {
@@ -141,6 +148,16 @@ describe("the HTTP route reference", () => {
       if (!dirs.some((d) => fs.existsSync(path.join(d, "route.ts")))) missing.push(m[1]);
     }
     expect(missing).toEqual([]);
+  });
+
+  it("lists every route.ts", () => {
+    const listed = new Set(
+      [...read("docs/architecture/http-api.md").matchAll(/^\|\s*[A-Z/]+\s*\|\s*`(\/api\/[^`?]*)/gm)].map((m) =>
+        m[1].replace(/\/$/, "").replace(/:[^/]+/g, ":")
+      )
+    );
+    const routes = walk("src/app/api", "/route.ts").map((f) => path.posix.dirname(f).replace(/^src\/app/, "").replace(/\[[^\]]+\]/g, ":"));
+    expect(routes.filter((r) => !listed.has(r)).sort()).toEqual([]);
   });
 });
 

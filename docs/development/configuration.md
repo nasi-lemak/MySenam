@@ -20,7 +20,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_PAYMENT_PROVIDER` | the first of those | The gateway the platform's own account is at, for venues paying invoices and WhatsApp packs online |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | — | The platform's own Stripe account, when `MYSENAM_PAYMENT_PROVIDER=stripe` |
 | `BILLPLZ_API_KEY`, `BILLPLZ_COLLECTION_ID`, `BILLPLZ_X_SIGNATURE_KEY`, `BILLPLZ_SANDBOX` | — | The platform's own Billplz account, for venues paying their invoices online. `BILLPLZ_SANDBOX=on` for test payments |
-| `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms` |
+| `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | — | Who runs the site, for the terms at `/terms`; name, address and email are also the contact in the privacy notice at `/privacy` |
 | `MYSENAM_GEOCODER` | OpenStreetMap's Nominatim | Where venue addresses are looked up: a Nominatim URL of your own, or `off` |
 | `MYSENAM_AUTO_APPROVE_BRANCHES` | — | `on` to approve a business's new branch without the platform owner, when its location checks pass |
 | `MYSENAM_TRUST_FORWARDED_HOST` | — | `on` only behind a proxy that rewrites Host: read the storefront domain from `X-Forwarded-Host` |
@@ -68,7 +68,7 @@ Everything is an environment variable; there is nothing else to configure.
 
 Set by the platform rather than by you, and read by the code: `NODE_ENV` (production checks and the scheduler), `NEXT_RUNTIME` (server instrumentation), `HOSTNAME` (names this instance in the scheduler lease). The test suite also reads `TEST_DATABASE_URL`; see [testing](testing.md).
 
-`.env.example` lists the commonly set variables with comments; copy it to `.env.local`. This table is the complete list.
+`.env.example` names every variable in this table, commented out and grouped, with a line on each; copy it to `.env.local`. This table is the authoritative list, and `tests/docs.test.ts` checks the two agree.
 
 On a production start the server warns about an unset, default or short
 `ADMIN_PASSWORD`, an unset `ADMIN_EMAIL`, and missing off-site backup settings

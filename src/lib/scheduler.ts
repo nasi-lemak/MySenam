@@ -15,6 +15,7 @@ import { notifyCoaches } from "./coach-schedule";
 import { runWebhooks } from "./webhooks";
 import { passOnExpiredOffers } from "./store";
 import { releaseExpiredHolds } from "./holds";
+import { settleRefundClaims } from "./payments";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 import { region } from "./region";
 
@@ -77,6 +78,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] sending messages failed:", err);
     await raiseAlert("scheduler:sending-messages-failed", "Scheduled work failed: sending messages", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // A refund claimed when the app stopped mid-call: asked again under its own key.
+    await settleRefundClaims();
+  } catch (err) {
+    console.error("[mysenam] settling interrupted refunds failed:", err);
+    await raiseAlert("scheduler:settling-refunds-failed", "Scheduled work failed: settling interrupted refunds", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

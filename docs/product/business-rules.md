@@ -79,7 +79,12 @@ change, update this page, and update [feature status](feature-status.md).
   void and renewals stop; on a game or split share, it no longer counts towards
   the booking; on a tournament or league fee, the place is unpaid again.
   On a booking it paid for, the booking owes what went back again; on a
-  deposit, the deposit stops counting towards the booking. A dispute for part
+  deposit, the deposit stops counting towards the booking, and a booking whose
+  rest was paid at the counter, with credit or with a pass is unpaid again for
+  the deposit's part (the counter payment keeps its own receipt). A booking
+  whose rest was paid online stays paid. On what a venue paid the platform
+  (an invoice, a WhatsApp pack), nothing is undone automatically: the
+  platform owners are told and decide. A dispute for part
   of a payment takes back only that part (a membership, entry or league place,
   which cannot be split, goes whole). Nothing more is owed back on a payment
   the bank has already returned, and a lost dispute is acted on once however

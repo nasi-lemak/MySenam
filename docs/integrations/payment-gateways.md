@@ -62,7 +62,11 @@ Stripe account**.
   with the venue's key rather than believing it.
 - **The platform's own account** (venues' fees on a marketplace) is
   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, with
-  `MYSENAM_PAYMENT_PROVIDER=stripe`.
+  `MYSENAM_PAYMENT_PROVIDER=stripe`. Its webhook endpoint is the same address,
+  for the four `checkout.session.*` events and the three `charge.dispute.*`
+  ones: a dispute that checks out under no venue's secret is tried under the
+  platform's, and goes to the platform owners
+  ([chargebacks on what a venue paid the platform](../features/payments-and-credit.md#paying-online)).
 
 Stripe Connect, where a venue presses *Connect with Stripe* instead of
 creating a key and a webhook, would be easier for venues; it needs the platform

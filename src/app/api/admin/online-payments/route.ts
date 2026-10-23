@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { disputesFor, listOnlinePayments, markRefunded, refundOnline, refundsOwed } from "@/lib/payments";
+import { disputesFor, listOnlinePayments, markRefunded, refundOnline, refundsOwed, settleRefundClaims } from "@/lib/payments";
+import { schedulerEnabled } from "@/lib/scheduler";
 import { money } from "@/lib/region";
 import { logAction } from "@/lib/activity";
 
@@ -15,6 +16,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
+  // Without the scheduler, a refund interrupted mid-call is settled when staff look at what is owed.
+  if (!schedulerEnabled()) await settleRefundClaims().catch(() => 0);
   return NextResponse.json({
     payments: await listOnlinePayments(venueId),
     refundsOwed: await refundsOwed(venueId),

@@ -1,6 +1,6 @@
 # HTTP routes (reference)
 
-A reference to the application's own HTTP routes. It is not exhaustive: every route is a `route.ts` under `src/app/api/`, and each route listed here is checked to exist by `tests/docs.test.ts`. The public, key-authenticated API for venues' own systems is in [external API](../integrations/external-api.md).
+A reference to every one of the application's own HTTP routes: each is a `route.ts` under `src/app/api/`, and `tests/docs.test.ts` checks that every route listed here exists and that every route is listed. The description of each is the doc comment on its handler; the code is the final word on fields. The public, key-authenticated API for venues' own systems is in [external API](../integrations/external-api.md).
 
 ## API
 
@@ -127,5 +127,236 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
 | POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
+
+## More routes, by area
+
+### Public pages and booking
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/ack` | `{ token }` — the customer has seen the venue's news |
+| GET | `/api/addons` | What can be added to a booking: `?courtId=&date=&hours=18,19`, or `?venueId=&sport=` in place of a court, or `?classId=` for a class. Rentals say how many are left for those hours |
+| POST | `/api/bookings/split` | `{ code, phone, parts }` → the booking split `parts` ways, and the link to send friends |
+| GET | `/api/classes/term` | `?classId` → the sessions left in this weekly class that can still be joined, and what the term costs |
+| GET | `/api/coaching/slots` | `?coachId&date&sport?` → the slots a lesson with that coach can start in that day |
+| GET | `/api/games` | Open games with room, soonest first: `?sport=&date=&area=&level=&who=women`, or `?near=lat,lng&km=` for nearest. Signed in, each says where you stand in it |
+| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who? }` — open one of your bookings to other players |
+| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, or join outright where the host lets everybody in), "leave", "pay" (your share, online, to the venue — answers with where to pay), or, for its host, "close" |
+| POST | `/api/games/:id/players/:playerId` | `{ action: "accept" \| "decline" \| "remove" \| "no_show" }` — the host about one player |
+| GET | `/api/geocode` | `?q=` — where an address is, so the map on the application and branch forms can open on it. Asked through here rather than from the browser so every lookup shares one queue and one cache |
+| GET | `/api/leagues` | Leagues taking players: `?sport=` |
+| GET | `/api/leagues/:id` | The boxes, the tables and the results, `?season=` for an earlier one; and, signed in, your place and box-mates |
+| POST | `/api/leagues/:id` | `{ action: "join", partnerName? }`, `{ action: "leave" }`, or `{ action: "pay" }` this season's fee |
+| POST | `/api/leagues/:id/matches/:matchId` | A player on one of their own matches: `{ action: "report", winner, score }` (their games first), `{ action: "confirm" }`, or `{ action: "dispute", note }` |
+| POST | `/api/receipts/einvoice` | `{ ref, t, name, tin, idType, idNumber, sst?, email, phone, addressLine, city, postcode, stateCode }` → an LHDN e-invoice made out to the customer for this receipt, sent at once. The receipt's signed link is the proof they hold it |
+| POST | `/api/reviews` | `{ code, t, rating, body? }` → this number's review of the venue, written or written again |
+| GET | `/api/search` | `?sport=&date=&from=&to=&duration=&area=`, or `&near=lat,lng&km=` in place of an area → free courts, one result per venue and start time |
+| POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
+| GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
+| GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry |
+| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }` |
+| POST | `/api/venue-applications` | A venue asking to join. Only a marketplace takes them |
+| POST | `/api/venues/:id/enquiry` | `{ name, phone, email?, kind, wantedOn?, people?, message }`: a private hire enquiry from the venue's page, passed to its staff |
+| GET | `/api/venues/:id/qr` | The venue's booking link as a QR code (SVG), to print or share |
+| GET | `/api/venues/:id/waiver` | The venue's waiver as it stands, or null: whether the booking form asks for it |
+
+### Sign-in, unsubscribing and feeds
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/auth/google` | Off to Google, `?next=` being where to come back to |
+| GET | `/api/auth/google/callback` | Back from Google: signed in, and on to where they were going; or back to sign in, saying why |
+| GET | `/api/auth/providers` | Which ways of signing in this address offers, besides a password |
+| GET | `/api/calendar/:token` | A venue's bookings and classes as an iCalendar feed, for its staff's own calendar apps. The token is the only key: a wrong or withdrawn one finds nothing |
+| GET | `/api/coach-calendar/:token` | A coach's lessons as an iCalendar feed. The token is the only key |
+| POST | `/api/unsubscribe` | `{ token }` from a venue's email → no more news from it; with `confirm`, yes to it. No account needed |
+| POST | `/api/unsubscribe/:token` | One-click unsubscribe from a mail app's own button (RFC 8058): the List-Unsubscribe-Post header on a venue's news says to POST here. Only a POST stops anything, so a scanner fetching links does not |
+
+### Customer account (session cookie)
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/my/about` | Which games the account plays in: woman, man, prefer not to say — or not said yet (null) |
+| POST | `/api/my/about` | `{ gender: "woman" \| "man" \| "unsaid" }` |
+| GET | `/api/my/accounts` | `?venueId` → the company and school accounts here the signed-in customer may charge a booking to |
+| GET | `/api/my/games` | The signed-in player's games: hosting, with who asked; and playing |
+| GET | `/api/my/guests` | The venues this resident can invite guests to, and their guests there now |
+| POST | `/api/my/guests` | `{ venueId, phone, name, days }`: put a guest on the venue's list |
+| DELETE | `/api/my/guests` | `?id=`: take one's own guest off the list |
+| GET | `/api/my/levels` | The signed-in player's level in each sport they have given one for |
+| PUT | `/api/my/levels` | `{ sport, level \| null }` |
+| GET | `/api/my/marketing` | The venues this account agreed to hear from, and whether it still does |
+| POST | `/api/my/marketing` | `{ id }` → stop hearing from that venue |
+| GET | `/api/my/phone` | The account's number, and whether it is checked |
+| POST | `/api/my/phone` | `{ action: "whatsapp", phone }` starts a check by a message the customer sends us from that number on WhatsApp, and returns the link that opens it; `{ action: "send", phone }` sends a code to it by SMS (or WhatsApp); `{ action: "confirm", code }` checks it; `{ action: "save", phone }` keeps it as given, where this install does not check numbers |
+| GET | `/api/my/receipts` | The signed-in customer's receipts and credit notes, newest first, each with its signed link |
+
+### Coaches (by their private link)
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/coach/:token/hours` | `{ hours: [{ weekday, from, until }] }`: a coach sets the hours they take lessons, at the private link the venue gave them. Lessons already booked stand |
+| POST | `/api/coach/:token/time-off` | `{ from, until?, reason? }`: days off, at the coach's own link. What is already booked then is counted, for the venue to move |
+| DELETE | `/api/coach/:token/time-off` | `?id`: back at work those days |
+
+### Payments and providers' webhooks
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/payments` | Open a payment page for one or more of a customer's bookings. `{ code, phone }` or `{ codes: [...], phone }`, with `deposit: true` for the venue's deposit only. Answers with the gateway's URL to send the customer to; the booking is marked paid when the gateway says it was, never because this was called |
+| POST | `/api/payments/:provider/callback` | A gateway, server to server, saying what happened to a payment page: `/api/payments/billplz/callback`, and the like for any other gateway. This is the message that counts: the customer's browser may never come back. It is believed only when it checks out under the key of the account the page was made through, at that same gateway. Gateways retry anything but a 200, so a forged or unknown one is answered 400 and a … |
+| GET | `/api/whatsapp/webhook` | Meta checking the address when it is subscribed |
+| POST | `/api/whatsapp/webhook` | Meta's signed delivery of messages to the platform's number (`WHATSAPP_APP_SECRET`) |
+
+### Run by the app itself
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/errors` | `{ name?, message, stack?, path? }`: an error in a customer's browser, filed with the server's. Anybody can send one, so it is limited per address, cut to size and never echoed back |
+| GET | `/api/tls-check` | `?domain=` → `200` for the install's own address or a registered storefront (with or without `www.`), `404` otherwise: whether Caddy may get a certificate for it on first visit (`on_demand_tls { ask … }`) |
+
+### Admin (admin session cookie; venue-scoped unless noted)
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/admin/accounts` | `?venueId` → the venue's company and school accounts, and its invoices to them |
+| POST | `/api/admin/accounts` | `{ venueId, id?, name, email, contact?, address?, taxNo?, termsDays?, creditLimit? }`: open one, or change it (managers) |
+| DELETE | `/api/admin/accounts` | `?venueId&id`: closed to new bookings; what is on it is still invoiced (managers) |
+| POST | `/api/admin/accounts/bookers` | `{ venueId, accountId, name, phone }`: somebody who may charge their own bookings to the account (managers) |
+| DELETE | `/api/admin/accounts/bookers` | `?venueId&accountId&phone`: no longer (managers) |
+| POST | `/api/admin/accounts/charge` | `{ bookingId, accountId }`: the desk charges a booking to a company or school account; `accountId: null` takes it off again, until it is invoiced |
+| POST | `/api/admin/accounts/invoices` | `{ accountId, period: "YYYY-MM" }`: invoice what was played on it up to that month's end, now (managers) |
+| POST | `/api/admin/accounts/invoices/:id` | `{ via }`: paid, and so is every booking on it |
+| DELETE | `/api/admin/accounts/invoices/:id` | Withdrawn, its bookings to be invoiced again; not once paid (managers) |
+| GET | `/api/admin/addons` | `?venueId=` — every extra a venue has, retired ones last |
+| POST | `/api/admin/addons` | `{ venueId, name, kind: "rental" \| "sale", price, stock?, sport? }` |
+| PATCH | `/api/admin/addons/:id` | Change it, or retire it with `active: false` and bring it back with `true` |
+| DELETE | `/api/admin/addons/:id` | Retired, not deleted: bookings that had it still say what they had |
+| GET | `/api/admin/attention` | Urgent news not yet known to have reached the customer, and what closed this week |
+| POST | `/api/admin/attention` | `{ id, action: "told" }` — staff told the customer another way |
+| GET | `/api/admin/auth/two-factor` | This account's two-factor sign-in: on or off, and whether the install requires it |
+| POST | `/api/admin/auth/two-factor` | `{ action: "start" }` → a new secret and its QR code to scan; `{ action: "confirm", code }` → turns it on, with recovery codes shown once; `{ action: "renew", code }` → new recovery codes; `{ action: "disable", code }` → off, where the install allows |
+| GET | `/api/admin/billing` | A marketplace venue's invoices. Venue staff see their own venue's; the platform owner sees every venue's, and what each is on |
+| POST | `/api/admin/billing` | `{ action: "pay", invoiceId }` — the venue's own staff, or the owner. `{ action: "markPaid" \| "void", invoiceId }` and `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` and `{ action: "setTiers", tiers: [{ name, upTo, monthlyFee }], extraEach }` — the owner |
+| GET | `/api/admin/booking-alerts` | `?venueId` → where the venue hears about bookings made online |
+| POST | `/api/admin/booking-alerts` | `{ venueId, email, phone }`: either blank to stop that one |
+| GET | `/api/admin/branches` | A business manager's branches: drafts, waiting to go live, and decided |
+| POST | `/api/admin/branches` | `{ name, area, address, phone, lat, lng, message? }` — add a branch, as a draft to set up |
+| GET | `/api/admin/businesses` | Every business and its branches. The platform owner's |
+| POST | `/api/admin/businesses` | `{ name, venueIds, managerIds? }` — a new business from these venues. `{ businessId, venueIds, managerIds? }` — more branches or managers for one |
+| GET | `/api/admin/coach-payouts` | `?venueId=&from=&to=[&format=csv]` → each coach's lessons in the period and the fees on them |
+| GET | `/api/admin/concessions` | `?venueId` → the concession prices offered here |
+| POST | `/api/admin/concessions` | `{ venueId, id?, name, percent, proof, sport?, offPeakOnly? }`: offer one, or change it (managers) |
+| DELETE | `/api/admin/concessions` | `?venueId&id`: no longer offered (managers) |
+| POST | `/api/admin/concessions/check` | `{ bookingId, outcome: "seen" \| "refused", remember?, via? }`: the desk has looked at the proof for a concession price. Seen, it is remembered for the time chosen (the fact only); not shown, the full price is charged |
+| GET | `/api/admin/counter-sales` | `?venueId=&date=` → that day's counter sales, newest first, with the totals by how they were paid |
+| POST | `/api/admin/counter-sales` | `{ venueId, items: [{ addonId, quantity } \| { name, price, quantity }], via, customerName?, customerPhone? }` → the sale, receipted |
+| POST | `/api/admin/counter-sales/:id/void` | `{ reason }` → the sale voided and its receipt credited (managers only) |
+| GET | `/api/admin/court-links` | `?venueId` → which courts take which |
+| POST | `/api/admin/court-links` | `{ courtId, parts: number[] }`: the courts booking this one takes too, replacing the list (managers) |
+| GET | `/api/admin/customer-notes` | `?venueId&phone` → the venue's note on that customer |
+| POST | `/api/admin/customer-notes` | `{ venueId, phone, note }`: write it; an empty note takes it away |
+| GET | `/api/admin/einvoicing` | `?venueId=` → the venue's MyInvois settings and its recent e-invoices |
+| POST | `/api/admin/einvoicing` | `{ venueId, action }`: - `save` with the settings' fields; - `test`: sign in to MyInvois with them; - `consolidate`: send last month now, rather than waiting for the scheduler; - `retry` with `id`: send one that failed or was invalid again; - `check`: ask LHDN about those sent and not yet decided |
+| GET | `/api/admin/enquiries` | The private hire enquiries at the venues this account runs, open ones first |
+| POST | `/api/admin/enquiries` | `{ venueId, id, status }`: replied, booked or declined |
+| GET | `/api/admin/errors` | `?resolved=1` for those marked fixed: errors by kind, latest first, for the platform owner |
+| POST | `/api/admin/errors` | `{ id }`: fixed. It comes back on the list if it happens again |
+| GET | `/api/admin/export` | `?venueId&from&to&kind=bookings\|payments\|journal\|summary` → a CSV download, for managers |
+| GET | `/api/admin/go-live` | `?venueId=` — draft, waiting, live or off the marketplace, and what it still needs |
+| POST | `/api/admin/go-live` | `{ venueId }` — send a draft to the platform owner to go live |
+| GET | `/api/admin/google-feeds` | `?feed=merchants\|services\|availability` → that Reserve with Google feed, as JSON to upload (platform owners) |
+| POST | `/api/admin/holidays` | `{ venueId, date, name }`: price that date like the weekend. Or `{ venueId, fill: true, state }`: every public holiday to come, in Malaysia the state's own too |
+| DELETE | `/api/admin/holidays` | `?venueId&date`: back to an ordinary day |
+| GET | `/api/admin/integrations` | `?venueId=` → the venue's API keys (never the keys themselves), webhook addresses and recent deliveries |
+| POST | `/api/admin/integrations` | `{ venueId, action }`: `key` with `name`, `scope` (the key is in the answer, this once); `revoke` with `id`; `webhook` with `url` (its signing secret in the answer, this once); `remove`, `ping` or `resume` with `id`; `google` with `on` |
+| GET | `/api/admin/leagues` | `?venueId=` — a venue's leagues, for its staff |
+| POST | `/api/admin/leagues` | A new league, its first season forming |
+| GET | `/api/admin/leagues/:id` | The league as staff see it, `?season=` for an earlier one |
+| POST | `/api/admin/leagues/:id` | `{ action: "start", startsOn?, endsOn? }` makes the boxes now, and starts it today unless told otherwise; `{ action: "end" }` finishes the season being played; `{ action: "plan", startsOn }` moves the coming season; `{ action: "close" }` stops the league |
+| POST | `/api/admin/leagues/:id/matches/:matchId` | `{ winner, score?, walkover? }` decides it; `{ void: true }` strikes it; `{ clear: true }` puts it back to be played |
+| POST | `/api/admin/leagues/:id/places/:placeId` | `{ paid }` — a season's fee taken at the counter, or not |
+| POST | `/api/admin/leagues/:id/players/:playerId` | `{ startBox }` (a number, or null) for a newcomer, or `{ remove: true }` |
+| GET | `/api/admin/loyalty` | `?venueId` → how many paid hours earn a free one here, or null when off |
+| POST | `/api/admin/loyalty` | `{ venueId, every: number \| null }` (managers) |
+| GET | `/api/admin/marketing` | `?venueId=` → how many agreed to hear from the venue, how many stopped, and what it has sent |
+| POST | `/api/admin/marketing` | `{ venueId, action: "test" \| "send", subject, body }`: a copy to yourself, or the real thing |
+| GET | `/api/admin/membership-plans` | The plans a venue sells online, and whether it can take the money yet |
+| POST | `/api/admin/membership-plans` | `{ venueId, name, months, price, ratePercent?, aheadDays? }`: offer a new plan, a tier with its own benefits where given |
+| DELETE | `/api/admin/membership-plans` | `?venueId=&id=`: stop offering a plan. Memberships bought on it run their course |
+| PATCH | `/api/admin/membership-plans` | `{ venueId, id, ratePercent, aheadDays }`: a plan's benefits, each null for the venue's. Memberships on it get them from now |
+| POST | `/api/admin/memberships/:id/extend` | `{ days, reason? }` → the membership runs that many days longer (managers) |
+| GET | `/api/admin/messages` | What this venue has told its customers, and what is still waiting |
+| POST | `/api/admin/messages` | Put one message back in the queue, optionally at a corrected address |
+| GET | `/api/admin/notices` | `?venueId=` → a venue's notices; `?venueId=site` → the site-wide one (platform owner) |
+| POST | `/api/admin/notices` | `{ venueId \| "site", text, link?, startsOn, endsOn }` |
+| DELETE | `/api/admin/notices/:id` | Taken down: by the venue's staff, or the platform owner |
+| GET | `/api/admin/online-payments` | `?venueId=` → the venue's recent online payments, and what it owes back |
+| POST | `/api/admin/online-payments` | `{ venueId, paymentId }` → staff have refunded it in the gateway. `{ venueId, paymentId, through: "gateway" }` → refund it now, through the gateway's API with the venue's account |
+| GET | `/api/admin/outages` | `?venueId=` — its courts' outages, now and to come |
+| POST | `/api/admin/outages` | `{ courtId, startsOn, endsOn: string \| null, reason?, cancelAffected? }` — take a court out. 409 with `affected` when something is booked in the stretch and `cancelAffected` was not given |
+| DELETE | `/api/admin/outages` | `?id=` — back in service from today |
+| GET | `/api/admin/peak-rules` | `?venueId` → when the venue's peak rates apply, and its holidays from today |
+| POST | `/api/admin/peak-rules` | `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }`, or `{ venueId, lastMinute: { hours, percent, offPeakOnly } \| { off: true } }` |
+| GET | `/api/admin/photos` | Photos venues added in the last fortnight, for the platform owner to look over |
+| POST | `/api/admin/rain-out` | `{ venueId, courtIds, date, fromHour, untilHour, reason?, preview? }`: rained off. With `preview`, only what it would call off |
+| GET | `/api/admin/receipts` | `?venueId` → the venue's latest receipts and credit notes, each with its link to print |
+| GET | `/api/admin/repeat-blocks` | `?venueId` → the venue's repeating blocks with weeks still to come |
+| POST | `/api/admin/repeat-blocks` | `{ venueId, courtIds, from, days, fromHour, untilHour, weeks, reason }`: block those hours every week |
+| DELETE | `/api/admin/repeat-blocks` | `?venueId&code`: the rest of the run taken off |
+| GET | `/api/admin/reports/customers` | `?venueId&from&to` → who the customers were. Managers only, as the other reports |
+| GET | `/api/admin/reviews` | `?venueId=` → the venue's reviews, hidden ones too, and whether it asks for them; the platform's owners also get those reported |
+| POST | `/api/admin/reviews` | `{ venueId, action }`: - `reply` with `id`, `text` (empty takes the reply away); - `report` with `id`, `reason`: ask the platform to look at it; - `requests` with `on`: email customers once after a first visit, or not; - `hide` with `id`, `reason`, or `show` with `id`: the platform's owners only |
+| GET | `/api/admin/setup` | How far this venue has got with setting itself up |
+| POST | `/api/admin/setup` | `{ venueId?, action: "detailsChecked" \| "dismiss" }` |
+| GET | `/api/admin/slot-length` | `?venueId` → whether the venue sells by the hour or the half hour |
+| POST | `/api/admin/slot-length` | `{ venueId, minutes }`: 60 or 30 |
+| GET | `/api/admin/sport-rules` | `?venueId` → each sport's own rules here, over the venue's |
+| POST | `/api/admin/sport-rules` | `{ venueId, sport, cutoffHours, lateKeep, peak }`, each null for the venue's (managers) |
+| GET | `/api/admin/storefronts` | Every storefront: domain, name, look and venues (platform owner) |
+| POST | `/api/admin/storefronts` | Create, or with `id` update: `{ id?, hostname, name, tagline?, accentColor?, logoUrl?, venueIds }` |
+| DELETE | `/api/admin/storefronts` | `?id=` |
+| POST | `/api/admin/strikes` | `{ venueId, phone }`: this number's strikes here stop counting |
+| POST | `/api/admin/suspensions` | `{ venueId \| businessId, action: "suspend" \| "lift", reason? }` — the platform owner taking a venue or a whole business off the marketplace, or putting it back |
+| GET | `/api/admin/system` | What has gone wrong lately, for the platform owner |
+| POST | `/api/admin/system` | `{ key }`: dealt with; the next one is news again |
+| GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments, for its staff |
+| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once |
+| GET | `/api/admin/tournaments/:id` | One tournament with its entries and draw |
+| POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }` |
+| POST | `/api/admin/tournaments/:id/entries/:entryId` | `{ paid?, seed?, withdraw? }` — staff on one entry |
+| POST | `/api/admin/tournaments/:id/matches/:matchId` | `{ winner, score?, walkover? }` — a result |
+| GET | `/api/admin/venue-applications` | Venues asking to go live, and how many drafts are being set up, for the platform owner alone |
+| POST | `/api/admin/venue-applications` | `{ id, decision: "approve" \| "reject", checks?, reason? }`; approving needs every one of REVIEW_CHECKS in `checks` |
+| GET | `/api/admin/venue-tax` | `?venueId` → the venue's own tax, and the country's usual one to start from |
+| POST | `/api/admin/venue-tax` | `{ venueId, registered, name, rate, regNo }` |
+| GET | `/api/admin/venue-time-zone` | `?venueId` → the venue's time zone, whether staff chose it, and what its pin says |
+| POST | `/api/admin/venue-time-zone` | `{ venueId, zone }`: one of the country's zones, or null to follow the map pin |
+| GET | `/api/admin/venues/:id/blocked-phones` | Numbers this venue does not take online bookings from |
+| POST | `/api/admin/venues/:id/blocked-phones` | `{ phone, reason? }` |
+| DELETE | `/api/admin/venues/:id/blocked-phones` | `{ phone }` |
+| GET | `/api/admin/venues/:id/payment-settings` | The venue's gateway account as staff may see it: never the keys |
+| PUT | `/api/admin/venues/:id/payment-settings` | `{ provider, credentials, sandbox, enabled }` → connect or change the venue's gateway account (managers) |
+| DELETE | `/api/admin/venues/:id/payment-settings` | Disconnect the venue's gateway account (managers) |
+| GET | `/api/admin/venues/:id/photos` | The venue's photos, cover first |
+| POST | `/api/admin/venues/:id/photos` | A photo, as a form upload: `file`, and `caption` if there is one |
+| PATCH | `/api/admin/venues/:id/photos/:photoId` | `{ cover: true }`, `{ move: -1 \| 1 }`, or `{ caption }` |
+| DELETE | `/api/admin/venues/:id/photos/:photoId` | Remove a photo |
+| GET | `/api/admin/waiver` | `?venueId` → the waiver in force and how many have agreed to it |
+| POST | `/api/admin/waiver` | `{ venueId, text }`: new words, agreed to afresh; empty for none (managers) |
+| POST | `/api/admin/waiver/sign` | `{ bookingId }`: the customer signed the venue's waiver on paper at the desk |
+| GET | `/api/admin/whatsapp` | `?venueId=` — whether the venue sends WhatsApp, and what it has left to send with |
+| POST | `/api/admin/whatsapp` | `{ venueId, action }`: - `"mode", mode: "off" \| "urgent" \| "all"` — the venue's staff; - `"buy"` — order a pack, then `"pay", packId` to pay it online; - `"grant", messages` / `"markPaid" \| "void", packId` — the platform owner |
+
+### Public API for venues' own systems (key; see [external API](../integrations/external-api.md))
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/v1/availability` | `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price and whether they are free |
+| GET | `/api/v1/bookings` | `?from=&to=` (at most 31 days) → the venue's bookings, cancelled ones included |
+| POST | `/api/v1/bookings` | `{ courtId, date, hours: [9, 10], name, phone, email? }` → a booking, as the venue's own system makes it (write keys). The customer is sent the usual confirmation. Unpaid; the venue settles it as any other |
+| GET | `/api/v1/bookings/:code` | One of the venue's bookings, by its code |
+| POST | `/api/v1/bookings/:code/cancel` | Cancel one of the venue's bookings, as its staff would (write keys). The customer is told |
+| GET | `/api/v1/venue` | The key's venue: its details, hours and courts with their rates |
 
 Prices are always computed server-side; the client's displayed total is informational.

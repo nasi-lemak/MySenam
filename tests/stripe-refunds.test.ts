@@ -5,7 +5,7 @@ process.env.MYSENAM_URL = "https://book.example.sg";
 process.env.MYSENAM_COUNTRY = "SG";
 
 import { getDb } from "../src/lib/db";
-import { markRefunded, refundOnline, refundsOwed, savePaymentSettings, settleBill, startBookingPayment } from "../src/lib/payments";
+import { markRefunded, refundOnline, refundsOwed, savePaymentSettings, settleBill, settleRefundClaims, startBookingPayment } from "../src/lib/payments";
 import { adminCancelBooking, createBooking, createCourt, createVenue } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 
@@ -116,6 +116,87 @@ describe("refunding through Stripe", () => {
       .get(id)) as { total: number };
     expect(total).toBe(18.5);
     expect(a.ok && a.pending).toBe(true);
+  });
+
+  it("cannot also be marked refunded by hand while the Stripe refund is on its way", async () => {
+    const { id } = await owed();
+    let byHand: Awaited<ReturnType<typeof markRefunded>> | undefined;
+    // While Stripe is still answering, somebody at the desk marks it refunded.
+    fakeStripe((async () => {
+      byHand = await markRefunded(id, venueId);
+      return Response.json({ id: "re_inflight", status: "succeeded" });
+    }) as unknown as () => Response);
+    const online = await refundOnline(id, venueId);
+    expect(online, JSON.stringify(online)).toMatchObject({ ok: true });
+    expect(byHand).toMatchObject({ ok: false });
+    const rows = (await getDb().prepare("SELECT amount::float AS amount, provider_ref FROM online_refunds WHERE payment_id = ?").all(id)) as {
+      amount: number;
+      provider_ref: string | null;
+    }[];
+    expect(rows).toEqual([{ amount: 18.5, provider_ref: "re_inflight" }]);
+  });
+
+  it("asks Stripe again, under the same key, for a refund interrupted mid-call", async () => {
+    const db = getDb();
+    // The app stopped after claiming the refund and before Stripe answered.
+    const claim = async (age: string) => {
+      const { id } = await owed();
+      const key = `mysenam-refund-${id}-1850`;
+      await db.prepare("UPDATE online_payments SET refunded = refunded + 18.5 WHERE id = ?").run(id);
+      await db
+        .prepare("INSERT INTO online_refunds (payment_id, amount, provider_ref, pending, created_at) VALUES (?, 18.5, ?, 1, ?)")
+        .run(id, `claim:${key}`, age);
+      return { id, key };
+    };
+    const anHourAgo = new Date(Date.now() - 3_600_000).toISOString().replace("T", " ").slice(0, 19);
+    const made = await claim(anHourAgo);
+    expect((await refundsOwed(venueId)).find((p) => p.id === made.id)).toBeUndefined();
+
+    fakeStripe(() => Response.json({ id: "re_after_restart", status: "succeeded" }));
+    sent = [];
+    expect(await settleRefundClaims()).toBe(1);
+    expect(sent.filter((s) => s.url.endsWith("/refunds")).map((s) => s.key)).toEqual([made.key]);
+    expect(await db.prepare("SELECT provider_ref, pending FROM online_refunds WHERE payment_id = ?").all(made.id)).toEqual([
+      { provider_ref: "re_after_restart", pending: 0 },
+    ]);
+
+    // Refused when asked again: owed once more, and refundable by hand.
+    const refused = await claim(anHourAgo);
+    fakeStripe(() => Response.json({ error: { message: "No such payment_intent" } }, { status: 400 }));
+    expect(await settleRefundClaims()).toBe(1);
+    expect((await refundsOwed(venueId)).find((p) => p.id === refused.id)).toMatchObject({ refundOwed: 18.5 });
+    expect(await db.prepare("SELECT 1 FROM online_refunds WHERE payment_id = ?").all(refused.id)).toEqual([]);
+
+    // One still being asked about is left alone.
+    const fresh = await claim(new Date().toISOString().replace("T", " ").slice(0, 19));
+    sent = [];
+    expect(await settleRefundClaims()).toBe(0);
+    expect(sent).toEqual([]);
+    expect((await refundsOwed(venueId)).find((p) => p.id === fresh.id)).toBeUndefined();
+  });
+
+  it("keeps the claim when Stripe gives no clear answer, and finishes it when asked again", async () => {
+    const { id } = await owed();
+    fakeStripe(() => Response.json({ error: { message: "Something went wrong on Stripe's end." } }, { status: 500 }));
+    const unclear = await refundOnline(id, venueId);
+    expect(unclear).toMatchObject({ ok: false, unknown: true });
+    // Stripe may have made it: not owed, so not refundable by hand meanwhile.
+    expect(await markRefunded(id, venueId)).toMatchObject({ ok: false });
+    expect((await refundsOwed(venueId)).find((p) => p.id === id)).toBeUndefined();
+    // Still unclear when asked again: kept for next time.
+    await getDb().prepare("UPDATE online_refunds SET created_at = '2000-01-01 00:00:00' WHERE payment_id = ?").run(id);
+    expect(await settleRefundClaims()).toBe(0);
+    fakeStripe(() => Response.json({ id: "re_made_after_all", status: "succeeded" }));
+    expect(await settleRefundClaims()).toBe(1);
+    expect(await getDb().prepare("SELECT provider_ref FROM online_refunds WHERE payment_id = ?").all(id)).toEqual([{ provider_ref: "re_made_after_all" }]);
+  });
+
+  it("leaves it owed, and refundable by hand, when Stripe refuses", async () => {
+    const { id } = await owed();
+    fakeStripe(() => Response.json({ error: { message: "No such payment_intent" } }, { status: 400 }));
+    expect(await refundOnline(id, venueId)).toMatchObject({ ok: false });
+    expect((await refundsOwed(venueId)).find((p) => p.id === id)).toMatchObject({ refundOwed: 18.5 });
+    expect(await markRefunded(id, venueId)).toMatchObject({ ok: true });
   });
 
   it("says what to do when the key cannot refund, and leaves it owed", async () => {

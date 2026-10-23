@@ -94,7 +94,15 @@ running booking software and running a payments business.
   needs *Refunds: Write* as well as *Checkout Sessions: Write*). The request
   carries an idempotency key made from the payment and what is owed on it, and
   each refund is written to `online_refunds` under Stripe's own id, so a double
-  click or a retry refunds once. **Billplz** has no refund API: refund in its
+  click or a retry refunds once. The amount is claimed before Stripe is asked:
+  while the request is out it counts as refunded, so marking it refunded by
+  hand, or a second click, finds nothing owed and cannot send it twice. If
+  Stripe refuses, the claim is given back and the amount is owed again. If
+  Stripe gives no clear answer (no reply, its own server error) or the app
+  stops before it answers, the claim stays and the scheduler asks again after
+  ten minutes under the same idempotency key (`settleRefundClaims`), so Stripe
+  makes the refund or hands back the one it already made; staff see a message
+  saying so, and a customer's own cancellation counts it as on its way. **Billplz** has no refund API: refund in its
   dashboard, then mark it done. Either way the refund goes in the activity log
   with who made it.
 - **Chargebacks** — when a customer disputes a Stripe payment with their
@@ -109,9 +117,21 @@ running booking software and running a payments business.
   it paid for is owed again for as much as went back, and staff are told. A
   booking paid in full keeps its receipt (written down, dated when it was paid)
   and gets a credit note for what went back, and shows as unpaid for that; a
-  deposit stops counting towards its booking, and its receipt is credited.
+  deposit stops counting towards its booking, and its receipt is credited. If
+  the rest was paid at the counter, with credit or with a pass, what was paid
+  that way keeps a receipt of its own, dated when it was paid, and the
+  booking shows as unpaid for the deposit's part. If the rest was paid online,
+  the booking stays paid and staff are told what went back.
   Repeats of the same outcome do nothing. **Won**: only the record changes. Billplz (FPX) has no card
   chargebacks to report.
+- **Chargebacks on what a venue paid the platform** — a monthly invoice or a
+  WhatsApp pack paid through the platform's own Stripe account
+  (`STRIPE_WEBHOOK_SECRET`). The dispute is recognised by that secret, written
+  to `payment_disputes` once, and the platform owners are emailed when it
+  opens and when it is decided; the venue's staff are not, and it is not
+  listed among the venue's disputes. A lost one changes nothing on its own:
+  the invoice stays paid and the pack stays credited until an owner decides
+  otherwise.
 - **Refunds when a customer cancels** — a venue can skip the queue for what a
   customer cancels themselves (by code, from their account, or a whole series),
   under *Cancellations, refunds and no-shows* (`refundCancelled` in

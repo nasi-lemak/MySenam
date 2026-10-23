@@ -62,8 +62,8 @@ Several app instances can share one database. Three things need attention:
 - **Rate limits** are counted in each process's memory by default. Behind
   several instances, set `MYSENAM_RATE_LIMITS=shared` so the counters live in
   Postgres ([security](security.md#rate-limiting)).
-- **Scheduled work** (messages, released holds, invoices, overdue checks,
-  league housekeeping, retention, the nightly backup): each instance ticks,
+- **Scheduled work** (messages, released holds, interrupted refunds, invoices,
+  overdue checks, league housekeeping, retention, the nightly backup): each instance ticks,
   but only the one holding the **scheduler's lease** works. The lease is a row
   in `settings` naming the instance and when it runs out
   (`holdSchedulerLease` in `src/lib/scheduler.ts`). The holder renews it every

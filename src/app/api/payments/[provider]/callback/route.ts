@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { gatewayFor } from "@/lib/gateways";
-import { accountForBill, accountForSubscription, gatewayAccounts, recordDispute, settleBill, settleSubscription } from "@/lib/payments";
+import { gatewayFor, platformAccount } from "@/lib/gateways";
+import {
+  accountForBill,
+  accountForSubscription,
+  gatewayAccounts,
+  recordDispute,
+  recordPlatformDispute,
+  settleBill,
+  settleSubscription,
+} from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +49,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
       // On a payment that is not ours (the venue's other business): nothing to do.
       if (billId) await recordDispute(gateway.id, billId, event);
       return new NextResponse("OK", { status: 200 });
+    }
+    // On the platform's own account: a venue disputing its invoice or a WhatsApp pack.
+    const platform = platformAccount();
+    if (platform?.provider === gateway.id) {
+      const event = await inbound.verifyDispute(platform);
+      if (event) {
+        const billId = await gateway.billForPayment?.(platform, event.paymentRef);
+        if (billId) await recordPlatformDispute(gateway.id, billId, event);
+        return new NextResponse("OK", { status: 200 });
+      }
     }
     return NextResponse.json({ error: "Bad signature." }, { status: 400 });
   }

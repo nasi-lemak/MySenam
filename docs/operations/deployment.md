@@ -72,7 +72,10 @@ these once with a real account, in its sandbox where it has one:
 - [ ] **Stripe** (Singapore, renewals): a test-mode checkout paid; the
       webhook secret checked; a refund from *Refunds owed* goes through; a
       test dispute (card `4000 0000 0000 0259`) shows under Disputes and, lost,
-      takes back what it paid for; a renewing membership charges again.
+      takes back what it paid for; a renewing membership charges again. On a
+      marketplace paying through Stripe, the platform's own webhook takes the
+      `charge.dispute.*` events too, and a test dispute on an invoice emails
+      the owners.
 - [ ] **MyInvois** (Malaysia): the sandbox (preprod) accepts a consolidated
       e-invoice and a single one, with the venue's own TIN and certificate.
 - [ ] **Google sign-in**: the redirect URI registered matches
@@ -81,10 +84,15 @@ these once with a real account, in its sandbox where it has one:
       restore into a spare database works (see *Restoring*).
 - [ ] **The scheduler**: `/api/health` shows its heartbeat a minute old at
       most, so holds, reminders, offers and backups happen on time.
+- [ ] **Terms and privacy**: `OPERATOR_NAME`, `OPERATOR_EMAIL` (and
+      `OPERATOR_ADDRESS`, `OPERATOR_REG_NO`) set, so `/terms` names the
+      operator and `/privacy` says who to write to; a lawyer has read both,
+      and the translations.
 - [ ] **A real venue, end to end**: book, pay online, get the messages,
       check in at the desk, cancel one late, see it in the reports and the
       accounting export.
 
 Not built here, and needing a partner or a contract first: Reserve with
 Google's live booking server (the feeds are ready), Singapore's InvoiceNow,
-smart locks, Stripe Connect payouts to venues, web push, LINE and Zalo.
+smart locks, Stripe Connect payouts to venues, LINE and Zalo. Web push needs
+no partner but is not built either ([roadmap](../roadmap/roadmap.md)).

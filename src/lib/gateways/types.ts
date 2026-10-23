@@ -73,7 +73,16 @@ export interface RefundRequest {
 
 export type RefundResult =
   | { ok: true; refundId: string; /** Accepted, and still going through (some methods take days). */ pending: boolean }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /**
+       * The request may have reached the gateway and nobody knows what it did
+       * (no answer, a server error): asked again under the same idempotency
+       * key, it says. Not a refusal, so what was claimed for it is kept.
+       */
+      unknown?: boolean;
+    };
 
 /** What the gateway says happened to a payment page. */
 export interface PaymentResult {

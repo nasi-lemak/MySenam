@@ -107,9 +107,12 @@ applies itself the first time anyone opens the dashboard each day. An owner can 
 run it early, under *Venues & staff → Keeping nothing too long*.
 
 **`/privacy` is not legal advice.** It describes what the software actually
-does, which is the hard part, but PDPA expects the notice in Bahasa Malaysia as
-well as English and expects a named person to write to. Add both, and have a
-lawyer read it, before taking a real customer's booking.
+does, which is the hard part, in each of the site's languages (Bahasa Malaysia,
+English, Chinese and Tamil, none checked by a translator or a lawyer). PDPA
+also expects a named person to write to: with `OPERATOR_NAME` and
+`OPERATOR_EMAIL` set (and `OPERATOR_ADDRESS`, if there is one), the notice
+names them under *Who to write to*; without them it says there is nobody yet.
+Have a lawyer read it before taking a real customer's booking.
 
 How much data an install accumulates, and why bookings stay in plain Postgres
 rather than TimescaleDB, is in

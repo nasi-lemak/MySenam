@@ -13,7 +13,8 @@ import {
   type ProviderId,
 } from "./gateways";
 import type { DisputeEvent, SubscriptionEvent } from "./gateways/types";
-import { tellVenueStaff } from "./owner-alerts";
+import { tellOwners, tellVenueStaff } from "./owner-alerts";
+import { siteName } from "./site";
 import { seal, unseal } from "./secrets";
 import { findBooking, getCourt, getVenue, membershipById, sellMembership } from "./store";
 import { joinTerms } from "./membership-plans";
@@ -924,7 +925,10 @@ export async function refundsOwed(venueId: number): Promise<OnlinePayment[]> {
   return Promise.all(rows.map(toPayment));
 }
 
-export type RefundDone = { ok: true; payment: OnlinePayment; pending: boolean } | { ok: false; error: string };
+export type RefundDone =
+  | { ok: true; payment: OnlinePayment; pending: boolean }
+  /** `unknown`: sent, with no clear answer; it stays claimed and is asked again (settleRefundClaims). */
+  | { ok: false; error: string; unknown?: boolean };
 
 async function owedRow(paymentId: number, venueId: number): Promise<PaymentRow | null> {
   const row = (await getDb()
@@ -973,6 +977,69 @@ async function recordRefund(
 const reread = async (id: number) =>
   toPayment((await getDb().prepare("SELECT * FROM online_payments WHERE id = ?").get(id)) as PaymentRow);
 
+/** A refund claimed but refused, or abandoned: the amount is owed again. */
+async function releaseClaim(paymentId: number, amount: number, claim: string): Promise<void> {
+  const db = getDb();
+  await db.transaction(async () => {
+    const gone = await db.prepare("DELETE FROM online_refunds WHERE provider_ref = ?").run(claim);
+    if (gone.changes > 0) await db.prepare("UPDATE online_payments SET refunded = refunded - ? WHERE id = ?").run(amount, paymentId);
+  })();
+}
+
+/** A claimed refund the gateway made: the claim becomes its record, and the receipt is credited. */
+async function finishClaim(paymentId: number, amount: number, claim: string, refundId: string, pending: boolean): Promise<void> {
+  const db = getDb();
+  await db.transaction(async () => {
+    // Stripe answers a retry under the same key with the same refund: one row for it.
+    if (await db.prepare("SELECT 1 FROM online_refunds WHERE provider_ref = ?").get(refundId)) {
+      const gone = await db.prepare("DELETE FROM online_refunds WHERE provider_ref = ?").run(claim);
+      if (gone.changes > 0) await db.prepare("UPDATE online_payments SET refunded = refunded - ? WHERE id = ?").run(amount, paymentId);
+      return;
+    }
+    const kept = await db.prepare("UPDATE online_refunds SET provider_ref = ?, pending = ? WHERE provider_ref = ?").run(refundId, pending ? 1 : 0, claim);
+    if (kept.changes === 0) return;
+    // What its receipt said was sold is reversed, as for any refund.
+    await creditReceipt(`payment:${paymentId}`, "receipt.why.refunded");
+  })();
+}
+
+/**
+ * Refunds claimed and never finished: the app stopped while the gateway was
+ * being asked. Asked again under the same idempotency key, the gateway makes
+ * the refund or hands back the one it already made; refused, the amount is
+ * owed again. From the scheduler, for claims older than a few minutes.
+ */
+export async function settleRefundClaims(olderThanMinutes = 10): Promise<number> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString().replace("T", " ").slice(0, 19);
+  const claims = (await db
+    .prepare(
+      `SELECT r.payment_id, r.amount::float AS amount, r.provider_ref, p.provider, p.bill_id
+         FROM online_refunds r JOIN online_payments p ON p.id = r.payment_id
+        WHERE r.provider_ref LIKE 'claim:%' AND r.created_at < ?`
+    )
+    .all(cutoff)) as { payment_id: number; amount: number; provider_ref: string; provider: string; bill_id: string }[];
+  let settled = 0;
+  for (const c of claims) {
+    const gateway = gatewayFor(c.provider);
+    const account = gateway?.refund ? await accountForBill(c.provider, c.bill_id) : null;
+    if (!gateway?.refund || !account) {
+      await releaseClaim(c.payment_id, c.amount, c.provider_ref);
+      settled++;
+      continue;
+    }
+    const { code, minorUnits } = region().currency;
+    const result = await gateway
+      .refund(account, { billId: c.bill_id, amount: c.amount, currency: { code, minorUnits }, idempotencyKey: c.provider_ref.slice("claim:".length) })
+      .catch(() => null);
+    if (result === null || (!result.ok && result.unknown)) continue; // no answer again: asked next time
+    if (result.ok) await finishClaim(c.payment_id, c.amount, c.provider_ref, result.refundId, result.pending);
+    else await releaseClaim(c.payment_id, c.amount, c.provider_ref);
+    settled++;
+  }
+  return settled;
+}
+
 /** Staff have made the refund in the gateway's own dashboard. */
 export async function markRefunded(paymentId: number, venueId: number, adminId: number | null = null): Promise<RefundDone> {
   const row = await owedRow(paymentId, venueId);
@@ -1001,21 +1068,39 @@ export async function refundOnline(paymentId: number, venueId: number, adminId: 
     return { ok: false, error: `This was paid through ${gateway.name}, which this venue no longer has connected. Refund it there, then mark it refunded.` };
   const amount = roundMoney(row.refund_due - row.refunded);
   const { code, minorUnits } = region().currency;
-  const result = await gateway.refund(account, {
-    billId: row.bill_id,
-    amount,
-    currency: { code, minorUnits },
-    // What has been owed in all, so a retry of this refund is the same one
-    // and a later one (another booking off the same payment) is new.
-    idempotencyKey: `mysenam-refund-${row.id}-${Math.round(row.refund_due * 100)}`,
-  });
-  if (!result.ok) return result;
-  try {
-    await recordRefund(row, amount, result.refundId, result.pending, adminId);
-  } catch {
-    // Somebody marked it refunded by hand while this one went through.
-    return { ok: false, error: "That payment was marked refunded meanwhile. Check it in the gateway: it may have been refunded twice." };
+  // What has been owed in all, so a retry of this refund is the same one
+  // and a later one (another booking off the same payment) is new.
+  const idempotencyKey = `mysenam-refund-${row.id}-${Math.round(row.refund_due * 100)}`;
+  const claim = `claim:${idempotencyKey}`;
+  const db = getDb();
+  // Claimed before the gateway is asked: the amount counts as refunded, so a
+  // hand mark or a second click meanwhile finds nothing owed and cannot send
+  // it twice. Given back if the gateway refuses.
+  const claimed = await db.transaction(async () => {
+    const reserved = await db
+      .prepare("UPDATE online_payments SET refunded = refunded + ? WHERE id = ? AND refunded + ? <= refund_due")
+      .run(amount, row.id, amount);
+    if (reserved.changes === 0) return false;
+    const added = await db
+      .prepare(
+        `INSERT INTO online_refunds (payment_id, amount, provider_ref, pending, admin_id) VALUES (?, ?, ?, 1, ?)
+         ON CONFLICT (provider_ref) DO NOTHING`
+      )
+      .run(row.id, amount, claim, adminId);
+    if (added.changes === 0) throw new Error("CLAIMED");
+    return true;
+  })().catch(() => false);
+  if (!claimed) return { ok: false, error: "That payment is being refunded, or was just marked refunded." };
+
+  // Should the gateway throw, nobody knows what it did: the claim stays, and is asked again.
+  const result = await gateway.refund(account, { billId: row.bill_id, amount, currency: { code, minorUnits }, idempotencyKey });
+  // No clear answer: the claim stays, and the scheduler asks again under the same key (settleRefundClaims).
+  if (!result.ok && result.unknown) return { ok: false, error: result.error, unknown: true };
+  if (!result.ok) {
+    await releaseClaim(row.id, amount, claim);
+    return result;
   }
+  await finishClaim(row.id, amount, claim, result.refundId, result.pending);
   return { ok: true, payment: await reread(row.id), pending: result.pending };
 }
 
@@ -1057,6 +1142,11 @@ export async function refundCancelled(
       const sent = await refundOnline(row.id, row.venue_id!).catch(() => null);
       if (sent?.ok) {
         done.push({ how: "gateway", amount, ...(sent.pending ? { pending: true } : {}) });
+        continue;
+      }
+      // Sent with no clear answer: it goes through when asked again, not by staff.
+      if (sent && !sent.ok && sent.unknown) {
+        done.push({ how: "gateway", amount, pending: true });
         continue;
       }
     } else if (onlineRefunds === "credit" && (await refundToCredit(row, bookingIds, amount))) {
@@ -1685,32 +1775,29 @@ export interface PaymentDispute {
   bookingCodes: string[];
 }
 
+/** Paid to the platform rather than to a venue: a venue's monthly invoice, a WhatsApp pack. */
+const PLATFORM_PURPOSES = ["invoice", "pack"];
+
 /**
- * A customer has disputed a payment with their bank. Written down against the
- * payment, once, and kept up to date as it moves. Opened: the venue's staff
- * are told by email, with the date to answer by, since only the venue can
- * answer it (in the gateway's dashboard). Lost: the money went back to the
- * customer, so the bookings it paid for are unpaid again and its receipt is
- * credited; staff collect at the counter or let them go. Won: nothing changes.
+ * A dispute written down against its payment, once, and kept up to date as
+ * it moves. Gateways repeat themselves, sometimes twice at once: whichever
+ * copy writes the dispute down first says it opened, and whichever moves its
+ * outcome acts on it. Each is one statement, inside the transaction that acts.
  */
-export async function recordDispute(provider: string, billId: string, event: DisputeEvent): Promise<PaymentDispute | null> {
+async function noteDispute(
+  paymentId: number,
+  amount: number,
+  event: DisputeEvent,
+  lost: () => Promise<void> = async () => {}
+): Promise<{ opened: boolean; decided: "won" | "lost" | null }> {
   const db = getDb();
-  const payment = (await db.prepare("SELECT * FROM online_payments WHERE provider = ? AND bill_id = ?").get(provider, billId)) as
-    | PaymentRow
-    | undefined;
-  if (!payment || payment.venue_id === null) return null;
-  const minor = region().currency.minorUnits;
-  const amount = roundMoney(event.amountMinor / 10 ** minor);
-  // Gateways repeat themselves, sometimes twice at once: whichever copy writes
-  // the dispute down first says it opened, and whichever moves its outcome
-  // acts on it. Each is one statement, inside the transaction that acts.
-  const { opened, decided } = await withTransaction(async () => {
+  return withTransaction(async () => {
     const inserted = await db
       .prepare(
         `INSERT INTO payment_disputes (payment_id, provider_dispute_id, amount, reason, status, due_by)
          VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider_dispute_id) DO NOTHING RETURNING id`
       )
-      .get(payment.id, event.disputeId, amount, event.reason, event.status, event.dueBy);
+      .get(paymentId, event.disputeId, amount, event.reason, event.status, event.dueBy);
     if (!inserted)
       await db
         .prepare(
@@ -1726,9 +1813,74 @@ export async function recordDispute(provider: string, billId: string, event: Dis
           )
           .get(event.outcome, event.disputeId, event.outcome)
       : undefined;
-    if (moved && event.outcome === "lost") await disputeLost(payment, amount);
+    if (moved && event.outcome === "lost") await lost();
     return { opened: Boolean(inserted), decided: moved ? event.outcome : null };
   });
+}
+
+/**
+ * A venue has disputed, with its bank, what it paid the platform: a monthly
+ * invoice or a WhatsApp pack, paid through the platform's own gateway
+ * account. Written down once, and the platform owners told by email when it
+ * opens and when it is decided, since only they can answer it, in that
+ * account's dashboard. A lost one changes nothing here by itself: the owners
+ * decide whether the invoice is owed again or the pack is taken back.
+ */
+export async function recordPlatformDispute(provider: string, billId: string, event: DisputeEvent): Promise<boolean> {
+  const db = getDb();
+  const payment = (await db.prepare("SELECT * FROM online_payments WHERE provider = ? AND bill_id = ?").get(provider, billId)) as
+    | PaymentRow
+    | undefined;
+  if (!payment || !PLATFORM_PURPOSES.includes(payment.purpose)) return false;
+  const amount = roundMoney(event.amountMinor / 10 ** region().currency.minorUnits);
+  const { opened, decided } = await noteDispute(payment.id, amount, event);
+  const venue = payment.venue_id === null ? null : await getVenue(payment.venue_id);
+  const who = venue?.name ?? payment.payer_name ?? "A venue";
+  const what =
+    payment.purpose === "invoice" && payment.invoice_id !== null
+      ? `its invoice (number ${payment.invoice_id})`
+      : payment.purpose === "pack"
+        ? "a WhatsApp pack"
+        : "a payment";
+  const gateway = gatewayFor(provider)?.name ?? provider;
+  if (opened)
+    await tellOwners(
+      `A venue has disputed a payment to ${siteName()}: ${money(amount)}`,
+      [
+        `${who} has disputed ${money(amount)} paid online for ${what} with their bank (reason given: ${event.reason.replace(/_/g, " ")}).`,
+        event.dueBy ? `Answer it in the platform's ${gateway} dashboard by ${event.dueBy.slice(0, 10)}.` : `Answer it in the platform's ${gateway} dashboard.`,
+        "Nothing changes here on its own: if the bank decides for the venue, decide whether the invoice is owed again or the pack taken back.",
+      ].join("\n\n")
+    );
+  if (decided && !opened)
+    await tellOwners(
+      `Dispute ${decided}: ${money(amount)} from ${who}`,
+      decided === "won"
+        ? `The bank decided for ${siteName()}: the ${money(amount)} ${who} paid for ${what} stays.`
+        : `The bank decided for ${who}: ${money(amount)} paid for ${what} has gone back to them. It still shows as paid here; decide whether it is owed again.`
+    );
+  return true;
+}
+
+/**
+ * A customer has disputed a payment with their bank. Written down against the
+ * payment, once, and kept up to date as it moves. Opened: the venue's staff
+ * are told by email, with the date to answer by, since only the venue can
+ * answer it (in the gateway's dashboard). Lost: the money went back to the
+ * customer, so the bookings it paid for are unpaid again and its receipt is
+ * credited; staff collect at the counter or let them go. Won: nothing changes.
+ */
+export async function recordDispute(provider: string, billId: string, event: DisputeEvent): Promise<PaymentDispute | null> {
+  const db = getDb();
+  const payment = (await db.prepare("SELECT * FROM online_payments WHERE provider = ? AND bill_id = ?").get(provider, billId)) as
+    | PaymentRow
+    | undefined;
+  if (!payment || payment.venue_id === null) return null;
+  // What a venue paid the platform is the platform's to answer.
+  if (PLATFORM_PURPOSES.includes(payment.purpose)) return null;
+  const minor = region().currency.minorUnits;
+  const amount = roundMoney(event.amountMinor / 10 ** minor);
+  const { opened, decided } = await noteDispute(payment.id, amount, event, () => disputeLost(payment, amount));
   const venue = await getVenue(payment.venue_id);
   const name = venue?.name ?? "your venue";
   const gateway = gatewayFor(provider)?.name ?? provider;
@@ -1770,10 +1922,17 @@ async function disputeLost(payment: PaymentRow, disputed: number): Promise<void>
   const credit = new Set<string>();
   const linked = (await db
     .prepare(
-      `SELECT b.id, b.payment_status, b.paid_via, b.paid_at, pb.amount::float AS part
+      `SELECT b.id, b.status, b.payment_status, b.paid_via, b.paid_at, pb.amount::float AS part
          FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ?`
     )
-    .all(payment.id)) as { id: number; payment_status: string; paid_via: string | null; paid_at: string | null; part: number | null }[];
+    .all(payment.id)) as {
+    id: number;
+    status: string;
+    payment_status: string;
+    paid_via: string | null;
+    paid_at: string | null;
+    part: number | null;
+  }[];
   for (const b of linked) {
     if (payment.deposit === 0 && b.payment_status === "paid" && b.paid_via === "online") {
       const source = `booking-paid:${b.id}:${payment.id}`;
@@ -1791,9 +1950,26 @@ async function disputeLost(payment: PaymentRow, disputed: number): Promise<void>
     const source = payment.deposit === 1 ? `payment:${payment.id}` : `booking-part:${b.id}:${payment.id}`;
     if (!(await documentFor(source))) continue;
     credit.add(source);
-    // Paid in full another way since: that stands, and the venue is told what went back.
-    if (b.payment_status === "paid") continue;
     const part = roundMoney(Number(b.part ?? 0) * share);
+    // A link made before each booking's part was recorded: nothing to unpay it by.
+    if (b.payment_status === "paid" && part <= 0) continue;
+    if (b.payment_status === "paid") {
+      // Called off since: what was owed back was settled then. Paid the rest
+      // online: that payment's own refund rules hang on the booking being
+      // paid online, so it stands and the venue is told what went back.
+      if (b.status === "cancelled" || b.paid_via === "online") continue;
+      // Paid the rest at the counter, with credit or with a pass: what was
+      // paid that way stands, on a receipt of its own dated when it was paid;
+      // the booking is unpaid for the part that went back.
+      const kept = await keepBookingReceipt(b.id, `booking-paid:${b.id}:${payment.id}`, b.paid_at);
+      await db
+        .prepare(
+          `UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL,
+                  shares_paid = GREATEST(0, shares_paid - ?) + ?, deposit_paid = GREATEST(0, deposit_paid - ?) + ? WHERE id = ?`
+        )
+        .run(part, kept?.total ?? 0, part, kept?.total ?? 0, b.id);
+      continue;
+    }
     await db
       .prepare("UPDATE bookings SET shares_paid = GREATEST(0, shares_paid - ?), deposit_paid = GREATEST(0, deposit_paid - ?) WHERE id = ?")
       .run(part, part, b.id);
@@ -1888,7 +2064,7 @@ export async function disputesFor(venueId: number): Promise<PaymentDispute[]> {
       `SELECT d.*, p.payer_name,
               (SELECT STRING_AGG(b.code, ', ') FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = p.id) AS codes
          FROM payment_disputes d JOIN online_payments p ON p.id = d.payment_id
-        WHERE p.venue_id = ?
+        WHERE p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack')
         ORDER BY (d.outcome IS NULL) DESC, d.id DESC LIMIT 50`
     )
     .all(venueId)) as {

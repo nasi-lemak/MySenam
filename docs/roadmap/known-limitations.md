@@ -44,11 +44,10 @@ whether intended).
 
 No numbered money defect is open; see [fixed since the audit](#fixed-since-the-audit).
 
-Also: if a manual "refunded" mark and a Stripe one-click refund race, money
-can go back twice at the gateway (reported, not prevented); disputes on the
-platform's own Stripe account (venue invoices) are ignored; a deposit charged
-back after the rest was paid at the counter is credited, but the booking stays
-paid and staff must collect the difference by hand (P3).
+Also: a deposit charged back after the rest was paid online leaves the
+booking paid, and staff collect the difference by hand; a lost dispute on
+what a venue paid the platform (an invoice, a WhatsApp pack) is reported to
+the owners but not undone, by design until decided otherwise (P3).
 
 ### Fixed since the audit
 
@@ -80,6 +79,9 @@ IDs are not reused. Each fix came with the test recommended above.
 | M6 | A booking that stops being paid keeps its receipt, dated when paid | `tests/stripe-disputes.test.ts` |
 | M7 | A receipt covering several bookings is credited one booking's part at a time, never past its total | `tests/deposits.test.ts` |
 | M8 | A refund as credit goes into the pot the credit scope names | `tests/auto-refunds.test.ts` |
+| M9 | A Stripe refund is claimed before Stripe is asked, so a hand mark or second click cannot send it twice; an interrupted one is asked again under its key | `tests/stripe-refunds.test.ts` |
+| M10 | Disputes on the platform's own Stripe account are recorded and put to the platform owners | `tests/stripe-disputes.test.ts` |
+| M11 | A deposit charged back after the rest was paid at the counter leaves the booking owing the deposit's part | `tests/stripe-disputes.test.ts` |
 
 ## Integrations awaiting live verification or a partner
 
@@ -123,6 +125,4 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | --- | ----------- | -------- |
 | End-to-end tests cover a few journeys only ([testing](../development/testing.md#end-to-end-tests)) | Most pages are checked by route and component tests, not a browser | P2 |
 | No ESLint configuration; `npm run lint` is not a working check | Style and some bug classes unchecked | P3 |
-| `.env.example` lists about half the variables | New installs miss settings; [configuration](../development/configuration.md) is complete | P3 |
-| [HTTP routes](../architecture/http-api.md) lists a subset of routes | Developers read the `route.ts` files for the rest | P3 |
-| `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer; PDPA expects a Malay notice and a named contact | Legal exposure | P1 before public launch |
+| `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1 before public launch |

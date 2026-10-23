@@ -15,7 +15,7 @@ import { getDb } from "../src/lib/db";
 import { availabilityFeed, merchantFeed, serviceFeed, setGoogleReserve } from "../src/lib/google-feeds";
 import { adminCancelBooking, createBooking, createCourt, createVenue, setPaymentStatus } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
-import { addEndpoint, deliverWebhooks, isPrivate, listEndpoints, signature, sweepWebhookEvents } from "../src/lib/webhooks";
+import { addEndpoint, deliverWebhooks, isPrivate, listEndpoints, pinnedLookup, signature, sweepWebhookEvents, transport } from "../src/lib/webhooks";
 import { GET as venueGet } from "../src/app/api/v1/venue/route";
 import { GET as availabilityGet } from "../src/app/api/v1/availability/route";
 import { GET as bookingsGet, POST as bookingsPost } from "../src/app/api/v1/bookings/route";
@@ -157,13 +157,10 @@ describe("webhooks", () => {
 
     const received: { body: string; sig: string }[] = [];
     vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: string, init: { body: string; headers: Record<string, string> }) => {
-        received.push({ body: init.body, sig: init.headers["MySenam-Signature"] });
-        return new Response("ok", { status: 200 });
-      })
-    );
+    vi.spyOn(transport, "post").mockImplementation(async (_url, headers, body) => {
+      received.push({ body, sig: headers["MySenam-Signature"] });
+      return 200;
+    });
     expect(await deliverWebhooks()).toEqual({ sent: 4, failed: 0 });
     const first = received[0];
     const at = Number(first.sig.match(/t=(\d+)/)![1]);
@@ -176,7 +173,7 @@ describe("webhooks", () => {
     const [endpoint] = await listEndpoints(venueId);
     await getDb().prepare("INSERT INTO webhook_deliveries (endpoint_id, event, payload) VALUES (?, 'ping', '{}')").run(endpoint.id);
     vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 500 })));
+    vi.spyOn(transport, "post").mockResolvedValue(500);
     const now = new Date();
     expect(await deliverWebhooks(now)).toEqual({ sent: 0, failed: 1 });
     expect(await deliverWebhooks(now)).toEqual({ sent: 0, failed: 0 });
@@ -192,13 +189,10 @@ describe("webhooks", () => {
       await getDb().prepare("INSERT INTO webhook_deliveries (endpoint_id, event, payload) VALUES (?, 'ping', ?)").run(added.endpoint.id, `{"n":${n}}`);
     vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
     const bodies: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: string, init: { body: string }) => {
-        bodies.push(init.body);
-        return new Response("ok", { status: 200 });
-      })
-    );
+    vi.spyOn(transport, "post").mockImplementation(async (_url, _headers, body) => {
+      bodies.push(body);
+      return 200;
+    });
     const [a, b] = await Promise.all([deliverWebhooks(), deliverWebhooks()]);
     expect(a.sent + b.sent).toBe(3);
     expect(bodies.sort()).toEqual(['{"n":1}', '{"n":2}', '{"n":3}']);
@@ -211,11 +205,34 @@ describe("webhooks", () => {
     if (!added.ok) throw new Error(added.error);
     await getDb().prepare("INSERT INTO webhook_deliveries (endpoint_id, event, payload) VALUES (?, 'ping', '{}')").run(added.endpoint.id);
     vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "127.0.0.1", family: 4 }] as never);
-    const fetch = vi.fn(async () => new Response("ok"));
-    vi.stubGlobal("fetch", fetch);
+    // The real sender, refused by the lookup it connects with: nothing is sent anywhere.
     await deliverWebhooks();
-    expect(fetch).not.toHaveBeenCalled();
     expect((await listEndpoints(otherVenueId))[0].recent[0].error).toContain("public internet");
+  });
+
+  it("connect only to an address the check passed, so a name that changes its answer cannot slip by", async () => {
+    // Public when the address was added or first looked at; private by the time it is connected to.
+    const lookup = vi
+      .spyOn(dns.promises, "lookup")
+      .mockResolvedValueOnce([{ address: "93.184.216.34", family: 4 }] as never)
+      .mockResolvedValue([{ address: "10.0.0.5", family: 4 }] as never);
+    const asked = (options: dns.LookupOptions) =>
+      new Promise<{ err: NodeJS.ErrnoException | null; address: unknown }>((resolve) =>
+        pinnedLookup("rebind.example.com", options, (err, address) => resolve({ err, address }))
+      );
+    expect(await asked({})).toEqual({ err: null, address: "93.184.216.34" });
+    const second = await asked({ all: true });
+    expect(second.err?.message).toContain("public internet");
+    // A name with any private address among several is refused whole.
+    lookup.mockResolvedValue([
+      { address: "93.184.216.34", family: 4 },
+      { address: "192.168.1.9", family: 4 },
+    ] as never);
+    expect((await asked({ all: true })).err?.code).toBe("ENOTPUBLIC");
+    // And the sender itself goes through that lookup.
+    await expect(transport.post(new URL("https://rebind.example.com/hook"), {}, "{}")).rejects.toThrow("public internet");
+    await expect(transport.post(new URL("https://127.0.0.1/hook"), {}, "{}")).rejects.toThrow("public internet");
+    await expect(transport.post(new URL("https://[::1]/hook"), {}, "{}")).rejects.toThrow("public internet");
   });
 });
 
