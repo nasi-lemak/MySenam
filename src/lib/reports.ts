@@ -491,18 +491,34 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
  * credit from before the switch — and each venue's own is that venue's (see
  * `venueCreditLiability`).
  */
-export async function walletLiability(): Promise<{ customers: number; balance: number }> {
+export async function walletLiability(): Promise<CreditPosition> {
   const perVenue = creditScope() === "venue";
-  const row = await getDb()
+  return creditPosition(perVenue ? "WHERE venue_id IS NULL" : "", []);
+}
+
+/**
+ * Where stored credit stands, customer by customer, never netted across
+ * customers (M14): what customers hold and may spend (`balance`, owed to
+ * them), and apart from it what customers whose credit was taken back after
+ * they spent it owe (`overdrawn.owing`, after a chargeback). The second is
+ * not revenue and may never be paid: it is shown so it is not lost, not
+ * counted as money coming.
+ */
+export interface CreditPosition {
+  customers: number;
+  balance: number;
+  overdrawn: { customers: number; owing: number };
+}
+
+async function creditPosition(where: string, params: unknown[]): Promise<CreditPosition> {
+  const row = (await getDb()
     .prepare(`
-      SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
-        SELECT user_id, SUM(amount) AS balance FROM wallet_entries
-        ${perVenue ? "WHERE venue_id IS NULL" : ""}
-        GROUP BY user_id HAVING SUM(amount) > 0
-      ) AS owed
+      SELECT COUNT(*) FILTER (WHERE balance > 0) AS customers, COALESCE(SUM(balance) FILTER (WHERE balance > 0), 0) AS balance,
+             COUNT(*) FILTER (WHERE balance < 0) AS overdrawn, COALESCE(-SUM(balance) FILTER (WHERE balance < 0), 0) AS owing
+        FROM (SELECT user_id, SUM(amount) AS balance FROM wallet_entries ${where} GROUP BY user_id) AS each_customer
     `)
-    .get() as { customers: number; balance: number };
-  return row;
+    .get(...params)) as { customers: number; balance: number; overdrawn: number; owing: number };
+  return { customers: row.customers, balance: row.balance, overdrawn: { customers: row.overdrawn, owing: row.owing } };
 }
 
 /**
@@ -511,14 +527,6 @@ export async function walletLiability(): Promise<{ customers: number; balance: n
  * branch is spent at any of them, so it is owed by the business, not by
  * whichever branch happened to sell it.
  */
-export async function venueCreditLiability(venueId: number): Promise<{ customers: number; balance: number }> {
-  return await getDb()
-    .prepare(`
-      SELECT COUNT(*) AS customers, COALESCE(SUM(balance), 0) AS balance FROM (
-        SELECT user_id, SUM(amount) AS balance FROM wallet_entries
-        WHERE ${SAME_CREDIT}
-        GROUP BY user_id HAVING SUM(amount) > 0
-      ) AS owed
-    `)
-    .get(venueId) as { customers: number; balance: number };
+export async function venueCreditLiability(venueId: number): Promise<CreditPosition> {
+  return creditPosition(`WHERE ${SAME_CREDIT}`, [venueId]);
 }

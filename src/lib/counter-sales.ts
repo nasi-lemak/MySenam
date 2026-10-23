@@ -140,6 +140,42 @@ export async function sellAtCounter(input: SellInput): Promise<Outcome> {
   return { ok: true, sale: await toSale(row) };
 }
 
+/**
+ * What was kept back from a hire deposit, rung up as a sale (lib/store.ts,
+ * returnHire): one per hire, receipted, in the day's takings. Compensation
+ * for damage or loss is not taxed unless the venue says it is a charge for a
+ * service; the venue decides, case by case. Run inside the return's
+ * transaction.
+ */
+export async function sellKeptDeposit(input: {
+  venueId: number;
+  hireRecordId: number;
+  description: string;
+  amount: number;
+  via: CounterMethod;
+  taxable: boolean;
+  customerName: string | null;
+  customerPhone: string | null;
+}): Promise<number> {
+  const lines: SaleLine[] = [{ addonId: null, name: input.description.slice(0, 120), quantity: 1, unitPrice: roundMoney(input.amount) }];
+  const row = (await getDb()
+    .prepare(
+      `INSERT INTO counter_sales (venue_id, admin_id, customer_name, customer_phone, lines, total, paid_via, hire_record_id)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?) RETURNING id`
+    )
+    .get(input.venueId, input.customerName, input.customerPhone, JSON.stringify(lines), roundMoney(input.amount), input.via, input.hireRecordId)) as { id: number };
+  await issueReceipt({
+    source: `sale:${row.id}`,
+    venueId: input.venueId,
+    name: input.customerName ?? "Counter customer",
+    phone: input.customerPhone,
+    lines: [{ description: lines[0].name, amount: lines[0].unitPrice }],
+    paidVia: paidVia(input.via),
+    taxable: input.taxable,
+  });
+  return row.id;
+}
+
 export async function getCounterSale(id: number): Promise<CounterSale | null> {
   const row = (await getDb().prepare("SELECT * FROM counter_sales WHERE id = ?").get(id)) as Row | undefined;
   return row ? toSale(row) : null;

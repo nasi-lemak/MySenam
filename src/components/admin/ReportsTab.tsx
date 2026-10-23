@@ -1,6 +1,7 @@
 "use client";
 
 import { activityName, activityIcon } from "@/lib/activity-registry";
+import type { CreditPosition } from "@/lib/reports";
 import { useCallback, useEffect, useState } from "react";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
 import { CustomerReportPanel } from "./CustomerReportPanel";
@@ -59,8 +60,8 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
   const [range, setRange] = useState(() => RANGES[0][1]());
   const [data, setData] = useState<{
     report: VenueReport;
-    wallet: { customers: number; balance: number } | null;
-    venueCredit?: { customers: number; balance: number } | null;
+    wallet: CreditPosition | null;
+    venueCredit?: CreditPosition | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -358,6 +359,22 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                         ],
                       ] as [string, string, string][])
                     : ([] as [string, string, string][])),
+                  // Customers below nothing after a chargeback: what they owe, kept apart, never netted or counted as income.
+                  ...(
+                    [
+                      [data?.venueCredit, "Credit owed by customers, here"],
+                      [data?.wallet, data?.venueCredit ? "Credit owed by customers, any venue" : "Credit owed by customers"],
+                    ] as [CreditPosition | null | undefined, string][]
+                  )
+                    .filter(([c]) => !!c && c.overdrawn.customers > 0)
+                    .map(
+                      ([c, label]) =>
+                        [
+                          label,
+                          ringgit(c!.overdrawn.owing),
+                          `${c!.overdrawn.customers} below nothing after a chargeback; not income, and may never be paid`,
+                        ] as [string, string, string]
+                    ),
                 ].map(([label, value, note]) => (
                   <div
                     key={label}

@@ -59,6 +59,8 @@ export function BookingsTab() {
   const [deposit, setDeposit] = useState("0");
   const [condition, setCondition] = useState<HireCondition>("ok");
   const [withheld, setWithheld] = useState("0");
+  const [heldVia, setHeldVia] = useState<"cash" | "qr" | "transfer" | "card">("cash");
+  const [keptTaxed, setKeptTaxed] = useState(false);
   const [note, setNote] = useState("");
   const [revenue, setRevenue] = useState(0);
   const [collected, setCollected] = useState(0);
@@ -171,6 +173,8 @@ export function BookingsTab() {
                 condition,
                 withheld: Number(withheld),
                 note,
+                via: heldVia,
+                taxable: keptTaxed,
               }
         ),
       });
@@ -644,6 +648,27 @@ export function BookingsTab() {
                 className="mt-1 w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
               />
             </div>
+            {Number(withheld) > 0 && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600">Deposit was paid by</label>
+                  <select
+                    value={heldVia}
+                    onChange={(e) => setHeldVia(e.target.value as typeof heldVia)}
+                    className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="qr">QR</option>
+                    <option value="transfer">Transfer</option>
+                    <option value="card">Card</option>
+                  </select>
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600" title="Compensation for damage or loss is not taxed; a charge for a service is.">
+                  <input type="checkbox" checked={keptTaxed} onChange={(e) => setKeptTaxed(e.target.checked)} />
+                  A charge (taxed), not compensation
+                </label>
+              </>
+            )}
             <div className="min-w-[16rem] flex-1">
               <label className="block text-xs font-medium text-slate-600">
                 What happened{condition === "ok" && withheld === "0" ? " (optional)" : ""}

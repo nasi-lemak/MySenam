@@ -27,7 +27,7 @@ import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
-import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, MAX_PLAYERS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, isUnstaffedHour, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, MAX_PLAYERS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, isUnstaffedHour, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -3884,7 +3884,15 @@ export async function takeHire(code: string, deposit?: number): Promise<HireResu
  */
 export async function returnHire(
   code: string,
-  input: { condition: HireCondition; withheld?: number; note?: string }
+  input: {
+    condition: HireCondition;
+    withheld?: number;
+    note?: string;
+    /** How the deposit was held, so what is kept is in the takings under the same method; cash unless said. */
+    via?: CounterMethod;
+    /** Kept as a charge for a service (taxed), rather than as compensation for damage or loss (not). */
+    taxable?: boolean;
+  }
 ): Promise<HireResult> {
   const db = getDb();
   const booking = await bookingByCode(code);
@@ -3912,17 +3920,40 @@ export async function returnHire(
   if ((input.condition !== "ok" || withheld > 0) && note === "")
     return { ok: false, error: "Say what happened — a note is required when the kit is not returned fine." };
 
-  await db.transaction(async () => {
-    await db.prepare(`
+  const via = input.via ?? "cash";
+  if (!COUNTER_METHODS.includes(via)) return { ok: false, error: "Say how the deposit was paid." };
+  const court = await getCourt(booking.courtId);
+
+  const returned = await db.transaction(async () => {
+    // Only the return that gets there first: two at once keep the deposit once.
+    const done = await db.prepare(`
       UPDATE hire_records
       SET returned_at = datetime('now'), withheld = ?, condition = ?, note = ?
-      WHERE booking_id = ?
-    `).run(withheld, input.condition, note === "" ? null : note, booking.id);
+      WHERE booking_id = ? AND returned_at IS NULL
+      RETURNING id
+    `).get(withheld, input.condition, note === "" ? null : note, booking.id) as { id: number } | undefined;
+    if (!done) return false;
+    // What is kept is earned: rung up and receipted with the return (M13).
+    if (withheld > 0) {
+      const { sellKeptDeposit } = await import("./counter-sales");
+      await sellKeptDeposit({
+        venueId: court?.venueId ?? 0,
+        hireRecordId: done.id,
+        description: `Kept from the deposit on ${court?.name ?? "hired kit"} (${booking.code}): ${note}`,
+        amount: withheld,
+        via,
+        taxable: input.taxable === true,
+        customerName: booking.name,
+        customerPhone: booking.phone,
+      });
+    }
     // The kit is back, so whoever brought it has left the desk.
     await db.prepare(
       "UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ? AND checked_out_at IS NULL"
     ).run(booking.id);
+    return true;
   })();
+  if (!returned) return { ok: false, error: "This kit has already been taken back." };
 
   return { ok: true, hire: (await hireFor(booking.id))!, booking: (await bookingByCode(booking.code))! };
 }

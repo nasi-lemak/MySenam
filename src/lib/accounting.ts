@@ -32,6 +32,7 @@ export type Category =
   | "Stored credit"
   | "Gift vouchers"
   | "Counter sales"
+  | "Hire deposits kept"
   | "Other";
 
 /** Money held for customers, not takings, until spent. */
@@ -97,8 +98,10 @@ async function categoryOf(source: string): Promise<Category> {
       return "Tournament entries";
     case "place":
       return "League fees";
-    case "sale":
-      return "Counter sales";
+    case "sale": {
+      const sale = (await db.prepare("SELECT hire_record_id FROM counter_sales WHERE id = ?").get(id)) as { hire_record_id: number | null } | undefined;
+      return sale?.hire_record_id ? "Hire deposits kept" : "Counter sales";
+    }
     case "payment": {
       const p = (await db.prepare("SELECT purpose FROM online_payments WHERE id = ?").get(id)) as { purpose: string } | undefined;
       // A deposit is part of the booking it holds, and sold as that is.

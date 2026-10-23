@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getVenue, getVenueIdForBookingCode, listOpenHires, returnHire, takeHire } from "@/lib/store";
-import { HIRE_CONDITIONS, HireCondition } from "@/lib/types";
+import { COUNTER_METHODS, type CounterMethod, HIRE_CONDITIONS, HireCondition } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, action, deposit, condition, withheld, note } = (body ?? {}) as Record<
+  const { code, action, deposit, condition, withheld, note, via, taxable } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -60,10 +60,15 @@ export async function POST(req: NextRequest) {
   if (note !== undefined && typeof note !== "string")
     return NextResponse.json({ error: "note must be text." }, { status: 400 });
 
+  if (via !== undefined && !COUNTER_METHODS.includes(via as CounterMethod))
+    return NextResponse.json({ error: "via is cash, qr, transfer or card." }, { status: 400 });
   const result = await returnHire(code, {
     condition: condition as HireCondition,
     withheld: withheld as number | undefined,
     note: note as string | undefined,
+    // How the deposit was held, and whether what is kept is a taxed charge or untaxed compensation.
+    via: via as CounterMethod | undefined,
+    taxable: taxable === true,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ hire: result.hire, booking: result.booking });

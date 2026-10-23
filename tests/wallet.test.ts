@@ -25,6 +25,7 @@ import {
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { MAX_TOP_UP } from "../src/lib/types";
+import { walletLiability } from "../src/lib/reports";
 
 const futureDate = (offset: number) => addDays(todayISO(), offset);
 let seq = 0;
@@ -317,5 +318,27 @@ describe("claiming a payment", () => {
     // As a refund leaves it (a tick cannot undo a credit payment).
     await getDb().prepare("UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL WHERE id = ?").run(made.booking.id);
     expect(await claimPayment(made.booking.id, "credit")).toBe(true);
+  });
+});
+
+describe("credit below nothing after a chargeback", () => {
+  it("is reported on its own, never netted against what others hold, and the two add up to the ledger", async () => {
+    const before = await walletLiability();
+    await customer(40); // somebody else holding credit, never netted against the one below
+    const spender = await customer(30);
+    const made = await book(spender.id, spender.phone, 9, 11);
+    if (!made.ok) throw new Error(made.error);
+    expect((await payBookingFromWallet(made.booking.id)).ok).toBe(true);
+    // The top-up's money went back through the bank after the credit was spent.
+    await getDb().prepare("INSERT INTO wallet_entries (user_id, amount, reason) VALUES (?, -30, 'Top-up charged back')").run(spender.id);
+
+    const after = await walletLiability();
+    expect(after.customers - before.customers).toBe(1);
+    expect(after.balance - before.balance).toBeCloseTo(40);
+    expect(after.overdrawn.customers - before.overdrawn.customers).toBe(1);
+    expect(after.overdrawn.owing - before.overdrawn.owing).toBeCloseTo(15);
+    // Held minus owed is the whole ledger, entry for entry.
+    const ledger = (await getDb().prepare("SELECT COALESCE(SUM(amount), 0)::float AS total FROM wallet_entries").get()) as { total: number };
+    expect(after.balance - after.overdrawn.owing).toBeCloseTo(ledger.total);
   });
 });

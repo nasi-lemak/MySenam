@@ -268,3 +268,67 @@ describe("kit that is still out", () => {
     expect((await updateCourt(court.id, { deposit: 0 })).ok).toBe(true);
   });
 });
+
+describe("money kept back from a deposit", () => {
+  const db = async () => (await import("../src/lib/db")).getDb();
+
+  it("is a receipted sale in the takings and the books, untaxed as compensation unless the venue says it is a charge", async () => {
+    const { setVenueTax } = await import("../src/lib/tax");
+    const { salesJournal } = await import("../src/lib/accounting");
+    const venue = await VENUE();
+    expect((await setVenueTax(venue.id, { registered: true, name: "SST", rate: 8, regNo: "W10-1808-31000001" })).ok).toBe(true);
+    try {
+      const court = await fleet(80);
+      const damaged = await bookRunningNow(court.id, "0150000091");
+      expect((await takeHire(damaged.code)).ok).toBe(true);
+      const charged = await bookRunningNow(court.id, "0150000092", 13);
+      expect((await takeHire(charged.code)).ok).toBe(true);
+
+      // Two returns of the same kit at once keep the deposit once. On a real
+      // server one of them is run again after a short, real wait: a frozen
+      // clock would hold it there.
+      vi.useRealTimers();
+      const [a, b] = await Promise.all([
+        returnHire(damaged.code, { condition: "damaged", withheld: 30, note: "Cracked paddle blade", via: "card" }),
+        returnHire(damaged.code, { condition: "damaged", withheld: 30, note: "Cracked paddle blade", via: "card" }),
+      ]);
+      expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+      expect((await returnHire(charged.code, { condition: "ok", withheld: 10, note: "Late back by an hour", taxable: true })).ok).toBe(true);
+
+      const sales = (await (await db())
+        .prepare(
+          `SELECT s.total::float AS total, s.paid_via, r.tax_amount::float AS tax, r.total::float AS receipt
+             FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id
+             JOIN receipts r ON r.source = 'sale:' || s.id WHERE b.code IN (?, ?) ORDER BY s.id`
+        )
+        .all(damaged.code, charged.code)) as { total: number; paid_via: string; tax: number; receipt: number }[];
+      expect(sales).toEqual([
+        { total: 30, paid_via: "card", tax: 0, receipt: 30 },
+        { total: 10, paid_via: "cash", tax: expect.closeTo(0.74, 2), receipt: 10 },
+      ]);
+      // Deposit held, kept and given back add up.
+      const hire = await hireFor(damaged.id);
+      expect(hire).toMatchObject({ deposit: 80, withheld: 30 });
+
+      const today = todayISO();
+      const kept = (await salesJournal(venue.id, today, today)).filter(
+        (r) => r.category === "Hire deposits kept" && (r.description.includes(damaged.code) || r.description.includes(charged.code))
+      );
+      expect(kept.map((r) => r.gross).sort()).toEqual([10, 30]);
+      expect(kept.every((r) => r.revenue)).toBe(true);
+    } finally {
+      await setVenueTax(venue.id, { registered: false });
+    }
+  });
+
+  it("is not a sale when nothing is kept", async () => {
+    const court = await fleet(40);
+    const fine = await bookRunningNow(court.id, "0150000093", 14);
+    expect((await takeHire(fine.code)).ok).toBe(true);
+    expect((await returnHire(fine.code, { condition: "ok" })).ok).toBe(true);
+    const n = (await (await db())
+      .prepare("SELECT COUNT(*)::int AS n FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id WHERE b.code = ?")
+      .get(fine.code)) as { n: number };
+    expect(n.n).toBe(0);
+  });
+});
