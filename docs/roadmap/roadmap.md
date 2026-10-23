@@ -14,6 +14,7 @@ anything here.
 | Stripe Connect payouts to venues | DEFERRED | Venues take payment into their own accounts today ([ADR 0006](../architecture/decisions/0006-per-venue-payment-accounts.md)). |
 | Singapore InvoiceNow (Peppol) e-invoicing | BLOCKED | An agreement with a Peppol access point provider; MyInvois covers Malaysia. |
 | Web push notifications | PLANNED | No provider account: VAPID keys of the install's own, a service worker (the app has a manifest but none yet), a stored subscription per browser, and an opt-in on the confirmation screen. A migration and a new dependency or an encryption routine; a product decision on what is worth a push, since email and WhatsApp already carry every message. |
+| Reservations stored as exact intervals with database-enforced overlap: per-court start times, increments, fixed lengths and buffers, minute-level where allowed ([review and plan](../architecture/interval-booking-review.md), [ADR 0010](../architecture/decisions/0010-interval-booking.md)) | PLANNED | The owner's decision on ADR 0010 and the business rules listed at the end of the review; then eight phases, each tested on both engines. Replaces the half-hour storage of ADR 0009 |
 | LINE and Zalo messaging | BLOCKED | Each needs its own business account with the provider (LINE Official Account; Zalo OA), and both matter for a move into Thailand or Vietnam rather than Malaysia or Singapore, where customers are reached by WhatsApp and email. |
 
 ## Delivered

@@ -37,6 +37,7 @@ home ([`AGENTS.md`](../AGENTS.md)).
 | Stack, structure, several instances | [Overview](architecture/overview.md) |
 | Schema, migrations, conventions | [Database](architecture/database.md) |
 | What is guaranteed under concurrent requests | [Booking concurrency](architecture/booking-concurrency.md) |
+| Proposed: reservations as exact intervals (review and plan, not built) | [Booking time model](architecture/interval-booking-review.md) |
 | Platform, business, branch, venue; staff roles; how boundaries are enforced | [Tenancy](architecture/tenancy.md) |
 | Sign-in, sessions, two-factor, Google, phone checks, passwords | [Authentication](architecture/authentication.md) |
 | Rate limits and abuse controls | [Security](architecture/security.md) |
@@ -53,7 +54,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0006 Per-venue payment accounts](architecture/decisions/0006-per-venue-payment-accounts.md) ·
 [0007 Stored-credit ownership](architecture/decisions/0007-stored-credit-ownership.md) ·
 [0008 Slot length per venue](architecture/decisions/0008-slot-length-per-venue.md) (superseded) ·
-[0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md)
+[0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md) ·
+[0010 Interval booking (proposed)](architecture/decisions/0010-interval-booking.md)
 
 ## Integrations
 
