@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
 import { setEntry, tournamentDetail, withdraw } from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
@@ -28,5 +29,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           seed: body.seed === null ? null : body.seed !== undefined ? Number(body.seed) : undefined,
         });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
-  return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
+  const d = (await tournamentDetail(found.id, { forStaff: true }))!;
+  if (body.withdraw === true)
+    await logAction(found.admin, {
+      venueId: d.venueId,
+      action: "tournament.withdrawn",
+      detail: `${d.name}: ${result.value.name}${d.status === "open" || d.status === "closed" ? "" : " (after the draw: matches left are walkovers)"}`,
+    });
+  return NextResponse.json({ tournament: d });
 }

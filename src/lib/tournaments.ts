@@ -1,5 +1,5 @@
 import { isActivity } from "./activities";
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { hoursOn, parseWeekHours } from "./week-hours";
 import { receiptFee } from "./documents";
 import {
@@ -246,16 +246,17 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
     ...(opts.forStaff ? { userId: e.user_id } : {}),
   }));
   const matches = await matchesOf(id);
+  // Whoever withdrew after the draw keeps the results they played but is
+  // placed below everybody still in, so never goes through (known limitations B10).
+  const out = new Set(entries.filter((e) => e.status === "withdrawn").map((e) => e.id));
   const groups = [...new Set(matches.filter((m) => m.stage === "group").map((m) => m.groupNo!))].sort((a, b) => a - b).map((g) => {
     const inGroup = matches.filter((m) => m.stage === "group" && m.groupNo === g);
     const ids = [...new Set(inGroup.flatMap((m) => [m.a!, m.b!]))];
-    return {
-      groupNo: g,
-      table: standings(
-        ids,
-        inGroup.map((m) => ({ a: m.a!, b: m.b!, winner: m.winner, score: m.score }))
-      ),
-    };
+    const table = standings(
+      ids,
+      inGroup.map((m) => ({ a: m.a!, b: m.b!, winner: m.winner, score: m.score }))
+    );
+    return { groupNo: g, table: [...table.filter((s) => !out.has(s.entryId)), ...table.filter((s) => out.has(s.entryId))] };
   });
   return { ...t, entries, matches, groups };
 }
@@ -562,10 +563,18 @@ export async function myEntry(userId: number, tournamentId: number): Promise<Ent
 
 /**
  * Out. Before the draw, the place goes to whoever has waited longest; after
- * it, each match still to play is a walkover to the other side. A fee paid
- * online is owed back if they withdrew before the draw.
+ * it, each group match still to play is a walkover to the other side, they
+ * are placed last in their group, and a knockout match is a walkover to
+ * whoever meets them (when that is known; until then it waits). If the
+ * groups are over and nothing in the knockout has been played, the knockout
+ * is filled again without them. A fee paid online is owed back if they
+ * withdrew before the draw. All one change.
  */
-export async function withdraw(entryId: number): Promise<Result<Entry>> {
+export function withdraw(entryId: number): Promise<Result<Entry>> {
+  return withTransaction(() => withdrawOnce(entryId));
+}
+
+async function withdrawOnce(entryId: number): Promise<Result<Entry>> {
   const db = getDb();
   const row = (await db
     .prepare("SELECT e.id, e.status, e.tournament_id FROM tournament_entries e WHERE e.id = ?")
@@ -579,13 +588,11 @@ export async function withdraw(entryId: number): Promise<Result<Entry>> {
     const pending = (await db
       .prepare(
         `SELECT id, entry_a, entry_b FROM tournament_matches
-          WHERE tournament_id = ? AND status = 'scheduled' AND (entry_a = ? OR entry_b = ?)`
+          WHERE tournament_id = ? AND stage = 'group' AND status = 'scheduled' AND (entry_a = ? OR entry_b = ?)`
       )
       .all(t.id, entryId, entryId)) as { id: number; entry_a: number | null; entry_b: number | null }[];
-    for (const m of pending) {
-      const other = m.entry_a === entryId ? m.entry_b : m.entry_a;
-      if (other !== null) await settleMatch(m.id, other, null, "walkover");
-    }
+    for (const m of pending) await decide(m.id, m.entry_a === entryId ? m.entry_b! : m.entry_a!, null, "walkover");
+    await afterChange(t.id, true);
     return { ok: true, value: (await entryById(entryId))! };
   }
 
@@ -809,11 +816,28 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
  * A result: who won, and the score if there is one. The winner goes on to
  * their next match; the last group match fills the knockout; the final
  * finishes it. A result can be put right until the match it fed is played.
+ * A group result put right after the knockout is filled fills it again, if
+ * nothing in it has been played; once something has, a change that would
+ * alter who is in the knockout is refused (known limitations B9): the
+ * organiser corrects the knockout's own results instead.
  */
 export async function recordResult(matchId: number, input: { winner: number; score?: string; walkover?: boolean }): Promise<Result<TournamentDetail>> {
+  try {
+    return await withTransaction(() => recordResultOnce(matchId, input));
+  } catch (err) {
+    // Caught outside the transaction, so the result goes with it.
+    if (err instanceof KnockoutUnderway) return { ok: false, error: err.message, code: "KNOCKOUT_STARTED" };
+    throw err;
+  }
+}
+
+/** Thrown to undo a group result that would change a knockout already being played. */
+class KnockoutUnderway extends Error {}
+
+async function recordResultOnce(matchId: number, input: { winner: number; score?: string; walkover?: boolean }): Promise<Result<TournamentDetail>> {
   const db = getDb();
   const m = (await db.prepare("SELECT * FROM tournament_matches WHERE id = ?").get(matchId)) as
-    | { id: number; tournament_id: number; entry_a: number | null; entry_b: number | null; next_match_id: number | null; status: string }
+    | { id: number; tournament_id: number; stage: string; entry_a: number | null; entry_b: number | null; next_match_id: number | null; status: string }
     | undefined;
   if (!m) return { ok: false, error: "Match not found." };
   const t = (await tournamentById(m.tournament_id))!;
@@ -833,59 +857,156 @@ export async function recordResult(matchId: number, input: { winner: number; sco
     const next = (await db.prepare("SELECT status FROM tournament_matches WHERE id = ?").get(m.next_match_id)) as { status: string };
     if (next.status === "done" || next.status === "walkover") return { ok: false, error: "The next match is played already." };
   }
-  await settleMatch(matchId, input.winner, score, input.walkover ? "walkover" : "done");
-  return { ok: true, value: (await tournamentDetail(t.id, { forStaff: true }))! };
+  const before = m.stage === "group" ? qualifiers((await tournamentDetail(t.id))!, t.advance) : null;
+  await decide(matchId, input.winner, score, input.walkover ? "walkover" : "done");
+  await afterChange(t.id, m.stage === "group");
+  const after = (await tournamentDetail(t.id, { forStaff: true }))!;
+  if (before) {
+    const wanted = qualifiers(after, t.advance)!;
+    // The knockout could not be filled again, and this result is why.
+    if (!samePairs(before, wanted) && !samePairs(firstRoundOf(after), wanted)) {
+      throw new KnockoutUnderway(
+        "The knockout has started, and this result would change who is in it. Once a knockout match is played the group results stand: correct the knockout's own results instead."
+      );
+    }
+  }
+  return { ok: true, value: after };
 }
 
-async function settleMatch(matchId: number, winner: number, score: string | null, status: "done" | "walkover"): Promise<void> {
+/** A match decided, and its winner put into the match they go on to. */
+async function decide(matchId: number, winner: number | null, score: string | null, status: "done" | "walkover" | "bye"): Promise<void> {
   const db = getDb();
-  const m = (await db.prepare("SELECT * FROM tournament_matches WHERE id = ?").get(matchId)) as {
-    id: number;
-    tournament_id: number;
-    stage: string;
+  const m = (await db.prepare("SELECT next_match_id, next_slot FROM tournament_matches WHERE id = ?").get(matchId)) as {
     next_match_id: number | null;
     next_slot: "a" | "b" | null;
   };
   await db
-    .prepare("UPDATE tournament_matches SET winner = ?, score = ?, status = ?, updated_at = datetime('now') WHERE id = ?")
+    .prepare(
+      `UPDATE tournament_matches SET winner = ?, score = ?, status = ?, updated_at = datetime('now')${status === "bye" ? ", court_id = NULL, date = NULL, start_min = NULL" : ""} WHERE id = ?`
+    )
     .run(winner, score, status, matchId);
   if (m.next_match_id !== null)
     await db.prepare(`UPDATE tournament_matches SET entry_${m.next_slot} = ? WHERE id = ?`).run(winner, m.next_match_id);
-  if (m.stage === "group") await fillKnockoutIfGroupsDone(m.tournament_id);
-  await finishIfDone(m.tournament_id);
-  // A walkover, a bye or the final may leave a court with nothing more to play.
-  await releaseUnneeded(m.tournament_id);
 }
 
-/** The groups are in: their best go into the knockout, best finishers on the best lines. */
-async function fillKnockoutIfGroupsDone(tournamentId: number): Promise<void> {
+/** What follows any change to a tournament's results or entries. */
+async function afterChange(tournamentId: number, groupsChanged: boolean): Promise<void> {
+  if (groupsChanged) await fillKnockout(tournamentId);
+  await resolveUncontested(tournamentId);
+  await finishIfDone(tournamentId);
+  // A walkover, a bye or the final may leave a court with nothing more to play.
+  await releaseUnneeded(tournamentId);
+}
+
+/**
+ * Who the groups send into the knockout's first round, pair by pair, now:
+ * group winners on the top lines, each runner-up in the other half from its
+ * own group's winner, and nobody who has withdrawn (their line is a bye).
+ * Null for a knockout drawn straight, with no knockout after the groups, or
+ * while a group match is still to be decided.
+ */
+function qualifiers(d: TournamentDetail, advance: number): [number | null, number | null][] | null {
+  const group = d.matches.filter((m) => m.stage === "group");
+  if (group.length === 0 || !d.matches.some((m) => m.stage === "knockout") || group.some((m) => m.winner === null)) return null;
+  const out = new Set(d.entries.filter((e) => e.status === "withdrawn").map((e) => e.id));
+  const through = (s: Standing | undefined) => (s && !out.has(s.entryId) ? s.entryId : null);
+  const winners = d.groups.map((g) => through(g.table[0]));
+  const runnersUp = advance === 2 ? d.groups.map((g) => through(g.table[1])) : [];
+  return firstRound(knockoutFromGroups(winners, runnersUp));
+}
+
+function firstRoundOf(d: TournamentDetail): [number | null, number | null][] {
+  return d.matches
+    .filter((m) => m.stage === "knockout" && m.round === 1)
+    .sort((a, b) => a.position - b.position)
+    .map((m) => [m.a, m.b]);
+}
+
+const samePairs = (x: [number | null, number | null][], y: [number | null, number | null][]) =>
+  x.length === y.length && x.every((p, i) => p[0] === y[i][0] && p[1] === y[i][1]);
+
+/** Has any knockout match been decided by playing it, or by a walkover? */
+async function knockoutStarted(tournamentId: number): Promise<boolean> {
+  return !!(await getDb()
+    .prepare("SELECT 1 FROM tournament_matches WHERE tournament_id = ? AND stage = 'knockout' AND status IN ('done', 'walkover') LIMIT 1")
+    .get(tournamentId));
+}
+
+/**
+ * The groups are in: their best go into the knockout. If it was filled
+ * before and the groups now send somebody else (a result put right, or a
+ * withdrawal), it is filled again, as long as none of it has been played and
+ * every match it needs still has its court; otherwise it is left as it is.
+ */
+async function fillKnockout(tournamentId: number): Promise<void> {
   const db = getDb();
   const t = (await tournamentById(tournamentId))!;
-  const left = (await db
-    .prepare("SELECT COUNT(*)::int AS n FROM tournament_matches WHERE tournament_id = ? AND stage = 'group' AND winner IS NULL")
-    .get(tournamentId)) as { n: number };
-  if (left.n > 0) return;
   const detail = (await tournamentDetail(tournamentId))!;
+  const pairs = qualifiers(detail, t.advance);
+  if (!pairs) return;
   const firstRoundMatches = detail.matches.filter((m) => m.stage === "knockout" && m.round === 1).sort((a, b) => a.position - b.position);
-  if (firstRoundMatches.length === 0 || firstRoundMatches.some((m) => m.a !== null || m.b !== null)) return;
-  // Group winners on the top lines; each runner-up in the other half from
-  // its own group's winner, so they meet again only in the final.
-  const winners = detail.groups.map((g) => g.table[0]?.entryId).filter((x): x is number => x !== undefined);
-  const runnersUp = t.advance === 2 ? detail.groups.map((g) => g.table[1]?.entryId).filter((x): x is number => x !== undefined) : [];
-  const pairs = firstRound(knockoutFromGroups(winners, runnersUp));
+  if (firstRoundMatches.some((m) => m.a !== null || m.b !== null || m.status !== "scheduled")) {
+    if (samePairs(firstRoundOf(detail), pairs)) return;
+    if (await knockoutStarted(tournamentId)) return;
+    // A match given as a bye has no court any more, so cannot become one to play.
+    if (firstRoundMatches.some((m, i) => m.courtId === null && pairs[i][0] !== null && pairs[i][1] !== null)) return;
+    await db
+      .prepare(
+        `UPDATE tournament_matches SET entry_a = NULL, entry_b = NULL, winner = NULL, score = NULL, status = 'scheduled', updated_at = datetime('now')
+          WHERE tournament_id = ? AND stage = 'knockout'`
+      )
+      .run(tournamentId);
+  }
   for (let i = 0; i < firstRoundMatches.length; i++) {
     const [a, b] = pairs[i];
-    const match = firstRoundMatches[i];
-    await db.prepare("UPDATE tournament_matches SET entry_a = ?, entry_b = ? WHERE id = ?").run(a, b, match.id);
-    if ((a === null) !== (b === null)) {
-      await db.prepare("UPDATE tournament_matches SET status = 'bye', winner = ?, court_id = NULL, date = NULL, start_min = NULL WHERE id = ?").run(a ?? b, match.id);
-      const next = (await db.prepare("SELECT next_match_id, next_slot FROM tournament_matches WHERE id = ?").get(match.id)) as {
-        next_match_id: number | null;
-        next_slot: "a" | "b" | null;
-      };
-      if (next.next_match_id !== null)
-        await db.prepare(`UPDATE tournament_matches SET entry_${next.next_slot} = ? WHERE id = ?`).run(a ?? b, next.next_match_id);
-    }
+    await db.prepare("UPDATE tournament_matches SET entry_a = ?, entry_b = ? WHERE id = ?").run(a, b, firstRoundMatches[i].id);
+    // One side only: a bye. Neither (both lines withdrawn): nobody goes through.
+    if (a === null || b === null) await decide(firstRoundMatches[i].id, a ?? b, null, "bye");
+  }
+}
+
+/**
+ * Knockout matches nobody can contest any more, settled as soon as that is
+ * known: against somebody who has withdrawn, a walkover; against a line
+ * nobody will fill (a bye that sent nobody through), a bye; with neither
+ * side able to play, a bye that sends nobody through. Repeated until nothing
+ * changes, since each may settle the next.
+ */
+async function resolveUncontested(tournamentId: number): Promise<void> {
+  const db = getDb();
+  const out = new Set(
+    ((await db.prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status = 'withdrawn'").all(tournamentId)) as { id: number }[]).map(
+      (r) => r.id
+    )
+  );
+  for (let guard = 0; guard < 256; guard++) {
+    const rows = (await db
+      .prepare("SELECT id, stage, status, winner, entry_a, entry_b, next_match_id, next_slot FROM tournament_matches WHERE tournament_id = ?")
+      .all(tournamentId)) as {
+      id: number;
+      stage: string;
+      status: string;
+      winner: number | null;
+      entry_a: number | null;
+      entry_b: number | null;
+      next_match_id: number | null;
+      next_slot: "a" | "b" | null;
+    }[];
+    const side = (m: (typeof rows)[number], slot: "a" | "b") => {
+      const entry = slot === "a" ? m.entry_a : m.entry_b;
+      if (entry !== null) return out.has(entry) ? "out" : "in";
+      const feeders = rows.filter((f) => f.next_match_id === m.id && f.next_slot === slot);
+      return feeders.length > 0 && feeders.every((f) => f.status === "bye" && f.winner === null) ? "never" : "unknown";
+    };
+    const next = rows
+      .filter((m) => m.stage === "knockout" && m.status === "scheduled")
+      .map((m) => ({ m, a: side(m, "a"), b: side(m, "b") }))
+      .find(({ a, b }) => a !== "unknown" && b !== "unknown" && !(a === "in" && b === "in"));
+    if (!next) return;
+    const { m, a, b } = next;
+    const through = a === "in" ? m.entry_a : b === "in" ? m.entry_b : null;
+    if (through !== null && (a === "out" || b === "out")) await decide(m.id, through, null, "walkover");
+    else await decide(m.id, through, null, "bye");
   }
 }
 
@@ -893,7 +1014,7 @@ async function fillKnockoutIfGroupsDone(tournamentId: number): Promise<void> {
 async function finishIfDone(tournamentId: number): Promise<void> {
   const db = getDb();
   const left = (await db
-    .prepare("SELECT COUNT(*)::int AS n FROM tournament_matches WHERE tournament_id = ? AND winner IS NULL")
+    .prepare("SELECT COUNT(*)::int AS n FROM tournament_matches WHERE tournament_id = ? AND winner IS NULL AND status <> 'bye'")
     .get(tournamentId)) as { n: number };
   if (left.n > 0) return;
   await db.prepare("UPDATE tournaments SET status = 'finished' WHERE id = ? AND status = 'drawn'").run(tournamentId);

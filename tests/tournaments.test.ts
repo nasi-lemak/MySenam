@@ -286,6 +286,177 @@ describe("groups, then a knockout", () => {
   });
 });
 
+/** A tournament of two groups of three, top two through to semi-finals, drawn. */
+async function groupsCup() {
+  const t = await tournament({ format: "groups", groupSize: 3, advance: 2 });
+  const field = await entries(t.id, 6);
+  const drawn = await makeDraw(t.id, fixed);
+  if (!drawn.ok) throw new Error(drawn.error);
+  return { t, field };
+}
+
+/** Every group match still to play, the side named first winning. */
+async function playGroups(id: number) {
+  for (const m of (await tournamentDetail(id))!.matches.filter((x) => x.stage === "group" && x.status === "scheduled")) {
+    const r = await recordResult(m.id, { winner: m.a!, score: "21-15, 21-15" });
+    if (!r.ok) throw new Error(r.error);
+  }
+  return (await tournamentDetail(id))!;
+}
+
+const semiLines = (d: Awaited<ReturnType<typeof tournamentDetail>>) =>
+  d!.matches.filter((m) => m.stage === "knockout" && m.round === 1).sort((a, b) => a.position - b.position).map((m) => [m.a, m.b]);
+
+/** Who the groups should send through, by the tables as they stand. */
+const expectedLines = (d: Awaited<ReturnType<typeof tournamentDetail>>) => {
+  const [g1, g2] = d!.groups.map((g) => g.table.map((x) => x.entryId));
+  return [
+    [g1[0], g2[1]],
+    [g2[0], g1[1]],
+  ];
+};
+
+/** The group match between the second and third in group one, and the result that swaps them. */
+function swapSecondAndThird(d: Awaited<ReturnType<typeof tournamentDetail>>) {
+  const [, second, third] = d!.groups[0].table.map((x) => x.entryId);
+  const m = d!.matches.find((x) => x.stage === "group" && [x.a, x.b].includes(second) && [x.a, x.b].includes(third))!;
+  expect(m.winner).toBe(second);
+  return { m, second, third, swap: { winner: third, score: m.a === third ? "21-15, 21-15" : "15-21, 15-21" } };
+}
+
+describe("a group result put right after the knockout is filled (B9)", () => {
+  it("fills the knockout again, while none of it has been played", async () => {
+    const { t } = await groupsCup();
+    const before = await playGroups(t.id);
+    expect(semiLines(before)).toEqual(expectedLines(before));
+    const { m, second, third, swap } = swapSecondAndThird(before);
+    expect(semiLines(before).flat()).toContain(second);
+    expect(semiLines(before).flat()).not.toContain(third);
+
+    const fixedUp = await recordResult(m.id, swap);
+    if (!fixedUp.ok) throw new Error(fixedUp.error);
+    // The knockout follows the tables as they now stand.
+    expect(fixedUp.value.groups[0].table.map((x) => x.entryId).slice(0, 2)).toContain(third);
+    expect(semiLines(fixedUp.value)).toEqual(expectedLines(fixedUp.value));
+    expect(semiLines(fixedUp.value).flat()).toContain(third);
+    expect(semiLines(fixedUp.value).flat()).not.toContain(second);
+    expect((await playOut(t.id)).status).toBe("finished");
+  });
+
+  it("is refused once a knockout match is played, if it would change who is in it; a score put right still goes in", async () => {
+    const { t } = await groupsCup();
+    const before = await playGroups(t.id);
+    const semi = before.matches.find((x) => x.stage === "knockout" && x.round === 1)!;
+    expect((await recordResult(semi.id, { winner: semi.a!, score: "21-10, 21-10" })).ok).toBe(true);
+    const played = (await tournamentDetail(t.id))!;
+
+    const { m, swap } = swapSecondAndThird(played);
+    const refused = await recordResult(m.id, swap);
+    expect(refused).toMatchObject({ ok: false, code: "KNOCKOUT_STARTED" });
+    // Nothing of it was kept: the group result and the knockout are as they were.
+    const after = (await tournamentDetail(t.id))!;
+    expect(after.matches.find((x) => x.id === m.id)).toMatchObject({ winner: m.winner, score: m.score });
+    expect(semiLines(after)).toEqual(semiLines(played));
+    expect(after.matches.find((x) => x.id === semi.id)).toMatchObject({ status: "done", winner: semi.a });
+
+    // The same winner with a different score changes nobody's place.
+    const scoreOnly = await recordResult(m.id, { winner: m.winner!, score: m.a === m.winner ? "21-19, 21-19" : "19-21, 19-21" });
+    expect(scoreOnly.ok).toBe(true);
+    expect(semiLines((await tournamentDetail(t.id))!)).toEqual(semiLines(played));
+  });
+
+  it("is written to the activity log, with the result it replaced and the knockout before and after", async () => {
+    const { t } = await groupsCup();
+    const before = await playGroups(t.id);
+    const { m, swap } = swapSecondAndThird(before);
+    const owner = (await listAdmins())[0];
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(owner.id)).token}`;
+    const route = await import("../src/app/api/admin/tournaments/[id]/matches/[matchId]/route");
+    const res = await route.POST(
+      new NextRequest(`http://localhost/api/admin/tournaments/${t.id}/matches/${m.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify(swap),
+      }),
+      { params: Promise.resolve({ id: String(t.id), matchId: String(m.id) }) }
+    );
+    expect(res.status).toBe(200);
+    const logged = (await getDb()
+      .prepare("SELECT action, detail FROM staff_actions WHERE detail LIKE ? ORDER BY id")
+      .all(`${t.name}%`)) as { action: string; detail: string }[];
+    expect(logged.map((l) => l.action)).toEqual(["tournament.result_changed", "tournament.knockout_refilled"]);
+    expect(logged[0].detail).toContain("(was: ");
+    expect(logged[1].detail).toContain("(was: ");
+  });
+});
+
+describe("a withdrawal after the draw (B10)", () => {
+  it("in the groups: their matches left are walkovers, they are placed last, and they do not go through", async () => {
+    const { t } = await groupsCup();
+    let d = (await tournamentDetail(t.id))!;
+    // They win their first match, then withdraw.
+    const first = d.matches.find((x) => x.stage === "group" && x.groupNo === 1)!;
+    const quitter = first.a!;
+    expect((await recordResult(first.id, { winner: quitter, score: "21-5, 21-5" })).ok).toBe(true);
+    expect((await withdraw(quitter)).ok).toBe(true);
+    d = (await tournamentDetail(t.id))!;
+    const theirs = d.matches.filter((x) => x.stage === "group" && [x.a, x.b].includes(quitter));
+    expect(theirs.filter((x) => x.id !== first.id).every((x) => x.status === "walkover" && x.winner !== quitter)).toBe(true);
+    // The win they had stands as played, but they are last, under everybody still in.
+    expect(d.matches.find((x) => x.id === first.id)).toMatchObject({ status: "done", winner: quitter });
+    d = await playGroups(t.id);
+    expect(d.groups[0].table.at(-1)!.entryId).toBe(quitter);
+    expect(semiLines(d).flat()).not.toContain(quitter);
+    expect(semiLines(d)).toEqual(expectedLines(d));
+    expect((await playOut(t.id)).status).toBe("finished");
+  });
+
+  it("with the knockout filled and none of it played: filled again without them", async () => {
+    const { t } = await groupsCup();
+    const filled = await playGroups(t.id);
+    const quitter = semiLines(filled)[0][0]!;
+    expect((await withdraw(quitter)).ok).toBe(true);
+    const d = (await tournamentDetail(t.id))!;
+    expect(semiLines(d).flat()).not.toContain(quitter);
+    expect(semiLines(d)).toEqual(expectedLines(d));
+    // Nobody in the knockout had a walkover handed to them: it is all still to play.
+    expect(d.matches.filter((x) => x.stage === "knockout").every((x) => x.status === "scheduled")).toBe(true);
+  });
+
+  it("in the knockout before their opponent is known: a walkover as soon as they are", async () => {
+    const t = await tournament();
+    await entries(t.id, 4);
+    const drawn = await makeDraw(t.id, fixed);
+    if (!drawn.ok) throw new Error(drawn.error);
+    const [s1, s2] = drawn.value.matches.filter((x) => x.round === 1).sort((a, b) => a.position - b.position);
+    expect((await recordResult(s1.id, { winner: s1.a!, score: "21-10, 21-10" })).ok).toBe(true);
+    expect((await withdraw(s1.a!)).ok).toBe(true);
+    let final = (await tournamentDetail(t.id))!.matches.find((x) => x.round === 2)!;
+    // Their opponent is still being decided: the final waits.
+    expect(final).toMatchObject({ status: "scheduled", winner: null });
+    expect((await recordResult(s2.id, { winner: s2.b!, score: "10-21, 10-21" })).ok).toBe(true);
+    const d = (await tournamentDetail(t.id))!;
+    final = d.matches.find((x) => x.round === 2)!;
+    expect(final).toMatchObject({ status: "walkover", winner: s2.b });
+    expect(d.status).toBe("finished");
+  });
+
+  it("when nobody is left on either side, nobody goes through, and the one still in wins it", async () => {
+    const { t, field } = await groupsCup();
+    const d0 = (await tournamentDetail(t.id))!;
+    const groupOf = (entryId: number) => d0.matches.find((x) => x.stage === "group" && [x.a, x.b].includes(entryId))!.groupNo;
+    const g1 = field.filter((f) => groupOf(f.entryId) === 1);
+    const g2 = field.filter((f) => groupOf(f.entryId) === 2);
+    // All of group one and two of group two withdraw.
+    for (const f of [...g1, ...g2.slice(0, 2)]) expect((await withdraw(f.entryId)).ok).toBe(true);
+    const d = await playGroups(t.id);
+    expect(d.status).toBe("finished");
+    const final = d.matches.find((x) => x.stage === "knockout" && x.round === 2)!;
+    expect(final.winner).toBe(g2[2].entryId);
+    expect(d.matches.filter((x) => x.stage === "knockout").every((x) => x.status === "bye" || x.status === "walkover")).toBe(true);
+  });
+});
+
 describe("court time", () => {
   // The hours held, "court:hour" for each hour a hold covers.
   const heldHours = async (id: number) => {
