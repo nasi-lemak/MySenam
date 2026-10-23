@@ -219,12 +219,12 @@ describe.skipIf(!url)("a marketplace at scale", () => {
     if (floors.length > 0)
       await time("book a place on a shared floor (customer)", RUNS, async (i) => {
         await store.createBooking({
-          courtId: floors[i % floors.length].id,
+          courtId: floors[Math.abs(i) % floors.length].id,
           date: date(i + 3),
           start: 7 * 60,
           end: 8 * 60,
           name: "Bench Place",
-          phone: `019${String(1000000 + i)}`,
+          phone: `019${String(1000001 + i)}`,
         });
       }, out);
     const one = (await db.prepare("SELECT code FROM bookings WHERE name = 'Bench Live' ORDER BY id DESC LIMIT 1").get()) as { code: string } | undefined;
