@@ -22,7 +22,9 @@ concurrency:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moves to Ubuntu 26 from October 2026, and the
+    # browser install and Postgres service are only known to work on this one.
+    runs-on: ubuntu-24.04
     # A hung run stops here instead of burning the default six hours.
     timeout-minutes: 30
     # The suite runs twice: on PGlite, as a developer runs it, and against a

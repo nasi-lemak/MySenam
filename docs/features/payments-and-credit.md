@@ -105,6 +105,29 @@ running booking software and running a payments business.
   saying so, and a customer's own cancellation counts it as on its way. **Billplz** has no refund API: refund in its
   dashboard, then mark it done. Either way the refund goes in the activity log
   with who made it.
+- **Paid twice** — when something already paid is paid for again (a
+  tournament entry ticked paid at the counter while its page was open, two
+  pages for one entry, a WhatsApp pack or a platform invoice paid by hand and
+  then online), the first payment is the fee, with its receipt; the second
+  is money received but owed back: no receipt, no revenue, listed under
+  *Refunds owed* until it is refunded once. However often the gateway reports
+  it, at the same moment or later, it is recorded once. A fee paid online
+  cannot be unticked at the counter: it is refunded from the online payments
+  list instead. What a venue paid the platform twice is owed back by the
+  platform owners, from *Billing → Owed back to venues* (refund through
+  Stripe, or mark refunded after paying it back by hand).
+- **A cancellation and its refunds are one change**: the booking is let go
+  and every refund (receipt credit note, credit, pass entry, promo, game and
+  friends' shares, and what is owed back online) is written in one
+  transaction, so a failure part-way leaves the booking booked and nothing
+  given back, and two cancellations at once refund once. What goes back
+  through a gateway cannot be in that transaction: it is written down as
+  owed, then asked for. *Refunds on their way* under *Online payments* lists
+  each one asked for and not yet answered; one with no answer after an hour,
+  or owed for over a week, is raised by the daily integrity check
+  ([monitoring](../operations/monitoring.md)). So collection, what is
+  recognised as revenue (receipts), what is owed back and what has been
+  refunded are each recorded apart.
 - **Chargebacks** — when a customer disputes a Stripe payment with their
   bank, Stripe tells the venue's webhook (`charge.dispute.created`, `.updated`
   and `.closed`; add them to the endpoint's events). A dispute names no page of

@@ -560,8 +560,8 @@ describe("an entry fee paid twice", () => {
     // The page is open when the desk takes the fee in cash.
     expect(await startEntryPayment(first.user, t.id)).toMatchObject({ ok: true });
     expect((await setEntry(first.entryId, { paid: true })).ok).toBe(true);
-    // The callback, its retry and the redirect: three reports of one payment.
-    for (let i = 0; i < 3; i++) await settleBill({ billId: "dup-bill-1", paid: true, paidAt: null });
+    // The callback, its retry and the redirect: three reports of one payment, at the same moment.
+    await Promise.all([0, 1, 2].map(() => settleBill({ billId: "dup-bill-1", paid: true, paidAt: null })));
     expect(await owed("dup-bill-1")).toEqual({ status: "paid", amount: 20, due: 20, refunded: 0 });
     // Revenue once: the counter's receipt; none for the money owed back.
     expect(await receipts(first.entryId, "dup-bill-1")).toEqual({ counter: 1, online: 0 });

@@ -49,6 +49,13 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 | A waitlist place frees up | Offer, with a link to claim it (urgent: it expires) | email; WhatsApp unless *off* |
 | The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only on *everything* with *Day-before reminders on WhatsApp too* ticked |
 | A booking is paid later — online, or marked paid at the counter | Receipt | email only |
+| Tournaments, leagues and open games: entering, coming off a waiting list, the draw, a season starting, a call-off, a game's changes | The programme's own message (kind `programme`) | email only |
+
+Programme emails are queued in the outbox, inside the change's own
+transaction where it has one (a withdrawal, a result, a season starting), so
+one whose email fails is retried like any other. Emails to staff and applicants (venue
+applications, password resets, owner alerts) are still sent once, directly,
+not through the outbox ([known limitations](../roadmap/known-limitations.md), S11).
 
 Closing a day that has bookings or classes on it is refused until staff say
 to cancel them; then each customer is told, as above. Messages are written in

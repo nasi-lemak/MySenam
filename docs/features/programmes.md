@@ -143,9 +143,19 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   Winners move on by themselves; the last group match fills the knockout from
   the tables (wins, then sets, then points, then who beat whom); the final
   finishes it. A knockout result can be put right until the match it fed has
-  been played. A group result can still be changed after the knockout has
-  been filled, but the knockout is not filled again
-  ([known limitations](../roadmap/known-limitations.md)).
+  been played.
+- **A group result put right after the knockout is filled** fills it again
+  from the tables as they now stand, as long as no knockout match has been
+  played or given as a walkover. Once one has, the knockout stands: a group
+  correction that would change who is in it is refused ("The knockout has
+  started…"), and one that changes nobody's place (a score put right, say)
+  still goes in. The organiser then puts the knockout's own results right,
+  or, if the wrong players are in it, runs the rest by hand. A first-round
+  match given as a bye has had its court let go, so a change that would turn
+  it into a match to play is refused the same way. Every result, every
+  change with the result it replaced, and every refill of the knockout with
+  its lines before and after, is in the staff activity log; a result and
+  everything that follows from it are one change.
 - **Court time goes back as soon as it is not needed.** Until the draw, every
   hour is held, since nobody knows which will be used. Once it is made, each
   court keeps only the hours from its first match still to play that day to
@@ -157,11 +167,21 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   Anybody on the waiting list for that court and day is offered what comes
   free, as with a cancellation.
 - **Withdrawals** before the draw free the place for the waiting list and owe
-  back a fee paid online. After the draw, a match whose opponent is already
-  known becomes a walkover at once; a later match the withdrawn player would
-  have reached is not, and staff enter that walkover by hand when the
-  opponent arrives. Nothing is owed back after the draw. Players withdraw
-  themselves only before the draw; staff can at any time.
+  back a fee paid online. After the draw:
+  - each group match they had left is a walkover to the other side; the
+    results they played stand, but they are placed last in their group,
+    below everybody still in, so they never go through;
+  - if the groups are over and no knockout match has been played, the
+    knockout is filled again without them, and the next in their group
+    takes their line;
+  - a knockout match against them is a walkover to the other side, as soon
+    as the other side is known (at once if it is, otherwise when that
+    match's feeder is decided);
+  - a line nobody is left to fill is a bye for whoever is on the other side,
+    and a match with nobody left on either side sends nobody through.
+  Nothing is owed back after the draw. Players withdraw themselves only
+  before the draw; staff can at any time, and it is in the activity log. A
+  withdrawal and everything that follows from it are one change.
   **Calling it off** gives the courts back (offering them to the waiting
   list), tells every entrant, and owes back every fee paid online.
 - The public page shows entries, then the groups, the bracket and every
@@ -188,7 +208,9 @@ what is planned):
   or time by hand.
 - No check-in of players on the day. Only staff enter results.
 - Emails go out on entering, coming off the waiting list, the draw and a
-  call-off; not on results, the next match, a walkover or the finish.
+  call-off; not on results, the next match, a walkover, a refilled
+  knockout or the finish. They are queued in the
+  [outbox](../integrations/messaging.md), so one that fails is retried.
 
 ## Box leagues
 

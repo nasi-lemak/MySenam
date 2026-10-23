@@ -30,14 +30,20 @@ booking was taken, because that is how an operator thinks about a month.
 
 What the reports leave out ([known limitations](../roadmap/known-limitations.md)):
 courts that share a floor are each counted as sellable, so a hall sold as
-one pitch reads as its courts idle (B11); money kept back from a hire
-deposit (M13) and credit balances below nothing after a chargeback (M14)
-appear in no report.
+one pitch reads as its courts idle (B11).
 - **What you still owe** is the part a spreadsheet usually misses. Unspent pass
   entries are hours already paid for that somebody can still walk in and take,
   and lapsing memberships are next month's renewals. Stored credit is shown to
   the platform owner only, because credit is bought at one counter and
   spendable at any — the platform owes it, not the venue that sold it.
+  It is reported customer by customer, never netted: what customers hold
+  (owed to them) is one figure, and apart from it what customers whose
+  balance went below nothing after a chargeback owe (how many, and how much),
+  labelled as not income. The two together are the ledger's total. A
+  balance below nothing is a debt to collect, not revenue.
+- **Money kept from a hire deposit** is a sale: in the day's takings, on a
+  receipt, and in the sales journal under *Hire deposits kept*
+  ([venue operations](venue-operations.md#equipment-hire-and-deposits)).
 
 Two colours carry the whole tab and mean one thing each: teal is money in hand,
 amber is money still owed. The pair is checked for colour-vision separation and

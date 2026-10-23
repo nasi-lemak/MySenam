@@ -121,6 +121,17 @@ change, update this page, and update [feature status](feature-status.md).
   which cannot be split, goes whole). Nothing more is owed back on a payment
   the bank has already returned, and a lost dispute is acted on once however
   often, or however simultaneously, the gateway reports it.
+- **Paid twice, owed back once.** When something already paid is paid for
+  again, the first payment is the fee and the only receipt; the second is
+  money received and owed back, never revenue, and is refunded once however
+  often it is asked for. What a venue paid the platform twice is owed back by
+  the platform owners.
+- **A cancellation and its refunds are one change**; what goes back through a
+  gateway is owed from that moment and asked for after it.
+- **Money kept from a hire deposit is a sale**, receipted when it is kept;
+  untaxed as compensation unless staff mark it a charge for a service.
+- **Credit below nothing is a debt, not income**: reported apart from credit
+  held, customer by customer, never netted.
 - **A receipt stays in the period it was issued.** A booking that stops being
   paid (a chargeback lost) keeps its receipt, written down as a document of its
   own dated when it was paid; the credit note falls in the period of the loss.
@@ -148,6 +159,12 @@ change, update this page, and update [feature status](feature-status.md).
 - **Tournaments and leagues**: closing entries, drawing, calling off (which
   refunds every entry) and starting or ending a season are a manager's, and
   each is in the activity log.
+- **A tournament's knockout follows its groups until it starts**: a group
+  result put right refills it while no knockout match has been played; after
+  that, a correction that would change who is in it is refused. A withdrawal
+  after the draw loses every match left by walkover and places the entrant
+  last in their group; results already played stand
+  ([programmes](../features/programmes.md#tournaments)).
 - **API keys** can be *availability only*: the venue and its free times, no
   customer's name or number.
 - **A flood of guest bookings** (past 30 unpaid bookings without an account at

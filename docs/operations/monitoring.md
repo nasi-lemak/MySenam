@@ -23,6 +23,10 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   nothing unless something went round the code (a hand-edited row, half a
   restore). `GET /api/admin/integrity` asks again now, for the platform
   owner, after putting it right.
+  The same check raises **refunds that are stuck**: one asked of the gateway
+  with no answer after an hour, and money owed back on an online payment for
+  over a week. Those need somebody to look in the gateway's dashboard or pay
+  it back, then mark it ([payments](../features/payments-and-credit.md)).
 
 Each kind is told once, then again only after six hours if it is still
 happening, with how many times it has. It goes by email to every platform

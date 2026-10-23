@@ -153,6 +153,18 @@ put both in the same balance and make a refund look like a top-up. `hire_records
 therefore tracks the state of the hold — taken, returned, how much was kept and
 why — and leaves the ledger alone.
 
+**What is kept is a sale.** Keeping money back on return rings it up, in the
+same change, as a counter sale linked to the hire, with a receipt to the
+customer: it is in the day's takings, the reports, the sales journal (under
+*Hire deposits kept*) and the exports. Staff say how it was taken (the way the
+deposit was paid: cash, card, DuitNow QR, transfer). It is not taxed unless
+staff tick *A charge (taxed), not compensation*. The default treats money kept
+to make good damage or loss as compensation, outside the venue's tax, and a
+ticked charge for a service (cleaning, say) is taxed at the venue's rate; the
+receipt and journal show which. Which applies to a given amount is the
+venue's call with its tax adviser, not something MySenam decides. The deposit, the amount kept and the amount handed back always add up,
+and two returns of the same kit at once keep it once (the second is refused).
+
 Customers see the deposit before they commit: on the grid row, on the booking
 panel and on the confirmation, phrased as what it is rather than as a charge.
 

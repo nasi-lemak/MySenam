@@ -6,9 +6,10 @@ from ideas ([roadmap](roadmap.md)). First recorded by the
 [documentation audit](../documentation-audit.md) of October 2026. The numbered
 defects it found (S1–S8, B1–B8, M1–M11) have since been fixed, each with a
 test, and are listed under [fixed since the audit](#fixed-since-the-audit). The
-feature inventory audit later that month found B9–B14, M12–M15 and S9–S10,
-open below; what stands between the code and a production launch is under
-[production readiness](#production-readiness).
+feature inventory audit later that month found B9–B14, M12–M15 and S9–S10;
+all of them but B11 have since been fixed too, and the part of S9 not about
+programmes is S11. What stands between the code
+and a production launch is under [production readiness](#production-readiness).
 
 Priorities:
 
@@ -26,8 +27,7 @@ it is fixed, and moves to *fixed since the audit* with that test.
 
 | ID | Defect | Evidence | Test to write first | Priority |
 | -- | ------ | -------- | ------------------- | -------- |
-| S9 | Tournament, league and open-game emails (and venue applications, password reset and owner alerts) are sent once, directly, not through the [outbox](../integrations/messaging.md): no retry when SMTP fails, no daily cap, not in the venue's delivery list | `sendPlainEmail` in `src/lib/transports.ts` logs a failure and returns; called from `src/lib/tournaments.ts`, `src/lib/leagues.ts`, `src/lib/games.ts` | A failing transport leaves a tournament draw email queued for retry | P2 |
-| S10 | Photos kept on the server's disk (no `PHOTOS_S3_*` bucket) are in no backup: they are files, not database rows, and the backup is the database | `src/lib/photo-store.ts`; [discovery](../features/discovery.md); [backups](../operations/backups.md) | — (documented; a production install sets a bucket) | P2 |
+| S11 | Emails to staff and applicants (venue applications and their decisions, password reset links, owner alerts, WhatsApp credit running low) are sent once, directly, not through the outbox: no retry when SMTP fails, not in a delivery list. Split from S9, whose programme emails are fixed | `sendPlainEmail` in `src/lib/transports.ts`, called from `src/lib/applications.ts`, `src/lib/password-reset.ts`, `src/lib/owner-alerts.ts`, `src/lib/whatsapp-credit.ts`. The applicant sees whether the email went; a reset can be asked for again | A failing transport leaves an application decision queued for retry | P3 |
 
 Also: a staff member who loses both their phone and their recovery codes is
 locked out until somebody edits the database; there is no owner reset of two-factor
@@ -42,26 +42,35 @@ nonces is open for review (P3).
 
 | ID | Defect | Evidence | Test to write first | Priority |
 | -- | ------ | -------- | ------------------- | -------- |
-| B9 | In a groups-then-knockout tournament, a group result changed after the knockout is filled does not refill it: the old group placings stay in the knockout | `fillKnockoutIfGroupsDone` returns once round one is filled (`src/lib/tournaments.ts`) | Correcting the last group result changes who is in the knockout, or is refused once it is filled | P2 |
-| B10 | A withdrawal after the draw settles only matches whose opponent is known: later rounds wait for staff to enter a walkover, and the withdrawn player's group wins still count in the standings | `withdraw` and `settleMatch` in `src/lib/tournaments.ts` | A player withdrawn in the groups loses their remaining group matches and their later knockout match by walkover | P2 |
-| B12 | Claims are read by time, not by court: search, grids and the capacity trigger read every claim in the time asked for across the marketplace and then filter by court. At 400 venues a search near a point takes 2.4 s (p50) and 3.7 s (p95), an area search 0.7 s, and each capacity check 55 ms where 0.03 ms is possible | `src/lib/claims.ts` (`court_id IN`, `court_spaces` joins), `claim_within_capacity` in `db/migrations/0089_interval_schema.sql`; the indexes key on `int4range(court_id)`/`int4range(space_id)`; [marketplace benchmark](../development/testing.md#results) | `tests/query-plans.test.ts` asserts the court or space is in the index condition, not only the time | P1 for the marketplace; P3 for one venue's install |
-| B13 | Fifty bookings at once, each at a different venue, left 17 customers with an error (a serialization failure after eight tries) rather than a booking or a refusal | `src/lib/db.ts` retries `40001` eight times; the reads in B12 span the marketplace, so unrelated bookings conflict; [marketplace benchmark](../development/testing.md#results) | The benchmark's burst ends with no errors; a route answers a lost race with a refusal, never a 500 | P1 for the marketplace |
-| B14 | Bookings that race for the same court or coach can wait on each other in a cycle: each claim waits on another's uncommitted claim, Postgres breaks the deadlock after a second, and the retries (eight, with at most 10 ms of jitter) collide again, so a handful of requests can take over 30 seconds | Seen on Postgres 16 in `tests/concurrency.test.ts`: "sells the last court to one person" and "puts a coach in one lesson at a time" timed out at 30 s in 3 of about 25 runs (once in the full suite, twice alone), with five transactions each blocked by another's `INSERT INTO claims` for 1–6 s at a time; retries in `src/lib/db.ts` | The concurrency tests finish within a few seconds every time in a loop of 50 runs | P1 |
 | B11 | Utilisation counts a pitch and the courts under it as separate sellable hours, so a hall sold as one pitch every evening shows its courts idle then and its utilisation low; time sold is counted once | `src/lib/reports.ts` sums open hours × capacity per court; `tests/court-links.test.ts` ("counts time sold once") | A pitch booked for an evening shows the floor as used, not half idle | P3 |
 
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly
 series skips weeks inside the cancellation cutoff silently rather than
 applying the late-cancel policy to them (P3, unconfirmed whether intended).
 
+Also, in tournaments ([programmes](../features/programmes.md#tournaments)):
+a knockout filled again after a group result is put right, or a withdrawal,
+is shown on the draw but the players moved in or out are not messaged (P3);
+a first-round match given as a bye has had its court let go, so a change
+that would make it a match to play is refused like one after the knockout
+has started, and the organiser runs it by hand (P3).
+
 
 Known limits of the [booking time model](../architecture/interval-booking-review.md)
 (the owner's decisions and the defaults chosen for open questions are listed
 there):
 
-- **Measured at marketplace size once, by hand** ([results](../development/testing.md#results)),
-  which found B12 and B13; not in CI, so a slower query is noticed only when
-  somebody runs it again. `tests/query-plans.test.ts` checks the indexes are
-  used, not the timings or which columns they are used for (P2).
+- **Measured at marketplace size by hand** ([results](../development/testing.md#results)),
+  before and after B12–B14 were fixed; not in CI, so a slower query is
+  noticed only when somebody runs it again. `tests/query-plans.test.ts`
+  checks the indexes are used, not the timings (P2).
+- **Independent bookings are retried, rarely.** Inserting a claim checks
+  its booking exists, which reads the page of the bookings index every new
+  booking is written to, and Postgres's serializable checks work by the
+  page; two unrelated bookings committing at that moment can make one of
+  them run again. Measured at 2 retries in 1,920 bookings; a booking that
+  is still in conflict after ten tries is refused as busy (`BUSY`, 503 with
+  `Retry-After`), never half done ([booking concurrency](../architecture/booking-concurrency.md)) (P3).
 - **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), and
   whether a booking is unstaffed is decided by its start alone
   (`isUnstaffedHour`): a booking from 21:30 to 23:00 at a venue staffed
@@ -128,16 +137,18 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 
 ### Money (M)
 
-| ID | Defect | Evidence | Test to write first | Priority |
-| -- | ------ | -------- | ------------------- | -------- |
-| M12 | A tournament entry fee paid online after staff marked it paid at the counter is kept as a second payment, with a second receipt, instead of being owed back (league places get this right) | The `entry` branch of settlement in `src/lib/payments.ts` checks for a withdrawal or call-off, not `tournament_entries.paid_at` | Mark an entry paid at the counter, settle its pending online bill: the bill is owed back and no second receipt is issued | P1 |
-| M13 | Money kept back from a hire deposit on return is recorded only on the hire: no receipt, no tax, not in takings, reports or the accounting export | `returnHire` in `src/lib/store.ts` writes `hire_records.withheld`; nothing in `src/lib/reports.ts`, `src/lib/accounting.ts` or `src/lib/documents.ts` reads it | Keeping RM20 back appears in the day's takings and the sales journal with a receipt | P2 |
-| M14 | A chargeback on credit already spent leaves the account below nothing, deliberately ([business rules](../product/business-rules.md)), but the liability reports count only balances above nothing, so what customers owe in credit appears nowhere | `takeBackWhatItBought` in `src/lib/payments.ts`; `HAVING SUM(amount) > 0` in `src/lib/reports.ts`; no database constraint on `wallet_entries` | A top-up charged back after being spent shows as owed in a report | P2 |
-| M15 | Refunding a cancelled booking (receipt credit, credit, pass, online refund owed, promo, game shares, split shares) runs as separate steps after the cancellation commits: a crash between them leaves the booking cancelled and part refunded, and the integrity check looks at time held, not money | `refundBooking` in `src/lib/store.ts`; `src/lib/integrity.ts` | A failure injected after the credit step is found by the integrity check or completed on retry | P2 |
+None open.
 
-Also: refunding to credit checks "already refunded" outside its transaction
-and has no unique index; it is safe only because its one caller runs after
-the cancellation is claimed (`refundBookingToWallet` in `src/lib/store.ts`).
+Also: refunding to credit has no unique index of its own; it is refunded
+once because it runs inside the transaction that claims the cancellation
+(`refundBooking` in `src/lib/store.ts`; `tests/refund-recovery.test.ts`).
+
+Also: a refund sent to the gateway is written down as owed first and asked
+for after the cancellation commits, since the gateway cannot take part in the
+transaction. One asked with no answer for an hour, or owed for over a week,
+is raised by the integrity check and listed for staff
+([payments](../features/payments-and-credit.md)); nothing sends it again on its own
+beyond the retry of an interrupted claim (P2).
 
 Also: a deposit charged back after the rest was paid online leaves the
 booking paid, and staff collect the difference by hand; a lost dispute on
@@ -177,6 +188,17 @@ IDs are not reused. Each fix came with the test recommended above.
 | M9 | A Stripe refund is claimed before Stripe is asked, so a hand mark or second click cannot send it twice; an interrupted one is asked again under its key | `tests/stripe-refunds.test.ts` |
 | M10 | Disputes on the platform's own Stripe account are recorded and put to the platform owners | `tests/stripe-disputes.test.ts` |
 | M11 | A deposit charged back after the rest was paid at the counter leaves the booking owing the deposit's part | `tests/stripe-disputes.test.ts` |
+| S9 | Tournament, league and open-game emails are queued in the outbox with the change that causes them, so they are retried, capped and listed like any other message. The emails to staff and applicants it also named are S11, still open | `tests/outbox.test.ts` |
+| S10 | Photos kept on the server's disk go into an archive beside each snapshot, checked before it is kept, pruned and copied off-site with it, and put back by the restore | `tests/backup.test.ts`, `tests/backup-scripts.test.ts`, `tests/offsite.test.ts` |
+| B9 | A group result put right fills the knockout again while none of it has been played; once a match in it has, a change to who is in it is refused | `tests/tournaments.test.ts` |
+| B10 | A withdrawal after the draw gives walkovers for the matches left, places the entrant last in their group, refills a knockout not yet played, and settles later rounds as soon as the opponent is known | `tests/tournaments.test.ts` |
+| B12 | Claims are read court by court with indexes on the court or space and the end of the claim (migration 0094), in two queries for any number of courts; at 400 venues a search near a point takes 98 ms (p50), not 2.4 s ([results](../development/testing.md#results)) | `tests/query-plans.test.ts`, `tests/contention.test.ts` |
+| B13 | Independent bookings no longer read each other's claims, expired offers are let go only when a claim conflicts, and retries back off; a booking that still cannot finish is refused as busy (503), never a 500 | `tests/contention.test.ts`, `tests/db.test.ts` |
+| B14 | A booking takes advisory locks on its spaces, shared courts and coach, in one order, before claiming, so racing bookings queue rather than deadlock | `tests/contention.test.ts`, `tests/concurrency.test.ts` |
+| M12 | A fee paid online for something already paid (a tournament entry, a WhatsApp pack, a platform invoice) is recorded as owed back, with no second receipt or revenue, and refunded once through the gateway or marked refunded | `tests/tournaments.test.ts`, `tests/billing.test.ts`, `tests/whatsapp-usage.test.ts` |
+| M13 | Money kept from a hire deposit is a receipted counter sale linked to the hire, taxed only when staff say it is a charge, and in takings, the journal and exports | `tests/hire.test.ts` |
+| M14 | Credit reports give what customers hold and what customers below nothing owe, apart and never netted; the two together equal the ledger | `tests/wallet.test.ts` |
+| M15 | A cancellation and its refunds are one transaction; a refund sent to the gateway is owed first, and one unanswered or overdue is raised by the integrity check and listed for staff | `tests/refund-recovery.test.ts` |
 
 ## Production readiness
 
@@ -186,17 +208,18 @@ the code and tests as of the feature inventory audit.
 
 | Concern | State | Evidence and what remains |
 | ------- | ----- | ------------------------- |
-| Load at marketplace size | Not ready | Search takes seconds near a point (B12), and a burst of fifty bookings gave seventeen errors (B13), at 400 venues; bookings racing for one court or coach can stall for over 30 s (B14) ([benchmark](../development/testing.md#results)). One venue's install is not affected in the same way: its claims are only its own |
+| Load at marketplace size | Measured on one machine, not in production | At 400 venues and 918,000 bookings: a search near a point in 98 ms (p50) and 155 ms (p99), a booking in 12 ms, fifty bookings at once with no errors, and mixed traffic at 84 operations a second on four cores with no errors ([benchmark](../development/testing.md#results)). Bookings racing for one court, a shared floor, a hall or a coach end with the right number through and the rest refused within a second (`tests/contention.test.ts`). Not yet measured: more than one app instance, a managed database, real network latency |
 | Double booking and capacity | Enforced by the database | An exclusion constraint on held time per space and a capacity trigger refuse overlaps whatever writes them, raw SQL included (`tests/capacity.test.ts`, "is still the database that prevents overbooking"); expired offers are let go before a claim. Truly parallel only on the Postgres run ([booking concurrency](../architecture/booking-concurrency.md)) |
 | Spending credit and pass entries | Spent once | Serializable transactions with retry; `tests/concurrency.test.ts` ("spends credit once", "refunds a pass entry once") on Postgres |
-| Refund races | Stripe refunds claimed before Stripe is asked (M9, `tests/stripe-refunds.test.ts`); a cancellation claimed once (`tests/booking-rules.test.ts`, on an unpaid booking) | No test races two cancellations of a *paid* booking; the refund steps are not atomic (M15); an online tournament fee after a counter mark is kept (M12) |
-| Negative stored credit | Possible on purpose after a chargeback | Not in liability reports (M14); no database guard |
-| Money outside the books | Hire deposits kept back (M13) | Everything else that takes money is receipted |
+| Refund races | A cancellation and its refunds are one transaction (M15); Stripe refunds are claimed before Stripe is asked (M9); a second payment for something paid is owed back, not kept (M12) | Two cancellations of a paid booking at once, and a class called off while a place in it is cancelled, refund once (`tests/refund-recovery.test.ts`). Gateway refunds are tested against fakes only; one with no answer is listed for staff, not resent |
+| Negative stored credit | Possible on purpose after a chargeback | Reported apart, as owed by customers, never netted against credit held (M14); no database guard |
+| Money outside the books | None known | Money kept from hire deposits is receipted (M13); everything else that takes money is receipted |
 | Linked courts in reports | Time sold counted once; sellable time counted per court (B11) | Utilisation reads low for halls sold as one floor |
 | Identity | Accounts are identities; phone numbers are not, unless proved | A number is proved only where WhatsApp or SMS is configured, and those are tested against fakes; without them numbers are taken as given. A member's number typed by anyone gets the member rate (by design); reviews are one per number; sign-offs online need the account's own or proved number ([authentication](../architecture/authentication.md), [privacy](../architecture/privacy.md)) |
 | Integrations | None checked against the live service | Every payment, message, e-invoice, sign-in and storage integration is tested against fakes ([below](#integrations-awaiting-live-verification-or-a-partner)); rows that take money or send messages name their leg in feature status |
-| Backup and restore | Scripts run on both engines | The restore test checks the scripts succeed on a database with no bookings, not that what comes back matches; a `pg_dump` copy made by the app is listed, not loaded; nothing restores from the off-site copy (`src/lib/offsite.ts` only uploads); photos on disk are in no backup (S10). Try a full restore before launch ([backups](../operations/backups.md)) |
-| Operational dependencies | Documented | The scheduler runs inside a long-running `next start` (or the operator's cron with `MYSENAM_SCHEDULER=off`); more than one instance needs `MYSENAM_RATE_LIMITS=shared`, one `MYSENAM_SECRET`, a photo bucket, and accepts a minute's lag on catalogue changes ([architecture](../architecture/overview.md#more-than-one-instance)); programme emails are not retried (S9) |
+| Backup and restore | Restored and compared on both engines | The scripts test backs up a venue's settings, a customer's credit, a paid booking and a photo, changes them all, restores, and compares every row of the main tables, each balance and each photo's hash (`tests/backup-scripts.test.ts`); photos on disk are archived with each snapshot (S10). A `pg_dump` copy made by the app is listed, not loaded, before it is kept; nothing restores from the off-site copy (`src/lib/offsite.ts` only uploads), so fetching one back is by hand. Try a full restore on the production server before launch ([backups](../operations/backups.md)) |
+| Continuous integration | Not running | Every CI and Docs job since 16 October 2026 has been refused before a runner was given to it: "The job was not started because an Actions budget is preventing further use" (the repository is private, on a personal account). The account owner raises or removes the Actions budget, or waits for the monthly minutes to reset ([testing](../development/testing.md#continuous-integration)). Until then every check here is run by hand |
+| Operational dependencies | Documented | The scheduler runs inside a long-running `next start` (or the operator's cron with `MYSENAM_SCHEDULER=off`); more than one instance needs `MYSENAM_RATE_LIMITS=shared`, one `MYSENAM_SECRET`, a photo bucket, and accepts a minute's lag on catalogue changes ([architecture](../architecture/overview.md#more-than-one-instance)) |
 
 ## Integrations awaiting live verification or a partner
 

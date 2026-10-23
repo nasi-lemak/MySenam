@@ -75,57 +75,84 @@ multi-tenant marketplace — 400 venues in 25 areas, 100 of them branches of 20
 businesses, about 2,800 resources across the catalogue's activities, and six
 weeks of bookings (two past, four ahead) at evening-heavy occupancy, each
 holding its claim — then times what customers, staff and the scheduler do,
-through the same functions the routes call, and prints each as p50/p95/max
-milliseconds, also written to `mysenam-bench.json` in the system's temporary
-folder. Places on shared floors go in with the capacity trigger off for that
+through the same functions the routes call, and prints each as
+p50/p95/p99/max milliseconds with the database queries it took, also written
+to `mysenam-bench.json` in the system's temporary folder. A booking is timed
+from the request, after a free time for it has been found. Last come fifty
+bookings at once and a spell of mixed traffic. Places on shared floors go in with the capacity trigger off for that
 one insert (they cannot exceed capacity), because checked one at a time they
 take hours (see below). The database is kept between runs (drop it to start again);
-`BENCH_VENUES` and `BENCH_RUNS` change the size and the repetitions.
+`BENCH_VENUES` and `BENCH_RUNS` change the size and the repetitions;
+`BENCH_WORKERS` and `BENCH_SECONDS` the mixed traffic (16 workers for 20
+seconds unless set; the results below used 30).
 
 ### Results
 
-Run once, on 23 October 2026, on this branch: 4 CPUs, 15 GB, Postgres 16.15 on
-its default settings (128 MB of shared buffers), the app in the same
-container. The data: 404 venues, 2,846 resources, 918,435 bookings each
-holding its claim, 802 MB. Twenty runs of each read, in milliseconds:
+Run on 23 October 2026 on this branch: 4 CPUs, 15 GB, Postgres 16.15 on its
+default settings (128 MB of shared buffers), the app in the same container.
+The data: 404 venues, 2,846 resources, 918,624 bookings each holding its
+claim, 829 MB. *Before* is the code before B12–B14 were fixed (twenty runs
+of each); *after* is with the fixes (a hundred runs; queries are database
+round trips per operation, counted in `src/lib/db.ts`). Milliseconds:
 
-| What | p50 | p95 |
-| ---- | --: | --: |
-| Venue grid, every resource | 102 | 154 |
-| Venue grid, one activity | 87 | 351 |
-| Search: badminton in an area, soonest | 667 | 958 |
-| Search: badminton in an area, cheapest | 680 | 856 |
-| Search: near a point, 5 km | 2,392 | 3,709 |
-| Search: a rarer activity nationwide (archery) | 888 | 1,070 |
-| Search: courts counted nationwide | 2.5 | 2.7 |
-| Home: activities by popularity | 201 | 223 |
-| Home: venue list, first page | 4.7 | 9.4 |
-| Search page: activities offered | 3.5 | 3.7 |
-| Book a court | 203 | 229 |
-| Book a place on a shared floor (before the day's other bookings) | 221 | 342 |
-| Reschedule: free times on a day | 94 | 108 |
-| Daily integrity check | 5,082 | 5,110 |
+| What | Before p50 / p95 | After p50 / p95 / p99 | Queries |
+| ---- | ---------------: | --------------------: | ------: |
+| Venue grid, every resource | 102 / 154 | 12 / 18 / 55 | 9 |
+| Venue grid, one activity | 87 / 351 | 1.2 / 14 / 16 | 5 |
+| Search: badminton in an area, soonest | 667 / 958 | 34 / 56 / 75 | 9 |
+| Search: badminton in an area, cheapest | 680 / 856 | 32 / 53 / 65 | 9 |
+| Search: near a point, 5 km | 2,392 / 3,709 | 98 / 136 / 155 | 9 |
+| Search: a rarer activity nationwide (archery) | 888 / 1,070 | 48 / 63 / 76 | 9 |
+| Search: courts counted nationwide | 2.5 / 2.7 | 2.9 / 4.0 / 4.4 | 1 |
+| Home: activities by popularity | 201 / 223 | 0 / 0 / 0.1 (cached; the first call each ten minutes still takes about 200) | 0 |
+| Home: venue list, first page | 4.7 / 9.4 | 5.4 / 8.0 / 12 | 3 |
+| Search page: activities offered | 3.5 / 3.7 | 2.2 / 3.6 / 5.3 | 1 |
+| Book a court | 203 / 229 | 12 / 17 / 194 | 14 |
+| Book a place on a shared floor | 221 / 342 | 11 / 18 / 156 | 15 |
+| Reschedule: free times on a day | 94 / 108 | 12 / 16 / 17 | 20 |
+| Daily integrity check | 5,082 / 5,110 | 5,224 / 5,362 (three runs) | 7 |
 
-Fifty customers booking at once, each at a different venue, took 7.8 s: 26
-booked, 1 refused, 6 found nothing free, and **17 got an error**, a
-serialization failure still there after eight tries.
+The p99 of a booking is the first one at a venue after the others: its
+pages are not yet in memory.
 
-What this shows ([known limitations](../roadmap/known-limitations.md)):
+**Fifty customers booking at once**, each at a different venue: before, 7.8 s,
+26 booked, 1 refused, 6 found nothing free and **17 got an error** (a
+serialization failure after eight tries). After, 0.35 s: 43 booked, 1
+refused, 6 found nothing free, no errors.
 
-- **Claims are read by time, not by court** (B12). The queries ask for a
-  venue's courts with `court_id IN (…)` or through `court_spaces`, which the
-  claims indexes cannot use (they index `int4range(court_id)` and
-  `int4range(space_id)` with the time), so each reads every claim in the
-  window across the marketplace and filters: about 20,000 rows and 88 ms for
-  one venue's day. Search does that once per venue, hence seconds near a
-  point. The capacity trigger's check has the same shape: 55 ms per check
-  against 0.03 ms when written against the index, which made the fill load
-  shared places at about ten a second (the fill now turns the trigger off
-  for that one insert; whole courts went in at thousands a second).
-- **Concurrent bookings at different venues conflict** (B13). Serializable
-  transactions that read wide time ranges see each other's writes as
-  conflicts; eight retries are not enough at fifty at once.
+**Mixed traffic** (after only): sixteen workers for 30 seconds through a
+pool of ten connections, six in ten operations a search, two a venue grid
+and two a booking. 83.6 operations a second; search p50/p95/p99 149/217/242 ms, grid
+122/181/203 ms, booking 244/336/397 ms; 457 booked, 7 refused, none busy,
+no errors, 1 retry and no deadlocks; 12.3 queries an operation. The app
+used one CPU core throughout (30.1 s of CPU in 30 s; peak memory 304 MB),
+so it, not the database, is the limit on this machine: the database did
+30,403 commits and read 2,180 blocks from disk against 26.4 million from
+memory.
+
+What was wrong, and what changed ([known limitations](../roadmap/known-limitations.md#fixed-since-the-audit)):
+
+- **Claims were read by time, not by court** (B12): each venue's day read
+  every claim in the window across the marketplace (about 20,000 rows and
+  88 ms), once per venue. Claims are now read court by court, for all the
+  courts asked about in two queries, through indexes on the space or shared
+  court and the claim's end (migration 0094); the capacity trigger asks by
+  court too. Search also leaves out venues outside the circle before
+  reading their courts, and keeps the popularity count for ten minutes.
+- **Bookings at different venues conflicted** (B13): wide reads under
+  serializable transactions, a scan of every claim to let expired offers go
+  before each booking, and eight retries with almost no backoff. See
+  [booking concurrency](../architecture/booking-concurrency.md).
+- **Bookings racing for one court or coach deadlocked** (B14): now they
+  queue on advisory locks.
 - The integrity check takes five seconds once a day, which is fine.
+
+Proposed targets, for a launch on one app server and a database of this
+size, to be re-measured on the production machine: search p95 under 300 ms
+and p99 under 500 ms; a venue grid p95 under 150 ms; a booking p95 under
+400 ms and p99 under 1 s under mixed load; no errors and no `BUSY` refusals
+at 50 simultaneous bookings at different venues; at least 50 mixed
+operations a second per app core. On this machine every one is met.
 
 ## Documentation checks
 
@@ -169,3 +196,21 @@ on Postgres 16, builds, and runs the end-to-end tests against that build. It
 skips changes that touch only Markdown, so
 `.github/workflows/docs.yml` runs the documentation checks on those (and on
 every other pull request) instead.
+
+Both run on `ubuntu-24.04`, pinned: `ubuntu-latest` moves to Ubuntu 26 from
+October 2026, and the browser install and the Postgres service are only known
+to work on the image they were written for.
+
+**Not running since 16 October 2026.** Every job since then has been refused
+before a runner was given to it, in about three seconds, with no log: the
+check run's annotation reads "The job was not started because an Actions
+budget is preventing further use". The repository is private on a personal
+account, so its jobs spend that account's included Actions minutes, and a
+budget set to stop usage stops them once the minutes are gone. Nothing in the
+repository can change that. The account owner, on GitHub: **Settings →
+Billing and licensing → Budgets and alerts**, edit the Actions budget to raise
+its amount or clear *Stop usage when budget limit is reached* (with a payment
+method on the account); or wait for the included minutes to reset at the
+start of the next billing cycle. Then re-run the latest CI run from the
+Actions tab. Until a run passes, CI is not evidence of anything; the suites
+are run by hand (above) and reported with each change.

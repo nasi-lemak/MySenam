@@ -5,10 +5,10 @@ Authoritative for backup and restore. Disaster recovery comes down to these proc
 ## Backups
 
 Everything is in one database. Losing it loses every booking, the credit
-ledger, and the record of who opened which door. Venue photos are not in it: they are
-files, in their bucket when `PHOTOS_S3_*` is set and otherwise in `photos/` in
-the data folder, which no backup copies; copy that folder yourself or set a
-bucket ([known limitations](../roadmap/known-limitations.md), S10).
+ledger, and the record of who opened which door. Venue photos are files, not
+rows: with a `PHOTOS_S3_*` bucket they are the bucket's to keep (turn on its
+versioning, or the provider's own backups); without one they are in `photos/`
+in the data folder, and every snapshot takes them with it (below).
 
 ```bash
 npm run backup                       # one snapshot, verified, oldest retired
@@ -44,6 +44,14 @@ that hold the business. `pg_dump` has to be installed where the app runs
 DigitalOcean kit installs it). On PGlite a snapshot is a copy of its data folder
 (`.tar.gz`), loaded into a fresh PGlite and its bookings counted.
 
+**Photos on disk** go into an archive beside the snapshot
+(`mysenam-2026-09-26-030000.photos.tar.gz`), which is read back before the
+snapshot is kept: every photo on disk when it began must be in it (a
+half-written upload is left out). If the photos cannot be archived, the
+backup fails as a whole, since a snapshot whose photos are missing is not one
+to restore from. The archive is pruned with its snapshot. With a photo bucket
+there is no archive.
+
 Either way, a snapshot that does not verify is deleted rather than kept, and
 the script exits non-zero so a failing backup shows up as a failing cron job
 instead of a quiet no-op. It is written under a temporary name and renamed on
@@ -62,7 +70,8 @@ data, not one venue's.
 Snapshots beside the database survive a bad deploy and a mistyped `DELETE`; they
 do not survive the disk. So each one — the nightly one and every *Back up now* —
 is also uploaded to object storage that speaks the S3 API: Cloudflare R2,
-Backblaze B2, Amazon S3, Wasabi.
+Backblaze B2, Amazon S3, Wasabi. Its photos archive goes first; if that is
+refused, the copy is counted as failed, not sent as if it were whole.
 
 | Variable | Example |
 | -------- | ------- |
@@ -100,3 +109,18 @@ all of it or none of it. Before it touches anything it takes a fresh snapshot
 of what is there, and a PGlite folder it replaces is moved aside rather than
 deleted, because the worst restore is the one that turns out to have used the
 wrong file.
+
+The photos that went with the snapshot are put back too: the photos folder
+there now is moved aside (`photos.replaced-<time>`) and the archive unpacked
+in its place. The script ends by counting the bookings and photos it brought
+back.
+
+**What is tested** (`tests/backup-scripts.test.ts`, on PGlite and on Postgres
+16): a venue's settings, a customer's credit, a booking paid from it and a
+photo are backed up with the script; then the booking is cancelled and
+refunded, the venue renamed, the photo deleted and the photos folder lost;
+then the restore script runs, and every row of the venues, courts, users,
+bookings, claims, credit ledger, receipts, online payments and photo tables,
+each customer's balance, and each photo file's SHA-256 must equal what was
+backed up. Not tested: restoring from the off-site copy, which has to be
+fetched from the bucket by hand first.
