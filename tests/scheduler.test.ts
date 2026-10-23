@@ -7,6 +7,8 @@ import path from "path";
 process.env.MYSENAM_DB = ":memory:";
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scheduler-"));
 process.env.MYSENAM_BACKUP_DIR = dir;
+// A data folder of its own, so the backup does not take whatever photos are on this machine.
+process.env.MYSENAM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "scheduler-data-"));
 
 import { backupDue, backupHour, runScheduledWork, schedulerEnabled } from "../src/lib/scheduler";
 import { listBackups } from "../src/lib/backup";

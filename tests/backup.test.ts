@@ -4,6 +4,8 @@ import os from "os";
 import path from "path";
 
 process.env.MYSENAM_DB = ":memory:";
+// A data folder of its own, so snapshots do not take whatever photos are on this machine.
+process.env.MYSENAM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "mysenam-backup-data-"));
 
 import {
   createBackup,
