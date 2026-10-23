@@ -235,10 +235,18 @@ describe.skipIf(!url)("a marketplace at scale", () => {
     const burst = await Promise.all(
       Array.from({ length: 50 }, async (_, i) => {
         const f = await free(i + 2000);
-        return f ? store.createBooking({ ...f, end: f.start + 60, name: "Bench Burst", phone: `018${String(1000000 + i)}` }) : null;
+        // An error, not a refusal, is what a customer would see as a failed page: counted, not thrown.
+        return f
+          ? store.createBooking({ ...f, end: f.start + 60, name: "Bench Burst", phone: `018${String(1000000 + i)}` }).catch((e: Error) => e)
+          : null;
       })
     );
-    out["50 bookings at once"] = { seconds: Math.round(performance.now() - t0) / 1000, made: burst.filter((b) => b?.ok).length };
+    out["50 bookings at once"] = {
+      seconds: Math.round(performance.now() - t0) / 1000,
+      made: burst.filter((b) => b && !(b instanceof Error) && b.ok).length,
+      refused: burst.filter((b) => b && !(b instanceof Error) && !b.ok).length,
+      errors: burst.filter((b) => b instanceof Error).map((e) => (e as Error).message.slice(0, 80)),
+    };
     console.log(`BENCH 50 bookings at once: ${JSON.stringify(out["50 bookings at once"])}`);
 
     await time("daily integrity check", Math.min(RUNS, 3), () => checkIntegrity(), out);
