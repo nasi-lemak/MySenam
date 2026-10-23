@@ -54,7 +54,10 @@ download (`npx playwright-core install chromium`).
 What they cover, and nothing more: the security headers and that pages load
 under the content security policy; a customer booking a court from the venue
 page to a booking code; the owner refused with the default password and signed
-in with their own; a signed-in request from another site refused. Each
+in with their own; a signed-in request from another site refused; padel found
+at its 90 minutes (`sports.e2e.ts`); golf bays made from a template, a court
+offering a second activity, an activity found by a typed word, and a floor
+sold for one activity at a time (`activities.e2e.ts`). Each
 roadmap batch adds the journeys it changes (see the
 [roadmap](../roadmap/roadmap.md#delivered)).
 
