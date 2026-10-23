@@ -1,7 +1,8 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, issuePass, listPassesForVenue } from "@/lib/store";
-import { MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Sport, SPORTS } from "@/lib/types";
+import { MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Sport } from "@/lib/types";
 import { logAction } from "@/lib/activity";
 import { money, region, isAmount } from "@/lib/region";
 
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
 
   let sport: Sport | null = null;
   if (input.sport !== undefined && input.sport !== null && input.sport !== "") {
-    if (!SPORTS.includes(input.sport as Sport))
+    if (!(await isActivity(input.sport)))
       return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
     sport = input.sport as Sport;
   }

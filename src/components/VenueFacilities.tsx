@@ -1,6 +1,8 @@
+import { offeredCourts } from "@/lib/court-activities";
+import { activity, activityIcon } from "@/lib/activity-registry";
 import { sportLabel, type T } from "@/lib/i18n";
-import { AMENITY_ICONS, summariseCourts, SURFACE_SPORTS, type Highlight, highlightIcon } from "@/lib/facilities";
-import { SPORT_ICONS, type Court, type Venue } from "@/lib/types";
+import { AMENITY_ICONS, summariseCourts, type Highlight, highlightIcon } from "@/lib/facilities";
+import { type Court, type Venue } from "@/lib/types";
 
 /**
  * What a venue has, for somebody deciding where to play: per sport, how many
@@ -8,7 +10,7 @@ import { SPORT_ICONS, type Court, type Venue } from "@/lib/types";
  * courts — and what else is there, as the venue lists it.
  */
 export function VenueFacilities({ t, venue }: { t: T; venue: Venue & { courts: Court[] } }) {
-  const sports = summariseCourts(venue.courts);
+  const sports = summariseCourts(offeredCourts(venue.courts));
   if (sports.length === 0 && venue.amenities.length === 0) return null;
   const count = (label: string, n: number, of: number) => (n === 0 ? null : n === of ? label : `${label} (${n})`);
   return (
@@ -22,13 +24,13 @@ export function VenueFacilities({ t, venue }: { t: T; venue: Venue & { courts: C
             count(t("fac.outdoor"), s.outdoor, s.courts),
             count(t("fac.aircon"), s.aircon, s.courts),
             count(t("fac.floodlit"), s.floodlit, s.courts),
-            ...(SURFACE_SPORTS.includes(s.sport) ? s.surfaces.map((x) => t(`surface.${x}`)) : []),
+            ...(activity(s.sport).surfaced ? s.surfaces.map((x) => t(`surface.${x}`)) : []),
           ].filter(Boolean);
           return (
             <li key={s.sport} className="flex flex-wrap justify-between gap-x-3">
               <span>
                 <span className="font-medium">
-                  {SPORT_ICONS[s.sport]} {sportLabel(t, s.sport)}
+                  {activityIcon(s.sport)} {sportLabel(t, s.sport)}
                 </span>{" "}
                 <span className="text-slate-500">· {parts.join(" · ")}</span>
               </span>

@@ -126,7 +126,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
 const GAME_SELECT = `
   SELECT g.id, g.booking_id, b.code AS booking_code, g.host_id, u.name AS host_name, hl.level AS host_level,
-         v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, v.time_zone, c.name AS court_name, c.sport,
+         v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, v.time_zone, c.name AS court_name, b.sport,
          b.date, b.start_min, b.end_min, g.level, g.who, g.spots,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') AS joined,
          g.share::float AS share, g.auto_accept, g.note, g.status,
@@ -136,7 +136,7 @@ const GAME_SELECT = `
     JOIN courts c ON c.id = b.court_id
     JOIN venues v ON v.id = c.venue_id
     JOIN users u ON u.id = g.host_id
-    LEFT JOIN player_levels hl ON hl.user_id = g.host_id AND hl.sport = c.sport`;
+    LEFT JOIN player_levels hl ON hl.user_id = g.host_id AND hl.sport = b.sport`;
 
 function toGame(r: GameRow): OpenGame {
   return {
@@ -271,7 +271,7 @@ export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
          JOIN open_games g ON g.id = p.game_id
          JOIN bookings b ON b.id = g.booking_id
          JOIN courts c ON c.id = b.court_id
-         LEFT JOIN player_levels pl ON pl.user_id = p.user_id AND pl.sport = c.sport
+         LEFT JOIN player_levels pl ON pl.user_id = p.user_id AND pl.sport = b.sport
         WHERE p.game_id = ? ORDER BY p.id`
     )
     .all(gameId)) as { id: number; user_id: number; name: string; level: Level | null; status: PlayerStatus; paid_at: string | null; no_show: number }[];
@@ -438,7 +438,7 @@ export async function findGames(filter: {
   ];
   const params: (string | number)[] = [filter.date ?? today, filter.date ?? addDays(today, 14)];
   if (filter.sport) {
-    clauses.push("c.sport = ?");
+    clauses.push("b.sport = ?");
     params.push(filter.sport);
   }
   if (filter.area && !filter.near) {

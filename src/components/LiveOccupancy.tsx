@@ -1,7 +1,8 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
-import { Busyness, LiveOccupancy as Live, SPORT_ICONS } from "@/lib/types";
+import { Busyness, LiveOccupancy as Live } from "@/lib/types";
 import { useT } from "@/components/Language";
 import type { Phrase } from "@/lib/i18n";
 import { intlTag, region } from "@/lib/region";
@@ -71,7 +72,7 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
           <li key={o.courtId}>
             <div className="flex items-baseline justify-between text-sm">
               <span className="font-medium">
-                {SPORT_ICONS[o.sport]} {o.courtName}
+                {activityIcon(o.sport)} {o.courtName}
               </span>
               <span className={`font-semibold ${TEXT_STYLES[o.level]}`}>
                 {t(`busy.${o.level}` as Phrase)}

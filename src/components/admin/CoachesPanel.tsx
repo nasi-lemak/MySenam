@@ -1,9 +1,11 @@
 "use client";
 
+import { sportsOf } from "@/lib/court-activities";
+import { activityName } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import type { Coach, CoachHours } from "@/lib/coaching";
 import type { CoachContact } from "@/lib/coach-schedule";
-import { SPORT_LABELS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { money } from "@/lib/region";
@@ -30,7 +32,7 @@ const blank = (sports: Sport[]): Draft => ({ name: "", bio: "", sports: sports.s
  * them from the venue's page; a lesson is a booking like any other.
  */
 export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
-  const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
+  const sports = sportsOf(venue.courts);
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [contacts, setContacts] = useState<Record<number, CoachContact>>({});
   const [emails, setEmails] = useState<Record<number, string>>({});
@@ -119,7 +121,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
         {coaches.map((c) => (
           <li key={c.id} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${c.active ? "" : "opacity-50"}`}>
             <span>
-              <span className="font-medium">{c.name}</span> · {c.sports.map((s) => SPORT_LABELS[s]).join(", ")} · {money(c.rate)}/hr
+              <span className="font-medium">{c.name}</span> · {c.sports.map((s) => activityName(s)).join(", ")} · {money(c.rate)}/hr
               <span className="block text-xs text-slate-500">
                 {c.active
                   ? c.hours.map((h) => `${DAYS[h.weekday]} ${formatMinute(h.from)}–${formatMinute(h.until)}`).join(", ") || "No hours set"
@@ -191,7 +193,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
             <span className="mr-1 text-xs text-slate-600">Coaches</span>
             {sports.map((s) => (
               <button key={s} type="button" onClick={() => setDraft({ ...draft, sports: draft.sports.includes(s) ? draft.sports.filter((x) => x !== s) : [...draft.sports, s] })} className={toggle(draft.sports.includes(s))}>
-                {SPORT_LABELS[s]}
+                {activityName(s)}
               </button>
             ))}
           </div>

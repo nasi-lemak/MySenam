@@ -2,14 +2,16 @@
 
 Authoritative for how courts and shared facilities are booked: booking rules (starts, lengths, buffers, notice), capacity, linked courts, opening hours, blocks and outages, waitlists, moving, cancelling and who may book. How time is stored and protected underneath is the [booking time model](../architecture/interval-booking-review.md).
 
-## Sports
+## Activities
 
-A court is one of fifteen sports (`SPORTS` in `src/lib/types.ts`), each named
-in all four languages: badminton, tennis, pickleball, padel, squash, table
-tennis, futsal, football, basketball, volleyball, netball and sepak takraw
-courts and pitches; gyms and pools; and kayak hire. Customers are offered
-only the sports somebody on the site (or the storefront) has a court for, in
-that order (`GET /api/sports`).
+What a court (any bookable resource: a court, pitch, lane, bay, wall, studio
+or fleet) is booked for comes from the activity catalogue, not the code:
+racket and team sports, the pool, the water, fitness, studio classes and
+specialist activities, and any an operator adds ([activities](activities.md)).
+A court can offer several activities, one booking at a time; each booking
+records which one it is for, and that activity's rates and rules apply.
+Customers are offered only the activities somebody on the site (or the
+storefront) has a court for, most-offered first (`GET /api/sports`).
 
 **Padel** is played in 90-minute games, so unless a venue says otherwise it
 starts on any half hour, runs in half hours and offers 90 minutes first
@@ -28,7 +30,9 @@ Every bookable resource carries a `capacity`:
 | > 1 | Shared — that many people at the same moment | Gym floor, lap pool, class |
 
 A booking of an exclusive court claims its space for exactly its minutes; a
-booking of a shared facility claims one place (or one per player). The
+booking of a shared facility claims as many places as it says it takes
+(three climbers, four kayaks), up to the most one booking may take, and is
+priced per place. The
 database refuses an overlapping claim on a space, and a claim that would put
 a facility over its capacity at any moment, partly blocked places and
 waiting-list offers included, whatever path wrote it
@@ -96,13 +100,16 @@ the [booking time model](../architecture/interval-booking-review.md#booking-poli
   10-minute buffer after each are 10 minutes apart, and one before and after
   of 10 each make them 20.
 - **Notice**: how long before it starts a booking may be made at the latest.
-- **The court's own hours**, weekday by weekday, inside the venue's
-  (through the API only for now).
+- **The court's own hours**, weekday by weekday, inside the venue's: the
+  venue's, closed, or its own opening and closing time for each day.
+- **Sign-off**: whether a customer needs a staff sign-off for the activity
+  before booking it ([sign-offs](activities.md#sign-offs)).
 
-Each rule is inherited where it is not set: the court's own, else its sport's
-at the venue, else the venue's, else the business's for every branch, else
-the platform's (on the hour, an hour to four, an hour first; padel from any
-half hour, 90 minutes first). The editor shows what each level sets and what
+Each rule is inherited where it is not set: one activity's on one court,
+else the court's own, else its activity's at the venue, else the venue's,
+else the business's for every branch, else the activity's usual rules in the
+catalogue, else the platform's (on the hour, an hour to four, an hour first;
+padel from any half hour, 90 minutes first). The editor shows what each level sets and what
 a court ends up with (*Now: every 15 minutes, 60 to 120 minutes…*). Clearing
 a setting goes back to inheriting it. Changing the rules moves nothing
 already booked.
@@ -381,7 +388,7 @@ that is free for three of its four hours leaves the booking exactly where it
 was. The target's own buffers apply; the database is still the real guard,
 and a racing booking fails rather than double-selling.
 
-A move is refused across venues, across sports, onto the court it is already
+A move is refused across venues, onto a court not offering the booked activity, onto the court it is already
 on, onto blocked time or time a class owns, and for a booking that is
 cancelled or already finished. A class enrolment cannot be moved on its own —
 it belongs to the class.
@@ -400,18 +407,20 @@ they exist because the API is reachable without it.
 
 `rescheduleBooking(code, { date, start, courtId?, override? }, by)` moves a
 booking to another day or time — the same length, at the same venue, for the
-same sport — keeping its code, its payment, its extras and any promo. It is
+same activity — keeping its code, its payment, its extras and any promo. It is
 the step that otherwise means cancel, refund and book again, with the risk
 the time goes while the customer rebooks.
 
 - **Customers** change their own from `/my-booking` (*Change date or time*),
   with the code and phone number, up to the venue's cancellation cutoff and
-  within the booking window, to a start the court's booking rules allow.
+  within the booking window, to a start and length the target court's
+  booking rules allow: a 60-minute booking cannot be moved onto a court that
+  sells 90 minutes at least.
   **Staff** use *Change time* on any booking in the Bookings tab, at any
   time before it has finished; a manager may also choose any minute, outside
   the rules ([staff booking outside the rules](#staff-booking-outside-the-rules)).
 - Only times free for the whole length are offered (`rescheduleOptions`), its
-  own court first, then another court of the same sport. The booking's own
+  own court first, then another court offering the same activity. The booking's own
   time counts as free, so it can slide by a few minutes.
 - **The price follows the court time.** Unpaid, it is repriced at the new
   time's rate, up or down, by the same pricing as a new booking. Paid, it keeps what was paid: a customer cannot move

@@ -1,10 +1,11 @@
+import { activityName } from "./activity-registry";
 import { WEEKDAYS, weekLines, type WeekHours } from "./week-hours";
 import { getDb } from "./db";
 import { LISTED_PUBLICLY, listRule } from "./listing";
 import { baseUrl } from "./outbox";
 import { currentStorefront } from "./storefront";
 import { region } from "./region";
-import { SPORT_LABELS, type Sport } from "./types";
+import { type Sport } from "./types";
 
 /**
  * What search engines are given: where the site is, which venues it lists,
@@ -36,7 +37,7 @@ export async function listedVenues(): Promise<{ id: number; publishedAt: string 
 
 /** "Badminton and futsal courts in Bangsar": a venue page's description to start from. */
 export function sportsLine(sports: Sport[]): string {
-  const names = sports.map((s) => SPORT_LABELS[s] ?? s);
+  const names = sports.map((s) => activityName(s) ?? s);
   if (names.length === 0) return "Sports courts";
   return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
@@ -81,7 +82,7 @@ export function venueJsonLd(venue: {
         const hours = l.hours as { open: number; close: number };
         return { "@type": "OpeningHoursSpecification", dayOfWeek: days, opens: hh(hours.open), closes: hh(hours.close) };
       }),
-    keywords: venue.sports.map((s) => SPORT_LABELS[s] ?? s).join(", "),
+    keywords: venue.sports.map((s) => activityName(s) ?? s).join(", "),
     ...(venue.rating
       ? { aggregateRating: { "@type": "AggregateRating", ratingValue: venue.rating.average, reviewCount: venue.rating.count, bestRating: 5, worstRating: 1 } }
       : {}),

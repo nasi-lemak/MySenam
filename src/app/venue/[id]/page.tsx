@@ -1,3 +1,5 @@
+import { sportsOf } from "@/lib/court-activities";
+import { isKnownActivity } from "@/lib/activity-registry";
 import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
 import { sportRules } from "@/lib/sport-rules";
@@ -6,7 +8,7 @@ import { getVenue, listVenueClosures, readNear } from "@/lib/store";
 import { formatMinute, isMinute, parseClock } from "@/lib/interval";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays } from "@/lib/time";
-import { Sport, SPORTS } from "@/lib/types";
+import { Sport } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
@@ -49,7 +51,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const venue = Number.isInteger(venueId) ? await getVenue(venueId) : null;
   if (!venue || !(await venueIsListed(venue.id)) || !shows(await currentStorefront(), venue.id))
     return { robots: { index: false, follow: false } };
-  const sports = sportsLine([...new Set(venue.courts.map((c) => c.sport))] as Sport[]);
+  const sports = sportsLine(sportsOf(venue.courts));
   const origin = await siteOrigin();
   const url = `${origin}/venue/${venue.id}`;
   const cover = (await venuePhotos(venue.id))[0];
@@ -123,7 +125,7 @@ export default async function VenuePage({
   const canAutoRenew = plans.length > 0 && (await renewsByItself(venue.id));
   const renewal = plans.length > 0 && viewer.userId !== null ? await renewalFor(viewer.userId, venue.id) : null;
 
-  const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
+  const sports = sportsOf(venue.courts);
   const today = todayISO();
   // As far ahead as this venue takes bookings from this viewer: further for its members.
   const rules = await houseRules(venue.id);
@@ -399,7 +401,7 @@ function parseInitialSelection(query: Record<string, string | string[] | undefin
   const minutes = one("minutes") !== undefined ? Number(one("minutes")) : one("duration") !== undefined ? Math.round(Number(one("duration")) * 60) : undefined;
 
   return {
-    sport: sport && SPORTS.includes(sport as Sport) && sports.includes(sport as Sport)
+    sport: sport && isKnownActivity(sport) && sports.includes(sport as Sport)
       ? (sport as Sport)
       : undefined,
     date: date && dates.includes(date) ? date : undefined,

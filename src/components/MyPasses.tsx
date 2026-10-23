@@ -1,7 +1,8 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { useEffect, useState } from "react";
-import { Pass, SPORT_ICONS } from "@/lib/types";
+import { Pass } from "@/lib/types";
 import { useT } from "@/components/Language";
 import { sportLabel } from "@/lib/i18n";
 import { lengthLabel } from "@/lib/length-label";
@@ -57,7 +58,7 @@ export default function MyPasses() {
                   <div className="text-xs text-slate-500">
                     {pass.venueName} ·{" "}
                     {pass.sport
-                      ? `${SPORT_ICONS[pass.sport]} ${sportLabel(t, pass.sport)}`
+                      ? `${activityIcon(pass.sport)} ${sportLabel(t, pass.sport)}`
                       : t("passes.anySport")}
                   </div>
                 </div>

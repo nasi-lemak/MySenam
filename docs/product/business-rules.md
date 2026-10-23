@@ -59,6 +59,20 @@ change, update this page, and update [feature status](feature-status.md).
   ([pricing](../features/pricing.md#last-minute-prices)).
 - **Customers cannot move a booking friends have paid a share of**; the venue
   can.
+- **A booking is for one activity.** On a court offering several, it records
+  which, takes that activity's rates and booking rules, and holds the whole
+  court; it moves only to courts offering that activity, and a court cannot
+  stop offering an activity with bookings still to come
+  ([activities](../features/activities.md#one-resource-several-activities)).
+- **A rescheduled booking keeps to the new court's rules**, length included:
+  a customer cannot move a 60-minute booking onto a court that sells 90
+  minutes at least. Only a manager can, recorded.
+- **Places are paid for one by one.** A booking of a shared facility takes the
+  places it says (kayaks, climbers), priced per place, never more than the
+  facility has at any moment.
+- **A sign-off is checked before a customer books** an activity whose rules
+  ask for one; staff going past the rules are not asked
+  ([sign-offs](../features/activities.md#sign-offs)).
 
 ## Money
 
@@ -143,6 +157,10 @@ change, update this page, and update [feature status](feature-status.md).
 - **Reminders** are looked for at most once a minute per server.
 - **The retention policy** runs from the scheduler once a day (and from the
   dashboard where the scheduler is off).
+- **Bookings and held time are checked against each other** once a day: a
+  live booking holding no court time, or holding a different time, or a
+  cancelled one still holding it, raises an alert for the platform owner
+  ([monitoring](../operations/monitoring.md)).
 
 ## What customers are told
 

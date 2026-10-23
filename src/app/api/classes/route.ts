@@ -1,9 +1,10 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { listClasses } from "@/lib/store";
 import { mayShowVenue } from "@/lib/listing";
 import { storefrontForRequest } from "@/lib/storefront";
 import { addDays, isValidDateString, todayISO } from "@/lib/time";
-import { Sport, SPORTS } from "@/lib/types";
+import { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   if (venueParam && !Number.isInteger(Number(venueParam)))
     return NextResponse.json({ error: "Invalid venueId." }, { status: 400 });
-  if (sportParam && !SPORTS.includes(sportParam as Sport))
+  if (sportParam && !(await isActivity(sportParam)))
     return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   for (const [label, value] of [["from", from], ["to", to]] as const) {
     if (value && !isValidDateString(value))

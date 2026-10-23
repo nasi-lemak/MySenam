@@ -1,10 +1,11 @@
 "use client";
 
+import { activityKeys } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { addDays } from "@/lib/time";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 import type { League, LeagueDetail, LeagueMatch } from "@/lib/leagues";
 import { money, currencySymbol } from "@/lib/region";
 
@@ -109,7 +110,7 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
 }
 
 function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean> }) {
-  const sports = SPORTS.filter((s) => venue.courts.some((c) => c.sport === s));
+  const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
   const [f, setF] = useState({
     name: "",
     sport: (sports[0] ?? "badminton") as Sport,

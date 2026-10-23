@@ -1,3 +1,4 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { applyConcession, concessionById } from "@/lib/concessions";
 import { phoneRefusal } from "@/lib/phone-check";
@@ -30,7 +31,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isValidDateString, todayISO } from "@/lib/time";
 import { formatLength, formatMinute } from "@/lib/interval";
 import { windowFor } from "@/lib/house-rules";
-import { MAX_SERIES_WEEKS, Sport, SPORTS } from "@/lib/types";
+import { MAX_SERIES_WEEKS, Sport } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
 import { takesPaymentOnline } from "@/lib/payments";
@@ -67,10 +68,13 @@ export async function POST(req: NextRequest) {
         { error: "Give a courtId, or a venueId and sport to pick one for you." },
         { status: 400 }
       );
-    if (typeof sport !== "string" || !SPORTS.includes(sport as Sport))
+    if (typeof sport !== "string" || !(await isActivity(sport)))
       return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   } else if (!Number.isInteger(courtId) || (courtId as number) <= 0) {
     return NextResponse.json({ error: "courtId is required." }, { status: 400 });
+  } else if (sport !== undefined && sport !== null && typeof sport !== "string") {
+    // On a named court, which of its activities: its main one if not said.
+    return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   }
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
@@ -191,7 +195,7 @@ export async function POST(req: NextRequest) {
       if (!asked.ok) return refusal(asked);
       const priced = await priceChoice(chosen, {
         venueId: venueOfBooking,
-        sport: anyCourt ? (sport as Sport) : court!.sport,
+        sport: anyCourt || typeof sport === "string" ? (sport as Sport) : court!.sport,
         date,
         span: asked.span,
       });
@@ -209,8 +213,10 @@ export async function POST(req: NextRequest) {
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
     skipConflicts: skipConflicts === true,
-    // How many play, where the court is priced per player (checked there).
+    // How many play, where the court is priced per player, or how many places on a shared one (checked there).
     ...(players !== undefined ? { players: Number(players) } : {}),
+    // The activity, on a court that offers several (checked there).
+    ...(typeof sport === "string" && sport !== "" ? { sport: sport as Sport } : {}),
   };
 
   const result = anyCourt
@@ -445,9 +451,9 @@ export async function GET(req: NextRequest) {
       area: venue.area,
       address: venue.address,
       // This sport's own, where the venue gave it rules of its own (lib/sport-rules.ts).
-      cancelCutoffHours: await cutoffFor(venue.id, court.sport, venue.cancelCutoffHours),
+      cancelCutoffHours: await cutoffFor(venue.id, booking.sport, venue.cancelCutoffHours),
       timeZone: venue.timeZone,
-      lateCancelKeep: (await cancelPolicyFor(venue.id, court.sport)).lateKeep,
+      lateCancelKeep: (await cancelPolicyFor(venue.id, booking.sport)).lateKeep,
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
       // As far as it can be moved: the venue's window, a member's where this number is one.
       lastDate: addDays(todayISO(venue.timeZone), await windowFor(venue.id, [booking.phone])),

@@ -1,5 +1,6 @@
+import { isActivity } from "./activities";
 import { getDb } from "./db";
-import { MAX_CANCEL_CUTOFF_HOURS, SPORTS, type Sport } from "./types";
+import { MAX_CANCEL_CUTOFF_HOURS, type Sport } from "./types";
 import { LATEST_MINUTE } from "./interval";
 
 /**
@@ -85,7 +86,7 @@ export async function setSportRules(
   sport: unknown,
   input: { cutoffHours?: unknown; lateKeep?: unknown; peak?: unknown }
 ): Promise<{ ok: true; rules: SportRules | null } | { ok: false; error: string }> {
-  if (!SPORTS.includes(sport as Sport)) return { ok: false, error: "Unknown sport." };
+  if (!(await isActivity(sport))) return { ok: false, error: "Unknown sport." };
   const cutoff = input.cutoffHours ?? null;
   if (cutoff !== null && (!Number.isInteger(cutoff) || (cutoff as number) < 0 || (cutoff as number) > MAX_CANCEL_CUTOFF_HOURS))
     return { ok: false, error: `Free cancellation up to 0 to ${MAX_CANCEL_CUTOFF_HOURS} hours before, or the venue's.` };

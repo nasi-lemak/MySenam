@@ -1,8 +1,9 @@
 "use client";
 
+import { activityName } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { clockOf, parseClock } from "@/lib/interval";
-import { MAX_CANCEL_CUTOFF_HOURS, SPORT_LABELS, type Sport } from "@/lib/types";
+import { MAX_CANCEL_CUTOFF_HOURS, type Sport } from "@/lib/types";
 
 interface SportPeak {
   weekdayFrom: number;
@@ -54,7 +55,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
     });
     const data = await res.json();
     if (!res.ok) setError(data.error ?? "Could not save");
-    else setNotice(`Saved the rules for ${SPORT_LABELS[next.sport]}.`);
+    else setNotice(`Saved the rules for ${activityName(next.sport)}.`);
     await load();
   }
 
@@ -100,7 +101,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
             );
             return (
               <tr key={sport} className="border-t border-slate-100 align-top">
-                <td className="py-1.5 pr-2 font-medium">{SPORT_LABELS[sport]}</td>
+                <td className="py-1.5 pr-2 font-medium">{activityName(sport)}</td>
                 <td className="py-1.5 pr-2">
                   <select
                     value={r.cutoffHours ?? ""}

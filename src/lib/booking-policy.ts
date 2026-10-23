@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { DAY_MINUTES, LATEST_MINUTE } from "./interval";
-import { MAX_COURT_HOURS, SPORTS, type Sport } from "./types";
+import { isActivity } from "./activities";
+import { MAX_COURT_HOURS, type Sport } from "./types";
 import { parseWeekHours } from "./week-hours";
 import {
   SETTING_KEYS,
@@ -45,6 +46,7 @@ interface Row {
   fixed_prices: string | null;
   setup_fee: number | string | null;
   cleanup_fee: number | string | null;
+  sign_off: boolean | null;
 }
 
 const numbers = (raw: string | null): number[] | null => {
@@ -88,6 +90,7 @@ function toSettings(r: Row): PolicySettings {
     fixedPrices: fixed,
     setupFee: money(r.setup_fee),
     cleanupFee: money(r.cleanup_fee),
+    signOff: r.sign_off,
   };
 }
 
@@ -112,14 +115,18 @@ async function rowsFor(venueIds: number[]): Promise<{ rows: Row[]; business: Map
   return { rows, business: new Map(venues.map((v) => [v.id, v.business_id])) };
 }
 
-/** Policies for many courts at once (a search, a venue's grid). */
+/**
+ * Policies for many courts at once (a search, a venue's grid), each for the
+ * activity given: the court's main one, or the one being booked on it.
+ */
 export async function policiesFor(courts: { id: number; venueId: number; sport: Sport }[]): Promise<Map<number, BookingPolicy>> {
   const out = new Map<number, BookingPolicy>();
   if (courts.length === 0) return out;
   const { rows, business } = await rowsFor([...new Set(courts.map((c) => c.venueId))]);
   for (const c of courts) {
     const levels = [
-      rows.find((r) => r.court_id === c.id),
+      rows.find((r) => r.court_id === c.id && r.sport === c.sport),
+      rows.find((r) => r.court_id === c.id && r.sport === null),
       rows.find((r) => r.venue_id === c.venueId && r.sport === c.sport),
       rows.find((r) => r.venue_id === c.venueId && r.sport === null),
       rows.find((r) => r.business_id !== null && r.business_id === business.get(c.venueId)),
@@ -156,22 +163,27 @@ export async function venuePolicyLevels(venueId: number): Promise<{
   business: PolicySettings | null;
   sports: Partial<Record<Sport, PolicySettings>>;
   courts: Record<number, PolicySettings>;
+  /** Each court's activities' own, by court and then activity. */
+  products: Record<number, Record<string, PolicySettings>>;
 }> {
   const { rows, business } = await rowsFor([venueId]);
   const b = business.get(venueId) ?? null;
   const sports: Partial<Record<Sport, PolicySettings>> = {};
   const courts: Record<number, PolicySettings> = {};
+  const products: Record<number, Record<string, PolicySettings>> = {};
   for (const r of rows) {
     if (r.venue_id === venueId && r.sport) sports[r.sport as Sport] = toSettings(r);
-    if (r.court_id !== null) courts[r.court_id] = toSettings(r);
+    if (r.court_id !== null && r.sport === null) courts[r.court_id] = toSettings(r);
+    if (r.court_id !== null && r.sport !== null) (products[r.court_id] ??= {})[r.sport] = toSettings(r);
   }
   const own = rows.find((r) => r.venue_id === venueId && r.sport === null);
   const biz = b === null ? undefined : rows.find((r) => r.business_id === b);
-  return { venue: own ? toSettings(own) : {}, business: biz ? toSettings(biz) : b === null ? null : {}, sports, courts };
+  return { venue: own ? toSettings(own) : {}, business: biz ? toSettings(biz) : b === null ? null : {}, sports, courts, products };
 }
 
 function whereOf(scope: PolicyScope): { sql: string; params: unknown[] } {
-  if ("court" in scope) return { sql: "court_id = ?", params: [scope.court] };
+  if ("court" in scope && "sport" in scope) return { sql: "court_id = ? AND sport = ?", params: [scope.court, scope.sport] };
+  if ("court" in scope) return { sql: "court_id = ? AND sport IS NULL", params: [scope.court] };
   if ("sport" in scope) return { sql: "venue_id = ? AND sport = ?", params: [scope.venue, scope.sport] };
   if ("venue" in scope) return { sql: "venue_id = ? AND sport IS NULL", params: [scope.venue] };
   return { sql: "business_id = ?", params: [scope.business] };
@@ -242,6 +254,10 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         if (v !== "split" && v !== "start") return { ok: false, error: "Price each part at its own rate, or all at the rate when it starts." };
         set(key, v);
         break;
+      case "signOff":
+        if (typeof v !== "boolean") return { ok: false, error: "A sign-off is needed, or not." };
+        set(key, v);
+        break;
       case "minCharge":
       case "setupFee":
       case "cleanupFee":
@@ -296,15 +312,16 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     json(settings.fixedPrices),
     settings.setupFee ?? null,
     settings.cleanupFee ?? null,
+    settings.signOff ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
     default_length = ?, buffer_before = ?, buffer_after = ?, week_hours = ?, notice_minutes = ?, rate_mode = ?, bill_step = ?,
-    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, updated_at = datetime('now')`;
+    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
   if (done.changes > 0) return;
   const scopeCols =
     "court" in scope
-      ? { business: null, venue: null, sport: null, court: scope.court }
+      ? { business: null, venue: null, sport: "sport" in scope ? scope.sport : null, court: scope.court }
       : "sport" in scope
         ? { business: null, venue: scope.venue, sport: scope.sport, court: null }
         : "venue" in scope
@@ -314,8 +331,8 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     .prepare(
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
          min_length, max_length, lengths, default_length, buffer_before, buffer_after, week_hours, notice_minutes, rate_mode,
-         bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee, sign_off)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }
@@ -325,7 +342,7 @@ export async function updatePolicy(
   scope: PolicyScope,
   changes: Record<string, unknown>
 ): Promise<{ ok: true; settings: PolicySettings } | { ok: false; error: string }> {
-  if ("sport" in scope && !SPORTS.includes(scope.sport)) return { ok: false, error: "Unknown sport." };
+  if ("sport" in scope && !(await isActivity(scope.sport))) return { ok: false, error: "Unknown sport." };
   const checked = validateSettings(changes);
   if (!checked.ok) return checked;
   const current = await policySettings(scope);

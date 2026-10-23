@@ -18,6 +18,10 @@ export interface StaffAction {
 export const ACTION_LABELS: Record<string, string> = {
   "booking.created": "Booked",
   "booking.override": "Booked or moved outside a court's booking rules",
+  "signoff.added": "Signed somebody off for an activity",
+  "signoff.revoked": "Took a sign-off back",
+  "activity.created": "Added an activity of the venue's own",
+  "activity.changed": "Changed an activity of the venue's own",
   "booking.cancelled": "Cancelled a booking",
   "booking.moved": "Moved a booking",
   "booking.rescheduled": "Changed a booking's time",

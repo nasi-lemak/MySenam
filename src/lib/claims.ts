@@ -292,9 +292,17 @@ export function peakPlaces(occupants: Occupant[], span: Span, ignore?: (o: Occup
  * among these occupants on a court of `capacity`? The same question the
  * database answers when it is written; asked here to show and to choose.
  */
-export function fits(occupants: Occupant[], capacity: number, span: Span, buffers: { before: number; after: number }, ignore?: (o: Occupant) => boolean): boolean {
+export function fits(
+  occupants: Occupant[],
+  capacity: number,
+  span: Span,
+  buffers: { before: number; after: number },
+  ignore?: (o: Occupant) => boolean,
+  /** Places the new claim takes on a shared facility: several kayaks, several people on a floor. A court held whole takes itself, however many play. */
+  places = 1
+): boolean {
   const occupied = { start: span.start - buffers.before, end: span.end + buffers.after };
-  return peakPlaces(occupants, occupied, ignore) + 1 <= capacity;
+  return peakPlaces(occupants, occupied, ignore) + (capacity > 1 ? places : 1) <= capacity;
 }
 
 /** The stretches of `within` nothing occupies at all (for a court of one place). */

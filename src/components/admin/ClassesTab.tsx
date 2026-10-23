@@ -1,10 +1,11 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { ClockField } from "@/components/ClockField";
 import { useCallback, useEffect, useState } from "react";
 import { CoachesPanel } from "./CoachesPanel";
 import { formatHour } from "@/lib/time";
-import { MAX_CLASS_WEEKS, SPORT_ICONS } from "@/lib/types";
+import { MAX_CLASS_WEEKS } from "@/lib/types";
 import type { Booking, ClassSession } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
@@ -183,7 +184,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                   </td>
                   <td className="px-3 py-2">{session.instructor}</td>
                   <td className="px-3 py-2">
-                    {SPORT_ICONS[session.sport]} {session.courtName}
+                    {activityIcon(session.sport)} {session.courtName}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
                     {session.date} · {formatHour(session.startHour)}–{formatHour(session.endHour)}

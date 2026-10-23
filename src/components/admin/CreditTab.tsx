@@ -1,11 +1,12 @@
 "use client";
 
+import { activityName, activityIcon } from "@/lib/activity-registry";
 import { ReceiptsPanel } from "./ReceiptsPanel";
 import { VouchersPanel } from "./VouchersPanel";
 import { CounterSalesPanel } from "./CounterSalesPanel";
 import { AccountsPanel } from "./AccountsPanel";
 import { useCallback, useEffect, useState } from "react";
-import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP } from "@/lib/types";
 import type { Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
@@ -372,7 +373,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             <option value="">Any sport</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {SPORT_ICONS[sp]} {SPORT_LABELS[sp]}
+                {activityIcon(sp)} {activityName(sp)}
               </option>
             ))}
           </select>
@@ -526,7 +527,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="px-3 py-2">
                   {pass.name}
                   <span className="ml-1 text-xs text-slate-400">
-                    {pass.sport ? SPORT_ICONS[pass.sport] : "all sports"}
+                    {pass.sport ? activityIcon(pass.sport) : "all sports"}
                     {pass.coachName && ` · lessons with ${pass.coachName}`}
                   </span>
                 </td>
@@ -745,7 +746,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
             <option value="">Any sport</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {SPORT_ICONS[sp]} {SPORT_LABELS[sp]}
+                {activityIcon(sp)} {activityName(sp)}
               </option>
             ))}
           </select>
@@ -835,7 +836,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="px-3 py-2">
                   {p.description}
                   <span className="ml-1 text-xs text-slate-400">
-                    {p.sport ? SPORT_ICONS[p.sport] : "all sports"}
+                    {p.sport ? activityIcon(p.sport) : "all sports"}
                     {p.minHours > 1 ? ` · ${p.minHours}h+` : ""}
                   </span>
                 </td>

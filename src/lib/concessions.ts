@@ -1,3 +1,4 @@
+import { isActivity } from "./activities";
 import { sellAtCounter } from "./counter-sales";
 import { getDb } from "./db";
 import { peakRules } from "./peak";
@@ -6,7 +7,7 @@ import { roundMoney } from "./region";
 import { getBookingById as bookingById, getCourt } from "./store";
 import { addDays, forSport, isValidDateString, todayISO } from "./time";
 import { touchesPeak } from "./pricing";
-import { SPORTS, type Booking, type Refusal, type Sport } from "./types";
+import { type Booking, type Refusal, type Sport } from "./types";
 import { errorText, translator, type ErrorCode } from "./i18n";
 
 /**
@@ -89,7 +90,7 @@ export async function saveConcession(
   const proof = typeof input.proof === "string" ? input.proof.trim() : "";
   if (proof.length < 3 || proof.length > 80) return { ok: false, error: "Say what to show at the counter: your student card, your IC." };
   const sport = input.sport === null || input.sport === undefined || input.sport === "" ? null : (input.sport as Sport);
-  if (sport !== null && !SPORTS.includes(sport)) return { ok: false, error: "Unknown sport." };
+  if (sport !== null && !(await isActivity(sport))) return { ok: false, error: "Unknown sport." };
   const offPeak = input.offPeakOnly === true ? 1 : 0;
   const db = getDb();
   if (input.id !== undefined && input.id !== null) {
@@ -136,7 +137,7 @@ export async function applyConcession(
   const court = await getCourt(booking.courtId);
   const concession = await concessionById(concessionId);
   if (!court || !concession || concession.venueId !== court.venueId) return refuse("CONCESSION_NOT_HERE");
-  if (concession.sport !== null && concession.sport !== court.sport) return refuse("CONCESSION_NOT_HERE");
+  if (concession.sport !== null && concession.sport !== booking.sport) return refuse("CONCESSION_NOT_HERE");
   if (booking.paymentStatus === "paid") return refuse("PROMO_TOO_LATE");
   const db = getDb();
   const flags = (await db.prepare("SELECT last_minute, concession_id FROM bookings WHERE id = ?").get(bookingId)) as {
@@ -145,7 +146,7 @@ export async function applyConcession(
   };
   if (flags.last_minute === 1 || flags.concession_id !== null) return refuse("ONE_DISCOUNT");
   if (concession.offPeakOnly) {
-    const rules = forSport(await peakRules(court.venueId), court.sport);
+    const rules = forSport(await peakRules(court.venueId), booking.sport);
     if (touchesPeak(booking.date, { start: booking.startMin, end: booking.endMin }, rules))
       return refuse("CONCESSION_OFF_PEAK", { name: concession.name });
   }

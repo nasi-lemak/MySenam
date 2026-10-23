@@ -1,5 +1,6 @@
+import { isKnownActivity } from "./activity-registry";
 import { getDb } from "./db";
-import { SPORTS, type Refusal, type Sport } from "./types";
+import { type Refusal, type Sport } from "./types";
 import type { Span } from "./interval";
 import { errorText, translator, type ErrorCode } from "./i18n";
 
@@ -107,7 +108,7 @@ function checkInput(input: AddonInput): string | null {
   if (!Number.isFinite(input.price) || input.price < 0 || input.price > 1000) return "Check the price.";
   if (input.stock !== undefined && input.stock !== null && (!Number.isInteger(input.stock) || input.stock < 1 || input.stock > 500))
     return "How many there are: 1 to 500, or leave it empty.";
-  if (input.sport && !SPORTS.includes(input.sport)) return "Unknown sport.";
+  if (input.sport && !isKnownActivity(input.sport)) return "Unknown sport.";
   return null;
 }
 
@@ -226,7 +227,7 @@ export async function attachAddons(bookingId: number, chosen: Chosen[]): Promise
   return db.transaction(async () => {
     const b = (await db
       .prepare(
-        `SELECT b.id, b.date, b.start_min, b.end_min, c.venue_id, c.sport
+        `SELECT b.id, b.date, b.start_min, b.end_min, c.venue_id, b.sport
            FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
       )
       .get(bookingId)) as { id: number; date: string; start_min: number; end_min: number; venue_id: number; sport: Sport } | undefined;

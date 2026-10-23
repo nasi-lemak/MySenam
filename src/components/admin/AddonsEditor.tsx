@@ -1,8 +1,9 @@
 "use client";
 
+import { sportsOf } from "@/lib/court-activities";
+import { activityName } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import type { Addon } from "@/lib/addons";
-import { SPORT_LABELS, type Sport } from "@/lib/types";
 import type { ManagedVenue } from "./shared";
 import { money, currencySymbol } from "@/lib/region";
 
@@ -19,7 +20,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [f, setF] = useState(BLANK);
-  const sports = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
+  const sports = sportsOf(venue.courts);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/addons?venueId=${venue.id}`, { cache: "no-store" });
@@ -71,7 +72,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
                 <span className="flex-1">
                   {a.kind === "rental" ? "🎒" : "🛒"} <span className="font-medium">{a.name}</span> · {money(a.price)}
                   {a.kind === "rental" ? ` to hire${a.stock !== null ? `, ${a.stock} in stock` : ""}` : " to buy"}
-                  {a.sport && ` · ${SPORT_LABELS[a.sport]} only`}
+                  {a.sport && ` · ${activityName(a.sport)} only`}
                   {!a.active && " · retired"}
                 </span>
                 {a.active && (
@@ -140,7 +141,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
                   <option value="">Any sport</option>
                   {sports.map((s) => (
                     <option key={s} value={s}>
-                      {SPORT_LABELS[s]} only
+                      {activityName(s)} only
                     </option>
                   ))}
                 </select>

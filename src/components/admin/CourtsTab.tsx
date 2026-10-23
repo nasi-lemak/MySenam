@@ -1,17 +1,19 @@
 "use client";
 
+import { sportsOf } from "@/lib/court-activities";
+import { activity, activityName, activityIcon } from "@/lib/activity-registry";
 import { PeakHoursEditor } from "./PeakHoursEditor";
+import { AddResourcesForm, CourtActivitiesEditor, SignOffsPanel } from "./ResourcesEditor";
 import { BookingPolicyEditor } from "./BookingPolicyEditor";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
 import { SportRulesEditor } from "./SportRulesEditor";
-import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS, SPORT_LABELS, SPORTS } from "@/lib/types";
-import { usualMinutes } from "@/lib/booking-rules";
-import type { Court, Induction, Sport, Venue } from "@/lib/types";
+import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT } from "@/lib/types";
+import type { Court, Induction, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
-import { SURFACES, SURFACE_SPORTS, type CourtFeatures } from "@/lib/facilities";
+import { SURFACES, type CourtFeatures } from "@/lib/facilities";
 import { DICTIONARIES } from "@/lib/i18n";
 import { currencySymbol, region } from "@/lib/region";
 
@@ -50,14 +52,6 @@ export function CourtsTab({
     unmanned: boolean;
   } | null>(null);
   const [reveals, setReveals] = useState<AccessReveal[] | null>(null);
-  const [newCourt, setNewCourt] = useState({
-    name: "",
-    sport: "badminton",
-    offPeak: "",
-    peak: "",
-    capacity: "1",
-    deposit: "0",
-  });
 
   const venue = venues.find((v) => v.id === venueId);
 
@@ -204,41 +198,6 @@ export function CourtsTab({
     }
   }
 
-  async function addCourt(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setNotice(null);
-    try {
-      const res = await fetch("/api/admin/courts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          venueId,
-          name: newCourt.name,
-          sport: newCourt.sport,
-          offPeakRate: Number(newCourt.offPeak),
-          peakRate: Number(newCourt.peak),
-          capacity: Number(newCourt.capacity),
-          deposit: Number(newCourt.deposit),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not add court");
-      setNotice(`Added ${data.court.name}.`);
-      setNewCourt({
-        name: "",
-        sport: newCourt.sport,
-        offPeak: "",
-        peak: "",
-        capacity: "1",
-        deposit: "0",
-      });
-      refreshVenues();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not add court");
-    }
-  }
-
   return (
     <div className="space-y-4">
       <select
@@ -305,7 +264,7 @@ export function CourtsTab({
         <SportRulesEditor
           key={`sport-rules-${venue.id}`}
           venueId={venue.id}
-          sports={[...new Set(venue.courts.map((c) => c.sport))]}
+          sports={sportsOf(venue.courts)}
         />
       )}
 
@@ -497,97 +456,31 @@ export function CourtsTab({
 
       <InductionsPanel venueId={venueId} />
 
-      <form
-        onSubmit={addCourt}
-        className="flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-4"
-      >
-        <div className="text-sm font-semibold text-slate-700">Add court:</div>
-        <input
-          required
-          minLength={2}
-          value={newCourt.name}
-          onChange={(e) => setNewCourt({ ...newCourt, name: e.target.value })}
-          placeholder="Court name"
-          className="w-44 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        />
-        <select
-          value={newCourt.sport}
-          onChange={(e) => setNewCourt({ ...newCourt, sport: e.target.value })}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        >
-          {SPORTS.map((sport) => (
-            <option key={sport} value={sport}>
-              {SPORT_ICONS[sport]} {SPORT_LABELS[sport]}
-            </option>
-          ))}
-        </select>
-        <input
-          required
-          type="number"
-            step={0.01}
-          min={0}
-          value={newCourt.offPeak}
-          onChange={(e) => setNewCourt({ ...newCourt, offPeak: e.target.value })}
-          placeholder={`Off-peak ${currencySymbol()}`}
-          className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        />
-        <input
-          required
-          type="number"
-            step={0.01}
-          min={0}
-          value={newCourt.peak}
-          onChange={(e) => setNewCourt({ ...newCourt, peak: e.target.value })}
-          placeholder={`Peak ${currencySymbol()}`}
-          className="w-28 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        />
-        <input
-          required
-          type="number"
-          min={1}
-          max={MAX_CAPACITY}
-          value={newCourt.capacity}
-          onChange={(e) => setNewCourt({ ...newCourt, capacity: e.target.value })}
-          title="1 for an exclusive court; higher for a shared facility like a gym floor"
-          placeholder="Capacity"
-          className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        />
-        <input
-          type="number"
-            step={0.01}
-          min={0}
-          max={MAX_DEPOSIT}
-          value={newCourt.deposit}
-          onChange={(e) => setNewCourt({ ...newCourt, deposit: e.target.value })}
-          title="Deposit held while the kit is out. 0 for anything that stays on site."
-          placeholder="Deposit"
-          className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-        />
-        <button
-          type="submit"
-          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
-        >
-          Add
-        </button>
-        <UsualLengthHint sport={newCourt.sport as Sport} />
-      </form>
-    </div>
-  );
-}
+      <AddResourcesForm
+        key={`add-${venueId}`}
+        venueId={venueId}
+        onAdded={(message) => {
+          setError(null);
+          setNotice(message);
+          refreshVenues();
+        }}
+      />
 
-/**
- * A sport whose game is not an hour (padel's is 90 minutes): its courts start
- * every half hour and offer that length first, unless the booking rules say
- * otherwise.
- */
-function UsualLengthHint({ sport }: { sport: Sport }) {
-  const minutes = usualMinutes(sport);
-  if (minutes === 60) return null;
-  return (
-    <p className="basis-full text-xs text-slate-500">
-      {SPORT_LABELS[sport]} is usually booked for {minutes} minutes, so its courts start every half hour and offer {minutes} minutes
-      first. Change that, or sell nothing shorter than a game, in the booking rules once the court is added.
-    </p>
+      {venue && venue.courts.length > 0 && (
+        <CourtActivitiesEditor
+          key={`activities-${venue.id}`}
+          venueId={venue.id}
+          courts={venue.courts}
+          onSaved={(message) => {
+            setError(null);
+            setNotice(message);
+            refreshVenues();
+          }}
+        />
+      )}
+
+      {venue && <SignOffsPanel key={`signoffs-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
+    </div>
   );
 }
 
@@ -631,7 +524,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        {SPORT_ICONS[court.sport]} {SPORT_LABELS[court.sport]}
+        {activityIcon(court.sport)} {activityName(court.sport)}
       </td>
       <td className="px-3 py-2">
         <input
@@ -740,7 +633,7 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="w-48 px-3 py-2 font-medium">
-        {SPORT_ICONS[court.sport]} {court.name}
+        {activityIcon(court.sport)} {court.name}
       </td>
       <td className="px-3 py-2">
         {/* For players comparing venues; saved as soon as it changes. */}
@@ -763,7 +656,7 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
             <input type="checkbox" checked={court.floodlit} onChange={(e) => onFeatures({ floodlit: e.target.checked })} />
             💡 Lit
           </label>
-          {SURFACE_SPORTS.includes(court.sport) && (
+          {activity(court.sport).surfaced && (
             <select
               aria-label={`${court.name}: surface`}
               value={court.surface ?? ""}

@@ -1,7 +1,8 @@
 "use client";
 
+import { activityName, activityKeys } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
-import { SPORTS, SPORT_LABELS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 
 interface Concession {
   id: number;
@@ -82,7 +83,7 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
             <li key={c.id} className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{c.name}</span>
               <span className="text-slate-600">
-                {c.percent}% off{c.sport ? `, ${SPORT_LABELS[c.sport]} only` : ""}
+                {c.percent}% off{c.sport ? `, ${activityName(c.sport)} only` : ""}
                 {c.offPeakOnly ? ", off-peak only" : ""} · bring {c.proof}
               </span>
               <button onClick={() => void withdraw(c)} className="text-xs font-semibold text-red-600 underline">
@@ -141,9 +142,9 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
             className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm"
           >
             <option value="">Every sport</option>
-            {SPORTS.map((s) => (
+            {activityKeys().map((s) => (
               <option key={s} value={s}>
-                {SPORT_LABELS[s]}
+                {activityName(s)}
               </option>
             ))}
           </select>

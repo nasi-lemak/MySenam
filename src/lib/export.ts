@@ -31,7 +31,7 @@ const hour = (h: number) => `${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ?
 export async function bookingsCsv(venueId: number, from: string, to: string): Promise<string> {
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.series_code, b.date, b.start_min, b.end_min, c.name AS court, c.sport,
+      `SELECT b.code, b.series_code, b.date, b.start_min, b.end_min, c.name AS court, b.sport,
               b.name, b.phone, b.email, b.status, b.released_unpaid, b.total_price, b.tax_rate, b.payment_status, b.paid_via, b.paid_at,
               (SELECT discount FROM promo_uses u WHERE u.booking_id = b.id) AS discount,
               (SELECT STRING_AGG(a.quantity || ' x ' || a.name, '; ') FROM booking_addons a WHERE a.booking_id = b.id) AS extras,

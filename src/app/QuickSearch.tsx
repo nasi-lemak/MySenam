@@ -1,15 +1,18 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { sportLabel } from "@/lib/i18n";
 import { addDays, todayISO } from "@/lib/time";
-import { SPORT_ICONS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 import { DAY_PARTS, type DayPart } from "@/lib/day-parts";
 import { intlTag } from "@/lib/region";
 
 const TIMES = DAY_PARTS;
+/** The activities shown as buttons; the rest are one pick away, so thirty don't bury the button. */
+const SHOWN = 8;
 type Time = DayPart;
 
 /**
@@ -70,11 +73,26 @@ export function QuickSearch({ sports }: { sports: Sport[] }) {
   return (
     <div className="mt-6 space-y-3 rounded-xl bg-white p-4 text-slate-900 shadow-lg">
       <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.sport")}>
-        {sports.map((s) => (
+        {sports.slice(0, SHOWN).map((s) => (
           <button key={s} type="button" aria-pressed={sport === s} onClick={() => setSport(s)} className={chip(sport === s)}>
-            {SPORT_ICONS[s]} {sportLabel(t, s)}
+            {activityIcon(s)} {sportLabel(t, s)}
           </button>
         ))}
+        {sports.length > SHOWN && (
+          <select
+            aria-label={t("quick.moreActivities")}
+            value={sport && sports.indexOf(sport) >= SHOWN ? sport : ""}
+            onChange={(e) => e.target.value && setSport(e.target.value)}
+            className={`${chip(sport !== null && sports.indexOf(sport) >= SHOWN)} pr-2`}
+          >
+            <option value="">{t("quick.moreActivities")}</option>
+            {sports.slice(SHOWN).map((s) => (
+              <option key={s} value={s}>
+                {activityIcon(s)} {sportLabel(t, s)}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.when")}>
         <button type="button" aria-pressed={date === today} onClick={() => setDate(today)} className={chip(date === today)}>

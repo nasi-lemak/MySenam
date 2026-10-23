@@ -1,16 +1,18 @@
 # MySenam 🏸
 
 **Gelanggang, gim dan kelas — satu tempahan.** Online booking and
-venue-management software for sports venues in Malaysia and Singapore:
-courts and pitches for twelve sports, from badminton and padel to futsal and
-sepak takraw, shared facilities such as gyms
-and pools, equipment hire, and instructor-led classes. It runs as a shared
-marketplace of independent venues or as one business's own booking site.
+venue-management software for sports and activity venues in Malaysia and
+Singapore: courts and pitches, pools, lanes and bays, gyms and walls, water
+and bike hire, and studio classes, from a catalogue of activities operators
+can add to ([which are fully supported](docs/features/activities.md#support-matrix)).
+It runs as a shared marketplace of independent venues or as one business's
+own booking site.
 
 ## What it does
 
 - **Booking**: live availability per venue and across venues; exclusive
-  courts and shared facilities with places; linked courts; bookings to the
+  courts and shared facilities with places; courts offering several
+  activities; linked courts; bookings to the
   minute within each court's booking rules (starts, lengths, buffers),
   "any court", several courts at once and weekly series; waitlists; moving,
   cancelling and late-cancel rules; public,

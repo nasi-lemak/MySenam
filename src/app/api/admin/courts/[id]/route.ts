@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { courtAccess, getCourt, setCourtFeatures, updateCourt } from "@/lib/store";
+import { setCourtActivities, setCourtNoun } from "@/lib/resources";
+import { RESOURCE_NOUNS } from "@/lib/activity-catalogue";
 import { isSurface, type CourtFeatures } from "@/lib/facilities";
 import { MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, MIN_ACCESS_CODE } from "@/lib/types";
 import { logAction } from "@/lib/activity";
@@ -174,6 +176,29 @@ export async function PATCH(
     features.surface = input.surface;
   }
 
+  // What it can be booked for besides its main activity, each at its own rates or the court's (lib/resources.ts).
+  let other = false;
+  if (input.activities !== undefined) {
+    if (!Array.isArray(input.activities)) return NextResponse.json({ error: "activities is a list." }, { status: 400 });
+    const set = await setCourtActivities(courtId, input.activities as { sport: string; offPeakRate?: number | null; peakRate?: number | null }[]);
+    if (!set.ok) return NextResponse.json({ error: set.error }, { status: set.error === "Unknown sport." ? 400 : 409 });
+    await logAction(admin, {
+      venueId: court.venueId,
+      action: "court.changed",
+      detail: `${court.name}: also booked for ${set.court.activities.filter((x) => x.sport !== court.sport).map((x) => x.sport).join(", ") || "nothing else"}`,
+    });
+    other = true;
+  }
+  // What one of it is called ("lane", "bay"); null: what its activity's are.
+  if (input.noun !== undefined) {
+    if (input.noun !== null && (typeof input.noun !== "string" || !(RESOURCE_NOUNS as readonly string[]).includes(input.noun)))
+      return NextResponse.json({ error: "Choose what it is called from the list." }, { status: 400 });
+    await setCourtNoun(courtId, input.noun as string | null);
+    other = true;
+  }
+
+  if (Object.keys(changes).length === 0 && Object.keys(features).length === 0 && other)
+    return NextResponse.json({ court: await getCourt(courtId), access: await courtAccess(courtId) }, { headers: { "Cache-Control": "no-store" } });
   if (Object.keys(changes).length === 0 && Object.keys(features).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
   if (Object.keys(changes).length === 0) {

@@ -1,3 +1,4 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { isWho, type Who } from "@/lib/who";
 import { phoneRefusal } from "@/lib/phone-check";
@@ -8,7 +9,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { readNear } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
 import { isValidDateString } from "@/lib/time";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const sport = params.get("sport");
-  if (sport && !SPORTS.includes(sport as Sport)) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
+  if (sport && !(await isActivity(sport))) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   const date = params.get("date");
   if (date && !isValidDateString(date)) return NextResponse.json({ error: "Invalid date." }, { status: 400 });
   const level = params.get("level");

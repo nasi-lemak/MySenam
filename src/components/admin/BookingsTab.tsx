@@ -1,11 +1,12 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { AttentionPanel } from "./AttentionPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
 import { useCallback, useEffect, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
-import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS, SPORT_ICONS } from "@/lib/types";
+import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS } from "@/lib/types";
 import type { CounterMethod } from "@/lib/types";
 import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
@@ -702,7 +703,7 @@ export function BookingsTab() {
                     <span className="font-mono font-semibold text-teal-700">{b.code}</span>
                     <SeriesChip b={b} act={act} />
                     <div className="mt-0.5 text-sm font-medium">
-                      {SPORT_ICONS[b.sport]} {b.courtName}
+                      {activityIcon(b.sport)} {b.courtName}
                     </div>
                     <div className="text-sm text-slate-500">
                       {formatHour(b.startHour)} – {formatHour(b.endHour)} · {b.venueName}
@@ -762,7 +763,7 @@ export function BookingsTab() {
                     </td>
                     <td className="px-3 py-2">{b.venueName}</td>
                     <td className="px-3 py-2">
-                      {SPORT_ICONS[b.sport]} {b.courtName}
+                      {activityIcon(b.sport)} {b.courtName}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatHour(b.startHour)} – {formatHour(b.endHour)}

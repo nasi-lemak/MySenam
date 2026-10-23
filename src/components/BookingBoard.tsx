@@ -1,25 +1,11 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Booking,
-  busyness,
-  Court,
-  CourtAvailability,
-  isHire,
-  isShared,
-  MAX_RECUR_WEEKS,
-  MAX_GROUP_COURTS,
-  DEFAULT_MAX_PLAYERS,
-  Sport,
-  SPORT_ICONS,
-  Pass,
-  PublicPolicy,
-  StartOption,
-  VenueClosure,
-} from "@/lib/types";
+import { Booking, busyness, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure } from "@/lib/types";
+import { placesPerBooking } from "@/lib/court-activities";
 import { formatMinute, parseClock } from "@/lib/interval";
 import { isPastSlot } from "@/lib/time";
 import { lengthsUpTo } from "@/lib/booking-rules";
@@ -383,7 +369,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                 : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
             }`}
           >
-            {SPORT_ICONS[s]} {sportLabel(t, s)}
+            {activityIcon(s)} {sportLabel(t, s)}
           </button>
         ))}
       </div>
@@ -717,9 +703,12 @@ function BookingForm({
   // A concession price: that share off the court time, shown at the counter.
   const [concessionId, setConcessionId] = useState<number | null>(null);
   const concession = concessions.find((c) => c.id === concessionId) ?? null;
-  // On a court priced per player, how many play: the price is for each of them.
-  const [players, setPlayers] = useState(2);
-  const mostPlayers = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
+  // How many: players on a court priced per player, or places on a shared
+  // facility (people on a gym floor, kayaks from a fleet); the price is for each.
+  const shared = court.capacity > 1;
+  const [players, setPlayers] = useState(shared ? 1 : 2);
+  const mostPlayers = placesPerBooking(court);
+  const counted = mostPlayers > 1;
 
   // The price, as the server will charge it: worked out there, shown before booking.
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -727,10 +716,11 @@ function BookingForm({
   useEffect(() => {
     let live = true;
     setQuote(null);
-    const where = court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`;
+    // The activity too: a court booked for several is priced for the one picked.
+    const where = court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}&sport=${court.sport}`;
     const timer = setTimeout(() => {
       fetch(
-        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${court.perPlayer ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}`,
+        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}`,
         { cache: "no-store" }
       )
         .then((res) => res.json())
@@ -741,7 +731,7 @@ function BookingForm({
       live = false;
       clearTimeout(timer);
     };
-  }, [court.id, court.venueId, court.sport, court.perPlayer, date, start, end, players, moreKey]);
+  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey]);
   const othersTotal = (quote?.others ?? []).filter((o) => more.includes(o.courtId)).reduce((sum, o) => sum + o.total, 0);
   const off = (concession?.percent ?? 0) / 100;
   // A concession is off the court time, not a setup or cleanup fee.
@@ -829,7 +819,7 @@ function BookingForm({
           // ANY_COURT means "you pick": send the venue and sport instead.
           ...(court.id === ANY_COURT
             ? { venueId: court.venueId, sport: court.sport }
-            : { courtId: court.id }),
+            : { courtId: court.id, sport: court.sport }),
           date,
           start,
           end,
@@ -849,7 +839,7 @@ function BookingForm({
           marketing: email.trim() !== "" && marketing,
           ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((c) => c.id) } : {}),
           ...(concession ? { concessionId: concession.id } : {}),
-          ...(court.perPlayer ? { players } : {}),
+          ...(counted ? { players } : {}),
         }),
       });
       const data = await res.json();
@@ -980,10 +970,10 @@ function BookingForm({
               : t("form.book", { amount: withExtras ?? 0 })}
         </button>
       </div>
-      {court.perPlayer && (
+      {counted && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <label className="flex items-center gap-2">
-            {t("form.players")}
+            {t(shared ? "form.places" : "form.players")}
             <select
               value={players}
               onChange={(e) => setPlayers(Number(e.target.value))}
@@ -996,7 +986,7 @@ function BookingForm({
               ))}
             </select>
           </label>
-          {quote && <span className="text-slate-500">{t("form.playersNote", { n: players, price: money(quote.court / players) })}</span>}
+          {quote && <span className="text-slate-500">{t(shared ? "form.placesNote" : "form.playersNote", { n: players, price: money(quote.court / players) })}</span>}
         </div>
       )}
       {concessions.length > 0 && (

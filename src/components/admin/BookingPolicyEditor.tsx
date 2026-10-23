@@ -1,9 +1,13 @@
 "use client";
 
+import { courtSports, sportsOf } from "@/lib/court-activities";
+import { ClockField } from "@/components/ClockField";
+import { WEEKDAYS, type DayHours } from "@/lib/week-hours";
+import { activityName } from "@/lib/activity-registry";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PLATFORM_POLICY, SETTING_KEYS, type BookingPolicy, type FixedPrice, type PolicySettings } from "@/lib/booking-rules";
 import { clockOf, parseClock } from "@/lib/interval";
-import { SPORT_LABELS, type Court, type Sport } from "@/lib/types";
+import { type Court, type Sport } from "@/lib/types";
 
 /**
  * A venue's booking rules (lib/booking-policy.ts): when bookings may start,
@@ -17,18 +21,26 @@ import { SPORT_LABELS, type Court, type Sport } from "@/lib/types";
  * behind "More". Bookings already made keep their time and price.
  */
 
-type Level = { level: "business" } | { level: "venue" } | { level: "sport"; sport: Sport } | { level: "court"; courtId: number };
+type Level =
+  | { level: "business" }
+  | { level: "venue" }
+  | { level: "sport"; sport: Sport }
+  | { level: "court"; courtId: number }
+  // One activity on one court that offers several: a booking product.
+  | { level: "court"; courtId: number; sport: Sport };
 
 interface Levels {
   venue: PolicySettings;
   business: PolicySettings | null;
   sports: Partial<Record<Sport, PolicySettings>>;
   courts: Record<number, PolicySettings>;
+  products: Record<number, Record<string, PolicySettings>>;
 }
 
 interface Effective {
   sports: Partial<Record<Sport, BookingPolicy>>;
   courts: Record<number, BookingPolicy & { summary: string }>;
+  products: Record<number, Record<string, BookingPolicy & { summary: string }>>;
 }
 
 /** Each setting as typed in the form; blank inherits. */
@@ -60,6 +72,7 @@ function toForm(s: PolicySettings): Form {
     ? s.fixedPrices.map((f) => `${f.minutes} = ${f.price}${f.peakPrice !== null ? ` / ${f.peakPrice}` : ""}`).join("\n")
     : "";
   form.weekHours = s.weekHours ? JSON.stringify(s.weekHours) : "";
+  form.signOff = s.signOff === true ? "yes" : s.signOff === false ? "no" : "";
   return form;
 }
 
@@ -90,6 +103,7 @@ function fromForm(form: Form): Record<string, unknown> {
             return { minutes: Number(m[1]), price: Number(m[2]), peakPrice: m[3] ? Number(m[3]) : null };
           });
   out.weekHours = form.weekHours.trim() === "" ? null : JSON.parse(form.weekHours);
+  out.signOff = form.signOff === "" ? null : form.signOff === "yes";
   return out;
 }
 
@@ -104,7 +118,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const sports = useMemo(() => [...new Set(courts.map((c) => c.sport))], [courts]);
+  const sports = useMemo(() => sportsOf(courts), [courts]);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/booking-policies?venueId=${venueId}`, { cache: "no-store" });
@@ -124,6 +138,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
     if (level.level === "business") return levels.business ?? {};
     if (level.level === "venue") return levels.venue;
     if (level.level === "sport") return levels.sports[level.sport] ?? {};
+    if ("sport" in level) return levels.products[level.courtId]?.[level.sport] ?? {};
     return levels.courts[level.courtId] ?? {};
   }, [levels, level]);
 
@@ -136,6 +151,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
   /** What applies now at this level, everything inherited: the placeholders. */
   const now = useMemo(() => {
     if (!effective) return null;
+    if (level.level === "court" && "sport" in level) return effective.products[level.courtId]?.[level.sport] ?? null;
     if (level.level === "court") return effective.courts[level.courtId] ?? null;
     if (level.level === "sport") return effective.sports[level.sport] ?? null;
     return null;
@@ -179,7 +195,14 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
 
   if (!levels || !form) return null;
 
-  const levelKey = level.level === "sport" ? `sport:${level.sport}` : level.level === "court" ? `court:${level.courtId}` : level.level;
+  const levelKey =
+    level.level === "sport"
+      ? `sport:${level.sport}`
+      : level.level === "court"
+        ? "sport" in level
+          ? `product:${level.courtId}:${level.sport}`
+          : `court:${level.courtId}`
+        : level.level;
   const input = "mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm placeholder:text-slate-400";
   const field = (key: (typeof SETTING_KEYS)[number], label: string, note?: string) => (
     <label className="block text-xs font-medium text-slate-600">
@@ -213,7 +236,10 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
             const v = e.target.value;
             if (v === "venue" || v === "business") setLevel({ level: v });
             else if (v.startsWith("sport:")) setLevel({ level: "sport", sport: v.slice(6) as Sport });
-            else setLevel({ level: "court", courtId: Number(v.slice(6)) });
+            else if (v.startsWith("product:")) {
+              const [, id, sport] = v.split(":");
+              setLevel({ level: "court", courtId: Number(id), sport });
+            } else setLevel({ level: "court", courtId: Number(v.slice(6)) });
           }}
           className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
@@ -221,7 +247,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
           <option value="venue">The whole venue</option>
           {sports.map((s) => (
             <option key={s} value={`sport:${s}`}>
-              {SPORT_LABELS[s] ?? s} here
+              {activityName(s) ?? s} here
             </option>
           ))}
           {courts.map((c) => (
@@ -229,11 +255,18 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
               {c.name}
             </option>
           ))}
+          {courts.flatMap((c) =>
+            courtSports(c)
+              .slice(1)
+              .map((s) => (
+                <option key={`${c.id}:${s}`} value={`product:${c.id}:${s}`}>
+                  {activityName(s)} on {c.name}
+                </option>
+              ))
+          )}
         </select>
       </label>
-      {level.level === "court" && effective?.courts[level.courtId] && (
-        <p className="mt-1 text-xs text-slate-500">Now: {effective.courts[level.courtId].summary}.</p>
-      )}
+      {level.level === "court" && now && "summary" in now && <p className="mt-1 text-xs text-slate-500">Now: {String(now.summary)}.</p>}
 
       <form onSubmit={save} className="mt-3 space-y-3">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -266,7 +299,19 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
             {field("minCharge", "Charge at least (amount)")}
             {field("setupFee", "Setup fee (amount)", "Shown apart from the time, on every booking.")}
             {field("cleanupFee", "Cleanup fee (amount)")}
+            <label className="block text-xs font-medium text-slate-600">
+              Staff sign-off first
+              <select value={form.signOff} onChange={(e) => setForm({ ...form, signOff: e.target.value })} className={input}>
+                <option value="">inherits: {hint("signOff") === "true" ? "needed" : "not needed"}</option>
+                <option value="yes">Needed: customers book only once signed off</option>
+                <option value="no">Not needed</option>
+              </select>
+              <span className="mt-0.5 block font-normal text-slate-400">A belay check, a range briefing: record it under Staff sign-offs.</span>
+            </label>
           </div>
+          {level.level === "court" && (
+            <CourtWeekHours value={form.weekHours} onChange={(weekHours) => setForm({ ...form, weekHours })} />
+          )}
           <label className="mt-3 block text-xs font-medium text-slate-600">
             Prices for set lengths
             <textarea
@@ -304,5 +349,56 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
         </div>
       </form>
     </section>
+  );
+}
+
+/**
+ * A court's own hours, weekday by weekday, inside the venue's: the venue's
+ * hours, closed, or its own (a floodlit pitch until 22:00, a pool's lanes
+ * from 06:30). All "the venue's" stores nothing.
+ */
+function CourtWeekHours({ value, onChange }: { value: string; onChange: (json: string) => void }) {
+  let week: DayHours[] = Array(7).fill(null);
+  try {
+    const parsed = value.trim() === "" ? null : (JSON.parse(value) as DayHours[]);
+    if (Array.isArray(parsed) && parsed.length === 7) week = parsed;
+  } catch {
+    // Unreadable: start from the venue's hours.
+  }
+  const set = (i: number, d: DayHours) => {
+    const next = week.map((x, j) => (j === i ? d : x));
+    onChange(next.every((x) => x === null) ? "" : JSON.stringify(next));
+  };
+  return (
+    <fieldset className="mt-3 rounded-lg border border-slate-200 p-2">
+      <legend className="px-1 text-xs font-semibold text-slate-700">This court&apos;s own hours</legend>
+      <div className="grid gap-1 sm:grid-cols-2">
+        {WEEKDAYS.map((name, i) => {
+          const d = week[i];
+          const mode = d === null ? "venue" : d === "closed" ? "closed" : "own";
+          return (
+            <div key={name} className="flex flex-wrap items-center gap-1 text-xs">
+              <span className="w-20 text-slate-600">{name}</span>
+              <select
+                aria-label={`${name} hours`}
+                value={mode}
+                onChange={(e) => set(i, e.target.value === "venue" ? null : e.target.value === "closed" ? "closed" : { open: 8 * 60, close: 22 * 60 })}
+                className="rounded-md border border-slate-300 px-1 py-0.5"
+              >
+                <option value="venue">The venue&apos;s</option>
+                <option value="closed">Closed</option>
+                <option value="own">Its own</option>
+              </select>
+              {d !== null && d !== "closed" && (
+                <>
+                  <ClockField label={`${name} opens`} value={d.open} onChange={(m) => set(i, { ...d, open: m })} className="rounded-md border border-slate-300 px-1 py-0.5" />
+                  <ClockField label={`${name} closes`} value={d.close} after={d.open} onChange={(m) => set(i, { ...d, close: m })} className="rounded-md border border-slate-300 px-1 py-0.5" />
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }

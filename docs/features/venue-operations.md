@@ -50,8 +50,11 @@ unattended overnight while the kayak counter keeps someone on it.
 
 Two combinations are refused outright, whatever a venue asks for:
 
-- **Swimming** (`NEVER_UNMANNED`). Drowning is silent and fast, which is why
-  the 24-hour chains sell gym floors and not lap pools.
+- **Any activity the catalogue marks as supervised** (`supervised`, see
+  [activities](activities.md#the-catalogue)): swimming, water polo and
+  everything on the water. Drowning is silent and fast, which is why the
+  24-hour chains sell gym floors and not lap pools. A court offering several
+  activities is refused if any of them is supervised.
 - **Anything hired out against a deposit.** There is nobody to hold the money
   and nobody to look at the hull when it comes back.
 
@@ -75,7 +78,7 @@ Who gets the code, and when:
 | --------- | --- |
 | The resource is unmanned and has a code | Otherwise there is nothing to give, and the customer is told someone will let them in |
 | The booked hour is **unstaffed** | During staffed hours the counter does this, and a code handed out then is a code in circulation for no reason |
-| The customer has been **inducted** at that venue | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person |
+| The customer has been **inducted** at that venue | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person. An induction is not an activity [sign-off](activities.md#sign-offs), which clears somebody to book one activity at any hour |
 | The booking is not cancelled | — |
 | **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
 | Inside the check-in window | The same hour before the slot that check-in already uses |

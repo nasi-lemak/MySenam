@@ -1,3 +1,4 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { seriesWeeks } from "@/lib/house-rules";
 import { listConcessions } from "@/lib/concessions";
@@ -8,7 +9,7 @@ import { shows, storefrontForRequest } from "@/lib/storefront";
 import { mayShowVenue } from "@/lib/listing";
 import { releaseExpiredHolds } from "@/lib/holds";
 import { isValidDateString, todayISO } from "@/lib/time";
-import { Sport, SPORTS } from "@/lib/types";
+import { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
   }
   let sport: Sport | undefined;
   if (sportParam) {
-    if (!SPORTS.includes(sportParam as Sport)) {
+    if (!(await isActivity(sportParam))) {
       return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
     }
     sport = sportParam as Sport;

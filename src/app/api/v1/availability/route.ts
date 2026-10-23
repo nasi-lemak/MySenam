@@ -1,8 +1,9 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { apiCaller } from "@/lib/api-keys";
 import { getAvailability } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date") ?? "";
   const sport = req.nextUrl.searchParams.get("sport");
   if (!isValidDateString(date)) return NextResponse.json({ error: "date (YYYY-MM-DD) is required." }, { status: 400 });
-  if (sport && !SPORTS.includes(sport as Sport)) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
+  if (sport && !(await isActivity(sport))) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   const grid = await getAvailability(caller.venueId, date, (sport as Sport) || undefined);
   return NextResponse.json({
     date,

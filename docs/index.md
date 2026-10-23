@@ -19,6 +19,7 @@ home ([`AGENTS.md`](../AGENTS.md)).
 | Subject | Authoritative document |
 | ------- | ---------------------- |
 | Rules that span features and must not break | [Business rules](product/business-rules.md) |
+| What can be booked: the activity catalogue, resource templates, operators' own activities, resources offering several, quantity, sign-offs, localised names, and which activities are fully supported | [Activities](features/activities.md) |
 | Booking rules (starts, lengths, buffers, notice), availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, who may book | [Booking](features/booking.md) |
 | Prices to the minute, fees, peak bands, holidays, last-minute prices, concessions, promo codes, memberships, passes | [Pricing](features/pricing.md) |
 | Paying online, holds and deposits, stored credit and its ownership, gift vouchers, split costs, extras, counter sales, company accounts | [Payments and credit](features/payments-and-credit.md) |
@@ -55,7 +56,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0007 Stored-credit ownership](architecture/decisions/0007-stored-credit-ownership.md) ·
 [0008 Slot length per venue](architecture/decisions/0008-slot-length-per-venue.md) (superseded) ·
 [0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md) (superseded) ·
-[0010 Interval booking](architecture/decisions/0010-interval-booking.md)
+[0010 Interval booking](architecture/decisions/0010-interval-booking.md) ·
+[0011 Activities as data](architecture/decisions/0011-activities-as-data.md)
 
 ## Integrations
 

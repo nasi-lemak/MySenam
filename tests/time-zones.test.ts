@@ -6,6 +6,7 @@ import { getDb } from "../src/lib/db";
 import { createBooking, createCourt, createVenue, getAvailability, setVenuePin, venueHours } from "../src/lib/store";
 import { isBookableDate, isPastSlot, slotStartsAt, todayISO, zoneOffsetMinutes } from "../src/lib/time";
 import { setVenueZone, zoneForPin, zoneSettings } from "../src/lib/zones";
+import { allRegions } from "../src/lib/region";
 import { icsContent } from "../src/lib/booking-links";
 
 /**
@@ -108,5 +109,21 @@ describe("booking at a venue on another clock", () => {
     const ics = icsContent({ code: "MS-ZONE", date: "2026-03-09", startHour: 18, endHour: 19, courtName: "Court 1", venueName: "Away", totalPrice: 20, timeZone: "America/New_York" });
     expect(ics).toContain("DTSTART:20260309T220000Z");
     expect(ics).toContain("DTEND:20260309T230000Z");
+  });
+});
+
+describe("the zones a venue may be in", () => {
+  // Bookings are wall-clock times turned into moments by the zone. Where the
+  // clocks go forward an hour, some wall-clock times never happen and others
+  // happen twice; nothing yet decides what a booking at one of them means
+  // (known limitations). Until something does, no country's zones have it.
+  it("keep one offset all year, in every country", () => {
+    for (const r of allRegions())
+      for (const zone of r.timeZones) {
+        const offsets = new Set(
+          Array.from({ length: 24 }, (_, month) => zoneOffsetMinutes(new Date(Date.UTC(2026 + Math.floor(month / 12), month % 12, 15)), zone))
+        );
+        expect(offsets.size, `${r.country} ${zone} changes its clocks: see known limitations before adding it`).toBe(1);
+      }
   });
 });

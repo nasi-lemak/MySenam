@@ -1,3 +1,5 @@
+import { catalogue, isActivity } from "@/lib/activities";
+import { findActivities } from "@/lib/activity-registry";
 import { NextRequest, NextResponse } from "next/server";
 import { countSearchCourts, listAreas, readNear, SEARCH_COURT_LIMIT, SEARCH_SORTS, searchAvailability, type SearchSort } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
@@ -5,7 +7,7 @@ import { releaseExpiredHolds } from "@/lib/holds";
 import { readFacilityFilters } from "@/lib/facilities";
 import { coversFor } from "@/lib/photos";
 import { isValidDateString, todayISO } from "@/lib/time";
-import { MAX_COURT_HOURS, Sport, SPORTS } from "@/lib/types";
+import { MAX_COURT_HOURS, Sport } from "@/lib/types";
 import { DAY_MINUTES, isMinute, parseClock } from "@/lib/interval";
 import { region } from "@/lib/region";
 
@@ -21,10 +23,16 @@ function parseTime(value: string | null, fallback: number): number | null {
 export async function GET(req: NextRequest) {
   await releaseExpiredHolds();
   const params = req.nextUrl.searchParams;
-  const sport = params.get("sport");
+  // `sport=futsal`, or words for it: `q=takraw` finds sepak takraw, `q=spin` cycling.
+  let sport = params.get("sport");
+  if (!sport && params.get("q")) {
+    await catalogue();
+    sport = findActivities(params.get("q")!.slice(0, 60))[0] ?? null;
+    if (!sport) return NextResponse.json({ error: "Nothing by that name is booked here." }, { status: 404 });
+  }
   const date = params.get("date") ?? todayISO();
 
-  if (!sport || !SPORTS.includes(sport as Sport))
+  if (!sport || !(await isActivity(sport)))
     return NextResponse.json({ error: "A valid sport is required." }, { status: 400 });
   if (!isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });

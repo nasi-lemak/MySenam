@@ -1,8 +1,9 @@
+import { isKnownActivity } from "./activity-registry";
 import { getDb, withTransaction } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { isAmount, money, roundMoney } from "./region";
 import { addDays, isValidDateString, todayISO } from "./time";
-import { SPORTS, type Refusal, type Sport, type StartOption } from "./types";
+import { type Refusal, type Sport, type StartOption } from "./types";
 import { LATEST_MINUTE, freeWithin, instantOf, minuteOfDay, rangeLiteral, type Span } from "./interval";
 import { isConflict, occupantsOn } from "./claims";
 
@@ -78,7 +79,7 @@ async function withHours(rows: CoachRow[]): Promise<Coach[]> {
     venueId: r.venue_id,
     name: r.name,
     bio: r.bio,
-    sports: r.sports.split(",").filter((s): s is Sport => SPORTS.includes(s as Sport)),
+    sports: r.sports.split(",").filter((s): s is Sport => isKnownActivity(s)),
     rate: Number(r.rate),
     active: r.active === 1,
     hours: hours
@@ -112,7 +113,7 @@ function readInput(input: CoachInput): { ok: true; value: { name: string; bio: s
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 80) return { ok: false, error: "Give the coach's name." };
   const bio = typeof input.bio === "string" && input.bio.trim() !== "" ? input.bio.trim().slice(0, 500) : null;
-  const sports = Array.isArray(input.sports) ? [...new Set(input.sports.filter((s): s is Sport => SPORTS.includes(s as Sport)))] : [];
+  const sports = Array.isArray(input.sports) ? [...new Set(input.sports.filter((s): s is Sport => isKnownActivity(s)))] : [];
   if (sports.length === 0) return { ok: false, error: "Choose at least one sport they coach." };
   if (!isAmount(input.rate, 0, 2000)) return { ok: false, error: `Their fee for an hour: ${money(0)} to ${money(2000)}.` };
   const hours = readHours(input.hours);
@@ -273,7 +274,7 @@ export async function attachCoach(bookingId: number, coach: Coach): Promise<Atta
   const db = getDb();
   const booking = (await db
     .prepare(
-      `SELECT b.id, b.date, b.start_min, b.end_min, c.sport, c.venue_id, v.time_zone, v.lat, v.lng
+      `SELECT b.id, b.date, b.start_min, b.end_min, b.sport, c.venue_id, v.time_zone, v.lat, v.lng
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id WHERE b.id = ?`
     )
     .get(bookingId)) as

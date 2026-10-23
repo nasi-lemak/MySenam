@@ -109,8 +109,19 @@ otherwise (`priceBooking` in `src/lib/pricing.ts`).
 - The booking keeps the number (`bookings.players`): the price, a move to
   another time and its difference, the receipt (*Pickle 1, …, 4 players*) and
   the staff list all follow it.
-- A shared facility already sells one place per person, so it cannot also be
+- A shared facility (a gym floor, a wall, a fleet of kayaks) is priced per
+  place: one booking takes as many places as it says, up to the most one
+  booking may take (eight unless set), and pays the rate for each
+  ([activities](activities.md#quantity-places-and-hire)). It cannot also be
   priced per player.
+
+## A court offering several activities
+
+A court booked for more than one activity (badminton or pickleball on one
+floor) can give each activity its own off-peak and peak rates; one without
+its own uses the court's. The price of a booking is worked out at its
+activity's rates, under its activity's peak hours and booking rules
+([activities](activities.md#one-resource-several-activities)).
 
 ## Concession prices
 

@@ -1,22 +1,25 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { describePolicy, policiesFor, sportPolicyAt, updatePolicy, venuePolicyLevels, type PolicyScope } from "@/lib/booking-policy";
 import { getDb } from "@/lib/db";
 import { getCourt } from "@/lib/store";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
+import { courtOffers, courtSports, sportsOf } from "@/lib/court-activities";
 
 export const dynamic = "force-dynamic";
 
 /**
  * A venue's booking policies (lib/booking-policy.ts): when bookings may
- * start, how long they run, buffers, notice, and how their time is priced.
- * Each level inherits what it leaves unset: a court from its sport at the
- * venue, that from the venue, the venue from its business, and the
- * business from the platform's defaults for the sport.
+ * start, how long they run, buffers, notice, sign-offs, and how their time
+ * is priced. Each level inherits what it leaves unset: one activity on one
+ * court from the court, the court from its activity at the venue, that from
+ * the venue, the venue from its business, and the business from the
+ * activity's usual rules in the catalogue.
  *
- * `?venueId` → each level's own settings, and what each court and sport
- * comes to with everything inherited.
+ * `?venueId` → each level's own settings, and what each court (for its main
+ * activity), each activity, and each activity on each court comes to.
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -25,20 +28,25 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  const courts = (await getDb().prepare("SELECT id, venue_id, sport FROM courts WHERE venue_id = ? ORDER BY id").all(venueId)) as {
-    id: number;
-    venue_id: number;
-    sport: Sport;
-  }[];
-  const resolved = await policiesFor(courts.map((c) => ({ id: c.id, venueId: c.venue_id, sport: c.sport })));
-  const sports = [...new Set(courts.map((c) => c.sport))];
+  const courts = (await getDb().prepare("SELECT id FROM courts WHERE venue_id = ? ORDER BY id").all(venueId)) as { id: number }[];
+  const full = (await Promise.all(courts.map((c) => getCourt(c.id)))).filter((c) => c !== null);
+  const resolved = await policiesFor(full.map((c) => ({ id: c.id, venueId: c.venueId, sport: c.sport })));
+  const sports = sportsOf(full);
   const bySport = Object.fromEntries(await Promise.all(sports.map(async (s) => [s, await sportPolicyAt(venueId, s)])));
+  // Each activity on each court that offers more than one.
+  const products: Record<number, Record<string, unknown>> = {};
+  for (const c of full)
+    for (const sport of courtSports(c).slice(1)) {
+      const p = (await policiesFor([{ id: c.id, venueId: c.venueId, sport }])).get(c.id)!;
+      (products[c.id] ??= {})[sport] = { ...p, summary: describePolicy(p) };
+    }
   return NextResponse.json(
     {
       levels: await venuePolicyLevels(venueId),
       effective: {
         sports: bySport,
         courts: Object.fromEntries([...resolved].map(([id, p]) => [id, { ...p, summary: describePolicy(p) }])),
+        products,
       },
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -47,7 +55,8 @@ export async function GET(req: NextRequest) {
 
 /**
  * `{ venueId, level: "business" | "venue" | "sport" | "court", sport?, courtId?, settings }`:
- * change one level's settings (managers). A setting given as null goes back
+ * change one level's settings (managers). A court with `sport` is that
+ * activity on that court alone. A setting given as null goes back
  * to inheriting; one left out is kept. Bookings already made keep the time
  * and price they were made at.
  */
@@ -83,15 +92,22 @@ export async function POST(req: NextRequest) {
       label = "the venue";
       break;
     case "sport":
-      if (typeof body.sport !== "string" || !SPORTS.includes(body.sport as Sport)) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
+      if (typeof body.sport !== "string" || !(await isActivity(body.sport))) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
       scope = { venue: venueId, sport: body.sport as Sport };
       label = body.sport;
       break;
     case "court": {
       const court = Number.isInteger(body.courtId) ? await getCourt(body.courtId as number) : null;
       if (!court || court.venueId !== venueId) return NextResponse.json({ error: "Court not found." }, { status: 404 });
-      scope = { court: court.id };
-      label = court.name;
+      if (body.sport !== undefined && body.sport !== null) {
+        if (typeof body.sport !== "string" || !courtOffers(court, body.sport))
+          return NextResponse.json({ error: `${court.name} is not booked for that.` }, { status: 400 });
+        scope = { court: court.id, sport: body.sport };
+        label = `${body.sport} on ${court.name}`;
+      } else {
+        scope = { court: court.id };
+        label = court.name;
+      }
       break;
     }
     default:

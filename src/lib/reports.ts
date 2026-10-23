@@ -346,26 +346,27 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const bySport: SportLine[] = (
     await db
       .prepare(`
-        SELECT c.sport AS sport, COUNT(*) AS bookings,
+        SELECT b.sport AS sport, COUNT(*) AS bookings,
+               SUM(b.end_min - b.start_min) / 60.0 AS booked_hours,
                SUM(b.total_price) AS expected,
                SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
         FROM bookings b
         JOIN courts c ON c.id = b.court_id
         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
-        GROUP BY c.sport
+        GROUP BY b.sport
         ORDER BY expected DESC
       `)
       .all(venueId, from, to) as {
       sport: Sport;
       bookings: number;
+      booked_hours: number | string;
       expected: number;
       collected: number;
     }[]
-  ).map((row) => ({
+  ).map(({ booked_hours, ...row }) => ({
     ...row,
-    hours: byCourt
-      .filter((c) => c.sport === row.sport)
-      .reduce((sum, c) => sum + c.hours, 0),
+    // What was booked for it, whichever court it was played on.
+    hours: Math.round(Number(booked_hours) * 100) / 100,
   }));
 
   // --- per month, for the trend -------------------------------------------

@@ -82,8 +82,11 @@ describe("a venue's settings", () => {
 
   it("splits a booking across the change at the minute it happens", async () => {
     // Peak from 17:00 on a Monday here: 16:30–17:30 is half an hour of each rate.
-    const mon = addDays(next(1), 7);
-    const court = (await getAvailability(venueId, mon, "badminton"))[0].court;
+    // A Monday inside the booking window, on a court of its own (the next test books the first court then).
+    const mon = next(1);
+    const made2 = await createCourt({ venueId, name: "Court 2", sport: "badminton", offPeakRate: 10, peakRate: 20 });
+    if (!made2.ok) throw new Error(made2.error);
+    const court = made2.court;
     // This court takes bookings from any half hour.
     expect(await updatePolicy({ court: court.id }, { startEvery: 30 })).toMatchObject({ ok: true });
     const made = await createBooking({ courtId: court.id, date: mon, start: 16 * 60 + 30, end: 17 * 60 + 30, name: "Halim", phone: `01922211${++n}0` });

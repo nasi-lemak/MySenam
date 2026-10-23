@@ -1,5 +1,6 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -8,7 +9,7 @@ import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
-import { SPORT_ICONS } from "@/lib/types";
+
 import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
 
 /**
@@ -68,7 +69,7 @@ export default function TournamentPage() {
           ← {t("tour.title")}
         </Link>
         <h1 className="mt-1 text-2xl font-bold">
-          {SPORT_ICONS[x.sport]} {x.name}
+          {activityIcon(x.sport)} {x.name}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
           <Link href={`/venue/${x.venueId}`} className="underline">

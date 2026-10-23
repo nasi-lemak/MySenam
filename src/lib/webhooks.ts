@@ -230,7 +230,7 @@ export async function sweepWebhookEvents(now = new Date()): Promise<number> {
     const rows = (await db
       .prepare(
         `SELECT b.id, c.venue_id, b.code, b.status, b.payment_status, b.date, b.start_min, b.end_min, b.court_id, c.name AS court_name,
-                c.sport, b.name, b.phone, b.email, b.total_price, b.shares_paid, b.deposit_paid, b.coach_id, b.no_show, b.created_at, w.state AS seen
+                b.sport, b.name, b.phone, b.email, b.total_price, b.shares_paid, b.deposit_paid, b.coach_id, b.no_show, b.created_at, w.state AS seen
            FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN webhook_seen w ON w.booking_id = b.id
           WHERE c.venue_id = ? AND b.demo = 0 AND b.date BETWEEN ? AND ?`
       )

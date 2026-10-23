@@ -1,7 +1,8 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createPromoCode, listPromoCodes } from "@/lib/store";
-import { MAX_HOURS_PER_BOOKING, PromoKind, Sport, SPORTS } from "@/lib/types";
+import { MAX_HOURS_PER_BOOKING, PromoKind, Sport } from "@/lib/types";
 import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   let sport: Sport | null = null;
   if (input.sport !== undefined && input.sport !== null && input.sport !== "") {
-    if (!SPORTS.includes(input.sport as Sport))
+    if (!(await isActivity(input.sport)))
       return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
     sport = input.sport as Sport;
   }

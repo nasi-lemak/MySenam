@@ -1,12 +1,14 @@
 "use client";
 
+import { courtOffers } from "@/lib/court-activities";
+import { activityKeys } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { addDays } from "@/lib/time";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 import type { Match, Tournament, TournamentDetail } from "@/lib/tournaments";
 import { currencySymbol, money } from "@/lib/region";
 
@@ -98,7 +100,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
 }
 
 function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean> }) {
-  const sports = SPORTS.filter((s) => venue.courts.some((c) => c.sport === s));
+  const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
   const start = addDays(todayLocal(), 14);
   const [f, setF] = useState({
     name: "",
@@ -120,7 +122,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
     courtIds: [] as number[],
     description: "",
   });
-  const courts = venue.courts.filter((c) => c.sport === f.sport);
+  const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
   const label = "flex flex-col text-xs font-medium text-slate-500";
 
   return (

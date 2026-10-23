@@ -14,6 +14,15 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
 - the **nightly backup** or its **off-site copy** fails;
 - **messages to customers stop going out**: five or more failed in an hour and
   none sent (one bad address is not news; a rejected SMTP login is).
+- **bookings and the court time they hold disagree** (`src/lib/integrity.ts`,
+  once a day from the scheduler): a live booking that holds no court time
+  (anybody could book over it), one holding a different court or time from
+  the one it says, a cancelled booking or class still holding its court or
+  coach, or a booking for an activity its court no longer offers. It looks
+  from yesterday on. Every write keeps the two together, so this finds
+  nothing unless something went round the code (a hand-edited row, half a
+  restore). `GET /api/admin/integrity` asks again now, for the platform
+  owner, after putting it right.
 
 Each kind is told once, then again only after six hours if it is still
 happening, with how many times it has. It goes by email to every platform

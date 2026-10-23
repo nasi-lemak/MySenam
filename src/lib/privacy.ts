@@ -183,6 +183,13 @@ const RULES: Rule[] = [
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
   },
   {
+    what: "Withdrawn activity sign-offs",
+    days: RETENTION.revokedInductionDays,
+    action: "deleted",
+    table: "sign_offs",
+    where: "revoked_at IS NOT NULL AND revoked_at < ?",
+  },
+  {
     what: "Venue applications never confirmed by email",
     days: RETENTION.unconfirmedApplicationDays,
     action: "deleted",
@@ -418,7 +425,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     games: await all(
-      `SELECT b.date, b.start_min, v.name AS venue, c.sport,
+      `SELECT b.date, b.start_min, v.name AS venue, b.sport,
               CASE WHEN g.host_id = ? THEN 'host' ELSE p.status END AS role,
               g.share, p.paid_at AS share_paid_at, p.no_show
          FROM open_games g
@@ -516,7 +523,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       account.email
     ),
     heldAtACounter:
-      "A pass, membership, waiting-list place, induction or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
+      "A pass, membership, waiting-list place, induction, sign-off or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
   };
 }
 
@@ -531,6 +538,8 @@ export interface PhoneExport {
   passes: unknown[];
   memberships: unknown[];
   inductions: unknown[];
+  /** Staff sign-offs for an activity: a belay check, a range briefing (lib/sign-offs.ts). */
+  signOffs: unknown[];
   /** On the venue's list of who it is for (lib/access.ts). */
   accessList: unknown[];
   blocked: unknown[];
@@ -605,6 +614,12 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
     ),
     inductions: await all(
       `SELECT name, phone, note, created_at, revoked_at FROM inductions
+        WHERE venue_id IN (${marks}) AND phone_key(phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    signOffs: await all(
+      `SELECT sport, name, phone, note, expires_on, created_at, revoked_at FROM sign_offs
         WHERE venue_id IN (${marks}) AND phone_key(phone) = phone_key(?) ORDER BY id`,
       ...venueIds,
       phone

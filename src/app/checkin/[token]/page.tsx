@@ -1,9 +1,10 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { Booking, SPORT_ICONS, Sport } from "@/lib/types";
+import { Booking, Sport } from "@/lib/types";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 
@@ -61,7 +62,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
                 [t("checkin.venue"), `${result.venue.name} (${result.venue.area})`],
                 [
                   t("checkin.facility"),
-                  `${SPORT_ICONS[result.court.sport]} ${result.court.name}`,
+                  `${activityIcon(result.court.sport)} ${result.court.name}`,
                 ],
                 [
                   t("checkin.time"),

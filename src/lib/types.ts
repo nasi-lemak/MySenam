@@ -2,77 +2,13 @@ import type { WeekHours } from "./week-hours";
 import type { ErrorCode } from "./i18n";
 import type { Amenity, CourtFeatures } from "./facilities";
 import { region } from "./region.ts";
-export type Sport =
-  | "badminton"
-  | "tennis"
-  | "pickleball"
-  | "padel"
-  | "squash"
-  | "table_tennis"
-  | "futsal"
-  | "football"
-  | "basketball"
-  | "volleyball"
-  | "netball"
-  | "sepak_takraw"
-  | "gym"
-  | "swimming"
-  | "kayak";
-
-/** In the order they are offered: racquet sports, then team sports, then the rest. */
-export const SPORTS: Sport[] = [
-  "badminton",
-  "tennis",
-  "pickleball",
-  "padel",
-  "squash",
-  "table_tennis",
-  "futsal",
-  "football",
-  "basketball",
-  "volleyball",
-  "netball",
-  "sepak_takraw",
-  "gym",
-  "swimming",
-  "kayak",
-];
-
-export const SPORT_LABELS: Record<Sport, string> = {
-  badminton: "Badminton",
-  tennis: "Tennis",
-  pickleball: "Pickleball",
-  padel: "Padel",
-  squash: "Squash",
-  table_tennis: "Table tennis",
-  futsal: "Futsal",
-  football: "Football",
-  basketball: "Basketball",
-  volleyball: "Volleyball",
-  netball: "Netball",
-  sepak_takraw: "Sepak takraw",
-  gym: "Gym",
-  swimming: "Swimming",
-  kayak: "Kayak hire",
-};
-
-export const SPORT_ICONS: Record<Sport, string> = {
-  badminton: "🏸",
-  tennis: "🎾",
-  pickleball: "🥒",
-  padel: "🥎",
-  squash: "⚫",
-  table_tennis: "🏓",
-  futsal: "⚽",
-  football: "🥅",
-  basketball: "🏀",
-  volleyball: "🏐",
-  netball: "🤾",
-  sepak_takraw: "🦶",
-  gym: "🏋️",
-  swimming: "🏊",
-  kayak: "🛶",
-};
+/**
+ * An activity's key in the catalogue: "badminton", "bouldering", or an
+ * operator's own ("sky_yoga"). The code names none of them; what each is
+ * called, how it is found and its usual rules are data (lib/activity-registry.ts,
+ * ADR 0011).
+ */
+export type Sport = string;
 
 export interface Venue {
   id: number;
@@ -147,11 +83,23 @@ export const MAX_CANCEL_CUTOFF_HOURS = 72;
  * 1 is a shared facility (gym floor, pool, class) where that many people can
  * hold the same hour.
  */
+/** One activity a court offers, at its own rates where it has them (null: the court's). */
+export interface CourtActivity {
+  sport: Sport;
+  offPeakRate: number | null;
+  peakRate: number | null;
+}
+
 export interface Court extends CourtFeatures {
   id: number;
   venueId: number;
   name: string;
+  /** Its main activity: what it is listed under first. */
   sport: Sport;
+  /** Every activity it can be booked for, the main one first. */
+  activities: CourtActivity[];
+  /** What one of it is called ("lane", "bay"); null: what its activity's are. */
+  noun: string | null;
   offPeakRate: number;
   peakRate: number;
   /** What a member pays instead. null means members pay the public rate here. */
@@ -202,16 +150,6 @@ export type AccessDenial =
   | "unpaid"
   | "too-early"
   | "over";
-
-/**
- * Sports that may never be left to run themselves, whatever a venue asks for.
- *
- * Drowning is silent and fast, which is why the 24-hour chains sell gym floors
- * and not lap pools. A gym is a different matter: unstaffed gyms are a proven
- * model worldwide, and what makes them work is the induction, the emergency
- * button and the equipment, not a member of staff watching.
- */
-export const NEVER_UNMANNED: Sport[] = ["swimming"];
 
 /** What a customer gets back when asking to be let in. */
 export type AccessResult =
@@ -278,6 +216,8 @@ export interface Booking {
   taxRate?: number | null;
   code: string;
   courtId: number;
+  /** The activity booked: one its court offered then. */
+  sport: Sport;
   /** The venue's business day it is on (YYYY-MM-DD). */
   date: string;
   /** Minutes of that day it starts and ends (1087 is 18:07; past 1440 is after midnight). */

@@ -1,12 +1,13 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { RainOutPanel } from "./RainOutPanel";
 import { RepeatBlockPanel } from "./RepeatBlockPanel";
 import { formatHour } from "@/lib/time";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
-import { SPORT_ICONS, isShared } from "@/lib/types";
+import { isShared } from "@/lib/types";
 import type { Court, Venue } from "@/lib/types";
 import type { AdminCourtSlots } from "@/lib/store";
 import { todayLocal } from "./shared";
@@ -210,7 +211,7 @@ export function ScheduleTab({
               {courts.map(({ court, slots }) => (
                 <tr key={court.id} className="border-b border-slate-100 last:border-0">
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 font-medium">
-                    {SPORT_ICONS[court.sport]} {court.name}
+                    {activityIcon(court.sport)} {court.name}
                     {isShared(court) && (
                       <span className="ml-1 text-xs font-normal text-slate-400">
                         {court.capacity} places

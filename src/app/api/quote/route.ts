@@ -1,10 +1,11 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { readTime, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { courtsForAnyBooking, getCourt, quoteFor } from "@/lib/store";
-import { MAX_GROUP_COURTS, SPORTS, type Sport } from "@/lib/types";
+import { MAX_GROUP_COURTS, type Sport } from "@/lib/types";
 import { isValidDateString } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
   if (q.get("courtId") === null) {
     const venueId = Number(q.get("venueId"));
     const sport = q.get("sport") as Sport;
-    if (!Number.isInteger(venueId) || venueId <= 0 || !SPORTS.includes(sport))
+    if (!Number.isInteger(venueId) || venueId <= 0 || !(await isActivity(sport)))
       return NextResponse.json({ error: "Give a courtId, or a venueId and sport." }, { status: 400 });
     if (!(await mayShowVenue(venueId, req)).show) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
     const free = await courtsForAnyBooking({ venueId, sport, date, ...time.when });
@@ -51,7 +52,9 @@ export async function GET(req: NextRequest) {
   if (!court || !(await mayShowVenue(court.venueId, req)).show) return NextResponse.json({ error: "Court not found." }, { status: 404 });
   const user = await getSessionUser(req);
   const players = q.get("players") !== null ? Number(q.get("players")) : undefined;
-  const priced = await quoteFor({ courtId, date, ...time.when, phone: user?.phone ?? null, players });
+  // On a court that offers several activities, which one (its main one if not said).
+  const activity = q.get("sport") ? (q.get("sport") as Sport) : undefined;
+  const priced = await quoteFor({ courtId, date, ...time.when, phone: user?.phone ?? null, players, ...(activity ? { sport: activity } : {}) });
   if (!priced.ok) return refusal(priced, 400);
 
   // Other courts at the same venue, for the same time.
@@ -64,7 +67,7 @@ export async function GET(req: NextRequest) {
   for (const id of also) {
     const other = await getCourt(id);
     if (!other || other.venueId !== court.venueId) continue;
-    const quote = await quoteFor({ courtId: id, date, start: priced.span.start, end: priced.span.end, phone: user?.phone ?? null, players });
+    const quote = await quoteFor({ courtId: id, date, start: priced.span.start, end: priced.span.end, phone: user?.phone ?? null, players, ...(activity ? { sport: activity } : {}) });
     if (quote.ok) others.push({ courtId: id, total: quote.quote.total, allowed: quote.allowed });
   }
 

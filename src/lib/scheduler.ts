@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { pruneIfDue } from "./privacy";
 import { grantLoyaltyIfDue } from "./loyalty";
+import { checkIntegrityIfDue } from "./integrity";
 import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { tickOutbox } from "./notify";
@@ -143,6 +144,20 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] applying the retention policy failed:", err);
     await raiseAlert("scheduler:retention-failed", "Scheduled work failed: applying the retention policy", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Once a day: every live booking still holds its court, and nothing cancelled does.
+    const problems = await checkIntegrityIfDue(now);
+    if (problems && problems.length > 0)
+      await raiseAlert(
+        "integrity",
+        `${problems.length} booking${problems.length === 1 ? "" : "s"} and the court time held disagree`,
+        problems.slice(0, 20).map((p) => `${p.kind} (venue ${p.venueId}): ${p.detail}`).join("\n")
+      );
+  } catch (err) {
+    console.error("[mysenam] checking bookings against held time failed:", err);
+    await raiseAlert("scheduler:integrity-failed", "Scheduled work failed: checking bookings against held time", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

@@ -1,3 +1,4 @@
+import { isActivity } from "./activities";
 import { getDb } from "./db";
 import { hoursOn, parseWeekHours } from "./week-hours";
 import { receiptFee } from "./documents";
@@ -25,7 +26,7 @@ import { venueZoneOf } from "./zones";
 import { sendPlainEmail } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
-import { SPORTS, type Sport } from "./types";
+import { type Sport } from "./types";
 import type { Level } from "./games";
 import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
@@ -349,7 +350,7 @@ export async function createTournament(input: TournamentInput, adminId: number):
   const db = getDb();
   const name = input.name.trim();
   if (name.length < 3 || name.length > 100) return { ok: false, error: "Give it a name." };
-  if (!SPORTS.includes(input.sport)) return { ok: false, error: "Unknown sport." };
+  if (!(await isActivity(input.sport))) return { ok: false, error: "Unknown sport." };
   if (input.format !== "knockout" && input.format !== "groups") return { ok: false, error: "Knockout, or groups then knockout." };
   const category = input.category ?? "open";
   if (!isCategory(category)) return { ok: false, error: "Open, women's, men's or mixed." };
@@ -385,7 +386,10 @@ export async function createTournament(input: TournamentInput, adminId: number):
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length === 0) return { ok: false, error: "Hold at least one court." };
   const courts = (await db
-    .prepare(`SELECT id FROM courts WHERE venue_id = ? AND sport = ? AND id IN (${courtIds.map(() => "?").join(",")})`)
+    .prepare(
+      `SELECT c.id FROM courts c WHERE c.venue_id = ? AND EXISTS (SELECT 1 FROM court_activities ca WHERE ca.court_id = c.id AND ca.sport = ?)
+          AND c.id IN (${courtIds.map(() => "?").join(",")})`
+    )
     .all(input.venueId, input.sport, ...courtIds)) as { id: number }[];
   if (courts.length !== courtIds.length) return { ok: false, error: "Hold only this venue's courts for that sport." };
 

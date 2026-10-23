@@ -1,10 +1,12 @@
+import { offeredCourts, sportsOf } from "./court-activities";
+import { activityName } from "./activity-registry";
 import { getDb } from "./db";
 import { region } from "./region";
 import { siteOrigin, venueIsListed } from "./seo";
 import { getAvailability, getVenue, policyForSport } from "./store";
 import { instantOf } from "./interval";
 import { addDays, todayISO } from "./time";
-import { SPORT_LABELS, type Sport } from "./types";
+import { type Sport } from "./types";
 
 /**
  * Feeds for Google's Reserve with Google (the Actions Center), shaped after
@@ -84,14 +86,14 @@ export async function serviceFeed(): Promise<Record<string, unknown>> {
   for (const id of await listedVenues()) {
     const v = await getVenue(id);
     if (!v) continue;
-    const sports = [...new Set(v.courts.map((c) => c.sport))] as Sport[];
-    for (const sport of sports) {
-      const cheapest = Math.min(...v.courts.filter((c) => c.sport === sport).map((c) => c.offPeakRate));
+    const offered = offeredCourts(v.courts);
+    for (const sport of sportsOf(v.courts)) {
+      const cheapest = Math.min(...offered.filter((c) => c.sport === sport).map((c) => c.offPeakRate));
       service.push({
         merchant_id: merchantId(v.id),
         service_id: serviceId(v.id, sport),
-        name: `${SPORT_LABELS[sport] ?? sport} court, 1 hour`,
-        description: `Book a ${SPORT_LABELS[sport] ?? sport} court at ${v.name}.`,
+        name: `${activityName(sport) ?? sport} court, 1 hour`,
+        description: `Book a ${activityName(sport) ?? sport} court at ${v.name}.`,
         price: { price_micros: Math.round(cheapest * 1_000_000), currency_code: region().currency.code },
         prepayment_type: "OPTIONAL",
         action_link: [{ url: `${origin}/venue/${v.id}?sport=${sport}` }],
@@ -107,7 +109,7 @@ export async function availabilityFeed(days = FEED_DAYS): Promise<Record<string,
     const v = await getVenue(id);
     if (!v) continue;
     const today = todayISO(v.timeZone);
-    const sports = [...new Set(v.courts.map((c) => c.sport))] as Sport[];
+    const sports = sportsOf(v.courts);
     for (let i = 0; i < days; i++) {
       const date = addDays(today, i);
       for (const sport of sports) {

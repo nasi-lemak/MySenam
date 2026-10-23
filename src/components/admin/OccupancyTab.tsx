@@ -1,7 +1,8 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
-import { SPORT_ICONS } from "@/lib/types";
+
 import type { Court, Venue } from "@/lib/types";
 import type { OccupancyReport } from "@/lib/store";
 import { intlTag } from "@/lib/region";
@@ -85,7 +86,7 @@ export function OccupancyTab({
               {report.courts.map((court) => (
                 <tr key={court.id} className="border-b border-slate-100 last:border-0">
                   <td className="whitespace-nowrap px-3 py-2 font-medium">
-                    {SPORT_ICONS[court.sport]} {court.name}
+                    {activityIcon(court.sport)} {court.name}
                   </td>
                   {report.days.map((d) => {
                     const cell = d.perCourt.find((c) => c.courtId === court.id);

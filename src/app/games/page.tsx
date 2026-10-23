@@ -1,5 +1,6 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { WHO, type Who } from "@/lib/who-shared";
 import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
@@ -9,7 +10,7 @@ import { NearPicker, type NearChoice } from "@/components/NearPicker";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { addDays, formatHour, slotStartsAt, todayISO } from "@/lib/time";
-import { SPORT_ICONS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 import { useOfferedSports } from "@/components/OfferedSports";
 import type { GamePlayer, Level, OpenGame } from "@/lib/games";
 import { shortDate } from "@/lib/region";
@@ -130,7 +131,7 @@ export default function GamesPage() {
           </button>
           {sports.map((s) => (
             <button key={s} onClick={() => setSport(s)} className={chip(sport === s)}>
-              {SPORT_ICONS[s]} {sportLabel(t, s)}
+              {activityIcon(s)} {sportLabel(t, s)}
             </button>
           ))}
         </div>
@@ -190,7 +191,7 @@ export default function GamesPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-semibold">
-                    {SPORT_ICONS[g.sport]} {dayLabel(g.date)}, {formatHour(g.startHour)}–{formatHour(g.endHour)}
+                    {activityIcon(g.sport)} {dayLabel(g.date)}, {formatHour(g.startHour)}–{formatHour(g.endHour)}
                   </div>
                   <div className="text-sm text-slate-600">
                     <Link href={`/venue/${g.venueId}`} className="underline">

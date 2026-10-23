@@ -4,8 +4,8 @@ process.env.MYSENAM_DB = ":memory:";
 
 import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
-import { DICTIONARIES, LOCALES, type Phrase } from "../src/lib/i18n";
-import { SURFACE_SPORTS } from "../src/lib/facilities";
+import { LOCALES } from "../src/lib/i18n";
+import { activity, activityName, activityIcon, activityKeys } from "../src/lib/activity-registry";
 import {
   createBooking,
   createCourt,
@@ -15,7 +15,7 @@ import {
 } from "../src/lib/store";
 import { updatePolicy, usualMinutes } from "../src/lib/booking-policy";
 import { addDays, todayISO } from "../src/lib/time";
-import { SPORT_ICONS, SPORT_LABELS, SPORTS, type Sport } from "../src/lib/types";
+import { type Sport } from "../src/lib/types";
 import { GET as searchGet } from "../src/app/api/search/route";
 import { GET as sportsGet } from "../src/app/api/sports/route";
 
@@ -57,32 +57,35 @@ beforeAll(async () => {
 
 describe("the sports", () => {
   it("each have a name and an icon, and a name in every language", () => {
-    expect(SPORTS).toEqual(expect.arrayContaining(ADDED));
-    for (const s of SPORTS) {
-      expect(SPORT_LABELS[s]).toBeTruthy();
-      expect(SPORT_ICONS[s]).toBeTruthy();
-      for (const locale of LOCALES) expect(DICTIONARIES[locale][`sport.${s}` as Phrase], `${locale} ${s}`).toBeTruthy();
+    expect(activityKeys()).toEqual(expect.arrayContaining(ADDED));
+    for (const s of activityKeys()) {
+      expect(activityName(s)).toBeTruthy();
+      expect(activityIcon(s)).toBeTruthy();
+      for (const locale of LOCALES) expect(activity(s).names[locale], `${locale} ${s}`).toBeTruthy();
     }
-    expect(DICTIONARIES.ms["sport.football" as Phrase]).toBe("Bola sepak");
-    expect(DICTIONARIES.zh["sport.table_tennis" as Phrase]).toBe("乒乓球");
+    expect(activityName("football", "ms")).toBe("Bola sepak");
+    expect(activityName("table_tennis", "zh")).toBe("乒乓球");
   });
 
   it("can each be a court, and court sports say what they are played on", async () => {
     for (const s of ADDED) {
-      const made = await createCourt({ venueId: hourVenue, name: `${SPORT_LABELS[s]} court`, sport: s, offPeakRate: 30, peakRate: 40 });
+      const made = await createCourt({ venueId: hourVenue, name: `${activityName(s)} court`, sport: s, offPeakRate: 30, peakRate: 40 });
       expect(made, s).toMatchObject({ ok: true, court: { sport: s } });
     }
     // Table tennis is played on a table, not a surface worth naming.
-    expect(ADDED.filter((s) => !SURFACE_SPORTS.includes(s))).toEqual(["table_tennis"]);
+    expect(ADDED.filter((s) => !activity(s).surfaced)).toEqual(["table_tennis"]);
   });
 
-  it("are offered only where somebody has a court for them, in the usual order", async () => {
+  it("are offered only where somebody has a court for them, most-offered first", async () => {
     const here = await sportsOfferedAt([halfHourVenue]);
     expect(here).toEqual(["badminton", "padel"]);
     const res = await sportsGet(new NextRequest("http://localhost/api/sports"));
     const { sports } = (await res.json()) as { sports: Sport[] };
-    expect(sports).toEqual(SPORTS.filter((s) => sports.includes(s)));
     expect(sports).toEqual(expect.arrayContaining(ADDED));
+    // Padel is at both venues; the rest, at one each, come in the catalogue's order.
+    expect(sports[0]).toBe("padel");
+    const once = sports.slice(1);
+    expect(once).toEqual(activityKeys().filter((s) => once.includes(s)));
   });
 });
 

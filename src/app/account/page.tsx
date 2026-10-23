@@ -1,10 +1,11 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour, hoursUntilSlot, todayISO } from "@/lib/time";
-import { SPORT_ICONS } from "@/lib/types";
+
 import type { User } from "@/lib/auth";
 import type { PhoneStatus } from "@/lib/phone-check";
 import type { UserBookingRow } from "@/lib/store";
@@ -190,7 +191,7 @@ export default function AccountPage() {
               <li key={b.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="min-w-0 text-sm">
                   <p className="truncate font-semibold">
-                    {SPORT_ICONS[b.sport]} {b.venueName}
+                    {activityIcon(b.sport)} {b.venueName}
                   </p>
                   <p className="truncate text-slate-600">
                     {b.courtName} · {formatHour(b.startHour)}–{formatHour(b.endHour)}
@@ -275,7 +276,7 @@ export default function AccountPage() {
                   <tr key={b.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-teal-700">{b.code}</td>
                     <td className="px-3 py-2">
-                      {SPORT_ICONS[b.sport]} {b.courtName}
+                      {activityIcon(b.sport)} {b.courtName}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">{b.date}</td>
                     <td className="whitespace-nowrap px-3 py-2">
@@ -515,7 +516,7 @@ function BookingCard({
       </div>
       <div className="mt-3 space-y-1 text-sm">
         <div className="font-semibold">
-          {SPORT_ICONS[b.sport]} {b.courtName}
+          {activityIcon(b.sport)} {b.courtName}
         </div>
         <div className="text-slate-600">
           {b.venueName} ({b.venueArea})

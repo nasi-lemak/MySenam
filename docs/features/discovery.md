@@ -4,7 +4,8 @@ Authoritative for how customers find courts: the front page, search, courts near
 
 ## Finding a court from the front page
 
-The home page starts the search: tap a sport, a day (today, tomorrow, or
+The home page starts the search: tap an activity (the eight most venues
+offer are buttons, the rest a list), a day (today, tomorrow, or
 another), a time of day (morning, afternoon, evening) and, if wanted, *Near
 me*, then *Show free courts*. That opens the search with all of it filled in
 — `/search?sport=badminton&date=…&from=17&to=23&near=…` — so a search can be
@@ -17,11 +18,15 @@ facilities, map and live crowd below.
 
 The search page works the same way: the time of day is one tap — *Any time*,
 *Morning*, *Afternoon*, *Evening* — and *Custom…* opens the from and until
-hours for anyone who wants an exact window. The sports to pick from are the
-ones somebody here has a court for, as on the home page, classes and games;
-how long is 30, 45, 60, 75, 90, 120, 150 or 180 minutes, or whole hours up
-to twelve, and picking padel asks for its 90 minutes
-([sports](booking.md#sports)). A result is a start each court's
+hours for anyone who wants an exact window. The activities to pick from are
+the ones somebody here has a court for, grouped by kind (racket sports, team
+sports, the pool, the water, fitness, studios, specialist) and folded to the
+chosen one's group when there are many; a box finds one by any of its names
+or the words people use for it here (*takraw*, *ping pong*, *bulu tangkis*),
+and `?q=` does the same in the address
+([activities](activities.md#search-and-discovery)). How long is 30, 45, 60,
+75, 90, 120, 150 or 180 minutes, or whole hours up to twelve, and picking an
+activity asks for its usual length (padel's 90 minutes). A result is a start each court's
 [booking rules](booking.md#booking-rules-starts-lengths-buffers) allow, for a
 length they allow, free for all of it, buffers included. On a phone, *Area* and the
 must-haves (showers, parking and so on) fold under *More filters*, which says
@@ -87,7 +92,9 @@ can compare venues and search by it.
   showers, parking, surau and LRT/MRT, in that order.
 - **Players filter** by *Must have* chips on the home page and in search:
   air-con, indoor, showers, parking (free or paid), surau, near LRT/MRT
-  (`?has=aircon,showers`). Court features apply to the same court as the
+  (`?has=aircon,showers`). In search the court chips are the ones that mean
+  something for the chosen activity (outdoor and floodlit for football, none
+  for kayaks); amenity chips are always offered. Court features apply to the same court as the
   sport asked for: air-con badminton finds venues with an air-conditioned
   badminton court, not any air-conditioned room. In search, only courts with
   the feature are offered.

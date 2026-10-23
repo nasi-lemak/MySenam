@@ -1,3 +1,5 @@
+import { sportsOf } from "@/lib/court-activities";
+import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listAreaCounts, listVenuePage, readNear, sportsOfferedAt } from "@/lib/store";
@@ -7,7 +9,6 @@ import { NoticeBar } from "@/components/NoticeBar";
 import { showingFor, siteNotice } from "@/lib/notices";
 import { serverT } from "@/lib/locale";
 import { currentStorefront } from "@/lib/storefront";
-import { Sport, SPORT_ICONS } from "@/lib/types";
 import { sportLabel } from "@/lib/i18n";
 import { FILTER_CHIPS, FILTER_ICONS, highlights, readFacilityFilters, type FilterChip } from "@/lib/facilities";
 import { Highlights } from "@/components/VenueFacilities";
@@ -175,7 +176,7 @@ export default async function HomePage({
         )}
         <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {venues.map((venue) => {
-            const sportsHere = [...new Set(venue.courts.map((c) => c.sport))] as Sport[];
+            const sportsHere = sportsOf(venue.courts);
             const minRate = Math.min(...venue.courts.map((c) => c.offPeakRate));
             const cover = covers.get(venue.id);
             return (
@@ -205,7 +206,7 @@ export default async function HomePage({
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <span aria-hidden>{sportsHere.slice(0, 3).map((s) => SPORT_ICONS[s]).join(" ")}</span>
+                    <span aria-hidden>{sportsHere.slice(0, 3).map((s) => activityIcon(s)).join(" ")}</span>
                   )}
                 </div>
                 <div className="flex flex-1 flex-col p-5">
@@ -227,7 +228,7 @@ export default async function HomePage({
                       key={sport}
                       className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-700"
                     >
-                      {SPORT_ICONS[sport]} {sportLabel(t, sport)}
+                      {activityIcon(sport)} {sportLabel(t, sport)}
                     </span>
                   ))}
                 </div>

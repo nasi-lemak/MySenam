@@ -55,7 +55,7 @@ For that, the venue's manager has *Venues & staff → A customer's data*
 (`/api/admin/data-request?venueId&phone`). After checking who is asking, the
 manager downloads everything that venue holds against the number, however it
 was typed: bookings with arrivals, no-shows and late cancellations, waiting
-lists, passes, memberships, inductions, the venue's own list, blocks,
+lists, passes, memberships, inductions, activity sign-offs, the venue's own list, blocks,
 receipts, gift vouchers bought and WhatsApp messages. It reaches that venue
 only. It is for managers only (front desk is refused), and each download goes
 in the activity log with the last four digits of the number.
@@ -93,6 +93,7 @@ the account would destroy the only record of whose money the venue is holding.
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
+| Withdrawn activity sign-offs | 365 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
 | Private hire enquiries | 365 days | deleted |
 | Draft venues never live, nobody signed in | 90 days | deleted, unless they hold a customer's pass, membership, credit or payment |

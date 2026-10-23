@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo } from "react";
 import { setBrowserCountry } from "@/lib/region";
+import { setActivities, type Activity } from "@/lib/activity-registry";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, LOCALE_SHORT, Locale, offeredLocales, translator, T } from "@/lib/i18n";
 
 const LanguageContext = createContext<Locale>(DEFAULT_LOCALE);
@@ -27,6 +28,7 @@ export function LanguageProvider({
   locale,
   site,
   country,
+  activities,
   children,
 }: {
   locale: Locale;
@@ -34,9 +36,12 @@ export function LanguageProvider({
   site?: string;
   /** The install's country (lib/region.ts), which only the server knows. */
   country?: string;
+  /** The activity catalogue as the server has it (lib/activities.ts), so names, icons and usual rules match it. */
+  activities?: Activity[];
   children: React.ReactNode;
 }) {
   if (country) setBrowserCountry(country);
+  if (activities) setActivities(activities);
   const t = useMemo(() => translator(locale, site), [locale, site]);
   return (
     <LanguageContext.Provider value={locale}>

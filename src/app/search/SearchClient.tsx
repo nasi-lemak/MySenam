@@ -1,18 +1,11 @@
 "use client";
 
+import { activity, activityFilters, activityIcon, activityKeys, findActivities } from "@/lib/activity-registry";
+import { ACTIVITY_CATEGORIES } from "@/lib/activity-catalogue";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour, todayISO, addDays } from "@/lib/time";
-import {
-  CLOSE_HOUR,
-  MAX_ADVANCE_DAYS,
-  MAX_COURT_HOURS,
-  MAX_VENUE_AHEAD_DAYS,
-  OPEN_HOUR,
-  Sport,
-  SPORTS,
-  SPORT_ICONS,
-} from "@/lib/types";
+import { CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_COURT_HOURS, MAX_VENUE_AHEAD_DAYS, OPEN_HOUR, Sport } from "@/lib/types";
 import { usualMinutes } from "@/lib/booking-rules";
 import { formatMinute } from "@/lib/interval";
 import { lengthLabel } from "@/lib/length-label";
@@ -24,7 +17,7 @@ import type { T } from "@/lib/i18n";
 import { NearPicker, type NearChoice } from "@/components/NearPicker";
 import { DAY_PARTS, dayPartOf, type DayPart } from "@/lib/day-parts";
 import { Highlights } from "@/components/VenueFacilities";
-import { FILTER_CHIPS, FILTER_ICONS, highlights, type FilterChip } from "@/lib/facilities";
+import { FILTER_ICONS, highlights, type AmenityFilter, type CourtFilter } from "@/lib/facilities";
 import { photoAt, type Photo } from "@/lib/photos-shared";
 import { money, shortDate } from "@/lib/region";
 
@@ -87,13 +80,18 @@ export interface SearchStart {
   near?: NearChoice | null;
 }
 
+/** The facilities anybody may ask for, whatever the activity; the court ones come from the activity. */
+const AMENITY_CHIPS = ["showers", "parking", "surau", "transit"] as const satisfies readonly AmenityFilter[];
+type SearchChip = CourtFilter | (typeof AMENITY_CHIPS)[number];
+const isCourtChip = (f: SearchChip): f is CourtFilter => !(AMENITY_CHIPS as readonly string[]).includes(f);
+
 /** How long a search can ask for: an hour, an hour and a half, then whole hours. */
 /** Lengths to search for, in minutes; each court's own rules decide whether it takes one. */
 const DURATIONS = [30, 45, 60, 75, 90, 120, 150, 180, ...Array.from({ length: MAX_COURT_HOURS - 3 }, (_, i) => (i + 4) * 60)];
 
 export default function SearchClient({
   start = {},
-  sports = SPORTS,
+  sports = activityKeys(),
 }: {
   start?: SearchStart;
   /** The sports somebody here offers, so nobody searches for one nobody has. */
@@ -104,7 +102,7 @@ export default function SearchClient({
   const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
 
   // A sport asked for in the address stays on offer, to say honestly that nothing was found.
-  const known = sports.length > 0 ? sports : SPORTS;
+  const known = sports.length > 0 ? sports : activityKeys();
   const offered = start.sport && !known.includes(start.sport) ? [...known, start.sport] : known;
   const [sport, setSportOnly] = useState<Sport>(start.sport ?? offered[0]);
   // Two weeks as buttons; further, up to the furthest any venue takes bookings, by picking a day.
@@ -118,6 +116,8 @@ export default function SearchClient({
   const setSport = (s: Sport) => {
     setSportOnly(s);
     setDuration(usualMinutes(s));
+    // Floodlit means nothing in a pool: a filter the new activity has no use for goes.
+    setHas((was) => was.filter((f) => !isCourtChip(f) || activityFilters(s).includes(f)));
   };
   // Morning, afternoon or evening is one tap; "Custom" opens the hour pickers.
   const [custom, setCustom] = useState(dayPartOf(fromHour, toHour) === null);
@@ -126,7 +126,7 @@ export default function SearchClient({
   const [moreOpen, setMoreOpen] = useState(false);
   const [area, setArea] = useState("");
   const [near, setNear] = useState<NearChoice | null>(start.near ?? null);
-  const [has, setHas] = useState<FilterChip[]>([]);
+  const [has, setHas] = useState<SearchChip[]>([]);
   const [covers, setCovers] = useState<Record<string, Photo>>({});
   const [sortChoice, setSort] = useState<SearchSort>("soonest");
   // Nearest means nothing without somewhere to be near.
@@ -196,21 +196,7 @@ export default function SearchClient({
       </div>
 
       <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap gap-2">
-          {offered.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSport(s)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                s === sport
-                  ? "bg-teal-600 text-white shadow"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
-              }`}
-            >
-              {SPORT_ICONS[s]} {sportLabel(t, s)}
-            </button>
-          ))}
-        </div>
+        <ActivityChooser t={t} offered={offered} sport={sport} onPick={setSport} />
 
         <div className="flex gap-2 overflow-x-auto pb-1">
           {dates.map((d) => (
@@ -338,7 +324,7 @@ export default function SearchClient({
           aria-label={t("fac.filterTitle")}
         >
           <span className="text-slate-500">{t("fac.filterTitle")}:</span>
-          {FILTER_CHIPS.map((f) => {
+          {[...activityFilters(sport), ...AMENITY_CHIPS].map((f) => {
             const on = has.includes(f);
             return (
               <button
@@ -426,7 +412,7 @@ export default function SearchClient({
                         <div className="text-sm text-slate-500">
                           📍 {g.area}
                           {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
-                          {SPORT_ICONS[cheapest.court.sport]} {cheapest.court.name}
+                          {activityIcon(cheapest.court.sport)} {cheapest.court.name}
                           {others > 0 && (
                             <span className="text-slate-400">
                               {" "}
@@ -567,5 +553,75 @@ function VenueResults({
         })}
       </ul>
     </>
+  );
+}
+
+/** Past this many, the activities fold to the chosen one's kind until asked for. */
+const FOLD_AFTER = 12;
+
+/**
+ * What to search for: the activities somebody here offers, grouped by kind,
+ * and a box that finds one by any of its names or the words people use for it
+ * here ("takraw", "spin", "bulu tangkis").
+ */
+function ActivityChooser({ t, offered, sport, onPick }: { t: T; offered: Sport[]; sport: Sport; onPick: (s: Sport) => void }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const found = query.trim() ? findActivities(query).filter((k) => offered.includes(k)) : [];
+  const folded = offered.length > FOLD_AFTER && !open;
+  const groups = ACTIVITY_CATEGORIES.map((cat) => ({
+    cat,
+    keys: offered.filter((k) => activity(k).category === cat),
+  })).filter((g) => g.keys.length > 0 && (!folded || g.keys.includes(sport)));
+  const pick = (k: Sport) => {
+    onPick(k);
+    setQuery("");
+  };
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-medium text-slate-500">
+        {t("search.find")}
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && found.length > 0) {
+              e.preventDefault();
+              pick(found[0]);
+            }
+          }}
+          placeholder={t("search.findHint")}
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-teal-500 focus:outline-none sm:max-w-sm"
+        />
+      </label>
+      {query.trim() !== "" &&
+        (found.length > 0 ? (
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t("search.find")}>
+            {found.slice(0, 6).map((k) => (
+              <button key={k} type="button" onClick={() => pick(k)} className={chipClass(k === sport)}>
+                {activityIcon(k)} {sportLabel(t, k)}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">{t("search.findNone")}</p>
+        ))}
+      {groups.map(({ cat, keys }) => (
+        <div key={cat} className="flex flex-wrap items-center gap-2" role="group" aria-label={t(`activity.cat.${cat}`)}>
+          {groups.length > 1 && <span className="w-full text-xs font-medium uppercase tracking-wide text-slate-400">{t(`activity.cat.${cat}`)}</span>}
+          {keys.map((k) => (
+            <button key={k} type="button" aria-pressed={k === sport} onClick={() => pick(k)} className={chipClass(k === sport)}>
+              {activityIcon(k)} {sportLabel(t, k)}
+            </button>
+          ))}
+        </div>
+      ))}
+      {offered.length > FOLD_AFTER && (
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="text-sm font-medium text-teal-700 underline">
+          {open ? t("search.fewerActivities") : t("search.allActivities", { n: offered.length })}
+        </button>
+      )}
+    </div>
   );
 }

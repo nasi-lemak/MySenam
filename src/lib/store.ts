@@ -1,3 +1,8 @@
+import { activity, activityName, activityKeys } from "./activity-registry";
+import { courtFor, courtOffers, placesPerBooking } from "./court-activities";
+import { hasSignOff } from "./sign-offs";
+export { courtFor, courtOffers } from "./court-activities";
+import { isActivity, venueMayOffer } from "./activities";
 import { randomBytes, randomInt } from "crypto";
 import { notesFor } from "./customer-notes";
 import { signaturesFor } from "./waivers";
@@ -22,72 +27,7 @@ import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
-import {
-  Booking,
-  busyness,
-  Refusal,
-  Court,
-  CourtAvailability,
-  type SlotInfo,
-  type StartOption,
-  LATEST_CLOSE_HOUR,
-  DEFAULT_OPEN_HOUR,
-  DEFAULT_CLOSE_HOUR,
-  MAX_ADVANCE_DAYS,
-  MAX_VENUE_AHEAD_DAYS,
-  type CounterMethod,
-  type PaidVia,
-  MAX_HOURS_PER_BOOKING,
-  MAX_COURT_HOURS,
-  MAX_GROUP_COURTS,
-  DEFAULT_MAX_PLAYERS,
-  MAX_PLAYERS,
-  CHECK_IN_OPENS_MINUTES_BEFORE,
-  ClassSession,
-  ClassStatus,
-  LiveOccupancy,
-  MAX_CLASS_WEEKS,
-  AccessResult,
-  ACCESS_CODE_STALE_DAYS,
-  Induction,
-  isUnstaffedHour,
-  NEVER_UNMANNED,
-  MAX_ACCESS_CODE,
-  MIN_ACCESS_CODE,
-  MAX_DEPOSIT,
-  MAX_HIRE_NOTE,
-  HIRE_CONDITIONS,
-  HireCondition,
-  HireRecord,
-  MAX_TOP_UP,
-  MAX_MEMBERSHIP_MONTHS,
-  MAX_PASS_ENTRIES,
-  MAX_PASS_MINUTES,
-  Membership,
-  MembershipStatus,
-  MAX_PROMO_AMOUNT,
-  MAX_PROMO_PERCENT,
-  PromoCode,
-  PromoKind,
-  PromoStatus,
-  MAX_PASS_MONTHS,
-  Pass,
-  PassEntry,
-  PassKind,
-  PassStatus,
-  SPORTS,
-  SPORT_LABELS,
-  WalletBalance,
-  WalletEntry,
-  WaitlistEntry,
-  WaitlistStatus,
-  WAITLIST_OFFER_MINUTES,
-  Sport,
-  Venue,
-  VenueClosure,
-  type BookingStatus,
-  type PaymentStatus,
-} from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, MAX_PLAYERS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, isUnstaffedHour, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -175,6 +115,25 @@ interface CourtRow {
   surface: Surface | null;
   per_player?: number;
   max_players?: number | null;
+  /** JSON, kept by the database from court_activities (migration 0092). */
+  activities?: string | null;
+  noun?: string | null;
+}
+
+/** A court's activities as its row lists them, the main one first. */
+function courtActivitiesOf(r: Pick<CourtRow, "sport" | "activities">): CourtActivity[] {
+  let list: { sport: string; offPeakRate: number | string | null; peakRate: number | string | null }[] = [];
+  try {
+    list = r.activities ? JSON.parse(r.activities) : [];
+  } catch {
+    list = [];
+  }
+  const out = list.map((a) => ({
+    sport: a.sport,
+    offPeakRate: a.offPeakRate === null ? null : Number(a.offPeakRate),
+    peakRate: a.peakRate === null ? null : Number(a.peakRate),
+  }));
+  return out.some((a) => a.sport === r.sport) ? out : [{ sport: r.sport, offPeakRate: null, peakRate: null }, ...out];
 }
 
 interface VenueRow {
@@ -416,6 +375,7 @@ interface BookingRow {
   hold_until?: string | null;
   released_unpaid?: number;
   tax_rate?: number | string | null;
+  sport: Sport;
 }
 
 function toCourt(r: CourtRow): Court {
@@ -437,7 +397,20 @@ function toCourt(r: CourtRow): Court {
     surface: r.surface ?? null,
     perPlayer: r.per_player === 1,
     maxPlayers: r.max_players ?? null,
+    activities: courtActivitiesOf(r),
+    noun: r.noun ?? null,
   };
+}
+
+/** SQL: court `alias` can be booked for the activity bound to the `?`. */
+function offersSql(alias = "c"): string {
+  return `EXISTS (SELECT 1 FROM court_activities ca WHERE ca.court_id = ${alias}.id AND ca.sport = ?)`;
+}
+
+/** The court a booking is on, as offered for what was booked. */
+async function bookedCourt(booking: Pick<Booking, "courtId" | "sport">): Promise<Court | null> {
+  const court = await getCourt(booking.courtId);
+  return court ? courtFor(court, booking.sport) : null;
 }
 
 function toBooking(r: BookingRow): Booking {
@@ -445,6 +418,7 @@ function toBooking(r: BookingRow): Booking {
     id: r.id,
     code: r.code,
     courtId: r.court_id,
+    sport: r.sport,
     date: r.date,
     startMin: r.start_min,
     endMin: r.end_min,
@@ -646,11 +620,13 @@ function whyTaken(
   court: Court,
   span: Span,
   buffers: { before: number; after: number },
-  ignore?: (o: Occupant) => boolean
+  ignore?: (o: Occupant) => boolean,
+  /** Places the booking takes on a shared facility (several kayaks, several people on a floor); a court held whole takes itself. */
+  places = 1
 ): { why: "class"; name: string; classId: number } | { why: "blocked" | "full" } | null {
   const occupied = { start: span.start - buffers.before, end: span.end + buffers.after };
   const inWay = occupants.filter((o) => !ignore?.(o) && overlaps(o.occupied, occupied));
-  if (peakPlaces(inWay, occupied) + 1 <= court.capacity) return null;
+  if (peakPlaces(inWay, occupied) + (court.capacity > 1 ? places : 1) <= court.capacity) return null;
   const session = inWay.find((o) => o.kind === "class");
   if (session) return { why: "class", name: "", classId: session.classId! };
   const blocks = inWay.filter((o) => o.kind === "block" || o.kind === "outage");
@@ -669,9 +645,9 @@ export async function courtsForAnyBooking(input: { venueId: number; sport: Sport
   const db = getDb();
   const courts = (
     await db
-      .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id")
+      .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} ORDER BY c.id`)
       .all(venueId, sport) as CourtRow[]
-  ).map(toCourt);
+  ).map((r) => courtFor(toCourt(r), sport));
   if (courts.length === 0) return [];
   const days = await courtDays(courts, date);
   const zone = days.get(courts[0].id)!.zone;
@@ -716,7 +692,7 @@ export async function createBookingOnAnyCourt(input: {
 
   const venue = await getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
   if (!venue) return refuse("VENUE_NOT_FOUND");
-  if (!SPORTS.includes(sport)) return refuse("UNKNOWN_SPORT");
+  if (!(await isActivity(sport))) return refuse("UNKNOWN_SPORT");
 
   const candidates = await courtsForAnyBooking(input);
   if (candidates.length === 0) {
@@ -725,12 +701,12 @@ export async function createBookingOnAnyCourt(input: {
     // rather than a flat "nothing free".
     const anyCourt = (
       await getDb()
-        .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id LIMIT 1")
+        .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} ORDER BY c.id LIMIT 1`)
         .all(venueId, sport) as CourtRow[]
     ).map(toCourt)[0];
     if (!anyCourt)
-      return refuse("NO_SPORT_AT_VENUE", { sport: SPORT_LABELS[sport] });
-    const probe = await createBookingSeries({ ...rest, courtId: anyCourt.id, date, weeks: input.weeks ?? 1 });
+      return refuse("NO_SPORT_AT_VENUE", { sport: activityName(sport) });
+    const probe = await createBookingSeries({ ...rest, courtId: anyCourt.id, sport, date, weeks: input.weeks ?? 1 });
     if (probe.ok) return probe; // it came free between the two reads
     // A "someone took it" error from the probe is about that one court, and
     // the customer never chose it. Say what is actually true of all of them.
@@ -773,6 +749,8 @@ export async function createGroupBooking(input: {
   email?: string;
   userId?: number;
   players?: number;
+  /** The activity on every court; each court's main one if not said. */
+  sport?: Sport;
 } & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
@@ -900,7 +878,8 @@ export async function getAvailability(
   let courts = (
     await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
-  if (sport) courts = courts.filter((c) => c.sport === sport);
+  // Every court that can be booked for the activity, as offered for it.
+  if (sport) courts = courts.filter((c) => courtOffers(c, sport)).map((c) => courtFor(c, sport));
   if (courts.length === 0) return [];
   const days = await courtDays(courts, date);
   const zone = days.get(courts[0].id)!.zone;
@@ -1132,7 +1111,7 @@ function venueFilter(opts: {
   const features = (opts.courtFilters ?? []).map(courtFilterSql);
   if (opts.sport || features.length > 0) {
     clauses.push(
-      `EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id${opts.sport ? " AND c.sport = ?" : ""}${features.map((f) => ` AND ${f}`).join("")})`
+      `EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id${opts.sport ? ` AND ${offersSql()}` : ""}${features.map((f) => ` AND ${f}`).join("")})`
     );
     if (opts.sport) params.push(opts.sport);
   }
@@ -1222,20 +1201,26 @@ export async function listAreaCounts(
     .all(...filter.params)) as { area: string; venues: number }[];
 }
 
-/** The sports played at these venues, or anywhere — anywhere customers can reach. */
+/** The activities offered at these venues, or anywhere — anywhere customers can reach — in the catalogue's order. */
 export async function sportsOfferedAt(venueIds?: number[]): Promise<Sport[]> {
-  const from = `SELECT DISTINCT c.sport FROM courts c JOIN venues v ON v.id = c.venue_id WHERE ${
+  const from = `SELECT ca.sport, COUNT(DISTINCT c.venue_id) AS venues FROM court_activities ca JOIN courts c ON c.id = ca.court_id JOIN venues v ON v.id = c.venue_id WHERE ${
     listRule(venueIds)
   }`;
   const rows = (
     venueIds === undefined
-      ? await getDb().prepare(from).all()
+      ? await getDb().prepare(`${from} GROUP BY ca.sport`).all()
       : await getDb()
-          .prepare(`${from} AND c.venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"})`)
+          .prepare(`${from} AND c.venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"}) GROUP BY ca.sport`)
           .all(...venueIds)
-  ) as { sport: Sport }[];
-  const offered = new Set(rows.map((r) => r.sport));
-  return SPORTS.filter((s) => offered.has(s));
+  ) as { sport: Sport; venues: number }[];
+  // What most venues here offer comes first, then the catalogue's order;
+  // retired activities still offered somewhere stay findable, after the rest.
+  const venues = new Map(rows.map((r) => [r.sport, Number(r.venues)]));
+  const known = activityKeys();
+  const rank = (s: Sport) => (known.includes(s) ? known.indexOf(s) : known.length);
+  return [...venues.keys()].sort(
+    (a, b) => Number(!known.includes(a)) - Number(!known.includes(b)) || venues.get(b)! - venues.get(a)! || rank(a) - rank(b) || a.localeCompare(b)
+  );
 }
 
 /**
@@ -1258,7 +1243,7 @@ export async function countSearchCourts(input: {
   const filter = venueFilter({ area: input.area, venueIds: input.venueIds, near: input.near });
   const { n } = (await getDb()
     .prepare(
-      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql} AND c.sport = ?`
+      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql} AND ${offersSql()}`
     )
     .get(...filter.params, input.sport)) as { n: number };
   return n;
@@ -1297,7 +1282,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
            v.access AS v_access, v.book_ahead_days AS v_ahead
     FROM courts c JOIN venues v ON v.id = c.venue_id
-    WHERE c.sport = ? AND ${listRule(input.venueIds)}
+    WHERE ${offersSql()} AND ${listRule(input.venueIds)}
   `;
   if (input.area) {
     sql += " AND v.area = ?";
@@ -1343,7 +1328,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   })[];
   if (rows.length === 0) return [];
   const zoneOfRow = (row: (typeof rows)[number]) => venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng });
-  const allCourts = rows.map(toCourt);
+  // Each court as offered for the activity searched for: its rules and rates for it.
+  const allCourts = rows.map((r) => courtFor(toCourt(r), input.sport));
   // Not a court whose policy will not take a booking that long.
   const days = await courtDays(allCourts, input.date);
   const candidates = rows.filter((row) => lengthAllowed(days.get(row.id)!.policy, length) && !days.get(row.id)!.closed);
@@ -1523,15 +1509,19 @@ export async function quoteFor(input: {
   date: string;
   phone?: string | null;
   players?: number;
+  /** The activity, on a court that offers several; its main one if not said. */
+  sport?: Sport;
 } & WhenInput): Promise<{ ok: true; span: Span; quote: Quote; allowed: true } | { ok: true; span: Span; quote: Quote; allowed: false; refusal: Refusal } | Refusal> {
-  const court = await getCourt(input.courtId);
-  if (!court) return refuse("COURT_NOT_FOUND");
+  const found = await getCourt(input.courtId);
+  if (!found) return refuse("COURT_NOT_FOUND");
+  if (input.sport !== undefined && !courtOffers(found, input.sport)) return refuse("SPORT_NOT_HERE", { sport: activityName(input.sport) });
+  const court = courtFor(found, input.sport ?? found.sport);
   if (!isValidDateString(input.date)) return refuse("NO_HOURS");
   const day = await courtDay(court, input.date);
   const asked = spanFor(input, day.policy);
   if (!asked.ok) return asked;
   const span = asked.span;
-  const players = court.perPlayer ? (input.players ?? 1) : 1;
+  const players = Math.min(Math.max(1, input.players ?? 1), placesPerBooking(court));
   const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date) : false;
   const quote = quoteBooking(court, day.policy, input.date, span, member, await peakRules(court.venueId), Date.now(), players);
   const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
@@ -1589,6 +1579,8 @@ export async function createBooking(
     email?: string;
     userId?: number;
     players?: number;
+    /** The activity, on a court that offers several; its main one if not said. */
+    sport?: Sport;
     staff?: StaffOverride;
   } & WhenInput
 ): Promise<CreateBookingResult> {
@@ -1632,8 +1624,13 @@ export async function createBookingSeries(
     classId?: number;
     /** The waiting-list offer this booking claims: its own hold is let go for it. */
     waitlistId?: number;
-    /** How many play, on a court priced per player. */
+    /**
+     * How many: players on a court priced per player, or places on a shared
+     * facility (people on a gym floor, kayaks from a fleet).
+     */
     players?: number;
+    /** The activity booked: one the court offers; its main one if not said. */
+    sport?: Sport;
     staff?: StaffOverride;
   } & WhenInput,
   attempt = 0
@@ -1642,11 +1639,14 @@ export async function createBookingSeries(
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
   const override = input.staff?.override === true;
 
-  const court = await getCourt(courtId);
-  if (!court) return refuse("COURT_NOT_FOUND");
-  // A court priced per player says how many; any other court is one booking, whoever plays.
-  const players = court.perPlayer ? (input.players ?? 1) : 1;
-  const mostPlayers = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
+  const found = await getCourt(courtId);
+  if (!found) return refuse("COURT_NOT_FOUND");
+  // The court as offered for what is being booked: its rules and rates for that.
+  if (input.sport !== undefined && !courtOffers(found, input.sport)) return refuse("SPORT_NOT_HERE", { sport: activityName(input.sport) });
+  const court = courtFor(found, input.sport ?? found.sport);
+  // How many: places on a shared facility, players on a court priced per player; else one booking, whoever plays.
+  const mostPlayers = placesPerBooking(court);
+  const players = mostPlayers > 1 && !input.classId ? (input.players ?? 1) : 1;
   if (!Number.isInteger(players) || players < 1 || players > mostPlayers) return refuse("PLAYERS_RANGE", { max: mostPlayers });
   // As many weeks as the venue allows (eight unless it says), staff too.
   const weeksAllowed = await seriesWeeks(court.venueId);
@@ -1668,6 +1668,11 @@ export async function createBookingSeries(
   const breaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
   if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0]);
   if (minutesUntil(date, span.start, zone) <= 0) return refuse("SLOT_PAST");
+  // An activity that needs a staff sign-off first (a belay check, a range
+  // briefing, lib/sign-offs.ts): a customer without one is sent to the
+  // counter; staff going past the rules are not.
+  if (policy.signOff && !override && !input.classId && !(await hasSignOff(court.venueId, phone, court.sport, date)))
+    return refuse("SIGN_OFF_NEEDED", { sport: activityName(court.sport) });
 
   const db = getDb();
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
@@ -1693,7 +1698,7 @@ export async function createBookingSeries(
   /** What holds the court that week, said as the customer is told. */
   const reasonFor = async (weekDate: string): Promise<string> => {
     const held = (await occupantsOn([court], weekDate, zone)).get(court.id)!;
-    const why = whyTaken(held, court, span, buffers, (o) => o.waitlistId !== null && o.waitlistId === offer);
+    const why = whyTaken(held, court, span, buffers, (o) => o.waitlistId !== null && o.waitlistId === offer, players);
     if (why?.why === "class") return "reserved for a class";
     if (why?.why === "blocked") return "closed for maintenance";
     return court.capacity > 1 ? "fully booked" : "already booked";
@@ -1717,12 +1722,12 @@ export async function createBookingSeries(
             bookingId = await withTransaction(async () => {
               const id = (await db
                 .prepare(
-                  `INSERT INTO bookings (code, court_id, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
+                  `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
                      fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
                 )
                 .get(
-                  generateCode(), courtId, weekDate, span.start, span.end,
+                  generateCode(), courtId, court.sport, weekDate, span.start, span.end,
                   instantOf(weekDate, span.start, zone).toISOString(), instantOf(weekDate, span.end, zone).toISOString(),
                   name, phone, email ?? null, quote.total, quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
@@ -1730,7 +1735,7 @@ export async function createBookingSeries(
                 )) as { id: number };
               // An enrolment holds a place in its class; the class holds the court.
               if (!input.classId)
-                await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, bufferBefore: buffers.before, bufferAfter: buffers.after });
+                await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, bufferBefore: buffers.before, bufferAfter: buffers.after });
               return id.id;
             });
           } catch (err) {
@@ -1856,7 +1861,7 @@ async function cancelCutoffForBooking(bookingId: number): Promise<number> {
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
       -- The sport's own, where the venue gave it one (lib/sport-rules.ts).
-      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = c.sport
+      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = b.sport
       WHERE b.id = ?
     `)
     .get(bookingId) as { hours: number } | undefined;
@@ -1894,7 +1899,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
   if (late) {
     const court = await getCourt(booking.courtId);
-    const { lateKeep } = court ? await cancelPolicyFor(court.venueId, court.sport) : { lateKeep: null };
+    const { lateKeep } = court ? await cancelPolicyFor(court.venueId, booking.sport) : { lateKeep: null };
     if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone))
       return { ok: false, error: cutoffMessage(cutoff) };
     share = (100 - lateKeep) / 100;
@@ -2348,6 +2353,7 @@ async function reclaimBooking(booking: Booking, court: Court, date: string, span
     date,
     span,
     zone,
+    places: booking.players ?? 1,
     bufferBefore: policy.bufferBefore,
     bufferAfter: policy.bufferAfter,
   });
@@ -2413,7 +2419,7 @@ export async function rescheduleBooking(
   if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
-  const fromCourt = await getCourt(booking.courtId);
+  const fromCourt = await bookedCourt(booking);
   if (!fromCourt) return refuse("COURT_NOT_FOUND");
   const start = to.start ?? (to.startHour === undefined ? NaN : minutesOf(to.startHour));
   if (!isMinute(start) || !isValidDateString(to.date)) return refuse("SLOT_PAST");
@@ -2438,20 +2444,20 @@ export async function rescheduleBooking(
     if (!chosen) return refuse("COURT_NOT_FOUND");
     if (chosen.venueId !== fromCourt.venueId)
       return { ok: false, error: "A booking can only move within the same venue." };
-    if (chosen.sport !== fromCourt.sport)
+    if (!courtOffers(chosen, booking.sport))
       return {
         ok: false,
-        error: `${chosen.name} is for ${SPORT_LABELS[chosen.sport]}, not ${SPORT_LABELS[fromCourt.sport]}.`,
+        error: `${chosen.name} is not booked for ${activityName(booking.sport)}.`,
       };
-    candidates = [chosen];
+    candidates = [courtFor(chosen, booking.sport)];
   } else {
     candidates = [
       fromCourt,
       ...(
         (await db
-          .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
-          .all(fromCourt.venueId, fromCourt.sport, fromCourt.id)) as CourtRow[]
-      ).map(toCourt),
+          .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} AND c.id != ? ORDER BY c.id`)
+          .all(fromCourt.venueId, booking.sport, fromCourt.id)) as CourtRow[]
+      ).map((r) => courtFor(toCourt(r), booking.sport)),
     ];
   }
   const sameTime = to.date === booking.date && span.start === booking.startMin;
@@ -2471,8 +2477,10 @@ export async function rescheduleBooking(
 
   for (const court of candidates) {
     const day = days.get(court.id)!;
-    // The court's rules for the new time; the length is the booking's own, kept as it was.
-    const breaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone)).filter((b) => b !== "LENGTH");
+    // The court's rules for the new time, its length included: a court that
+    // does not sell bookings that long does not take this one either.
+    // Managers may go past them, and it is recorded.
+    const breaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone));
     if (breaches.length > 0 && !(by === "staff" && to.override === true)) {
       firstRefusal ??= breachRefusal(day.policy, span, breaches[0]);
       continue;
@@ -2528,7 +2536,7 @@ export interface RescheduleOption {
 export async function rescheduleOptions(code: string, date: string): Promise<RescheduleOption[]> {
   const booking = await bookingByCode(code);
   if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
-  const court = await getCourt(booking.courtId);
+  const court = await bookedCourt(booking);
   if (!court) return [];
   const { zone } = await venueHours(court.venueId);
   if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)) || (await getVenueClosure(court.venueId, date))) return [];
@@ -2542,9 +2550,9 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
     court,
     ...(
       (await getDb()
-        .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
-        .all(court.venueId, court.sport, court.id)) as CourtRow[]
-    ).map(toCourt),
+        .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} AND c.id != ? ORDER BY c.id`)
+        .all(court.venueId, booking.sport, court.id)) as CourtRow[]
+    ).map((r) => courtFor(toCourt(r), booking.sport)),
   ];
   const days = await courtDays(courts, date);
   const held = await occupantsOn(courts, date, zone);
@@ -2558,8 +2566,8 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
       if (options.has(start) || (date === booking.date && start === booking.startMin)) continue;
       if (minutesUntil(date, start, zone) <= 0) continue;
       const span = { start, end: start + length };
-      if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).some((b) => b !== "LENGTH")) continue;
-      if (!fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter }, own)) continue;
+      if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).length > 0) continue;
+      if (!fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter }, own, players)) continue;
       const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players).total;
       options.set(start, {
         startMin: start,
@@ -2583,7 +2591,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
 export async function bookAgainLink(code: string): Promise<string | null> {
   const booking = await bookingByCode(code);
   if (!booking || booking.classId !== null) return null;
-  const court = await getCourt(booking.courtId);
+  const court = await bookedCourt(booking);
   if (!court) return null;
   const today = todayISO();
   // After the booking itself: "again" from one still to come means another time.
@@ -2593,14 +2601,14 @@ export async function bookAgainLink(code: string): Promise<string | null> {
   const ordered = [...days.filter(sameWeekday), ...days.filter((d) => !sameWeekday(d))];
   const span = { start: booking.startMin, end: booking.endMin };
   const link = (date: string, courtId: number) =>
-    `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${courtId}&start=${span.start}&minutes=${span.end - span.start}`;
+    `/venue/${court.venueId}?date=${date}&sport=${booking.sport}&court=${courtId}&start=${span.start}&minutes=${span.end - span.start}`;
   const courts = [
     court,
     ...(
       (await getDb()
-        .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
-        .all(court.venueId, court.sport, court.id)) as CourtRow[]
-    ).map(toCourt),
+        .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} AND c.id != ? ORDER BY c.id`)
+        .all(court.venueId, booking.sport, court.id)) as CourtRow[]
+    ).map((r) => courtFor(toCourt(r), booking.sport)),
   ];
   for (const date of ordered) {
     const days2 = await courtDays(courts, date);
@@ -2610,10 +2618,10 @@ export async function bookAgainLink(code: string): Promise<string | null> {
     for (const c of courts) {
       const day = days2.get(c.id)!;
       if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, day.zone)).length > 0) continue;
-      if (fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter })) return link(date, c.id);
+      if (fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter }, undefined, booking.players ?? 1)) return link(date, c.id);
     }
   }
-  return `/venue/${court.venueId}?sport=${court.sport}`;
+  return `/venue/${court.venueId}?sport=${booking.sport}`;
 }
 
 export type MoveResult =
@@ -2624,7 +2632,7 @@ export type MoveResult =
 async function inTheWay(booking: Booking, court: Court, policy: BookingPolicy, zone: string): Promise<string> {
   const held = (await occupantsOn([court], booking.date, zone)).get(court.id)!;
   const span = { start: booking.startMin, end: booking.endMin };
-  const why = whyTaken(held, court, span, { before: policy.bufferBefore, after: policy.bufferAfter }, (o) => o.bookingId === booking.id);
+  const why = whyTaken(held, court, span, { before: policy.bufferBefore, after: policy.bufferAfter }, (o) => o.bookingId === booking.id, booking.players ?? 1);
   if (why?.why === "class") return `${court.name} is running ${(await classNamesFor([why.classId])).get(why.classId) ?? "a class"} at that time.`;
   if (why?.why === "blocked") return `${court.name} is blocked off for part of that time.`;
   return `${court.name} is already taken at ${formatMinute(span.start)}.`;
@@ -2659,17 +2667,18 @@ export async function moveBooking(code: string, toCourtId: number): Promise<Move
   if (await hasOpenHire(booking.id))
     return { ok: false, error: "The kit for this booking is still out. Take it back in first." };
 
-  const fromCourt = await getCourt(booking.courtId);
-  const toCourt = await getCourt(toCourtId);
-  if (!fromCourt || !toCourt) return refuse("COURT_NOT_FOUND");
+  const fromCourt = await bookedCourt(booking);
+  const target = await getCourt(toCourtId);
+  if (!fromCourt || !target) return refuse("COURT_NOT_FOUND");
+  const toCourt = courtFor(target, courtOffers(target, booking.sport) ? booking.sport : target.sport);
   if (fromCourt.id === toCourt.id)
     return { ok: false, error: "That booking is already on that court." };
   if (fromCourt.venueId !== toCourt.venueId)
     return { ok: false, error: "A booking can only move within the same venue." };
-  if (fromCourt.sport !== toCourt.sport)
+  if (!courtOffers(target, booking.sport))
     return {
       ok: false,
-      error: `${toCourt.name} is for ${SPORT_LABELS[toCourt.sport]}, not ${SPORT_LABELS[fromCourt.sport]}.`,
+      error: `${toCourt.name} is not booked for ${activityName(booking.sport)}.`,
     };
 
   const zone = await courtZone(booking.courtId);
@@ -2705,9 +2714,9 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
   if (!court) return [];
   const candidates = (
     await getDb()
-      .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
-      .all(court.venueId, court.sport, court.id) as CourtRow[]
-  ).map(toCourt);
+      .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} AND c.id != ? ORDER BY c.id`)
+      .all(court.venueId, booking.sport, court.id) as CourtRow[]
+  ).map((r) => courtFor(toCourt(r), booking.sport));
   if (candidates.length === 0) return [];
   const days = await courtDays(candidates, booking.date);
   const held = await occupantsOn(candidates, booking.date, days.get(candidates[0].id)!.zone);
@@ -2715,7 +2724,7 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
   // Booked, blocked, a class, or offered to somebody on the waiting list, as the move itself counts; its own time is free.
   return candidates.filter((c) => {
     const p = days.get(c.id)!.policy;
-    return fits(held.get(c.id)!, c.capacity, span, { before: p.bufferBefore, after: p.bufferAfter }, (o) => o.bookingId === booking.id);
+    return fits(held.get(c.id)!, c.capacity, span, { before: p.bufferBefore, after: p.bufferAfter }, (o) => o.bookingId === booking.id, booking.players ?? 1);
   });
 }
 
@@ -3026,7 +3035,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
   const db = getDb();
   const rows = await db
     .prepare(`
-      SELECT b.*, c.name AS court_name, c.sport AS court_sport,
+      SELECT b.*, c.name AS court_name, b.sport AS court_sport,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
              COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
@@ -3036,7 +3045,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
-      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = c.sport
+      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = b.sport
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
       WHERE b.user_id = ?
       ORDER BY b.date DESC, b.start_min DESC
@@ -3840,6 +3849,8 @@ export async function createCourt(input: {
 }): Promise<CourtEditResult> {
   const db = getDb();
   if (!await getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
+  // An activity in the catalogue the venue may offer: the platform's, or its own business's.
+  if (!(await venueMayOffer(input.venueId, input.sport))) return refuse("UNKNOWN_SPORT");
   const info = await db
     .prepare(
       "INSERT INTO courts (venue_id, name, sport, off_peak_rate, peak_rate, capacity, deposit) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -3965,10 +3976,11 @@ export async function updateCourt(
     return { ok: false, error: "An unmanned resource needs a door code. Set one first." };
   // Drowning is silent and fast. This is the one refusal a venue cannot talk
   // its way past, however good the rest of its arrangements are.
-  if (unmanned && NEVER_UNMANNED.includes(court.sport))
+  const watched = court.activities.find((a) => activity(a.sport).supervised);
+  if (unmanned && watched)
     return {
       ok: false,
-      error: `${SPORT_LABELS[court.sport]} cannot be left unmanned — someone has to be watching the water.`,
+      error: `${activityName(watched.sport)} cannot be left unmanned — someone has to be watching the water.`,
     };
   // A deposit is a person looking at a hull. There is nobody to hand the
   // kayak to, nobody to look it over, and nobody to hold the money.
@@ -4025,7 +4037,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   const venue = venueCourts("b.court_id", venueId);
   const rows = await db
     .prepare(`
-      SELECT b.*, c.name AS court_name, c.sport AS court_sport, c.deposit AS court_deposit,
+      SELECT b.*, c.name AS court_name, b.sport AS court_sport, c.deposit AS court_deposit,
              v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at,
              u.verified_phone AS user_verified_phone, k.name AS coach_name, ac.name AS account_name
       FROM bookings b
@@ -4153,7 +4165,7 @@ interface ClassRow {
 }
 
 const CLASS_SELECT = `
-  SELECT cl.*, c.name AS court_name, c.sport AS sport,
+  SELECT cl.*, c.name AS court_name,
          v.id AS venue_id, v.name AS venue_name, v.area AS venue_area,
          (SELECT COUNT(*) FROM bookings b
             WHERE b.class_id = cl.id AND b.status = 'confirmed') AS enrolled
@@ -4222,7 +4234,7 @@ export async function listClasses(filter: {
     params.push(...filter.venueIds);
   }
   if (filter.sport) {
-    clauses.push("c.sport = ?");
+    clauses.push("cl.sport = ?");
     params.push(filter.sport);
   }
   if (filter.to) {
@@ -5230,11 +5242,11 @@ export async function createPromoCode(input: {
     if (input.maxPerCustomer !== undefined && input.maxPerCustomer !== null &&
         (!Number.isInteger(input.maxPerCustomer) || input.maxPerCustomer < 1))
       return { ok: false, error: "A limit per customer must be a whole number above zero." };
-    if (input.sport && !SPORTS.includes(input.sport))
+    if (input.sport && !(await isActivity(input.sport)))
       return refuse("UNKNOWN_SPORT");
     if (input.sport) {
       const has = await db
-        .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
+        .prepare(`SELECT 1 FROM courts c WHERE c.venue_id = ? AND ${offersSql()} LIMIT 1`)
         .get(input.venueId, input.sport);
       if (!has) return { ok: false, error: "That venue has no courts for that sport." };
     }
@@ -5298,7 +5310,7 @@ export async function quotePromo(input: {
   if (input.date > promo.validTo)
     return { ok: false, error: `This code ran out on ${promo.validTo}.` };
   if (promo.sport && promo.sport !== input.sport)
-    return { ok: false, error: `This code only covers ${SPORT_LABELS[promo.sport]}.` };
+    return { ok: false, error: `This code only covers ${activityName(promo.sport)}.` };
   if (input.hours < promo.minHours)
     return {
       ok: false,
@@ -5346,7 +5358,7 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
   const quote = await quotePromo({
     venueId: court.venueId,
     code,
-    sport: court.sport,
+    sport: booking.sport,
     date: booking.date,
     hours: booking.endHour - booking.startHour,
     // A code is for the court time: a coach's fee is theirs, and setup and
@@ -5604,12 +5616,12 @@ export async function issuePass(input: {
       return { ok: false, error: "The expiry date has already passed." };
     if (input.expiresOn > addDays(todayISO(), MAX_PASS_MONTHS * 31))
       return { ok: false, error: `A pass may not run more than ${MAX_PASS_MONTHS} months.` };
-    if (input.sport && !SPORTS.includes(input.sport))
+    if (input.sport && !(await isActivity(input.sport)))
       return refuse("UNKNOWN_SPORT");
     // A sport-locked pass is pointless if the venue has no such courts.
     if (input.sport) {
       const has = await db
-        .prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ? LIMIT 1")
+        .prepare(`SELECT 1 FROM courts c WHERE c.venue_id = ? AND ${offersSql()} LIMIT 1`)
         .get(input.venueId, input.sport);
       if (!has) return { ok: false, error: "That venue has no courts for that sport." };
     }
@@ -5689,8 +5701,8 @@ async function passScopeError(pass: Pass, booking: Booking): Promise<string | nu
   if (!court) return "Court not found.";
   if (court.venueId !== pass.venueId && !(await sameBusiness(court.venueId, pass.venueId)))
     return "That pass is for a different venue.";
-  if (pass.sport && court.sport !== pass.sport)
-    return `That pass only covers ${SPORT_LABELS[pass.sport]}.`;
+  if (pass.sport && booking.sport !== pass.sport)
+    return `That pass only covers ${activityName(pass.sport)}.`;
   // A pack of lessons pays lessons with its coach; a court pass does not pay a coach.
   if (pass.coachId && booking.coachId !== pass.coachId)
     return `That pass is for lessons with ${pass.coachName ?? "one coach"} only.`;

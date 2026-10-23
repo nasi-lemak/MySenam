@@ -1,7 +1,8 @@
+import { isKnownActivity } from "@/lib/activity-registry";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { bookingTerms, dismissedVersion, dismissTerms, standing } from "@/lib/booking-terms";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 import { mayShowVenue } from "@/lib/listing";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (venueId instanceof NextResponse) return venueId;
   // For the sport being booked, where its rules differ from the venue's.
   const sport = req.nextUrl.searchParams.get("sport");
-  const terms = await bookingTerms(venueId, sport && SPORTS.includes(sport as Sport) ? (sport as Sport) : undefined);
+  const terms = await bookingTerms(venueId, sport && isKnownActivity(sport) ? (sport as Sport) : undefined);
   if (!terms) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
   const user = await getSessionUser(req);
   return NextResponse.json({

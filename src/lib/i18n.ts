@@ -15,6 +15,7 @@
  * question the build answers, not one somebody has to go and check.
  */
 
+import { activityName } from "./activity-registry";
 import { siteName } from "./site";
 import { currencySymbol, plainAmount, region } from "./region";
 import { CUSTOMER_ERRORS_ZH, ZH } from "./i18n-zh";
@@ -383,21 +384,6 @@ const EN = {
 
   // Sports. The English is what SPORT_LABELS says; this is the same list in
   // both languages, so a customer sees one vocabulary throughout.
-  "sport.badminton": "Badminton",
-  "sport.tennis": "Tennis",
-  "sport.pickleball": "Pickleball",
-  "sport.padel": "Padel",
-  "sport.squash": "Squash",
-  "sport.table_tennis": "Table tennis",
-  "sport.football": "Football",
-  "sport.basketball": "Basketball",
-  "sport.volleyball": "Volleyball",
-  "sport.netball": "Netball",
-  "sport.sepak_takraw": "Sepak takraw",
-  "sport.futsal": "Futsal",
-  "sport.gym": "Gym",
-  "sport.swimming": "Swimming",
-  "sport.kayak": "Kayak hire",
 
   // Venue
   "venue.openDaily": "Open daily {from} – {to}",
@@ -532,6 +518,8 @@ const EN = {
   "form.repeat": "Repeat",
   "form.players": "Players",
   "form.playersNote": "Priced per player: {n} × {price}.",
+  "form.places": "How many",
+  "form.placesNote": "{n} × {price} each.",
   "form.price": "Price",
   "form.standardPrice": "Standard",
   "form.concessionOption": "{name}, {pct}% off",
@@ -716,6 +704,19 @@ const EN = {
   // Search
   "search.title": "Find a court",
   "search.intro": "Search every venue at once — pick a sport and a time, and see what's free.",
+  "search.find": "What do you want to do?",
+  "search.findHint": "Type a sport or activity: futsal, yoga, kayak…",
+  "search.findNone": "Nobody here offers that yet.",
+  "search.allActivities": "All activities ({n})",
+  "search.fewerActivities": "Fewer activities",
+  "quick.moreActivities": "More activities…",
+  "activity.cat.racket": "Racket sports",
+  "activity.cat.team": "Team sports",
+  "activity.cat.aquatic": "In the pool",
+  "activity.cat.water": "On the water",
+  "activity.cat.fitness": "Fitness",
+  "activity.cat.studio": "Classes and studios",
+  "activity.cat.specialist": "Specialist",
   "search.today": "Today",
   "search.laterDay": "Or another day",
   "search.from": "From",
@@ -1090,6 +1091,8 @@ const EN = {
   "err.VENUE_NOT_FOUND": "Venue not found.",
   "err.UNKNOWN_SPORT": "Unknown sport.",
   "err.NO_SPORT_AT_VENUE": "That venue has no {sport} courts.",
+  "err.SPORT_NOT_HERE": "That court is not booked for {sport}.",
+  "err.SIGN_OFF_NEEDED": "{sport} here needs a sign-off from the venue's staff first, such as a safety check. Ask at the counter: they can book you in.",
   "err.NO_COURT_FREE": "No court is free for that whole time. Please pick another time.",
   "err.WEEKS_RANGE": "Weeks must be between 1 and {max}.",
   "err.GROUP_COURTS": "Book 2 to {max} courts together.",
@@ -1844,21 +1847,6 @@ const MS: Record<Phrase, string> = {
   "home.step3Body": "Anda terus dapat kod tempahan. Tunjukkan di kaunter hadapan.",
 
   // Sukan
-  "sport.badminton": "Badminton",
-  "sport.tennis": "Tenis",
-  "sport.pickleball": "Pickleball",
-  "sport.padel": "Padel",
-  "sport.squash": "Skuasy",
-  "sport.table_tennis": "Ping pong",
-  "sport.football": "Bola sepak",
-  "sport.basketball": "Bola keranjang",
-  "sport.volleyball": "Bola tampar",
-  "sport.netball": "Bola jaring",
-  "sport.sepak_takraw": "Sepak takraw",
-  "sport.futsal": "Futsal",
-  "sport.gym": "Gim",
-  "sport.swimming": "Renang",
-  "sport.kayak": "Sewa kayak",
 
   // Venue
   "venue.openDaily": "Buka setiap hari {from} – {to}",
@@ -1993,6 +1981,8 @@ const MS: Record<Phrase, string> = {
   "form.repeat": "Ulang",
   "form.players": "Pemain",
   "form.playersNote": "Harga seorang: {n} × {price}.",
+  "form.places": "Berapa",
+  "form.placesNote": "{n} × {price} seorang/seunit.",
   "form.price": "Harga",
   "form.standardPrice": "Biasa",
   "form.concessionOption": "{name}, diskaun {pct}%",
@@ -2178,6 +2168,19 @@ const MS: Record<Phrase, string> = {
   "search.title": "Cari gelanggang",
   "search.intro":
     "Cari semua pusat serentak — pilih sukan dan waktu, dan lihat apa yang kosong.",
+  "search.find": "Apa yang anda mahu lakukan?",
+  "search.findHint": "Taip sukan atau aktiviti: futsal, yoga, kayak…",
+  "search.findNone": "Belum ada yang menawarkannya di sini.",
+  "search.allActivities": "Semua aktiviti ({n})",
+  "search.fewerActivities": "Kurangkan aktiviti",
+  "quick.moreActivities": "Aktiviti lain…",
+  "activity.cat.racket": "Sukan raket",
+  "activity.cat.team": "Sukan berpasukan",
+  "activity.cat.aquatic": "Di kolam",
+  "activity.cat.water": "Di atas air",
+  "activity.cat.fitness": "Kecergasan",
+  "activity.cat.studio": "Kelas dan studio",
+  "activity.cat.specialist": "Khusus",
   "search.today": "Hari ini",
   "search.laterDay": "Atau hari lain",
   "search.from": "Dari",
@@ -2563,6 +2566,8 @@ const MS: Record<Phrase, string> = {
   "err.VENUE_NOT_FOUND": "Pusat tidak dijumpai.",
   "err.UNKNOWN_SPORT": "Sukan tidak dikenali.",
   "err.NO_SPORT_AT_VENUE": "Pusat itu tiada gelanggang {sport}.",
+  "err.SPORT_NOT_HERE": "Gelanggang itu tidak ditempah untuk {sport}.",
+  "err.SIGN_OFF_NEEDED": "{sport} di sini memerlukan pengesahan kakitangan pusat dahulu, seperti pemeriksaan keselamatan. Tanya di kaunter: mereka boleh menempah untuk anda.",
   "err.NO_COURT_FREE":
     "Tiada gelanggang kosong untuk sepanjang waktu itu. Sila pilih waktu lain.",
   "err.WEEKS_RANGE": "Bilangan minggu mesti antara 1 dan {max}.",
@@ -3073,8 +3078,9 @@ export function translator(locale: Locale, site: string = siteName()): T {
 }
 
 /** What this language calls a sport. The icons are the same either way. */
+/** An activity's name in the page's language, as this country calls it (the catalogue, lib/activity-registry.ts). */
 export function sportLabel(t: T, sport: string): string {
-  return t(`sport.${sport}` as Phrase);
+  return activityName(sport, t.locale);
 }
 
 /**

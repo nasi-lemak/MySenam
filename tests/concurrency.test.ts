@@ -1,8 +1,18 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ host: "localhost:3000" }),
+  cookies: async () => ({ get: () => undefined }),
+}));
+
+import { NextRequest } from "next/server";
 import { registerUser } from "../src/lib/auth";
+import { saveCoach } from "../src/lib/coaching";
+import { getDb } from "../src/lib/db";
+import { checkIntegrity } from "../src/lib/integrity";
+import { POST as bookRoute } from "../src/app/api/bookings/route";
 import { ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import {
   createBooking,
@@ -16,6 +26,7 @@ import {
   payBookingFromWallet,
   payBookingWithPass,
   refundBookingToPass,
+  rescheduleBooking,
   topUpWallet,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -160,5 +171,51 @@ describe("at the same moment", () => {
     const results = await together(() => refundBookingToPass(made.booking.id));
     expect(results.filter((r) => r.ok)).toHaveLength(1);
     expect((await getPassById(sold.pass.id))!.remaining).toBe(5);
+  });
+
+  it("puts a coach in one lesson at a time, and lets the other courts go", async () => {
+    for (let i = 0; i < AT_ONCE; i++) await badmintonCourt();
+    const hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 7 * 60, until: 22 * 60 }));
+    const saved = await saveCoach(venueId, { name: "Race Coach", sports: ["badminton"], rate: 50, hours });
+    if (!saved.ok) throw new Error(saved.error);
+    const date = addDays(todayISO(), 8);
+    const before = ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE date = ?").get(date)) as { n: number }).n;
+    const results = await together((i) =>
+      bookRoute(
+        new NextRequest("http://localhost/api/bookings", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `203.0.113.${i + 1}` },
+          body: JSON.stringify({ venueId, sport: "badminton", date, hours: [15], coachId: saved.coach.id, name: `Pupil ${i}`, phone: `01750000${i}` }),
+        })
+      )
+    );
+    expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+    // The courts the others had for a moment are free again: one booking that day, not eight.
+    const after = ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE date = ? AND status = 'confirmed'").get(date)) as { n: number }).n;
+    expect(after - before).toBe(1);
+    expect(await checkIntegrity()).toEqual([]);
+  });
+
+  it("gives a freed hour to one of a move and a new booking, never both", async () => {
+    const date = addDays(todayISO(), 9);
+    // On each court, a booking at 9 moving to 11 while somebody else books 11.
+    const pairs = [];
+    for (let i = 0; i < AT_ONCE; i++) {
+      const court = await badmintonCourt();
+      const made = await createBooking({ courtId: court.id, date, hours: [9], name: `Mover ${i}`, phone: `01760000${i}` });
+      if (!made.ok) throw new Error(made.error);
+      pairs.push({ court, code: made.booking.code });
+    }
+    const raced = await Promise.all(
+      pairs.map(async ({ court, code }, i) => {
+        const [moved, booked] = await Promise.all([
+          rescheduleBooking(code, { date, startHour: 11, courtId: court.id }, "staff"),
+          createBooking({ courtId: court.id, date, hours: [11], name: `Newcomer ${i}`, phone: `01770000${i}` }),
+        ]);
+        return Number(moved.ok) + Number(booked.ok);
+      })
+    );
+    expect(raced).toEqual(pairs.map(() => 1));
+    expect(await checkIntegrity()).toEqual([]);
   });
 });

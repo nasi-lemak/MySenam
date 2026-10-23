@@ -22,7 +22,10 @@ import type { Court } from "./types";
 /** How a number pays: not a member (false), at the courts' member rates (true), or a tier's percent of the public price. */
 export type MemberPricing = boolean | number;
 
-export type CourtRates = Pick<Court, "sport" | "offPeakRate" | "peakRate" | "memberOffPeakRate" | "memberPeakRate" | "perPlayer">;
+export type CourtRates = Pick<Court, "sport" | "offPeakRate" | "peakRate" | "memberOffPeakRate" | "memberPeakRate" | "perPlayer"> & {
+  /** Over one: a shared facility, whose rates are per place, as many as are booked. */
+  capacity?: number;
+};
 
 export const NO_PRICING_RULES: PricingPolicy = {
   rateMode: "split",
@@ -46,7 +49,7 @@ export interface PriceLine {
 }
 
 export interface Quote {
-  /** The court: its time (or its fixed price), times the players where priced per player, at least the minimum charge. */
+  /** The court: its time (or its fixed price), times the players or places where priced so, at least the minimum charge. */
   court: number;
   /** Setup and cleanup fees. */
   fees: number;
@@ -113,7 +116,8 @@ export function priceBooking(input: {
   const member = input.member ?? false;
   const rules = forSport(input.rules ?? DEFAULT_PEAK, court.sport);
   const pricing = input.pricing ?? NO_PRICING_RULES;
-  const players = court.perPlayer ? Math.max(1, input.players ?? 1) : 1;
+  // Per player on a court priced so; per place on a shared facility (people on a floor, kayaks from a fleet).
+  const players = court.perPlayer || (court.capacity ?? 1) > 1 ? Math.max(1, input.players ?? 1) : 1;
   const length = input.span.end - input.span.start;
   const discount = lastMinuteWindow(input.date, rules, input.at);
   const isPeakAt = (m: number) => {

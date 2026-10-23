@@ -17,6 +17,7 @@ import { NextResponse } from "next/server";
  */
 export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/addons(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
+  { path: /^\/api\/admin\/activities$/, methods: ["POST", "PATCH"] },
   { path: /^\/api\/admin\/billing$/, methods: ["POST"] },
   { path: /^\/api\/admin\/courts(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/classes(\/\d+)?$/, methods: ["POST", "DELETE"] },

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import { LanguageProvider } from "@/components/Language";
+import { catalogue } from "@/lib/activities";
 import ErrorReporter from "@/components/ErrorReporter";
 import { currentLocale, currentSiteName, serverT } from "@/lib/locale";
 import { accentCss, currentStorefront } from "@/lib/storefront";
@@ -29,6 +30,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const t = await serverT();
   const storefront = await currentStorefront();
   const site = await currentSiteName();
+  // The activity catalogue, for every client component's names and icons.
+  const activities = await catalogue();
 
   return (
     <html lang={locale === "zh" ? "zh-Hans" : locale}>
@@ -37,7 +40,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           // Validated as #rrggbb when saved, and again when written out.
           <style dangerouslySetInnerHTML={{ __html: accentCss(storefront.accentColor) }} />
         )}
-        <LanguageProvider locale={locale} site={site} country={region().country}>
+        <LanguageProvider locale={locale} site={site} country={region().country} activities={activities}>
           <ErrorReporter />
           <header className="sticky top-0 print:hidden z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-x-2 px-4 py-3">

@@ -118,7 +118,7 @@ describe("parts of the day", () => {
 });
 
 describe("the staff extras editor", () => {
-  const venue = { id: 7, name: "Arena", courts: [{ sport: "badminton" }, { sport: "futsal" }] } as never;
+  const venue = { id: 7, name: "Arena", courts: [{ sport: "badminton", activities: [] }, { sport: "futsal", activities: [] }] } as never;
   const racket = { id: 1, venueId: 7, name: "Racket", kind: "rental", price: 5, stock: 4, sport: "badminton", active: true };
   const towel = { id: 2, venueId: 7, name: "Towel", kind: "sale", price: 3, stock: null, sport: null, active: false };
 

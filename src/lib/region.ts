@@ -142,6 +142,11 @@ function countryCode(): string {
   return (process.env.MYSENAM_COUNTRY ?? "MY").trim().toUpperCase();
 }
 
+/** Every country an install can be set to, with its zones: for checks across all of them. */
+export function allRegions(): Region[] {
+  return Object.values(REGIONS);
+}
+
 export function region(): Region {
   const code = countryCode();
   return Object.hasOwn(REGIONS, code) ? REGIONS[code as CountryCode] : REGIONS.MY;

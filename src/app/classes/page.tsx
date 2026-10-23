@@ -1,5 +1,6 @@
 "use client";
 
+import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import WaiverTick from "@/components/WaiverTick";
 import { useCallback, useEffect, useState } from "react";
@@ -7,7 +8,7 @@ import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } 
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
 import { formatHour } from "@/lib/time";
-import { ClassSession, Sport, SPORT_ICONS } from "@/lib/types";
+import { ClassSession, Sport } from "@/lib/types";
 import { useOfferedSports } from "@/components/OfferedSports";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -82,7 +83,7 @@ export default function ClassesPage() {
                 : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
             }`}
           >
-            {SPORT_ICONS[s]} {sportLabel(t, s)}
+            {activityIcon(s)} {sportLabel(t, s)}
           </button>
         ))}
       </div>
@@ -126,7 +127,7 @@ export default function ClassesPage() {
                       </div>
                       <div className="min-w-[12rem] flex-1">
                         <div className="font-medium">
-                          {SPORT_ICONS[session.sport]} {session.name}
+                          {activityIcon(session.sport)} {session.name}
                           {session.who !== "anyone" && (
                             <span className="ml-2 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-800">
                               {t(`who.badge.${session.who}`)}

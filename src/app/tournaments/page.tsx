@@ -1,3 +1,4 @@
+import { activityIcon, isKnownActivity } from "@/lib/activity-registry";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { serverT } from "@/lib/locale";
@@ -5,7 +6,7 @@ import { sportLabel } from "@/lib/i18n";
 import { currentStorefront } from "@/lib/storefront";
 import { formatHour } from "@/lib/time";
 import { publicTournaments } from "@/lib/tournaments";
-import { SPORT_ICONS, SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function TournamentsPage({ searchParams }: { searchParams: Promise<{ sport?: string }> }) {
   const t = await serverT();
   const { sport: raw } = await searchParams;
-  const sport = SPORTS.includes(raw as Sport) ? (raw as Sport) : undefined;
+  const sport = isKnownActivity(raw) ? (raw as Sport) : undefined;
   const storefront = await currentStorefront();
   const list = await publicTournaments({ sport, venueIds: storefront?.venueIds });
   const offered = [...new Set((await publicTournaments({ venueIds: storefront?.venueIds })).map((x) => x.sport))];
@@ -38,7 +39,7 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
           </Link>
           {offered.map((s) => (
             <Link key={s} href={`/tournaments?sport=${s}`} className={chip(sport === s)}>
-              {SPORT_ICONS[s]} {sportLabel(t, s)}
+              {activityIcon(s)} {sportLabel(t, s)}
             </Link>
           ))}
         </nav>
@@ -55,7 +56,7 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="text-lg font-semibold">
-                  {SPORT_ICONS[x.sport]} {x.name}
+                  {activityIcon(x.sport)} {x.name}
                 </div>
                 <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700">
                   {t(`tour.status.${x.status}`)}

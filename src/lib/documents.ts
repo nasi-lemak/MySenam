@@ -1,9 +1,10 @@
+import { activityName } from "./activity-registry";
 import { getDb, isUniqueViolation } from "./db";
 import { roundMoney } from "./region";
 import { taxIncluded, venueTax } from "./tax";
 import { formatHour } from "./time";
 import { hoursOf } from "./interval";
-import { PAID_VIA_LABELS, SPORT_LABELS, type PaidVia } from "./types";
+import { PAID_VIA_LABELS, type PaidVia } from "./types";
 
 /**
  * Receipts and credit notes kept as documents (migration 0040): one for each
@@ -311,7 +312,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
               b.shares_paid::float AS shares_paid, b.deposit_paid::float AS deposit_paid, b.tax_rate, b.status, b.payment_status, b.paid_via,
               b.coach_fee::float AS coach_fee, k.name AS coach_name,
               b.concession_name, b.concession_off::float AS concession_off, b.concession_check, b.players,
-              c.name AS court_name, c.sport, c.venue_id
+              c.name AS court_name, b.sport, c.venue_id
          FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id WHERE b.id = ?`
     )
     .get(bookingId)) as
@@ -337,7 +338,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   const discount = (promo?.discount ?? 0) + concession;
   const lines: Line[] = [
     {
-      description: `${b.court_name} (${SPORT_LABELS[b.sport as keyof typeof SPORT_LABELS] ?? b.sport}), ${b.date} ${formatHour(hoursOf(b.start_min))}–${formatHour(hoursOf(b.end_min))}${
+      description: `${b.court_name} (${activityName(b.sport)}), ${b.date} ${formatHour(hoursOf(b.start_min))}–${formatHour(hoursOf(b.end_min))}${
         Number(b.players) > 1 ? `, ${b.players} players` : ""
       }`,
       amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee),

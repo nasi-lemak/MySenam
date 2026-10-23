@@ -380,6 +380,9 @@ function opened(): Promise<Driver> {
     shared.ready = (async () => {
       const d = await driver();
       await migrate(d);
+      // The built-in activities, as this release has them, and the catalogue read (lib/activities.ts).
+      const { syncActivities } = await import("./activities.ts");
+      await syncActivities(d);
       await seedIfEmpty();
     })();
     // A failed start must not be remembered: the next query tries again.

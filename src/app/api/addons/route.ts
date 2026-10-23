@@ -1,10 +1,11 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { offered } from "@/lib/addons";
 import { mayShowVenue } from "@/lib/listing";
 import { getClass, getCourt } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { isMinute, parseClock, type Span } from "@/lib/interval";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
   } else {
     venueId = Number(q.get("venueId"));
     sport = q.get("sport") as Sport;
-    if (!Number.isInteger(venueId) || venueId <= 0 || !SPORTS.includes(sport))
+    if (!Number.isInteger(venueId) || venueId <= 0 || !(await isActivity(sport)))
       return NextResponse.json({ error: "Give a courtId, a venueId and sport, or a classId." }, { status: 400 });
   }
   if (!isValidDateString(date)) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });

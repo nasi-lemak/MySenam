@@ -1,5 +1,6 @@
 import { venueZoneOf } from "./zones.ts";
 import { minuteOfDay } from "./interval.ts";
+import { syncBuiltinActivities } from "./activities.ts";
 
 /**
  * Work a migration needs from the application, run straight after that
@@ -18,6 +19,8 @@ export interface StepRunner {
 const STEPS: Record<string, (db: StepRunner) => Promise<void>> = {
   "0089_interval_schema": stageVenueZones,
   "0090_interval_claims": verifyClaims,
+  // The built-ins in full, over the stand-ins 0092 wrote for whatever was named already.
+  "0092_activities": syncBuiltinActivities,
 };
 
 export async function runStep(version: string, db: StepRunner): Promise<void> {

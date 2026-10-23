@@ -1,3 +1,4 @@
+import { isActivity } from "./activities";
 import { getDb } from "./db";
 import { receiptFee } from "./documents";
 import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
@@ -11,7 +12,7 @@ import { tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
 import { sendPlainEmail, toWhatsAppNumber } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
-import { SPORTS, type Sport } from "./types";
+import { type Sport } from "./types";
 import { money } from "./region";
 
 /**
@@ -368,7 +369,7 @@ export async function createLeague(input: LeagueInput, adminId: number): Promise
   const db = getDb();
   const name = input.name.trim();
   if (name.length < 3 || name.length > 100) return { ok: false, error: "Give it a name." };
-  if (!SPORTS.includes(input.sport)) return { ok: false, error: "Unknown sport." };
+  if (!(await isActivity(input.sport))) return { ok: false, error: "Unknown sport." };
   if (input.level !== null && !LEVELS.includes(input.level)) return { ok: false, error: "Unknown level." };
   const who = input.who ?? "anyone";
   if (!isWho(who)) return { ok: false, error: "Anyone, women only or men only." };
@@ -381,7 +382,7 @@ export async function createLeague(input: LeagueInput, adminId: number): Promise
   if (!Number.isFinite(input.fee) || input.fee < 0 || input.fee > 10000) return { ok: false, error: "Check the fee." };
   if (!isValidDateString(input.startsOn) || input.startsOn <= todayISO())
     return { ok: false, error: "The first season has to start after today, so players can join." };
-  if (!(await db.prepare("SELECT 1 FROM courts WHERE venue_id = ? AND sport = ?").get(input.venueId, input.sport)))
+  if (!(await db.prepare("SELECT 1 FROM court_activities ca JOIN courts c ON c.id = ca.court_id WHERE c.venue_id = ? AND ca.sport = ?").get(input.venueId, input.sport)))
     return { ok: false, error: "This venue has no courts for that sport." };
 
   let id = 0;

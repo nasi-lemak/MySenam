@@ -1,10 +1,11 @@
 "use client";
 
+import { activityName, activityIcon } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
 import { CustomerReportPanel } from "./CustomerReportPanel";
 import { formatHour } from "@/lib/time";
-import { PAID_VIA_LABELS, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import { PAID_VIA_LABELS } from "@/lib/types";
 import type { PaidVia } from "@/lib/types";
 import type { VenueReport } from "@/lib/reports";
 import { percent, todayLocal } from "./shared";
@@ -388,7 +389,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               {report.byCourt.map((c) => (
                 <div key={c.courtId} className="flex flex-wrap items-center gap-3 text-sm">
                   <div className="w-44 shrink-0">
-                    {SPORT_ICONS[c.sport]} {c.courtName}
+                    {activityIcon(c.sport)} {c.courtName}
                   </div>
                   <div
                     className="h-3 min-w-[8rem] flex-1 overflow-hidden rounded-full bg-slate-100"
@@ -434,7 +435,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 {report.bySport.map((s) => (
                   <tr key={s.sport} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2">
-                      {SPORT_ICONS[s.sport]} {SPORT_LABELS[s.sport]}
+                      {activityIcon(s.sport)} {activityName(s.sport)}
                     </td>
                     <td className="px-3 py-2 tabular-nums">{s.bookings}</td>
                     <td className="px-3 py-2 tabular-nums">{s.hours}</td>

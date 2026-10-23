@@ -1,3 +1,4 @@
+import { activityPolicy } from "./activity-registry";
 import { formatLength, formatMinute, type Span } from "./interval";
 import type { Sport } from "./types";
 import { hoursOn, type WeekHours } from "./week-hours";
@@ -9,9 +10,10 @@ import { hoursOn, type WeekHours } from "./week-hours";
  * are, the buffers kept around them, the hours, the notice, and how the time
  * is priced.
  *
- * Every setting is inherited where it is not set: a court's own, else its
- * sport's at the venue, else the venue's, else its business's, else the
- * platform's for that sport, else the platform's. So a venue says "on the
+ * Every setting is inherited where it is not set: the booking product's own
+ * (one activity on one court), else the court's, else the activity's at the
+ * venue, else the venue's, else its business's, else the activity's usual
+ * rules in the catalogue (lib/activity-registry.ts), else the platform's. So a venue says "on the
  * hour" once, and padel there says "every 15 minutes, 60, 75 or 90 minutes"
  * without repeating the rest.
  *
@@ -71,6 +73,8 @@ export interface BookingPolicy {
   weekHours: WeekHours | null;
   /** How long before it starts a customer may book, at the latest. */
   noticeMinutes: number;
+  /** Customers need a staff sign-off for the activity first (lib/sign-offs.ts). */
+  signOff: boolean;
   pricing: PricingPolicy;
 }
 
@@ -95,6 +99,7 @@ export type PolicySettings = {
   fixedPrices?: FixedPrice[] | null;
   setupFee?: number | null;
   cleanupFee?: number | null;
+  signOff?: boolean | null;
 };
 
 export const SETTING_KEYS = [
@@ -117,6 +122,7 @@ export const SETTING_KEYS = [
   "fixedPrices",
   "setupFee",
   "cleanupFee",
+  "signOff",
 ] as const satisfies readonly (keyof PolicySettings)[];
 
 /** The platform's: on the hour, an hour at a time, up to four hours. */
@@ -140,20 +146,15 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   fixedPrices: null,
   setupFee: 0,
   cleanupFee: 0,
+  signOff: false,
 };
 
-/** Sports whose usual game is not the platform's hour: padel's 90 minutes, from any half hour. */
-export const SPORT_POLICY: Partial<Record<Sport, PolicySettings>> = {
-  padel: { startEvery: 30, lengthStep: 30, minLength: 30, defaultLength: 90 },
-};
-
-/** How long a game of a sport usually is, in minutes: what search asks for when the sport is picked. */
-export function usualMinutes(sport: Sport): number {
-  return SPORT_POLICY[sport]?.defaultLength ?? 60;
-}
+/** How long a game or session usually is, in minutes (the activity catalogue's, lib/activity-registry.ts). */
+export { usualMinutes } from "./activity-registry";
 
 /** The levels a setting is looked for in, most specific first. */
 export type PolicyScope =
+  | { court: number; sport: Sport }
   | { court: number }
   | { venue: number; sport: Sport }
   | { venue: number }
@@ -161,7 +162,8 @@ export type PolicyScope =
 
 /** Settings from the most specific level down, merged: the first set value wins. */
 export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): BookingPolicy {
-  const chain = [...levels, ...(sport && SPORT_POLICY[sport] ? [SPORT_POLICY[sport]!] : []), PLATFORM_POLICY as PolicySettings];
+  // Beneath the venue's levels, the activity's own usual rules (the catalogue), then the platform's.
+  const chain = [...levels, ...(sport ? [activityPolicy(sport)] : []), PLATFORM_POLICY as PolicySettings];
   const pick = <K extends keyof PolicySettings>(key: K): NonNullable<PolicySettings[K]> | null => {
     for (const level of chain) {
       const v = level[key];
@@ -187,6 +189,7 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     bufferAfter: pick("bufferAfter")!,
     weekHours: pick("weekHours"),
     noticeMinutes: pick("noticeMinutes")!,
+    signOff: pick("signOff") === true,
     pricing: {
       rateMode: pick("rateMode")!,
       billStep: pick("billStep"),

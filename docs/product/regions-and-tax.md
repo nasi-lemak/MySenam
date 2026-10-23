@@ -31,10 +31,10 @@ table in `src/lib/region.ts`:
 - **The browser** learns the country from the language provider in the root
   layout, so a client component formats money and phone numbers as the
   server does.
-- **Time**: both countries are UTC+8 all year. Times are worked out from the
-  zone and that fixed offset, which is right for every country without
-  daylight saving; a country with it, or with several zones (Indonesia),
-  would need the zone kept per venue.
+- **Time**: both countries are UTC+8 all year. Each venue keeps its own zone
+  (below), so a country with several zones (Indonesia) works; one with
+  daylight saving does not yet, and a test refuses any such zone in the
+  region table ([known limitations](../roadmap/known-limitations.md)).
 - **Phone numbers** have one key however they are written (`src/lib/phone.ts`
   and the database's `phone_key()`, migration 0035): `+60 12-345 6789` and
   `012-345 6789` are one number, `+65 9123 4567` and `9123 4567` another, and
@@ -60,7 +60,8 @@ table in `src/lib/region.ts`:
   bookings are wall-clock times there (18:00 on the 4th), and its zone turns
   them into moments: when a slot has passed, the booking window, the
   cancellation cutoff, check-in, reminders and calendar invites. Zones are
-  IANA names, so daylight saving is handled for countries that have it.
+  IANA names; none in the region table has daylight saving, which is not
+  handled.
   - **Worked out from the map pin**, not the address: the pin is a point
     already checked to be in the country, while an address is free text.
     The lookup (`@photostructure/tz-lookup`, server only) is kept to the
@@ -74,7 +75,7 @@ table in `src/lib/region.ts`:
     zone.
   - Malaysia and Singapore are UTC+8 without daylight saving, so today this
     changes nothing anyone sees. It is what lets an install take venues in
-    Indonesia's three zones, or the Americas, later. Install-wide clocks
+    Indonesia's three zones later. Install-wide clocks
     (billing months, backups, the scheduler) stay on the install's zone.
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).

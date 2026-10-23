@@ -1,7 +1,8 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { listVenuePage, readNear } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
-import { Sport, SPORTS } from "@/lib/types";
+import { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const sport = params.get("sport");
-  if (sport && !SPORTS.includes(sport as Sport))
+  if (sport && !(await isActivity(sport)))
     return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   const page = await listVenuePage({
     area: params.get("area") || undefined,

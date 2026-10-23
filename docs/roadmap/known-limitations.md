@@ -35,11 +35,14 @@ nonces is open for review (P3).
 No numbered booking defect is open; see
 [fixed since the audit](#fixed-since-the-audit).
 
-Also, **awaiting a decision** (the code may be intended): cancelling a weekly series skips weeks inside the cancellation cutoff
-silently rather than applying the late-cancel policy to them; rescheduling
-keeps a booking's length even where the target court's booking rules would
-not offer it (its start, hours and notice are checked) (P3, unconfirmed
-whether intended).
+Also, **awaiting a decision** (the code may be intended): cancelling a weekly
+series skips weeks inside the cancellation cutoff silently rather than
+applying the late-cancel policy to them (P3, unconfirmed whether intended).
+
+**Decided, for the owner to confirm:** a customer's reschedule is now held to
+the target court's booking rules, its length included, where before the
+length was kept even if those rules would not offer it. A manager can still
+move it outside the rules, on record ([business rules](../product/business-rules.md#bookings)).
 
 Known limits of the [booking time model](../architecture/interval-booking-review.md)
 (the owner's decisions and the defaults chosen for open questions are listed
@@ -51,11 +54,11 @@ there):
 - **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), while
   bookings are to the minute: a booking from 21:30 at a venue staffed until
   22:00 counts as staffed (P3).
-- **A court's own weekly hours** can be set through the API but not yet in
-  the booking-rules editor ([roadmap](roadmap.md)) (P3).
-- **Daylight saving** is not handled specially: Malaysia and Singapore have
-  none, so it is untested; a venue in a zone with a change would see a
-  missing or repeated hour that night (P3).
+- **Daylight saving** is not handled: a wall-clock time that never happens or
+  happens twice has no defined meaning for a booking. No zone in any
+  supported country has it, and `tests/time-zones.test.ts` fails if one is
+  added, so it cannot reach a venue unnoticed (P3 until a country with it
+  is planned).
 - **Outages migrated from the half-hour diary** cover whole calendar days of
   their dates; outages made since also cover the late hours past midnight
   (P3).
@@ -64,6 +67,35 @@ there):
 - **The old tables are gone** (migration 0091): rolling back the upgrade is
   restoring the backup taken before it
   ([deployment](../operations/deployment.md#upgrading)).
+
+### Activities
+
+What the [activity catalogue](../features/activities.md) does not yet do:
+
+- **Basic and specialised activities lack part of their usual workflow**:
+  bowling by the game, day passes for climbing and bouldering, kinds and
+  sizes in one fleet, launch and tide windows, range officers per session,
+  fencing bouts and track heats. Each is listed in the
+  [support matrix](../features/activities.md#support-matrix) and planned in
+  the [roadmap](roadmap.md); operators see the note as they pick one (P2).
+- **An operator's own activity** is named in English unless they give the
+  other languages, and is *basic* until someone reviews whether its
+  workflow fits the models (P3).
+- **Sign-offs are checked by phone number.** Without phone checks, anyone who
+  types a signed-off number can book as that person; staff see who arrives
+  (P2, as for every rule keyed on a number).
+- **One booking takes at most eight places** unless the venue sets the most
+  per booking, even on a fleet of twenty (by design, for review).
+- **A catalogue change** made on one instance reaches the others within a
+  minute (the cache), and the browser on its next page (P3).
+- **Country names exist for countries the app is not yet sold in** (sepak
+  takraw in Thailand and the Philippines); they take effect only once that
+  country is added ([regions](../product/regions-and-tax.md)).
+- **The column is still called `sport`** in the database, URLs and the public
+  API, for compatibility; it holds any activity
+  ([ADR 0011](../architecture/decisions/0011-activities-as-data.md)).
+- **The integrity check** looks from yesterday on and lists up to 50 problems
+  of each kind ([monitoring](../operations/monitoring.md)).
 
 ### Money (M)
 

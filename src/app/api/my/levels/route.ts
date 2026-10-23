@@ -1,7 +1,8 @@
+import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { LEVELS, playerLevels, setPlayerLevel, type Level } from "@/lib/games";
-import { SPORTS, type Sport } from "@/lib/types";
+import { type Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function PUT(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  if (!SPORTS.includes(body.sport as Sport)) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
+  if (!(await isActivity(body.sport))) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   if (body.level !== null && !LEVELS.includes(body.level as Level))
     return NextResponse.json({ error: "Unknown level." }, { status: 400 });
   await setPlayerLevel(user.id, body.sport as Sport, body.level as Level | null);
