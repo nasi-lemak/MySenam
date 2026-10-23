@@ -105,6 +105,18 @@ added without `requireAdmin` fails CI. On top of that sweep, the venue
 boundary and owner-only routes are checked with real sessions (own venue
 `200`, another venue `403`, a venue's staff on a platform-wide route `403`),
 `tests/roles.test.ts` checks every `MANAGER_ONLY` line against a real route,
-and `tests/branches.test.ts` covers business managers across branches. The
-sweep proves a session is required; whether a route that *does* check
-compares the right venue is only as good as those per-route tests.
+and `tests/branches.test.ts` covers business managers across branches.
+
+`tests/tenant-sweep.test.ts` checks the comparison itself, on every route. A
+second venue is filled with a booking, class, promo, pass, membership, extra,
+notice, tournament, league, company account, online payment and staff, every
+name carrying a marker. Every method of every admin route is then called by
+a manager of the first venue with every identifier it might read (path,
+query and body) set to the other venue's, and must neither answer with the
+marker nor change any of the other venue's rows. The routes that refuse such
+a request for its shape before looking at the caller (account invoices,
+blocks, reschedule, kit hire, no-show, refunds, counter payment, credit) are
+then asked again in the right shape and must answer `403` or `404` with
+nothing changed. The same sweep runs between two customers over every
+route under `/api/my`. Removing a venue check from a route makes it fail
+(tried on reports, court editing and a customer's cancellation).

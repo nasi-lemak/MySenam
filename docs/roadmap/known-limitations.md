@@ -126,4 +126,3 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | `.env.example` lists about half the variables | New installs miss settings; [configuration](../development/configuration.md) is complete | P3 |
 | [HTTP routes](../architecture/http-api.md) lists a subset of routes | Developers read the `route.ts` files for the rest | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer; PDPA expects a Malay notice and a named contact | Legal exposure | P1 before public launch |
-| Cross-venue `403` checks are tested on about a dozen routes; the rest rely on the `401` sweep plus code review | A wrong venue comparison in an untested route would not be caught | P2 |

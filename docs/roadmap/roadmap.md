@@ -25,6 +25,7 @@ Done means the acceptance criterion below was checked, not that code exists.
 | Batch | Acceptance criterion | Evidence | Still open |
 | ----- | -------------------- | -------- | ---------- |
 | 1. Trust blockers before a venue sees it (from the market research's first five days) | Every response carries a content security policy that forbids framing and foreign scripts, HSTS, `nosniff`; a signed-in write from another site gets `403`; in production the published default owner password opens nothing and no owner is made without a proper one; a browser books a court and signs in on the production build | `tests/launch-security.test.ts`; `tests/e2e/launch.e2e.ts` (production build, Chromium) | Inline scripts still allowed by the policy (nonces: for review). Uptime monitoring is outside the app (`/api/health` is ready for one) |
+| 2. Tenant isolation proven on every route | No admin route, called by another venue's manager with this venue's identifiers, shows or changes anything of it; the same between customers on `/api/my`; well-formed money and court-sheet writes refused with `403`/`404` | `tests/tenant-sweep.test.ts` (143 checks; fails when a venue check is removed, tried three times) | No defect found. Routes answering for the caller's own venue (13 calls) are not a leak but are not a refusal either |
 
 Deliberate exclusions (surge pricing, referral credit) are recorded under
 [known limitations](known-limitations.md#deliberately-unsupported), not here.

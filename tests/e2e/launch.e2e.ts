@@ -115,3 +115,33 @@ describe("a signed-in request made by another site", () => {
     expect((await logout(url)).status).toBeLessThan(400);
   });
 });
+
+describe("a venue's staff, on the running app", () => {
+  /** Signs in through the API as the browser would, and returns the cookie. */
+  async function signIn(email: string, password: string): Promise<string> {
+    const res = await fetch(`${url}/api/admin/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: url },
+      body: JSON.stringify({ email, password }),
+    });
+    expect(res.status, `sign in as ${email}`).toBe(200);
+    return res.headers.get("set-cookie")!.split(";")[0];
+  }
+
+  it("see their own venue's report and are refused another's", async () => {
+    const { venues } = (await (await fetch(`${url}/api/venues`)).json()) as { venues: { id: number }[] };
+    const [own, other] = venues.map((v) => v.id);
+    const owner = await signIn(OWNER.email, OWNER.password);
+    const made = await fetch(`${url}/api/admin/admins`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: owner, origin: url },
+      body: JSON.stringify({ name: "E2E Desk Manager", email: "manager@e2e.my", password: "a manager's long password", venueId: own, role: "manager" }),
+    });
+    expect(made.status).toBeLessThan(300);
+    const staff = await signIn("manager@e2e.my", "a manager's long password");
+    const report = (venueId: number) =>
+      fetch(`${url}/api/admin/reports?venueId=${venueId}&from=${tomorrow()}&to=${tomorrow()}`, { headers: { cookie: staff } });
+    expect((await report(own)).status).toBe(200);
+    expect((await report(other)).status).toBe(403);
+  });
+});
