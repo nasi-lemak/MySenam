@@ -11,6 +11,8 @@ import { isMinute, parseClock } from "./interval";
  * language instead of this one.
  */
 export function refusal(r: Refusal, status = 409): NextResponse {
+  // Too busy to finish (lib/db.ts, BusyError): nothing was kept, so it is safe to send again.
+  if (r.code === "BUSY") return NextResponse.json({ error: r.error, code: r.code }, { status: 503, headers: { "Retry-After": "2" } });
   return NextResponse.json({ error: r.error, code: r.code, vars: r.vars }, { status });
 }
 

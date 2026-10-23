@@ -7,7 +7,7 @@ import { randomBytes, randomInt } from "crypto";
 import { notesFor } from "./customer-notes";
 import { signaturesFor } from "./waivers";
 import { reviewPath } from "./review-links";
-import { getDb, isUniqueViolation, withTransaction } from "./db";
+import { getDb, isBusy, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { distanceM, inCountry, readPoint } from "./geo";
@@ -61,6 +61,7 @@ import {
   claim,
   fits,
   isConflict,
+  lockCourts,
   occupantsOn,
   peakPlaces,
   release,
@@ -306,6 +307,27 @@ function refuse(code: ErrorCode, vars?: Record<string, string | number>): Refusa
   if (vars) refusal.vars = vars;
   return refusal;
 }
+
+/**
+ * A change that ran out of tries against others (lib/db.ts, BusyError) is
+ * refused as busy, safe to ask again, rather than thrown: nothing was kept.
+ */
+function busyAware<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R | Refusal> {
+  return async (...args: A) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      if (isBusy(err)) return refuse("BUSY");
+      throw err;
+    }
+  };
+}
+export const cancelBooking = busyAware(cancelBookingOnce);
+export const adminCancelBooking = busyAware(adminCancelBookingOnce);
+export const rescheduleBooking = busyAware(rescheduleBookingOnce);
+export const moveBooking = busyAware(moveBookingOnce);
+export const enrolInClass = busyAware(enrolInClassOnce);
+export const claimWaitlistOffer = busyAware(claimWaitlistOfferOnce);
 
 /** The store speaks English; the page translates. */
 const ENGLISH = translator("en");
@@ -775,7 +797,8 @@ export async function createGroupBooking(input: {
 } & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
-  const courts = await Promise.all(courtIds.map((id) => getCourt(id)));
+  // In one order, so two groups sharing courts queue rather than deadlock.
+  const courts = await Promise.all(courtIds.sort((a, b) => a - b).map((id) => getCourt(id)));
   if (courts.some((c) => !c)) return refuse("COURT_NOT_FOUND");
   if (new Set(courts.map((c) => c!.venueId)).size > 1) return refuse("GROUP_ONE_VENUE");
 
@@ -788,6 +811,8 @@ export async function createGroupBooking(input: {
   }
   try {
     return await withTransaction(async () => {
+      // Everything the group will hold, locked at once before any of it is claimed.
+      await lockCourts(courts.map((c) => c!));
       const made: Booking[] = [];
       for (const court of courts) {
         const result = await createBookingSeries({ ...input, courtId: court!.id, weeks: 1 });
@@ -802,6 +827,7 @@ export async function createGroupBooking(input: {
     });
   } catch (err) {
     if (err instanceof Refused) return err.result;
+    if (isBusy(err)) return refuse("BUSY");
     throw err;
   }
 }
@@ -1798,7 +1824,10 @@ export async function createBookingSeries(
 
   try {
     const result = await withTransaction(async () => {
-      const bookings: Booking[] = [];
+      // Ids only: each booking is read back once the transaction has committed.
+      // Reading them here, by id, put every booking at the same moment on the
+      // same index page as every other, and Postgres stopped some (B13).
+      const bookingIds: number[] = [];
       const skipped: SeriesSkip[] = [];
       // The offer being claimed holds the time for this booking: let it go first.
       if (offer) await release({ kind: "offer", waitlistId: offer });
@@ -1815,15 +1844,16 @@ export async function createBookingSeries(
               const id = (await db
                 .prepare(
                   `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
-                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override, last_minute)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
                 )
                 .get(
                   generateCode(), courtId, court.sport, weekDate, span.start, span.end,
                   instantOf(weekDate, span.start, zone).toISOString(), instantOf(weekDate, span.end, zone).toISOString(),
                   name, phone, email ?? null, quote.total, quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
-                  input.classId ?? null, players, breaches.length > 0
+                  input.classId ?? null, players, breaches.length > 0,
+                  quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0
                 )) as { id: number };
               // An enrolment holds a place in its class; the class holds the court.
               if (!input.classId)
@@ -1840,14 +1870,14 @@ export async function createBookingSeries(
           skipped.push({ date: weekDate, reason: reason ?? "already booked" });
           continue;
         }
-        if (quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total)
-          await db.prepare("UPDATE bookings SET last_minute = 1 WHERE id = ?").run(bookingId);
-        bookings.push((await getBookingById(bookingId))!);
+        bookingIds.push(bookingId);
       }
-      if (bookings.length === 0) throw new Error("ALL_CONFLICT");
-      return { bookings, skipped };
+      if (bookingIds.length === 0) throw new Error("ALL_CONFLICT");
+      return { bookingIds, skipped };
     });
-    return { ok: true, ...result, seriesCode, ...(breaches.length > 0 ? { overrides: breaches } : {}) };
+    const bookings: Booking[] = [];
+    for (const id of result.bookingIds) bookings.push((await getBookingById(id))!);
+    return { ok: true, bookings, skipped: result.skipped, seriesCode, ...(breaches.length > 0 ? { overrides: breaches } : {}) };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("CONFLICT:")) {
@@ -1874,6 +1904,8 @@ export async function createBookingSeries(
       if (attempt < MAX_SEAT_RETRIES) return await createBookingSeries(input, attempt + 1);
       throw err;
     }
+    // Inside a group booking the group's transaction is the one that retries and answers.
+    if (isBusy(err)) return refuse("BUSY");
     throw err;
   }
 }
@@ -1966,7 +1998,7 @@ function cutoffMessage(hours: number): string {
     : `Bookings can only be cancelled at least ${hours} hour${hours === 1 ? "" : "s"} before they start. Please call the venue.`;
 }
 
-export async function cancelBooking(code: string, phone: string): Promise<CancelResult> {
+async function cancelBookingOnce(code: string, phone: string): Promise<CancelResult> {
   const booking = await findBooking(code, phone);
   if (!booking) return refuse("BOOKING_NOT_FOUND_CODE");
   return customerCancel(booking);
@@ -2390,7 +2422,7 @@ export async function unblockSlots(courtId: number, date: string, when: number[]
 }
 
 /** Admin cancellation by code — no phone check, works even after start time. */
-export async function adminCancelBooking(code: string): Promise<CancelResult> {
+async function adminCancelBookingOnce(code: string): Promise<CancelResult> {
   const db = getDb();
   const row = await db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
@@ -2480,7 +2512,7 @@ function bookedAtOf(booking: Booking): number | undefined {
  * move it somewhere dearer (they would be playing peak hours for an off-peak
  * price), and staff who do so have chosen not to charge the difference.
  */
-export async function rescheduleBooking(
+async function rescheduleBookingOnce(
   code: string,
   to: {
     date: string;
@@ -2758,7 +2790,7 @@ async function inTheWay(booking: Booking, court: Court, policy: BookingPolicy, z
  * customer's, so it never costs them more — nor do they gain from being put on
  * a cheaper court.
  */
-export async function moveBooking(code: string, toCourtId: number): Promise<MoveResult> {
+async function moveBookingOnce(code: string, toCourtId: number): Promise<MoveResult> {
   const db = getDb();
   const row = await db
     .prepare(
@@ -4493,7 +4525,7 @@ export type EnrolResult = { ok: true; booking: Booking } | Refusal;
  * holding a place in the class (the class holds the court). The class row is
  * locked while its places are counted, so two people cannot take its last.
  */
-export async function enrolInClass(input: {
+async function enrolInClassOnce(input: {
   classId: number;
   name: string;
   phone: string;
@@ -6180,7 +6212,7 @@ export type ClaimResult =
   | Refusal;
 
 /** Take up an offered place. The offer token is the only way in. */
-export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
+async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
     const db = getDb();

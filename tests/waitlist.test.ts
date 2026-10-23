@@ -445,6 +445,21 @@ describe("a place offered to somebody waiting", () => {
     expect((await rescheduleBooking(earlier.booking.code, { date, startHour: hour, courtId: court.id }, "staff")).ok).toBe(false);
   });
 
+  it("once past its time, gives way to a booking even before anything has let it go", async () => {
+    const { court, date, hour } = await offered(7, 12);
+    // Lapsed but still marked held: what the scheduler has not yet got round to.
+    await getDb().prepare("UPDATE claims SET expires_at = now() - interval '1 minute' WHERE court_id = ? AND kind = 'offer' AND active").run(court.id);
+    const taken = await createBooking({ courtId: court.id, date, hours: [hour], name: "After", phone: "0179990004" });
+    expect(taken.ok).toBe(true);
+    const offers = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM claims WHERE court_id = ? AND kind = 'offer' AND active").get(court.id)) as { n: number };
+    expect(offers.n).toBe(0);
+  });
+
+  it("still in its time, keeps the court from anybody else", async () => {
+    const { court, date, hour } = await offered(7, 13);
+    expect((await createBooking({ courtId: court.id, date, hours: [hour], name: "Too soon", phone: "0179990005" })).ok).toBe(false);
+  });
+
   it("on a shared floor partly blocked, leaves no place to sell past what the grid shows", async () => {
     // Three places: one blocked, one booked, one offered to the waiter.
     const { venueId, court, date, hour } = await offered(6, 11, 2);

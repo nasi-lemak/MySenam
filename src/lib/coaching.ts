@@ -5,7 +5,7 @@ import { isAmount, money, roundMoney } from "./region";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { type Refusal, type Sport, type StartOption } from "./types";
 import { LATEST_MINUTE, freeWithin, instantOf, minuteOfDay, rangeLiteral, type Span } from "./interval";
-import { isConflict, occupantsOn } from "./claims";
+import { isConflict, lockCoach, occupantsOn } from "./claims";
 
 /**
  * One-to-one coaching. A venue lists its coaches, what each coaches, their
@@ -289,6 +289,7 @@ export async function attachCoach(bookingId: number, coach: Coach): Promise<Atta
   const zone = venueZoneOf(booking);
   try {
     await withTransaction(async () => {
+      await lockCoach(coach.id);
       await db
         .prepare("INSERT INTO coach_claims (coach_id, booking_id, during) VALUES (?, ?, ?::tstzrange)")
         .run(coach.id, bookingId, rangeLiteral(booking.date, span.start, span.end, zone));

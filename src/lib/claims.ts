@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, rangeLiteral, type Span } from "./interval";
 
 /**
@@ -48,6 +48,41 @@ export async function spacesOf(courtId: number): Promise<number[]> {
   return rows.map((r) => r.space_id);
 }
 
+/**
+ * Claims on the same thing queue rather than deadlock (B14). Two transactions
+ * inserting overlapping claims at once each see the other's uncommitted row
+ * under the exclusion constraint and wait for each other; Postgres breaks that
+ * after a second by killing one, and the retries meet again. So before writing,
+ * a transaction takes a lock on each space (or shared court, or coach) it is
+ * about to claim, always in ascending order within each kind, spaces before
+ * courts before coaches: the second one waits for the first to finish, then
+ * finds the time taken and is refused at once. Transaction-scoped advisory
+ * locks: released at commit or rollback, nothing stored.
+ */
+const LOCK = { space: 1, court: 2, coach: 3 } as const;
+
+async function lockAll(kind: keyof typeof LOCK, ids: number[]): Promise<void> {
+  const db = getDb();
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) await db.prepare("SELECT pg_advisory_xact_lock(?, ?)").get(LOCK[kind], id);
+}
+
+/** Lock what claims on these courts would take: their spaces, or the courts themselves where they sell places. */
+export async function lockCourts(courts: ClaimCourt[]): Promise<void> {
+  const exclusive = courts.filter((c) => c.capacity === 1).map((c) => c.id);
+  if (exclusive.length > 0) {
+    const rows = (await getDb()
+      .prepare(`SELECT space_id FROM court_spaces WHERE court_id IN (${exclusive.map(() => "?").join(",")})`)
+      .all(...exclusive)) as { space_id: number }[];
+    await lockAll("space", rows.map((r) => r.space_id));
+  }
+  await lockAll("court", courts.filter((c) => c.capacity > 1).map((c) => c.id));
+}
+
+/** Lock a coach's time before claiming it (after any court, so the order holds). */
+export async function lockCoach(coachId: number): Promise<void> {
+  await lockAll("coach", [coachId]);
+}
+
 const SOURCE_COLUMN: Record<ClaimKind, string> = {
   booking: "booking_id",
   offer: "waitlist_id",
@@ -89,19 +124,31 @@ export async function claim(input: {
     : rangeLiteral(input.date, input.span.start - before, input.span.end + after, input.zone);
   const column = SOURCE_COLUMN[input.source.kind];
   const expires = input.expiresAt ? input.expiresAt.toISOString() : null;
-  // Expired offers in the way are let go first: the constraint cannot see the clock.
-  await releaseExpiredOffers(input.court.id);
+  const spaces = input.court.capacity === 1 ? await spacesOf(input.court.id) : [];
+  if (input.court.capacity === 1) await lockAll("space", spaces);
+  else await lockAll("court", [input.court.id]);
   if (input.court.capacity === 1) {
-    const spaces = await spacesOf(input.court.id);
     if (spaces.length === 0) throw new Error(`Court ${input.court.id} has no space`);
-    for (const space of spaces)
-      await db
-        .prepare(
-          `INSERT INTO claims (venue_id, court_id, space_id, kind, ${column}, during, occupied, buffer_before, buffer_after, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?)`
-        )
-        .run(input.court.venueId, input.court.id, space, input.source.kind, sourceId(input.source), during, occupied, before, after, expires);
+    const insert = async () => {
+      for (const space of spaces)
+        await db
+          .prepare(
+            `INSERT INTO claims (venue_id, court_id, space_id, kind, ${column}, during, occupied, buffer_before, buffer_after, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?)`
+          )
+          .run(input.court.venueId, input.court.id, space, input.source.kind, sourceId(input.source), during, occupied, before, after, expires);
+    };
+    // The constraint cannot see the clock, so an offer past its time can still
+    // be in the way: only then are such offers let go, and the claim tried
+    // once more. Reading for them on every claim made bookings conflict (B13).
+    try {
+      await withTransaction(insert);
+    } catch (err) {
+      if (!isConflict(err) || (await releaseExpiredOffers(input.court.id)) === 0) throw err;
+      await insert();
+    }
   } else {
+    // The capacity check already ignores offers past their time.
     await db
       .prepare(
         `INSERT INTO claims (venue_id, court_id, places, kind, ${column}, during, occupied, buffer_before, buffer_after, expires_at)
@@ -142,14 +189,15 @@ export async function unclaim(source: ClaimSource): Promise<void> {
 }
 
 /** Waiting-list offers past their time stop holding anything. */
-export async function releaseExpiredOffers(courtId?: number): Promise<void> {
-  await getDb()
+export async function releaseExpiredOffers(courtId?: number): Promise<number> {
+  const done = await getDb()
     .prepare(
       `UPDATE claims SET active = false
-        WHERE active AND kind = 'offer' AND expires_at IS NOT NULL AND expires_at <= now()
+        WHERE active AND kind = 'offer' AND expires_at <= now()
           ${courtId === undefined ? "" : "AND (court_id = ? OR space_id IN (SELECT space_id FROM court_spaces WHERE court_id = ?))"}`
     )
     .run(...(courtId === undefined ? [] : [courtId, courtId]));
+  return done.changes;
 }
 
 /** Something holding a court's time on a day, in that day's minutes. */

@@ -338,7 +338,48 @@ const txStore = shared.txStore;
 
 /** Serialization failure and deadlock: run the transaction again. */
 const RETRYABLE = new Set(["40001", "40P01"]);
-const MAX_ATTEMPTS = 8;
+const MAX_ATTEMPTS = 10;
+/**
+ * Exponential backoff with full jitter: transactions that collided wait a
+ * random time up to a ceiling that doubles each try (10, 20, 40… ms, capped
+ * at 400), so they spread out rather than meeting again. Ten tries wait about
+ * two seconds at most in all.
+ */
+const backoff = (attempt: number) => Math.random() * Math.min(400, 10 * 2 ** (attempt - 1));
+
+/** How transactions have fared since the process started (or since `resetTransactionStats`). */
+export interface TransactionStats {
+  /** Outermost transactions run to the end, committed or not. */
+  transactions: number;
+  /** Tries that were run again, by the Postgres error code that ended them. */
+  retries: Record<string, number>;
+  /** Transactions that ran out of tries. */
+  exhausted: number;
+}
+const stats: TransactionStats = { transactions: 0, retries: {}, exhausted: 0 };
+export function transactionStats(): TransactionStats {
+  return { transactions: stats.transactions, retries: { ...stats.retries }, exhausted: stats.exhausted };
+}
+export function resetTransactionStats(): void {
+  stats.transactions = 0;
+  stats.retries = {};
+  stats.exhausted = 0;
+}
+
+/**
+ * A transaction that kept colliding with others until it ran out of tries.
+ * Nothing it did was kept; the request can be made again (a route answers
+ * `503` with `Retry-After`).
+ */
+export class BusyError extends Error {
+  readonly code = "BUSY";
+  constructor(readonly cause: unknown) {
+    super("The database was too busy to finish this; nothing was saved. Please try again.");
+  }
+}
+export function isBusy(err: unknown): err is BusyError {
+  return err instanceof BusyError;
+}
 
 
 /**
@@ -448,12 +489,22 @@ export function getDb(): Db {
         const d = await opened();
         for (let attempt = 1; ; attempt++) {
           try {
-            return await d.inTransaction((runner) => txStore.run(runner, () => fn(...args)));
+            const result = await d.inTransaction((runner) => txStore.run(runner, () => fn(...args)));
+            stats.transactions++;
+            return result;
           } catch (err) {
             const code = (err as { code?: string }).code;
-            if (!code || !RETRYABLE.has(code) || attempt >= MAX_ATTEMPTS) throw err;
-            // A little jitter, so two that collided do not collide again.
-            await new Promise((r) => setTimeout(r, Math.random() * 10 * attempt));
+            if (!code || !RETRYABLE.has(code)) {
+              stats.transactions++;
+              throw err;
+            }
+            stats.retries[code] = (stats.retries[code] ?? 0) + 1;
+            if (attempt >= MAX_ATTEMPTS) {
+              stats.transactions++;
+              stats.exhausted++;
+              throw new BusyError(err);
+            }
+            await new Promise((r) => setTimeout(r, backoff(attempt)));
           }
         }
       };

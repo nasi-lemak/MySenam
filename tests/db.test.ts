@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
-import { getDb, isUniqueViolation, toPostgresParams, withTransaction } from "../src/lib/db";
+import { BusyError, getDb, isBusy, isUniqueViolation, resetTransactionStats, toPostgresParams, transactionStats, withTransaction } from "../src/lib/db";
+import { refusal } from "../src/lib/api";
 
 /**
  * The database layer itself.
@@ -87,5 +88,51 @@ describe("transactions", () => {
       await put("tx-after");
     });
     expect(await settings()).toEqual(["tx-after", "tx-outer"]);
+  });
+
+  /** An error as Postgres raises it, with its code. */
+  const pgError = (code: string) => Object.assign(new Error(`pg ${code}`), { code });
+
+  it("runs a transaction again after a serialization failure or deadlock, keeping only the try that commits", async () => {
+    resetTransactionStats();
+    let tries = 0;
+    await withTransaction(async () => {
+      tries++;
+      await put(`tx-retry-${tries}`);
+      if (tries === 1) throw pgError("40001");
+      if (tries === 2) throw pgError("40P01");
+    });
+    expect(tries).toBe(3);
+    expect(await settings()).toEqual(["tx-after", "tx-outer", "tx-retry-3"]);
+    expect(transactionStats()).toMatchObject({ transactions: 1, retries: { "40001": 1, "40P01": 1 }, exhausted: 0 });
+  });
+
+  it("gives up after ten tries as busy, with nothing kept, and says so as 503", async () => {
+    resetTransactionStats();
+    let tries = 0;
+    const err = await withTransaction(async () => {
+      tries++;
+      await put(`tx-busy-${tries}`);
+      throw pgError("40001");
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BusyError);
+    expect(isBusy(err)).toBe(true);
+    expect(tries).toBe(10);
+    expect((await settings()).filter((k) => k.startsWith("tx-busy"))).toEqual([]);
+    expect(transactionStats().exhausted).toBe(1);
+    const res = refusal({ ok: false, error: "busy", code: "BUSY" });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("2");
+  });
+
+  it("never retries a real conflict or any other error", async () => {
+    let tries = 0;
+    await expect(
+      withTransaction(async () => {
+        tries++;
+        throw pgError("23P01");
+      })
+    ).rejects.toMatchObject({ code: "23P01" });
+    expect(tries).toBe(1);
   });
 });

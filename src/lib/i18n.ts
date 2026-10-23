@@ -1457,6 +1457,7 @@ const EN = {
   "err.BOOKING_NOT_FOUND": "Booking not found.",
   "err.BOOKING_NOT_FOUND_CODE": "Booking not found. Check the code and phone number.",
   "err.ALREADY_CANCELLED": "This booking is already cancelled.",
+  "err.BUSY": "So many people are booking right now that this could not be finished. Nothing was booked or charged: please try again.",
   "err.BOOKING_WAS_CANCELLED": "This booking was cancelled.",
   "err.KIT_STILL_OUT":
     "The kit for this booking is still out. Bring it back to the desk first.",
@@ -2936,6 +2937,7 @@ const MS: Record<Phrase, string> = {
   "err.BOOKING_NOT_FOUND": "Tempahan tidak dijumpai.",
   "err.BOOKING_NOT_FOUND_CODE": "Tempahan tidak dijumpai. Semak kod dan nombor telefon.",
   "err.ALREADY_CANCELLED": "Tempahan ini sudah dibatalkan.",
+  "err.BUSY": "Terlalu ramai yang menempah sekarang, jadi ini tidak dapat diselesaikan. Tiada tempahan atau caj dibuat: sila cuba lagi.",
   "err.BOOKING_WAS_CANCELLED": "Tempahan ini telah dibatalkan.",
   "err.KIT_STILL_OUT":
     "Peralatan bagi tempahan ini masih belum dipulangkan. Pulangkan ke kaunter dahulu.",

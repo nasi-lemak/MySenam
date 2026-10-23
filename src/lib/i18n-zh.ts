@@ -1299,6 +1299,7 @@ export const ZH: Record<Phrase, string> = {
   "err.BOOKING_NOT_FOUND": "找不到该预订。",
   "err.BOOKING_NOT_FOUND_CODE": "找不到该预订。请检查代码和电话号码。",
   "err.ALREADY_CANCELLED": "此预订已取消。",
+  "err.BUSY": "此刻预订的人太多，未能完成。没有预订，也没有收费：请再试一次。",
   "err.BOOKING_WAS_CANCELLED": "此预订已被取消。",
   "err.KIT_STILL_OUT": "此预订租借的器材尚未归还。请先将其交回前台。",
   "err.SERIES_NOT_FOUND": "找不到该系列。请检查系列代码和电话号码。",
