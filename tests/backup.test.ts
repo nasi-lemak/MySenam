@@ -10,7 +10,10 @@ import {
   DEFAULT_KEEP,
   hoursSinceLastBackup,
   listBackups,
+  localPhotosDir,
+  photosArchiveOf,
   pruneBackups,
+  restorePhotos,
   verifyBackup,
 } from "../src/lib/backup";
 import { createBooking, listVenues } from "../src/lib/store";
@@ -24,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -162,5 +166,85 @@ describe("how stale the newest one is", () => {
 
     vi.setSystemTime(new Date("2026-09-26T08:00:00+08:00"));
     expect(hoursSinceLastBackup(dir)).toBeCloseTo(6, 1);
+  });
+});
+
+describe("the photos with each snapshot (S10)", () => {
+  /** A data folder of its own, with venue photos on disk as the app writes them. */
+  function photosOnDisk(files: Record<string, string>): string {
+    const data = fs.mkdtempSync(path.join(dir, "data-"));
+    vi.stubEnv("MYSENAM_DATA_DIR", data);
+    for (const [name, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(data, "photos", name)), { recursive: true });
+      fs.writeFileSync(path.join(data, "photos", name), content);
+    }
+    return path.join(data, "photos");
+  }
+  const backups = () => path.join(dir, "backups");
+
+  it("are archived beside it, checked, and put back by the restore, with what was there kept aside", async () => {
+    const photos = photosOnDisk({ "venues/1/abc-400.webp": "small", "venues/1/abc-1600.webp": "large", "venues/2/def-400.webp": "other", "venues/2/up.part": "half-written" });
+    const result = await createBackup({ dir: backups() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.photos).toEqual({ file: photosArchiveOf(result.file.path), count: 3 });
+    expect(fs.existsSync(photosArchiveOf(result.file.path))).toBe(true);
+    // The archive is not mistaken for a snapshot of its own.
+    expect(listBackups(backups()).map((b) => b.name)).toEqual([result.file.name]);
+
+    // The photos are lost, and something else written in their place.
+    fs.rmSync(photos, { recursive: true });
+    fs.mkdirSync(photos);
+    fs.writeFileSync(path.join(photos, "stray.webp"), "stray");
+
+    const restored = await restorePhotos(result.file.path);
+    expect(restored.photos).toBe(3);
+    expect(fs.readFileSync(path.join(photos, "venues/1/abc-1600.webp"), "utf8")).toBe("large");
+    expect(fs.readFileSync(path.join(photos, "venues/2/def-400.webp"), "utf8")).toBe("other");
+    expect(fs.existsSync(path.join(photos, "stray.webp"))).toBe(false);
+    // A half-written upload is not a photo, and is not kept.
+    expect(fs.existsSync(path.join(photos, "venues/2/up.part"))).toBe(false);
+    expect(restored.keptAside).not.toBeNull();
+    expect(fs.readFileSync(path.join(restored.keptAside!, "stray.webp"), "utf8")).toBe("stray");
+  });
+
+  it("go when their snapshot is pruned", async () => {
+    photosOnDisk({ "venues/1/abc-400.webp": "small" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-26T01:00:00+08:00"));
+    const first = await createBackup({ dir: backups(), keep: 99 });
+    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    const second = await createBackup({ dir: backups(), keep: 99 });
+    if (!first.ok || !second.ok) throw new Error("no backup");
+    expect(pruneBackups(1, backups())).toEqual([first.file.name]);
+    expect(fs.existsSync(photosArchiveOf(first.file.path))).toBe(false);
+    expect(fs.existsSync(photosArchiveOf(second.file.path))).toBe(true);
+  });
+
+  it("fail the whole backup when they cannot be archived, leaving no snapshot that looks whole", async () => {
+    photosOnDisk({ "venues/1/abc-400.webp": "small" });
+    // A tar that fails, as a full disk or a broken archive would.
+    const bin = fs.mkdtempSync(path.join(dir, "bin-"));
+    fs.writeFileSync(path.join(bin, "tar"), "#!/bin/sh\necho 'tar: write error' >&2\nexit 2\n", { mode: 0o755 });
+    vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH}`);
+    const result = await createBackup({ dir: backups() });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/Photos could not be archived/);
+    expect(listBackups(backups())).toEqual([]);
+    expect(fs.readdirSync(backups()).filter((f) => f.startsWith(".tmp-"))).toEqual([]);
+  });
+
+  it("need no archive when there are none, or when a bucket keeps them", async () => {
+    photosOnDisk({});
+    const none = await createBackup({ dir: backups() });
+    expect(none.ok && none.photos).toEqual({ file: null, count: 0 });
+
+    photosOnDisk({ "venues/1/abc-400.webp": "small" });
+    for (const v of ["ENDPOINT", "BUCKET", "ACCESS_KEY_ID", "SECRET_ACCESS_KEY"]) vi.stubEnv(`PHOTOS_S3_${v}`, "set");
+    expect(localPhotosDir()).toBeNull();
+    const bucketed = await createBackup({ dir: backups() });
+    expect(bucketed.ok && bucketed.photos).toEqual({ file: null, count: 0 });
+    expect((await restorePhotos(bucketed.ok ? bucketed.file.path : "")).photos).toBe(0);
   });
 });

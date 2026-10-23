@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   const result = await createBackup();
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 });
-  const offsite = await copyOffsite(result.file);
+  const offsite = await copyOffsite(result.file, result.photos.file);
   return NextResponse.json({
     file: result.file,
     bookings: result.bookings,

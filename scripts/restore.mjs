@@ -19,7 +19,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { promisify } from "node:util";
-import { backupDir, createBackup, pgEnvironment, verifyBackup } from "../src/lib/backup.ts";
+import { backupDir, createBackup, pgEnvironment, restorePhotos, verifyBackup } from "../src/lib/backup.ts";
 import { databaseLabel, databaseTarget, getDb } from "../src/lib/db.ts";
 
 const run = promisify(execFile);
@@ -117,8 +117,11 @@ if (target.kind === "postgres") {
   await db.close();
 }
 
+// The photos that went with it, where photos are kept on this server.
+const photos = await restorePhotos(source);
+if (photos.keptAside) console.log(`The photos that were there are kept in ${photos.keptAside}`);
 // Read it back through the app's own layer, which also brings an older
 // snapshot's schema up to date.
 const { n } = await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get();
 await getDb().close();
-console.log(`Restored: ${n} bookings. Start the app and check the Bookings tab for today.`);
+console.log(`Restored: ${n} bookings, ${photos.photos} photos. Start the app and check the Bookings tab for today.`);

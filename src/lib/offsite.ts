@@ -1,3 +1,4 @@
+import path from "path";
 import crypto from "crypto";
 import fs from "fs";
 import http from "http";
@@ -261,11 +262,15 @@ export async function offsiteStatus(): Promise<OffsiteStatus> {
  * Backups panel, not a surprise on the day it is needed.
  */
 export async function copyOffsite(
-  backup: Pick<BackupFile, "name" | "path">
+  backup: Pick<BackupFile, "name" | "path">,
+  /** The snapshot's photos archive (lib/backup.ts), sent first: a copy is not whole without it. */
+  photos?: string | null
 ): Promise<UploadResult | null> {
   const config = offsiteConfig();
   if (!config) return null;
-  const result = await uploadBackup(backup, config);
+  const sentPhotos = photos ? await uploadBackup({ name: path.basename(photos), path: photos }, config) : null;
+  const result: UploadResult =
+    sentPhotos && !sentPhotos.ok ? { ok: false, error: `photos: ${sentPhotos.error}` } : await uploadBackup(backup, config);
   const now = new Date().toISOString();
   const previous = await stored();
   await remember(

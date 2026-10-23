@@ -52,7 +52,7 @@ try {
     console.error(`Backup failed: ${result.error}`);
     process.exitCode = 1;
   } else {
-    console.log(`${result.file.name} — ${(result.file.bytes / 1024).toFixed(0)} KB, ${result.bookings} bookings`);
+    console.log(`${result.file.name} — ${(result.file.bytes / 1024).toFixed(0)} KB, ${result.bookings} bookings, ${result.photos.count} photos`);
     for (const old of result.pruned) console.log(`retired ${old}`);
   }
 } finally {

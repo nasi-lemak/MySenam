@@ -376,8 +376,9 @@ export function resetTransactionStats(): void {
  */
 export class BusyError extends Error {
   readonly code = "BUSY";
-  constructor(readonly cause: unknown) {
-    super("The database was too busy to finish this; nothing was saved. Please try again.");
+  // No parameter property: the scripts load this file through Node's type stripping, which cannot run one.
+  constructor(cause: unknown) {
+    super("The database was too busy to finish this; nothing was saved. Please try again.", { cause });
   }
 }
 export function isBusy(err: unknown): err is BusyError {

@@ -156,19 +156,87 @@ export async function verifyBackup(file: string): Promise<VerifyResult> {
   }
 }
 
-/** Drop all but the newest `keep` snapshots. Returns what it deleted. */
+/**
+ * Venue photos kept on this server's disk (no PHOTOS_S3_* bucket) are files,
+ * not rows, so the database snapshot does not hold them (known limitations
+ * S10). Each snapshot then has a companion archive of the photos folder
+ * beside it, taken and checked with it, pruned with it, copied off-site with
+ * it and put back by the restore. With a bucket, photos are the bucket's to
+ * keep (versioning or the provider's own backups), and there is no companion.
+ */
+export function localPhotosDir(): string | null {
+  const bucketed =
+    process.env.PHOTOS_S3_ENDPOINT && process.env.PHOTOS_S3_BUCKET && process.env.PHOTOS_S3_ACCESS_KEY_ID && process.env.PHOTOS_S3_SECRET_ACCESS_KEY;
+  return bucketed ? null : path.join(dataDirectory(), "photos");
+}
+
+/** The photos archive that goes with a snapshot. */
+export function photosArchiveOf(snapshot: string): string {
+  return snapshot.replace(/\.(dump|tar\.gz)$/, ".photos.tar.gz");
+}
+
+/** Every photo file under a folder, as paths relative to it. */
+function photoFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return (fs.readdirSync(dir, { recursive: true }) as string[])
+    .filter((f) => !f.endsWith(".part") && fs.statSync(path.join(dir, f)).isFile())
+    .map((f) => f.split(path.sep).join("/"))
+    .sort();
+}
+
+/** Archive the photos folder beside a snapshot, and read the archive back: the same files, or no archive. */
+async function archivePhotos(snapshot: string): Promise<{ ok: true; photos: number } | { ok: false; error: string }> {
+  const dir = localPhotosDir();
+  const files = dir ? photoFiles(dir) : [];
+  if (!dir || files.length === 0) return { ok: true, photos: 0 };
+  const archive = photosArchiveOf(snapshot);
+  const temporary = path.join(path.dirname(archive), `.tmp-${path.basename(archive)}`);
+  try {
+    fs.rmSync(temporary, { force: true });
+    // The folder, not a list of its files: tens of thousands of names would not fit on a command line.
+    await run("tar", ["-czf", temporary, "--exclude=*.part", "-C", dir, "."], { maxBuffer: 16 * 1024 * 1024 });
+    const { stdout } = await run("tar", ["-tzf", temporary], { maxBuffer: 64 * 1024 * 1024 });
+    const listed = new Set(stdout.split("\n").filter((l) => l && !l.endsWith("/")).map((l) => l.replace(/^\.\//, "")));
+    // Every photo there was is in it (one deleted meanwhile need not be; one uploaded meanwhile is a bonus).
+    const missing = files.filter((f) => !listed.has(f) && fs.existsSync(path.join(dir, f)));
+    if (missing.length > 0) throw new Error(`the photos archive is missing ${missing.length} of ${files.length} files`);
+    fs.renameSync(temporary, archive);
+    return { ok: true, photos: listed.size };
+  } catch (err) {
+    fs.rmSync(temporary, { force: true });
+    return { ok: false, error: `Photos could not be archived: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}` };
+  }
+}
+
+/** Put a snapshot's photos back, keeping what was there aside. Nothing to do when it has none. */
+export async function restorePhotos(snapshot: string): Promise<{ photos: number; keptAside: string | null }> {
+  const archive = photosArchiveOf(snapshot);
+  const dir = localPhotosDir();
+  if (!dir || !fs.existsSync(archive)) return { photos: 0, keptAside: null };
+  let keptAside: string | null = null;
+  if (fs.existsSync(dir)) {
+    keptAside = `${dir}.replaced-${Date.now()}`;
+    fs.renameSync(dir, keptAside);
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  await run("tar", ["-xzf", archive, "-C", dir], { maxBuffer: 16 * 1024 * 1024 });
+  return { photos: photoFiles(dir).length, keptAside };
+}
+
+/** Drop all but the newest `keep` snapshots, and their photos. Returns what it deleted. */
 export function pruneBackups(keep = DEFAULT_KEEP, dir = backupDir()): string[] {
   if (keep < 1) return [];
   const dropped: string[] = [];
   for (const backup of listBackups(dir).slice(keep)) {
     fs.unlinkSync(backup.path);
+    fs.rmSync(photosArchiveOf(backup.path), { force: true });
     dropped.push(backup.name);
   }
   return dropped;
 }
 
 export type BackupResult =
-  | { ok: true; file: BackupFile; bookings: number; pruned: string[] }
+  | { ok: true; file: BackupFile; bookings: number; pruned: string[]; photos: { file: string | null; count: number } }
   | { ok: false; error: string };
 
 /** Take a snapshot, check it, and retire the oldest. */
@@ -219,6 +287,13 @@ export async function createBackup(opts: { dir?: string; keep?: number } = {}): 
     return { ok: false, error: verified.error };
   }
 
+  // The photos with it, or no backup: a snapshot whose photos are missing is not a whole one.
+  const photos = await archivePhotos(final);
+  if (!photos.ok) {
+    fs.rmSync(temporary, { force: true });
+    return { ok: false, error: photos.error };
+  }
+
   fs.renameSync(temporary, final);
   // A pg_dump file is read back rather than restored, so its count comes from
   // the database it was taken from.
@@ -230,6 +305,7 @@ export async function createBackup(opts: { dir?: string; keep?: number } = {}): 
     file: describe(dir, name),
     bookings,
     pruned: pruneBackups(keep, dir),
+    photos: { file: photos.photos > 0 ? photosArchiveOf(final) : null, count: photos.photos },
   };
 }
 

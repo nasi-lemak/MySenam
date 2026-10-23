@@ -216,6 +216,28 @@ describe("sending a copy", () => {
     expect(status.lastError?.error).toMatch(/500 InternalError/);
   });
 
+  it("sends a snapshot's photos with it, and counts the copy failed if they do not go (S10)", async () => {
+    process.env.OFFSITE_S3_ENDPOINT = `http://127.0.0.1:${port}`;
+    process.env.OFFSITE_S3_BUCKET = "backups";
+    process.env.OFFSITE_S3_ACCESS_KEY_ID = "id";
+    process.env.OFFSITE_S3_SECRET_ACCESS_KEY = "secret";
+    const photos = path.join(dir, "mysenam-2026-10-16-030000.photos.tar.gz");
+    fs.writeFileSync(photos, crypto.randomBytes(1_000));
+
+    expect((await copyOffsite({ name: path.basename(file), path: file }, photos))?.ok).toBe(true);
+    expect(received.map((r) => path.posix.basename(r.url))).toEqual(["mysenam-2026-10-16-030000.photos.tar.gz", "mysenam-2026-10-16-030000.db"]);
+    expect(received[0].body.equals(fs.readFileSync(photos))).toBe(true);
+
+    // The photos refused: the snapshot is not sent alone as if it were whole.
+    received.length = 0;
+    reply = { status: 403, body: "<Error><Code>AccessDenied</Code></Error>" };
+    const failed = await copyOffsite({ name: path.basename(file), path: file }, photos);
+    expect(failed?.ok).toBe(false);
+    expect(failed && !failed.ok && failed.error).toMatch(/^photos: /);
+    expect(received).toHaveLength(1);
+    expect((await offsiteStatus()).lastError?.error).toMatch(/photos/);
+  });
+
   it("does nothing when it is not set up", async () => {
     expect(await copyOffsite({ name: path.basename(file), path: file })).toBeNull();
     expect(received).toHaveLength(0);

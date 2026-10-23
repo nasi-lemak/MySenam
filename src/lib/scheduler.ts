@@ -208,7 +208,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
         console.error(`[mysenam] scheduled backup failed: ${taken.error}`);
         await raiseAlert("backup", "The nightly backup failed", taken.error);
       } else {
-        const offsite = await copyOffsite(taken.file);
+        const offsite = await copyOffsite(taken.file, taken.photos.file);
         result.backup = {
           ok: true,
           name: taken.file.name,
