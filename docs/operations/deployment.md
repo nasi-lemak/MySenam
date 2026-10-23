@@ -53,8 +53,9 @@ The tests run every gateway and API against recorded answers, not the real
 services. Before taking real money or sending real messages, check each of
 these once with a real account, in its sandbox where it has one:
 
-- [ ] **Secrets**: `ADMIN_EMAIL` and a strong `ADMIN_PASSWORD` set before the
-      first start (the default is in this README); `MYSENAM_SECRET` set and
+- [ ] **Secrets**: `ADMIN_EMAIL` and an `ADMIN_PASSWORD` of 12 characters or
+      more set before the first start (without it production makes no owner
+      and refuses the published default); `MYSENAM_SECRET` set and
       kept out of backups; two-factor sign-in on for the owner account.
 - [ ] **Email**: `SMTP_URL` and `MAIL_FROM` send a booking confirmation that
       arrives in an inbox, not spam (SPF/DKIM on the sending domain), with

@@ -33,7 +33,7 @@ defect does not change a status by itself; it is named in the gaps.
 
 | Status | Capabilities |
 | ------ | ------------ |
-| IMPLEMENTED_AND_TESTED | 105 |
+| IMPLEMENTED_AND_TESTED | 107 |
 | INTEGRATION_VERIFICATION_REQUIRED | 20 |
 | PARTIALLY_IMPLEMENTED | 3 |
 | IMPLEMENTED_UNTESTED | 2 |
@@ -148,7 +148,9 @@ Authoritative: [authentication](../architecture/authentication.md), [privacy](..
 
 | Capability | Status | Implemented behaviour | Code | Tests | Gaps and dependencies |
 | ---------- | ------ | --------------------- | ---- | ----- | --------------------- |
-| Register, sign in, sessions | IMPLEMENTED_AND_TESTED | scrypt passwords; HttpOnly cookie, Secure on HTTPS | `src/lib/auth.ts`, `src/lib/session-cookie.ts` | `tests/auth.test.ts`, `tests/session-cookie.test.ts` | No CSRF token or `Origin` check |
+| Register, sign in, sessions | IMPLEMENTED_AND_TESTED | scrypt passwords; HttpOnly cookie, Secure on HTTPS | `src/lib/auth.ts`, `src/lib/session-cookie.ts` | `tests/auth.test.ts`, `tests/session-cookie.test.ts` | No CSRF token; cross-site writes refused by `Origin` (row below) |
+| Security headers and cross-site check | IMPLEMENTED_AND_TESTED | CSP, framing, HSTS and others on every response; signed-in cross-site writes refused | `src/lib/security-headers.ts`, `src/lib/same-origin.ts`, `src/middleware.ts` | `tests/launch-security.test.ts`, `tests/e2e/launch.e2e.ts` | CSP allows inline scripts (nonces under review) |
+| Owner password in production | IMPLEMENTED_AND_TESTED | No owner without a 12+ character `ADMIN_PASSWORD`; the default refused at sign-in; replaced at start | `src/lib/admin-auth.ts`, `src/instrumentation-node.ts` | `tests/launch-security.test.ts`, `tests/e2e/launch.e2e.ts` | — |
 | Password reset and change | IMPLEMENTED_AND_TESTED | Single-use hashed token; signs out everywhere | `src/lib/password-reset.ts` | `tests/password-reset.test.ts` | Email delivery live-unverified |
 | Phone verification | IMPLEMENTED_AND_TESTED | Inbound WhatsApp token or a code by SMS or WhatsApp; caps | `src/lib/phone-check.ts` | `tests/phone-methods.test.ts`, `tests/sign-in.test.ts` | Live channels below |
 | Account page and phone-is-not-identity guards | IMPLEMENTED_AND_TESTED | Passes, memberships, wallet keyed on the account | `src/app/account`, `src/app/api/my/passes/route.ts` | `tests/impersonation.test.ts` | — |

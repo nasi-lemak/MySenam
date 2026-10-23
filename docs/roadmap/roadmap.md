@@ -1,6 +1,7 @@
 # Roadmap
 
-Ideas not yet built. **Nothing on this page is operational.** What works is in
+Ideas not yet built, and a record of what has been delivered from them.
+**Nothing in the ideas table is operational.** What works is in
 [feature status](../product/feature-status.md); what is broken or unverified
 is in [known limitations](known-limitations.md), and fixing those comes before
 anything here.
@@ -14,6 +15,16 @@ anything here.
 | Singapore InvoiceNow (Peppol) e-invoicing | PLANNED | A Peppol access point; MyInvois covers Malaysia. |
 | Web push notifications; LINE and Zalo messaging | PLANNED | Each needs its own provider account. |
 | Pinning a webhook's resolved address for the connection itself | PLANNED | Webhook addresses are checked by looking them up just before sending; pinning needs a dedicated HTTP agent ([external API](../integrations/external-api.md)). |
+
+## Delivered
+
+Work taken from this page and from [known limitations](known-limitations.md),
+in the order it was done, with what shows it works and what is still open.
+Done means the acceptance criterion below was checked, not that code exists.
+
+| Batch | Acceptance criterion | Evidence | Still open |
+| ----- | -------------------- | -------- | ---------- |
+| 1. Trust blockers before a venue sees it (from the market research's first five days) | Every response carries a content security policy that forbids framing and foreign scripts, HSTS, `nosniff`; a signed-in write from another site gets `403`; in production the published default owner password opens nothing and no owner is made without a proper one; a browser books a court and signs in on the production build | `tests/launch-security.test.ts`; `tests/e2e/launch.e2e.ts` (production build, Chromium) | Inline scripts still allowed by the policy (nonces: for review). Uptime monitoring is outside the app (`/api/health` is ready for one) |
 
 Deliberate exclusions (surge pricing, referral credit) are recorded under
 [known limitations](known-limitations.md#deliberately-unsupported), not here.

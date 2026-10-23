@@ -25,8 +25,10 @@ it is fixed, and moves to *fixed since the audit* with that test.
 No numbered operations or security defect is open; see
 [fixed since the audit](#fixed-since-the-audit).
 
-Also: there is **no CSRF token or `Origin` check**; cross-site requests are
-stopped by `SameSite=Lax` cookies alone (P3).
+Also: there is no CSRF token, by design: cross-site writes are refused by
+`SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
+The content security policy allows inline scripts; moving to per-request
+nonces is open for review (P3).
 
 ### Booking and availability (B)
 
@@ -119,7 +121,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| No automated browser (end-to-end) tests | Pages are checked by hand only | P2 |
+| End-to-end tests cover a few journeys only ([testing](../development/testing.md#end-to-end-tests)) | Most pages are checked by route and component tests, not a browser | P2 |
 | No ESLint configuration; `npm run lint` is not a working check | Style and some bug classes unchecked | P3 |
 | `.env.example` lists about half the variables | New installs miss settings; [configuration](../development/configuration.md) is complete | P3 |
 | [HTTP routes](../architecture/http-api.md) lists a subset of routes | Developers read the `route.ts` files for the rest | P3 |

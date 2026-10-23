@@ -17,7 +17,8 @@ for development: running Postgres inside the app's own process costs it the
 best part of a gigabyte of memory, against about 250 MB with a server.
 
 Sign in to the staff dashboard at `/admin` with `ADMIN_EMAIL` /
-`ADMIN_PASSWORD` (defaults `admin@mysenam.my` / `mysenam-admin`; see
+`ADMIN_PASSWORD` (defaults `admin@mysenam.my` / `mysenam-admin` in development,
+refused in production; see
 [authentication](../architecture/authentication.md#admin-access)). Messages to
 customers go nowhere until email or WhatsApp is configured; set
 `MYSENAM_SEND=log` to see them in the server log.

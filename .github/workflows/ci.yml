@@ -24,7 +24,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     # A hung run stops here instead of burning the default six hours.
-    timeout-minutes: 20
+    timeout-minutes: 30
     # The suite runs twice: on PGlite, as a developer runs it, and against a
     # real Postgres server, as production runs — where requests really do run
     # side by side on separate connections.
@@ -60,3 +60,10 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The production build, driven by a real browser (tests/e2e).
+      - name: Install Chromium for the end-to-end tests
+        run: npx playwright-core install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run e2e

@@ -72,6 +72,21 @@ async function toAdmin(r: AdminRow): Promise<Admin> {
   return (await toAdmins([r]))[0];
 }
 
+/** The password this project ships with: refused in production (`adminPasswordProblem`). */
+export const DEFAULT_ADMIN_PASSWORD = "mysenam-admin";
+/** Shorter than this, an owner's password is refused in production. */
+export const MIN_OWNER_PASSWORD = 12;
+
+const production = () => process.env.NODE_ENV === "production";
+
+/** What is wrong with ADMIN_PASSWORD for a production install, or null. */
+export function adminPasswordProblem(password = process.env.ADMIN_PASSWORD): string | null {
+  if (!password) return "ADMIN_PASSWORD is not set.";
+  if (password === DEFAULT_ADMIN_PASSWORD) return "ADMIN_PASSWORD is still the published default.";
+  if (password.length < MIN_OWNER_PASSWORD) return `ADMIN_PASSWORD is shorter than ${MIN_OWNER_PASSWORD} characters.`;
+  return null;
+}
+
 /**
  * Create the first platform owner if none exists, so a fresh install is
  * reachable. Credentials come from ADMIN_EMAIL / ADMIN_PASSWORD.
@@ -79,6 +94,10 @@ async function toAdmin(r: AdminRow): Promise<Admin> {
  * An owner, not any account: on a marketplace a business can sign itself up
  * before the owner has ever signed in, and its manager must not count as the
  * install already having somebody in charge.
+ *
+ * In production no owner is made with the published default password, or
+ * none: the install stays locked until ADMIN_PASSWORD is set, rather than
+ * open to anybody who has read this project.
  */
 export async function ensureBootstrapAdmin(): Promise<void> {
   const db = getDb();
@@ -86,14 +105,43 @@ export async function ensureBootstrapAdmin(): Promise<void> {
     .prepare("SELECT COUNT(*) AS n FROM admins WHERE venue_id IS NULL AND business_id IS NULL")
     .get()) as { n: number };
   if (existing.n > 0) return;
+  if (production()) {
+    const problem = adminPasswordProblem();
+    if (problem) {
+      console.error(`[mysenam] No owner account was made: ${problem} Set it and restart.`);
+      return;
+    }
+  }
 
   await db.prepare(
     "INSERT INTO admins (name, email, password_hash, venue_id) VALUES (?, ?, ?, NULL)"
   ).run(
     "Platform Owner",
     process.env.ADMIN_EMAIL || "admin@mysenam.my",
-    hashPassword(process.env.ADMIN_PASSWORD || "mysenam-admin")
+    hashPassword(process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD)
   );
+}
+
+/**
+ * An owner still on the published default, on an install now given a proper
+ * ADMIN_PASSWORD: the password becomes that one. How an install made before
+ * the default was refused gets its owner back (set it, restart). Production
+ * only; returns how many accounts changed.
+ */
+export async function replaceDefaultOwnerPasswords(): Promise<number> {
+  if (!production() || adminPasswordProblem()) return 0;
+  const db = getDb();
+  const owners = (await db
+    .prepare("SELECT id, password_hash FROM admins WHERE venue_id IS NULL AND business_id IS NULL")
+    .all()) as { id: number; password_hash: string }[];
+  let changed = 0;
+  for (const o of owners) {
+    if (!verifyPassword(DEFAULT_ADMIN_PASSWORD, o.password_hash)) continue;
+    await db.prepare("UPDATE admins SET password_hash = ? WHERE id = ?").run(hashPassword(process.env.ADMIN_PASSWORD!), o.id);
+    await db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(o.id);
+    changed++;
+  }
+  return changed;
 }
 
 export async function authenticateAdmin(email: string, password: string): Promise<Admin | null> {
@@ -102,6 +150,8 @@ export async function authenticateAdmin(email: string, password: string): Promis
     .prepare(`SELECT ${ADMIN_COLUMNS}, a.password_hash FROM ${ADMIN_FROM} WHERE a.email = ?`)
     .get(email.trim()) as AdminRow | undefined;
   if (!row || !verifyPassword(password, row.password_hash)) return null;
+  // The published default opens nothing in production, whoever still has it.
+  if (production() && password === DEFAULT_ADMIN_PASSWORD) return null;
   return await toAdmin(row);
 }
 

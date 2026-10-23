@@ -2,6 +2,33 @@
 
 Authoritative for rate limits, phone-number limits and other abuse controls. Sign-in is in [authentication](authentication.md); tenant boundaries in [tenancy](tenancy.md).
 
+## Response headers
+
+Every response carries (`src/lib/security-headers.ts`, set in `next.config.ts`):
+
+| Header | Value and why |
+| ------ | ------------- |
+| `Content-Security-Policy` | Scripts, styles and requests from this site only; images from here or any HTTPS address (photo buckets, OpenStreetMap tiles); no plugins; forms post only here; `frame-ancestors 'none'` so no other site can frame a booking or payment screen |
+| `X-Frame-Options` | `DENY`, for browsers that do not read `frame-ancestors` |
+| `Strict-Transport-Security` | A year, not preloaded, and not for sub-domains (a storefront may be a venue's own domain, whose other sites are not ours to bind); ignored over plain HTTP |
+| `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` | `nosniff`; `strict-origin-when-cross-origin`; only geolocation, for *near me* |
+
+The policy allows inline scripts, because Next.js writes its page data inline
+and a nonce per request would make every page render on request. It stops a
+script loaded from elsewhere, not one injected inline; moving to nonces is a
+decision for review, not made here.
+
+## Requests from another site
+
+`src/middleware.ts` refuses, with `403`, a request to `/api/` that changes
+something (not `GET`, `HEAD` or `OPTIONS`), carries a sign-in cookie
+(`ms_session` or `ms_admin`) and comes from another site: an `Origin` whose
+host is not the request's `Host`, `X-Forwarded-Host` or `MYSENAM_URL`, or
+`Sec-Fetch-Site: cross-site` (`src/lib/same-origin.ts`). Requests without our
+cookies (gateway callbacks, WhatsApp's webhook) and the key-authorised public
+API under `/api/v1/` are not checked. A proxy that rewrites `Host` must pass
+the original in `X-Forwarded-Host`, or `MYSENAM_URL` must name the site.
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited

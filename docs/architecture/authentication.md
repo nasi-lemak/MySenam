@@ -9,10 +9,18 @@ session cookies) held in the `admins` table. On a fresh database the first
 platform owner is created automatically:
 
 - Email: `ADMIN_EMAIL`, default `admin@mysenam.my`
-- Password: `ADMIN_PASSWORD`, default `mysenam-admin`
+- Password: `ADMIN_PASSWORD`, default `mysenam-admin` in development only
 
-**Set both before deploying.** Once signed in, the owner can add venues and
-issue staff accounts from the *Venues & staff* tab.
+**In production the default password opens nothing.** With `NODE_ENV=production`
+no owner is created unless `ADMIN_PASSWORD` is set, is not the published
+default and is at least 12 characters; the server logs why and the install
+stays locked until it is set. Signing in with the published default is
+refused for any account. An owner created earlier that still has the default
+is given `ADMIN_PASSWORD` at the next start (and signed out everywhere), which
+is how an older install gets its owner back: set it, restart
+(`adminPasswordProblem`, `replaceDefaultOwnerPasswords` in
+`src/lib/admin-auth.ts`). Once signed in, the owner can add venues and issue
+staff accounts from the *Venues & staff* tab.
 
 Staff accounts are a platform owner (no venue, no business), a business
 manager (a business, every branch of it), or branch staff at one venue, who
@@ -63,10 +71,12 @@ in `sessions` and `admin_sessions` that hold the SHA-256 of the token, not the
 token (`sessionKey`), so a backup or a read of the table hands out no live
 sign-in; migration `0086_session_tokens.sql` converted sessions already issued.
 
-**No CSRF token or `Origin` check.** Cross-site requests are held off by
-`SameSite=Lax` alone, which stops cross-site `POST`s carrying the cookie in
-current browsers but is not a second line of defence
-([known limitations](../roadmap/known-limitations.md#operations-and-security-s)).
+**Requests from another site.** Session cookies are `SameSite=Lax`, which
+keeps them off cross-site `POST`s in current browsers. Behind that, a request
+to `/api/` that changes something and carries a sign-in cookie is refused
+with `403` when its `Origin` is another site or its `Sec-Fetch-Site` says
+`cross-site` ([security](security.md#requests-from-another-site)). There is
+no CSRF token.
 
 ## Signing in with Google
 

@@ -28,7 +28,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_STAFF_2FA` | — | Make two-factor sign-in compulsory for staff: `owners` (platform owners), `managers` (owners and managers, not front desk) or `all`. Unset, each account chooses. See *Two-factor sign-in* |
 | `SITE_NAME` | `MySenam` | What the site calls itself — the header, page titles, privacy notice, shared links |
 | `ADMIN_EMAIL` | `admin@mysenam.my` | The first platform owner, created on a fresh database |
-| `ADMIN_PASSWORD` | `mysenam-admin` | **Set this.** The default is in this README |
+| `ADMIN_PASSWORD` | `mysenam-admin` (development only) | **Required in production**: at least 12 characters and not the default, or no owner account is made and the default is refused at sign-in ([admin access](../architecture/authentication.md#admin-access)) |
 | `DATABASE_URL` | PGlite in `data/pglite` | `postgres://user:password@host:5432/db` in production. `pglite:/some/folder` or `pglite:memory` for PGlite |
 | `DATABASE_POOL_SIZE` | `10` | Connections the app keeps open to the server |
 | `MYSENAM_DATA_DIR` | `data/` | The app's own folder: backups, and `secret.key` when `MYSENAM_SECRET` is not set. Put it on a disk that survives a redeploy |
@@ -70,7 +70,8 @@ Set by the platform rather than by you, and read by the code: `NODE_ENV` (produc
 
 `.env.example` lists the commonly set variables with comments; copy it to `.env.local`. This table is the complete list.
 
-On a production start the server warns about a default or unset
+On a production start the server warns about an unset, default or short
 `ADMIN_PASSWORD`, an unset `ADMIN_EMAIL`, and missing off-site backup settings
-(`src/instrumentation-node.ts`). It warns rather than refuses, because a venue in the
-middle of a Saturday does not want its booking system declining to boot.
+(`src/instrumentation-node.ts`). It still starts, because a venue in the middle
+of a Saturday does not want its booking system declining to boot; but the
+default password then opens nothing.

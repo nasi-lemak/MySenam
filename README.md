@@ -75,8 +75,9 @@ Read [deployment](docs/operations/deployment.md),
 
 ## Before production
 
-- **Set `ADMIN_EMAIL` and a strong `ADMIN_PASSWORD`** before the first start;
-  the defaults are published here. Set `MYSENAM_SECRET` and keep it out of
+- **Set `ADMIN_EMAIL` and an `ADMIN_PASSWORD` of 12+ characters** before the
+  first start: in production the published default opens nothing and no owner
+  is made without one. Set `MYSENAM_SECRET` and keep it out of
   backups. Turn on two-factor sign-in for owners.
 - **No external integration has been verified against a live account**:
   Billplz, Stripe, WhatsApp, SMS, email delivery, MyInvois and Google sign-in

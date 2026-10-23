@@ -10,10 +10,14 @@ export async function startNode(): Promise<void> {
 
   const warn = (message: string) => console.warn(`[mysenam] ${message}`);
 
-  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === "mysenam-admin")
-    warn(
-      "ADMIN_PASSWORD is unset or still the default. Anyone who knows this project owns every venue — set it and restart."
-    );
+  const { adminPasswordProblem, replaceDefaultOwnerPasswords } = await import("./lib/admin-auth");
+  const problem = adminPasswordProblem();
+  if (problem)
+    warn(`${problem} The published default is refused in production, so no owner can sign in with it — set ADMIN_PASSWORD and restart.`);
+  else {
+    const replaced = await replaceDefaultOwnerPasswords().catch(() => 0);
+    if (replaced > 0) warn(`${replaced} owner account(s) still had the default password; it is now ADMIN_PASSWORD.`);
+  }
   if (!process.env.ADMIN_EMAIL)
     warn("ADMIN_EMAIL is unset, so the first operator account is admin@mysenam.my.");
   if (!process.env.OFFSITE_S3_ENDPOINT || !process.env.OFFSITE_S3_BUCKET)
