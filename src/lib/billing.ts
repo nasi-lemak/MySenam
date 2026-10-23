@@ -459,11 +459,13 @@ export async function payInvoiceOnline(invoiceId: number, payer: { name: string;
 }
 
 /** The gateway says an invoice's bill was paid. Once, however often it says so. */
-export async function settleInvoice(invoiceId: number): Promise<void> {
-  await getDb()
+/** Paid online: false when it was no longer due (paid already, or voided), so the money is owed back. */
+export async function settleInvoice(invoiceId: number): Promise<boolean> {
+  const done = await getDb()
     .prepare(
       "UPDATE venue_invoices SET status = 'paid', paid_at = datetime('now'), paid_via = 'online' WHERE id = ? AND status = 'due'"
     )
     .run(invoiceId);
   await applyPaymentHolds();
+  return done.changes === 1;
 }

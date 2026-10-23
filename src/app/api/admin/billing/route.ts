@@ -15,6 +15,7 @@ import {
 import { isMarketplace } from "@/lib/mode";
 import { planTiers, setPlanTiers, suggestedTiers, type PlanTier } from "@/lib/plans";
 import { applyPaymentHolds } from "@/lib/payment-holds";
+import { markRefunded, platformRefundsOwed, refundOnline, refundsInFlight } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,9 @@ export async function GET(req: NextRequest) {
       tiers: await planTiers(),
       suggestedTiers: suggestedTiers(),
       canPayOnline: platformAccount() !== null,
+      // Paid twice, or after it was voided: owed back from the platform's account.
+      refundsOwed: await platformRefundsOwed(),
+      refundsInFlight: await refundsInFlight(null),
     });
   }
   return NextResponse.json({
@@ -59,7 +63,9 @@ export async function GET(req: NextRequest) {
  * `{ action: "pay", invoiceId }` — the venue's own staff, or the owner.
  * `{ action: "markPaid" | "void", invoiceId }` and
  * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` and
- * `{ action: "setTiers", tiers: [{ name, upTo, monthlyFee }], extraEach }` — the owner.
+ * `{ action: "setTiers", tiers: [{ name, upTo, monthlyFee }], extraEach }` and
+ * `{ action: "refund", paymentId, how: "gateway" | "manual" }` (what is owed
+ * back on a payment to the platform) — the owner.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -96,6 +102,16 @@ export async function POST(req: NextRequest) {
       input.action === "markPaid" ? await markInvoicePaid(input.invoiceId as number) : await voidInvoice(input.invoiceId as number);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({ invoice: result.invoice });
+  }
+
+  if (input.action === "refund") {
+    if (!Number.isInteger(input.paymentId)) return NextResponse.json({ error: "paymentId is required." }, { status: 400 });
+    const done =
+      input.how === "gateway"
+        ? await refundOnline(input.paymentId as number, null, admin.id)
+        : await markRefunded(input.paymentId as number, null, admin.id);
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 409 });
+    return NextResponse.json({ payment: done.payment, pending: done.pending, refundsOwed: await platformRefundsOwed() });
   }
 
   if (input.action === "setPlan") {

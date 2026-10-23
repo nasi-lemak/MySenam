@@ -4,10 +4,8 @@ import { venueZoneOf } from "./zones";
 import { isBlocked } from "./limits";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
-import { siteName } from "./site";
 import { distanceM } from "./geo";
-import { baseUrl } from "./outbox";
-import { sendPlainEmail } from "./transports";
+import { baseUrl, emailPlayer } from "./outbox";
 import { addDays, formatHour, isPastSlot, todayISO } from "./time";
 import type { Near } from "./store";
 import { isWho, whoRefusal, type Who } from "./who";
@@ -675,12 +673,8 @@ export async function forgetPlayer(userId: number): Promise<void> {
 
 const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
 
-async function emailUser(userId: number, subject: string, body: string): Promise<void> {
-  const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(userId)) as
-    | { name: string; email: string }
-    | undefined;
-  if (!user) return;
-  await sendPlainEmail(user.email, subject, `Hi ${firstName(user.name)},\n\n${body}\n\n${baseUrl()}/games\n\n${siteName()}`);
+async function emailUser(userId: number, venueId: number, subject: string, body: string): Promise<void> {
+  await emailPlayer({ venueId, userId, subject, body, link: `${baseUrl()}/games` });
 }
 
 async function tellPlayer(userId: number, g: OpenGame, what: "accepted" | "declined" | "removed" | "cancelled"): Promise<void> {
@@ -699,7 +693,7 @@ async function tellPlayer(userId: number, g: OpenGame, what: "accepted" | "decli
     removed: [`You're out of a game: ${g.venueName}, ${when(g)}`, `${g.hostName} has taken you out of their game (${game}). Any share you paid online will be refunded by the venue.`],
     cancelled: [`Game called off: ${g.venueName}, ${when(g)}`, `The booking for ${g.hostName}'s game (${game}) was cancelled. Any share you paid online will be refunded by the venue.`],
   }[what];
-  await emailUser(userId, lines[0], lines[1]);
+  await emailUser(userId, g.venueId, lines[0], lines[1]);
 }
 
 async function tellHost(g: OpenGame, what: "asked" | "joined" | "left"): Promise<void> {
@@ -708,5 +702,5 @@ async function tellHost(g: OpenGame, what: "asked" | "joined" | "left"): Promise
     joined: [`A player joined your game, ${when(g)}`, `A player has joined your game at ${g.venueName}, ${when(g)}.`],
     left: [`A player left your game, ${when(g)}`, `A player has dropped out of your game at ${g.venueName}, ${when(g)}. It is open for somebody else.`],
   }[what];
-  await emailUser(g.hostId, lines[0], lines[1]);
+  await emailUser(g.hostId, g.venueId, lines[0], lines[1]);
 }

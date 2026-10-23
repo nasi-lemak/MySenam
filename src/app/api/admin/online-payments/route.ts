@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { disputesFor, listOnlinePayments, markRefunded, refundOnline, refundsOwed, settleRefundClaims } from "@/lib/payments";
+import { disputesFor, listOnlinePayments, markRefunded, refundOnline, refundsInFlight, refundsOwed, settleRefundClaims } from "@/lib/payments";
 import { schedulerEnabled } from "@/lib/scheduler";
 import { money } from "@/lib/region";
 import { logAction } from "@/lib/activity";
@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     payments: await listOnlinePayments(venueId),
     refundsOwed: await refundsOwed(venueId),
+    // Asked of the gateway and not yet answered, or still going through: neither owed nor done.
+    refundsInFlight: await refundsInFlight(venueId),
     disputes: await disputesFor(venueId),
   });
 }

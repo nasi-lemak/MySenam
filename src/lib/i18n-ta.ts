@@ -1262,6 +1262,8 @@ export const TA: Record<Phrase, string> = {
   "msg.campaign": "{body}\n\n—\n{venue} இன் செய்திகளையும் சலுகைகளையும் மின்னஞ்சலில் பெற நீங்கள் ஒப்புக்கொண்டதால் இதைப் பெறுகிறீர்கள். ஒரே கிளிக்கில் விலகுங்கள்: {link}",
   "msg.campaignTest": "{body}\n\n—\nஇது ஒரு சோதனை: ஒவ்வொரு வாடிக்கையாளரின் நகலும் ஒரே கிளிக்கில் விலகுவதற்கான இணைப்புடன் முடியும்.",
   "msg.coachNewSubject": "புதிய பயிற்சி வகுப்பு: {date}, {time}",
+  "msg.programmeSubject": "{subject}",
+  "msg.programmeBody": "{text}",
   "msg.coachNew": "வணக்கம் {name}, உங்களுடன் ஒரு பயிற்சி வகுப்பு முன்பதிவு செய்யப்பட்டுள்ளது.\n\n{student}\n{date}, {time}\n{court}, {venue}\nமுன்பதிவு {code}\n\nஉங்கள் முழு அட்டவணையும் மையம் உங்களுக்குக் கொடுத்த தனிப்பட்ட இணைப்பில் உள்ளது.",
   "msg.coachCancelledSubject": "ரத்து செய்யப்பட்டது: {date}, {time} பயிற்சி வகுப்பு",
   "msg.coachCancelled": "வணக்கம் {name}, {date}, {time} அன்று {student} உடனான பயிற்சி வகுப்பு ({court}, {venue}) ரத்து செய்யப்பட்டது. முன்பதிவு {code}.",

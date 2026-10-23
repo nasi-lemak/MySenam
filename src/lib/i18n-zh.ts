@@ -1259,6 +1259,8 @@ export const ZH: Record<Phrase, string> = {
   "msg.campaign": "{body}\n\n—\n您收到此邮件，是因为您同意通过电子邮件接收 {venue} 的消息和优惠。一键退订：{link}",
   "msg.campaignTest": "{body}\n\n—\n测试邮件：每位顾客收到的邮件末尾都有一键退订链接。",
   "msg.coachNewSubject": "新课程：{date}，{time}",
+  "msg.programmeSubject": "{subject}",
+  "msg.programmeBody": "{text}",
   "msg.coachNew": "{name}，您好，有学员预订了您的课程。\n\n{student}\n{date}，{time}\n{court}，{venue}\n预订编号 {code}\n\n您的完整日程请查看场馆提供的私人链接。",
   "msg.coachCancelledSubject": "已取消：{date}，{time} 的课程",
   "msg.coachCancelled": "{name}，您好，{student} 于 {date}，{time}（{court}，{venue}）的课程已取消。预订编号 {code}。",

@@ -3,20 +3,28 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 const sent: { to: string; subject: string; text: string }[] = [];
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (to: string, subject: string, text: string) => {
-    sent.push({ to, subject, text });
-    return true;
-  },
-}));
+// Programme emails are queued (lib/outbox.ts, emailPlayer); each one queued is also noted here, as sent.
+vi.mock("../src/lib/outbox", async (original) => {
+  const real = await original<typeof import("../src/lib/outbox")>();
+  return {
+    ...real,
+    emailPlayer: async (input: Parameters<typeof real.emailPlayer>[0]) => {
+      await real.emailPlayer(input);
+      const { getDb } = await import("../src/lib/db");
+      const queued = (await getDb()
+        .prepare("SELECT recipient, subject, body FROM messages WHERE kind = 'programme' ORDER BY id DESC LIMIT 1")
+        .get()) as { recipient: string; subject: string; body: string } | undefined;
+      if (queued) sent.push({ to: queued.recipient, subject: queued.subject, text: queued.body });
+    },
+  };
+});
 
 import { createOutage } from "../src/lib/outages";
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { savePaymentSettings, settleBill, startEntryPayment } from "../src/lib/payments";
+import { markRefunded, refundsOwed, savePaymentSettings, settleBill, startEntryPayment } from "../src/lib/payments";
 import { createBooking, createVenue, getAvailability, joinSlotWaitlist, listVenues, listWaitlistFor } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import {
@@ -353,6 +361,86 @@ describe("calling one off", () => {
     const owed = (await getDb().prepare("SELECT refund_due::float AS due FROM online_payments WHERE bill_id = 'entry-bill-1'").get()) as { due: number };
     expect(owed.due).toBe(20);
     expect((await publicTournaments()).some((x) => x.id === t.id)).toBe(false);
+  });
+});
+
+describe("an entry fee paid twice", () => {
+  const receipts = async (entryId: number, paymentBill: string) =>
+    (await getDb()
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*)::int FROM receipts WHERE source LIKE ?) AS counter,
+           (SELECT COUNT(*)::int FROM receipts r JOIN online_payments p ON r.source = 'payment:' || p.id WHERE p.bill_id = ?) AS online`
+      )
+      .get(`entry:${entryId}@%`, paymentBill)) as { counter: number; online: number };
+  const owed = async (bill: string) =>
+    (await getDb().prepare("SELECT status, amount::float AS amount, refund_due::float AS due, refunded::float AS refunded FROM online_payments WHERE bill_id = ?").get(bill)) as {
+      status: string;
+      amount: number;
+      due: number;
+      refunded: number;
+    };
+
+  it("at the counter, then online: one is the fee, the other owed back, one receipt, however often the gateway reports it", async () => {
+    await savePaymentSettings(venueId, { apiKey: "key-123", collectionId: "col-123", xSignatureKey: "sig-123", sandbox: true, enabled: true });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: "dup-bill-1", url: "https://www.billplz-sandbox.com/bills/dup-bill-1" })));
+    const t = await tournament();
+    const [first] = await entries(t.id, 1);
+    // The page is open when the desk takes the fee in cash.
+    expect(await startEntryPayment(first.user, t.id)).toMatchObject({ ok: true });
+    expect((await setEntry(first.entryId, { paid: true })).ok).toBe(true);
+    // The callback, its retry and the redirect: three reports of one payment.
+    for (let i = 0; i < 3; i++) await settleBill({ billId: "dup-bill-1", paid: true, paidAt: null });
+    expect(await owed("dup-bill-1")).toEqual({ status: "paid", amount: 20, due: 20, refunded: 0 });
+    // Revenue once: the counter's receipt; none for the money owed back.
+    expect(await receipts(first.entryId, "dup-bill-1")).toEqual({ counter: 1, online: 0 });
+    expect((await refundsOwed(venueId)).map((p) => p.billId)).toContain("dup-bill-1");
+
+    // Refunded once, however often it is asked for.
+    const pid = (await refundsOwed(venueId)).find((p) => p.billId === "dup-bill-1")!.id;
+    const [a, b] = await Promise.all([markRefunded(pid, venueId), markRefunded(pid, venueId)]);
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+    expect(await owed("dup-bill-1")).toMatchObject({ due: 20, refunded: 20 });
+    expect((await refundsOwed(venueId)).map((p) => p.billId)).not.toContain("dup-bill-1");
+    const refunds = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM online_refunds WHERE payment_id = ?").get(pid)) as { n: number };
+    expect(refunds.n).toBe(1);
+  });
+
+  it("on two pages at once: the first is the fee, the second owed back", async () => {
+    await savePaymentSettings(venueId, { apiKey: "key-123", collectionId: "col-123", xSignatureKey: "sig-123", sandbox: true, enabled: true });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: "two-page-1", url: "https://www.billplz-sandbox.com/bills/two-page-1" })));
+    const t = await tournament();
+    const [first] = await entries(t.id, 1);
+    expect(await startEntryPayment(first.user, t.id)).toMatchObject({ ok: true });
+    // A second page for the same entry, opened elsewhere (another tab, a day later).
+    await getDb()
+      .prepare(
+        `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, tournament_entry_id)
+         SELECT provider, 'two-page-2', url, venue_id, amount, payer_name, payer_phone, purpose, tournament_entry_id FROM online_payments WHERE bill_id = 'two-page-1'`
+      )
+      .run();
+    await Promise.all([settleBill({ billId: "two-page-1", paid: true, paidAt: null }), settleBill({ billId: "two-page-2", paid: true, paidAt: null })]);
+    const dues = [(await owed("two-page-1")).due, (await owed("two-page-2")).due].sort();
+    expect(dues).toEqual([0, 20]);
+    expect((await myEntry(first.user.id, t.id))?.paid).toBe(true);
+    const online = (await getDb()
+      .prepare("SELECT COUNT(*)::int AS n FROM receipts r JOIN online_payments p ON r.source = 'payment:' || p.id WHERE p.bill_id IN ('two-page-1', 'two-page-2')")
+      .get()) as { n: number };
+    expect(online.n).toBe(1);
+  });
+
+  it("paid online cannot be unmarked at the counter, and two counter marks receipt once", async () => {
+    await savePaymentSettings(venueId, { apiKey: "key-123", collectionId: "col-123", xSignatureKey: "sig-123", sandbox: true, enabled: true });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: "online-only-1", url: "https://www.billplz-sandbox.com/bills/online-only-1" })));
+    const t = await tournament();
+    const [paidOnline, atDesk] = await entries(t.id, 2);
+    expect(await startEntryPayment(paidOnline.user, t.id)).toMatchObject({ ok: true });
+    await settleBill({ billId: "online-only-1", paid: true, paidAt: null });
+    expect((await setEntry(paidOnline.entryId, { paid: false })).ok).toBe(false);
+    expect((await myEntry(paidOnline.user.id, t.id))?.paid).toBe(true);
+
+    await Promise.all([setEntry(atDesk.entryId, { paid: true }), setEntry(atDesk.entryId, { paid: true })]);
+    expect((await receipts(atDesk.entryId, "none")).counter).toBe(1);
   });
 });
 

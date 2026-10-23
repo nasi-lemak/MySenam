@@ -574,13 +574,15 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
       if (claimed.changes === 0) return;
-      // Withdrawn, or the tournament called off, while they paid: owed back.
+      // Withdrawn, the tournament called off, or the fee already paid (at the
+      // counter, or on another page) while they paid: owed back, and no
+      // second receipt — one payment is the fee, the other is the customer's.
       const entry = (await db
         .prepare(
-          `SELECT e.status, t.status AS t_status FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.id = ?`
+          `SELECT e.status, e.paid_at, t.status AS t_status FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.id = ?`
         )
-        .get(row.tournament_entry_id)) as { status: string; t_status: string } | undefined;
-      if (!entry || entry.status === "withdrawn" || entry.t_status === "cancelled")
+        .get(row.tournament_entry_id)) as { status: string; paid_at: string | null; t_status: string } | undefined;
+      if (!entry || entry.status === "withdrawn" || entry.t_status === "cancelled" || entry.paid_at !== null)
         await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
       else {
         await db.prepare("UPDATE tournament_entries SET paid_at = datetime('now') WHERE id = ?").run(row.tournament_entry_id);
@@ -725,7 +727,10 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       const claimed = await db
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
-      if (claimed.changes === 1 && row.pack_id !== null) await settlePack(row.pack_id, "online");
+      if (claimed.changes !== 1) return;
+      // A pack already paid (by hand, or on another page) or called off: this payment is owed back.
+      if (row.pack_id === null || !(await settlePack(row.pack_id, "online")))
+        await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -736,7 +741,10 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       const claimed = await db
         .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
         .run(row.id);
-      if (claimed.changes === 1 && row.invoice_id !== null) await settleInvoice(row.invoice_id);
+      if (claimed.changes !== 1) return;
+      // An invoice already paid (marked by the owner, or on another page) or voided: owed back.
+      if (row.invoice_id === null || !(await settleInvoice(row.invoice_id)))
+        await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     return { payment: await toPayment(fresh), newlyPaid: [] };
@@ -926,18 +934,64 @@ export async function refundsOwed(venueId: number): Promise<OnlinePayment[]> {
   return Promise.all(rows.map(toPayment));
 }
 
+/**
+ * Owed back on what venues paid the platform (an invoice or a WhatsApp pack
+ * paid twice, or after it was voided): the platform owner's to refund, from
+ * the platform's own account.
+ */
+export async function platformRefundsOwed(): Promise<OnlinePayment[]> {
+  const rows = (await getDb()
+    .prepare("SELECT * FROM online_payments WHERE purpose IN ('invoice', 'pack') AND refund_due > refunded ORDER BY id")
+    .all()) as PaymentRow[];
+  return Promise.all(rows.map(toPayment));
+}
+
+/** A refund on its way: asked of the gateway with no answer yet, or accepted and still going through. */
+export interface RefundInFlight {
+  paymentId: number;
+  billId: string;
+  payerName: string | null;
+  amount: number;
+  since: string;
+  state: "asked" | "processing";
+}
+
+/** What staff cannot yet count as refunded or owed: a venue's, or (`null`) the platform's own. */
+export async function refundsInFlight(venueId: number | null): Promise<RefundInFlight[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT p.id, p.bill_id, p.payer_name, r.amount::float AS amount, r.created_at, r.provider_ref FROM online_refunds r
+         JOIN online_payments p ON p.id = r.payment_id
+        WHERE (r.provider_ref LIKE 'claim:%' OR r.pending = 1)
+          AND ${venueId === null ? "p.purpose IN ('invoice', 'pack')" : "p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack')"}
+        ORDER BY r.id`
+    )
+    .all(...(venueId === null ? [] : [venueId]))) as { id: number; bill_id: string; payer_name: string | null; amount: number; created_at: string; provider_ref: string }[];
+  return rows.map((r) => ({
+    paymentId: r.id,
+    billId: r.bill_id,
+    payerName: r.payer_name,
+    amount: r.amount,
+    since: r.created_at,
+    state: r.provider_ref.startsWith("claim:") ? "asked" : "processing",
+  }));
+}
+
 export type RefundDone =
   | { ok: true; payment: OnlinePayment; pending: boolean }
   /** `unknown`: sent, with no clear answer; it stays claimed and is asked again (settleRefundClaims). */
   | { ok: false; error: string; unknown?: boolean };
 
-async function owedRow(paymentId: number, venueId: number): Promise<PaymentRow | null> {
+/** A payment with something owed back: a venue's own (by its id), or one made to the platform (`null`). */
+async function owedRow(paymentId: number, venueId: number | null): Promise<PaymentRow | null> {
   const row = (await getDb()
     .prepare(
-      `SELECT * FROM online_payments
-        WHERE id = ? AND venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded`
+      venueId === null
+        ? "SELECT * FROM online_payments WHERE id = ? AND purpose IN ('invoice', 'pack') AND refund_due > refunded"
+        : `SELECT * FROM online_payments
+            WHERE id = ? AND venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded`
     )
-    .get(paymentId, venueId)) as PaymentRow | undefined;
+    .get(...(venueId === null ? [paymentId] : [paymentId, venueId]))) as PaymentRow | undefined;
   return row ?? null;
 }
 
@@ -1041,8 +1095,8 @@ export async function settleRefundClaims(olderThanMinutes = 10): Promise<number>
   return settled;
 }
 
-/** Staff have made the refund in the gateway's own dashboard. */
-export async function markRefunded(paymentId: number, venueId: number, adminId: number | null = null): Promise<RefundDone> {
+/** Staff have made the refund in the gateway's own dashboard (`venueId` null: the platform owner, for one paid to the platform). */
+export async function markRefunded(paymentId: number, venueId: number | null, adminId: number | null = null): Promise<RefundDone> {
   const row = await owedRow(paymentId, venueId);
   if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
   try {
@@ -1058,7 +1112,7 @@ export async function markRefunded(paymentId: number, venueId: number, adminId: 
  * with the venue's own account: one click instead of a trip to the
  * gateway's dashboard. Only where the gateway has a refund API (Stripe).
  */
-export async function refundOnline(paymentId: number, venueId: number, adminId: number | null = null): Promise<RefundDone> {
+export async function refundOnline(paymentId: number, venueId: number | null, adminId: number | null = null): Promise<RefundDone> {
   const row = await owedRow(paymentId, venueId);
   if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
   const gateway = gatewayFor(row.provider);

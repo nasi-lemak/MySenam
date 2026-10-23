@@ -41,7 +41,7 @@ import {
   whatsappReady,
 } from "../src/lib/whatsapp-credit";
 import { monthBounds, monthOf, usageFor, usageOf } from "../src/lib/whatsapp-usage";
-import { settleBill } from "../src/lib/payments";
+import { platformRefundsOwed, settleBill } from "../src/lib/payments";
 import { addDays, todayISO } from "../src/lib/time";
 
 /** WhatsApp only where a venue wants it, paid for before it is sent. */
@@ -270,6 +270,22 @@ describe("packs", () => {
     await settleBill({ billId: `bill-pack-${pack.id}`, paid: true } as never);
     expect(await creditBalance(id)).toBe(200);
     expect(await payPackOnline(pack.id, { name: "Owner", email: "o@x.my" })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("paid by hand while its page was open: the online payment is owed back, not credited twice", async () => {
+    const id = await venue();
+    const pack = await orderPack(id, null);
+    process.env.BILLPLZ_API_KEY = "k";
+    process.env.BILLPLZ_COLLECTION_ID = "c";
+    process.env.BILLPLZ_X_SIGNATURE_KEY = "x";
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: `bill-twice-${pack.id}`, url: "https://billplz.example/pack" })));
+    expect((await payPackOnline(pack.id, { name: "Owner", email: "o@x.my" })).ok).toBe(true);
+    expect(await settlePack(pack.id, "manual", ownerId)).toBe(true);
+    await settleBill({ billId: `bill-twice-${pack.id}`, paid: true } as never);
+    await settleBill({ billId: `bill-twice-${pack.id}`, paid: true } as never);
+    expect(await creditBalance(id)).toBe(200);
+    const owed = (await platformRefundsOwed()).find((p) => p.billId === `bill-twice-${pack.id}`);
+    expect(owed).toMatchObject({ purpose: "pack", refundOwed: owed?.amount });
   });
 });
 

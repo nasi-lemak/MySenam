@@ -135,12 +135,13 @@ export async function releaseExpiredHolds(): Promise<number> {
         .run(b.id);
       if (claimed.changes === 0) return false;
       await releaseBooking(b.id);
+      // As any cancellation, in the same transaction: a promo use given back,
+      // an open game called off and its shares owed back.
+      await settleCancelled(b.id);
       return true;
     })();
     if (done) released.push(b);
   }
-  // As any cancellation: a promo use given back, an open game called off and its shares owed back.
-  for (const b of released) await settleCancelled(b.id);
   for (const place of new Set(released.map((b) => `${b.court_id}|${b.date}`))) {
     const [court, date] = place.split("|");
     await offerSlotPlace(Number(court), date);

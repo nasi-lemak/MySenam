@@ -27,7 +27,11 @@ export type IntegrityKind =
   /** A scheduled class holds no court time. */
   | "class_unheld"
   /** A cancelled class still holds its court. */
-  | "class_orphaned";
+  | "class_orphaned"
+  /** A refund sent to the gateway over an hour ago with no answer: asked again every few minutes, still unknown (lib/payments.ts). */
+  | "refund_unanswered"
+  /** Money owed back on a payment for over a week: nobody has refunded it. */
+  | "refund_overdue";
 
 export interface IntegrityProblem {
   kind: IntegrityKind;
@@ -148,6 +152,26 @@ export async function checkIntegrity(): Promise<IntegrityProblem[]> {
     .all(from)) as { id: number; venue_id: number; title: string; date: string }[];
   for (const k of classOrphaned)
     problems.push({ kind: "class_orphaned", venueId: k.venue_id, classId: k.id, detail: `${k.title} on ${k.date} is cancelled but still holds its court` });
+
+  // Money: a refund nobody knows the fate of, or one owed and not made. Not
+  // inconsistencies, but what would otherwise be found only by a customer.
+  const unanswered = (await db
+    .prepare(
+      `SELECT p.id, COALESCE(p.venue_id, 0) AS venue_id, p.bill_id, r.amount::float AS amount, r.created_at FROM online_refunds r
+         JOIN online_payments p ON p.id = r.payment_id
+        WHERE r.provider_ref LIKE 'claim:%' AND r.created_at < datetime('now', '-60 minutes') ORDER BY r.id LIMIT ${EACH}`
+    )
+    .all()) as { id: number; venue_id: number; bill_id: string; amount: number; created_at: string }[];
+  for (const r of unanswered)
+    problems.push({ kind: "refund_unanswered", venueId: r.venue_id, detail: `A refund of ${r.amount.toFixed(2)} on payment ${r.bill_id}, asked for at ${r.created_at}, has had no answer from the gateway` });
+  const overdue = (await db
+    .prepare(
+      `SELECT p.id, COALESCE(p.venue_id, 0) AS venue_id, p.bill_id, (p.refund_due - p.refunded)::float AS owed FROM online_payments p
+        WHERE p.refund_due > p.refunded AND COALESCE(p.paid_at, p.created_at) < datetime('now', '-7 days') ORDER BY p.id LIMIT ${EACH}`
+    )
+    .all()) as { id: number; venue_id: number; bill_id: string; owed: number }[];
+  for (const r of overdue)
+    problems.push({ kind: "refund_overdue", venueId: r.venue_id, detail: `${r.owed.toFixed(2)} has been owed back on payment ${r.bill_id} for over a week` });
 
   return problems;
 }

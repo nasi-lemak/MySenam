@@ -2,14 +2,22 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
-const sent: { to: string; subject: string }[] = [];
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (to: string, subject: string) => {
-    sent.push({ to, subject });
-    return true;
-  },
-}));
+const sent: { to: string; subject: string; text: string }[] = [];
+// Programme emails are queued (lib/outbox.ts, emailPlayer); each one queued is also noted here, as sent.
+vi.mock("../src/lib/outbox", async (original) => {
+  const real = await original<typeof import("../src/lib/outbox")>();
+  return {
+    ...real,
+    emailPlayer: async (input: Parameters<typeof real.emailPlayer>[0]) => {
+      await real.emailPlayer(input);
+      const { getDb } = await import("../src/lib/db");
+      const queued = (await getDb()
+        .prepare("SELECT recipient, subject, body FROM messages WHERE kind = 'programme' ORDER BY id DESC LIMIT 1")
+        .get()) as { recipient: string; subject: string; body: string } | undefined;
+      if (queued) sent.push({ to: queued.recipient, subject: queued.subject, text: queued.body });
+    },
+  };
+});
 
 import { NextRequest } from "next/server";
 import { createSession, registerUser, SESSION_COOKIE, type User } from "../src/lib/auth";

@@ -57,7 +57,9 @@ export type MessageKind =
   /** By email only, to a company or school account: its monthly invoice (lib/accounts.ts). */
   | "account_invoice"
   /** By email only, to the venue: a private hire enquiry from its page (lib/enquiries.ts). */
-  | "hire_enquiry";
+  | "hire_enquiry"
+  /** By email only, to a player: a tournament, league or open game they are in (lib/tournaments.ts, leagues.ts, games.ts). */
+  | "programme";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
@@ -587,4 +589,28 @@ export async function recordDelivery(report: { id: string; status: string; times
     done = await db.prepare("UPDATE messages SET delivery_error = ? WHERE provider_id = ?").run(report.error ?? "WhatsApp could not deliver it.", report.id);
   else return false;
   return done.changes > 0;
+}
+
+/**
+ * A tournament, league or open-game email to a player with an account,
+ * queued like every other message: sent with retries, counted against the
+ * day's limit, in the venue's list of messages, and written in the same
+ * transaction as what it is about: a change undone, or run again after a
+ * conflict, queues nothing twice.
+ */
+export async function emailPlayer(input: { venueId: number; userId: number; subject: string; body: string; link: string }): Promise<void> {
+  const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(input.userId)) as { name: string; email: string } | undefined;
+  if (!user) return;
+  const { siteName } = await import("./site");
+  const text = `Hi ${user.name.split(/\s+/)[0]},\n\n${input.body}\n\n${input.link}\n\n${siteName()}`;
+  await enqueue({
+    venueId: input.venueId,
+    kind: "programme",
+    channel: "email",
+    recipient: user.email,
+    locale: "en",
+    subject: "msg.programmeSubject",
+    body: "msg.programmeBody",
+    vars: { subject: input.subject, text },
+  });
 }

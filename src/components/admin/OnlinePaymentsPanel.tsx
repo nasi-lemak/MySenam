@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { OnlinePayment, PaymentDispute, PaymentSettings } from "@/lib/payments";
+import type { OnlinePayment, PaymentDispute, PaymentSettings, RefundInFlight } from "@/lib/payments";
 import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
@@ -31,6 +31,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [settings, setSettings] = useState<PaymentSettings | null>(null);
   const [payments, setPayments] = useState<OnlinePayment[]>([]);
   const [owed, setOwed] = useState<OnlinePayment[]>([]);
+  const [inFlight, setInFlight] = useState<RefundInFlight[]>([]);
   const [disputes, setDisputes] = useState<PaymentDispute[]>([]);
   const [form, setForm] = useState({
     provider: "",
@@ -63,6 +64,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       });
       setPayments(paymentsData.payments);
       setOwed(paymentsData.refundsOwed);
+      setInFlight(paymentsData.refundsInFlight ?? []);
       setDisputes(paymentsData.disputes ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load payment settings");
@@ -281,6 +283,22 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                     Answer it
                   </a>
                 )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {inFlight.length > 0 && (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+          <h3 className="font-semibold">Refunds on their way</h3>
+          <p className="mt-1 text-slate-600">
+            Sent to the gateway and not finished. One with no answer is asked again every few minutes; nothing here can be paid twice.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {inFlight.map((r) => (
+              <li key={`${r.paymentId}-${r.since}`}>
+                {r.payerName ?? "Customer"}: {money(r.amount)} ({r.state === "asked" ? "asked, no answer yet" : "accepted, going through"}) since {localTime(r.since)}
               </li>
             ))}
           </ul>

@@ -15,7 +15,7 @@ import {
   voidInvoice,
 } from "../src/lib/billing";
 import { xSignature } from "../src/lib/billplz";
-import { accountForBill, listOnlinePayments, savePaymentSettings, settleBill } from "../src/lib/payments";
+import { accountForBill, listOnlinePayments, platformRefundsOwed, savePaymentSettings, settleBill } from "../src/lib/payments";
 import { verifyCallback } from "../src/lib/billplz";
 import { createVenue } from "../src/lib/store";
 import {
@@ -179,6 +179,41 @@ describe("paying an invoice online", () => {
     expect((await listInvoices(id))[0]).toMatchObject({ status: "paid", paidVia: "online" });
     // The venue's own list of customer payments does not show its fee.
     expect((await listOnlinePayments(id)).some((p) => p.billId === billId)).toBe(false);
+  });
+
+  it("marked paid by the owner while its page was open: the online payment is owed back from the platform's account", async () => {
+    const id = await venue();
+    process.env.BILLPLZ_API_KEY = "platform-api-key";
+    process.env.BILLPLZ_COLLECTION_ID = "platformcol";
+    process.env.BILLPLZ_X_SIGNATURE_KEY = PLATFORM_KEY;
+    process.env.BILLPLZ_SANDBOX = "on";
+    await setVenuePlan(id, { monthlyFee: 59, billingStartsOn: "2026-01-01" });
+    await issueDueInvoices(NOV_1);
+    const [inv] = await listInvoices(id);
+    const billId = `inv-twice-${inv.id}`;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: billId, url: `https://www.billplz-sandbox.com/bills/${billId}` })));
+    expect((await payInvoiceOnline(inv.id, { name: "Desk", email: "desk@venue.my" })).ok).toBe(true);
+    expect((await markInvoicePaid(inv.id)).ok).toBe(true);
+    await settleBill({ billId, paid: true, paidAt: null });
+    await settleBill({ billId, paid: true, paidAt: null });
+    expect((await listInvoices(id))[0]).toMatchObject({ status: "paid", paidVia: "manual" });
+    const owed = (await platformRefundsOwed()).find((p) => p.billId === billId)!;
+    expect(owed).toMatchObject({ purpose: "invoice", refundOwed: 59 });
+
+    // The owner refunds it, once; then it is owed no more.
+    const ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession((await listAdmins()).find((a) => a.venueId === null)!.id)).token}`;
+    const route = await import("../src/app/api/admin/billing/route");
+    const refund = () =>
+      route.POST(
+        new NextRequest("http://localhost/api/admin/billing", {
+          method: "POST",
+          headers: { cookie: ownerCookie, "content-type": "application/json" },
+          body: JSON.stringify({ action: "refund", paymentId: owed.id, how: "manual" }),
+        })
+      );
+    expect((await refund()).status).toBe(200);
+    expect((await refund()).status).toBe(409);
+    expect((await platformRefundsOwed()).some((p) => p.billId === billId)).toBe(false);
   });
 });
 

@@ -7,10 +7,9 @@ import { LEVELS, type Level } from "./games";
 import { isWho, whoRefusal, type Who } from "./who";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
-import { baseUrl } from "./outbox";
+import { baseUrl, emailPlayer } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
-import { siteName } from "./site";
-import { sendPlainEmail, toWhatsAppNumber } from "./transports";
+import { toWhatsAppNumber } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { type Sport } from "./types";
 import { money } from "./region";
@@ -585,10 +584,15 @@ export async function setPlacePaid(placeId: number, paid: boolean): Promise<Resu
   const db = getDb();
   const was = (await db.prepare("SELECT paid_at FROM league_places WHERE id = ?").get(placeId)) as { paid_at: string | null } | undefined;
   if (!was) return { ok: false, error: "Not found." };
-  await db
-    .prepare(`UPDATE league_places SET paid_at = ${paid ? "COALESCE(paid_at, datetime('now'))" : "NULL"} WHERE id = ?`)
+  // A fee paid online is refunded from the online payments list, not unmarked here.
+  const { paidOnline } = await import("./tournaments");
+  if (!paid && (await paidOnline("league_place_id", placeId)))
+    return { ok: false, error: "This fee was paid online. Refund it from the online payments list instead." };
+  // One statement, so two marks at once receipt it once.
+  const changed = await db
+    .prepare(`UPDATE league_places SET paid_at = ${paid ? "datetime('now')" : "NULL"} WHERE id = ? AND paid_at IS ${paid ? "NULL" : "NOT NULL"}`)
     .run(placeId);
-  if ((was.paid_at === null) === paid) await receiptFee("place", placeId, paid);
+  if (changed.changes === 1) await receiptFee("place", placeId, paid);
   return { ok: true, value: { id: placeId, paid } };
 }
 
@@ -927,9 +931,7 @@ export async function decideResult(
 // ------------------------------------------------------------ telling people
 
 async function tellPlayer(userId: number, league: League, subject: string, body: string): Promise<void> {
-  const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(userId)) as { name: string; email: string } | undefined;
-  if (!user) return;
-  await sendPlainEmail(user.email, subject, `Hi ${user.name.split(/\s+/)[0]},\n\n${body}\n\n${baseUrl()}/leagues/${league.id}\n\n${siteName()}`);
+  await emailPlayer({ venueId: league.venueId, userId, subject, body, link: `${baseUrl()}/leagues/${league.id}` });
 }
 
 // ------------------------------------------------------------ their own data

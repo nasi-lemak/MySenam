@@ -13,6 +13,8 @@ import {
   transportName,
   MAX_ATTEMPTS,
 } from "../src/lib/outbox";
+import { emailPlayer, messageById } from "../src/lib/outbox";
+import { registerUser } from "../src/lib/auth";
 import type { OutboxMessage, Transport } from "../src/lib/outbox";
 import {
   notifyBookingCancelled,
@@ -254,5 +256,38 @@ describe("the tick", () => {
     const result = await tickOutbox();
     expect(result.transport).toBe("recorder");
     expect(post.sent.some((m) => m.kind === "waitlist_offer")).toBe(true);
+  });
+});
+
+describe("a tournament, league or open-game email", () => {
+  it("is queued like any other: in the venue's list, retried when the mail fails, sent once when it works", async () => {
+    const made = await registerUser({ name: "Queued Player", email: "queued@player.my", phone: "0128880001", password: "a long enough password" });
+    if (!made.ok) throw new Error(made.error);
+    await emailPlayer({ venueId, userId: made.user.id, subject: "The draw is made: Cup", body: "You play first at 9.", link: "https://x.my/tournaments/1" });
+    const queued = (await listMessages(venueId)).find((m) => m.kind === "programme" && m.recipient === "queued@player.my")!;
+    expect(queued).toMatchObject({ channel: "email", status: "queued", subject: "The draw is made: Cup" });
+    expect(queued.body).toContain("Hi Queued,");
+
+    setTransport({
+      name: "down",
+      async send() {
+        throw new Error("mail server down");
+      },
+    });
+    await drainOutbox(100);
+    // Failed once, kept to try again later: not lost, not abandoned.
+    expect(await messageById(queued.id)).toMatchObject({ status: "failed", attempts: 1, lastError: expect.stringContaining("mail server down") });
+
+    const delivered: number[] = [];
+    setTransport({
+      name: "up",
+      async send(m) {
+        delivered.push(m.id);
+      },
+    });
+    await getDb().prepare("UPDATE messages SET next_attempt_at = datetime('now') WHERE id = ?").run(queued.id);
+    await Promise.all([drainOutbox(100), drainOutbox(100)]);
+    expect(delivered.filter((id) => id === queued.id)).toHaveLength(1);
+    expect((await messageById(queued.id))?.status).toBe("sent");
   });
 });

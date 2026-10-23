@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Invoice, VenuePlan } from "@/lib/billing";
+import type { OnlinePayment } from "@/lib/payments";
 import type { PlanTiers } from "@/lib/plans";
 import { PlanTiersEditor } from "./PlanTiersEditor";
 import { money } from "@/lib/region";
@@ -22,6 +23,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
     tiers?: PlanTiers;
     suggestedTiers?: PlanTiers;
     canPayOnline: boolean;
+    refundsOwed?: OnlinePayment[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -89,6 +91,44 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <strong>{overdue.length} overdue.</strong>{" "}
           {isOwner ? "Remind these venues." : "Please pay, or get in touch if something is wrong."}
+        </div>
+      )}
+
+      {isOwner && state.refundsOwed && state.refundsOwed.length > 0 && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+          <h3 className="font-semibold text-amber-900">Owed back to venues</h3>
+          <p className="mt-1 text-amber-800">
+            Paid to the platform twice, or after the invoice or pack was voided. Kept apart from what the platform has earned until it is refunded.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {state.refundsOwed.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {p.payerName ?? "A venue"}: {money(p.refundOwed)} of {money(p.amount)} ({p.purpose === "pack" ? "WhatsApp pack" : "invoice"}, {p.providerName})
+                </span>
+                <span className="flex gap-2">
+                  {p.refundsByApi && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => act({ action: "refund", paymentId: p.id, how: "gateway" }, "Refund sent.")}
+                      className="rounded-md bg-amber-700 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      Refund through {p.providerName}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => act({ action: "refund", paymentId: p.id, how: "manual" }, "Marked refunded.")}
+                    className="rounded-md border border-amber-700 px-2 py-1 text-xs font-semibold text-amber-800 disabled:opacity-50"
+                  >
+                    Refunded in {p.providerName}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

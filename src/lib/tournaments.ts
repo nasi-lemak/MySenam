@@ -19,11 +19,9 @@ import {
 } from "./brackets";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
-import { baseUrl } from "./outbox";
-import { siteName } from "./site";
+import { baseUrl, emailPlayer } from "./outbox";
 import { blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
-import { sendPlainEmail } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
 import { type Sport } from "./types";
@@ -606,13 +604,26 @@ export async function withdraw(entryId: number): Promise<Result<Entry>> {
   return { ok: true, value: (await entryById(entryId))! };
 }
 
+/** Is there a fee paid online for this entry or place that has not been owed back in full? */
+export async function paidOnline(column: "tournament_entry_id" | "league_place_id", id: number): Promise<boolean> {
+  return !!(await getDb()
+    .prepare(`SELECT 1 FROM online_payments WHERE ${column} = ? AND status = 'paid' AND refund_due < amount LIMIT 1`)
+    .get(id));
+}
+
 export async function setEntry(entryId: number, change: { paid?: boolean; seed?: number | null }): Promise<Result<Entry>> {
   const db = getDb();
   if (change.paid !== undefined) {
-    const was = (await db.prepare("SELECT paid_at FROM tournament_entries WHERE id = ?").get(entryId)) as { paid_at: string | null } | undefined;
-    await db.prepare(`UPDATE tournament_entries SET paid_at = ${change.paid ? "COALESCE(paid_at, datetime('now'))" : "NULL"} WHERE id = ?`).run(entryId);
+    // A fee paid online is the gateway's to give back, not a mark to take off:
+    // unmarked, it would be paid again at the counter with the first never owed back.
+    if (!change.paid && (await paidOnline("tournament_entry_id", entryId)))
+      return { ok: false, error: "This fee was paid online. Refund it from the online payments list instead." };
+    // One statement, so two marks at once receipt it once.
+    const changed = await db
+      .prepare(`UPDATE tournament_entries SET paid_at = ${change.paid ? "datetime('now')" : "NULL"} WHERE id = ? AND paid_at IS ${change.paid ? "NULL" : "NOT NULL"}`)
+      .run(entryId);
     // Paid at the counter just now, or the mark taken back: receipted, or credited.
-    if (was && (was.paid_at === null) === change.paid) await receiptFee("entry", entryId, change.paid);
+    if (changed.changes === 1) await receiptFee("entry", entryId, change.paid);
   }
   if (change.seed !== undefined) {
     if (change.seed !== null && (!Number.isInteger(change.seed) || change.seed < 1 || change.seed > 64))
@@ -953,13 +964,7 @@ async function entrants(tournamentId: number): Promise<number[]> {
 }
 
 async function tellEntrant(userId: number, t: Tournament, subject: string, body: string): Promise<void> {
-  const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(userId)) as { name: string; email: string } | undefined;
-  if (!user) return;
-  await sendPlainEmail(
-    user.email,
-    subject,
-    `Hi ${user.name.split(/\s+/)[0]},\n\n${body}\n\n${baseUrl()}/tournaments/${t.id}\n\n${siteName()}`
-  );
+  await emailPlayer({ venueId: t.venueId, userId, subject, body, link: `${baseUrl()}/tournaments/${t.id}` });
 }
 
 async function tellFirstMatches(d: TournamentDetail): Promise<void> {

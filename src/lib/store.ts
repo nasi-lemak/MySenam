@@ -1956,15 +1956,18 @@ export async function cancelSeries(
 
   // Claimed one by one, so a second request at the same moment cancels (and refunds) nothing twice.
   const claimed: BookingRow[] = [];
+  // Each refunded in the same transaction that cancels it (M15): a crash part-way
+  // leaves a week either booked or cancelled and refunded, never one without the other.
   await db.transaction(async () => {
+    claimed.length = 0;
     for (const row of future) {
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
       if (done.changes !== 1) continue;
       await releaseBooking(row.id);
+      await refundBooking(row.id);
       claimed.push(row);
     }
   })();
-  for (const row of claimed) await refundBooking(row.id);
   // Each freed week goes to whoever has waited longest for it.
   for (const row of claimed) await offerSlotPlace(row.court_id, row.date);
   return { ok: true, cancelled: claimed.length, bookingIds: claimed.map((r) => r.id) };
@@ -2056,15 +2059,16 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
 
   const db = getDb();
   // Claimed in one statement: of two cancels at the same moment, only one refunds.
+  // Refunded in the same transaction (M15): cancelled means refunded, even if the server stops a moment later.
   const claimed = await db.transaction(async () => {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
     if (done.changes !== 1) return false;
     await releaseBooking(booking.id);
     if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
+    await refundBooking(booking.id, share);
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
-  await refundBooking(booking.id, share);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
@@ -2468,10 +2472,10 @@ async function adminCancelBookingOnce(code: string): Promise<CancelResult> {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
     if (done.changes !== 1) return false;
     await releaseBooking(booking.id);
+    await refundBooking(booking.id);
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
-  await refundBooking(booking.id);
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
@@ -4674,17 +4678,22 @@ export async function cancelClassSession(classId: number): Promise<{
     .prepare("SELECT id FROM bookings WHERE class_id = ? AND status = 'confirmed'")
     .all(classId) as { id: number }[];
 
+  let released = 0;
   await db.transaction(async () => {
+    released = 0;
     await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
     // The court is free again for that time.
     await release({ kind: "class", classId });
     for (const row of enrolments) {
-      await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
+      // Only an enrolment still standing: one its customer cancelled a moment ago was refunded then.
+      const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
+      if (done.changes !== 1) continue;
       await releaseBooking(row.id);
+      await refundBooking(row.id);
+      released++;
     }
   })();
-  for (const row of enrolments) await refundBooking(row.id);
-  return { ok: true, released: enrolments.length };
+  return { ok: true, released };
 }
 
 /** Who is coming to a class. */
