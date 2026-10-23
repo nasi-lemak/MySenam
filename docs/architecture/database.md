@@ -51,7 +51,9 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   the `courts.activities` list in step. `bookings.sport` and `classes.sport`
   default to the court's main activity when not given (migration 0092,
   [ADR 0011](decisions/0011-activities-as-data.md)). The built-in rows are
-  written by the application at every start.
+  written by the application at every start. Checks on `courts` refuse a
+  resource with places priced per player and a court booked whole priced
+  flat (migration 0093).
 - **Migration steps.** Where a migration needs the application (a venue's
   time zone from its pin, checking a conversion), a step in
   `src/lib/db-steps.ts` runs straight after that migration's SQL in the same

@@ -99,7 +99,7 @@ are discounted and the rest are not.
 ## Courts priced per player
 
 Some courts are sold by the head: pickleball at RM8 a player an hour. Under
-*Courts → How one booking is sold*, a court booked whole can be priced *per
+*Courts → How one booking is priced*, a court booked whole can be priced *per
 player*, taking up to 8 players in one booking unless the venue says
 otherwise (`priceBooking` in `src/lib/pricing.ts`).
 
@@ -109,11 +109,13 @@ otherwise (`priceBooking` in `src/lib/pricing.ts`).
 - The booking keeps the number (`bookings.players`): the price, a move to
   another time and its difference, the receipt (*Pickle 1, …, 4 players*) and
   the staff list all follow it.
-- A shared facility (a gym floor, a wall, a fleet of kayaks) is priced per
-  place: one booking takes as many places as it says, up to the most one
-  booking may take (eight unless set), and pays the rate for each
-  ([activities](activities.md#quantity-places-and-hire)). It cannot also be
-  priced per player.
+- A shared facility (a gym floor, a wall, a fleet of kayaks) takes as many
+  places as a booking says, up to the most one booking may take (eight
+  unless set). By default each place pays the rate; the venue can instead
+  make the rate one price for the whole booking, or set quantity prices
+  (from four places, each at 90%), which apply to courts priced per player
+  too ([activities](activities.md#pricing-a-booking-with-places)). It cannot
+  also be priced per player.
 
 ## A court offering several activities
 

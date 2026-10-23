@@ -10,7 +10,6 @@ import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/li
 import { updatePolicy } from "../src/lib/booking-policy";
 import { getDb } from "../src/lib/db";
 import { createResources, setCourtActivities } from "../src/lib/resources";
-import { addSignOff } from "../src/lib/sign-offs";
 import {
   createBooking,
   createCourt,
@@ -18,6 +17,7 @@ import {
   getAvailability,
   getCourt,
   rescheduleBooking,
+  activitiesByPopularity,
   searchAvailability,
   sportsOfferedAt,
 } from "../src/lib/store";
@@ -56,6 +56,13 @@ beforeAll(async () => {
 });
 
 describe("the catalogue", () => {
+  it("has 32 built-in activities, each below full support saying what is not built", () => {
+    expect(BUILTIN_ACTIVITIES).toHaveLength(32);
+    const count = (level: string) => BUILTIN_ACTIVITIES.filter((a) => a.support === level).length;
+    expect([count("full"), count("basic"), count("specialised")]).toEqual([23, 8, 1]);
+    for (const a of BUILTIN_ACTIVITIES) if (a.support !== "full") expect(a.supportNote, a.key).toMatch(/Not built/);
+  });
+
   it("holds every built-in, named in every language, and the code names none of them", async () => {
     const all = await catalogue();
     for (const b of BUILTIN_ACTIVITIES) {
@@ -269,50 +276,6 @@ describe("hire and shared places", () => {
   });
 });
 
-describe("sign-offs", () => {
-  let wall: number;
-
-  beforeAll(async () => {
-    const made = await createResources({ venueId, sport: "climbing", name: "Lead wall", offPeakRate: 30, peakRate: 30, capacity: 20 });
-    if (!made.ok) throw new Error(made.error);
-    wall = made.courts[0].id;
-    // Climbing asks for one from the catalogue; nothing here had to switch it on.
-    expect(made.courts[0].setting).toBe("indoor");
-  });
-
-  it("send a customer without one to the counter, and let one with one book", async () => {
-    const who = phone();
-    const refused = await createBooking({ courtId: wall, date: day(4), start: at(18), end: at(20), name: "New climber", phone: who });
-    expect(refused).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED" });
-    expect(await addSignOff({ venueId, sport: "climbing", phone: who, name: "New climber", adminId: null })).toMatchObject({ ok: true });
-    expect((await createBooking({ courtId: wall, date: day(4), start: at(18), end: at(20), name: "New climber", phone: who })).ok).toBe(true);
-    // A sign-off for something else, or one run out, does not count.
-    const other = phone();
-    await addSignOff({ venueId, sport: "archery", phone: other, name: "Archer", adminId: null });
-    expect(await createBooking({ courtId: wall, date: day(4), start: at(18), end: at(20), name: "Archer", phone: other })).toMatchObject({ ok: false });
-  });
-
-  it("are not asked of staff going past the rules", async () => {
-    const made = await createBooking({ courtId: wall, date: day(5), start: at(18), end: at(20), name: "Walk-in", phone: phone(), staff: { override: true } });
-    expect(made.ok).toBe(true);
-  });
-
-  it("can be turned off by a venue, and on for anything else", async () => {
-    expect(await updatePolicy({ venue: otherVenue, sport: "climbing" }, { signOff: false })).toMatchObject({ ok: true });
-    const made = await createResources({ venueId: otherVenue, sport: "climbing", name: "Auto-belay wall", offPeakRate: 25, peakRate: 25, capacity: 10 });
-    if (!made.ok) throw new Error(made.error);
-    expect((await createBooking({ courtId: made.courts[0].id, date: day(4), start: at(18), end: at(20), name: "Drop-in", phone: phone() })).ok).toBe(true);
-    // A gym induction: the venue asks for it on its gym floor.
-    const gym = await createResources({ venueId: otherVenue, sport: "gym", name: "Weights room", offPeakRate: 10, peakRate: 10, capacity: 15 });
-    if (!gym.ok) throw new Error(gym.error);
-    expect(await updatePolicy({ venue: otherVenue, sport: "gym" }, { signOff: true })).toMatchObject({ ok: true });
-    expect(await createBooking({ courtId: gym.courts[0].id, date: day(4), start: at(9), end: at(10), name: "New member", phone: phone() })).toMatchObject({
-      ok: false,
-      code: "SIGN_OFF_NEEDED",
-    });
-  });
-});
-
 describe("the court row", () => {
   it("lists its activities as the database keeps them", async () => {
     const c = await createCourt({ venueId, name: "Net 1", sport: "cricket", offPeakRate: 40, peakRate: 40 });
@@ -341,10 +304,22 @@ describe("finding an activity in search", () => {
     expect((await searchGet(new NextRequest(`http://localhost/api/search?q=quidditch&date=${day(2)}`))).status).toBe(404);
   });
 
-  it("lists first what most venues offer", async () => {
-    const offered = await sportsOfferedAt([venueId, otherVenue]);
-    expect(offered.indexOf("badminton")).toBeLessThan(offered.indexOf("sepak_takraw"));
-    expect(new Set(offered).size).toBe(offered.length);
+  it("puts what is booked most around here first on the home page, and keeps search in the catalogue's order", async () => {
+    // Takraw at the other venue is booked three times; badminton, offered at both, not at all there.
+    for (const h of [9, 10, 11]) {
+      const court = (await getAvailability(otherVenue, day(2), "sepak_takraw"))[0].court.id;
+      expect((await createBooking({ courtId: court, date: day(2), start: at(h), end: at(h + 1), name: "T", phone: phone() })).ok).toBe(true);
+    }
+    const local = await activitiesByPopularity({ venueIds: [otherVenue] });
+    expect(local[0]).toBe("sepak_takraw");
+    // Where nothing is booked, more venues first, then the catalogue's order; nothing is left out.
+    const everywhere = await sportsOfferedAt([venueId, otherVenue]);
+    expect(new Set(await activitiesByPopularity({ venueIds: [venueId, otherVenue] }))).toEqual(new Set(everywhere));
+    expect(everywhere.indexOf("badminton")).toBeLessThan(everywhere.indexOf("sepak_takraw"));
+    // In an area with none of it, takraw is not pushed up by bookings elsewhere, but stays on the list.
+    const cheras = await activitiesByPopularity({ venueIds: [venueId, otherVenue], area: "Cheras" });
+    expect(cheras.indexOf("sepak_takraw")).toBeGreaterThan(cheras.indexOf("badminton"));
+    expect(cheras).toContain("sepak_takraw");
   });
 
   it("offers the filters that mean something for the activity", () => {

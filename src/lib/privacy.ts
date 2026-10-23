@@ -619,8 +619,10 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       phone
     ),
     signOffs: await all(
-      `SELECT sport, name, phone, note, expires_on, created_at, revoked_at FROM sign_offs
-        WHERE venue_id IN (${marks}) AND phone_key(phone) = phone_key(?) ORDER BY id`,
+      `SELECT sport, kind, reference, name, phone, note, expires_on, created_at, revoked_at, revoke_reason FROM sign_offs
+        WHERE (venue_id IN (${marks}) OR business_id IN (SELECT business_id FROM venues WHERE id IN (${marks})))
+          AND phone_key(phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
       ...venueIds,
       phone
     ),

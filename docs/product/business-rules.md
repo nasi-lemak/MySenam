@@ -67,12 +67,20 @@ change, update this page, and update [feature status](feature-status.md).
 - **A rescheduled booking keeps to the new court's rules**, length included:
   a customer cannot move a 60-minute booking onto a court that sells 90
   minutes at least. Only a manager can, recorded.
-- **Places are paid for one by one.** A booking of a shared facility takes the
-  places it says (kayaks, climbers), priced per place, never more than the
-  facility has at any moment.
-- **A sign-off is checked before a customer books** an activity whose rules
-  ask for one; staff going past the rules are not asked
+- **Places are counted one by one.** A booking of a shared facility takes the
+  places it says (kayaks, climbers), never more than the facility has at any
+  moment; it pays per place unless the venue made the rate one price for the
+  booking or set quantity prices.
+- **A sign-off is the customer's own.** Where an activity's rules ask for a
+  sign-off or a certification, a customer online books only from the account
+  it is linked to or one that has proved its number, for one place, while it
+  holds on every day booked; the same holds for weekly series, rescheduling,
+  waiting lists and each player joining an open game. Staff at the counter
+  book by number; a manager may go past it, recorded
   ([sign-offs](../features/activities.md#sign-offs)).
+- **A manager going past the rules never goes past what holds a court**:
+  starts, lengths, hours, notice and sign-offs may be overridden, on record;
+  claims, capacity and buffers may not.
 
 ## Money
 

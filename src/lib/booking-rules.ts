@@ -75,6 +75,8 @@ export interface BookingPolicy {
   noticeMinutes: number;
   /** Customers need a staff sign-off for the activity first (lib/sign-offs.ts). */
   signOff: boolean;
+  /** Customers need a recorded certification for it (a qualification the law or a governing body asks for), not only a sign-off. */
+  certification: boolean;
   pricing: PricingPolicy;
 }
 
@@ -100,6 +102,7 @@ export type PolicySettings = {
   setupFee?: number | null;
   cleanupFee?: number | null;
   signOff?: boolean | null;
+  certification?: boolean | null;
 };
 
 export const SETTING_KEYS = [
@@ -123,6 +126,7 @@ export const SETTING_KEYS = [
   "setupFee",
   "cleanupFee",
   "signOff",
+  "certification",
 ] as const satisfies readonly (keyof PolicySettings)[];
 
 /** The platform's: on the hour, an hour at a time, up to four hours. */
@@ -147,6 +151,7 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   setupFee: 0,
   cleanupFee: 0,
   signOff: false,
+  certification: false,
 };
 
 /** How long a game or session usually is, in minutes (the activity catalogue's, lib/activity-registry.ts). */
@@ -190,6 +195,7 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     weekHours: pick("weekHours"),
     noticeMinutes: pick("noticeMinutes")!,
     signOff: pick("signOff") === true,
+    certification: pick("certification") === true,
     pricing: {
       rateMode: pick("rateMode")!,
       billStep: pick("billStep"),
@@ -270,7 +276,7 @@ export function policyHoursOn(
 }
 
 /** One rule a request does not keep to. */
-export type PolicyBreach = "START" | "LENGTH" | "HOURS" | "NOTICE";
+export type PolicyBreach = "START" | "LENGTH" | "HOURS" | "NOTICE" | "SIGN_OFF";
 
 /**
  * The rules a booking from `start` to `end` breaks. Customers are refused on
@@ -308,6 +314,8 @@ export function breachMessage(policy: BookingPolicy, breach: PolicyBreach): stri
       return "That is outside this court's hours.";
     case "NOTICE":
       return `Bookings here are made at least ${formatLength(policy.noticeMinutes)} ahead.`;
+    case "SIGN_OFF":
+      return policy.certification ? "This needs a recorded certification." : "This needs a staff sign-off.";
   }
 }
 

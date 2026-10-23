@@ -6,6 +6,7 @@ import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Booking, busyness, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure } from "@/lib/types";
 import { placesPerBooking } from "@/lib/court-activities";
+import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
 import { isPastSlot } from "@/lib/time";
 import { lengthsUpTo } from "@/lib/booking-rules";
@@ -986,7 +987,9 @@ function BookingForm({
               ))}
             </select>
           </label>
-          {quote && <span className="text-slate-500">{t(shared ? "form.placesNote" : "form.playersNote", { n: players, price: money(quote.court / players) })}</span>}
+          {quote && pricedByQuantity(court) && (
+            <span className="text-slate-500">{t(shared ? "form.placesNote" : "form.playersNote", { n: players, price: money(quote.court / players) })}</span>
+          )}
         </div>
       )}
       {concessions.length > 0 && (

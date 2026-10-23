@@ -118,6 +118,11 @@ export async function POST(req: NextRequest) {
     if (!staff || staff.role === "desk" || venueToOverride === undefined || !canAccessVenue(staff, venueToOverride))
       return refusal({ ok: false, error: "Only a manager of this venue may book outside its booking rules.", code: "OVERRIDE_NOT_ALLOWED" }, 403);
   }
+  // Booked by the venue's own staff (the counter), who see who is in front of
+  // them, or by the customer online: sign-offs are checked accordingly (lib/sign-offs.ts).
+  const desk = staff ?? (await getSessionAdmin(req));
+  const venueBooked = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
+  const byStaff = desk !== null && venueBooked !== undefined && canAccessVenue(desk, venueBooked);
 
   const user = await getSessionUser(req);
   // An account books with a number the venue can reach, checked where numbers are.
@@ -207,6 +212,7 @@ export async function POST(req: NextRequest) {
     date,
     ...when,
     ...(staff ? { staff: { override: true } } : {}),
+    by: byStaff ? ("staff" as const) : ("customer" as const),
     weeks: (weeks as number) ?? 1,
     name: name.trim(),
     phone: phone.trim(),

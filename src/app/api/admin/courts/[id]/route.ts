@@ -71,6 +71,9 @@ export async function PATCH(
     accessCode,
     perPlayer,
     maxPlayers,
+    flatRate,
+    quantityPrices,
+    classesOnly,
   } = (body ?? {}) as Record<string, unknown>;
 
   const changes: {
@@ -85,7 +88,20 @@ export async function PATCH(
     accessCode?: string | null;
     perPlayer?: boolean;
     maxPlayers?: number | null;
+    flatRate?: boolean;
+    quantityPrices?: unknown;
+    classesOnly?: boolean;
   } = {};
+  if (classesOnly !== undefined) {
+    if (typeof classesOnly !== "boolean") return NextResponse.json({ error: "classesOnly must be true or false." }, { status: 400 });
+    changes.classesOnly = classesOnly;
+  }
+  if (flatRate !== undefined) {
+    if (typeof flatRate !== "boolean") return NextResponse.json({ error: "flatRate must be true or false." }, { status: 400 });
+    changes.flatRate = flatRate;
+  }
+  // Checked in lib/pricing.ts (readQuantityPrices).
+  if (quantityPrices !== undefined) changes.quantityPrices = quantityPrices;
   if (perPlayer !== undefined) {
     if (typeof perPlayer !== "boolean") return NextResponse.json({ error: "perPlayer must be true or false." }, { status: 400 });
     changes.perPlayer = perPlayer;

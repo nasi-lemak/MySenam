@@ -61,6 +61,24 @@ sold for one activity at a time (`activities.e2e.ts`). Each
 roadmap batch adds the journeys it changes (see the
 [roadmap](../roadmap/roadmap.md#delivered)).
 
+## Marketplace benchmark
+
+```bash
+BENCH_DATABASE_URL=postgresql://postgres@localhost/mysenam_bench npm run bench
+```
+
+`tests/bench/marketplace.bench.ts` (its own config, `vitest.bench.config.mts`;
+not part of `npm test`) fills the named Postgres database once with a
+multi-tenant marketplace — 400 venues in 25 areas, 100 of them branches of 20
+businesses, about 2,800 resources across the catalogue's activities, and six
+weeks of bookings (two past, four ahead) at evening-heavy occupancy, each
+holding its claim — then times what customers, staff and the scheduler do,
+through the same functions the routes call, and prints each as p50/p95/max
+milliseconds. The database is kept between runs (drop it to start again);
+`BENCH_VENUES` and `BENCH_RUNS` change the size and the repetitions.
+
+Results: pending the first run on this branch.
+
 ## Documentation checks
 
 `npm run docs:check` runs `tests/docs.test.ts`, which needs no network and

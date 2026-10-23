@@ -467,17 +467,29 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
 
 interface SignOffRow {
   id: number;
+  businessId: number | null;
   sport: string | null;
   phone: string;
   name: string;
+  userId: number | null;
+  kind: "operational" | "certification";
+  reference: string | null;
   note: string | null;
   expiresOn: string | null;
+  createdAt: string;
+  adminName: string | null;
 }
 
-/** Staff sign-offs: who has been checked for an activity that asks for one (a belay check, a range briefing). */
+const EMPTY_SIGN_OFF = { name: "", phone: "", email: "", sport: "", kind: "operational", reference: "", expiresOn: "", note: "", wholeBusiness: false };
+
+/**
+ * Staff sign-offs and certifications: who has been checked for an activity
+ * that asks for one (a belay check, a range briefing), or whose certification
+ * staff have seen. Online, only the customer's own account books on one.
+ */
 export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Court[] }) {
   const [rows, setRows] = useState<SignOffRow[]>([]);
-  const [form, setForm] = useState({ name: "", phone: "", sport: "", expiresOn: "", note: "" });
+  const [form, setForm] = useState(EMPTY_SIGN_OFF);
   const [error, setError] = useState<string | null>(null);
   const sports = useMemo(() => [...new Set(courts.flatMap(courtSports))], [courts]);
 
@@ -497,11 +509,18 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
         await fetch("/api/admin/sign-offs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ venueId, ...form, sport: form.sport || null, expiresOn: form.expiresOn || null }),
+          body: JSON.stringify({
+            venueId,
+            ...form,
+            sport: form.sport || null,
+            email: form.email || null,
+            reference: form.reference || null,
+            expiresOn: form.expiresOn || null,
+          }),
         }),
         "Could not record the sign-off"
       );
-      setForm({ name: "", phone: "", sport: form.sport, expiresOn: "", note: "" });
+      setForm({ ...EMPTY_SIGN_OFF, sport: form.sport, kind: form.kind });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not record the sign-off");
@@ -509,23 +528,46 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
   }
 
   async function revoke(row: SignOffRow) {
-    if (!window.confirm(`Take back ${row.name}'s sign-off?`)) return;
-    await fetch(`/api/admin/sign-offs?venueId=${venueId}&id=${row.id}`, { method: "DELETE" });
-    load();
+    const reason = window.prompt(`Take back ${row.name}'s ${row.kind === "certification" ? "certification" : "sign-off"}? Say why (kept on record).`);
+    if (reason === null) return;
+    setError(null);
+    try {
+      await json(
+        await fetch(`/api/admin/sign-offs?venueId=${venueId}&id=${row.id}&reason=${encodeURIComponent(reason)}`, { method: "DELETE" }),
+        "Could not take it back"
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not take it back");
+    }
   }
 
+  const certification = form.kind === "certification";
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="font-semibold">Staff sign-offs</h3>
+      <h3 className="font-semibold">Staff sign-offs and certifications</h3>
       <p className="text-sm text-slate-500">
-        Where an activity&apos;s booking rules ask for one, customers book it only once staff have signed them off here: after a belay check, a range
-        briefing, an induction. Staff can still book anyone in.
+        Where an activity&apos;s booking rules ask for one, customers book it online only once it is recorded here, and only from their own
+        account: the one you name by email, or one that has checked this phone number. A <strong>sign-off</strong> is your own check (a belay
+        check, a range briefing, an induction). A <strong>certification</strong> is a qualification the law or a governing body asks for that you
+        have seen, with its number and the day it runs out. Staff can still book anyone in at the counter; a manager going past the rules is recorded.
       </p>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <form onSubmit={add} className="flex flex-wrap items-end gap-2">
+        <select aria-label="Kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} className={input}>
+          <option value="operational">Sign-off</option>
+          <option value="certification">Certification</option>
+        </select>
         <input required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-36 ${input}`} />
         <input required placeholder={region().phone.example} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-36 ${input}`} />
-        <select value={form.sport} onChange={(e) => setForm({ ...form, sport: e.target.value })} className={input}>
+        <input
+          type="email"
+          placeholder="Their account email (optional)"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          className={`w-52 ${input}`}
+        />
+        <select aria-label="For" value={form.sport} onChange={(e) => setForm({ ...form, sport: e.target.value })} className={input}>
           <option value="">Anything here</option>
           {sports.map((s) => (
             <option key={s} value={s}>
@@ -533,13 +575,32 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             </option>
           ))}
         </select>
+        {certification && (
+          <input
+            required
+            placeholder="Certificate number and issuer"
+            value={form.reference}
+            onChange={(e) => setForm({ ...form, reference: e.target.value })}
+            className={`w-52 ${input}`}
+          />
+        )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Until (optional)
-          <input type="date" value={form.expiresOn} onChange={(e) => setForm({ ...form, expiresOn: e.target.value })} className={`mt-1 ${input}`} />
+          {certification ? "Runs out" : "Until (optional)"}
+          <input
+            type="date"
+            required={certification}
+            value={form.expiresOn}
+            onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
+            className={`mt-1 ${input}`}
+          />
         </label>
         <input placeholder="Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`w-40 ${input}`} />
+        <label className="flex items-center gap-1 text-xs text-slate-600">
+          <input type="checkbox" checked={form.wholeBusiness} onChange={(e) => setForm({ ...form, wholeBusiness: e.target.checked })} />
+          Every branch
+        </label>
         <button type="submit" className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
-          Sign off
+          Record
         </button>
       </form>
       {rows.length > 0 && (
@@ -547,8 +608,12 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
           {rows.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
               <span>
-                {r.name} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${activityName(r.sport)}` : "anything here"}
+                {r.kind === "certification" ? `📜 ${r.reference} · ` : ""}
+                {r.name} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${activityName(r.sport)}` : "anything"}
+                {r.businessId ? " · every branch" : ""}
                 {r.expiresOn ? ` · until ${r.expiresOn}` : ""}
+                {r.userId ? " · account linked" : " · no account yet: online once they check this number"}
+                {` · by ${r.adminName ?? "staff"} on ${r.createdAt.slice(0, 10)}`}
                 {r.note ? ` · ${r.note}` : ""}
               </span>
               <button type="button" onClick={() => revoke(r)} className="text-xs text-red-600 hover:underline">

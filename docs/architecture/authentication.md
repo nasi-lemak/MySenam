@@ -147,6 +147,10 @@ proves it holds its number, once. *Verify your phone number* offers two ways:
   of them can be holding that phone now.
 - **Staff see** a ✓ beside a booking's number when it was booked from an
   account that proved that number.
+- **Sign-offs rely on it.** An activity sign-off recorded against a number
+  counts online only for an account that has proved that number (or that
+  staff linked it to): a typed number is not enough
+  ([activities](../features/activities.md#sign-offs)).
 - **Guests** booking one court without an account are not asked, any more
   than at a counter; weekly series already need an account.
 - **On** whenever either way is set up (`MYSENAM_PHONE_CHECK=off` turns it

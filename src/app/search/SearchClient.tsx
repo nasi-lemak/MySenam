@@ -92,10 +92,13 @@ const DURATIONS = [30, 45, 60, 75, 90, 120, 150, 180, ...Array.from({ length: MA
 export default function SearchClient({
   start = {},
   sports = activityKeys(),
+  classes = [],
 }: {
   start?: SearchStart;
   /** The sports somebody here offers, so nobody searches for one nobody has. */
   sports?: Sport[];
+  /** Activities offered only as classes: found on the Classes page, not here. */
+  classes?: Sport[];
 }) {
   const t = useT();
   const today = todayISO();
@@ -196,7 +199,7 @@ export default function SearchClient({
       </div>
 
       <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <ActivityChooser t={t} offered={offered} sport={sport} onPick={setSport} />
+        <ActivityChooser t={t} offered={offered} classes={classes} sport={sport} onPick={setSport} />
 
         <div className="flex gap-2 overflow-x-auto pb-1">
           {dates.map((d) => (
@@ -556,23 +559,34 @@ function VenueResults({
   );
 }
 
-/** Past this many, the activities fold to the chosen one's kind until asked for. */
-const FOLD_AFTER = 12;
-
 /**
  * What to search for: the activities somebody here offers, grouped by kind,
  * and a box that finds one by any of its names or the words people use for it
  * here ("takraw", "spin", "bulu tangkis").
  */
-function ActivityChooser({ t, offered, sport, onPick }: { t: T; offered: Sport[]; sport: Sport; onPick: (s: Sport) => void }) {
+function ActivityChooser({
+  t,
+  offered,
+  classes,
+  sport,
+  onPick,
+}: {
+  t: T;
+  offered: Sport[];
+  classes: Sport[];
+  sport: Sport;
+  onPick: (s: Sport) => void;
+}) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const found = query.trim() ? findActivities(query).filter((k) => offered.includes(k)) : [];
-  const folded = offered.length > FOLD_AFTER && !open;
+  const matches = query.trim() ? findActivities(query) : [];
+  const found = matches.filter((k) => offered.includes(k));
+  const asClasses = matches.filter((k) => classes.includes(k));
+  // Every activity offered, each in its kind and in the catalogue's order: a
+  // rare one is as easy to find as a popular one.
   const groups = ACTIVITY_CATEGORIES.map((cat) => ({
     cat,
     keys: offered.filter((k) => activity(k).category === cat),
-  })).filter((g) => g.keys.length > 0 && (!folded || g.keys.includes(sport)));
+  })).filter((g) => g.keys.length > 0);
   const pick = (k: Sport) => {
     onPick(k);
     setQuery("");
@@ -604,9 +618,17 @@ function ActivityChooser({ t, offered, sport, onPick }: { t: T; offered: Sport[]
               </button>
             ))}
           </div>
-        ) : (
+        ) : asClasses.length === 0 ? (
           <p className="text-sm text-slate-500">{t("search.findNone")}</p>
-        ))}
+        ) : null)}
+      {(query.trim() ? asClasses : classes).length > 0 && (
+        <p className="text-sm text-slate-600">
+          {t("search.asClasses", { what: (query.trim() ? asClasses : classes).map((k) => sportLabel(t, k)).join(", ") })}{" "}
+          <Link href="/classes" className="font-medium text-teal-700 underline">
+            {t("search.seeClasses")}
+          </Link>
+        </p>
+      )}
       {groups.map(({ cat, keys }) => (
         <div key={cat} className="flex flex-wrap items-center gap-2" role="group" aria-label={t(`activity.cat.${cat}`)}>
           {groups.length > 1 && <span className="w-full text-xs font-medium uppercase tracking-wide text-slate-400">{t(`activity.cat.${cat}`)}</span>}
@@ -617,11 +639,6 @@ function ActivityChooser({ t, offered, sport, onPick }: { t: T; offered: Sport[]
           ))}
         </div>
       ))}
-      {offered.length > FOLD_AFTER && (
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="text-sm font-medium text-teal-700 underline">
-          {open ? t("search.fewerActivities") : t("search.allActivities", { n: offered.length })}
-        </button>
-      )}
     </div>
   );
 }

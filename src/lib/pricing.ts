@@ -23,9 +23,50 @@ import type { Court } from "./types";
 export type MemberPricing = boolean | number;
 
 export type CourtRates = Pick<Court, "sport" | "offPeakRate" | "peakRate" | "memberOffPeakRate" | "memberPeakRate" | "perPlayer"> & {
-  /** Over one: a shared facility, whose rates are per place, as many as are booked. */
+  /** Over one: a shared facility, whose rates are per place, as many as are booked (unless `flatRate`). */
   capacity?: number;
+  /** A facility with places whose rates are for the whole booking, however many it takes. */
+  flatRate?: boolean;
+  /** Each place at a percent of the rate once a booking takes this many or more. */
+  quantityPrices?: QuantityPrice[] | null;
 };
+
+/** From `from` places (or players) in one booking, each at `percent` of the rate. */
+export interface QuantityPrice {
+  from: number;
+  percent: number;
+}
+
+/** Is a booking here priced by how many it is for: players on a court priced so, or places on a facility not priced flat? */
+export function pricedByQuantity(court: Pick<CourtRates, "perPlayer" | "capacity" | "flatRate">): boolean {
+  return !!court.perPlayer || ((court.capacity ?? 1) > 1 && !court.flatRate);
+}
+
+/** The percent each place costs for a booking of `count`: the best band it reaches, else 100. */
+export function quantityPercent(bands: QuantityPrice[] | null | undefined, count: number): number {
+  let percent = 100;
+  for (const b of bands ?? []) if (count >= b.from && b.percent < percent) percent = b.percent;
+  return percent;
+}
+
+/** Bands as staff may set them: 1 to 5, each from 2 to 50, 1% to 99%, a lower percent for a larger booking. */
+export function readQuantityPrices(raw: unknown): { ok: true; value: QuantityPrice[] | null } | { ok: false; error: string } {
+  if (raw === null || (Array.isArray(raw) && raw.length === 0)) return { ok: true, value: null };
+  if (!Array.isArray(raw) || raw.length > 5) return { ok: false, error: "Give up to five quantity prices." };
+  const bands: QuantityPrice[] = [];
+  for (const b of raw as { from?: unknown; percent?: unknown }[]) {
+    if (!Number.isInteger(b?.from) || (b.from as number) < 2 || (b.from as number) > 50)
+      return { ok: false, error: "A quantity price starts from 2 to 50." };
+    if (!Number.isInteger(b?.percent) || (b.percent as number) < 1 || (b.percent as number) > 99)
+      return { ok: false, error: "A quantity price is 1% to 99% of the rate." };
+    bands.push({ from: b.from as number, percent: b.percent as number });
+  }
+  bands.sort((x, y) => x.from - y.from);
+  for (let i = 1; i < bands.length; i++)
+    if (bands[i].from === bands[i - 1].from || bands[i].percent >= bands[i - 1].percent)
+      return { ok: false, error: "Each larger booking gets a lower price than the last." };
+  return { ok: true, value: bands };
+}
 
 export const NO_PRICING_RULES: PricingPolicy = {
   rateMode: "split",
@@ -38,7 +79,7 @@ export const NO_PRICING_RULES: PricingPolicy = {
 };
 
 export interface PriceLine {
-  kind: "time" | "fixed" | "minimum" | "setup" | "cleanup";
+  kind: "time" | "fixed" | "quantity" | "minimum" | "setup" | "cleanup";
   /** Minutes this line is for (time), from `start`. */
   minutes?: number;
   start?: number;
@@ -116,8 +157,9 @@ export function priceBooking(input: {
   const member = input.member ?? false;
   const rules = forSport(input.rules ?? DEFAULT_PEAK, court.sport);
   const pricing = input.pricing ?? NO_PRICING_RULES;
-  // Per player on a court priced so; per place on a shared facility (people on a floor, kayaks from a fleet).
-  const players = court.perPlayer || (court.capacity ?? 1) > 1 ? Math.max(1, input.players ?? 1) : 1;
+  // Per player on a court priced so; per place on a shared facility (people on
+  // a floor, kayaks from a fleet) unless its rates are for the whole booking.
+  const players = pricedByQuantity(court) ? Math.max(1, input.players ?? 1) : 1;
   const length = input.span.end - input.span.start;
   const discount = lastMinuteWindow(input.date, rules, input.at);
   const isPeakAt = (m: number) => {
@@ -171,6 +213,13 @@ export function priceBooking(input: {
   }
 
   courtMinor *= players;
+  // A larger booking at a lower price per place, where the venue sets one.
+  const percent = players > 1 ? quantityPercent(court.quantityPrices, players) : 100;
+  if (percent < 100) {
+    const less = courtMinor - Math.round((courtMinor * percent) / 100);
+    lines.push({ kind: "quantity", amount: -fromMinor(less) });
+    courtMinor -= less;
+  }
   if (pricing.minCharge !== null && pricing.minCharge !== undefined && courtMinor < toMinor(pricing.minCharge)) {
     lines.push({ kind: "minimum", amount: fromMinor(toMinor(pricing.minCharge) - courtMinor) });
     courtMinor = toMinor(pricing.minCharge);

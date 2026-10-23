@@ -109,6 +109,12 @@ export interface Court extends CourtFeatures {
   /** Its rates are per player, and a booking says how many play, up to `maxPlayers` (DEFAULT_MAX_PLAYERS). */
   perPlayer?: boolean;
   maxPlayers?: number | null;
+  /** Run as classes: customers book its classes (the Classes page), not the room; staff may still hire it. */
+  classesOnly?: boolean;
+  /** With places: its rates are for the whole booking, however many places it takes (else per place). */
+  flatRate?: boolean;
+  /** With places, or per player: each at a percent of the rate once a booking takes so many. */
+  quantityPrices?: { from: number; percent: number }[] | null;
   /**
    * What the desk holds while this resource is out on hire, in ringgit. 0 is
    * the normal case: a court cannot be carried off.

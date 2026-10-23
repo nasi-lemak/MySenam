@@ -47,6 +47,7 @@ interface Row {
   setup_fee: number | string | null;
   cleanup_fee: number | string | null;
   sign_off: boolean | null;
+  needs_certification: boolean | null;
 }
 
 const numbers = (raw: string | null): number[] | null => {
@@ -91,6 +92,7 @@ function toSettings(r: Row): PolicySettings {
     setupFee: money(r.setup_fee),
     cleanupFee: money(r.cleanup_fee),
     signOff: r.sign_off,
+    certification: r.needs_certification,
   };
 }
 
@@ -255,6 +257,7 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         set(key, v);
         break;
       case "signOff":
+      case "certification":
         if (typeof v !== "boolean") return { ok: false, error: "A sign-off is needed, or not." };
         set(key, v);
         break;
@@ -313,10 +316,11 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.setupFee ?? null,
     settings.cleanupFee ?? null,
     settings.signOff ?? null,
+    settings.certification ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
     default_length = ?, buffer_before = ?, buffer_after = ?, week_hours = ?, notice_minutes = ?, rate_mode = ?, bill_step = ?,
-    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, updated_at = datetime('now')`;
+    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
   if (done.changes > 0) return;
   const scopeCols =
@@ -331,8 +335,8 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     .prepare(
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
          min_length, max_length, lengths, default_length, buffer_before, buffer_after, week_hours, notice_minutes, rate_mode,
-         bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee, sign_off)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee, sign_off, needs_certification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }

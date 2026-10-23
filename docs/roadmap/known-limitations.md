@@ -39,10 +39,6 @@ Also, **awaiting a decision** (the code may be intended): cancelling a weekly
 series skips weeks inside the cancellation cutoff silently rather than
 applying the late-cancel policy to them (P3, unconfirmed whether intended).
 
-**Decided, for the owner to confirm:** a customer's reschedule is now held to
-the target court's booking rules, its length included, where before the
-length was kept even if those rules would not offer it. A manager can still
-move it outside the rules, on record ([business rules](../product/business-rules.md#bookings)).
 
 Known limits of the [booking time model](../architecture/interval-booking-review.md)
 (the owner's decisions and the defaults chosen for open questions are listed
@@ -51,17 +47,27 @@ there):
 - **No load benchmark yet** of availability and search on claims at
   marketplace size (hundreds of venues, weeks of bookings); `tests/query-plans.test.ts`
   checks the indexes are used, not the timings (P2).
-- **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), while
-  bookings are to the minute: a booking from 21:30 at a venue staffed until
-  22:00 counts as staffed (P3).
-- **Daylight saving** is not handled: a wall-clock time that never happens or
-  happens twice has no defined meaning for a booking. No zone in any
-  supported country has it, and `tests/time-zones.test.ts` fails if one is
-  added, so it cannot reach a venue unnoticed (P3 until a country with it
-  is planned).
+- **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), and
+  whether a booking is unstaffed is decided by its start alone
+  (`isUnstaffedHour`): a booking from 21:30 to 23:00 at a venue staffed
+  until 22:00 counts as staffed, so it gets no door code and its last hour
+  depends on the counter letting them stay. Confirmed in the code; still
+  open (P3).
+- **Daylight saving is not supported**, deliberately: a wall-clock time that
+  never happens or happens twice has no defined meaning for a booking.
+  Malaysia and Singapore have none. Such a zone cannot be configured by
+  accident: staff can only pick one of the country's zones and one that
+  keeps a single offset (`keepsOneOffset`), a zone stored any other way is
+  ignored for the country's, and `tests/time-zones.test.ts` fails if one is
+  added to the region table. The clock functions already work for any
+  fixed-offset zone; the path to supporting daylight saving is in the
+  [roadmap](roadmap.md) (P3 until a country with it is planned).
 - **Outages migrated from the half-hour diary** cover whole calendar days of
-  their dates; outages made since also cover the late hours past midnight
-  (P3).
+  their dates, so at a venue open past midnight their last night's late
+  hours stay bookable. Outages made since take those hours too
+  (`claimOutage`; `tests/outages.test.ts`, "takes the late hours of its last
+  night too"). Only installs with outages from before migration 0090 are
+  affected (P3).
 - **Adjacent buffers add up**: two bookings each with a 10-minute buffer on
   the side they meet are 20 minutes apart, not 10 (by design, for review).
 - **The old tables are gone** (migration 0091): rolling back the upgrade is
@@ -72,20 +78,28 @@ there):
 
 What the [activity catalogue](../features/activities.md) does not yet do:
 
-- **Basic and specialised activities lack part of their usual workflow**:
-  bowling by the game, day passes for climbing and bouldering, kinds and
-  sizes in one fleet, launch and tide windows, range officers per session,
-  fencing bouts and track heats. Each is listed in the
-  [support matrix](../features/activities.md#support-matrix) and planned in
-  the [roadmap](roadmap.md); operators see the note as they pick one (P2).
+- **Basic and specialised activities lack a way they are commonly sold**:
+  bowling by the game, gym entry on a membership without a booked session,
+  day passes for climbing and bouldering, launch and tide windows for water
+  hire, range officers per archery session, cycling heats. Each is in the
+  [support matrix](../features/activities.md#support-matrix) and the
+  [roadmap](roadmap.md); operators see the note as they pick one (P2).
 - **An operator's own activity** is named in English unless they give the
   other languages, and is *basic* until someone reviews whether its
   workflow fits the models (P3).
-- **Sign-offs are checked by phone number.** Without phone checks, anyone who
-  types a signed-off number can book as that person; staff see who arrives
-  (P2, as for every rule keyed on a number).
+- **Sign-offs online rest on the customer's account.** A sign-off counts
+  online only for the account staff linked it to or one that has proved the
+  number; where an install has neither WhatsApp nor SMS to prove numbers
+  with, only linked sign-offs work online. At the counter and through the
+  venue's API key the number is taken on the staff's or the venue's word.
+  Bookings with a coach are held to the rule like any other, so a first
+  lesson on a wall that needs a sign-off is booked at the counter (P3, for
+  review). A group of places on such an activity is booked at the counter,
+  since one sign-off covers one person.
 - **One booking takes at most eight places** unless the venue sets the most
   per booking, even on a fleet of twenty (by design, for review).
+- **Kinds of kit within one fleet** (single and double kayaks in one booking
+  list) are not built: each kind is a resource of its own (P3).
 - **A catalogue change** made on one instance reaches the others within a
   minute (the cache), and the browser on its next page (P3).
 - **Country names exist for countries the app is not yet sold in** (sepak

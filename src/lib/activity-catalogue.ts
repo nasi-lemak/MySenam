@@ -54,13 +54,16 @@ export type ResourceNoun = (typeof RESOURCE_NOUNS)[number];
 
 /**
  * How far an activity's booking workflow is supported. Being in the
- * catalogue proves none of it:
- * - full: everything a venue usually sells for it is bookable with what
- *   exists, and tested;
- * - basic: its resources can be booked and paid for, but something venues
- *   usually sell for it is missing (named in `supportNote`);
- * - specialised: booking time on its resources works, but the way it is
+ * catalogue proves none of it (docs/features/activities.md#support-matrix):
+ * - full: the way venues of its kind ordinarily sell it is set up from the
+ *   dashboard, found by customers, booked and paid end to end with what
+ *   exists, and tested for it (tests/activity-coverage.test.ts);
+ * - basic: all of that works for its resources, but a way of selling it that
+ *   such venues commonly rely on is not built (named in `supportNote`);
+ * - specialised: time on its resources can be booked, but the way it is
  *   normally sold needs a workflow that is not built (named in `supportNote`).
+ * Sport-specific extras nobody needs to sell the activity (scoring, rankings)
+ * do not count against it.
  */
 export const SUPPORT_LEVELS = ["full", "basic", "specialised"] as const;
 export type SupportLevel = (typeof SUPPORT_LEVELS)[number];
@@ -375,7 +378,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🏊",
     names: { en: "Swimming", ms: "Renang", zh: "游泳", ta: "நீச்சல்" },
     aliases: ["pool", "lap swim", "lane swim"],
-    template: t("lanes", "lane", { count: 6, capacity: 4, perPlayer: true }),
+    template: t("lanes", "lane", { count: 6, capacity: 4 }),
     policy: HOURLY,
     surfaced: false,
     supervised: true,
@@ -406,14 +409,14 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🛶",
     names: { en: "Kayak hire", ms: "Sewa kayak", zh: "皮划艇租借", ta: "கயாக் வாடகை" },
     aliases: ["kayaking", "kayak rental"],
-    template: t("hire", "boat", { capacity: 10, perPlayer: true, maxPlayers: 10, setting: "outdoor" }),
+    template: t("hire", "boat", { capacity: 10, maxPlayers: 10, setting: "outdoor" }),
     // As it has always been booked: by the hour (venues may set their own).
     policy: HOURLY,
     surfaced: false,
     supervised: true,
     filters: [],
     support: "basic",
-    supportNote: "Hire by the hour, several at once. Guided trips are classes. Not built: choosing a kind or size of boat in one fleet, and tide or launch windows beyond rained-off hours.",
+    supportNote: "Hire by the hour, several at once. Guided trips are classes. Kinds of boat (single, double) are resources of their own, each with its price and count. Not built: tide or launch windows beyond rained-off hours, and choosing a kind within one fleet.",
     country: {},
   },
   {
@@ -422,13 +425,13 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🛶",
     names: { en: "Canoeing", ms: "Berkanu", zh: "划独木舟", ta: "கேனோ படகோட்டம்" },
     aliases: ["canoe hire", "dragon boat"],
-    template: t("hire", "boat", { capacity: 8, perPlayer: true, maxPlayers: 8, setting: "outdoor" }),
+    template: t("hire", "boat", { capacity: 8, maxPlayers: 8, setting: "outdoor" }),
     policy: halfHours(60, { minLength: 60 }),
     surfaced: false,
     supervised: true,
     filters: [],
     support: "basic",
-    supportNote: "Hire by the hour, several at once; guided trips as classes. Not built: boats of different sizes in one fleet, and launch windows.",
+    supportNote: "Hire by the hour, several at once; guided trips as classes. Boat sizes are resources of their own. Not built: launch windows, and sizes within one fleet.",
     country: {},
   },
   {
@@ -437,13 +440,13 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🏄",
     names: { en: "Stand-up paddleboarding", ms: "Papan dayung berdiri", zh: "立式桨板", ta: "நின்று துடுப்புப் பலகை" },
     aliases: ["SUP", "paddle board", "paddleboarding"],
-    template: t("hire", "board", { capacity: 10, perPlayer: true, maxPlayers: 10, setting: "outdoor" }),
+    template: t("hire", "board", { capacity: 10, maxPlayers: 10, setting: "outdoor" }),
     policy: halfHours(60, { minLength: 60 }),
     surfaced: false,
     supervised: true,
     filters: [],
     support: "basic",
-    supportNote: "Hire by the hour, several at once; lessons as classes. Not built: board sizes in one fleet, and launch windows.",
+    supportNote: "Hire by the hour, several at once; lessons as classes. Board sizes are resources of their own. Not built: launch windows, and sizes within one fleet.",
     country: {},
   },
   // ------------------------------------------------------------ fitness
@@ -458,8 +461,8 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     surfaced: false,
     supervised: false,
     filters: INDOOR,
-    support: "full",
-    supportNote: null,
+    support: "basic",
+    supportNote: "Timed sessions with places, memberships, passes and inductions work. Not built: entry on a membership without booking a session (walk-in access counted by check-in).",
     country: {},
   },
   {
@@ -468,13 +471,13 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🚴",
     names: { en: "Cycling", ms: "Berbasikal", zh: "骑行", ta: "சைக்கிள் ஓட்டுதல்" },
     aliases: ["bike hire", "bicycle", "spin", "indoor cycling"],
-    template: t("hire", "bike", { capacity: 12, perPlayer: true, maxPlayers: 6 }),
+    template: t("hire", "bike", { capacity: 12, maxPlayers: 6 }),
     policy: halfHours(60, { minLength: 60 }),
     surfaced: false,
     supervised: false,
     filters: ["indoor", "outdoor"],
     support: "basic",
-    supportNote: "Bike hire by the hour, several at once, and indoor cycling (spin) as classes. Not built: track or velodrome sessions with heats, and bikes of different sizes in one fleet.",
+    supportNote: "Bike hire by the hour, several at once, with bike sizes as resources of their own, and indoor cycling (spin) as classes. Not built: track or velodrome sessions run in heats.",
     country: {},
   },
   // ------------------------------------------------------------ studio (led by an instructor)
@@ -560,7 +563,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🧗",
     names: { en: "Climbing", ms: "Panjat dinding", zh: "攀岩", ta: "சுவர் ஏறுதல்" },
     aliases: ["rock climbing", "top rope", "lead climbing", "auto belay"],
-    template: t("shared", "wall", { capacity: 30, perPlayer: true, maxPlayers: 6, setting: "indoor", signOff: true }),
+    template: t("shared", "wall", { capacity: 30, maxPlayers: 6, setting: "indoor", signOff: true }),
     policy: halfHours(120, { minLength: 60 }),
     surfaced: false,
     supervised: false,
@@ -575,7 +578,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     icon: "🪨",
     names: { en: "Bouldering", ms: "Bouldering", zh: "抱石", ta: "பாறை ஏறுதல்" },
     aliases: ["boulder"],
-    template: t("shared", "wall", { capacity: 40, perPlayer: true, maxPlayers: 6, setting: "indoor" }),
+    template: t("shared", "wall", { capacity: 40, maxPlayers: 6, setting: "indoor" }),
     policy: halfHours(120, { minLength: 60 }),
     surfaced: false,
     supervised: false,
@@ -640,8 +643,8 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     surfaced: false,
     supervised: false,
     filters: INDOOR,
-    support: "basic",
-    supportNote: "Pistes by the hour, kit as extras, lessons as classes. Not built: bout scoring and referees.",
+    support: "full",
+    supportNote: null,
     country: {},
   },
 ];

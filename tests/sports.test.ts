@@ -76,16 +76,13 @@ describe("the sports", () => {
     expect(ADDED.filter((s) => !activity(s).surfaced)).toEqual(["table_tennis"]);
   });
 
-  it("are offered only where somebody has a court for them, most-offered first", async () => {
+  it("are offered only where somebody has a court for them, in the catalogue's order", async () => {
     const here = await sportsOfferedAt([halfHourVenue]);
     expect(here).toEqual(["badminton", "padel"]);
     const res = await sportsGet(new NextRequest("http://localhost/api/sports"));
     const { sports } = (await res.json()) as { sports: Sport[] };
     expect(sports).toEqual(expect.arrayContaining(ADDED));
-    // Padel is at both venues; the rest, at one each, come in the catalogue's order.
-    expect(sports[0]).toBe("padel");
-    const once = sports.slice(1);
-    expect(once).toEqual(activityKeys().filter((s) => once.includes(s)));
+    expect(sports).toEqual(activityKeys().filter((s) => sports.includes(s)));
   });
 });
 

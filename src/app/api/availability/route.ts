@@ -54,7 +54,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     date,
     // A tier with its own price level prices the grid at that.
-    availability: await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false),
+    // Rooms run as classes are the venue's own staff's to hire out; customers book their classes.
+    availability: await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false, await (async () => { const staff = await getSessionAdmin(req); return staff !== null && canAccessVenue(staff, venueId); })()),
     closure: await getVenueClosure(venueId, date),
     memberRates: membership !== null,
     timeZone: venue.timeZone,

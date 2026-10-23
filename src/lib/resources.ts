@@ -37,6 +37,8 @@ export interface NewResources {
   deposit?: number;
   perPlayer?: boolean;
   maxPlayers?: number | null;
+  /** Run as classes only (customers book its classes, not the room); a class activity's rooms are unless said. */
+  classesOnly?: boolean;
   /** Indoor or outdoor, for search's filters; the activity's usual one unless given (null: neither said). */
   setting?: "indoor" | "outdoor" | null;
   /** More activities it can also be booked for, at the court's rates unless given. */
@@ -95,8 +97,16 @@ export async function createResources(input: NewResources): Promise<{ ok: true; 
       if (!created.ok) throw new Error(created.error);
       const db = getDb();
       await db
-        .prepare("UPDATE courts SET noun = ?, per_player = ?, max_players = ?, setting = ? WHERE id = ?")
-        .run(noun === a.template.noun ? null : noun, input.perPlayer ? 1 : 0, maxPlayers, setting, created.court.id);
+        .prepare("UPDATE courts SET noun = ?, per_player = ?, max_players = ?, setting = ?, classes_only = ? WHERE id = ?")
+        // Per player is for a court booked whole; with places, each place is already priced (lib/pricing.ts).
+        .run(
+          noun === a.template.noun ? null : noun,
+          input.perPlayer && capacity === 1 ? 1 : 0,
+          maxPlayers,
+          setting,
+          input.classesOnly ?? a.template.model === "class",
+          created.court.id
+        );
       for (const extra of also) await addActivity(created.court.id, extra);
       made.push((await getCourt(created.court.id))!);
     }

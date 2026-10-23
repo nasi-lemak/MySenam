@@ -22,7 +22,10 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   };
   const near = readNear(q.near, q.km);
   // Only the sports somebody here offers; on a storefront, its venues'.
-  const sports = await sportsOfferedAt((await currentStorefront())?.venueIds);
+  const venueIds = (await currentStorefront())?.venueIds;
+  // What can be booked as a court, lane or place; what is only run as classes is found on the Classes page.
+  const sports = await sportsOfferedAt(venueIds, { courtsOnly: true });
+  const classes = (await sportsOfferedAt(venueIds)).filter((s) => !sports.includes(s));
   await catalogue();
   const named = !isKnownActivity(q.sport) && q.q ? findActivities(q.q.slice(0, 60)).find((k) => sports.includes(k)) : undefined;
   const start: SearchStart = {
@@ -32,5 +35,5 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     toHour: hour(q.to),
     near: near ? { ...near, where: q.where?.slice(0, 80) || null } : null,
   };
-  return <SearchClient start={start} sports={sports} />;
+  return <SearchClient start={start} sports={sports} classes={classes} />;
 }

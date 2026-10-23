@@ -31,8 +31,11 @@ Every bookable resource carries a `capacity`:
 
 A booking of an exclusive court claims its space for exactly its minutes; a
 booking of a shared facility claims as many places as it says it takes
-(three climbers, four kayaks), up to the most one booking may take, and is
-priced per place. The
+(three climbers, four kayaks), up to the most one booking may take, priced
+as the venue chose ([per place, flat or by quantity](activities.md#pricing-a-booking-with-places)).
+A room run as **classes only** is not on the grid or in search: customers
+book its [classes](programmes.md), and the venue's own staff can still hire
+the room. The
 database refuses an overlapping claim on a space, and a claim that would put
 a facility over its capacity at any moment, partly blocked places and
 waiting-list offers included, whatever path wrote it
@@ -102,8 +105,9 @@ the [booking time model](../architecture/interval-booking-review.md#booking-poli
 - **Notice**: how long before it starts a booking may be made at the latest.
 - **The court's own hours**, weekday by weekday, inside the venue's: the
   venue's, closed, or its own opening and closing time for each day.
-- **Sign-off**: whether a customer needs a staff sign-off for the activity
-  before booking it ([sign-offs](activities.md#sign-offs)).
+- **Sign-off or certification**: whether a customer needs a staff sign-off,
+  or a recorded certification, for the activity before booking it; online it
+  must be on their own account ([sign-offs](activities.md#sign-offs)).
 
 Each rule is inherited where it is not set: one activity's on one court,
 else the court's own, else its activity's at the venue, else the venue's,

@@ -109,14 +109,21 @@ describe("refunding through Stripe", () => {
     const { id } = await owed();
     // Stripe answers a retry under the same key with the refund it already made.
     fakeStripe(() => Response.json({ id: "re_same", status: "pending" }));
-    const [a, b] = await Promise.all([refundOnline(id, venueId), refundOnline(id, venueId)]);
-    expect([a.ok, b.ok]).toContain(true);
-    const { total } = (await getDb()
-      .prepare("SELECT SUM(amount)::float AS total FROM online_refunds WHERE payment_id = ?")
-      .get(id)) as { total: number };
-    expect(total).toBe(18.5);
-    // Whichever of the two got there first, Stripe's refund is still on its way.
-    expect([a, b].find((r) => r.ok)).toMatchObject({ pending: true });
+    sent = [];
+    const results = await Promise.all([refundOnline(id, venueId), refundOnline(id, venueId)]);
+    // The claim is taken before Stripe is asked, so exactly one of the two goes
+    // ahead — whichever got there first — and the other is told it is under way.
+    const won = results.filter((r) => r.ok);
+    const lost = results.filter((r) => !r.ok);
+    expect(won).toHaveLength(1);
+    expect(won[0]).toMatchObject({ pending: true });
+    expect(lost).toEqual([expect.objectContaining({ ok: false, error: expect.stringMatching(/being refunded/) })]);
+    // Stripe was asked once, and one refund is on the books, for what was owed.
+    expect(sent.filter((r) => r.url === "https://api.stripe.com/v1/refunds")).toHaveLength(1);
+    const rows = await getDb()
+      .prepare("SELECT amount::float AS amount, provider_ref FROM online_refunds WHERE payment_id = ?")
+      .all(id);
+    expect(rows).toEqual([{ amount: 18.5, provider_ref: "re_same" }]);
   });
 
   it("cannot also be marked refunded by hand while the Stripe refund is on its way", async () => {

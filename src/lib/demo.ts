@@ -397,6 +397,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
           for (let place = 0; place < placesTaken(court.capacity, hour, rng); place++) {
             const person = who++;
             const made = await createBooking({
+              by: "staff",
               courtId: court.id,
               date,
               hours: [hour],

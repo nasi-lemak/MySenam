@@ -3,8 +3,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 import { getDb } from "../src/lib/db";
-import { createBooking, createCourt, createVenue, getAvailability, setVenuePin, venueHours } from "../src/lib/store";
-import { isBookableDate, isPastSlot, slotStartsAt, todayISO, zoneOffsetMinutes } from "../src/lib/time";
+import { createBooking, createCourt, createVenue, setVenuePin, venueHours } from "../src/lib/store";
+import { isBookableDate, isPastSlot, keepsOneOffset, slotStartsAt, todayISO, zoneOffsetMinutes } from "../src/lib/time";
 import { setVenueZone, zoneForPin, zoneSettings } from "../src/lib/zones";
 import { allRegions } from "../src/lib/region";
 import { icsContent } from "../src/lib/booking-links";
@@ -89,20 +89,24 @@ describe("turning a venue's clock into moments", () => {
 });
 
 describe("booking at a venue on another clock", () => {
-  it("lets a slot be booked that has passed at the install but not at the venue", async () => {
-    const home = await venue("Home Courts");
+  it("keeps the country's clock when a zone outside it was stored by hand", async () => {
     const away = await venue("Away Courts");
-    // A zone outside the country, set directly: what an install spanning zones would hold.
     await getDb().prepare("UPDATE venues SET time_zone = 'America/New_York' WHERE id = ?").run(away.venueId);
     vi.useFakeTimers({ toFake: ["Date"] });
+    // 23:00 in Kuala Lumpur, 11:00 in New York: noon is past here, so it is past there too.
     vi.setSystemTime(new Date("2026-10-21T15:00:00Z"));
-    const date = "2026-10-21";
-    expect((await createBooking({ courtId: home.courtId, date, hours: [12], name: "x", phone: "0191110001" })).ok).toBe(false);
-    const made = await createBooking({ courtId: away.courtId, date, hours: [12], name: "Sam", phone: "0191110002" });
-    expect(made.ok).toBe(true);
-    const slots = (await getAvailability(away.venueId, date))[0].slots;
-    expect(slots.find((s) => s.hour === 10)!.available).toBe(false); // 10:00 has passed there
-    expect(slots.find((s) => s.hour === 14)!.available).toBe(true);
+    expect((await createBooking({ courtId: away.courtId, date: "2026-10-21", hours: [12], name: "x", phone: "0191110001" })).ok).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("works out moments on any clock that keeps one offset, for when other countries come", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-21T15:00:00Z"));
+    // 10:00 in Bogotá (UTC-5, no daylight saving): noon there is still to come, 09:00 has passed.
+    expect(isPastSlot("2026-10-21", 12, "America/Bogota")).toBe(false);
+    expect(isPastSlot("2026-10-21", 9, "America/Bogota")).toBe(true);
+    expect(slotStartsAt("2026-10-21", 12, "America/Bogota").toISOString()).toBe("2026-10-21T17:00:00.000Z");
+    vi.useRealTimers();
   });
 
   it("puts the booking in calendars at the venue's time", () => {
@@ -119,11 +123,19 @@ describe("the zones a venue may be in", () => {
   // (known limitations). Until something does, no country's zones have it.
   it("keep one offset all year, in every country", () => {
     for (const r of allRegions())
-      for (const zone of r.timeZones) {
-        const offsets = new Set(
-          Array.from({ length: 24 }, (_, month) => zoneOffsetMinutes(new Date(Date.UTC(2026 + Math.floor(month / 12), month % 12, 15)), zone))
-        );
-        expect(offsets.size, `${r.country} ${zone} changes its clocks: see known limitations before adding it`).toBe(1);
-      }
+      for (const zone of r.timeZones) expect(keepsOneOffset(zone), `${r.country} ${zone} changes its clocks: see known limitations before adding it`).toBe(true);
+    // The check itself tells a zone with daylight saving apart.
+    expect(keepsOneOffset("Europe/London")).toBe(false);
+    expect(keepsOneOffset("Australia/Sydney")).toBe(false);
+    expect(keepsOneOffset("Asia/Jakarta")).toBe(true);
+  });
+
+  it("cannot be one that changes its clocks, however it got there", async () => {
+    const made = await createVenue({ name: "Clock Hall", area: "KL", address: "x", phone: "0312348888" });
+    if (!made.ok) throw new Error("venue");
+    // Not one of the country's, so not offered; and a zone stored by hand is not used.
+    expect(await setVenueZone(made.venue.id, "Europe/London")).toMatchObject({ ok: false });
+    await getDb().prepare("UPDATE venues SET time_zone = 'Europe/London' WHERE id = ?").run(made.venue.id);
+    expect((await zoneSettings(made.venue.id))!.zone).toBe("Asia/Kuala_Lumpur");
   });
 });

@@ -13,6 +13,7 @@ import type { Near } from "./store";
 import { isWho, whoRefusal, type Who } from "./who";
 import type { Sport } from "./types";
 import { money } from "./region";
+import { signOffHolds } from "./sign-offs";
 
 /**
  * Player matching: open games.
@@ -376,6 +377,8 @@ export async function askToJoin(user: { id: number; phone: string }, gameId: num
   if (await isBlocked(game.venueId, user.phone)) return { ok: false, error: "This venue is not taking bookings from your number." };
   const notHere = await accessRefusal(game.venueId, user.id);
   if (notHere) return { ok: false, error: notHere.error, code: notHere.code, status: 403 };
+  const unsigned = await signOffRefusal(gameId, user);
+  if (unsigned) return { ok: false, error: unsigned, code: "SIGN_OFF_NEEDED", status: 403 };
 
   const db = getDb();
   const existing = (await db
@@ -395,6 +398,28 @@ export async function askToJoin(user: { id: number; phone: string }, gameId: num
       .run(gameId, user.id, status);
   await tellHost(game, status === "accepted" ? "joined" : "asked");
   return { ok: true, game: (await gameById(gameId))! };
+}
+
+/**
+ * An activity that asks for a staff sign-off asks it of everyone who plays,
+ * not only the host who booked: each player's own, on their account
+ * (lib/sign-offs.ts). Null when there is nothing to refuse.
+ */
+async function signOffRefusal(gameId: number, user: { id: number; phone: string }): Promise<string | null> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT b.court_id, b.sport, b.date, c.venue_id FROM open_games g JOIN bookings b ON b.id = g.booking_id JOIN courts c ON c.id = b.court_id
+        WHERE g.id = ?`
+    )
+    .get(gameId)) as { court_id: number; sport: Sport; date: string; venue_id: number } | undefined;
+  if (!row) return null;
+  // Imported here: lib/booking-policy.ts reaches lib/store.ts, which reads this module.
+  const { policiesFor } = await import("./booking-policy");
+  const policy = (await policiesFor([{ id: row.court_id, venueId: row.venue_id, sport: row.sport }])).get(row.court_id);
+  const need = policy?.certification ? "certification" : policy?.signOff ? "any" : null;
+  if (!need) return null;
+  const held = await signOffHolds({ venueId: row.venue_id, sport: row.sport, until: row.date, phone: user.phone, userId: user.id, channel: "customer", need });
+  return held ? null : "Everyone playing here needs their own sign-off from the venue's staff first. Ask at the counter.";
 }
 
 /** Somebody who asked, or is in, dropping out before the game. */

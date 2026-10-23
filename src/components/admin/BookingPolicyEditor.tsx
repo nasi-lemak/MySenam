@@ -73,6 +73,7 @@ function toForm(s: PolicySettings): Form {
     : "";
   form.weekHours = s.weekHours ? JSON.stringify(s.weekHours) : "";
   form.signOff = s.signOff === true ? "yes" : s.signOff === false ? "no" : "";
+  form.certification = s.certification === true ? "yes" : s.certification === false ? "no" : "";
   return form;
 }
 
@@ -104,6 +105,7 @@ function fromForm(form: Form): Record<string, unknown> {
           });
   out.weekHours = form.weekHours.trim() === "" ? null : JSON.parse(form.weekHours);
   out.signOff = form.signOff === "" ? null : form.signOff === "yes";
+  out.certification = form.certification === "" ? null : form.certification === "yes";
   return out;
 }
 
@@ -307,6 +309,15 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
                 <option value="no">Not needed</option>
               </select>
               <span className="mt-0.5 block font-normal text-slate-400">A belay check, a range briefing: record it under Staff sign-offs.</span>
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Certification first
+              <select value={form.certification} onChange={(e) => setForm({ ...form, certification: e.target.value })} className={input}>
+                <option value="">inherits: {hint("certification") === "true" ? "needed" : "not needed"}</option>
+                <option value="yes">Needed: only a recorded certification counts</option>
+                <option value="no">Not needed</option>
+              </select>
+              <span className="mt-0.5 block font-normal text-slate-400">A qualification the law or a governing body asks for, seen by staff, with its number and expiry.</span>
             </label>
           </div>
           {level.level === "court" && (

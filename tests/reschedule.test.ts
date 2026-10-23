@@ -10,12 +10,14 @@ import { notifyRescheduled } from "../src/lib/notify";
 import {
   createBooking,
   createClassSessions,
+  createCourt,
   listVenues,
   rescheduleBooking,
   rescheduleOptions,
   setPaymentStatus,
 } from "../src/lib/store";
 import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
+import { updatePolicy } from "../src/lib/booking-policy";
 import { POST as customerPost, GET as customerGet } from "../src/app/api/bookings/reschedule/route";
 import { POST as staffPost } from "../src/app/api/admin/bookings/reschedule/route";
 
@@ -238,6 +240,31 @@ describe("the endpoints", () => {
       new NextRequest("http://localhost/api/admin/bookings/reschedule", { method: "POST", body: JSON.stringify({ code: b.code, date, startHour: 15 }) })
     );
     expect(anonymous.status).toBe(401);
+  });
+});
+
+describe("a manager moving a booking past the rules", () => {
+  it("goes past the target court's length rule on record, never past what holds the court", async () => {
+    const date = weekday(5);
+    const venueId = (await listVenues())[0].id;
+    const made = await createCourt({ venueId, name: "Long Court", sport: "badminton", offPeakRate: 20, peakRate: 20 });
+    if (!made.ok) throw new Error(made.error);
+    const long = made.court.id;
+    // Sold 90 minutes at least.
+    expect(await updatePolicy({ court: long }, { minLength: 90, lengthStep: 30 })).toMatchObject({ ok: true });
+    const b = await book((await badminton())[0].id, [10], date);
+    const move = (body: Record<string, unknown>) =>
+      staffPost(new NextRequest("http://localhost/api/admin/bookings/reschedule", { method: "POST", headers: { cookie: ownerCookie }, body: JSON.stringify({ code: b.code, date, ...body }) }));
+    // The customer, and staff not going past the rules, are held to them.
+    expect(await rescheduleBooking(b.code, { date, start: 12 * 60, courtId: long }, "customer")).toMatchObject({ ok: false });
+    expect((await move({ start: 12 * 60, courtId: long })).status).toBe(409);
+    // Something already there refuses even a manager.
+    await book(long, [14, 15], date);
+    expect((await move({ start: 14 * 60, courtId: long, override: true })).status).toBe(409);
+    // Past the length rule, on a manager's say: done, and on the record.
+    expect((await move({ start: 12 * 60, courtId: long, override: true })).status).toBe(200);
+    const log = (await getDb().prepare("SELECT detail FROM staff_actions WHERE action = 'booking.override' AND booking_code = ?").get(b.code)) as { detail: string };
+    expect(log.detail).toMatch(/past/);
   });
 });
 

@@ -16,7 +16,7 @@ still reads the older names.
 | ------ | --------------------- | -------------------------------------------------- |
 | GET    | `/api/health`         | `{ok}` while the database answers, `503` when it does not |
 | GET    | `/api/venues`         | All venues with their courts                        |
-| GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → each court's day: `starts` (each minute a booking may start, and the longest it may run from there), its booking `policy`, and `slots`, the day in columns of `grid` minutes (free, `partly` held, held, with price); `mayOverride` for a manager |
+| GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → each court's day: `starts` (each minute a booking may start, and the longest it may run from there), its booking `policy`, and `slots`, the day in columns of `grid` minutes (free, `partly` held, held, with price); `mayOverride` for a manager; rooms run as classes only for the venue's own staff |
 | GET    | `/api/quote`          | `?courtId&date&start&end` (or `minutes`), or `venueId&sport` for any court, `[&sport]` for one activity on a court offering several, `[&players]` (players, or places on a shared facility) `[&also=2,3]` → the price before booking: `total`, `court`, `fees`, `billedMinutes`, each part (`lines`), whether the court's rules allow it (`allowed`, `error`), and `others` for `also` |
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
 | GET    | `/api/classes`        | `?venueId=&sport=&from=&to=` → upcoming classes     |
@@ -27,7 +27,7 @@ still reads the older names.
 | POST   | `/api/checkin`        | `{token}` → self check-in from the booking QR       |
 | POST   | `/api/access`         | `{code, phone}` → the door code for an unmanned resource |
 | GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
-| POST   | `/api/bookings`       | `{courtId \| venueId+sport, sport?, date, start, end \| minutes, players?, name, phone, email?, weeks?, skipConflicts?, override?}`; `sport` picks the activity on a court offering several (else its main one; `SPORT_NOT_HERE` if it offers none such); `players` is places on a shared facility; `SIGN_OFF_NEEDED` where the activity asks for a staff sign-off; `override` (managers) books outside the court's rules, recorded |
+| POST   | `/api/bookings`       | `{courtId \| venueId+sport, sport?, date, start, end \| minutes, players?, name, phone, email?, weeks?, skipConflicts?, override?}`; `sport` picks the activity on a court offering several (else its main one; `SPORT_NOT_HERE` if it offers none such); `players` is places on a shared facility; `SIGN_OFF_NEEDED` or `CERTIFICATION_NEEDED` where the activity asks for one (online, on the signed-in account; booked by the venue's own staff, by number), `SIGN_OFF_EACH` for several places on one, `CLASSES_ONLY` for a room run as classes; `override` (managers) books outside the court's rules, recorded |
 | GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
 | POST   | `/api/bookings/cancel-series` | `{seriesCode, phone}` → cancel all future sessions |
@@ -121,7 +121,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/reports`          | `?venueId=&from=&to=` → the period report            |
 | POST   | `/api/admin/courts`           | `{venueId, name \| count, sport, offPeakRate, peakRate, capacity?, deposit?, noun?, perPlayer?, maxPlayers?, setting?, also?}`: one resource, or `count` (1–20) numbered after `noun` (Lane 1…), filled in from the activity's template; `also` lists more activities it offers → `{court, courts}` |
 | GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
-| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?, noun?, activities?}`; `activities` is `[{sport, offPeakRate?, peakRate?}]` besides its main one (refused while one taken off has bookings to come) |
+| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?, noun?, activities?}`; `activities` is `[{sport, offPeakRate?, peakRate?}]` besides its main one (refused while one taken off has bookings to come); `flatRate`, `quantityPrices` (`[{from, percent}]`) and `classesOnly` say how a booking is priced and sold |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
 | PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openMin?, closeMin?, staffedFrom?, staffedTo?, emergencyPhone?, emergencyInfo?}` |
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
@@ -334,8 +334,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/activities` | `{venueId, names: {en, ms?, zh?, ta?}, category, model, noun, icon?, aliases?, capacity?, perPlayer?, maxPlayers?}`: a venue's or business's own activity (managers; the platform owner adds to the catalogue); recorded |
 | PATCH | `/api/admin/activities` | `{key, …}`: change or retire (`active: false`) one's own activity; built-ins can only be retired, by the platform owner; recorded |
 | GET | `/api/admin/sign-offs` | `?venueId` → sign-offs in force ([activities](../features/activities.md#sign-offs)) |
-| POST | `/api/admin/sign-offs` | `{venueId, sport?, phone, name, note?, expiresOn?}`: record one (replacing one for the same number and activity); recorded |
-| DELETE | `/api/admin/sign-offs` | `?venueId&id`: take one back; recorded |
+| POST | `/api/admin/sign-offs` | `{venueId, sport?, phone, name, email?, kind?: "operational" \| "certification", reference?, note?, expiresOn?, wholeBusiness?}`: record one (replacing one for the same number, activity, kind and scope); a certification needs `reference` and `expiresOn`; `wholeBusiness` needs whoever runs the business; `email` links the customer's account; recorded |
+| DELETE | `/api/admin/sign-offs` | `?venueId&id[&reason]`: take one back, who and why kept; recorded |
 | POST | `/api/admin/system` | `{ key }`: dealt with; the next one is news again |
 | GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments, for its staff |
 | POST | `/api/admin/tournaments` | A new tournament, holding its courts at once |

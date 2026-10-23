@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
   if (typeof body.name !== "string" || body.name.trim().length < 2 || typeof body.phone !== "string" || body.phone.trim().length < 7)
     return NextResponse.json({ error: "name and phone are required." }, { status: 400 });
   const made = await createBooking({
+    // The venue's own system answers for who it books, as its counter does (lib/sign-offs.ts).
+    by: "api",
     courtId: court.id,
     date: body.date,
     ...time.when,

@@ -1,6 +1,6 @@
 import { activity, activityName, activityKeys } from "./activity-registry";
 import { courtFor, courtOffers, placesPerBooking } from "./court-activities";
-import { hasSignOff } from "./sign-offs";
+import { signOffHolds, type SignOffChannel } from "./sign-offs";
 export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
 import { randomBytes, randomInt } from "crypto";
@@ -84,7 +84,7 @@ import {
   type BookingPolicy,
   type PolicyBreach,
 } from "./booking-policy";
-import { priceBooking, type MemberPricing, type Quote } from "./pricing";
+import { priceBooking, readQuantityPrices, type MemberPricing, type Quote } from "./pricing";
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 import { hoursOn, parseWeekHours, validateUsualHours, validateWeekHours } from "./week-hours";
@@ -115,6 +115,9 @@ interface CourtRow {
   surface: Surface | null;
   per_player?: number;
   max_players?: number | null;
+  flat_rate?: boolean | number;
+  classes_only?: boolean | number;
+  quantity_prices?: string | null;
   /** JSON, kept by the database from court_activities (migration 0092). */
   activities?: string | null;
   noun?: string | null;
@@ -378,6 +381,17 @@ interface BookingRow {
   sport: Sport;
 }
 
+/** Quantity prices as stored; anything unreadable counts as none. */
+function readStoredBands(raw: string | null | undefined): Court["quantityPrices"] {
+  if (!raw) return null;
+  try {
+    const read = readQuantityPrices(JSON.parse(raw));
+    return read.ok ? read.value : null;
+  } catch {
+    return null;
+  }
+}
+
 function toCourt(r: CourtRow): Court {
   return {
     id: r.id,
@@ -397,6 +411,9 @@ function toCourt(r: CourtRow): Court {
     surface: r.surface ?? null,
     perPlayer: r.per_player === 1,
     maxPlayers: r.max_players ?? null,
+    flatRate: r.flat_rate === true || r.flat_rate === 1,
+    classesOnly: r.classes_only === true || r.classes_only === 1,
+    quantityPrices: readStoredBands(r.quantity_prices),
     activities: courtActivitiesOf(r),
     noun: r.noun ?? null,
   };
@@ -645,7 +662,7 @@ export async function courtsForAnyBooking(input: { venueId: number; sport: Sport
   const db = getDb();
   const courts = (
     await db
-      .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} ORDER BY c.id`)
+      .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} AND NOT c.classes_only ORDER BY c.id`)
       .all(venueId, sport) as CourtRow[]
   ).map((r) => courtFor(toCourt(r), sport));
   if (courts.length === 0) return [];
@@ -687,6 +704,8 @@ export async function createBookingOnAnyCourt(input: {
   email?: string;
   userId?: number;
   players?: number;
+  staff?: StaffOverride;
+  by?: SignOffChannel;
 } & WhenInput): Promise<CreateSeriesResult> {
   const { venueId, sport, date, ...rest } = input;
 
@@ -701,7 +720,7 @@ export async function createBookingOnAnyCourt(input: {
     // rather than a flat "nothing free".
     const anyCourt = (
       await getDb()
-        .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} ORDER BY c.id LIMIT 1`)
+        .prepare(`SELECT c.* FROM courts c WHERE c.venue_id = ? AND ${offersSql()} AND NOT c.classes_only ORDER BY c.id LIMIT 1`)
         .all(venueId, sport) as CourtRow[]
     ).map(toCourt)[0];
     if (!anyCourt)
@@ -751,6 +770,8 @@ export async function createGroupBooking(input: {
   players?: number;
   /** The activity on every court; each court's main one if not said. */
   sport?: Sport;
+  staff?: StaffOverride;
+  by?: SignOffChannel;
 } & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
@@ -872,12 +893,16 @@ export async function getAvailability(
   date: string,
   sport?: Sport,
   /** Price the grid at member rates (or a tier's share), for a caller known to be a member. */
-  member: MemberPricing = false
+  member: MemberPricing = false,
+  /** Include rooms run as classes: for the venue's own staff and systems, who may hire them out. */
+  classRooms = false
 ): Promise<CourtAvailability[]> {
   const db = getDb();
   let courts = (
     await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
+  // A studio run as classes is booked through its classes, not the grid.
+  if (!classRooms) courts = courts.filter((c) => !c.classesOnly);
   // Every court that can be booked for the activity, as offered for it.
   if (sport) courts = courts.filter((c) => courtOffers(c, sport)).map((c) => courtFor(c, sport));
   if (courts.length === 0) return [];
@@ -1111,7 +1136,7 @@ function venueFilter(opts: {
   const features = (opts.courtFilters ?? []).map(courtFilterSql);
   if (opts.sport || features.length > 0) {
     clauses.push(
-      `EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id${opts.sport ? ` AND ${offersSql()}` : ""}${features.map((f) => ` AND ${f}`).join("")})`
+      `EXISTS (SELECT 1 FROM courts c WHERE c.venue_id = v.id${opts.sport ? ` AND ${offersSql()} AND NOT c.classes_only` : ""}${features.map((f) => ` AND ${f}`).join("")})`
     );
     if (opts.sport) params.push(opts.sport);
   }
@@ -1202,25 +1227,63 @@ export async function listAreaCounts(
 }
 
 /** The activities offered at these venues, or anywhere — anywhere customers can reach — in the catalogue's order. */
-export async function sportsOfferedAt(venueIds?: number[]): Promise<Sport[]> {
-  const from = `SELECT ca.sport, COUNT(DISTINCT c.venue_id) AS venues FROM court_activities ca JOIN courts c ON c.id = ca.court_id JOIN venues v ON v.id = c.venue_id WHERE ${
+export async function sportsOfferedAt(venueIds?: number[], opts: { courtsOnly?: boolean } = {}): Promise<Sport[]> {
+  // `courtsOnly`: what can be booked as a court, lane or place (search), leaving out what is only run as classes.
+  const from = `SELECT DISTINCT ca.sport FROM court_activities ca JOIN courts c ON c.id = ca.court_id JOIN venues v ON v.id = c.venue_id WHERE ${
     listRule(venueIds)
-  }`;
+  }${opts.courtsOnly ? " AND NOT c.classes_only" : ""}`;
   const rows = (
     venueIds === undefined
-      ? await getDb().prepare(`${from} GROUP BY ca.sport`).all()
+      ? await getDb().prepare(from).all()
       : await getDb()
-          .prepare(`${from} AND c.venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"}) GROUP BY ca.sport`)
+          .prepare(`${from} AND c.venue_id IN (${venueIds.map(() => "?").join(",") || "NULL"})`)
           .all(...venueIds)
-  ) as { sport: Sport; venues: number }[];
-  // What most venues here offer comes first, then the catalogue's order;
+  ) as { sport: Sport }[];
+  const offered = new Set(rows.map((r) => r.sport));
+  // The catalogue's order, so search lists every activity where it belongs;
   // retired activities still offered somewhere stay findable, after the rest.
-  const venues = new Map(rows.map((r) => [r.sport, Number(r.venues)]));
   const known = activityKeys();
-  const rank = (s: Sport) => (known.includes(s) ? known.indexOf(s) : known.length);
-  return [...venues.keys()].sort(
-    (a, b) => Number(!known.includes(a)) - Number(!known.includes(b)) || venues.get(b)! - venues.get(a)! || rank(a) - rank(b) || a.localeCompare(b)
-  );
+  return [...known.filter((s) => offered.has(s)), ...[...offered].filter((s) => !known.includes(s)).sort()];
+}
+
+/**
+ * The same activities, most popular here first: for the home page's few
+ * buttons. Popular is what was booked over the last 30 days at the venues in
+ * view (a storefront's, an area's), then how many of them offer it, then the
+ * catalogue's order. Search keeps the catalogue's order and lists them all.
+ */
+export async function activitiesByPopularity(scope: { venueIds?: number[]; area?: string } = {}): Promise<Sport[]> {
+  const offered = await sportsOfferedAt(scope.venueIds, { courtsOnly: true });
+  const params: unknown[] = [addDays(todayISO(), -30)];
+  let where = `${listRule(scope.venueIds)} AND NOT c.classes_only`;
+  if (scope.venueIds !== undefined) {
+    where += ` AND c.venue_id IN (${scope.venueIds.map(() => "?").join(",") || "NULL"})`;
+    params.push(...scope.venueIds);
+  }
+  if (scope.area) {
+    where += " AND v.area = ?";
+    params.push(scope.area);
+  }
+  const venues = (await getDb()
+    .prepare(
+      `SELECT ca.sport, COUNT(DISTINCT c.venue_id) AS n FROM court_activities ca JOIN courts c ON c.id = ca.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE ${where} GROUP BY ca.sport`
+    )
+    .all(...params.slice(1))) as { sport: Sport; n: number }[];
+  const booked = (await getDb()
+    .prepare(
+      `SELECT b.sport, COUNT(*) AS n FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE b.status = 'confirmed' AND b.date >= ? AND ${where} GROUP BY b.sport`
+    )
+    .all(...params)) as { sport: Sport; n: number }[];
+  const rows = venues.map((v) => ({ sport: v.sport, venues: v.n, booked: booked.find((b) => b.sport === v.sport)?.n ?? 0 }));
+  const rank = new Map(rows.map((r) => [r.sport, r]));
+  const order = (s: Sport) => offered.indexOf(s);
+  return [...offered].sort((a, b) => {
+    const x = rank.get(a);
+    const y = rank.get(b);
+    return Number(y?.booked ?? 0) - Number(x?.booked ?? 0) || Number(y?.venues ?? 0) - Number(x?.venues ?? 0) || order(a) - order(b);
+  });
 }
 
 /**
@@ -1243,7 +1306,7 @@ export async function countSearchCourts(input: {
   const filter = venueFilter({ area: input.area, venueIds: input.venueIds, near: input.near });
   const { n } = (await getDb()
     .prepare(
-      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql} AND ${offersSql()}`
+      `SELECT COUNT(*) AS n FROM courts c JOIN venues v ON v.id = c.venue_id ${filter.sql} AND ${offersSql()} AND NOT c.classes_only`
     )
     .get(...filter.params, input.sport)) as { n: number };
   return n;
@@ -1282,7 +1345,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
            v.access AS v_access, v.book_ahead_days AS v_ahead
     FROM courts c JOIN venues v ON v.id = c.venue_id
-    WHERE ${offersSql()} AND ${listRule(input.venueIds)}
+    WHERE ${offersSql()} AND NOT c.classes_only AND ${listRule(input.venueIds)}
   `;
   if (input.area) {
     sql += " AND v.area = ?";
@@ -1582,6 +1645,8 @@ export async function createBooking(
     /** The activity, on a court that offers several; its main one if not said. */
     sport?: Sport;
     staff?: StaffOverride;
+    /** Who is booking (createBookingSeries). */
+    by?: SignOffChannel;
   } & WhenInput
 ): Promise<CreateBookingResult> {
   const result = await createBookingSeries({ ...input, weeks: 1 });
@@ -1595,6 +1660,8 @@ function breachRefusal(policy: BookingPolicy, span: Span, breach: PolicyBreach):
   if (breach === "LENGTH" && !policy.lengths && length > policy.maxLength) return refuse("MAX_HOURS", { max: hoursOf(policy.maxLength) });
   if (breach === "LENGTH" && !policy.lengths && length < policy.minLength) return refuse("MIN_HOURS", { min: hoursOf(policy.minLength) });
   if (breach === "HOURS") return refuse("HOURS_OUTSIDE_OPENING");
+  // Checked apart from the court's rules, by who is booking (createBookingSeries).
+  if (breach === "SIGN_OFF") throw new Error("A sign-off is not one of the court's time rules.");
   const code = ({ START: "POLICY_START", LENGTH: "POLICY_LENGTH", NOTICE: "POLICY_NOTICE" } as const)[breach];
   return refuse(code, { rule: breachMessage(policy, breach) });
 }
@@ -1632,6 +1699,12 @@ export async function createBookingSeries(
     /** The activity booked: one the court offers; its main one if not said. */
     sport?: Sport;
     staff?: StaffOverride;
+    /**
+     * Who is booking, for checks that depend on who is in front of whom
+     * (sign-offs, lib/sign-offs.ts): the customer online (the default), the
+     * venue's staff, or the venue's own system through its API key.
+     */
+    by?: SignOffChannel;
   } & WhenInput,
   attempt = 0
 ): Promise<CreateSeriesResult> {
@@ -1668,11 +1741,30 @@ export async function createBookingSeries(
   const breaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
   if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0]);
   if (minutesUntil(date, span.start, zone) <= 0) return refuse("SLOT_PAST");
-  // An activity that needs a staff sign-off first (a belay check, a range
-  // briefing, lib/sign-offs.ts): a customer without one is sent to the
-  // counter; staff going past the rules are not.
-  if (policy.signOff && !override && !input.classId && !(await hasSignOff(court.venueId, phone, court.sport, date)))
-    return refuse("SIGN_OFF_NEEDED", { sport: activityName(court.sport) });
+  // A studio run as classes is booked through its classes; the venue's staff may still hire the room out.
+  if (court.classesOnly && !input.classId && (input.by ?? "customer") === "customer" && !override) return refuse("CLASSES_ONLY", { sport: activityName(court.sport) });
+  // An activity that needs a staff sign-off or a certification first (a belay
+  // check, a range briefing; lib/sign-offs.ts), good until the last week
+  // booked. Online it must be the customer's own; a manager going past the
+  // rules may book without one, and it is recorded as an override.
+  const signOffNeed = input.classId ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
+  if (signOffNeed) {
+    const channel = input.by ?? "customer";
+    const held = await signOffHolds({
+      venueId: court.venueId,
+      sport: court.sport,
+      until: addDays(date, 7 * (weeks - 1)),
+      phone,
+      userId,
+      channel,
+      need: signOffNeed,
+    });
+    if (!held && !override)
+      return refuse(signOffNeed === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(court.sport) });
+    if (!held) breaches.push("SIGN_OFF");
+    // One person's sign-off is for one person: places for others are booked where staff see them.
+    if (held && channel === "customer" && players > 1 && !override) return refuse("SIGN_OFF_EACH", { sport: activityName(court.sport) });
+  }
 
   const db = getDb();
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
@@ -2484,6 +2576,24 @@ export async function rescheduleBooking(
     if (breaches.length > 0 && !(by === "staff" && to.override === true)) {
       firstRefusal ??= breachRefusal(day.policy, span, breaches[0]);
       continue;
+    }
+    // A sign-off the activity asks for there must still hold on the new date, and be the customer's own.
+    const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
+    if (need) {
+      const held = await signOffHolds({
+        venueId: court.venueId,
+        sport: booking.sport,
+        until: to.date,
+        phone: booking.phone,
+        userId: ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id,
+        channel: by,
+        need,
+      });
+      if (!held && !(by === "staff" && to.override === true)) {
+        firstRefusal ??= refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(booking.sport) });
+        continue;
+      }
+      if (!held) breaches.push("SIGN_OFF");
     }
     const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
@@ -3885,6 +3995,12 @@ export async function updateCourt(
     /** Priced per player, and the most one booking takes (null for DEFAULT_MAX_PLAYERS). */
     perPlayer?: boolean;
     maxPlayers?: number | null;
+    /** With places: one price for the whole booking rather than per place. */
+    flatRate?: boolean;
+    /** Run as classes only: customers book its classes, not the room. */
+    classesOnly?: boolean;
+    /** Lower prices for larger bookings (lib/pricing.ts); null for none. */
+    quantityPrices?: unknown;
   }
 ): Promise<CourtEditResult> {
   const db = getDb();
@@ -3991,12 +4107,21 @@ export async function updateCourt(
     };
 
   const perPlayer = changes.perPlayer ?? court.perPlayer ?? false;
+  const capacity = changes.capacity ?? court.capacity;
   const maxPlayers = changes.maxPlayers !== undefined ? changes.maxPlayers : court.maxPlayers ?? null;
-  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > MAX_PLAYERS))
-    return { ok: false, error: `Up to 2 to ${MAX_PLAYERS} players in one booking.` };
+  // A facility with places may take one a booking (a gym session each); a court priced per player at least two.
+  const fewest = capacity > 1 ? 1 : 2;
+  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < fewest || maxPlayers > MAX_PLAYERS))
+    return { ok: false, error: `Up to ${fewest} to ${MAX_PLAYERS} in one booking.` };
   // A shared facility already sells places, one per person.
-  if (perPlayer && (changes.capacity ?? court.capacity) > 1)
+  if (perPlayer && capacity > 1)
     return { ok: false, error: "This sells places already, one per person: price it per place instead." };
+  // One price for the whole booking only means something where a booking can take several places.
+  const flatRate = changes.flatRate ?? court.flatRate ?? false;
+  if (flatRate && capacity === 1)
+    return { ok: false, error: "A court booked whole already has one price for the booking." };
+  const bands = changes.quantityPrices !== undefined ? readQuantityPrices(changes.quantityPrices) : { ok: true as const, value: court.quantityPrices ?? null };
+  if (!bands.ok) return { ok: false, error: bands.error };
 
   const codeChanged = codeGiven && newCode !== stored.code;
 
@@ -4005,7 +4130,7 @@ export async function updateCourt(
       UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
                         member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
                         deposit = ?, unmanned = ?, access_code = ?,
-                        per_player = ?, max_players = ?
+                        per_player = ?, max_players = ?, flat_rate = ?, quantity_prices = ?, classes_only = ?
       WHERE id = ?
     `).run(
       changes.name?.trim() ?? court.name,
@@ -4019,6 +4144,9 @@ export async function updateCourt(
       newCode,
       perPlayer ? 1 : 0,
       maxPlayers,
+      flatRate,
+      bands.value ? JSON.stringify(bands.value) : null,
+      changes.classesOnly ?? court.classesOnly ?? false,
       courtId
     );
     // Only a genuine change restarts the clock, so re-saving the same code
@@ -6213,6 +6341,10 @@ export async function joinSlotWaitlist(input: {
     if (breaches.length > 0) return breachRefusal(day.policy, span, breaches[0]);
     if (!isBookableDate(date, day.zone, await venueAheadDays(waitCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
     if (minutesUntil(date, start, day.zone) <= 0) return refuse("TIME_PAST");
+    // Only somebody who could book it waits for it: an offer they could not take would go round for nothing.
+    const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
+    if (need && !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: "customer", need })))
+      return refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(waitCourt.sport) });
 
     if (await slotTimeFree(waitCourt, date, span, day.policy, day.zone))
       return refuse("SLOT_FREE_BOOK_IT");

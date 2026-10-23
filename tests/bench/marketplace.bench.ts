@@ -1,0 +1,223 @@
+import { describe, expect, it } from "vitest";
+
+/**
+ * Marketplace-scale benchmark (docs/development/testing.md#marketplace-benchmark).
+ *
+ * Not part of `npm test`: `BENCH_DATABASE_URL=postgresql://… npm run bench`
+ * fills that database once with a realistic multi-tenant marketplace — 400
+ * venues in 25 areas (100 of them branches of 20 businesses), about 3,200
+ * resources across the catalogue's activities, and six weeks of bookings
+ * (two past, four ahead) at evening-heavy occupancy, every one holding its
+ * claim — then times what customers, staff and the scheduler do against it,
+ * through the same functions the routes call. The database is kept between
+ * runs; drop it to start again.
+ */
+
+const url = process.env.BENCH_DATABASE_URL;
+const VENUES = Number(process.env.BENCH_VENUES ?? 400);
+const RUNS = Number(process.env.BENCH_RUNS ?? 20);
+
+/** Venue types: what their resources are, and how many of each. */
+const TYPES: { weight: number; courts: [string, number, number][] }[] = [
+  // [activity, how many, capacity]
+  { weight: 30, courts: [["badminton", 8, 1]] },
+  { weight: 10, courts: [["badminton", 6, 1], ["pickleball", 2, 1]] },
+  { weight: 12, courts: [["futsal", 4, 1], ["football", 1, 1]] },
+  { weight: 8, courts: [["padel", 4, 1], ["tennis", 2, 1]] },
+  { weight: 8, courts: [["pickleball", 6, 1]] },
+  { weight: 6, courts: [["basketball", 2, 1], ["volleyball", 2, 1], ["netball", 1, 1], ["futsal", 2, 1]] },
+  { weight: 5, courts: [["squash", 4, 1], ["table_tennis", 6, 1]] },
+  { weight: 4, courts: [["swimming", 6, 4], ["gym", 1, 30]] },
+  { weight: 4, courts: [["climbing", 1, 30], ["bouldering", 1, 40]] },
+  { weight: 4, courts: [["golf_simulator", 4, 1], ["bowling", 8, 1]] },
+  { weight: 3, courts: [["kayak", 1, 10], ["paddleboard", 1, 10]] },
+  { weight: 3, courts: [["archery", 6, 1], ["fencing", 2, 1], ["cricket", 3, 1]] },
+  { weight: 3, courts: [["sepak_takraw", 3, 1], ["floorball", 1, 1], ["water_polo", 1, 1]] },
+];
+const AREAS = Array.from({ length: 25 }, (_, i) => `Area ${String(i + 1).padStart(2, "0")}`);
+
+/** A seeded generator, so every fill is the same marketplace. */
+function rng(seed: number) {
+  return () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+}
+
+function stats(ms: number[]) {
+  const s = [...ms].sort((a, b) => a - b);
+  const at = (p: number) => s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+  return { p50: Math.round(at(50) * 10) / 10, p95: Math.round(at(95) * 10) / 10, max: Math.round(s[s.length - 1] * 10) / 10 };
+}
+
+async function time<T>(label: string, runs: number, fn: (i: number) => Promise<T>, out: Record<string, unknown>) {
+  await fn(-1); // warm
+  const ms: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const t0 = performance.now();
+    await fn(i);
+    ms.push(performance.now() - t0);
+  }
+  out[label] = stats(ms);
+  console.log(`BENCH ${label}: ${JSON.stringify(out[label])}`);
+}
+
+describe.skipIf(!url)("a marketplace at scale", () => {
+  it("is filled, then timed", async () => {
+    process.env.DATABASE_URL = url;
+    process.env.MYSENAM_GEOCODER = "off";
+    const { getDb } = await import("../../src/lib/db");
+    const store = await import("../../src/lib/store");
+    const { createResources } = await import("../../src/lib/resources");
+    const { checkIntegrity } = await import("../../src/lib/integrity");
+    const { addDays, todayISO } = await import("../../src/lib/time");
+    const db = getDb();
+    const today = todayISO("Asia/Kuala_Lumpur");
+    const out: Record<string, unknown> = {};
+
+    // ------------------------------------------------------------ fill once
+    const have = ((await db.prepare("SELECT COUNT(*)::int AS n FROM venues WHERE name LIKE 'Bench %'").get()) as { n: number }).n;
+    if (have < VENUES) {
+      const t0 = performance.now();
+      const r = rng(42);
+      const businesses: number[] = [];
+      for (let b = 0; b < 20; b++)
+        businesses.push(((await db.prepare("INSERT INTO businesses (name) VALUES (?) RETURNING id").get(`Bench Group ${b + 1}`)) as { id: number }).id);
+      const total = TYPES.reduce((s, t) => s + t.weight, 0);
+      for (let v = have; v < VENUES; v++) {
+        const area = AREAS[v % AREAS.length];
+        // Spread over the Klang Valley, each area its own patch.
+        const lat = 2.9 + (v % 25) * 0.02 + r() * 0.02;
+        const lng = 101.5 + Math.floor((v % 25) / 5) * 0.05 + r() * 0.04;
+        const made = await store.createVenue({
+          name: `Bench ${String(v + 1).padStart(4, "0")}`,
+          area,
+          address: `${v + 1} Jalan Bench`,
+          phone: `03${String(70000000 + v)}`,
+          openMin: 7 * 60,
+          closeMin: 23 * 60,
+        });
+        if (!made.ok) throw new Error(made.error);
+        const id = made.venue.id;
+        await db
+          .prepare("UPDATE venues SET lat = ?, lng = ?, published_at = datetime('now'), business_id = ? WHERE id = ?")
+          .run(lat, lng, v < 100 ? businesses[v % 20] : null, id);
+        let pick = r() * total;
+        const type = TYPES.find((t) => (pick -= t.weight) < 0) ?? TYPES[0];
+        for (const [sport, count, capacity] of type.courts) {
+          const res = await createResources({ venueId: id, sport, count, offPeakRate: 15 + Math.round(r() * 30), peakRate: 25 + Math.round(r() * 40), capacity });
+          if (!res.ok) throw new Error(`${sport}: ${res.error}`);
+        }
+      }
+      // Six weeks of bookings, an hour each from 08:00 to 22:00: busier in the evening and at weekends.
+      await db.prepare("SELECT setseed(0.42)").get();
+      const from = addDays(today, -14);
+      await db
+        .prepare(
+          `INSERT INTO bookings (code, court_id, date, start_min, end_min, starts_at, ends_at, name, phone, total_price, status, payment_status, players)
+           SELECT 'BN-' || c.id || '-' || to_char(d, 'YYYYMMDD') || '-' || h || '-' || p,
+                  c.id, to_char(d, 'YYYY-MM-DD'), h * 60, h * 60 + 60,
+                  (d + make_interval(hours => h)) AT TIME ZONE 'Asia/Kuala_Lumpur',
+                  (d + make_interval(hours => h + 1)) AT TIME ZONE 'Asia/Kuala_Lumpur',
+                  'Bench Player', '01' || lpad((floor(random() * 90000000) + 10000000)::text, 8, '0'),
+                  c.off_peak_rate, 'confirmed', CASE WHEN d < CURRENT_DATE THEN 'paid' ELSE 'unpaid' END, 1
+             FROM courts c
+             JOIN venues v ON v.id = c.venue_id AND v.name LIKE 'Bench %'
+             CROSS JOIN generate_series(?::date, ?::date, interval '1 day') d
+             CROSS JOIN generate_series(8, 21) h
+             CROSS JOIN generate_series(1, LEAST(c.capacity, 3)) p
+            WHERE random() < (CASE WHEN h >= 17 THEN 0.75 ELSE 0.30 END) * (CASE WHEN extract(isodow FROM d) >= 6 THEN 1.15 ELSE 1 END)`
+        )
+        .run(from, addDays(today, 28));
+      // Each holds its court: a booking of a whole court its spaces, of a shared one a place.
+      await db
+        .prepare(
+          `INSERT INTO claims (venue_id, court_id, space_id, places, kind, booking_id, during, occupied)
+           SELECT c.venue_id, b.court_id, cs.space_id, NULL, 'booking', b.id, tstzrange(b.starts_at, b.ends_at), tstzrange(b.starts_at, b.ends_at)
+             FROM bookings b JOIN courts c ON c.id = b.court_id JOIN court_spaces cs ON cs.court_id = c.id
+            WHERE b.code LIKE 'BN-%' AND c.capacity = 1`
+        )
+        .run();
+      await db
+        .prepare(
+          `INSERT INTO claims (venue_id, court_id, space_id, places, kind, booking_id, during, occupied)
+           SELECT c.venue_id, b.court_id, NULL, 1, 'booking', b.id, tstzrange(b.starts_at, b.ends_at), tstzrange(b.starts_at, b.ends_at)
+             FROM bookings b JOIN courts c ON c.id = b.court_id
+            WHERE b.code LIKE 'BN-%' AND c.capacity > 1`
+        )
+        .run();
+      await db.prepare("ANALYZE").run();
+      out.fill = { seconds: Math.round((performance.now() - t0) / 1000) };
+      console.log(`BENCH fill: ${JSON.stringify(out.fill)}`);
+    }
+    const size = (await db
+      .prepare(
+        `SELECT (SELECT COUNT(*)::int FROM venues) AS venues, (SELECT COUNT(*)::int FROM courts) AS courts,
+                (SELECT COUNT(*)::int FROM bookings) AS bookings, (SELECT COUNT(*)::int FROM claims WHERE active) AS claims,
+                pg_size_pretty(pg_database_size(current_database())) AS size`
+      )
+      .get()) as Record<string, unknown>;
+    out.dataset = size;
+    console.log(`BENCH dataset: ${JSON.stringify(size)}`);
+
+    // ------------------------------------------------------------ timings
+    const venues = ((await db.prepare("SELECT id, area, lat, lng FROM venues WHERE name LIKE 'Bench %' ORDER BY id").all()) as {
+      id: number;
+      area: string;
+      lat: number;
+      lng: number;
+    }[]);
+    const pick = (i: number) => venues[(Math.abs(i) * 37) % venues.length];
+    const date = (i: number) => addDays(today, 1 + (Math.abs(i) % 7));
+
+    await time("venue grid, every resource (GET /api/availability)", RUNS, (i) => store.getAvailability(pick(i).id, date(i)), out);
+    await time("venue grid, one activity", RUNS, (i) => store.getAvailability(pick(i).id, date(i), "badminton"), out);
+    await time("search: badminton in an area, evening, soonest", RUNS, (i) =>
+      store.searchAvailability({ sport: "badminton", date: date(i), fromMin: 18 * 60, toMin: 21 * 60, minutes: 60, area: pick(i).area }), out);
+    await time("search: badminton in an area, cheapest", RUNS, (i) =>
+      store.searchAvailability({ sport: "badminton", date: date(i), fromMin: 18 * 60, toMin: 21 * 60, minutes: 60, area: pick(i).area, sort: "cheapest", limit: 200 }), out);
+    await time("search: near a point, 5 km", RUNS, (i) =>
+      store.searchAvailability({ sport: "badminton", date: date(i), fromMin: 17 * 60, toMin: 22 * 60, minutes: 60, near: { lat: pick(i).lat, lng: pick(i).lng, km: 5 }, sort: "nearest", limit: 200 }), out);
+    await time("search: a rarer activity nationwide (archery)", RUNS, (i) =>
+      store.searchAvailability({ sport: "archery", date: date(i), fromMin: 9 * 60, toMin: 21 * 60, minutes: 60 }), out);
+    await time("search: courts counted nationwide (needs-area check)", RUNS, () => store.countSearchCourts({ sport: "badminton" }), out);
+    await time("home: activities by popularity, nationwide", RUNS, () => store.activitiesByPopularity({}), out);
+    await time("home: venue list, first page", RUNS, (i) => store.listVenuePage({ area: i % 2 ? pick(i).area : undefined, page: 1 }), out);
+    await time("search page: activities offered", RUNS, () => store.sportsOfferedAt(undefined, { courtsOnly: true }), out);
+
+    // A free hour on a court, to book and to move.
+    const free = async (i: number) => {
+      const grid = await store.getAvailability(pick(i).id, date(i + 3));
+      for (const g of grid) {
+        if (g.court.capacity !== 1) continue;
+        const start = g.starts?.find((s) => s.minute >= 9 * 60);
+        if (start) return { courtId: g.court.id, date: date(i + 3), start: start.minute };
+      }
+      return null;
+    };
+    let made = 0;
+    await time("book a court (customer)", RUNS, async (i) => {
+      const f = await free(i + 1000);
+      if (!f) return;
+      const r = await store.createBooking({ ...f, end: f.start + 60, name: "Bench Live", phone: `017${String(1000000 + i + 1000)}` });
+      if (r.ok) made++;
+    }, out);
+    const one = (await db.prepare("SELECT code FROM bookings WHERE name = 'Bench Live' ORDER BY id DESC LIMIT 1").get()) as { code: string } | undefined;
+    if (one) await time("reschedule: free times on a day", RUNS, (i) => store.rescheduleOptions(one.code, date(i + 2)), out);
+
+    // Fifty customers at once, each at a different venue.
+    const t0 = performance.now();
+    const burst = await Promise.all(
+      Array.from({ length: 50 }, async (_, i) => {
+        const f = await free(i + 2000);
+        return f ? store.createBooking({ ...f, end: f.start + 60, name: "Bench Burst", phone: `018${String(1000000 + i)}` }) : null;
+      })
+    );
+    out["50 bookings at once"] = { seconds: Math.round(performance.now() - t0) / 1000, made: burst.filter((b) => b?.ok).length };
+    console.log(`BENCH 50 bookings at once: ${JSON.stringify(out["50 bookings at once"])}`);
+
+    await time("daily integrity check", Math.min(RUNS, 3), () => checkIntegrity(), out);
+    console.log(`BENCH RESULT ${JSON.stringify(out)}`);
+    expect(made).toBeGreaterThan(0);
+  });
+});

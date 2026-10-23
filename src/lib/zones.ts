@@ -1,7 +1,7 @@
 import tzlookup from "@photostructure/tz-lookup";
 import { getDb } from "./db.ts";
 import { region } from "./region.ts";
-import { isTimeZone } from "./time.ts";
+import { keepsOneOffset } from "./time.ts";
 
 /**
  * Which time zone a venue is in. Server only: the boundaries come with the
@@ -23,9 +23,13 @@ export function zoneForPin(lat: number | null | undefined, lng: number | null | 
   }
 }
 
-/** A venue's zone: the one staff chose, else where its pin is, else the install's. */
+/**
+ * A venue's zone: the one staff chose, else where its pin is, else the
+ * install's. A stored zone that is not one of the country's, or that changes
+ * its clocks (written by hand, or left from another country), is not used.
+ */
 export function venueZoneOf(row: { time_zone?: string | null; lat?: number | null; lng?: number | null }): string {
-  if (row.time_zone && isTimeZone(row.time_zone)) return row.time_zone;
+  if (row.time_zone && region().timeZones.includes(row.time_zone) && keepsOneOffset(row.time_zone)) return row.time_zone;
   return zoneForPin(row.lat, row.lng);
 }
 
@@ -60,6 +64,8 @@ export async function zoneSettings(venueId: number): Promise<ZoneSettings | null
 export async function setVenueZone(venueId: number, zone: unknown): Promise<{ ok: true; settings: ZoneSettings } | { ok: false; error: string }> {
   if (zone !== null && (typeof zone !== "string" || !region().timeZones.includes(zone)))
     return { ok: false, error: `Pick one of ${region().name}'s time zones: ${region().timeZones.join(", ")}.` };
+  if (zone !== null && !keepsOneOffset(zone))
+    return { ok: false, error: `${zone} changes its clocks during the year, which bookings here cannot follow yet.` };
   const done = await getDb().prepare("UPDATE venues SET time_zone = ? WHERE id = ?").run(zone, venueId);
   if (done.changes === 0) return { ok: false, error: "Venue not found." };
   return { ok: true, settings: (await zoneSettings(venueId))! };

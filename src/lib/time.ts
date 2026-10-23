@@ -48,6 +48,25 @@ export function isTimeZone(zone: unknown): zone is string {
   }
 }
 
+const steady = new Map<string, boolean>();
+
+/**
+ * Does this zone keep one offset from UTC all year, this year and next? A
+ * booking is a wall-clock time turned into a moment by its zone; where the
+ * clocks change, some wall-clock times never happen and others happen twice,
+ * and nothing yet says what a booking at one of them means (known
+ * limitations). So only zones without daylight saving are accepted.
+ */
+export function keepsOneOffset(zone: string): boolean {
+  const known = steady.get(zone);
+  if (known !== undefined) return known;
+  if (!isTimeZone(zone)) return false;
+  const year = new Date().getUTCFullYear();
+  const offsets = new Set(Array.from({ length: 24 }, (_, i) => zoneOffsetMinutes(new Date(Date.UTC(year + Math.floor(i / 12), i % 12, 15)), zone)));
+  steady.set(zone, offsets.size === 1);
+  return offsets.size === 1;
+}
+
 /** Wall-clock parts of a moment in a zone. */
 function wallClock(at: Date, zone: string): { y: number; m: number; d: number; h: number; min: number; s: number } {
   const parts = Object.fromEntries(formatters(zone).clock.formatToParts(at).map((p) => [p.type, p.value]));

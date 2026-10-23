@@ -188,3 +188,22 @@ describe("a booking made while a court is being taken out", () => {
       expect({ outages: outages.n, confirmed: left.n }).toEqual({ outages: 1, confirmed: 0 });
     });
 });
+
+describe("a court out of service at a venue open past midnight", () => {
+  it("takes the late hours of its last night too, and leaves the night before's", async () => {
+    const late = await createVenue({ name: "Night Courts", area: "Bangsar", address: "x", phone: "0322223333", openMin: 18 * 60, closeMin: 26 * 60 });
+    if (!late.ok) throw new Error("venue");
+    const c = await createCourt({ venueId: late.venue.id, name: "Late 1", sport: "futsal", offPeakRate: 50, peakRate: 50 });
+    if (!c.ok) throw new Error(c.error);
+    const out = await createOutage({ courtId: c.court.id, startsOn: day(5), endsOn: day(6), reason: "Resurfacing", adminId: ownerId });
+    expect(out).toMatchObject({ ok: true });
+    const book = (date: string, startMin: number) =>
+      createBooking({ by: "staff", courtId: c.court.id, date, start: startMin, end: startMin + 60, name: "Night", phone: "0193334444" });
+    // 01:00 after the last day is that day's late hour: out of service.
+    expect(await book(day(6), 25 * 60)).toMatchObject({ ok: false });
+    // 01:00 after the day before is that night's, not the first day's: still bookable.
+    expect((await book(day(4), 25 * 60)).ok).toBe(true);
+    // And the evening after the stretch is back.
+    expect((await book(day(7), 19 * 60)).ok).toBe(true);
+  });
+});

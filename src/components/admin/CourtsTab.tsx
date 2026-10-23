@@ -111,7 +111,13 @@ export function CourtsTab({
 
   async function saveLengths(
     court: Court,
-    change: { perPlayer?: boolean; maxPlayers?: number | null }
+    change: {
+      perPlayer?: boolean;
+      maxPlayers?: number | null;
+      flatRate?: boolean;
+      quantityPrices?: { from: number; percent: number }[] | null;
+      classesOnly?: boolean;
+    }
   ) {
     setError(null);
     setNotice(null);
@@ -289,10 +295,12 @@ export function CourtsTab({
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold">Priced per player</h3>
+          <h3 className="font-semibold">How one booking is priced</h3>
           <p className="mt-1 text-sm text-slate-500">
-            A court can be priced per player, its rates then a head an hour, with the customer saying how many play. When
-            bookings start and how long they run are the booking rules above.
+            A court booked whole is one price for the booking, or priced per player with the customer saying how many play. Where a
+            resource has places (a gym floor, a wall, a fleet of kayaks), each place booked is priced unless you make the rate one price
+            for the whole booking. Either way, larger bookings can pay less per head. When bookings start and how long they run are the
+            booking rules above.
           </p>
           <table className="mt-2 w-full min-w-[480px] text-sm">
             <tbody>
@@ -300,8 +308,18 @@ export function CourtsTab({
                 <tr key={court.id} className="border-t border-slate-100">
                   <td className="py-1.5 pr-3 font-medium">{court.name}</td>
                   <td className="py-1.5 pl-3">
-                    {court.capacity === 1 && (
-                      <span className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <span className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                      {court.capacity > 1 && (
+                        <label className="flex items-center gap-1" title="Customers book its classes on the Classes page, not places in the room. Staff can still hire it out.">
+                          <input
+                            type="checkbox"
+                            checked={!!court.classesOnly}
+                            onChange={(e) => saveLengths(court, { classesOnly: e.target.checked })}
+                          />
+                          Classes only
+                        </label>
+                      )}
+                      {court.capacity === 1 ? (
                         <label className="flex items-center gap-1">
                           <input
                             type="checkbox"
@@ -310,22 +328,40 @@ export function CourtsTab({
                           />
                           Per player
                         </label>
-                        {court.perPlayer && (
-                          <select
-                            value={court.maxPlayers ?? ""}
-                            onChange={(e) => saveLengths(court, { maxPlayers: e.target.value === "" ? null : Number(e.target.value) })}
-                            className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
-                          >
-                            <option value="">up to 8</option>
-                            {[2, 4, 6, 10, 12, 16, 20, 30].map((n) => (
-                              <option key={n} value={n}>
-                                up to {n}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </span>
-                    )}
+                      ) : (
+                        <select
+                          aria-label={`How ${court.name} is priced`}
+                          value={court.flatRate ? "booking" : "place"}
+                          onChange={(e) => saveLengths(court, { flatRate: e.target.value === "booking" })}
+                          className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+                        >
+                          <option value="place">Per place booked</option>
+                          <option value="booking">One price for the booking</option>
+                        </select>
+                      )}
+                      {(court.perPlayer || court.capacity > 1) && (
+                        <select
+                          aria-label={`Most in one booking on ${court.name}`}
+                          value={court.maxPlayers ?? ""}
+                          onChange={(e) => saveLengths(court, { maxPlayers: e.target.value === "" ? null : Number(e.target.value) })}
+                          className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+                        >
+                          <option value="">up to 8</option>
+                          {(court.capacity > 1 ? [1, 2, 4, 6, 10, 12, 16, 20, 30] : [2, 4, 6, 10, 12, 16, 20, 30]).map((n) => (
+                            <option key={n} value={n}>
+                              up to {n}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {(court.perPlayer || (court.capacity > 1 && !court.flatRate)) && (
+                        <QuantityPriceField
+                          courtName={court.name}
+                          value={court.quantityPrices ?? null}
+                          onSave={(quantityPrices) => saveLengths(court, { quantityPrices })}
+                        />
+                      )}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -976,5 +1012,52 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
       )}
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
     </section>
+  );
+}
+
+/** One lower price for a larger booking: from so many, each at a percent of the rate. */
+function QuantityPriceField({
+  courtName,
+  value,
+  onSave,
+}: {
+  courtName: string;
+  value: { from: number; percent: number }[] | null;
+  onSave: (bands: { from: number; percent: number }[] | null) => void;
+}) {
+  const first = value?.[0];
+  const [from, setFrom] = useState(first ? String(first.from) : "");
+  const [percent, setPercent] = useState(first ? String(first.percent) : "");
+  return (
+    <span className="flex items-center gap-1">
+      from
+      <input
+        aria-label={`Larger bookings on ${courtName} from`}
+        type="number"
+        min={2}
+        max={50}
+        value={from}
+        onChange={(e) => setFrom(e.target.value)}
+        className="w-14 rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+      />
+      at
+      <input
+        aria-label={`Larger bookings on ${courtName} pay percent`}
+        type="number"
+        min={1}
+        max={99}
+        value={percent}
+        onChange={(e) => setPercent(e.target.value)}
+        className="w-14 rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+      />
+      % each
+      <button
+        type="button"
+        onClick={() => onSave(from === "" || percent === "" ? null : [{ from: Number(from), percent: Number(percent) }])}
+        className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700 hover:bg-slate-200"
+      >
+        Save
+      </button>
+    </span>
   );
 }

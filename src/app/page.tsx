@@ -2,7 +2,7 @@ import { sportsOf } from "@/lib/court-activities";
 import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { listAreaCounts, listVenuePage, readNear, sportsOfferedAt } from "@/lib/store";
+import { listAreaCounts, listVenuePage, readNear, activitiesByPopularity } from "@/lib/store";
 import { HomeNear } from "./HomeNear";
 import { QuickSearch } from "./QuickSearch";
 import { NoticeBar } from "@/components/NoticeBar";
@@ -55,7 +55,8 @@ export default async function HomePage({
   // platform's own — no venue's promotion leads the front page.
   const notices = storefront ? await showingFor(storefront.venueIds) : [await siteNotice()].filter((n) => n !== null);
   const t = await serverT();
-  const sportsOffered = await sportsOfferedAt(venueIds);
+  // Most booked around here first, for the few buttons; the rest stay one pick away.
+  const sportsOffered = await activitiesByPopularity({ venueIds, area });
   const link = (to: { area?: string; page?: number; has?: FilterChip[] }) => {
     const params = new URLSearchParams();
     if (to.area) params.set("area", to.area);
