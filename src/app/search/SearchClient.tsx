@@ -12,6 +12,7 @@ import {
   Sport,
   SPORTS,
   SPORT_ICONS,
+  usualHours,
 } from "@/lib/types";
 import type { SearchResult, SearchSort } from "@/lib/store";
 import { useT } from "@/components/Language";
@@ -84,18 +85,36 @@ export interface SearchStart {
   near?: NearChoice | null;
 }
 
-export default function SearchClient({ start = {} }: { start?: SearchStart }) {
+/** How long a search can ask for: an hour, an hour and a half, then whole hours. */
+const DURATIONS = [1, 1.5, ...Array.from({ length: MAX_COURT_HOURS - 1 }, (_, i) => i + 2)];
+
+export default function SearchClient({
+  start = {},
+  sports = SPORTS,
+}: {
+  start?: SearchStart;
+  /** The sports somebody here offers, so nobody searches for one nobody has. */
+  sports?: Sport[];
+}) {
   const t = useT();
   const today = todayISO();
   const dates = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i));
 
-  const [sport, setSport] = useState<Sport>(start.sport ?? "badminton");
+  // A sport asked for in the address stays on offer, to say honestly that nothing was found.
+  const known = sports.length > 0 ? sports : SPORTS;
+  const offered = start.sport && !known.includes(start.sport) ? [...known, start.sport] : known;
+  const [sport, setSportOnly] = useState<Sport>(start.sport ?? offered[0]);
   // Two weeks as buttons; further, up to the furthest any venue takes bookings, by picking a day.
   const lastDay = addDays(today, MAX_VENUE_AHEAD_DAYS);
   const [date, setDate] = useState(start.date && start.date >= today && start.date <= lastDay ? start.date : today);
   const [fromHour, setFromHour] = useState(start.fromHour ?? OPEN_HOUR);
   const [toHour, setToHour] = useState(start.toHour ?? CLOSE_HOUR - 1);
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(usualHours(start.sport ?? offered[0]));
+  // A sport's usual game comes with it: padel's 90 minutes.
+  const setSport = (s: Sport) => {
+    setSportOnly(s);
+    setDuration(usualHours(s));
+  };
   // Morning, afternoon or evening is one tap; "Custom" opens the hour pickers.
   const [custom, setCustom] = useState(dayPartOf(fromHour, toHour) === null);
   const part = custom ? null : dayPartOf(fromHour, toHour);
@@ -174,7 +193,7 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
 
       <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-2">
-          {SPORTS.map((s) => (
+          {offered.map((s) => (
             <button
               key={s}
               onClick={() => setSport(s)}
@@ -277,7 +296,7 @@ export default function SearchClient({ start = {} }: { start?: SearchStart }) {
               onChange={(e) => setDuration(Number(e.target.value))}
               className={selectClass}
             >
-              {Array.from({ length: MAX_COURT_HOURS }, (_, i) => i + 1).map((d) => (
+              {DURATIONS.map((d) => (
                 <option key={d} value={d}>
                   {t.plural("search.hours", d)}
                 </option>

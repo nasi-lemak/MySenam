@@ -76,7 +76,19 @@ export function isSurface(x: unknown): x is Surface {
 }
 
 /** Sports played on a surface worth naming; a pool or a gym floor is not compared by it. */
-export const SURFACE_SPORTS: Sport[] = ["badminton", "tennis", "pickleball", "futsal"];
+export const SURFACE_SPORTS: Sport[] = [
+  "badminton",
+  "tennis",
+  "pickleball",
+  "padel",
+  "squash",
+  "futsal",
+  "football",
+  "basketball",
+  "volleyball",
+  "netball",
+  "sepak_takraw",
+];
 
 export type Setting = "indoor" | "outdoor";
 

@@ -1214,7 +1214,8 @@ export async function listAreas(venueIds?: number[]): Promise<string[]> {
 export async function searchAvailability(input: SearchInput): Promise<SearchResult[]> {
   const db = getDb();
   // As long as any court may be booked; each court's own limits are applied below.
-  const duration = Math.min(Math.max(input.duration ?? 1, 1), MAX_COURT_HOURS);
+  // In half hours: an hour and a half is found only where a venue sells halves.
+  const duration = Math.min(Math.max(Math.round((input.duration ?? 1) * 2) / 2, 1), MAX_COURT_HOURS);
   // The window of start hours asked for, clamped per venue below to that
   // venue's own trading hours.
   const wantFrom = Math.max(input.fromHour ?? OPEN_HOUR, OPEN_HOUR);
@@ -1279,10 +1280,12 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_access: "public" | "members" | "private";
     v_ahead: number | null;
   })[];
-  // Not a court that will not take a booking that long, or that short.
+  // Not a court that will not take a booking that long, or that short, or
+  // that cannot be made of the venue's slots (90 minutes at a venue of hours).
   for (let i = rows.length - 1; i >= 0; i--) {
-    const lengths = bookingLengths(toCourt(rows[i]), (rows[i].v_slot_minutes ?? 60) / 60);
-    if (duration < lengths.min || duration > lengths.max) rows.splice(i, 1);
+    const step = (rows[i].v_slot_minutes ?? 60) / 60;
+    const lengths = bookingLengths(toCourt(rows[i]), step);
+    if (duration < lengths.min || duration > lengths.max || !Number.isInteger(duration / step)) rows.splice(i, 1);
   }
   if (rows.length === 0) return [];
 
@@ -1345,8 +1348,11 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     const fromHour = Math.max(wantFrom, venue.openHour);
     const lastStart = Math.min(wantTo, venue.closeHour - duration);
     // Search offers whole-hour starts; a venue selling half hours fills the time with its halves.
+    // A game that is not whole hours (padel's 90 minutes) is found on the half hour too,
+    // since back to back they start on both: 8:00, 9:30, 11:00.
     const step = venue.slotMinutes / 60;
-    for (let start = fromHour; start <= lastStart; start++) {
+    const every = Number.isInteger(duration) ? 1 : step;
+    for (let start = Math.ceil(fromHour / every) * every; start <= lastStart; start += every) {
       const hours = slotsBetween(start, start + duration, step);
       const free = hours.every((h) => {
         const key = `${court.id}:${h}`;

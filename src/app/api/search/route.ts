@@ -41,9 +41,10 @@ export async function GET(req: NextRequest) {
   const durationParam = params.get("duration");
   const duration = durationParam ? Number(durationParam) : 1;
   // A court may allow up to MAX_COURT_HOURS; the search leaves out those that do not.
-  if (!Number.isInteger(duration) || duration < 1 || duration > MAX_COURT_HOURS)
+  // Half hours too (padel's 90 minutes), found at venues that sell half hours.
+  if (!Number.isInteger(duration * 2) || duration < 1 || duration > MAX_COURT_HOURS)
     return NextResponse.json(
-      { error: `Duration must be 1–${MAX_COURT_HOURS} hours.` },
+      { error: `Duration must be 1–${MAX_COURT_HOURS} hours, in half hours.` },
       { status: 400 }
     );
 

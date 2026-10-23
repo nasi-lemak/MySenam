@@ -6,16 +6,33 @@ export type Sport =
   | "badminton"
   | "tennis"
   | "pickleball"
+  | "padel"
+  | "squash"
+  | "table_tennis"
   | "futsal"
+  | "football"
+  | "basketball"
+  | "volleyball"
+  | "netball"
+  | "sepak_takraw"
   | "gym"
   | "swimming"
   | "kayak";
 
+/** In the order they are offered: racquet sports, then team sports, then the rest. */
 export const SPORTS: Sport[] = [
   "badminton",
   "tennis",
   "pickleball",
+  "padel",
+  "squash",
+  "table_tennis",
   "futsal",
+  "football",
+  "basketball",
+  "volleyball",
+  "netball",
+  "sepak_takraw",
   "gym",
   "swimming",
   "kayak",
@@ -25,7 +42,15 @@ export const SPORT_LABELS: Record<Sport, string> = {
   badminton: "Badminton",
   tennis: "Tennis",
   pickleball: "Pickleball",
+  padel: "Padel",
+  squash: "Squash",
+  table_tennis: "Table tennis",
   futsal: "Futsal",
+  football: "Football",
+  basketball: "Basketball",
+  volleyball: "Volleyball",
+  netball: "Netball",
+  sepak_takraw: "Sepak takraw",
   gym: "Gym",
   swimming: "Swimming",
   kayak: "Kayak hire",
@@ -35,11 +60,29 @@ export const SPORT_ICONS: Record<Sport, string> = {
   badminton: "🏸",
   tennis: "🎾",
   pickleball: "🥒",
+  padel: "🥎",
+  squash: "⚫",
+  table_tennis: "🏓",
   futsal: "⚽",
+  football: "🥅",
+  basketball: "🏀",
+  volleyball: "🏐",
+  netball: "🤾",
+  sepak_takraw: "🦶",
   gym: "🏋️",
   swimming: "🏊",
   kayak: "🛶",
 };
+
+/**
+ * How long a game usually is, where it is not an hour: what search asks for
+ * when the sport is picked. Padel is sold in 90-minute games.
+ */
+export const SPORT_USUAL_HOURS: Partial<Record<Sport, number>> = { padel: 1.5 };
+
+export function usualHours(sport: Sport): number {
+  return SPORT_USUAL_HOURS[sport] ?? 1;
+}
 
 export interface Venue {
   id: number;

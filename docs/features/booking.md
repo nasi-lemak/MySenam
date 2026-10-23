@@ -2,6 +2,27 @@
 
 Authoritative for how courts and shared facilities are booked: capacity, linked courts, booking lengths, opening hours, blocks and outages, waitlists, moving, cancelling and who may book.
 
+## Sports
+
+A court is one of fifteen sports (`SPORTS` in `src/lib/types.ts`), each named
+in all four languages: badminton, tennis, pickleball, padel, squash, table
+tennis, futsal, football, basketball, volleyball, netball and sepak takraw
+courts and pitches; gyms and pools; and kayak hire. Customers are offered
+only the sports somebody on the site (or the storefront) has a court for, in
+that order (`GET /api/sports`).
+
+**Padel** is played in 90-minute games. A venue selling padel sells by the
+half hour (*Booked by*, below), so a game is three halves; a padel court can
+be given 1½ hours as its shortest booking. At a half-hour venue any court can
+otherwise be booked for half an hour, so a hall with badminton beside the
+padel gives its badminton courts an hour as their shortest booking (they can
+still start on the half hour). Search asks for 90 minutes when
+padel is picked, and finds games starting on the hour and the half hour. The
+slot length stays the venue's, not each court's
+([ADR 0008](../architecture/decisions/0008-slot-length-per-venue.md)); adding
+a padel court to a venue that sells by the hour says so. A **football** pitch
+that is also two smaller pitches is a set of [linked courts](#courts-that-share-a-floor).
+
 ## Exclusive courts vs shared facilities
 
 Every bookable resource carries a `capacity`:
@@ -96,8 +117,10 @@ hour**, chosen under *Courts & rates → Booked by* (a manager's setting,
   count hours sold correctly whichever way the venue sold them. Calendar
   invites, messages and receipts show 6:30 PM.
 - **Moving, rescheduling, blocking, waitlists and outages** all work in the
-  venue's own slots. Search still offers whole-hour start times, made of a
-  half-hour venue's halves.
+  venue's own slots. Search offers whole-hour start times, made of a
+  half-hour venue's halves; a search for a length that is not whole hours
+  (an hour and a half) also offers the half hours, and finds only venues that
+  sell half hours.
 - **Classes and tournaments stay on the hour.** At a half-hour venue they hold
   both halves of each hour they use.
 - **Passes** spend one entry an hour, so a booking with a half hour in it

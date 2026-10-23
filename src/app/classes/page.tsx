@@ -7,7 +7,8 @@ import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } 
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
 import { formatHour } from "@/lib/time";
-import { ClassSession, Sport, SPORTS, SPORT_ICONS } from "@/lib/types";
+import { ClassSession, Sport, SPORT_ICONS } from "@/lib/types";
+import { useOfferedSports } from "@/components/OfferedSports";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -21,6 +22,7 @@ function dateLabel(t: T, date: string): string {
 export default function ClassesPage() {
   const t = useT();
   const [sport, setSport] = useState<Sport | "">("");
+  const sports = useOfferedSports();
   const [classes, setClasses] = useState<ClassSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState<ClassSession | null>(null);
@@ -70,7 +72,7 @@ export default function ClassesPage() {
         >
           {t("classes.all")}
         </button>
-        {SPORTS.map((s) => (
+        {sports.map((s) => (
           <button
             key={s}
             onClick={() => setSport(s)}

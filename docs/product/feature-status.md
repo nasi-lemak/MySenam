@@ -33,7 +33,7 @@ defect does not change a status by itself; it is named in the gaps.
 
 | Status | Capabilities |
 | ------ | ------------ |
-| IMPLEMENTED_AND_TESTED | 108 |
+| IMPLEMENTED_AND_TESTED | 109 |
 | INTEGRATION_VERIFICATION_REQUIRED | 20 |
 | PARTIALLY_IMPLEMENTED | 3 |
 | IMPLEMENTED_UNTESTED | 2 |
@@ -54,6 +54,7 @@ Authoritative: [booking](../features/booking.md), [booking concurrency](../archi
 | Weekly series and booking lengths | IMPLEMENTED_AND_TESTED | `SR-` series of 8 weeks (up to 26 where allowed), skip or fail clashes and closed weeks; per-court shortest and longest | `src/lib/store.ts`, `src/app/api/bookings/cancel-series/route.ts` | `tests/booking-lengths.test.ts`, `tests/booking-rules.test.ts` | Series needs an account; series cancel skips late weeks silently |
 | Several courts in one booking | IMPLEMENTED_AND_TESTED | 2–6 courts, `GR-` code, one bill and one confirmation | `src/lib/store.ts` | `tests/group-bookings.test.ts` | One date, no extras or coach |
 | Half-hour slots | IMPLEMENTED_AND_TESTED | 30-minute selling; switching splits or merges the diary | `src/lib/store.ts`, `src/lib/time.ts`, `src/app/api/admin/slot-length/route.ts` | `tests/half-hour.test.ts` | Classes and tournaments stay hourly |
+| Sports, and padel's 90 minutes | IMPLEMENTED_AND_TESTED | Fifteen sports named in four languages; only offered ones shown; search in half hours, padel asking for 90 minutes | `src/lib/types.ts`, `src/lib/store.ts`, `src/app/api/sports/route.ts`, `src/app/search/SearchClient.tsx` | `tests/sports.test.ts` | Slot length is the venue's, not each court's ([ADR 0008](../architecture/decisions/0008-slot-length-per-venue.md)); no DUPR or padel-specific ratings |
 | Courts that share a floor | IMPLEMENTED_AND_TESTED | Whole and part courts take each other through shadow slots written by a trigger | `src/lib/court-links.ts`, `db/migrations/0072_linked_courts.sql`, `db/migrations/0087_wholes_over_one_part.sql` | `tests/court-links.test.ts` | One level deep; utilisation double-counts the floor |
 | Opening hours, weekday hours, closures | IMPLEMENTED_AND_TESTED | Hours per venue and per weekday, past midnight; whole-day closures on every path | `src/lib/store.ts`, `src/lib/week-hours.ts`, `src/app/api/admin/venues/[id]/closures/route.ts` | `tests/hours.test.ts`, `tests/week-hours.test.ts` | — |
 | Look up and cancel by code and phone | IMPLEMENTED_AND_TESTED | `/my-booking`; cancel before the cutoff; claimed once | `src/app/my-booking/page.tsx`, `src/app/api/bookings/cancel/route.ts` | `tests/store.test.ts`, `tests/booking-rules.test.ts` | — |

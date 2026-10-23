@@ -6,8 +6,8 @@ import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
 import { SportRulesEditor } from "./SportRulesEditor";
-import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS } from "@/lib/types";
-import type { Court, Induction, Venue } from "@/lib/types";
+import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS, SPORT_LABELS, SPORTS, usualHours } from "@/lib/types";
+import type { Court, Induction, Sport, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
 import { SURFACES, SURFACE_SPORTS, type CourtFeatures } from "@/lib/facilities";
@@ -549,9 +549,9 @@ export function CourtsTab({
           onChange={(e) => setNewCourt({ ...newCourt, sport: e.target.value })}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         >
-          {Object.entries(SPORT_ICONS).map(([sport, icon]) => (
+          {SPORTS.map((sport) => (
             <option key={sport} value={sport}>
-              {icon} {sport}
+              {SPORT_ICONS[sport]} {SPORT_LABELS[sport]}
             </option>
           ))}
         </select>
@@ -603,8 +603,28 @@ export function CourtsTab({
         >
           Add
         </button>
+        <UsualLengthHint sport={newCourt.sport as Sport} slotMinutes={venue?.slotMinutes ?? 60} />
       </form>
     </div>
+  );
+}
+
+/**
+ * A sport whose game is not an hour (padel's is 90 minutes): what selling it
+ * here takes. Slots stay the venue's, so a mixed hall sells by the half hour
+ * and gives this court its own shortest booking (ADR 0008).
+ */
+function UsualLengthHint({ sport, slotMinutes }: { sport: Sport; slotMinutes: number }) {
+  const hours = usualHours(sport);
+  if (hours === 1) return null;
+  const length = `${hours * 60} minutes`;
+  return (
+    <p className="basis-full text-xs text-slate-500">
+      {SPORT_LABELS[sport]} is usually booked for {length}.{" "}
+      {slotMinutes === 30
+        ? `This venue sells by the half hour, so a ${length} game is three halves; to sell nothing shorter, set this court's shortest booking to ${hours} hours once it is added. Courts sold by the hour beside it want an hour as their shortest.`
+        : `This venue sells by the hour, which cannot make a ${length} game. Switch Booked by to half hours (everything already booked stays where it is), then set this court's shortest booking to ${hours} hours if that is all it sells, and the other courts' to an hour.`}
+    </p>
   );
 }
 
@@ -648,7 +668,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        {SPORT_ICONS[court.sport]} {court.sport}
+        {SPORT_ICONS[court.sport]} {SPORT_LABELS[court.sport]}
       </td>
       <td className="px-3 py-2">
         <input

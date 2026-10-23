@@ -2,7 +2,8 @@
 
 **Gelanggang, gim dan kelas — satu tempahan.** Online booking and
 venue-management software for sports venues in Malaysia and Singapore:
-courts (badminton, tennis, pickleball, futsal), shared facilities such as gyms
+courts and pitches for twelve sports, from badminton and padel to futsal and
+sepak takraw, shared facilities such as gyms
 and pools, equipment hire, and instructor-led classes. It runs as a shared
 marketplace of independent venues or as one business's own booking site.
 

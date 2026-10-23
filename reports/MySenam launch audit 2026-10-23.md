@@ -14,12 +14,11 @@ where it stands now, and lists what is still open in three separate groups.
 
 ## Summary
 
-Of the 28 gaps the research named, 17 are closed and tested; 6 are closed in
+Of the 28 gaps the research named, 18 are closed and tested; 5 are closed in
 part (online sales but not passes, an accounting export but no live link,
 four customer languages but an English admin, two gateways but not the other
-Malaysian ones, a manifest but no service worker, 90 minutes but no padel);
-and 5 are open: DUPR, IoT lighting, Apple sign-in, a native app, and
-customers. Every security and
+Malaysian ones, a manifest but no service worker); and 5 are open: DUPR, IoT
+lighting, Apple sign-in, a native app, and customers. Every security and
 trust gap the research said would surface before any feature gap (password
 reset, 2FA, the activity log, the default password, headers, the Origin
 check, hashed sessions, backup alerts) is closed. What stands between this
@@ -56,7 +55,7 @@ decisions listed at the end, and the customer evidence the research's
 | Stripe absent; one Malaysian gateway | Billplz and Stripe; **no iPay88, senangPay, toyyibPay, Curlec, eGHL, HitPay** | `tests/payments.test.ts`, `tests/gateways.test.ts`, `tests/stripe.test.ts` |
 | No PWA manifest | Manifest and icons; **no service worker, offline mode or push** | — |
 | No browser end-to-end tests | Six browser tests of the main journeys on the production build; CI is set to run them | `tests/e2e/launch.e2e.ts` |
-| No padel; no 90-minute slots | 90 minutes possible as three half hours; **no padel sport** | `tests/half-hour.test.ts` |
+| No padel; no 90-minute slots; no squash, basketball, volleyball, table tennis or sepak takraw | Built: padel, squash, table tennis, football, basketball, volleyball, netball and sepak takraw, in four languages; padel searched in its 90 minutes at half-hour venues ([ADR 0008](../docs/architecture/decisions/0008-slot-length-per-venue.md)) | `tests/sports.test.ts`, `tests/e2e/sports.e2e.ts` |
 | No DUPR or player ratings | **Not built**: levels and box leagues only | — |
 | No IoT lighting (competitors sell it at RM199) | **Not built** | — |
 | No Apple sign-in | **Not built** (the identity table allows it) | — |
@@ -76,7 +75,6 @@ choose someone else.
 | Gap | Who it costs | What it would take |
 | --- | ------------ | ------------------ |
 | **Admin in English only** (0 of 63 admin components translated) | Older or Chinese-speaking hall owners, the research's segment 1 | Moving the admin strings into the dictionaries, as the customer side was; large but mechanical |
-| **No padel**, and no named 90-minute product (three half hours works) | Padel clubs, excluded by the research | A sport in `SPORTS`, its labels in four languages, and a 90-minute default length |
 | **Passes not sold online** (memberships, credit and vouchers are) | Venues selling 10-visit passes | A `pass` payment purpose (migration to the CHECK), checkout, and issuing the pass when paid |
 | **Malaysian gateways beyond Billplz** (iPay88, senangPay, toyyibPay, Curlec, eGHL, HitPay) | Venues already contracted to one | An adapter each behind the gateway layer (`src/lib/gateways`), and a live check each |
 | **No DUPR or player ratings** | Pickleball venues (segment 2) | A rating model, or DUPR's partner API |

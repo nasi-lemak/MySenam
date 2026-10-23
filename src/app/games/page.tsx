@@ -9,7 +9,8 @@ import { NearPicker, type NearChoice } from "@/components/NearPicker";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { addDays, formatHour, slotStartsAt, todayISO } from "@/lib/time";
-import { SPORT_ICONS, SPORTS, type Sport } from "@/lib/types";
+import { SPORT_ICONS, type Sport } from "@/lib/types";
+import { useOfferedSports } from "@/components/OfferedSports";
 import type { GamePlayer, Level, OpenGame } from "@/lib/games";
 import { shortDate } from "@/lib/region";
 
@@ -41,6 +42,7 @@ export default function GamesPage() {
   const dates = Array.from({ length: 15 }, (_, i) => addDays(today, i));
 
   const [sport, setSport] = useState<Sport | "">("");
+  const sports = useOfferedSports();
   const [date, setDate] = useState("");
   const [level, setLevel] = useState<Level | "">("");
   const [who, setWho] = useState<Who>("anyone");
@@ -126,7 +128,7 @@ export default function GamesPage() {
           <button onClick={() => setSport("")} className={chip(sport === "")}>
             {t("games.allSports")}
           </button>
-          {SPORTS.map((s) => (
+          {sports.map((s) => (
             <button key={s} onClick={() => setSport(s)} className={chip(sport === s)}>
               {SPORT_ICONS[s]} {sportLabel(t, s)}
             </button>

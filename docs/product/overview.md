@@ -2,8 +2,10 @@
 
 MySenam (*"gelanggang, gim dan kelas — satu tempahan"*) is online booking and
 venue-management software for sports venues in Malaysia and Singapore:
-badminton, tennis, pickleball and futsal courts, shared facilities such as
-gyms and pools, equipment hire such as kayaks, and instructor-led classes.
+badminton, tennis, pickleball, padel, squash and table tennis; futsal,
+football, basketball, volleyball, netball and sepak takraw; shared facilities
+such as gyms and pools, equipment hire such as kayaks, and instructor-led
+classes ([sports](../features/booking.md#sports)).
 
 It runs in two shapes from one codebase
 ([ADR 0005](../architecture/decisions/0005-shared-marketplace-and-own-installs.md)):

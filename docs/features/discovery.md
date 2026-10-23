@@ -17,7 +17,10 @@ facilities, map and live crowd below.
 
 The search page works the same way: the time of day is one tap — *Any time*,
 *Morning*, *Afternoon*, *Evening* — and *Custom…* opens the from and until
-hours for anyone who wants an exact window. On a phone, *Area* and the
+hours for anyone who wants an exact window. The sports to pick from are the
+ones somebody here has a court for, as on the home page, classes and games;
+how long is an hour, an hour and a half, or whole hours up to twelve, and
+picking padel asks for its 90 minutes ([sports](booking.md#sports)). On a phone, *Area* and the
 must-haves (showers, parking and so on) fold under *More filters*, which says
 how many are on; *Near me* stays in view.
 

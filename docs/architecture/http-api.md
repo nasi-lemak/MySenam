@@ -150,7 +150,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/leagues/:id/matches/:matchId` | A player on one of their own matches: `{ action: "report", winner, score }` (their games first), `{ action: "confirm" }`, or `{ action: "dispute", note }` |
 | POST | `/api/receipts/einvoice` | `{ ref, t, name, tin, idType, idNumber, sst?, email, phone, addressLine, city, postcode, stateCode }` → an LHDN e-invoice made out to the customer for this receipt, sent at once. The receipt's signed link is the proof they hold it |
 | POST | `/api/reviews` | `{ code, t, rating, body? }` → this number's review of the venue, written or written again |
-| GET | `/api/search` | `?sport=&date=&from=&to=&duration=&area=`, or `&near=lat,lng&km=` in place of an area → free courts, one result per venue and start time |
+| GET | `/api/sports` | The sports somebody here offers, in the usual order (on a storefront, its venues'), for the sport choices on search, classes and games |
+| GET | `/api/search` | `?sport=&date=&from=&to=&duration=&area=`, or `&near=lat,lng&km=` in place of an area → free courts, one result per venue and start time. `duration` is in half hours (1.5 for padel), found at venues that sell half hours |
 | POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
 | GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
 | GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry |

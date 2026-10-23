@@ -51,7 +51,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0004 Not TimescaleDB](architecture/decisions/0004-plain-postgres-not-timescaledb.md) ·
 [0005 Marketplace and own installs](architecture/decisions/0005-shared-marketplace-and-own-installs.md) ·
 [0006 Per-venue payment accounts](architecture/decisions/0006-per-venue-payment-accounts.md) ·
-[0007 Stored-credit ownership](architecture/decisions/0007-stored-credit-ownership.md)
+[0007 Stored-credit ownership](architecture/decisions/0007-stored-credit-ownership.md) ·
+[0008 Slot length per venue](architecture/decisions/0008-slot-length-per-venue.md)
 
 ## Integrations
 

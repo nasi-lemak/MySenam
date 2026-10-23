@@ -1,4 +1,5 @@
-import { readNear } from "@/lib/store";
+import { readNear, sportsOfferedAt } from "@/lib/store";
+import { currentStorefront } from "@/lib/storefront";
 import { isValidDateString } from "@/lib/time";
 import { CLOSE_HOUR, OPEN_HOUR, SPORTS, type Sport } from "@/lib/types";
 import SearchClient, { type SearchStart } from "./SearchClient";
@@ -24,5 +25,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     toHour: hour(q.to),
     near: near ? { ...near, where: q.where?.slice(0, 80) || null } : null,
   };
-  return <SearchClient start={start} />;
+  // Only the sports somebody here offers; on a storefront, its venues'.
+  const sports = await sportsOfferedAt((await currentStorefront())?.venueIds);
+  return <SearchClient start={start} sports={sports} />;
 }
