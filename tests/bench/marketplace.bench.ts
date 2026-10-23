@@ -1,3 +1,6 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -251,6 +254,8 @@ describe.skipIf(!url)("a marketplace at scale", () => {
 
     await time("daily integrity check", Math.min(RUNS, 3), () => checkIntegrity(), out);
     console.log(`BENCH RESULT ${JSON.stringify(out)}`);
+    // Vitest shows a passing test's output only sometimes; the file is always there.
+    fs.writeFileSync(path.join(os.tmpdir(), "mysenam-bench.json"), JSON.stringify(out, null, 2));
     expect(made).toBeGreaterThan(0);
   });
 });

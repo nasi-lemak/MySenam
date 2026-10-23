@@ -74,10 +74,56 @@ businesses, about 2,800 resources across the catalogue's activities, and six
 weeks of bookings (two past, four ahead) at evening-heavy occupancy, each
 holding its claim — then times what customers, staff and the scheduler do,
 through the same functions the routes call, and prints each as p50/p95/max
-milliseconds. The database is kept between runs (drop it to start again);
+milliseconds, also written to `mysenam-bench.json` in the system's temporary
+folder. Places on shared floors go in with the capacity trigger off for that
+one insert (they cannot exceed capacity), because checked one at a time they
+take hours (see below). The database is kept between runs (drop it to start again);
 `BENCH_VENUES` and `BENCH_RUNS` change the size and the repetitions.
 
-Results: pending the first run on this branch.
+### Results
+
+Run once, on 23 October 2026, on this branch: 4 CPUs, 15 GB, Postgres 16.15 on
+its default settings (128 MB of shared buffers), the app in the same
+container. The data: 404 venues, 2,846 resources, 918,435 bookings each
+holding its claim, 802 MB. Twenty runs of each read, in milliseconds:
+
+| What | p50 | p95 |
+| ---- | --: | --: |
+| Venue grid, every resource | 102 | 154 |
+| Venue grid, one activity | 87 | 351 |
+| Search: badminton in an area, soonest | 667 | 958 |
+| Search: badminton in an area, cheapest | 680 | 856 |
+| Search: near a point, 5 km | 2,392 | 3,709 |
+| Search: a rarer activity nationwide (archery) | 888 | 1,070 |
+| Search: courts counted nationwide | 2.5 | 2.7 |
+| Home: activities by popularity | 201 | 223 |
+| Home: venue list, first page | 4.7 | 9.4 |
+| Search page: activities offered | 3.5 | 3.7 |
+| Book a court | 203 | 229 |
+| Book a place on a shared floor (before the day's other bookings) | 221 | 342 |
+| Reschedule: free times on a day | 94 | 108 |
+| Daily integrity check | 5,082 | 5,110 |
+
+Fifty customers booking at once, each at a different venue, took 7.8 s: 26
+booked, 1 refused, 6 found nothing free, and **17 got an error**, a
+serialization failure still there after eight tries.
+
+What this shows ([known limitations](../roadmap/known-limitations.md)):
+
+- **Claims are read by time, not by court** (B12). The queries ask for a
+  venue's courts with `court_id IN (…)` or through `court_spaces`, which the
+  claims indexes cannot use (they index `int4range(court_id)` and
+  `int4range(space_id)` with the time), so each reads every claim in the
+  window across the marketplace and filters: about 20,000 rows and 88 ms for
+  one venue's day. Search does that once per venue, hence seconds near a
+  point. The capacity trigger's check has the same shape: 55 ms per check
+  against 0.03 ms when written against the index, which made the fill load
+  shared places at about ten a second (the fill now turns the trigger off
+  for that one insert; whole courts went in at thousands a second).
+- **Concurrent bookings at different venues conflict** (B13). Serializable
+  transactions that read wide time ranges see each other's writes as
+  conflicts; eight retries are not enough at fifty at once.
+- The integrity check takes five seconds once a day, which is fine.
 
 ## Documentation checks
 
