@@ -13,7 +13,7 @@ import {
   reopenVenueDay,
   updateCourt,
 } from "../src/lib/store";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { computePrice } from "../src/lib/store";
 
 const PHONE = "0123456789";
@@ -27,14 +27,14 @@ const future = (o = 3) => addDays(todayISO(), o);
 function nextWeekday(from = 3): string {
   for (let o = from; o < from + 7; o++) {
     const d = future(o);
-    if (!isPeak(d, 10)) return d;
+    if (!isPeakMinute(d, 10 * 60)) return d;
   }
   throw new Error("no weekday in range");
 }
 function nextWeekend(from = 3): string {
   for (let o = from; o < from + 7; o++) {
     const d = future(o);
-    if (isPeak(d, 10)) return d;
+    if (isPeakMinute(d, 10 * 60)) return d;
   }
   throw new Error("no weekend in range");
 }
@@ -50,7 +50,7 @@ async function fill(courtId: number, hours: number[], date: string, who: string)
 describe("booking without naming a court", () => {
   it("orders candidates cheapest first, by what that slot actually costs", async () => {
     const weekday = nextWeekday();
-    expect(isPeak(weekday, 10)).toBe(false);
+    expect(isPeakMinute(weekday, 10 * 60)).toBe(false);
 
     // The seed prices every badminton court alike, so make one dearer — that
     // is the difference this test is about.
@@ -60,8 +60,8 @@ describe("booking without naming a court", () => {
     const morning = await courtsForAnyBooking({ venueId: (await venue()).id, sport: "badminton", date: weekday, hours: [10] });
     expect(morning.length).toBe((await badminton()).length);
     for (let i = 1; i < morning.length; i++) {
-      expect(computePrice(morning[i - 1], weekday, [10, 10.5]))
-        .toBeLessThanOrEqual(computePrice(morning[i], weekday, [10, 10.5]));
+      expect(computePrice(morning[i - 1], weekday, { start: 600, end: 660 }))
+        .toBeLessThanOrEqual(computePrice(morning[i], weekday, { start: 600, end: 660 }));
     }
     // The dear one sorts last whichever slot is asked for.
     expect(morning[0].id).not.toBe(premium.id);
@@ -69,11 +69,11 @@ describe("booking without naming a court", () => {
 
     // A weekend morning is peak, so the ordering is by peak rate instead.
     const weekend = nextWeekend();
-    expect(isPeak(weekend, 10)).toBe(true);
+    expect(isPeakMinute(weekend, 10 * 60)).toBe(true);
     const wk = await courtsForAnyBooking({ venueId: (await venue()).id, sport: "badminton", date: weekend, hours: [10] });
     for (let i = 1; i < wk.length; i++) {
-      expect(computePrice(wk[i - 1], weekend, [10, 10.5]))
-        .toBeLessThanOrEqual(computePrice(wk[i], weekend, [10, 10.5]));
+      expect(computePrice(wk[i - 1], weekend, { start: 600, end: 660 }))
+        .toBeLessThanOrEqual(computePrice(wk[i], weekend, { start: 600, end: 660 }));
     }
     expect(wk[wk.length - 1].id).toBe(premium.id);
 
@@ -97,7 +97,7 @@ describe("booking without naming a court", () => {
     if (!r.ok) return;
     expect(r.bookings[0].courtId).toBe(nextCheapest.id);
     // And it costs what that court costs, not what the premium one would.
-    expect(r.bookings[0].totalPrice).toBe(computePrice(nextCheapest, date, [10, 10.5, 11, 11.5]));
+    expect(r.bookings[0].totalPrice).toBe(computePrice(nextCheapest, date, { start: 600, end: 720 }));
   });
 
   it("only offers a court free for every hour, not just some of them", async () => {

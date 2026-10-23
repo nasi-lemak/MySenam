@@ -1,0 +1,85 @@
+import { NextRequest, NextResponse } from "next/server";
+import { readTime, refusal } from "@/lib/api";
+import { getSessionUser } from "@/lib/auth";
+import { mayShowVenue } from "@/lib/listing";
+import { rateLimit } from "@/lib/rate-limit";
+import { courtsForAnyBooking, getCourt, quoteFor } from "@/lib/store";
+import { MAX_GROUP_COURTS, SPORTS, type Sport } from "@/lib/types";
+import { isValidDateString } from "@/lib/time";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * `?courtId&date&start&end` (or `minutes` for `end`; minutes of the day or
+ * HH:MM) `[&players][&also=2,3]` → what that booking would cost now, before
+ * it is made. `venueId&sport` in place of `courtId` prices the court a
+ * booking on any court would get: the cheapest free for that time. `also`
+ * prices other courts for the same time, to book with it (`others`). The answer:
+ * `total`, the court time and any setup or cleanup `fees` apart, the minutes
+ * billed, and each part's rate (`lines`). Member rates for a signed-in
+ * member. `allowed` says whether the court's booking rules take that time;
+ * when not, `error` says why. Whether it is free is found by booking it.
+ */
+export async function GET(req: NextRequest) {
+  const q = req.nextUrl.searchParams;
+  const date = q.get("date") ?? "";
+  if (!isValidDateString(date)) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
+  const raw = Object.fromEntries(
+    (["start", "end", "minutes"] as const)
+      .filter((k) => q.get(k) !== null)
+      .map((k) => [k, /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : q.get(k)])
+  );
+  const time = readTime(raw);
+  if (!time.ok || time.when.start === undefined) return NextResponse.json({ error: "Give start, and end or minutes." }, { status: 400 });
+  const limited = await rateLimit(req, "quote");
+  if (limited) return limited;
+
+  // The court named, or the one "any court" would be given.
+  let courtId = Number(q.get("courtId"));
+  if (q.get("courtId") === null) {
+    const venueId = Number(q.get("venueId"));
+    const sport = q.get("sport") as Sport;
+    if (!Number.isInteger(venueId) || venueId <= 0 || !SPORTS.includes(sport))
+      return NextResponse.json({ error: "Give a courtId, or a venueId and sport." }, { status: 400 });
+    if (!(await mayShowVenue(venueId, req)).show) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
+    const free = await courtsForAnyBooking({ venueId, sport, date, ...time.when });
+    if (free.length === 0) return refusal({ ok: false, error: "No court is free for that whole time. Please pick another time.", code: "NO_COURT_FREE" });
+    courtId = free[0].id;
+  }
+  if (!Number.isInteger(courtId) || courtId <= 0) return NextResponse.json({ error: "courtId is required." }, { status: 400 });
+  const court = await getCourt(courtId);
+  if (!court || !(await mayShowVenue(court.venueId, req)).show) return NextResponse.json({ error: "Court not found." }, { status: 404 });
+  const user = await getSessionUser(req);
+  const players = q.get("players") !== null ? Number(q.get("players")) : undefined;
+  const priced = await quoteFor({ courtId, date, ...time.when, phone: user?.phone ?? null, players });
+  if (!priced.ok) return refusal(priced, 400);
+
+  // Other courts at the same venue, for the same time.
+  const also = (q.get("also") ?? "")
+    .split(",")
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0 && id !== courtId)
+    .slice(0, MAX_GROUP_COURTS);
+  const others: { courtId: number; total: number; allowed: boolean }[] = [];
+  for (const id of also) {
+    const other = await getCourt(id);
+    if (!other || other.venueId !== court.venueId) continue;
+    const quote = await quoteFor({ courtId: id, date, start: priced.span.start, end: priced.span.end, phone: user?.phone ?? null, players });
+    if (quote.ok) others.push({ courtId: id, total: quote.quote.total, allowed: quote.allowed });
+  }
+
+  return NextResponse.json({
+    courtId,
+    date,
+    start: priced.span.start,
+    end: priced.span.end,
+    total: priced.quote.total,
+    court: priced.quote.court,
+    fees: priced.quote.fees,
+    billedMinutes: priced.quote.billedMinutes,
+    lines: priced.quote.lines,
+    allowed: priced.allowed,
+    ...(priced.allowed ? {} : { error: priced.refusal.error, code: priced.refusal.code, vars: priced.refusal.vars }),
+    others,
+  });
+}

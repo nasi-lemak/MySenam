@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { intlTag } from "@/lib/region";
-import { formatHour, todayISO } from "@/lib/time";
+import { todayISO } from "@/lib/time";
+import { ClockField } from "@/components/ClockField";
 
 interface Stretch {
   weekday: number;
@@ -20,7 +21,6 @@ interface TimeOff {
 }
 
 const MONDAY_FIRST = [1, 2, 3, 4, 5, 6, 0];
-const HALF_HOURS = Array.from({ length: 49 }, (_, i) => i / 2);
 
 /**
  * A coach's own week and time off, at their private link (lib/coach-schedule.ts):
@@ -90,21 +90,15 @@ export default function CoachSelfService({ token, hours: initial, timeOff: initi
                     </option>
                   ))}
                 </select>
-                <select value={h.from} onChange={(e) => setHours(hours.map((x, j) => (j === i ? { ...x, from: Number(e.target.value) } : x)))} className={select}>
-                  {HALF_HOURS.slice(0, -1).map((v) => (
-                    <option key={v} value={v}>
-                      {formatHour(v)}
-                    </option>
-                  ))}
-                </select>
+                <ClockField label={t("coachpage.from")} value={h.from} onChange={(m) => setHours(hours.map((x, j) => (j === i ? { ...x, from: m } : x)))} className={select} />
                 –
-                <select value={h.until} onChange={(e) => setHours(hours.map((x, j) => (j === i ? { ...x, until: Number(e.target.value) } : x)))} className={select}>
-                  {HALF_HOURS.slice(1).map((v) => (
-                    <option key={v} value={v}>
-                      {formatHour(v)}
-                    </option>
-                  ))}
-                </select>
+                <ClockField
+                  label={t("coachpage.until")}
+                  value={h.until}
+                  after={h.from}
+                  onChange={(m) => setHours(hours.map((x, j) => (j === i ? { ...x, until: m } : x)))}
+                  className={select}
+                />
                 <button type="button" onClick={() => setHours(hours.filter((_, j) => j !== i))} className="text-xs text-red-600 underline">
                   {t("coachpage.remove")}
                 </button>
@@ -114,7 +108,7 @@ export default function CoachSelfService({ token, hours: initial, timeOff: initi
         <div className="mt-3 flex gap-2">
           <button
             type="button"
-            onClick={() => setHours([...hours, { weekday: 1, from: 17, until: 21 }])}
+            onClick={() => setHours([...hours, { weekday: 1, from: 17 * 60, until: 21 * 60 }])}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold"
           >
             + {t("coachpage.addHours")}

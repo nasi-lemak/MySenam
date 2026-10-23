@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { coachById, lessonSlots } from "@/lib/coaching";
+import { coachById, lessonStarts } from "@/lib/coaching";
 import { aheadFor } from "@/lib/house-rules";
 import { mayShowVenue } from "@/lib/listing";
 import { getSessionUser } from "@/lib/auth";
-import { getAvailability, getVenueClosure, sellUnit, venueHours } from "@/lib/store";
+import { getVenueClosure, policyForSport, venueHours } from "@/lib/store";
 import { shows, storefrontForRequest } from "@/lib/storefront";
 import { addDays, isValidDateString, todayISO } from "@/lib/time";
 import type { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** `?coachId&date&sport?` → the slots a lesson with that coach can start in that day. */
+/**
+ * `?coachId&date&sport?` → where a lesson with that coach can start that day
+ * (`starts`: minute of the day and the longest it may run from there), and
+ * what the sport's courts allow (`policy`): lengths, step and default.
+ */
 export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;
   const coach = await coachById(Number(p.get("coachId")));
@@ -19,14 +23,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Coach not found." }, { status: 404 });
   if (!isValidDateString(date)) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
   const sport = (coach.sports.find((s) => s === p.get("sport")) ?? coach.sports[0]) as Sport;
-  // That day's hours, where its weekday has its own.
   const hours = await venueHours(coach.venueId, date);
-  // Lessons start, and run, in what the sport is sold by here.
-  const step = await sellUnit(coach.venueId, sport);
+  const policy = await policyForSport(coach.venueId, sport);
   const user = await getSessionUser(req);
   const last = addDays(todayISO(hours.zone), await aheadFor(coach.venueId, user?.id ?? null));
-  if (date > last || (await getVenueClosure(coach.venueId, date))) return NextResponse.json({ date, sport, slots: [], step });
-  const courts = await getAvailability(coach.venueId, date, sport);
-  const freeCourtAt = (hour: number) => courts.some((c) => c.slots.some((s) => s.hour === hour && s.available));
-  return NextResponse.json({ date, sport, step, slots: await lessonSlots(coach, date, freeCourtAt, hours, step) });
+  if (date > last || (await getVenueClosure(coach.venueId, date))) return NextResponse.json({ date, sport, policy, starts: [] });
+  return NextResponse.json({ date, sport, policy, starts: await lessonStarts(coach, date, sport) });
 }

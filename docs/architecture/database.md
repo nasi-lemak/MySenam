@@ -26,10 +26,12 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   another shape (for example ISO text with a `T`) compares wrongly against
   `datetime('now')`, so write such columns through `datetime()` or in that
   exact form.
-- **Dates and hours are the venue's own.** A booking's `date` and
-  `start_hour`/`end_hour` are in the venue's local time zone; hours may run
-  past 24 for opening hours after midnight
+- **Dates and times of day are the venue's own.** A booking's `date` and
+  `start_min`/`end_min` are its business day and minutes from that day's
+  midnight in the venue's time zone, past 1440 after midnight
   ([booking](../features/booking.md#hours-by-weekday-and-after-midnight)).
+  Court time itself is a `tstzrange` of real moments on each claim
+  ([booking time model](interval-booking-review.md#time)).
 - **Money** is `NUMERIC(12,2)` in the currency's major unit (ringgit or
   dollars); arithmetic is rounded to the cent (`roundMoney` in
   `src/lib/region.ts`).
@@ -38,9 +40,15 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   column where a table is searched by number.
 - **Ledgers are append-only.** Stored credit (`wallet_entries`) and pass
   entries are sums of rows, never a balance column.
-- **Shared SQL functions**: `blocks_between` / `own_blocks_between` (what is
-  blocked on a day, including outages and linked courts) and the linked-court
-  trigger in `0072_linked_courts.sql`.
+- **Court time is claims.** `claims` and `coach_claims` carry the database's
+  own refusals of overlapping time (exclusion constraints) and of a shared
+  facility over capacity (trigger `claims_capacity`); triggers keep a claim's
+  court, space and venue consistent and a court's own space in step with its
+  capacity (migrations 0089 and 0090).
+- **Migration steps.** Where a migration needs the application (a venue's
+  time zone from its pin, checking a conversion), a step in
+  `src/lib/db-steps.ts` runs straight after that migration's SQL in the same
+  transaction; if it throws, the migration is undone.
 
 ## Engines
 

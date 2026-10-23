@@ -147,7 +147,7 @@ async function postgresDriver(url: string): Promise<Driver> {
   // the pool has already thrown the connection away and opens a new one.
   pool.on("error", (err) => console.error(`[db] idle connection lost: ${err.message}`));
   // No JIT: every query here is a short lookup, and a plan the planner merely
-  // guesses is dear (blocks_between, with its generated hours, easily is)
+  // guesses is dear (a capacity sweep over claims easily is)
   // would spend over a second compiling to save a millisecond. Queued ahead of
   // the connection's first query; a pooler that drops it only costs speed.
   pool.on("connect", (client) => {
@@ -515,6 +515,9 @@ async function migrate(d: Driver): Promise<void> {
       const sql = fs.readFileSync(path.join(migrationsDirectory(), file), "utf8");
       await d.inTransaction(async (runner) => {
         await runner.exec(sql);
+        // What the migration needs from the application, in its transaction (lib/db-steps.ts).
+        const { runStep } = await import("./db-steps.ts");
+        await runStep(version, runner);
         await runner.query("INSERT INTO schema_migrations (version) VALUES ($1)", [version]);
       });
     }
@@ -547,8 +550,8 @@ async function seedIfEmpty(): Promise<void> {
     ) =>
       (
         await tx.query(
-          "INSERT INTO venues (name, area, address, phone, open_hour, close_hour, lat, lng) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
-          [name, area, address, phone, open, close, lat, lng]
+          "INSERT INTO venues (name, area, address, phone, open_min, close_min, lat, lng) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+          [name, area, address, phone, open * 60, close * 60, lat, lng]
         )
       ).rows[0].id as number;
     const court = (

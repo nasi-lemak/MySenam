@@ -4,7 +4,6 @@ process.env.MYSENAM_DB = ":memory:";
 
 import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
-import { setSportRules } from "../src/lib/sport-rules";
 import { DICTIONARIES, LOCALES, type Phrase } from "../src/lib/i18n";
 import { SURFACE_SPORTS } from "../src/lib/facilities";
 import {
@@ -12,19 +11,18 @@ import {
   createCourt,
   createVenue,
   searchAvailability,
-  setSlotMinutes,
   sportsOfferedAt,
-  updateCourt,
 } from "../src/lib/store";
-import { addDays, slotsBetween, todayISO } from "../src/lib/time";
-import { SPORT_ICONS, SPORT_LABELS, SPORTS, usualHours, type Sport } from "../src/lib/types";
+import { updatePolicy, usualMinutes } from "../src/lib/booking-policy";
+import { addDays, todayISO } from "../src/lib/time";
+import { SPORT_ICONS, SPORT_LABELS, SPORTS, type Sport } from "../src/lib/types";
 import { GET as searchGet } from "../src/app/api/search/route";
 import { GET as sportsGet } from "../src/app/api/sports/route";
 
 /**
  * The sports a court can be: the racquet and team sports Malaysian and
- * Singaporean venues sell, padel among them in its 90-minute games, sold by
- * the half hour wherever it is (ADR 0009).
+ * Singaporean venues sell, padel among them in its 90-minute games, from any
+ * half hour wherever it is unless the venue says otherwise (ADR 0010).
  */
 
 const ADDED: Sport[] = ["padel", "squash", "table_tennis", "football", "basketball", "volleyball", "netball", "sepak_takraw"];
@@ -39,14 +37,14 @@ let padel: number;
 beforeAll(async () => {
   await getDb().prepare("UPDATE venues SET published_at = NULL").run();
   const venue = async (name: string) => {
-    const made = await createVenue({ name, area: "Mont Kiara", address: "x", phone: `03${String(++n).padStart(8, "0")}`, openHour: 8, closeHour: 23 });
+    const made = await createVenue({ name, area: "Mont Kiara", address: "x", phone: `03${String(++n).padStart(8, "0")}`, openMin: 8 * 60, closeMin: 23 * 60 });
     if (!made.ok) throw new Error("venue");
     await getDb().prepare("UPDATE venues SET published_at = datetime('now') WHERE id = ?").run(made.venue.id);
     return made.venue.id;
   };
   halfHourVenue = await venue("Padel & Shuttle");
   hourVenue = await venue("Old Hall");
-  expect(await setSlotMinutes(halfHourVenue, 30)).toMatchObject({ ok: true });
+  expect(await updatePolicy({ venue: halfHourVenue }, { startEvery: 30, lengthStep: 30 })).toMatchObject({ ok: true });
   const court = async (venueId: number, name: string, sport: Sport) => {
     const c = await createCourt({ venueId, name, sport, offPeakRate: 80, peakRate: 80 });
     if (!c.ok) throw new Error(c.error);
@@ -90,9 +88,9 @@ describe("the sports", () => {
 
 describe("padel's 90 minutes", () => {
   it("are what search asks for when padel is picked; other sports an hour", () => {
-    expect(usualHours("padel")).toBe(1.5);
-    expect(usualHours("badminton")).toBe(1);
-    expect(usualHours("football")).toBe(1);
+    expect(usualMinutes("padel")).toBe(90);
+    expect(usualMinutes("badminton")).toBe(60);
+    expect(usualMinutes("football")).toBe(60);
   });
 
   it("are found at a venue selling half hours, starting on the hour and the half hour", async () => {
@@ -113,35 +111,36 @@ describe("padel's 90 minutes", () => {
   });
 
   it("are not offered where the venue sells padel by the hour, which cannot make them", async () => {
-    expect(await setSportRules(hourVenue, "padel", { slotMinutes: 60 })).toMatchObject({ ok: true });
+    expect(await updatePolicy({ venue: hourVenue, sport: "padel" }, { startEvery: 60, lengthStep: 60 })).toMatchObject({ ok: true });
     const found = await searchAvailability({ sport: "padel", date, venueIds: [hourVenue], fromHour: 9, toHour: 12, duration: 1.5 });
     expect(found).toEqual([]);
     const hours = await searchAvailability({ sport: "padel", date, venueIds: [hourVenue], fromHour: 9, toHour: 9, duration: 2 });
     // One result per venue and start time: here the cheaper of its two padel courts.
     expect(hours.map((r) => [r.venue.id, r.court.sport, r.endHour - r.startHour])).toEqual([[hourVenue, "padel", 2]]);
-    expect(await setSportRules(hourVenue, "padel", {})).toMatchObject({ ok: true, rules: null });
+    expect(await updatePolicy({ venue: hourVenue, sport: "padel" }, { startEvery: null, lengthStep: null })).toMatchObject({ ok: true });
   });
 
   it("can be booked, and the game after it found back to back", async () => {
-    const made = await createBooking({ courtId: padel, date, hours: slotsBetween(9.5, 11, 0.5), name: "Four Friends", phone: phone() });
+    const made = await createBooking({ courtId: padel, date, start: 9 * 60 + 30, minutes: 90, name: "Four Friends", phone: phone() });
     expect(made).toMatchObject({ ok: true, booking: { startHour: 9.5, endHour: 11 } });
     const found = await searchAvailability({ sport: "padel", date, venueIds: [halfHourVenue], fromHour: 8, toHour: 12, duration: 1.5 });
     expect(found.map((r) => r.startHour)).toEqual([8, 11, 11.5, 12]);
   });
 
   it("can be the shortest a court sells, so search leaves it out of an hour's game", async () => {
-    expect(await updateCourt(padel, { minHours: 1.5 })).toMatchObject({ ok: true, court: { minHours: 1.5 } });
+    expect(await updatePolicy({ court: padel }, { minLength: 90 })).toMatchObject({ ok: true, settings: { minLength: 90 } });
     expect(await searchAvailability({ sport: "padel", date, venueIds: [halfHourVenue], fromHour: 8, toHour: 8, duration: 1 })).toEqual([]);
-    const short = await createBooking({ courtId: padel, date, hours: slotsBetween(14, 15, 0.5), name: "Quick", phone: phone() });
+    const short = await createBooking({ courtId: padel, date, start: 14 * 60, minutes: 60, name: "Quick", phone: phone() });
     expect(short.ok).toBe(false);
-    expect(await updateCourt(padel, { minHours: null })).toMatchObject({ ok: true });
+    expect(await updatePolicy({ court: padel }, { minLength: null })).toMatchObject({ ok: true });
   });
 
-  it("are asked for in half hours by the search address, and nothing finer", async () => {
-    const ask = (duration: string) =>
-      searchGet(new NextRequest(`http://localhost/api/search?sport=padel&date=${date}&duration=${duration}`));
-    expect((await ask("1.5")).status).toBe(200);
-    expect((await ask("1.25")).status).toBe(400);
-    expect((await ask("0.5")).status).toBe(400);
+  it("are asked for in minutes by the search address, or in hours", async () => {
+    const ask = (query: string) => searchGet(new NextRequest(`http://localhost/api/search?sport=padel&date=${date}&${query}`));
+    expect((await ask("minutes=90")).status).toBe(200);
+    expect((await ask("minutes=75")).status).toBe(200);
+    expect((await ask("duration=1.5")).status).toBe(200);
+    expect((await ask("minutes=0")).status).toBe(400);
+    expect((await ask("minutes=7.5")).status).toBe(400);
   });
 });

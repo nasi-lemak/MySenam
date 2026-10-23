@@ -128,7 +128,7 @@ function monthsIn(from: string, to: string): string[] {
 export async function venueReport(venueId: number, from: string, to: string): Promise<VenueReport | null> {
   const db = getDb();
   const venue = await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as
-    | { id: number; name: string; open_hour: number; close_hour: number; week_hours: string | null }
+    | { id: number; name: string; open_min: number; close_min: number; week_hours: string | null }
     | undefined;
   if (!venue) return null;
 
@@ -147,21 +147,25 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       .all(venueId, from, to)) as { date: string }[]).map((r) => r.date)
   );
   // Each day by its own hours: a weekday the venue never opens is a closed day too.
-  const usual = { openHour: venue.open_hour, closeHour: venue.close_hour, weekHours: parseWeekHours(venue.week_hours) };
+  const usual = { openMin: venue.open_min, closeMin: venue.close_min, weekHours: parseWeekHours(venue.week_hours) };
   let closedDays = 0;
   let openHoursInPeriod = 0;
-  let firstHour = venue.open_hour;
-  let lastHour = venue.close_hour;
+  let firstMin = venue.open_min;
+  let lastMin = venue.close_min;
+  const openOn = new Map<string, { start: number; end: number }>();
   for (let d = from; d <= to; d = addDays(d, 1)) {
     const on = hoursOn(usual, d);
     if (closures.has(d) || on.closed) {
       closedDays++;
       continue;
     }
-    openHoursInPeriod += on.closeHour - on.openHour;
-    firstHour = Math.min(firstHour, on.openHour);
-    lastHour = Math.max(lastHour, on.closeHour);
+    openOn.set(d, { start: on.openMin, end: on.closeMin });
+    openHoursInPeriod += (on.closeMin - on.openMin) / 60;
+    firstMin = Math.min(firstMin, on.openMin);
+    lastMin = Math.max(lastMin, on.closeMin);
   }
+  const firstHour = Math.floor(firstMin / 60);
+  const lastHour = Math.ceil(lastMin / 60);
 
   // Every query below picks the venue's rows by their own court_id rather than
   // by joining to courts and filtering there: the index on (court_id, date)
@@ -252,47 +256,63 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     .sort((a, b) => b.amount - a.amount);
 
   // --- place-hours sold ----------------------------------------------------
-  const { soldHours } = await db
+  // Each confirmed booking is a place for its minutes; a class enrolment is one place in its class.
+  const sold = (await db
     .prepare(`
-      SELECT COALESCE(SUM(s.span), 0) AS "soldHours" FROM booking_slots s
-      JOIN bookings b ON b.id = s.booking_id
-      JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
+      SELECT b.court_id, b.date, b.start_min, b.end_min FROM bookings b
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
     `)
-    .get(venueId, from, to) as { soldHours: number };
+    .all(venueId, from, to)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+  const soldHours = sold.reduce((sum, b) => sum + (b.end_min - b.start_min), 0) / 60;
 
   // --- what could have been sold ------------------------------------------
   // The trading day, times capacity, times the days the venue was open, less
-  // whatever staff took out of service.
+  // whatever staff took out of service: blocks on a court's own space or on
+  // a court sharing its floor, and outages, within the hours it was open.
   const tradingHours = Math.max(0, lastHour - firstHour);
   const blockedByCourt = new Map<number, number>();
-  for (const row of await db
+  const capacityOf = new Map(courts.map((c) => [c.id, c.capacity]));
+  const blockRows = (await db
     .prepare(`
-      SELECT b.court_id AS "courtId", SUM(COALESCE(b.places, c.capacity) * b.span) AS blocked
-      FROM blocks_between(?, ?) b
-      JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
-      GROUP BY b.court_id
+      SELECT DISTINCT COALESCE(cs.court_id, c.court_id) AS court_id, k.id, k.date, k.start_min, k.end_min, k.places
+        FROM blocks k JOIN claims c ON c.block_id = k.id
+        LEFT JOIN court_spaces cs ON cs.space_id = c.space_id
+       WHERE k.venue_id = ? AND k.date >= ? AND k.date <= ?
     `)
-    .all(from, to, venueId) as { courtId: number; blocked: number }[])
-    blockedByCourt.set(row.courtId, row.blocked);
+    .all(venueId, from, to)) as { court_id: number; id: number; date: string; start_min: number; end_min: number; places: number | null }[];
+  for (const b of blockRows) {
+    const open = openOn.get(b.date);
+    if (!open || !capacityOf.has(b.court_id)) continue;
+    const minutes = Math.max(0, Math.min(b.end_min, open.end) - Math.max(b.start_min, open.start));
+    const places = b.places ?? capacityOf.get(b.court_id)!;
+    blockedByCourt.set(b.court_id, (blockedByCourt.get(b.court_id) ?? 0) + (places * minutes) / 60);
+  }
+  const outages = (await db
+    .prepare(`
+      SELECT DISTINCT COALESCE(cs.court_id, c.court_id) AS court_id, o.id, o.starts_on, o.ends_on
+        FROM court_outages o JOIN claims c ON c.outage_id = o.id
+        LEFT JOIN court_spaces cs ON cs.space_id = c.space_id
+       WHERE c.venue_id = ? AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?)
+    `)
+    .all(venueId, to, from)) as { court_id: number; id: number; starts_on: string; ends_on: string | null }[];
+  for (const o of outages) {
+    if (!capacityOf.has(o.court_id)) continue;
+    for (const [d, open] of openOn) {
+      if (d < o.starts_on || (o.ends_on !== null && d > o.ends_on)) continue;
+      blockedByCourt.set(o.court_id, (blockedByCourt.get(o.court_id) ?? 0) + (capacityOf.get(o.court_id)! * (open.end - open.start)) / 60);
+    }
+  }
 
   const sellableFor = (court: { id: number; capacity: number }) =>
     Math.max(0, openHoursInPeriod * court.capacity - (blockedByCourt.get(court.id) ?? 0));
 
   // --- per court -----------------------------------------------------------
   const soldByCourt = new Map<number, { hours: number; expected: number }>();
-  for (const row of await db
-    .prepare(`
-      SELECT b.court_id AS "courtId", SUM(s.span) AS hours
-      FROM booking_slots s
-      JOIN bookings b ON b.id = s.booking_id
-      JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
-      GROUP BY b.court_id
-    `)
-    .all(venueId, from, to) as { courtId: number; hours: number }[])
-    soldByCourt.set(row.courtId, { hours: row.hours, expected: 0 });
+  for (const b of sold) {
+    const entry = soldByCourt.get(b.court_id) ?? { hours: 0, expected: 0 };
+    entry.hours += (b.end_min - b.start_min) / 60;
+    soldByCourt.set(b.court_id, entry);
+  }
 
   for (const row of await db
     .prepare(`
@@ -360,16 +380,13 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       GROUP BY month
     `)
     .all(venueId, from, to) as { month: string; expected: number; collected: number }[];
-  const monthHours = await db
-    .prepare(`
-      SELECT substr(s.date, 1, 7) AS month, SUM(s.span) AS hours
-      FROM booking_slots s
-      JOIN bookings b ON b.id = s.booking_id
-      JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
-      GROUP BY month
-    `)
-    .all(venueId, from, to) as { month: string; hours: number }[];
+  const monthHours: { month: string; hours: number }[] = [];
+  for (const b of sold) {
+    const month = b.date.slice(0, 7);
+    const line = monthHours.find((m) => m.month === month);
+    if (line) line.hours += (b.end_min - b.start_min) / 60;
+    else monthHours.push({ month, hours: (b.end_min - b.start_min) / 60 });
+  }
 
   const byMonth: MonthLine[] = monthsIn(from, to).map((month) => ({
     month,
@@ -379,19 +396,16 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   }));
 
   // --- when the place is actually busy ------------------------------------
-  const hourRows = await db
-    .prepare(`
-      SELECT FLOOR(s.hour) AS hour, SUM(s.span) AS hours
-      FROM booking_slots s
-      JOIN bookings b ON b.id = s.booking_id
-      JOIN courts c ON c.id = b.court_id
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ? AND s.date <= ? AND b.status = 'confirmed' AND s.shadow = 0
-      GROUP BY FLOOR(s.hour)
-    `)
-    .all(venueId, from, to) as { hour: number; hours: number }[];
+  // Each booking's minutes, into the hours of the day they fall in.
+  const minutesByHour = new Map<number, number>();
+  for (const b of sold)
+    for (let h = Math.floor(b.start_min / 60); h * 60 < b.end_min; h++) {
+      const minutes = Math.min(b.end_min, (h + 1) * 60) - Math.max(b.start_min, h * 60);
+      minutesByHour.set(h, (minutesByHour.get(h) ?? 0) + minutes);
+    }
   const byHour: HourLine[] = Array.from({ length: tradingHours }, (_, i) => {
     const hour = firstHour + i;
-    return { hour, hours: hourRows.find((r) => r.hour === hour)?.hours ?? 0 };
+    return { hour, hours: (minutesByHour.get(hour) ?? 0) / 60 };
   });
 
   // --- what the venue still owes people -----------------------------------

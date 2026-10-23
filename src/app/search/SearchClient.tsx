@@ -12,8 +12,10 @@ import {
   Sport,
   SPORTS,
   SPORT_ICONS,
-  usualHours,
 } from "@/lib/types";
+import { usualMinutes } from "@/lib/booking-rules";
+import { formatMinute } from "@/lib/interval";
+import { lengthLabel } from "@/lib/length-label";
 import type { SearchResult, SearchSort } from "@/lib/store";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -45,8 +47,8 @@ interface ResultGroup {
   venueName: string;
   area: string;
   distanceKm?: number;
-  startHour: number;
-  endHour: number;
+  startMin: number;
+  endMin: number;
   /** Cheapest first — the Book button targets courts[0]. */
   courts: SearchResult[];
 }
@@ -55,7 +57,7 @@ interface ResultGroup {
 function groupResults(results: SearchResult[]): ResultGroup[] {
   const groups = new Map<string, ResultGroup>();
   for (const r of results) {
-    const key = `${r.venue.id}:${r.startHour}`;
+    const key = `${r.venue.id}:${r.startMin}`;
     const group = groups.get(key);
     if (group) {
       group.courts.push(r);
@@ -66,8 +68,8 @@ function groupResults(results: SearchResult[]): ResultGroup[] {
         venueName: r.venue.name,
         area: r.venue.area,
         distanceKm: r.distanceKm,
-        startHour: r.startHour,
-        endHour: r.endHour,
+        startMin: r.startMin,
+        endMin: r.endMin,
         courts: [r],
       });
     }
@@ -86,7 +88,8 @@ export interface SearchStart {
 }
 
 /** How long a search can ask for: an hour, an hour and a half, then whole hours. */
-const DURATIONS = [1, 1.5, ...Array.from({ length: MAX_COURT_HOURS - 1 }, (_, i) => i + 2)];
+/** Lengths to search for, in minutes; each court's own rules decide whether it takes one. */
+const DURATIONS = [30, 45, 60, 75, 90, 120, 150, 180, ...Array.from({ length: MAX_COURT_HOURS - 3 }, (_, i) => (i + 4) * 60)];
 
 export default function SearchClient({
   start = {},
@@ -109,11 +112,12 @@ export default function SearchClient({
   const [date, setDate] = useState(start.date && start.date >= today && start.date <= lastDay ? start.date : today);
   const [fromHour, setFromHour] = useState(start.fromHour ?? OPEN_HOUR);
   const [toHour, setToHour] = useState(start.toHour ?? CLOSE_HOUR - 1);
-  const [duration, setDuration] = useState(usualHours(start.sport ?? offered[0]));
+  // How long, in minutes.
+  const [duration, setDuration] = useState(usualMinutes(start.sport ?? offered[0]));
   // A sport's usual game comes with it: padel's 90 minutes.
   const setSport = (s: Sport) => {
     setSportOnly(s);
-    setDuration(usualHours(s));
+    setDuration(usualMinutes(s));
   };
   // Morning, afternoon or evening is one tap; "Custom" opens the hour pickers.
   const [custom, setCustom] = useState(dayPartOf(fromHour, toHour) === null);
@@ -144,7 +148,7 @@ export default function SearchClient({
         date,
         from: String(fromHour),
         to: String(toHour),
-        duration: String(duration),
+        minutes: String(duration),
       });
       // Near somewhere is where; an area on top of it would only narrow it oddly.
       if (near) {
@@ -177,7 +181,7 @@ export default function SearchClient({
     ? `&near=${near.lat.toFixed(5)},${near.lng.toFixed(5)}${near.where ? `&where=${encodeURIComponent(near.where)}` : ""}`
     : "";
   const bookHref = (r: SearchResult) =>
-    `/venue/${r.venue.id}?date=${date}&sport=${r.court.sport}&court=${r.court.id}&hour=${r.startHour}&duration=${r.endHour - r.startHour}${nearQuery}`;
+    `/venue/${r.venue.id}?date=${date}&sport=${r.court.sport}&court=${r.court.id}&start=${r.startMin}&minutes=${r.endMin - r.startMin}${nearQuery}`;
 
   const selectClass =
     "mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -298,7 +302,7 @@ export default function SearchClient({
             >
               {DURATIONS.map((d) => (
                 <option key={d} value={d}>
-                  {t.plural("search.hours", d)}
+                  {lengthLabel(t, d)}
                 </option>
               ))}
             </select>
@@ -392,9 +396,9 @@ export default function SearchClient({
                       className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-400"
                     >
                       <div className="w-32 shrink-0 font-semibold text-teal-700">
-                        {formatHour(g.startHour)}
+                        {formatMinute(g.startMin)}
                         <div className="text-xs font-normal text-slate-400">
-                          {t("search.to", { time: formatHour(g.endHour) })}
+                          {t("search.to", { time: formatMinute(g.endMin) })}
                         </div>
                       </div>
                       {covers[g.venueId] && (
@@ -505,7 +509,7 @@ function VenueResults({
       <ul className="space-y-2">
         {[...venues.values()].map((slots) => {
           const first = slots[0];
-          const times = [...slots].sort((a, b) => a.startHour - b.startHour);
+          const times = [...slots].sort((a, b) => a.startMin - b.startMin);
           const from = Math.min(...slots.map((s) => s.totalPrice));
           const cover = covers[first.venue.id];
           return (
@@ -546,11 +550,11 @@ function VenueResults({
               <div className="mt-3 flex flex-wrap gap-2">
                 {times.map((r) => (
                   <Link
-                    key={r.startHour}
+                    key={r.startMin}
                     href={bookHref(r)}
                     className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-sm font-medium text-teal-800 hover:border-teal-500"
                   >
-                    {formatHour(r.startHour)}{" "}
+                    {formatMinute(r.startMin)}{" "}
                     <span className="font-normal text-teal-700">
                       · {money(r.totalPrice)}
                       {r.court.perPlayer && ` ${t("search.perPlayer")}`}

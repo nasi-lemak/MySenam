@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readMinute } from "@/lib/api";
+import { isMinute } from "@/lib/interval";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { tellOwners } from "@/lib/owner-alerts";
 import { markDetailsChecked } from "@/lib/setup";
@@ -6,7 +8,7 @@ import { getVenue, setVenueAmenities, setVenuePin, updateVenue } from "@/lib/sto
 import { isAmenity } from "@/lib/facilities";
 import { formatDistance, inCountry, readPoint } from "@/lib/geo";
 import { FAR_FROM_ADDRESS_M } from "@/lib/applications";
-import { LATEST_CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO, OPEN_HOUR } from "@/lib/types";
+import { LATEST_CLOSE_HOUR, MAX_CANCEL_CUTOFF_HOURS, MAX_EMERGENCY_INFO } from "@/lib/types";
 import { logFromRequest } from "@/lib/activity";
 import { region } from "@/lib/region";
 
@@ -42,8 +44,8 @@ export async function PATCH(
     address?: string;
     phone?: string;
     cancelCutoffHours?: number;
-    openHour?: number;
-    closeHour?: number;
+    openMin?: number;
+    closeMin?: number;
     weekHours?: unknown;
     staffedFrom?: number | null;
     staffedTo?: number | null;
@@ -68,15 +70,13 @@ export async function PATCH(
     changes.cancelCutoffHours = cutoff as number;
   }
 
-  for (const field of ["openHour", "closeHour"] as const) {
-    const value = input[field];
-    if (value === undefined) continue;
-    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > LATEST_CLOSE_HOUR)
-      return NextResponse.json(
-        { error: `Opening hours must be whole hours, from midnight to ${LATEST_CLOSE_HOUR - 24} AM the next morning.` },
-        { status: 400 }
-      );
-    changes[field] = value as number;
+  // Usual hours: minutes of the day or HH:MM (openHour and closeHour, the older form); checked in lib/week-hours.ts.
+  for (const [field, older] of [["openMin", "openHour"], ["closeMin", "closeHour"]] as const) {
+    if (input[field] === undefined && input[older] === undefined) continue;
+    const value = readMinute(input, field, older);
+    if (!isMinute(value))
+      return NextResponse.json({ error: "Opening hours are times of day, from midnight to 4 AM the next morning." }, { status: 400 });
+    changes[field] = value;
   }
   // Weekdays with their own hours, or closed: checked in lib/week-hours.ts.
   if (input.weekHours !== undefined) changes.weekHours = input.weekHours;

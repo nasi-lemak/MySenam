@@ -46,7 +46,7 @@ afterEach(() => vi.useRealTimers());
 
 beforeAll(async () => {
   await getDb().prepare("UPDATE venues SET published_at = NULL").run();
-  const made = await createVenue({ name: "Night Futsal", area: "PJ", address: "x", phone: "0312343333", openHour: 16, closeHour: 24 });
+  const made = await createVenue({ name: "Night Futsal", area: "PJ", address: "x", phone: "0312343333", openMin: 16 * 60, closeMin: 24 * 60 });
   if (!made.ok) throw new Error("venue");
   venueId = made.venue.id;
   await getDb().prepare("UPDATE venues SET published_at = datetime('now') WHERE id = ?").run(venueId);
@@ -57,35 +57,35 @@ beforeAll(async () => {
 
 describe("a week of hours", () => {
   it("is checked: each day open, within bounds, and not running into the next morning", () => {
-    const usual = { openHour: 16, closeHour: 24 };
+    const usual = { openMin: 16 * 60, closeMin: 24 * 60 };
     expect(validateWeekHours(null, usual)).toEqual({ ok: true, week: null });
     expect(validateWeekHours([null, null, null, null, null, null, null], usual)).toEqual({ ok: true, week: null });
     expect(validateWeekHours([null], usual)).toMatchObject({ ok: false });
-    expect(validateWeekHours([null, { open: 20, close: 19 }, null, null, null, null, null], usual)).toMatchObject({ ok: false });
-    expect(validateWeekHours([null, null, null, null, null, { open: 16, close: 29 }, null], usual)).toMatchObject({ ok: false });
+    expect(validateWeekHours([null, { open: 20 * 60, close: 19 * 60 }, null, null, null, null, null], usual)).toMatchObject({ ok: false });
+    expect(validateWeekHours([null, null, null, null, null, { open: 16 * 60, close: 29 * 60 }, null], usual)).toMatchObject({ ok: false });
     // Friday until 2 AM is fine while Saturday opens at 8 AM; not if Saturday opens at 1 AM.
-    expect(validateWeekHours([null, null, null, null, null, { open: 16, close: 26 }, { open: 8, close: 24 }], usual)).toMatchObject({ ok: true });
-    expect(validateWeekHours([null, null, null, null, null, { open: 16, close: 26 }, { open: 1, close: 24 }], usual)).toMatchObject({ ok: false });
+    expect(validateWeekHours([null, null, null, null, null, { open: 16 * 60, close: 26 * 60 }, { open: 8 * 60, close: 24 * 60 }], usual)).toMatchObject({ ok: true });
+    expect(validateWeekHours([null, null, null, null, null, { open: 16 * 60, close: 26 * 60 }, { open: 1 * 60, close: 24 * 60 }], usual)).toMatchObject({ ok: false });
     // Unless Saturday is closed.
-    expect(validateWeekHours([null, null, null, null, null, { open: 16, close: 26 }, "closed"], usual)).toMatchObject({ ok: true });
+    expect(validateWeekHours([null, null, null, null, null, { open: 16 * 60, close: 26 * 60 }, "closed"], usual)).toMatchObject({ ok: true });
   });
 
   it("reads as runs of days for a page", () => {
-    const venue = { openHour: 16, closeHour: 24, weekHours: ["closed", "closed", null, null, null, { open: 16, close: 26 }, { open: 8, close: 26 }] as never };
+    const venue = { openMin: 16 * 60, closeMin: 24 * 60, weekHours: ["closed", "closed", null, null, null, { open: 16 * 60, close: 26 * 60 }, { open: 8 * 60, close: 26 * 60 }] as never };
     expect(weekLines(venue)).toEqual([
       { from: 1, to: 1, hours: "closed" },
-      { from: 2, to: 4, hours: { open: 16, close: 24 } },
-      { from: 5, to: 5, hours: { open: 16, close: 26 } },
-      { from: 6, to: 6, hours: { open: 8, close: 26 } },
+      { from: 2, to: 4, hours: { open: 16 * 60, close: 24 * 60 } },
+      { from: 5, to: 5, hours: { open: 16 * 60, close: 26 * 60 } },
+      { from: 6, to: 6, hours: { open: 8 * 60, close: 26 * 60 } },
       { from: 0, to: 0, hours: "closed" },
     ]);
-    expect(hoursOn(venue, next(FRIDAY))).toEqual({ openHour: 16, closeHour: 26, closed: false });
+    expect(hoursOn(venue, next(FRIDAY))).toEqual({ openMin: 16 * 60, closeMin: 26 * 60, closed: false });
   });
 });
 
 describe("a venue with its own hours by weekday", () => {
   it("saves them, and closes the weekday it never opens", async () => {
-    const week = [null, "closed", null, null, null, { open: 16, close: 26 }, { open: 8, close: 26 }];
+    const week = [null, "closed", null, null, null, { open: 16 * 60, close: 26 * 60 }, { open: 8 * 60, close: 26 * 60 }];
     const saved = await updateVenue(venueId, { weekHours: week });
     if (!saved.ok) throw new Error(saved.error);
     expect(saved.venue.weekHours).toEqual(week);
@@ -105,7 +105,7 @@ describe("a venue with its own hours by weekday", () => {
     expect(late.booking).toMatchObject({ date: friday, startHour: 24, endHour: 26 });
     expect(await createBooking({ courtId, date: next(THURSDAY), hours: [24], name: "Too late", phone: phone() })).toMatchObject({ ok: false });
     // Found by search after midnight too.
-    const found = await searchAvailability({ sport: "futsal", date: friday, fromHour: 22 });
+    const found = await searchAvailability({ sport: "futsal", date: friday, fromMin: 22 * 60 });
     expect(found.some((r) => r.startHour === 22)).toBe(true);
   });
 
@@ -137,7 +137,7 @@ describe("a venue with its own hours by weekday", () => {
 
   it("will not close a weekday, or shorten it, with bookings already sold in the hours that go", async () => {
     const friday = next(FRIDAY);
-    const refused = await updateVenue(venueId, { weekHours: [null, "closed", null, null, null, { open: 16, close: 24 }, { open: 8, close: 26 }] });
+    const refused = await updateVenue(venueId, { weekHours: [null, "closed", null, null, null, { open: 16 * 60, close: 24 * 60 }, { open: 8 * 60, close: 26 * 60 }] });
     expect(refused).toMatchObject({ ok: false });
     if (!refused.ok) expect(refused.error).toContain(friday);
   });

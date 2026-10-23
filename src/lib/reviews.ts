@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { hoursOf } from "./interval";
 import { errorText, isLocale, translator, type ErrorCode, type Locale } from "./i18n";
 import { enqueue } from "./outbox";
 import { tellOwners, tellVenueStaff } from "./owner-alerts";
@@ -303,13 +304,13 @@ export async function askForReviews(now = new Date()): Promise<number> {
   const to = now.toISOString().slice(0, 10);
   const rows = (await getDb()
     .prepare(
-      `SELECT b.id, b.code, b.name, b.email, b.date, b.end_hour, b.locale, b.phone_key, c.name AS court, v.id AS venue_id, v.name AS venue
+      `SELECT b.id, b.code, b.name, b.email, b.date, b.end_min, b.locale, b.phone_key, c.name AS court, v.id AS venue_id, v.name AS venue
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND b.email IS NOT NULL AND b.email <> ''
           AND b.date BETWEEN ? AND ? AND v.review_requests = 1 AND v.published_at IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM venue_reviews r WHERE r.venue_id = v.id AND r.phone_key = b.phone_key)
           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'review:' || v.id || ':' || b.phone_key)
-        ORDER BY b.date, b.end_hour`
+        ORDER BY b.date, b.end_min`
     )
     .all(from, to)) as {
     id: number;
@@ -317,7 +318,7 @@ export async function askForReviews(now = new Date()): Promise<number> {
     name: string;
     email: string;
     date: string;
-    end_hour: number;
+    end_min: number;
     locale: string | null;
     phone_key: string;
     court: string;
@@ -329,7 +330,7 @@ export async function askForReviews(now = new Date()): Promise<number> {
   for (const r of rows) {
     const key = `review:${r.venue_id}:${r.phone_key}`;
     if (seen.has(key)) continue;
-    const ended = slotStartsAt(r.date, r.end_hour, await zoneOf(r.venue_id)).getTime();
+    const ended = slotStartsAt(r.date, hoursOf(r.end_min), await zoneOf(r.venue_id)).getTime();
     // A couple of hours after, so it is not in the middle of getting changed.
     if (now.getTime() - ended < 2 * 3_600_000 || now.getTime() - ended > 72 * 3_600_000) continue;
     seen.add(key);

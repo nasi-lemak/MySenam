@@ -1,6 +1,6 @@
 # Booking and availability
 
-Authoritative for how courts and shared facilities are booked: capacity, linked courts, booking lengths, opening hours, blocks and outages, waitlists, moving, cancelling and who may book.
+Authoritative for how courts and shared facilities are booked: booking rules (starts, lengths, buffers, notice), capacity, linked courts, opening hours, blocks and outages, waitlists, moving, cancelling and who may book. How time is stored and protected underneath is the [booking time model](../architecture/interval-booking-review.md).
 
 ## Sports
 
@@ -11,14 +11,12 @@ courts and pitches; gyms and pools; and kayak hire. Customers are offered
 only the sports somebody on the site (or the storefront) has a court for, in
 that order (`GET /api/sports`).
 
-**Padel** is played in 90-minute games, so it is sold by the half hour
-wherever it is (a game is three halves), unless *Rules by sport* says
-otherwise; a padel court can be given 1½ hours as its shortest booking. The
-venue's other sports keep what the venue sells by, so badminton beside the
-padel still starts on the hour ([half hours](#half-hour-bookings)). Search
-asks for 90 minutes when padel is picked, and finds games starting on the
-hour and the half hour. A **football** pitch
-that is also two smaller pitches is a set of [linked courts](#courts-that-share-a-floor).
+**Padel** is played in 90-minute games, so unless a venue says otherwise it
+starts on any half hour, runs in half hours and offers 90 minutes first
+([booking rules](#booking-rules-starts-lengths-buffers)); badminton beside it
+still starts on the hour. Search asks for 90 minutes when padel is picked. A
+**football** pitch that is also two smaller pitches is a set of
+[linked courts](#courts-that-share-a-floor).
 
 ## Exclusive courts vs shared facilities
 
@@ -26,21 +24,20 @@ Every bookable resource carries a `capacity`:
 
 | Capacity | Behaves like | Example |
 | -------- | ------------ | ------- |
-| 1 | Exclusive use — one booking owns the hour | Badminton court |
-| > 1 | Shared — that many people may hold the same hour | Gym floor, lap pool, class |
+| 1 | Exclusive use — one booking at a time | Badminton court |
+| > 1 | Shared — that many people at the same moment | Gym floor, lap pool, class |
 
-Each booked hour takes a numbered *place* (`booking_slots.seat`), and
-`UNIQUE (court_id, date, hour, seat)` stops two bookings taking the same
-place under concurrent requests — a court is simply the case where the only
-place is seat 0. That a resource never holds more than its capacity, net of
-partly blocked places and waiting-list holds, rests on the `SERIALIZABLE`
-transaction rather than on that key; what this does and does not guarantee is
-set out in [booking concurrency](../architecture/booking-concurrency.md). Booking allocates the lowest free place inside
-the transaction; if two requests race for it, the loser retries against the
-winner's state (bounded), and a genuinely full resource is refused outright.
+A booking of an exclusive court claims its space for exactly its minutes; a
+booking of a shared facility claims one place (or one per player). The
+database refuses an overlapping claim on a space, and a claim that would put
+a facility over its capacity at any moment, partly blocked places and
+waiting-list offers included, whatever path wrote it
+([booking time model](../architecture/interval-booking-review.md#claims);
+guarantees in [booking concurrency](../architecture/booking-concurrency.md)).
+A refused claim is "just taken" to the customer.
 
-Capacity cannot be reduced below the places already booked in an upcoming hour,
-so shrinking a gym never strands a customer.
+Capacity cannot be reduced below the places already booked at any upcoming
+moment, so shrinking a gym never strands a customer.
 
 For a customer this is the forward-looking crowd signal: a shared facility shows
 **places left** rather than a price in each cell, shaded from quiet through
@@ -62,12 +59,10 @@ takes. Then:
 - A block, a tournament's courts or a court out of service closes the courts
   it shares the floor with too (another big court over the same small one
   included), and a class on one holds the others.
-- It holds under races the same way a single court does: each booked hour is
-  mirrored onto the courts it takes as a `shadow` row of the same booking in
-  `booking_slots`, written by a database trigger, so the same unique key
-  refuses the second booking (`db/migrations/0072_linked_courts.sql`).
-  Shadows leave with the booking, and reports count only the court actually
-  booked.
+- It holds under races the same way a single court does: the pitch covers
+  the spaces of the courts under it as well as its own, and a booking claims
+  every space its court covers, so the database refuses the second booking.
+  Reports count only the court actually booked.
 - Only courts booked whole can be linked, one level deep (a court that takes
   others is not itself part of one), and a linked court cannot start selling
   places. Linking is refused, naming the first date, while both sides are
@@ -79,71 +74,82 @@ sellable hours, so a hall that is busy every evening as a pitch still shows
 its badminton courts as sold for those hours rather than as one floor; and a
 waiting-list offer holds only its own court.
 
-## How long a booking may be
+## Booking rules: starts, lengths, buffers
 
-The usual: one slot (an hour, or half an hour where a venue sells halves) up to
-four hours, and a weekly booking of up to eight weeks. A venue can change both:
+Any minute can be stored; what a customer may pick on a court is its
+**booking rules** (*Courts & rates → Booking rules*, managers only;
+`POST /api/admin/booking-policies`; the settings and their defaults are in
+the [booking time model](../architecture/interval-booking-review.md#booking-policies)):
 
-- **Court by court**, under *Courts → How long one booking may be*: a futsal
-  pitch booked for two hours at least, a hall for up to twelve. The grid stops
-  a selection at the court's longest, says *2 to 4 consecutive hours per
-  booking on Futsal A* on the booking form, and will not book one shorter. A
-  booking on *any court* goes to a court that takes that length, and search
-  leaves out courts that would not. Search asks for up to twelve hours and
-  finds the courts that take that long; a waiting-list place may be as long
-  as the court takes. Classes are not held to it.
-- **Weeks in one weekly booking**, under *House rules*: up to 26, for a team's
-  season or a school's term, staff's bookings included. It is not a fair-use
-  rule, so on its own it does not put house rules on the venue page. Where the
-  venue limits how far ahead people may book, every week must still fall in
-  that window.
+- **When bookings start**: every so many minutes from a first start past the
+  hour (on the hour; every 15 minutes; every 90 from 08:00), or only at
+  listed times (18:00, 19:30, 21:00).
+- **How long they run**: from a shortest to a longest in steps (60 to 240 in
+  hours; 60 to 120 in 15s), or only listed lengths (60, 90, 120), with a
+  length offered first.
+- **Buffers**: minutes kept free before and after each booking, for setting
+  up or cleaning. Nobody can book into them. Customers just see the time as
+  taken; the staff schedule shows each buffer and what it is for. Buffers
+  are not charged; a setup or cleanup **fee** is a separate rule, shown to
+  the customer apart from the time ([pricing](pricing.md#prices-to-the-minute)).
+  Each booking keeps both its buffers, so two bookings on a court with a
+  10-minute buffer after each are 10 minutes apart, and one before and after
+  of 10 each make them 20.
+- **Notice**: how long before it starts a booking may be made at the latest.
+- **The court's own hours**, weekday by weekday, inside the venue's
+  (through the API only for now).
 
-## Half-hour bookings
+Each rule is inherited where it is not set: the court's own, else its sport's
+at the venue, else the venue's, else the business's for every branch, else
+the platform's (on the hour, an hour to four, an hour first; padel from any
+half hour, 90 minutes first). The editor shows what each level sets and what
+a court ends up with (*Now: every 15 minutes, 60 to 120 minutes…*). Clearing
+a setting goes back to inheriting it. Changing the rules moves nothing
+already booked.
 
-Every court's diary is kept in **half hours**, whatever it is sold by
-([ADR 0009](../architecture/decisions/0009-half-hour-diary-sold-by-sport.md)).
-What each sport is **sold by**, the hour or the half hour, is its own at the
-venue (*Courts → Rules by sport → Sold by*), else padel's half hours, else
-the venue's default, chosen under *Courts & rates → Booked by* (a manager's
-setting, `venues.slot_minutes`, 60 or 30; `unitFor` in `src/lib/store.ts`):
+**The board** shows each court's day in columns as wide as its rules need
+(an hour, a half hour, 15 minutes), cells marked free, partly taken (*½*) or
+taken. Tapping a free cell picks the court's earliest start in it and its
+first length; tapping a later cell stretches the booking to it, as far as the
+rules and the free time allow. The form below has the start and the length
+as lists of what is allowed (or a time and a number where there are many),
+and asks the server for the price as they change
+([`GET /api/quote`](../architecture/http-api.md)), so the price on the
+*Book* button is the one charged. The same rules hold for every way in:
+booking, any court, several courts, weekly bookings, waiting lists, moving,
+rescheduling, the public API.
 
-- **The grid** for a sport shows a column for each unit it is sold by (8AM,
-  8:30AM, 9AM… by the half hour). Customers pick consecutive units, up to the
-  same four hours. A half hour costs half the hourly rate, peak or off-peak by
-  when it starts, and the legend says the numbers are per half hour. A sport
-  sold by the hour cannot start on the half hour, even beside one that can.
-- **Times** are hours with a fraction (18.5 is 18:30) in `start_hour`,
-  `end_hour`, `booking_slots.hour`, `slot_blocks.hour` and the waitlist. Each
-  slot row is half an hour (`span` 0.5; migration 0088 split rows stored by
-  the hour into their halves). Calendar invites, messages and receipts show
-  6:30 PM.
-- **Moving, rescheduling, waitlists and coaching** start on the unit the
-  sport is sold by. **Blocking** and the staff schedule work in the finest
-  unit any of the venue's sports is sold by; outages close every half hour.
-  Search offers whole-hour start times; a search for a length that is not
-  whole hours (an hour and a half) also offers the half hours, and finds only
-  courts whose sport is sold by the half hour there.
-- **Classes and tournaments stay on the hour**, holding both halves of each
-  hour they use.
-- **Passes** spend one entry an hour, so a booking with a half hour in it
-  (an hour and a half, say) spends the whole of that hour (two entries).
-- **Changing what a sport is sold by** moves nothing: bookings stand where
-  they are, and new ones follow the new unit.
+**Weekly bookings** run up to eight weeks by default; *House rules* can allow
+up to 26, for a team's season or a school's term, staff's bookings included.
+It is not a fair-use rule, so on its own it does not put house rules on the
+venue page. Where the venue limits how far ahead people may book, every week
+must still fall in that window. Classes are not held to the booking rules.
+
+### Staff booking outside the rules
+
+A manager can book, move or reschedule outside a court's rules: a 50-minute
+lesson on a court sold by the hour, a start at 18:10, a booking with less
+notice than customers get. The board's *Book outside this court's rules*
+box, and *Change time*, offer any minute and length. The booking is marked
+as an exception, and the activity log records who made it and which rules it
+went past (*Booked or moved outside a court's booking rules*). Front-desk staff cannot, and nobody
+can book over another booking, a block, a class, an outage or a buffer: the
+database refuses those whoever asks.
 
 ## Rules by sport
 
-A venue's cancellation cutoff, late-cancel share, peak hours and what it
-sells by apply to all its courts. Where one sport needs its own (tennis
-cancelled a day ahead while badminton is two hours; pickleball at peak from
-5 PM; padel sold by the hour), *Courts → Rules by sport* sets it for that
-sport (`src/lib/sport-rules.ts`). Anything left on
-*venue's* follows the venue.
+A venue's cancellation cutoff, late-cancel share and peak hours apply to all
+its courts. Where one sport needs its own (tennis cancelled a day ahead while
+badminton is two hours; pickleball at peak from 5 PM), *Courts → Rules by
+sport* sets it for that sport (`src/lib/sport-rules.ts`). Anything left on
+*venue's* follows the venue. A sport's starts and lengths are its
+[booking rules](#booking-rules-starts-lengths-buffers) at the venue.
 
 - **Cancellation:** free until the sport's own cutoff; after it, the sport's
   own late-cancel share, or no cancelling online. The booking terms shown
   before booking, `/my-booking` and the venue page say the sport's rule.
 - **Peak hours:** the sport's own weekday and weekend windows decide which of
-  its courts' two rates an hour costs; the weekend days and holidays stay the
+  its courts' two rates each minute costs; the weekend days and holidays stay the
   venue's. Off-peak-only last-minute prices and concessions follow them.
 
 ## Booking without naming a court
@@ -154,22 +160,22 @@ regulars have preferences — so auto-assigning by default would take a real
 choice away and make the price column meaningless.
 
 For customers who *don't* mind, an **Any court** row sits above the grid. Each
-hour shows the cheapest rate among the courts free that hour (so it reads RM18
-in an hour when only the premium court is left), and booking it takes the
-cheapest court free for the **whole** slot, not hour by hour — nobody is moved
+column shows the cheapest rate among the courts free then (so it reads RM18
+when only the premium court is left), and booking it takes the cheapest court
+free for the **whole** booking whose rules allow it — nobody is moved
 mid-session. The price on the form is that court's price for the whole time,
-not the cheapest hour of each court added up, and a run of hours no single
+not the cheapest part of each court added up, and a stretch no single
 court is free for cannot be picked.
 
 `createBookingOnAnyCourt()` re-reads the candidate list server-side rather than
-trusting the client, orders it by what that slot actually costs (peak-aware, so
+trusting the client, orders it by what that booking actually costs (peak-aware, so
 the order can differ morning to evening), and walks it: if the cheapest is
 taken between choosing and inserting, the next is tried. That is the point of
 not naming a court — a race should cost the customer a different court, not the
 booking. It stops walking as soon as an error applies to every court equally.
 
 Each attempt goes through the ordinary `createBookingSeries()` path, so the
-uniqueness guarantee, seat allocation, trading hours, closures and series
+database's refusal of overlaps, booking rules, trading hours, closures and series
 handling are the same code as a named-court booking. When nothing is free the
 error says so, rather than reporting the last court's "someone just took it";
 structural reasons — venue closed, outside trading hours, no courts of that
@@ -197,18 +203,19 @@ one of those hours (and that take a booking that long), with what each costs.
 ## Operating hours and closed days
 
 Hours are a property of the venue, not the platform. Every venue carries an
-`open_hour` and a `close_hour` (defaults 8 and 23, bounds 0–28, past 24 being
-after midnight): the first
-bookable hour starts at `open_hour` and the last one ends at `close_hour`. That
-single pair sizes the customer grid, the admin schedule, the occupancy
-denominator, and the hours accepted by booking, class scheduling, slot blocking
-and waitlist joins. Cross-venue search clamps the requested window to each
+opening and a closing time to the minute (`open_min` and `close_min`,
+08:00 and 23:00 to begin with, up to 04:00 the next morning; a venue is open
+at least an hour). Bookings start no earlier and end no later. That pair
+(or that weekday's, below) sizes the customer grid, the admin schedule, the
+occupancy denominator, and the times accepted by booking, class scheduling,
+blocking and waitlist joins; a court's
+[booking rules](#booking-rules-starts-lengths-buffers) may narrow it. Cross-venue search clamps the requested window to each
 venue's own day, so a 7 AM search only ever returns the venues that are open at
 7 AM, and a 2-hour block is only offered if it still finishes by that venue's
 close.
 
 Narrowing a venue's day is refused while bookings exist outside the proposed
-hours — otherwise a customer would hold a slot the venue no longer sells. Staff
+hours — otherwise a customer would hold time the venue no longer sells. Staff
 have to cancel or move those first.
 
 A **closure** shuts one venue for one whole date (`venue_closures`, unique on
@@ -231,18 +238,19 @@ day. The venue page lists the week (Mon–Thu 4:00 PM – 12:00 AM, Fri 4:00 PM
 – 2:00 AM, Sun closed) when the days differ, and search engines get one
 opening-hours entry per run of days.
 
-Hours may run **past midnight**, to 4 AM at the latest: a close of 26 is 2
-AM. Those hours belong to the evening they started on, so a futsal booking
-from 1 AM on a Friday night is a Friday booking (hour 25), on Friday's grid,
+Hours may run **past midnight**, to 4 AM at the latest: a close of 02:00 is
+stored as minute 1560 of the day. Those hours belong to the evening they
+started on, so a futsal booking from 1 AM on a Friday night is a Friday
+booking (minute 1500), on Friday's grid,
 priced by Friday's rules (after midnight is off-peak unless the venue's
 peak window says otherwise), and its check-in, reminders and "has it
 started" are worked out from the real time. A day's late hours may not run
-into the next day's own opening, so the same moment is never two slots. The
+into the next day's own opening, so the same moment is never on two days. The
 desk sees a 1 AM booking on the evening's date in the Bookings tab.
 
 Every check that used the venue's one pair of hours now asks for that
 date's: the grid, booking, moving a booking, blocks, classes, waiting lists,
-coaching slots, tournaments and the report's "could have been sold". Changing
+coaching times, tournaments and the report's "could have been sold". Changing
 the hours, or closing a weekday, is refused while bookings already sold fall
 outside them, naming the first such date.
 
@@ -263,14 +271,12 @@ Two ways, for two lengths of time:
   booking made while the others were being cancelled is cancelled in turn (or,
   without *cancel them*, listed). *Back in service today* ends it early.
 
-An outage is not a row per hour. The database function `blocks_between`
-(first in `db/migrations/0009_outages_suspensions.sql`, redefined since, last in
-`db/migrations/0087_wholes_over_one_part.sql`: `own_blocks_between` plus what
-linked courts carry) answers "what is blocked between these days" with the
-hours blocked by hand and every trading hour of every outage, and everything
-that asks what is blocked asks it — so availability, search, booking, moving
-a booking, the waitlist, the schedule and the reports close the court without
-knowing outages exist. Where an hour is both, the hand-made block wins.
+An outage is one claim on the court for the whole stretch: every minute of
+each business day it covers, late hours past midnight included, or with no
+end for *until further notice* (`claimOutage` in `src/lib/outages.ts`).
+Availability, search, booking, moving a booking, the waitlist, the schedule
+and the reports read it with every other claim, so they close the court
+without knowing outages exist, and the database refuses a booking into it.
 
 ### Rained off
 
@@ -307,38 +313,40 @@ court is capacity 1. Equipment is where that breaks down: one kayak of six
 with a cracked hull should not cost you the other five, and dropping `capacity`
 to 5 would apply to every date rather than just the week it is being repaired.
 
-`slot_blocks` therefore carries a `places` column. `NULL` is the whole
-resource, which is the only thing a court can mean and exactly what every
-pre-existing row already meant. A number takes that many places out and leaves
-the rest bookable, so the hour reads `1/5` rather than closed.
-
-Everything that consults a block resolves it the same way — `COALESCE(places,
-capacity)` — so availability, cross-venue search, "any court", booking, moving
-a booking, the waitlist and the staff schedule all compare `booked + out`
-against capacity instead of asking whether a block exists. A partial block
-therefore only closes an hour once it has taken the last place, and only then
-does queuing become possible.
+A block (`blocks`, any minutes) therefore carries `places`. `NULL` is the
+whole resource, which is the only thing a court can mean. A number takes that
+many places out and leaves the rest bookable, so the time reads `1/5` rather
+than closed: its claim holds those places, and the capacity check counts them
+with the bookings, so availability, cross-venue search, "any court", booking,
+moving a booking, the waitlist and the staff schedule all see the same
+places left. A partial block only closes the time once it has taken the last
+place, and only then does queuing become possible.
 
 Staff cannot take out more places than are free, since that would strand a
-booking; the refusal names how many remain. Re-blocking an hour revises it
-rather than duplicating it. The occupancy report counts only full blocks, since
-a partial one does not remove an hour from the day.
+booking; the refusal names how many remain. A block over time that is partly
+booked covers the rest of it, and one made at the moment a booking lands is
+worked out again around it. Re-blocking time revises it rather than
+duplicating it. The occupancy report counts only full blocks, since a partial
+one does not remove time from the day.
 
 ## Waitlists
 
-A full class *or a taken court hour* can still be joined — as a queue. When it
-frees up (a booking or enrolment cancelled, or someone ahead dropping out), it
-is **offered to whoever has waited longest**, with a secret token and a
-30-minute hold. Only one offer is ever live per class, and per resource per
-day, so two cancellations do not hand the same place to two people.
+A full class *or taken court time* can still be joined — as a queue. A court
+entry keeps the start and length wanted, within the court's booking rules.
+When that whole time frees up (a booking or enrolment cancelled, or someone
+ahead dropping out), it is **offered to whoever has waited longest**, with a
+secret token and a 30-minute hold. Only one offer is ever live per class, and
+per resource per day, so two cancellations do not hand the same place to two
+people.
 
-Queuing is only offered where a cancellation could actually free the slot. A
-blocked, class-reserved or past hour is not queueable, and the booking grid
+Queuing is only offered where a cancellation could actually free the time. A
+blocked, class-reserved or past time is not queueable, and the booking grid
 only turns those cells into a waitlist button when they are genuinely just
 taken.
 
-A live offer **holds the place**: the grid shows it taken and nobody can book
-it directly for those 30 minutes, so the person offered it does not tap the
+A live offer **holds the place**: it is a claim on the court that lapses with
+the offer, so the grid shows it taken and nobody can book it directly for
+those 30 minutes, so the person offered it does not tap the
 link to find it gone. Stale offers are expired whenever the waitlist is read or
 written, and by the scheduler every few minutes (`passOnExpiredOffers()`),
 which offers each freed place to the next person in the queue, so a place
@@ -350,7 +358,7 @@ and the unpaid-bookings limit all apply, so a queue is not a way round them.
 
 Claiming is deliberately a tap rather than automatic on page load, because
 unlike check-in it creates a booking that costs money. Claiming enrols the
-holder at the class price (or makes an ordinary booking for a court slot,
+holder at the class price (or makes an ordinary booking for the court time,
 through the same path as any booking, closures and limits included) and
 closes their queue entry; the token is then spent. A venue that holds
 bookings until they are paid holds a claimed one the same way, and the
@@ -367,15 +375,14 @@ has to change court without changing anything else. Without this the only
 option is cancel-and-rebook, which issues a new code the customer does not
 have, drops the payment record, and un-checks-in anyone already inside.
 
-`moveBooking(code, courtId)` re-points the booking and rewrites its
-`booking_slots` rows in one transaction, so a move either happens completely or
-not at all — a target that is free for three of four hours leaves the booking
-exactly where it was. Seats are re-allocated on the target, so a move onto a
-shared facility takes the lowest free place; the unique index is still the real
-guard, and a racing insert fails rather than double-selling.
+`moveBooking(code, courtId)` re-points the booking and moves its claims in one
+transaction, so a move either happens completely or not at all — a target
+that is free for three of its four hours leaves the booking exactly where it
+was. The target's own buffers apply; the database is still the real guard,
+and a racing booking fails rather than double-selling.
 
 A move is refused across venues, across sports, onto the court it is already
-on, onto a blocked hour or one a class owns, and for a booking that is
+on, onto blocked time or time a class owns, and for a booking that is
 cancelled or already finished. A class enrolment cannot be moved on its own —
 it belongs to the class.
 
@@ -391,21 +398,23 @@ they exist because the API is reachable without it.
 
 ### Changing the date or time
 
-`rescheduleBooking(code, { date, startHour, courtId? }, by)` moves a booking to
-another day or hour — the same length, at the same venue, for the same sport —
-keeping its code, its payment, its extras and any promo. It is the step that
-otherwise means cancel, refund and book again, with the risk the slot goes
-while the customer rebooks.
+`rescheduleBooking(code, { date, start, courtId?, override? }, by)` moves a
+booking to another day or time — the same length, at the same venue, for the
+same sport — keeping its code, its payment, its extras and any promo. It is
+the step that otherwise means cancel, refund and book again, with the risk
+the time goes while the customer rebooks.
 
 - **Customers** change their own from `/my-booking` (*Change date or time*),
   with the code and phone number, up to the venue's cancellation cutoff and
-  within the booking window. **Staff** use *Change time* on any booking in the
-  Bookings tab, at any time before it has finished.
+  within the booking window, to a start the court's booking rules allow.
+  **Staff** use *Change time* on any booking in the Bookings tab, at any
+  time before it has finished; a manager may also choose any minute, outside
+  the rules ([staff booking outside the rules](#staff-booking-outside-the-rules)).
 - Only times free for the whole length are offered (`rescheduleOptions`), its
   own court first, then another court of the same sport. The booking's own
-  places count as free, so it can slide by an hour.
+  time counts as free, so it can slide by a few minutes.
 - **The price follows the court time.** Unpaid, it is repriced at the new
-  time's rate, up or down. Paid, it keeps what was paid: a customer cannot move
+  time's rate, up or down, by the same pricing as a new booking. Paid, it keeps what was paid: a customer cannot move
   it somewhere dearer (that would be peak hours at an off-peak price), and
   staff who do have chosen not to charge the difference.
 - Refused for a class place (it moves with its class), an open game with

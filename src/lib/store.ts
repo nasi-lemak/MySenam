@@ -28,7 +28,8 @@ import {
   Refusal,
   Court,
   CourtAvailability,
-  OPEN_HOUR,
+  type SlotInfo,
+  type StartOption,
   LATEST_CLOSE_HOUR,
   DEFAULT_OPEN_HOUR,
   DEFAULT_CLOSE_HOUR,
@@ -41,7 +42,6 @@ import {
   MAX_GROUP_COURTS,
   DEFAULT_MAX_PLAYERS,
   MAX_PLAYERS,
-  bookingLengths,
   CHECK_IN_OPENS_MINUTES_BEFORE,
   ClassSession,
   ClassStatus,
@@ -62,6 +62,7 @@ import {
   MAX_TOP_UP,
   MAX_MEMBERSHIP_MONTHS,
   MAX_PASS_ENTRIES,
+  MAX_PASS_MINUTES,
   Membership,
   MembershipStatus,
   MAX_PROMO_AMOUNT,
@@ -72,9 +73,9 @@ import {
   MAX_PASS_MONTHS,
   Pass,
   PassEntry,
+  PassKind,
   PassStatus,
   SPORTS,
-  usualHours,
   SPORT_LABELS,
   WalletBalance,
   WalletEntry,
@@ -92,13 +93,10 @@ import {
   formatHour,
   isBookableDate,
   isPastSlot,
-  slotsBetween,
-  consecutive,
-  onSlot,
   isValidDateString,
-  isPeak,
+  isPeakMinute,
   forSport,
-  lastMinuteOff,
+  lastMinuteOffAt,
   DEFAULT_PEAK,
   type PeakRules,
   isWithinCancelWindow,
@@ -106,12 +104,50 @@ import {
   todayISO,
   localDateOf,
   dayOfWeek,
-  SLOT,
-  expandSlots,
 } from "./time";
+import {
+  DAY_MINUTES,
+  LATEST_MINUTE,
+  formatLength,
+  formatMinute,
+  hoursOf,
+  instantOf,
+  isMinute,
+  minutesOf,
+  overlaps,
+  type Span,
+} from "./interval";
+import {
+  claim,
+  fits,
+  isConflict,
+  occupantsOn,
+  peakPlaces,
+  release,
+  releaseBooking,
+  unclaim,
+  type Occupant,
+} from "./claims";
+export { releaseBooking } from "./claims";
+import { passCost } from "./pass-rules";
+export { passCost } from "./pass-rules";
+import {
+  breachMessage,
+  gridMinutes,
+  lengthAllowed,
+  policiesFor,
+  policyBreaches,
+  policyFor,
+  policyHoursOn,
+  sportPolicyAt,
+  startsWithin,
+  type BookingPolicy,
+  type PolicyBreach,
+} from "./booking-policy";
+import { priceBooking, type MemberPricing, type Quote } from "./pricing";
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
-import { hoursOn, parseWeekHours, validateWeekHours } from "./week-hours";
+import { hoursOn, parseWeekHours, validateUsualHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
@@ -137,8 +173,6 @@ interface CourtRow {
   aircon: number;
   floodlit: number;
   surface: Surface | null;
-  min_hours?: number | null;
-  max_hours?: number | null;
   per_player?: number;
   max_players?: number | null;
 }
@@ -150,10 +184,9 @@ interface VenueRow {
   address: string;
   phone: string;
   cancel_cutoff_hours: number;
-  open_hour: number;
-  close_hour: number;
+  open_min: number;
+  close_min: number;
   week_hours?: string | null;
-  slot_minutes?: number;
   time_zone?: string | null;
   staffed_from: number | null;
   staffed_to: number | null;
@@ -177,10 +210,11 @@ function toVenue(r: VenueRow): Venue {
     address: r.address,
     phone: r.phone,
     cancelCutoffHours: r.cancel_cutoff_hours,
-    openHour: r.open_hour,
-    closeHour: r.close_hour,
+    openMin: r.open_min,
+    closeMin: r.close_min,
+    openHour: hoursOf(r.open_min),
+    closeHour: hoursOf(r.close_min),
     weekHours: parseWeekHours(r.week_hours),
-    slotMinutes: r.slot_minutes === 30 ? 30 : 60,
     timeZone: venueZoneOf(r),
     staffedFrom: r.staffed_from,
     staffedTo: r.staffed_to,
@@ -197,122 +231,49 @@ function toVenue(r: VenueRow): Venue {
   };
 }
 
-/**
- * A venue's trading hours, falling back to the defaults if it has vanished,
- * and how long each of its slots is in hours (`step`: 1, or 0.5).
- */
+/** A venue's hours on a date (or its usual hours), in minutes and in hours, and its zone. */
+export interface VenueHours {
+  openMin: number;
+  closeMin: number;
+  openHour: number;
+  closeHour: number;
+  /** Shut that weekday every week. */
+  closed: boolean;
+  zone: string;
+}
+
+/** A venue's trading hours, falling back to the defaults if it has vanished. */
 export async function venueHours(
   venueId: number,
   /** The hours on this date, where the weekday has its own; the usual hours without one. */
   date?: string
-): Promise<{ openHour: number; closeHour: number; zone: string }> {
+): Promise<VenueHours> {
   const row = await getDb()
-    .prepare("SELECT open_hour, close_hour, week_hours, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
-    .get(venueId) as
-    | { open_hour: number; close_hour: number; week_hours: string | null; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
-    | undefined;
+    .prepare("SELECT open_min, close_min, week_hours, time_zone, lat, lng FROM venues WHERE id = ?")
+    .get(venueId) as HoursRow | undefined;
   return withHours(row, date);
 }
 
 type HoursRow = {
-  open_hour: number;
-  close_hour: number;
+  open_min: number;
+  close_min: number;
   week_hours: string | null;
-  slot_minutes: number;
   time_zone: string | null;
   lat: number | null;
   lng: number | null;
 };
 
-function withHours(row: HoursRow | undefined, date?: string): { openHour: number; closeHour: number; zone: string } {
-  const usual = { openHour: row?.open_hour ?? DEFAULT_OPEN_HOUR, closeHour: row?.close_hour ?? DEFAULT_CLOSE_HOUR };
-  const on = date ? hoursOn({ ...usual, weekHours: parseWeekHours(row?.week_hours) }, date) : usual;
+function withHours(row: HoursRow | undefined, date?: string): VenueHours {
+  const usual = { openMin: row?.open_min ?? DEFAULT_OPEN_HOUR * 60, closeMin: row?.close_min ?? DEFAULT_CLOSE_HOUR * 60 };
+  const on = date ? hoursOn({ ...usual, weekHours: parseWeekHours(row?.week_hours) }, date) : { ...usual, closed: false };
   return {
-    openHour: on.openHour,
-    closeHour: on.closeHour,
+    openMin: on.openMin,
+    closeMin: on.closeMin,
+    openHour: hoursOf(on.openMin),
+    closeHour: hoursOf(on.closeMin),
+    closed: on.closed,
     zone: venueZoneOf(row ?? {}),
   };
-}
-
-/** The half hours of the diary a booking holds (SLOT): 10–11 is 10 and 10.5. */
-export function bookingHours(b: { courtId?: number; startHour: number; endHour: number }): number[] {
-  return slotsBetween(b.startHour, b.endHour, SLOT);
-}
-
-/**
- * What a sport is sold by at a venue, in hours: 1 (from the hour, in whole
- * hours) or 0.5 (from any half hour, in half hours). The sport's own rule
- * (Rules by sport), else the venue's, except that a sport whose game is not
- * whole hours (padel's 90 minutes) is sold by the half hour unless told not to.
- */
-export function unitFor(sport: Sport, venueSlotMinutes: number | null | undefined, ruleMinutes: number | null | undefined): number {
-  if (ruleMinutes === 30 || ruleMinutes === 60) return ruleMinutes / 60;
-  if (!Number.isInteger(usualHours(sport))) return 0.5;
-  return venueSlotMinutes === 30 ? 0.5 : 1;
-}
-
-/** What `sport` is sold by at this venue (unitFor), read from its settings. */
-export async function sellUnit(venueId: number, sport: Sport): Promise<number> {
-  const row = (await getDb()
-    .prepare(
-      `SELECT v.slot_minutes, r.slot_minutes AS rule FROM venues v
-         LEFT JOIN sport_rules r ON r.venue_id = v.id AND r.sport = ? WHERE v.id = ?`
-    )
-    .get(sport, venueId)) as { slot_minutes: number; rule: number | null } | undefined;
-  return unitFor(sport, row?.slot_minutes, row?.rule);
-}
-
-/** The staff schedule's unit: the finest any sport with a court at the venue is sold by. */
-export async function scheduleUnit(venueId: number): Promise<number> {
-  const units = await sellUnits(venueId);
-  const sports = (await getDb().prepare("SELECT DISTINCT sport FROM courts WHERE venue_id = ?").all(venueId)) as { sport: Sport }[];
-  return Math.min(1, ...sports.map((s) => units[s.sport]));
-}
-
-/** What each sport is sold by at a venue, for every sport: the booking page's grid for each. */
-export async function sellUnits(venueId: number): Promise<Record<Sport, number>> {
-  const db = getDb();
-  const venue = (await db.prepare("SELECT slot_minutes FROM venues WHERE id = ?").get(venueId)) as { slot_minutes: number } | undefined;
-  const rules = (await db.prepare("SELECT sport, slot_minutes FROM sport_rules WHERE venue_id = ?").all(venueId)) as {
-    sport: Sport;
-    slot_minutes: number | null;
-  }[];
-  return Object.fromEntries(
-    SPORTS.map((s) => [s, unitFor(s, venue?.slot_minutes, rules.find((r) => r.sport === s)?.slot_minutes)])
-  ) as Record<Sport, number>;
-}
-
-/**
- * Places held by live waiting-list offers on a date, per `courtId:hour`: an
- * offer keeps the place for its person until it is claimed or runs out, so
- * nobody else can take it meanwhile. `except` is the offer being claimed.
- */
-async function offerHolds(
-  date: string,
-  opts: { venueId?: number; courtId?: number; courtIds?: number[]; except?: number } = {}
-): Promise<Map<string, number>> {
-  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
-  const ids = opts.courtIds ?? [];
-  const rows = (await getDb()
-    .prepare(
-      `SELECT w.id, w.court_id, w.start_hour, w.end_hour FROM waitlist w JOIN courts c ON c.id = w.court_id
-        WHERE w.status = 'offered' AND w.date = ? AND w.offered_at > ?
-          ${opts.venueId ? "AND c.venue_id = ?" : ""} ${opts.courtId ? "AND w.court_id = ?" : ""}
-          ${opts.courtIds ? `AND w.court_id IN (${ids.length ? ids.map(() => "?").join(",") : "NULL"})` : ""}`
-    )
-    .all(date, since, ...(opts.venueId ? [opts.venueId] : []), ...(opts.courtId ? [opts.courtId] : []), ...ids)) as {
-    id: number;
-    court_id: number;
-    start_hour: number;
-    end_hour: number;
-  }[];
-  const held = new Map<string, number>();
-  for (const r of rows) {
-    if (r.id === opts.except || r.start_hour === null) continue;
-    for (const h of await bookingHours({ courtId: r.court_id, startHour: Number(r.start_hour), endHour: Number(r.end_hour) }))
-      held.set(`${r.court_id}:${h}`, (held.get(`${r.court_id}:${h}`) ?? 0) + 1);
-  }
-  return held;
 }
 
 /** Class places held by live waiting-list offers, other than `except`. */
@@ -324,16 +285,16 @@ async function classOfferHolds(classId: number, except?: number): Promise<number
   return Number(r.n);
 }
 
-/** The trading hours and slot length of the venue a court belongs to. */
+/** The trading hours of the venue a court belongs to. */
 export async function courtVenueHours(
   courtId: number,
   /** The hours on this date, where the weekday has its own; the usual hours without one. */
   date?: string
-): Promise<{ openHour: number; closeHour: number; zone: string }> {
+): Promise<VenueHours> {
   const row = await getDb()
     .prepare(`
-      SELECT v.id AS id, v.open_hour AS open_hour, v.close_hour AS close_hour, v.week_hours AS week_hours,
-             v.slot_minutes AS slot_minutes, v.time_zone AS time_zone, v.lat AS lat, v.lng AS lng
+      SELECT v.id AS id, v.open_min AS open_min, v.close_min AS close_min, v.week_hours AS week_hours,
+             v.time_zone AS time_zone, v.lat AS lat, v.lng AS lng
       FROM courts c JOIN venues v ON v.id = c.venue_id WHERE c.id = ?
     `)
     .get(courtId) as (HoursRow & { id: number }) | undefined;
@@ -415,36 +376,17 @@ export async function reopenVenueDay(venueId: number, date: string): Promise<{ o
   return { ok: info.changes > 0 };
 }
 
-/** Dates a venue is shut inside a range, as a set for bulk checks. */
-async function closedDatesIn(venueIds: number[], from: string, to: string): Promise<Set<string>> {
-  if (venueIds.length === 0) return new Set();
-  const list = venueIds.map(() => "?").join(",");
-  const rows = await getDb()
-    .prepare(
-      `SELECT venue_id, date FROM venue_closures
-       WHERE venue_id IN (${list}) AND date >= ? AND date <= ?`
-    )
-    .all(...venueIds, from, to) as { venue_id: number; date: string }[];
-  const closed = new Set(rows.map((r) => `${r.venue_id}:${r.date}`));
-  // And the weekdays each never opens on.
-  const weeks = (await getDb()
-    .prepare(`SELECT id, week_hours FROM venues WHERE id IN (${list}) AND week_hours IS NOT NULL`)
-    .all(...venueIds)) as { id: number; week_hours: string }[];
-  for (const w of weeks) {
-    const week = parseWeekHours(w.week_hours);
-    if (!week) continue;
-    for (let d = from; d <= to; d = addDays(d, 1)) if (week[dayOfWeek(d)] === "closed") closed.add(`${w.id}:${d}`);
-  }
-  return closed;
-}
-
 interface BookingRow {
   id: number;
   code: string;
   court_id: number;
   date: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
+  starts_at?: Date | string | null;
+  ends_at?: Date | string | null;
+  fee_amount?: number | string;
+  policy_override?: boolean;
   name: string;
   phone: string;
   email: string | null;
@@ -493,8 +435,6 @@ function toCourt(r: CourtRow): Court {
     aircon: r.aircon === 1,
     floodlit: r.floodlit === 1,
     surface: r.surface ?? null,
-    minHours: r.min_hours == null ? null : Number(r.min_hours),
-    maxHours: r.max_hours == null ? null : Number(r.max_hours),
     perPlayer: r.per_player === 1,
     maxPlayers: r.max_players ?? null,
   };
@@ -506,8 +446,14 @@ function toBooking(r: BookingRow): Booking {
     code: r.code,
     courtId: r.court_id,
     date: r.date,
-    startHour: r.start_hour,
-    endHour: r.end_hour,
+    startMin: r.start_min,
+    endMin: r.end_min,
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
+    ...(r.starts_at ? { startsAt: new Date(r.starts_at).toISOString() } : {}),
+    ...(r.ends_at ? { endsAt: new Date(r.ends_at).toISOString() } : {}),
+    feeAmount: Number(r.fee_amount ?? 0),
+    policyOverride: r.policy_override === true,
     name: r.name,
     phone: r.phone,
     email: r.email,
@@ -578,28 +524,148 @@ export async function getCourt(id: number): Promise<Court | null> {
   return row ? toCourt(row) : null;
 }
 
-/**
- * Courts at a venue that could take this whole booking, cheapest first.
- * Price is peak-aware, so the order can differ between a morning and an
- * evening slot on the same courts.
- */
 /** Errors that mean "that court went", rather than something structural. */
 const TAKEN_ERROR = /just booked|filling up very quickly|filled up|already taken/i;
 
-export async function courtsForAnyBooking(input: {
-  venueId: number;
-  sport: Sport;
-  date: string;
-  hours: number[];
-}): Promise<Court[]> {
-  const { venueId, sport, date } = input;
-  // Asked for in what the sport is sold by; checked in the diary's half hours.
-  const asked = [...new Set(input.hours)].sort((a, b) => a - b);
-  if (asked.length === 0) return [];
-  const unit = await sellUnit(venueId, sport);
-  if (!asked.every((h) => onSlot(h, unit))) return [];
-  const hours = expandSlots(asked, unit);
+/**
+ * A booking's time as a request gives it: exact minutes of the day (`start`
+ * and `end`, or `start` and `minutes`), or, as the public API and older
+ * screens do, `hours`: the starts of the booking board's columns, end to end
+ * ([9, 10] is 9:00–11:00 on a board of hours, [9.5, 10, 10.5] 9:30–11:00 on
+ * one of half hours).
+ */
+export interface WhenInput {
+  start?: number;
+  end?: number;
+  minutes?: number;
+  hours?: number[];
+}
 
+/** The span a request asks for on a court with this policy. */
+export function spanFor(when: WhenInput, policy: BookingPolicy): { ok: true; span: Span } | Refusal {
+  if (when.start !== undefined) {
+    const end = when.end ?? (when.minutes !== undefined ? when.start + when.minutes : undefined);
+    if (!isMinute(when.start) || !isMinute(end) || end <= when.start) return refuse("NO_HOURS");
+    return { ok: true, span: { start: when.start, end } };
+  }
+  const starts = [...new Set((when.hours ?? []).filter((h) => typeof h === "number" && Number.isFinite(h)).map(minutesOf))].sort((a, b) => a - b);
+  if (starts.length === 0 || !starts.every(isMinute)) return refuse("NO_HOURS");
+  const column = gridMinutes(policy);
+  if (!starts.every((m, i) => i === 0 || m - starts[i - 1] === column)) return refuse("HOURS_NOT_CONSECUTIVE");
+  return { ok: true, span: { start: starts[0], end: starts[starts.length - 1] + column } };
+}
+
+/** A court's booking policy, as everything in it resolves (lib/booking-policy.ts). */
+export async function policyForCourt(courtId: number): Promise<BookingPolicy | null> {
+  const court = await getCourt(courtId);
+  return court ? policyFor(court) : null;
+}
+
+/** What a customer may pick on a sport's courts at a venue, by default (a court may have its own). */
+export async function policyForSport(venueId: number, sport: Sport): Promise<CourtAvailability["policy"]> {
+  return publicPolicy(await sportPolicyAt(venueId, sport));
+}
+
+/**
+ * The span a request asks for, on a named court or on any court of a sport
+ * at a venue: the older `hours` form is read on that policy's grid. Says
+ * nothing of whether it may be booked.
+ */
+export async function requestedSpan(
+  where: { courtId: number } | { venueId: number; sport: Sport },
+  when: WhenInput
+): Promise<{ ok: true; span: Span } | Refusal> {
+  if ("courtId" in where) {
+    const court = await getCourt(where.courtId);
+    if (!court) return refuse("COURT_NOT_FOUND");
+    return spanFor(when, await policyFor(court));
+  }
+  return spanFor(when, await sportPolicyAt(where.venueId, where.sport));
+}
+
+/** A court's rules and hours on a date: everything a booking of it is checked against, short of what holds it. */
+export interface CourtDay {
+  court: Court;
+  policy: BookingPolicy;
+  /** Its hours that day: the court's own (policy), else the venue's. */
+  openMin: number;
+  closeMin: number;
+  /** Shut all day: a closure, or a weekday it never opens. */
+  closed: boolean;
+  zone: string;
+}
+
+async function courtDays(courts: Court[], date: string): Promise<Map<number, CourtDay>> {
+  const out = new Map<number, CourtDay>();
+  if (courts.length === 0) return out;
+  const venueIds = [...new Set(courts.map((c) => c.venueId))];
+  const db = getDb();
+  const rows = (await db
+    .prepare(`SELECT id, open_min, close_min, week_hours, time_zone, lat, lng FROM venues WHERE id IN (${venueIds.map(() => "?").join(",")})`)
+    .all(...venueIds)) as (HoursRow & { id: number })[];
+  const shut = (await db
+    .prepare(`SELECT venue_id FROM venue_closures WHERE date = ? AND venue_id IN (${venueIds.map(() => "?").join(",")})`)
+    .all(date, ...venueIds)) as { venue_id: number }[];
+  const policies = await policiesFor(courts);
+  for (const court of courts) {
+    const v = rows.find((r) => r.id === court.venueId);
+    const venue = { openMin: v?.open_min ?? DEFAULT_OPEN_HOUR * 60, closeMin: v?.close_min ?? DEFAULT_CLOSE_HOUR * 60, weekHours: parseWeekHours(v?.week_hours) };
+    const policy = policies.get(court.id)!;
+    const h = policyHoursOn(policy, venue, date);
+    const venueClosedWeekday = hoursOn(venue, date).closed;
+    out.set(court.id, {
+      court,
+      policy,
+      openMin: h.openMin,
+      closeMin: h.closeMin,
+      closed: h.closed || venueClosedWeekday || shut.some((c) => c.venue_id === court.venueId),
+      zone: venueZoneOf(v ?? {}),
+    });
+  }
+  return out;
+}
+
+export async function courtDay(court: Court, date: string): Promise<CourtDay> {
+  return (await courtDays([court], date)).get(court.id)!;
+}
+
+/** The days of several courts, by id, for modules that hold court ids (lib/coaching.ts). */
+export async function courtDaysFor(courtIds: number[], date: string): Promise<Map<number, CourtDay>> {
+  const courts = (await Promise.all(courtIds.map((id) => getCourt(id)))).filter((c): c is Court => c !== null);
+  return courtDays(courts, date);
+}
+
+/** Minutes from now until minute `minute` of `date` where the venue is (negative once begun). */
+function minutesUntil(date: string, minute: number, zone: string): number {
+  return (instantOf(date, minute, zone).getTime() - Date.now()) / 60_000;
+}
+
+/** Why a court cannot take a booking of `span`: what is in the way, said as the customer is told. */
+function whyTaken(
+  occupants: Occupant[],
+  court: Court,
+  span: Span,
+  buffers: { before: number; after: number },
+  ignore?: (o: Occupant) => boolean
+): { why: "class"; name: string; classId: number } | { why: "blocked" | "full" } | null {
+  const occupied = { start: span.start - buffers.before, end: span.end + buffers.after };
+  const inWay = occupants.filter((o) => !ignore?.(o) && overlaps(o.occupied, occupied));
+  if (peakPlaces(inWay, occupied) + 1 <= court.capacity) return null;
+  const session = inWay.find((o) => o.kind === "class");
+  if (session) return { why: "class", name: "", classId: session.classId! };
+  const blocks = inWay.filter((o) => o.kind === "block" || o.kind === "outage");
+  const booked = inWay.filter((o) => o.kind !== "block" && o.kind !== "outage");
+  return { why: blocks.length > 0 && peakPlaces(booked, occupied) < court.capacity ? "blocked" : "full" };
+}
+
+/**
+ * Courts at a venue that could take this whole booking, cheapest first.
+ * Price is peak-aware, so the order can differ between a morning and an
+ * evening booking on the same courts. Each court's own policy decides whether
+ * it may be booked for that time at all.
+ */
+export async function courtsForAnyBooking(input: { venueId: number; sport: Sport; date: string } & WhenInput): Promise<Court[]> {
+  const { venueId, sport, date } = input;
   const db = getDb();
   const courts = (
     await db
@@ -607,28 +673,22 @@ export async function courtsForAnyBooking(input: {
       .all(venueId, sport) as CourtRow[]
   ).map(toCourt);
   if (courts.length === 0) return [];
-
-  const classHours = await classHoursOn(date, venueId);
-  const taken = await countTakenPlaces(date, venueId);
-  const blocked = await blockedPlacesOn(date, venueId);
-  const { zone } = await venueHours(venueId);
-
-  const free = courts.filter((court) =>
-    hours.every((hour) => {
-      const key = `${court.id}:${hour}`;
-      return (
-        (taken.get(key) ?? 0) + (blocked.get(key) ?? 0) < court.capacity &&
-        !classHours.has(key) &&
-        !isPastSlot(date, hour, zone)
-      );
-    })
-  );
-
+  const days = await courtDays(courts, date);
+  const zone = days.get(courts[0].id)!.zone;
+  const held = await occupantsOn(courts, date, zone);
   const rules = await peakRules(venueId);
-  return free.sort((a, b) => {
-    const diff = computePrice(a, date, hours, false, rules, Date.now()) - computePrice(b, date, hours, false, rules, Date.now());
-    return diff !== 0 ? diff : a.id - b.id;
-  });
+  const priced: { court: Court; price: number }[] = [];
+  for (const court of courts) {
+    const day = days.get(court.id)!;
+    const asked = spanFor(input, day.policy);
+    if (!asked.ok || day.closed) continue;
+    const span = asked.span;
+    if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, zone)).length > 0) continue;
+    if (minutesUntil(date, span.start, zone) <= 0) continue;
+    if (!fits(held.get(court.id)!, court.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter })) continue;
+    priced.push({ court, price: priceBooking({ court, date, span, rules, pricing: day.policy.pricing, at: Date.now() }).total });
+  }
+  return priced.sort((a, b) => a.price - b.price || a.court.id - b.court.id).map((p) => p.court);
 }
 
 /**
@@ -644,7 +704,6 @@ export async function createBookingOnAnyCourt(input: {
   venueId: number;
   sport: Sport;
   date: string;
-  hours: number[];
   weeks?: number;
   skipConflicts?: boolean;
   name: string;
@@ -652,14 +711,14 @@ export async function createBookingOnAnyCourt(input: {
   email?: string;
   userId?: number;
   players?: number;
-}): Promise<CreateSeriesResult> {
-  const { venueId, sport, date, hours, ...rest } = input;
+} & WhenInput): Promise<CreateSeriesResult> {
+  const { venueId, sport, date, ...rest } = input;
 
   const venue = await getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId);
   if (!venue) return refuse("VENUE_NOT_FOUND");
   if (!SPORTS.includes(sport)) return refuse("UNKNOWN_SPORT");
 
-  const candidates = await courtsForAnyBooking({ venueId, sport, date, hours });
+  const candidates = await courtsForAnyBooking(input);
   if (candidates.length === 0) {
     // Fall through to the single-court path on any court of that sport, so the
     // customer gets the real reason (closed day, outside hours, past slot)
@@ -671,7 +730,7 @@ export async function createBookingOnAnyCourt(input: {
     ).map(toCourt)[0];
     if (!anyCourt)
       return refuse("NO_SPORT_AT_VENUE", { sport: SPORT_LABELS[sport] });
-    const probe = await createBookingSeries({ ...rest, courtId: anyCourt.id, date, hours, weeks: input.weeks ?? 1 });
+    const probe = await createBookingSeries({ ...rest, courtId: anyCourt.id, date, weeks: input.weeks ?? 1 });
     if (probe.ok) return probe; // it came free between the two reads
     // A "someone took it" error from the probe is about that one court, and
     // the customer never chose it. Say what is actually true of all of them.
@@ -686,16 +745,15 @@ export async function createBookingOnAnyCourt(input: {
       ...rest,
       courtId: court.id,
       date,
-      hours,
       weeks: input.weeks ?? 1,
     });
     if (result.ok) return result;
     lastError = result.error;
     // Anything that is not "someone took it" applies to every court equally,
     // so there is no point walking the rest of the list; bar a court's own
-    // booking length, which the next court may not share.
+    // rules, which the next court may not share.
     const code = (result as { code?: string }).code;
-    if (!TAKEN_ERROR.test(result.error) && code !== "MIN_HOURS" && code !== "MAX_HOURS") return result;
+    if (!TAKEN_ERROR.test(result.error) && code !== "POLICY") return result;
   }
   return { ok: false, error: lastError };
 }
@@ -710,13 +768,12 @@ export async function createBookingOnAnyCourt(input: {
 export async function createGroupBooking(input: {
   courtIds: number[];
   date: string;
-  hours: number[];
   name: string;
   phone: string;
   email?: string;
   userId?: number;
   players?: number;
-}): Promise<CreateSeriesResult> {
+} & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
   const courts = await Promise.all(courtIds.map((id) => getCourt(id)));
@@ -758,12 +815,6 @@ export async function createGroupBooking(input: {
  * venue's rows for the date, so the venue page slowed down with each venue
  * added to the platform.
  */
-/** ` AND <column> IN (these courts)`, or nothing when no list is given. */
-function onlyCourts(column: string, courtIds?: number[]): { sql: string; params: number[] } {
-  if (courtIds === undefined) return { sql: "", params: [] };
-  return { sql: ` AND ${column} IN (${courtIds.map(() => "?").join(",") || "NULL"})`, params: courtIds };
-}
-
 function venueCourts(column: string, venueId?: number | number[] | null): { sql: string; params: number[] } {
   if (venueId == null) return { sql: "", params: [] };
   // Several venues: a business's branches.
@@ -778,76 +829,66 @@ function venueCourts(column: string, venueId?: number | number[] | null): { sql:
 }
 
 /**
- * `courtId:hour` -> how many places are out of service on a date.
- *
- * A NULL `places` means the whole resource, so it resolves to that court's
- * capacity here. That keeps a capacity-1 court behaving exactly as before: one
- * place blocked out of one is the court closed.
+ * What a customer may pick on a court, without its buffers (customers are
+ * not told about them; they only find the time unavailable).
  */
-async function blockedPlacesOn(
-  date: string,
-  venueId?: number,
-  courtIds?: number[]
-): Promise<Map<string, number>> {
-  const venue = venueCourts("b.court_id", venueId);
-  const courts = onlyCourts("b.court_id", courtIds);
-  const rows = await getDb()
-    .prepare(`
-      SELECT b.court_id AS court_id, b.hour AS hour,
-             COALESCE(b.places, c.capacity) AS places
-      FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
-      WHERE true${venue.sql}${courts.sql}
-    `)
-    .all(date, date, ...venue.params, ...courts.params) as {
-    court_id: number;
-    hour: number;
-    places: number;
-  }[];
-  return new Map(rows.map((r) => [`${r.court_id}:${r.hour}`, r.places]));
-}
-
-/** Places out of service on one court-hour. */
-async function blockedPlacesFor(courtId: number, date: string, hours: number[]): Promise<Map<number, number>> {
-  if (hours.length === 0) return new Map();
-  const list = hours.map(() => "?").join(",");
-  const rows = await getDb()
-    .prepare(`
-      SELECT b.hour AS hour, COALESCE(b.places, c.capacity) AS places
-      FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id = ? AND b.hour IN (${list})
-    `)
-    .all(date, date, courtId, ...hours) as { hour: number; places: number }[];
-  return new Map(rows.map((r) => [r.hour, r.places]));
+function publicPolicy(p: BookingPolicy): CourtAvailability["policy"] {
+  return {
+    startEvery: p.startEvery,
+    startOffset: p.startOffset,
+    startTimes: p.startTimes,
+    lengthStep: p.lengthStep,
+    minLength: p.minLength,
+    maxLength: p.maxLength,
+    lengths: p.lengths,
+    defaultLength: p.defaultLength,
+    noticeMinutes: p.noticeMinutes,
+  };
 }
 
 /**
- * Why a court cannot take one more at these hours, read inside the caller's
- * transaction so a block, class or offer made at the same moment is seen (or
- * makes one of the two run again): a class on it, the hour blocked off, or
- * every place booked, blocked or held for somebody on the waiting list. Null
- * when there is room. The caller's own places are already freed.
+ * Where a booking may start on a court, and the longest it may run from
+ * each: the policy's starts, within the court's hours, not past, with the
+ * notice the policy asks, and free of every claim with the court's buffers.
  */
-async function noRoomAt(
-  court: { id: number; venueId: number; capacity: number },
-  date: string,
-  hours: number[]
-): Promise<{ why: "class"; name: string } | { why: "blocked" | "full"; hour: number } | null> {
-  const classes = await classHoursOn(date, court.venueId, [court.id]);
-  for (const hour of hours) {
-    const session = classes.get(`${court.id}:${hour}`);
-    if (session) return { why: "class", name: session.name };
+export function startOptions(day: CourtDay, occupants: Occupant[], date: string, ignore?: (o: Occupant) => boolean): StartOption[] {
+  if (day.closed) return [];
+  const { policy, court } = day;
+  const out: StartOption[] = [];
+  const buffers = { before: policy.bufferBefore, after: policy.bufferAfter };
+  const lengths = policy.lengths ?? null;
+  for (const start of startsWithin(policy, day.openMin, day.closeMin)) {
+    const ahead = minutesUntil(date, start, day.zone);
+    if (ahead <= 0 || ahead < policy.noticeMinutes) continue;
+    let longest = 0;
+    const candidates = lengths ?? lengthsBetween(policy);
+    for (const length of candidates) {
+      if (start + length > day.closeMin) break;
+      if (!fits(occupants, court.capacity, { start, end: start + length }, buffers, ignore)) {
+        // Fixed lengths need not fit in order, but anything longer than one that does not fit will not either.
+        break;
+      }
+      longest = length;
+    }
+    if (longest > 0) out.push({ minute: start, maxLength: longest });
   }
-  const blocked = await blockedPlacesFor(court.id, date, hours);
-  const taken = await countTakenPlaces(date, undefined, [court.id]);
-  for (const hour of hours) {
-    const out = blocked.get(hour) ?? 0;
-    const used = taken.get(`${court.id}:${hour}`) ?? 0;
-    if (used + out >= court.capacity) return { why: out > 0 && used < court.capacity ? "blocked" : "full", hour };
-  }
-  return null;
+  return out;
 }
 
-/** Availability grid for every court of a venue (optionally one sport) on a date. */
+/** The lengths a policy allows, shortest first. */
+function lengthsBetween(policy: BookingPolicy): number[] {
+  const out: number[] = [];
+  const first = Math.ceil(policy.minLength / policy.lengthStep) * policy.lengthStep;
+  for (let l = first; l <= policy.maxLength; l += policy.lengthStep) out.push(l);
+  return out;
+}
+
+/**
+ * The booking board for every court of a venue (optionally one sport) on a
+ * date: columns of time as the court's policy draws them, each said to be
+ * free, partly held or held, and the starts a customer may pick. Held time
+ * includes buffers, without saying so.
+ */
 export async function getAvailability(
   venueId: number,
   date: string,
@@ -860,122 +901,81 @@ export async function getAvailability(
     await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
   if (sport) courts = courts.filter((c) => c.sport === sport);
-
-  // Booked, or offered to somebody on the waiting list.
-  const takenCounts = await countTakenPlaces(date, venueId);
-
-  const blockedPlaces = await blockedPlacesOn(date, venueId);
-  const classHours = await classHoursOn(date, venueId);
-  const { openHour, closeHour, zone } = await venueHours(venueId, date);
-  // A closed day reads like every hour is blocked, so nothing can be picked.
-  const closed = await getVenueClosure(venueId, date) !== null;
+  if (courts.length === 0) return [];
+  const days = await courtDays(courts, date);
+  const zone = days.get(courts[0].id)!.zone;
+  const held = await occupantsOn(courts, date, zone);
   const rules = await peakRules(venueId);
-  const units = await sellUnits(venueId);
+  const classNames = await classNamesFor([...held.values()].flat().map((o) => o.classId).filter((id): id is number => id !== null));
+  const now = Date.now();
+  // One set of columns for every court shown, so they line up: as fine as
+  // the finest court's policy draws, from the earliest opening to the latest
+  // close. A court's own hours, outside those, are cells it is shut.
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const open = [...days.values()].filter((d) => !d.closed);
+  const grid = Math.max(15, [...days.values()].map((d) => gridMinutes(d.policy)).reduce(gcd));
+  const from = open.length > 0 ? Math.min(...open.map((d) => d.openMin)) : Math.min(...[...days.values()].map((d) => d.openMin));
+  const to = open.length > 0 ? Math.max(...open.map((d) => d.closeMin)) : Math.max(...[...days.values()].map((d) => d.closeMin));
 
   return courts.map((court) => {
-    const unit = units[court.sport];
+    const day = days.get(court.id)!;
+    const occupants = held.get(court.id)!;
+    const own = forSport(rules, court.sport);
+    // The rate of a column of time, without fixed prices or minimum charges, which belong to whole bookings.
+    const timeOnly = { ...day.policy.pricing, fixedPrices: null, minCharge: null, minBilled: null, billStep: null, setupFee: 0, cleanupFee: 0 };
+    const slots: SlotInfo[] = [];
+    for (let minute = from; minute < to; minute += grid) {
+      const cell = { start: minute, end: Math.min(minute + grid, to) };
+      if (cell.start < day.openMin || cell.end > day.closeMin) {
+        slots.push({ minute, hour: hoursOf(minute), rate: 0, booked: 0, capacity: court.capacity, available: false, outside: true });
+        continue;
+      }
+      const inCell = occupants.filter((o) => overlaps(o.occupied, cell));
+      const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer"), cell);
+      const out = peakPlaces(inCell.filter((o) => o.kind === "block" || o.kind === "outage"), cell);
+      const load = peakPlaces(inCell, cell);
+      const session = inCell.find((o) => o.kind === "class" && overlaps(o.span, cell));
+      const full = day.closed || load >= court.capacity;
+      // Held for some of it, not all: a booking from 18:07, or a buffer.
+      const partly = !full && court.capacity === 1 && inCell.length > 0;
+      const past = minutesUntil(date, minute, zone) <= 0;
+      const lastMinute = full || session ? 0 : lastMinuteOffAt(date, minute, own, now);
+      slots.push({
+        minute,
+        hour: hoursOf(minute),
+        rate: priceBooking({ court, date, span: cell, member, rules, pricing: timeOnly, at: now }).court,
+        ...(lastMinute > 0 ? { lastMinute } : {}),
+        ...(isPeakMinute(date, minute, own) ? { peak: true } : {}),
+        booked,
+        capacity: court.capacity,
+        // A class owns the time: enrolling is the only way in.
+        available: !full && !partly && !session && !past,
+        ...(partly ? { partly: true } : {}),
+        ...(session ? { className: classNames.get(session.classId!) ?? "", classId: session.classId! } : {}),
+        // Only meaningful while places remain; `blocked` covers the rest.
+        ...(out > 0 && !full ? { blockedPlaces: out } : {}),
+        ...(day.closed || (out > 0 && full) ? { blocked: true } : {}),
+      });
+    }
     return {
       court,
-      unit,
-      // One per slot the sport is sold by: each hour, or each half hour. Each
-      // is made of the diary's half hours, and is only as free as the fullest.
-      slots: slotsBetween(openHour, closeHour, unit).map((hour) => {
-        const halves = slotsBetween(hour, hour + unit, SLOT).map((h) => `${court.id}:${h}`);
-        const booked = Math.max(...halves.map((key) => takenCounts.get(key) ?? 0));
-        const out = Math.max(...halves.map((key) => blockedPlaces.get(key) ?? 0));
-        const session = halves.map((key) => classHours.get(key)).find(Boolean);
-        // A partial block shrinks the resource rather than closing it, so the
-        // hour stays bookable until the remaining places are gone.
-        const shut = closed || halves.some((key) => (takenCounts.get(key) ?? 0) + (blockedPlaces.get(key) ?? 0) >= court.capacity);
-        const own = forSport(rules, court.sport);
-        const lastMinute = shut || session ? 0 : lastMinuteOff(date, hour, own, Date.now());
-        return {
-          hour,
-          rate: computePrice(court, date, slotsBetween(hour, hour + unit, SLOT), member, rules, Date.now()),
-          ...(lastMinute > 0 ? { lastMinute } : {}),
-          ...(isPeak(date, hour, own) ? { peak: true } : {}),
-          booked,
-          capacity: court.capacity,
-          // A class owns the hour: enrolling is the only way in.
-          available: !shut && !session && !isPastSlot(date, hour, zone),
-          ...(session ? { className: session.name, classId: session.id } : {}),
-          // Only meaningful while places remain; `blocked` covers the rest.
-          ...(out > 0 && !shut ? { blockedPlaces: out } : {}),
-          ...(closed || (out > 0 && shut) ? { blocked: true } : {}),
-        };
-      }),
+      unit: grid / 60,
+      grid,
+      policy: publicPolicy(day.policy),
+      slots,
+      starts: startOptions(day, occupants, date),
     };
   });
 }
 
-/** `courtId:hour` -> the class holding it, for a date (optionally one venue). */
-async function classHoursOn(
-  date: string,
-  venueId?: number,
-  courtIds?: number[]
-): Promise<Map<string, { id: number; name: string }>> {
-  const venue = venueCourts("court_id", venueId);
-  const courts = onlyCourts("court_id", courtIds);
-  const rows = await getDb()
-    .prepare(`
-      SELECT id, court_id, name, start_hour, end_hour FROM classes
-      WHERE date = ? AND status = 'scheduled'${venue.sql}${courts.sql}
-    `)
-    .all(date, ...venue.params, ...courts.params) as {
-    id: number;
-    court_id: number;
-    name: string;
-    start_hour: number;
-    end_hour: number;
-  }[];
-
-  // By the half hour, whichever way the venue sells: a lookup by the hour
-  // finds its hour, and one by the half hour finds both halves.
-  const map = new Map<string, { id: number; name: string }>();
-  // A class on a linked court holds the courts it shares the floor with too (lib/court-links.ts).
-  const links = rows.length
-    ? ((await getDb()
-        .prepare(
-          `SELECT whole_id AS court_id, part_id AS other FROM court_links WHERE whole_id IN (${rows.map(() => "?").join(",")})
-           UNION ALL SELECT part_id, whole_id FROM court_links WHERE part_id IN (${rows.map(() => "?").join(",")})`
-        )
-        .all(...rows.map((r) => r.court_id), ...rows.map((r) => r.court_id))) as { court_id: number; other: number }[])
-    : [];
-  for (const row of rows) {
-    const courts = [row.court_id, ...links.filter((l) => l.court_id === row.court_id).map((l) => l.other)];
-    for (const hour of slotsBetween(row.start_hour, row.end_hour, 0.5)) {
-      for (const court of courts) {
-        const key = `${court}:${hour}`;
-        if (court === row.court_id || !map.has(key)) map.set(key, { id: row.id, name: row.name });
-      }
-    }
-  }
-  return map;
-}
-
-/**
- * Places taken per `courtId:hour` on a date, for one venue, some courts, or
- * all: booked, or held for somebody on the waiting list by a live offer (it
- * is theirs until it is claimed or runs out). Every path that shows or picks
- * a free court counts through here, so they agree.
- */
-async function countTakenPlaces(date: string, venueId?: number, courtIds?: number[]): Promise<Map<string, number>> {
-  const venue = venueCourts("court_id", venueId);
-  const only = courtIds ? ` AND court_id IN (${courtIds.length ? courtIds.map(() => "?").join(",") : "NULL"})` : "";
-  const rows = await getDb()
-    .prepare(`
-      SELECT court_id, hour, COUNT(*) AS n FROM booking_slots
-      WHERE date = ?${venue.sql}${only}
-      GROUP BY court_id, hour
-    `)
-    .all(date, ...venue.params, ...(courtIds ?? [])) as {
-    court_id: number;
-    hour: number;
-    n: number;
-  }[];
-  const taken = new Map(rows.map((r) => [`${r.court_id}:${r.hour}`, Number(r.n)]));
-  for (const [key, n] of await offerHolds(date, { venueId, courtIds })) taken.set(key, (taken.get(key) ?? 0) + n);
-  return taken;
+/** Class names by id, for showing who holds a court. */
+async function classNamesFor(ids: number[]): Promise<Map<number, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = (await getDb()
+    .prepare(`SELECT id, name FROM classes WHERE id IN (${unique.map(() => "?").join(",")})`)
+    .all(...unique)) as { id: number; name: string }[];
+  return new Map(rows.map((r) => [r.id, r.name]));
 }
 
 export interface SearchResult {
@@ -984,6 +984,9 @@ export interface SearchResult {
   distanceKm?: number;
   /** The cheapest court free at this venue for this time. */
   court: Court;
+  /** Minutes of the day it starts and ends, and the same in hours. */
+  startMin: number;
+  endMin: number;
   startHour: number;
   endHour: number;
   totalPrice: number;
@@ -996,9 +999,14 @@ export interface SearchResult {
 export interface SearchInput {
   sport: Sport;
   date: string;
+  /** The earliest and latest start wanted, in hours (18.5) or minutes (`fromMin`, `toMin`). */
   fromHour?: number;
   toHour?: number;
+  fromMin?: number;
+  toMin?: number;
+  /** How long, in hours (1.25) or minutes (`minutes`). */
   duration?: number;
+  minutes?: number;
   area?: string;
   limit?: number;
   /** Only these venues — a storefront's. Undefined for every venue. */
@@ -1262,20 +1270,19 @@ export async function listAreas(venueIds?: number[]): Promise<string[]> {
 }
 
 /**
- * Find every court across all venues with `duration` consecutive free hours
- * starting inside [fromHour, toHour] on `date`. One result per viable start
- * time, cheapest-first within the same start hour.
+ * Find every court across all venues free for the length asked (`minutes`,
+ * or `duration` in hours) from a start its booking policy allows inside the
+ * window asked on `date`. One result per venue and start time, cheapest
+ * first within it.
  */
 export async function searchAvailability(input: SearchInput): Promise<SearchResult[]> {
   const db = getDb();
-  // As long as any court may be booked; each court's own limits are applied below.
-  // In half hours: an hour and a half is found only where a venue sells halves.
-  const duration = Math.min(Math.max(Math.round((input.duration ?? 1) * 2) / 2, 1), MAX_COURT_HOURS);
-  // The window of start hours asked for, clamped per venue below to that
-  // venue's own trading hours.
-  const wantFrom = Math.max(input.fromHour ?? OPEN_HOUR, OPEN_HOUR);
+  // As long as any court may be booked; each court's own policy is applied below.
+  const length = Math.min(Math.max(input.minutes ?? minutesOf(input.duration ?? 1), 1), MAX_COURT_HOURS * 60);
+  // The window of starts asked for, clamped per court below to its own hours.
+  const wantFrom = Math.max(input.fromMin ?? (input.fromHour === undefined ? 0 : minutesOf(input.fromHour)), 0);
   // Past midnight too, for a venue open late, unless a time of day was asked for.
-  const wantTo = Math.min(input.toHour ?? LATEST_CLOSE_HOUR, LATEST_CLOSE_HOUR);
+  const wantTo = Math.min(input.toMin ?? (input.toHour === undefined ? LATEST_MINUTE : minutesOf(input.toHour)), LATEST_MINUTE);
   const limit = Math.min(Math.max(input.limit ?? 60, 1), 200);
   if (wantFrom > wantTo) return [];
 
@@ -1284,13 +1291,12 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     SELECT c.*, v.id AS v_id, v.name AS v_name, v.area AS v_area,
            v.address AS v_address, v.phone AS v_phone,
            v.cancel_cutoff_hours AS v_cutoff,
-           v.open_hour AS v_open, v.close_hour AS v_close, v.week_hours AS v_week_hours, v.slot_minutes AS v_slot_minutes, v.time_zone AS v_time_zone,
+           v.open_min AS v_open, v.close_min AS v_close, v.week_hours AS v_week_hours, v.time_zone AS v_time_zone,
            v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
-           v.access AS v_access, v.book_ahead_days AS v_ahead, r.slot_minutes AS r_slot_minutes
+           v.access AS v_access, v.book_ahead_days AS v_ahead
     FROM courts c JOIN venues v ON v.id = c.venue_id
-    LEFT JOIN sport_rules r ON r.venue_id = v.id AND r.sport = c.sport
     WHERE c.sport = ? AND ${listRule(input.venueIds)}
   `;
   if (input.area) {
@@ -1323,7 +1329,6 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_open: number;
     v_close: number;
     v_week_hours: string | null;
-    v_slot_minutes: number;
     v_time_zone: string | null;
     v_staffed_from: number | null;
     v_staffed_to: number | null;
@@ -1335,43 +1340,30 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_amenities: string[] | null;
     v_access: "public" | "members" | "private";
     v_ahead: number | null;
-    r_slot_minutes: number | null;
   })[];
-  // What the sport is sold by at each venue (unitFor).
-  const unitOf = (row: (typeof rows)[number]) => unitFor(input.sport, row.v_slot_minutes, row.r_slot_minutes);
-  // Not a court that will not take a booking that long, or that short, or
-  // that cannot be made of what its sport is sold by there (90 minutes by the hour).
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const unit = unitOf(rows[i]);
-    const lengths = bookingLengths(toCourt(rows[i]), unit);
-    if (duration < lengths.min || duration > lengths.max || !Number.isInteger(duration / unit)) rows.splice(i, 1);
-  }
   if (rows.length === 0) return [];
+  const zoneOfRow = (row: (typeof rows)[number]) => venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng });
+  const allCourts = rows.map(toCourt);
+  // Not a court whose policy will not take a booking that long.
+  const days = await courtDays(allCourts, input.date);
+  const candidates = rows.filter((row) => lengthAllowed(days.get(row.id)!.policy, length) && !days.get(row.id)!.closed);
+  if (candidates.length === 0) return [];
+  const zones = new Map(candidates.map((row) => [row.v_id, zoneOfRow(row)]));
+  const held = await occupantsOn(candidates.map(toCourt), input.date, (venueId) => zones.get(venueId)!);
+  const rulesOf = await peakRulesFor(candidates.map((r) => r.v_id));
+  // Search offers starts at least an hour apart (half an hour for a 90-minute
+  // game, a quarter for 75), so a court bookable every five minutes does not
+  // fill the page; its board shows every start.
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const apart = gcd(length, 60) >= 15 ? gcd(length, 60) : 15;
 
-  // A venue shut for the day has nothing to offer, whatever its courts say.
-  const closedVenues = await closedDatesIn(
-    [...new Set(rows.map((r) => r.v_id))],
-    input.date,
-    input.date
-  );
-
-  const courtIds = rows.map((r) => r.id);
-  // Booked, or offered to somebody on the waiting list.
-  const takenCounts = await countTakenPlaces(input.date, undefined, courtIds);
-  // Only for the courts being searched, not every court in the country.
-  const blockedPlaces = await blockedPlacesOn(input.date, undefined, courtIds);
-  const classHours = await classHoursOn(input.date, undefined, courtIds);
-
-  const rulesOf = await peakRulesFor(rows.map((r) => r.v_id));
   const results: SearchResult[] = [];
-  for (const row of rows) {
-    if (closedVenues.has(`${row.v_id}:${input.date}`)) continue;
+  for (const row of candidates) {
     // Only on a day the venue takes bookings for, by everybody: a member's longer window is on its own page.
-    const zone = venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng });
+    const zone = zones.get(row.v_id)!;
     if (!isBookableDate(input.date, zone, Math.min(row.v_ahead ?? MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS))) continue;
-    const court = toCourt(row);
-    // That day's hours, where its weekday has its own.
-    const dayHours = hoursOn({ openHour: row.v_open, closeHour: row.v_close, weekHours: parseWeekHours(row.v_week_hours) }, input.date);
+    const day = days.get(row.id)!;
+    const court = day.court;
     const venue: Venue = {
       id: row.v_id,
       name: row.v_name,
@@ -1379,10 +1371,11 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       address: row.v_address,
       phone: row.v_phone,
       cancelCutoffHours: row.v_cutoff,
-      openHour: dayHours.openHour,
-      closeHour: dayHours.closeHour,
-      slotMinutes: row.v_slot_minutes === 30 ? 30 : 60,
-      timeZone: venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng }),
+      openMin: day.openMin,
+      closeMin: day.closeMin,
+      openHour: hoursOf(day.openMin),
+      closeHour: hoursOf(day.closeMin),
+      timeZone: zone,
       staffedFrom: row.v_staffed_from,
       staffedTo: row.v_staffed_to,
       emergencyPhone: row.v_emergency_phone,
@@ -1403,30 +1396,25 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       distanceKm = Math.round(distanceM(input.near, { lat: row.v_lat!, lng: row.v_lng! }) / 100) / 10;
       if (distanceKm > input.near.km) continue;
     }
-    // A booking of `duration` hours must still finish by the venue's close.
-    const fromHour = Math.max(wantFrom, venue.openHour);
-    const lastStart = Math.min(wantTo, venue.closeHour - duration);
-    // Search offers whole-hour starts. A game that is not whole hours (padel's
-    // 90 minutes) is found on the half hour too, since back to back they start
-    // on both: 8:00, 9:30, 11:00. Each is checked in the diary's half hours.
-    const every = Number.isInteger(duration) ? 1 : unitOf(row);
-    for (let start = Math.ceil(fromHour / every) * every; start <= lastStart; start += every) {
-      const hours = slotsBetween(start, start + duration, SLOT);
-      const free = hours.every((h) => {
-        const key = `${court.id}:${h}`;
-        return (
-          (takenCounts.get(key) ?? 0) + (blockedPlaces.get(key) ?? 0) < court.capacity &&
-          !classHours.has(key) &&
-          !isPastSlot(input.date, h, venue.timeZone)
-        );
-      });
-      if (!free) continue;
+    const occupants = held.get(court.id)!;
+    const buffers = { before: day.policy.bufferBefore, after: day.policy.bufferAfter };
+    // A booking of `length` must still finish by the court's close.
+    let shownUpTo = -Infinity;
+    for (const start of startsWithin(day.policy, Math.max(wantFrom, day.openMin), Math.min(wantTo, day.closeMin - length) + 1)) {
+      if (start < shownUpTo + apart || start % apart !== 0) continue;
+      const ahead = minutesUntil(input.date, start, zone);
+      if (ahead <= 0 || ahead < day.policy.noticeMinutes) continue;
+      const span = { start, end: start + length };
+      if (!fits(occupants, court.capacity, span, buffers)) continue;
+      shownUpTo = start;
       results.push({
         venue,
         court,
-        startHour: start,
-        endHour: start + duration,
-        totalPrice: computePrice(court, input.date, hours, false, rulesOf.get(row.v_id), Date.now()),
+        startMin: start,
+        endMin: start + length,
+        startHour: hoursOf(start),
+        endHour: hoursOf(start + length),
+        totalPrice: priceBooking({ court, date: input.date, span, rules: rulesOf.get(row.v_id), pricing: day.policy.pricing, at: Date.now() }).total,
         alsoFree: 0,
         pricesVary: false,
         ...(distanceKm !== undefined ? { distanceKm } : {}),
@@ -1436,7 +1424,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
 
   results.sort(
     (a, b) =>
-      a.startHour - b.startHour ||
+      a.startMin - b.startMin ||
       // Near somewhere, the nearest first at each time; otherwise the cheapest.
       (a.distanceKm ?? 0) - (b.distanceKm ?? 0) ||
       a.totalPrice - b.totalPrice ||
@@ -1451,7 +1439,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   const shown = new Map<string, SearchResult>();
   const fair: SearchResult[] = [];
   for (const r of results) {
-    const key = `${r.venue.id}:${r.startHour}`;
+    const key = `${r.venue.id}:${r.startMin}`;
     const first = shown.get(key);
     if (first) {
       first.alsoFree++;
@@ -1463,22 +1451,23 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   }
   // Ordered as asked only now, so each venue and time is still its cheapest court.
   if (input.sort === "nearest" && input.near)
-    fair.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id || a.startHour - b.startHour);
+    fair.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id || a.startMin - b.startMin);
   else if (input.sort === "cheapest")
-    fair.sort((a, b) => a.totalPrice - b.totalPrice || a.startHour - b.startHour || (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id);
+    fair.sort((a, b) => a.totalPrice - b.totalPrice || a.startMin - b.startMin || (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id);
   return fair.slice(0, limit);
 }
 
 /**
- * What a booking costs, given the diary's half hours it holds (SLOT: an hour
- * from 10 is [10, 10.5]). A member pays the court's member rate where it has
- * one; where it does not, they pay the public rate, so a venue can discount
- * only some of its courts.
+ * What court time from `span.start` to `span.end` costs at the court's
+ * rates, pro rata to the minute (lib/pricing.ts), with none of a policy's
+ * pricing rules. A member pays the court's member rate where it has one;
+ * where it does not, they pay the public rate, so a venue can discount only
+ * some of its courts.
  */
 export function computePrice(
   court: Court,
   date: string,
-  hours: number[],
+  span: Span,
   /**
    * A member pays the court's member rates; a number is a tier's own price
    * level, that percent of the public price (lib/membership-plans.ts).
@@ -1492,30 +1481,10 @@ export function computePrice(
    */
   at?: number
 ): number {
-  // The court's sport may have its own peak window here.
-  rules = forSport(rules, court.sport);
-  // Each slot is a half hour of the diary (SLOT), and costs half the hourly rate.
-  const share = SLOT;
-  // To the sen or cent: rates with cents add up with floating-point noise.
-  return roundMoney(
-    hours.reduce((sum, h) => {
-      const peak = isPeak(date, h, rules);
-      const off = at === undefined ? 1 : 1 - lastMinuteOff(date, h, rules, at) / 100;
-      if (typeof member === "number") return sum + ((peak ? court.peakRate : court.offPeakRate) * member / 100) * share * off;
-      if (member) {
-        const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
-        if (rate !== null) return sum + rate * share * off;
-      }
-      return sum + (peak ? court.peakRate : court.offPeakRate) * share * off;
-    }, 0)
-  );
+  return priceBooking({ court, date, span, member, rules, at }).court;
 }
 
-/**
- * How a number pays here on a date: not a member (false), a member at the
- * courts' member rates (true), or a tier's own share of the public price.
- */
-export type MemberPricing = boolean | number;
+export type { MemberPricing };
 
 export async function memberPricing(venueId: number, phone: string, date?: string): Promise<MemberPricing> {
   const m = await activeMembership(venueId, phone, date);
@@ -1523,23 +1492,52 @@ export async function memberPricing(venueId: number, phone: string, date?: strin
   return m.ratePercent ?? true;
 }
 
-/** What a booking of these hours costs: the court's price, times the players on a court priced per player. */
-export function courtPrice(
+/**
+ * The price of a booking of a court as its policy prices it: the time (or a
+ * fixed price), times the players on a court priced per player, at least the
+ * minimum charge, and setup and cleanup fees.
+ */
+export function quoteBooking(
   court: Court,
+  policy: BookingPolicy,
   date: string,
-  hours: number[],
+  span: Span,
   member: MemberPricing,
   rules: PeakRules,
   at: number | undefined,
   players = 1
-): number {
-  const price = computePrice(court, date, hours, member, rules, at);
-  return court.perPlayer ? roundMoney(price * players) : price;
+): Quote {
+  return priceBooking({ court, date, span, member, rules, pricing: policy.pricing, at, players });
 }
 
-/** Does this court charge members less, at any hour? */
-export function hasMemberRate(court: Court): boolean {
-  return court.memberOffPeakRate !== null || court.memberPeakRate !== null;
+export { hasMemberRate } from "./pricing";
+
+/**
+ * What a booking would cost, before it is made: the price as the booking
+ * would be priced now (member rates for a member's number, last-minute
+ * prices), with its lines, and whether the court's policy allows that time.
+ * Whether it is free is the booking's to find out.
+ */
+export async function quoteFor(input: {
+  courtId: number;
+  date: string;
+  phone?: string | null;
+  players?: number;
+} & WhenInput): Promise<{ ok: true; span: Span; quote: Quote; allowed: true } | { ok: true; span: Span; quote: Quote; allowed: false; refusal: Refusal } | Refusal> {
+  const court = await getCourt(input.courtId);
+  if (!court) return refuse("COURT_NOT_FOUND");
+  if (!isValidDateString(input.date)) return refuse("NO_HOURS");
+  const day = await courtDay(court, input.date);
+  const asked = spanFor(input, day.policy);
+  if (!asked.ok) return asked;
+  const span = asked.span;
+  const players = court.perPlayer ? (input.players ?? 1) : 1;
+  const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date) : false;
+  const quote = quoteBooking(court, day.policy, input.date, span, member, await peakRules(court.venueId), Date.now(), players);
+  const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
+  if (day.closed) return { ok: true, span, quote, allowed: false, refusal: refuse("VENUE_CLOSED") };
+  if (breaches.length > 0) return { ok: true, span, quote, allowed: false, refusal: breachRefusal(day.policy, span, breaches[0]) };
+  return { ok: true, span, quote, allowed: true };
 }
 
 function randomCode(prefix: string): string {
@@ -1566,49 +1564,83 @@ export interface SeriesSkip {
 }
 
 export type CreateSeriesResult =
-  | { ok: true; bookings: Booking[]; skipped: SeriesSkip[]; seriesCode: string | null }
+  | {
+      ok: true;
+      bookings: Booking[];
+      skipped: SeriesSkip[];
+      seriesCode: string | null;
+      /** The court's rules staff went past, to be recorded (lib/activity.ts). */
+      overrides?: PolicyBreach[];
+    }
   | Refusal;
 
-export async function createBooking(input: {
-  courtId: number;
-  date: string;
-  hours: number[];
-  name: string;
-  phone: string;
-  email?: string;
-  userId?: number;
-  players?: number;
-}): Promise<CreateBookingResult> {
+/** Who is booking, where staff book outside a court's policy. */
+export interface StaffOverride {
+  /** Go past the court's booking policy (starts, lengths, hours, notice, the booking window). Never past what is claimed. */
+  override: boolean;
+}
+
+export async function createBooking(
+  input: {
+    courtId: number;
+    date: string;
+    name: string;
+    phone: string;
+    email?: string;
+    userId?: number;
+    players?: number;
+    staff?: StaffOverride;
+  } & WhenInput
+): Promise<CreateBookingResult> {
   const result = await createBookingSeries({ ...input, weeks: 1 });
   if (!result.ok) return result;
   return { ok: true, booking: result.bookings[0] };
 }
 
+/** A broken rule said as the customer is told, under the code the page translates. */
+function breachRefusal(policy: BookingPolicy, span: Span, breach: PolicyBreach): Refusal {
+  const length = span.end - span.start;
+  if (breach === "LENGTH" && !policy.lengths && length > policy.maxLength) return refuse("MAX_HOURS", { max: hoursOf(policy.maxLength) });
+  if (breach === "LENGTH" && !policy.lengths && length < policy.minLength) return refuse("MIN_HOURS", { min: hoursOf(policy.minLength) });
+  if (breach === "HOURS") return refuse("HOURS_OUTSIDE_OPENING");
+  const code = ({ START: "POLICY_START", LENGTH: "POLICY_LENGTH", NOTICE: "POLICY_NOTICE" } as const)[breach];
+  return refuse(code, { rule: breachMessage(policy, breach) });
+}
+
 /**
- * Book the same court and hours weekly for `weeks` weeks. With
- * `skipConflicts`, weeks that clash with existing bookings or blocks are
- * skipped and reported; otherwise any clash fails the whole series.
+ * Book a court for a time, weekly for `weeks` weeks. With `skipConflicts`,
+ * weeks something else holds are skipped and reported; otherwise any clash
+ * fails the whole series.
+ *
+ * The court's booking policy says what may be asked for; the database says
+ * whether it is free. Each week's booking and its claims are written under
+ * a savepoint, and the claims' constraints refuse anything that overlaps
+ * what is there (lib/claims.ts), so the check that decides is the write
+ * itself, not a read before it.
  */
-export async function createBookingSeries(input: {
-  courtId: number;
-  date: string;
-  hours: number[];
-  weeks: number;
-  name: string;
-  phone: string;
-  email?: string;
-  userId?: number;
-  skipConflicts?: boolean;
-  /** Set when this booking is an enrolment, which may use the class's hours. */
-  classId?: number;
-  /** The waiting-list offer this booking claims: its own hold does not count against it. */
-  waitlistId?: number;
-  /** How many play, on a court priced per player. */
-  players?: number;
-}, attempt = 0): Promise<CreateSeriesResult> {
+export async function createBookingSeries(
+  input: {
+    courtId: number;
+    date: string;
+    weeks: number;
+    name: string;
+    phone: string;
+    email?: string;
+    userId?: number;
+    skipConflicts?: boolean;
+    /** Set when this booking is an enrolment: it holds a place in the class, which holds the court. */
+    classId?: number;
+    /** The waiting-list offer this booking claims: its own hold is let go for it. */
+    waitlistId?: number;
+    /** How many play, on a court priced per player. */
+    players?: number;
+    staff?: StaffOverride;
+  } & WhenInput,
+  attempt = 0
+): Promise<CreateSeriesResult> {
   const { courtId, date, weeks, name, phone, email, userId } = input;
-  input = { ...input, hours: [...new Set(input.hours)].sort((a, b) => a - b) };
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
+  const override = input.staff?.override === true;
 
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
@@ -1620,95 +1652,31 @@ export async function createBookingSeries(input: {
   const weeksAllowed = await seriesWeeks(court.venueId);
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > weeksAllowed)
     return refuse("WEEKS_RANGE", { max: weeksAllowed });
-  // Today, and what has passed, are the venue's.
-  const zone = await courtZone(courtId);
+  if (!isValidDateString(date)) return refuse("NO_HOURS");
+  const day = await courtDay(court, date);
+  const { policy, zone } = day;
   // As far ahead as the venue takes bookings at all; who may book how far is lib/house-rules.ts.
   // A class the venue has put in the diary can be joined whenever it is (a term runs past the window).
-  if (!input.classId && !isBookableDate(date, zone, await venueAheadDays(court.venueId)))
+  if (!input.classId && !override && !isBookableDate(date, zone, await venueAheadDays(court.venueId)))
     return refuse("DATE_OUT_OF_WINDOW_FIRST");
-  if (input.hours.length === 0) return refuse("NO_HOURS");
-  // What is asked for is in what the sport is sold by here: hours, or half
-  // hours. A class's own hours are taken as they are.
-  const { openHour, closeHour } = await courtVenueHours(courtId, date);
-  const unit = input.classId ? SLOT : await sellUnit(court.venueId, court.sport);
-  if (!input.hours.every((h) => onSlot(h, unit))) return refuse("NO_HOURS");
-  // How short and how long a booking of this court may be: its own, or one slot to four hours.
-  const lengths = bookingLengths(court, unit);
-  if (input.hours.length * unit > lengths.max && !input.classId)
-    return refuse("MAX_HOURS", { max: lengths.max });
-  if (input.hours.length * unit < lengths.min && !input.classId)
-    return refuse("MIN_HOURS", { min: lengths.min });
-  if (!consecutive(input.hours, unit))
-    return refuse("HOURS_NOT_CONSECUTIVE");
-  // From here on, the diary's half hours that covers.
-  const hours = expandSlots(input.hours, unit);
+  const asked = spanFor(input, policy);
+  if (!asked.ok) return asked;
+  const span = asked.span;
   // Closed that day (a closure, or a weekday it never opens) says so, rather than "outside the hours".
-  if (await getVenueClosure(court.venueId, date))
-    return refuse("VENUE_CLOSED");
-  if (hours[0] < openHour || hours[hours.length - 1] >= closeHour)
-    return refuse("HOURS_OUTSIDE_OPENING");
-  if (isPastSlot(date, hours[0], zone))
-    return refuse("SLOT_PAST");
+  if (day.closed && !input.classId) return refuse("VENUE_CLOSED");
+  // The court's rules: customers keep to them; staff allowed to may go past them, and it is recorded.
+  const breaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
+  if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0]);
+  if (minutesUntil(date, span.start, zone) <= 0) return refuse("SLOT_PAST");
 
   const db = getDb();
-  const seatsTaken = db.prepare(
-    "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
-  );
-  /**
-   * Does a block leave room for one more? A partial block shrinks the
-   * resource, so it only closes the hour once the places left run out.
-   */
-  const blockedOut = async (weekDate: string): Promise<boolean> => {
-    const blocked = await blockedPlacesFor(courtId, weekDate, hours);
-    if (blocked.size === 0) return false;
-    const takenHere = db.prepare(
-      "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
-    );
-    for (const hour of hours) {
-      const out = blocked.get(hour) ?? 0;
-      if (out === 0) continue;
-      const taken = (await takenHere.get(courtId, weekDate, hour) as { n: number }).n;
-      if (taken + out >= court.capacity) return true;
-    }
-    return false;
-  };
-  const insertBooking = db.prepare(`
-    INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, email, total_price, user_id, series_code, check_in_token, class_id, players)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertSlot = db.prepare(
-    `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${SLOT})`
-  );
-
-  /**
-   * Lowest unused place for an hour, or null when the resource is full:
-   * counting places held by waiting-list offers and places blocked off, as
-   * the grid does, so a partly blocked floor is not sold past what it shows.
-   */
-  const holds = new Map<string, Map<string, number>>();
-  const blocks = new Map<string, Map<number, number>>();
-  const freeSeat = async (weekDate: string, hour: number): Promise<number | null> => {
-    const used = new Set(
-      (await seatsTaken.all(courtId, weekDate, hour) as { seat: number }[]).map((r) => r.seat)
-    );
-    if (!holds.has(weekDate)) holds.set(weekDate, await offerHolds(weekDate, { courtId, except: input.waitlistId }));
-    if (!blocks.has(weekDate)) blocks.set(weekDate, await blockedPlacesFor(courtId, weekDate, hours));
-    const held = (holds.get(weekDate)!.get(`${courtId}:${hour}`) ?? 0) + (blocks.get(weekDate)!.get(hour) ?? 0);
-    if (used.size + held >= court.capacity) return null;
-    for (let seat = 0; seat < court.capacity; seat++) {
-      if (!used.has(seat)) return seat;
-    }
-    return null;
-  };
-
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
-
   // Member rates are decided per session, against the date that session falls
   // on: a membership that lapses part-way through a weekly series discounts
   // the weeks it covers and no more.
   const memberOn = (weekDate: string) => memberPricing(court.venueId, phone, weekDate);
   const rules = await peakRules(court.venueId);
-  // A last-minute price is for an hour nobody wanted, not for a number that
+  // A last-minute price is for time nobody wanted, not for a number that
   // cancelled at this venue on this day and is booking again at the lower price.
   const cancelledHere = rules.lastMinute
     ? await db
@@ -1719,50 +1687,70 @@ export async function createBookingSeries(input: {
         .get(court.venueId, date, phone)
     : undefined;
   const bookedAt = cancelledHere ? undefined : Date.now();
+  const buffers = { before: policy.bufferBefore, after: policy.bufferAfter };
+  const offer = input.waitlistId;
+
+  /** What holds the court that week, said as the customer is told. */
+  const reasonFor = async (weekDate: string): Promise<string> => {
+    const held = (await occupantsOn([court], weekDate, zone)).get(court.id)!;
+    const why = whyTaken(held, court, span, buffers, (o) => o.waitlistId !== null && o.waitlistId === offer);
+    if (why?.why === "class") return "reserved for a class";
+    if (why?.why === "blocked") return "closed for maintenance";
+    return court.capacity > 1 ? "fully booked" : "already booked";
+  };
 
   try {
-    const result = await db.transaction(async () => {
+    const result = await withTransaction(async () => {
       const bookings: Booking[] = [];
       const skipped: SeriesSkip[] = [];
+      // The offer being claimed holds the time for this booking: let it go first.
+      if (offer) await release({ kind: "offer", waitlistId: offer });
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
-        const seats: (number | null)[] = [];
-        for (const hour of hours) seats.push(await freeSeat(weekDate, hour));
-
         let reason: string | null = null;
-        const classes = await classHoursOn(weekDate, court.venueId);
-        if (seats.some((seat) => seat === null)) {
-          // No place, because the block took the last of them: say it is the block.
-          reason = (await blockedOut(weekDate)) ? "closed for maintenance" : court.capacity > 1 ? "fully booked" : "already booked";
-        } else if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) {
-          reason = "venue closed";
-        } else if (await blockedOut(weekDate)) {
-          reason = "closed for maintenance";
-        } else if (!input.classId && hours.some((h) => classes.has(`${courtId}:${h}`))) {
-          reason = "reserved for a class";
+        if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) reason = "venue closed";
+        const member = await memberOn(weekDate);
+        const quote = quoteBooking(court, policy, weekDate, span, member, rules, bookedAt, players);
+        let bookingId: number | null = null;
+        if (!reason) {
+          try {
+            bookingId = await withTransaction(async () => {
+              const id = (await db
+                .prepare(
+                  `INSERT INTO bookings (code, court_id, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
+                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                )
+                .get(
+                  generateCode(), courtId, weekDate, span.start, span.end,
+                  instantOf(weekDate, span.start, zone).toISOString(), instantOf(weekDate, span.end, zone).toISOString(),
+                  name, phone, email ?? null, quote.total, quote.fees,
+                  userId ?? null, seriesCode, randomBytes(16).toString("hex"),
+                  input.classId ?? null, players, breaches.length > 0
+                )) as { id: number };
+              // An enrolment holds a place in its class; the class holds the court.
+              if (!input.classId)
+                await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, bufferBefore: buffers.before, bufferAfter: buffers.after });
+              return id.id;
+            });
+          } catch (err) {
+            if (!isConflict(err)) throw err;
+            reason = await reasonFor(weekDate);
+          }
         }
-        if (reason) {
+        if (reason || bookingId === null) {
           if (!skipConflicts) throw new Error(`CONFLICT:${weekDate}:${reason}`);
-          skipped.push({ date: weekDate, reason });
+          skipped.push({ date: weekDate, reason: reason ?? "already booked" });
           continue;
         }
-        const member = await memberOn(weekDate);
-        const price = courtPrice(court, weekDate, hours, member, rules, bookedAt, players);
-        const bookingId = (await insertBooking.run(
-          generateCode(), courtId, weekDate, hours[0], hours[hours.length - 1] + SLOT,
-          name, phone, email ?? null, price,
-          userId ?? null, seriesCode, randomBytes(16).toString("hex"),
-          input.classId ?? null, players
-        )).lastInsertRowid as number;
-        if (price < courtPrice(court, weekDate, hours, member, rules, undefined, players))
+        if (quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total)
           await db.prepare("UPDATE bookings SET last_minute = 1 WHERE id = ?").run(bookingId);
-        for (const [i, hour] of hours.entries()) await insertSlot.run(bookingId, courtId, weekDate, hour, seats[i]!);
         bookings.push((await getBookingById(bookingId))!);
       }
       if (bookings.length === 0) throw new Error("ALL_CONFLICT");
       return { bookings, skipped };
-    })();
-    return { ok: true, ...result, seriesCode };
+    });
+    return { ok: true, ...result, seriesCode, ...(breaches.length > 0 ? { overrides: breaches } : {}) };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("CONFLICT:")) {
@@ -1783,13 +1771,6 @@ export async function createBookingSeries(input: {
     }
     if (message === "ALL_CONFLICT") {
       return refuse("SERIES_ALL_TAKEN");
-    }
-    if (isUniqueViolation(err, "booking_slots")) {
-      // Two requests picked the same place at once; the loser retries against
-      // the winner's state. A genuinely full resource fails the seat check
-      // above instead, so this cannot spin, but bound it regardless.
-      if (attempt < MAX_SEAT_RETRIES) return await createBookingSeries(input, attempt + 1);
-      return refuse("FILLING_FAST");
     }
     if (isUniqueViolation(err, "bookings")) {
       // Astronomically rare code collision — one retry is plenty.
@@ -1816,7 +1797,7 @@ export async function cancelSeries(
 
   const cutoff = await cancelCutoffForBooking(rows[0].id);
   const zone = await courtZone(rows[0].court_id);
-  const future = rows.filter((r) => isWithinCancelWindow(r.date, r.start_hour, cutoff, zone));
+  const future = rows.filter((r) => isWithinCancelWindow(r.date, hoursOf(r.start_min), cutoff, zone));
   if (future.length === 0)
     return { ...refuse("SERIES_NONE_LEFT", { n: cutoff }), cancelled: 0 };
 
@@ -1826,7 +1807,7 @@ export async function cancelSeries(
     for (const row of future) {
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
       if (done.changes !== 1) continue;
-      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+      await releaseBooking(row.id);
       claimed.push(row);
     }
   })();
@@ -1925,7 +1906,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   const claimed = await db.transaction(async () => {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
     if (done.changes !== 1) return false;
-    await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+    await releaseBooking(booking.id);
     if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
     return true;
   })();
@@ -1943,112 +1924,262 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
 
 export type AdminSlotStatus = "free" | "booked" | "blocked" | "past";
 
+/** One thing on a court's day, as staff see it: exact times, and why. */
+export interface ScheduleEntry {
+  kind: "booking" | "offer" | "class" | "block" | "outage" | "buffer";
+  /** Minutes of the day. */
+  start: number;
+  end: number;
+  /** A booking's code and booker, a class's name, a block's reason; for a buffer, what it is kept for. */
+  label: string;
+  bookingCode?: string;
+  blockId?: number;
+  /** Places it holds of a shared facility. */
+  places?: number;
+  /** Made on another court sharing this one's floor. */
+  viaCourt?: number;
+}
+
 export interface AdminCourtSlots {
   court: Court;
+  /** The schedule's column width in minutes. */
+  grid: number;
   slots: {
+    minute: number;
     hour: number;
     status: AdminSlotStatus;
-    /** Places taken this hour (0 or 1 for an exclusive court). */
+    /** Places taken in this column (0 or 1 for an exclusive court). */
     booked: number;
+    /** Something holds part of it, not all. */
+    partly?: boolean;
     /** Only meaningful for an exclusive court. */
     bookingCode?: string;
-    /** Places out of service this hour, while some remain bookable. */
+    /** Places out of service, while some remain bookable. */
     blockedPlaces?: number;
     blockReason?: string;
   }[];
+  /** Everything on the court that day, with buffers, to the minute. */
+  entries: ScheduleEntry[];
 }
 
-/** Full slot-status grid for a venue on a date (admin view). */
+/** The staff schedule's column width at a venue: the finest any of its courts' policies draws, never under 15 minutes. */
+export async function scheduleGrid(venueId: number): Promise<number> {
+  const courts = (
+    (await getDb().prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId)) as CourtRow[]
+  ).map(toCourt);
+  if (courts.length === 0) return 60;
+  const policies = await policiesFor(courts);
+  return Math.max(15, Math.min(...courts.map((c) => gridMinutes(policies.get(c.id)!))));
+}
+
+/** The staff schedule of a venue on a date: columns for blocking, and every entry to the minute. */
 export async function getAdminSlots(venueId: number, date: string): Promise<AdminCourtSlots[]> {
   const db = getDb();
   const courts = (
     await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
-
-  const booked = await db
-    .prepare(`
-      SELECT s.court_id, s.hour, b.code FROM booking_slots s
-      JOIN bookings b ON b.id = s.booking_id
-      WHERE s.date = ? AND s.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
-      ORDER BY s.seat
-    `)
-    .all(date, venueId) as { court_id: number; hour: number; code: string }[];
-  const bookedMap = new Map<string, string>();
-  const bookedCounts = new Map<string, number>();
-  for (const row of booked) {
-    const key = `${row.court_id}:${row.hour}`;
-    if (!bookedMap.has(key)) bookedMap.set(key, row.code);
-    bookedCounts.set(key, (bookedCounts.get(key) ?? 0) + 1);
-  }
-
-  const blocks = await db
-    .prepare(
-      "SELECT court_id, hour, reason, places FROM blocks_between(?, ?) WHERE court_id IN (SELECT id FROM courts WHERE venue_id = ?)"
-    )
-    .all(date, date, venueId) as {
-    court_id: number;
-    hour: number;
-    reason: string | null;
-    places: number | null;
-  }[];
-  const blockMap = new Map(blocks.map((b) => [`${b.court_id}:${b.hour}`, b]));
-  const blockedPlaces = await blockedPlacesOn(date, venueId);
-
-  const { openHour, closeHour, zone } = await venueHours(venueId, date);
+  if (courts.length === 0) return [];
+  const { openMin, closeMin, zone } = await venueHours(venueId, date);
   const closure = await getVenueClosure(venueId, date);
-  // One table for every court: in the finest unit any of its sports is sold by.
-  const unit = await scheduleUnit(venueId);
+  const grid = await scheduleGrid(venueId);
+  const held = await occupantsOn(courts, date, zone);
+  const all = [...held.values()].flat();
+  const bookingIds = [...new Set(all.map((o) => o.bookingId).filter((id): id is number => id !== null))];
+  const bookings = new Map(
+    (bookingIds.length
+      ? ((await db.prepare(`SELECT id, code, name FROM bookings WHERE id IN (${bookingIds.map(() => "?").join(",")})`).all(...bookingIds)) as {
+          id: number;
+          code: string;
+          name: string;
+        }[])
+      : []
+    ).map((b) => [b.id, b])
+  );
+  const blockIds = [...new Set(all.map((o) => o.blockId).filter((id): id is number => id !== null))];
+  const blockReasons = new Map(
+    (blockIds.length
+      ? ((await db.prepare(`SELECT id, reason FROM blocks WHERE id IN (${blockIds.map(() => "?").join(",")})`).all(...blockIds)) as {
+          id: number;
+          reason: string | null;
+        }[])
+      : []
+    ).map((b) => [b.id, b.reason ?? ""])
+  );
+  const outageIds = [...new Set(all.map((o) => o.outageId).filter((id): id is number => id !== null))];
+  const outageReasons = new Map(
+    (outageIds.length
+      ? ((await db.prepare(`SELECT id, reason FROM court_outages WHERE id IN (${outageIds.map(() => "?").join(",")})`).all(...outageIds)) as {
+          id: number;
+          reason: string | null;
+        }[])
+      : []
+    ).map((o) => [o.id, o.reason ?? "Out of service"])
+  );
+  const classNames = await classNamesFor(all.map((o) => o.classId).filter((id): id is number => id !== null));
+  const reasonOf = (o: Occupant) =>
+    o.blockId !== null ? (blockReasons.get(o.blockId) ?? "") : o.outageId !== null ? (outageReasons.get(o.outageId) ?? "") : undefined;
 
-  return courts.map((court) => ({
-    court,
-    slots: slotsBetween(openHour, closeHour, unit).map((hour) => {
-      // Each cell is made of the diary's half hours, and reads as its fullest.
-      const halves = slotsBetween(hour, hour + unit, SLOT).map((h) => `${court.id}:${h}`);
-      const key = halves.find((k) => bookedMap.has(k)) ?? halves[0];
-      const count = Math.max(...halves.map((k) => bookedCounts.get(k) ?? 0));
-      const block = halves.map((k) => blockMap.get(k)).find((b) => b !== undefined);
-      const out = Math.max(...halves.map((k) => blockedPlaces.get(k) ?? 0));
-      // A whole-day closure reads as a block on every hour that is not sold.
-      const blockReason =
-        block !== undefined
-          ? block.reason ?? ""
-          : closure
-            ? closure.reason ?? "Closed"
-            : undefined;
+  return courts.map((court) => {
+    const occupants = held.get(court.id)!;
+    const entries: ScheduleEntry[] = [];
+    for (const o of occupants) {
+      const clip = (n: number) => Math.min(Math.max(n, 0), LATEST_MINUTE);
+      const via = o.viaCourt !== court.id ? { viaCourt: o.viaCourt } : {};
+      const places = court.capacity > 1 ? { places: o.places } : {};
+      const b = o.bookingId !== null ? bookings.get(o.bookingId) : undefined;
+      const label =
+        o.kind === "booking"
+          ? `${b?.code ?? ""} ${b?.name ?? ""}`.trim()
+          : o.kind === "class"
+            ? (classNames.get(o.classId!) ?? "Class")
+            : o.kind === "offer"
+              ? "Offered to the waiting list"
+              : (reasonOf(o) ?? "");
+      entries.push({
+        kind: o.kind,
+        start: clip(o.span.start),
+        end: clip(o.span.end),
+        label,
+        ...(b ? { bookingCode: b.code } : {}),
+        ...(o.blockId !== null ? { blockId: o.blockId } : {}),
+        ...places,
+        ...via,
+      });
+      // Staff see the buffers, and what they are kept for.
+      if (o.occupied.start < o.span.start)
+        entries.push({ kind: "buffer", start: clip(o.occupied.start), end: clip(o.span.start), label: `Kept free before ${label}`.trim(), ...via });
+      if (o.occupied.end > o.span.end)
+        entries.push({ kind: "buffer", start: clip(o.span.end), end: clip(o.occupied.end), label: `Kept free after ${label}`.trim(), ...via });
+    }
+    entries.sort((a, b) => a.start - b.start || a.end - b.end);
+    const slots: AdminCourtSlots["slots"] = [];
+    for (let minute = openMin; minute < closeMin; minute += grid) {
+      const cell = { start: minute, end: Math.min(minute + grid, closeMin) };
+      const inCell = occupants.filter((o) => overlaps(o.occupied, cell));
+      const count = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "class"), cell);
+      const blocks = inCell.filter((o) => o.kind === "block" || o.kind === "outage");
+      const out = peakPlaces(blocks, cell);
+      const block = blocks[0];
+      // A whole-day closure reads as a block on every column that is not sold.
+      const blockReason = block !== undefined ? (reasonOf(block) ?? "") : closure ? (closure.reason ?? "Closed") : undefined;
       // A shared facility only reads as "booked" once every place is gone, and
       // a partial block only reads as "blocked" once it has taken the last one.
-      // A whole-day closure is not a partial anything: it shuts the hour flat.
-      const shutByBlock =
-        closure !== null || (block !== undefined && count + out >= court.capacity);
+      const shutByBlock = closure !== null || (block !== undefined && count + out >= court.capacity);
+      const booking = inCell.find((o) => o.kind === "booking" && o.bookingId !== null);
       const status: AdminSlotStatus =
-        count >= court.capacity
-          ? "booked"
-          : shutByBlock
-            ? "blocked"
-            : isPastSlot(date, hour, zone)
-              ? "past"
-              : "free";
-      return {
-        hour,
+        count >= court.capacity ? "booked" : shutByBlock ? "blocked" : minutesUntil(date, minute, zone) <= 0 ? "past" : "free";
+      const covered = court.capacity === 1 && inCell.length > 0 && !inCell.some((o) => o.occupied.start <= cell.start && o.occupied.end >= cell.end);
+      slots.push({
+        minute,
+        hour: hoursOf(minute),
         status,
         booked: count,
-        ...(court.capacity === 1 && bookedMap.has(key)
-          ? { bookingCode: bookedMap.get(key) }
-          : {}),
+        ...(covered ? { partly: true } : {}),
+        ...(court.capacity === 1 && booking ? { bookingCode: bookings.get(booking.bookingId!)?.code } : {}),
         ...(blockReason !== undefined ? { blockReason } : {}),
         ...(out > 0 && !shutByBlock ? { blockedPlaces: out } : {}),
-      };
-    }),
-  }));
+      });
+    }
+    return { court, grid, slots, entries };
+  });
 }
 
-export type BlockResult = { ok: true; changed: number } | Refusal;
+export type BlockResult = { ok: true; changed: number; blockIds: number[] } | Refusal;
 
-/** Block hours on a court (maintenance/closure). Skips hours that are booked. */
+/** What a block is for, beyond its time. */
+export interface BlockDetails {
+  reason?: string | null;
+  /** Places out of a shared facility; omitted for the whole court. */
+  places?: number | null;
+  repeatCode?: string | null;
+  tournamentId?: number | null;
+}
+
+/** Write one block and claim its time. Throws `23P01` when something holds it. */
+async function writeBlock(court: Court, date: string, span: Span, zone: string, details: BlockDetails): Promise<number> {
+  const row = (await getDb()
+    .prepare(
+      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+    )
+    .get(
+      court.venueId,
+      court.id,
+      date,
+      span.start,
+      span.end,
+      details.reason ?? null,
+      details.places ?? null,
+      details.repeatCode ?? null,
+      details.tournamentId ?? null
+    )) as { id: number };
+  await claim({ court, source: { kind: "block", blockId: row.id }, date, span, zone, places: details.places ?? court.capacity });
+  return row.id;
+}
+
+/**
+ * Take block time within `span` off a court: blocks inside it go, and blocks
+ * across its edges keep their parts outside it. Returns the minutes freed.
+ */
+async function carveBlocks(court: Court, date: string, span: Span, zone: string, only?: (b: { tournament_id: number | null }) => boolean): Promise<number> {
+  const db = getDb();
+  const rows = (await db
+    .prepare("SELECT * FROM blocks WHERE court_id = ? AND date = ? AND start_min < ? AND end_min > ?")
+    .all(court.id, date, span.end, span.start)) as {
+    id: number;
+    start_min: number;
+    end_min: number;
+    reason: string | null;
+    places: number | null;
+    repeat_code: string | null;
+    tournament_id: number | null;
+  }[];
+  let freed = 0;
+  for (const b of rows) {
+    if (only && !only(b)) continue;
+    await db.prepare("DELETE FROM blocks WHERE id = ?").run(b.id);
+    freed += Math.min(b.end_min, span.end) - Math.max(b.start_min, span.start);
+    const keep = { reason: b.reason, places: b.places, repeatCode: b.repeat_code, tournamentId: b.tournament_id };
+    if (b.start_min < span.start) await writeBlock(court, date, { start: b.start_min, end: span.start }, zone, keep);
+    if (b.end_min > span.end) await writeBlock(court, date, { start: span.end, end: b.end_min }, zone, keep);
+  }
+  return freed;
+}
+
+/** Turn what a block request gives into spans: exact minutes, or columns of the staff schedule (runs of them). */
+async function blockSpans(court: Court, when: number[] | WhenInput, openMin: number, closeMin: number): Promise<{ spans: Span[]; cells: number[]; grid: number }> {
+  const grid = await scheduleGrid(court.venueId);
+  if (!Array.isArray(when) && when.start !== undefined) {
+    const end = when.end ?? (when.minutes !== undefined ? when.start + when.minutes : undefined);
+    if (!isMinute(when.start) || !isMinute(end) || end <= when.start) return { spans: [], cells: [], grid };
+    const span = { start: Math.max(when.start, openMin), end: Math.min(end, closeMin) };
+    return span.end > span.start ? { spans: [span], cells: [span.start], grid } : { spans: [], cells: [], grid };
+  }
+  const hours = Array.isArray(when) ? when : (when.hours ?? []);
+  const cells = [...new Set(hours.filter((h) => typeof h === "number" && Number.isFinite(h)).map(minutesOf))]
+    .filter((m) => m >= openMin && m < closeMin && (m - openMin) % grid === 0)
+    .sort((a, b) => a - b);
+  const spans: Span[] = [];
+  for (const m of cells) {
+    const end = Math.min(m + grid, closeMin);
+    const last = spans[spans.length - 1];
+    if (last && last.end === m) last.end = end;
+    else spans.push({ start: m, end });
+  }
+  return { spans, cells, grid };
+}
+
+/**
+ * Block time on a court (maintenance, a school's lessons, a tournament's
+ * hold). What is already held is left to its holder: the block covers the
+ * rest of the time asked for, and a shared facility's places are taken out
+ * only where that many are free. Blocking time already blocked revises it.
+ */
 export async function blockSlots(
   courtId: number,
   date: string,
-  hours: number[],
+  /** Exact minutes, or the starts of the staff schedule's columns ([9, 10] on a schedule of hours). */
+  when: number[] | WhenInput,
   reason?: string,
   /**
    * How many places to take out. Omitted means the whole resource, which is
@@ -2056,19 +2187,13 @@ export async function blockSlots(
    * many places out and leaves the rest bookable.
    */
   places?: number,
-  /** What `hours` are in: cells of the venue's schedule (scheduleUnit) unless said, or SLOT for the diary's own half hours. */
-  given?: number
+  details: Omit<BlockDetails, "reason" | "places"> = {}
 ): Promise<BlockResult> {
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
-  const { openHour, closeHour } = await courtVenueHours(courtId, date);
-  // Each cell becomes the diary's half hours it covers.
-  const unit = given ?? (await scheduleUnit(court.venueId));
-  const valid = expandSlots(
-    [...new Set(hours)].filter((h) => h >= openHour && h < closeHour && onSlot(h, unit)),
-    unit
-  ).filter((h) => h < closeHour);
-  if (valid.length === 0) return { ok: false, error: "No valid hours given." };
+  const { openMin, closeMin, zone } = await courtVenueHours(courtId, date);
+  const { spans, cells, grid } = await blockSpans(court, when, openMin, closeMin);
+  if (spans.length === 0) return { ok: false, error: "No valid hours given." };
 
   const partial = places !== undefined && places !== null;
   if (partial) {
@@ -2077,60 +2202,94 @@ export async function blockSlots(
     if (court.capacity === 1)
       return { ok: false, error: "An exclusive court is blocked whole, not in parts." };
   }
+  const wanted = partial ? places! : court.capacity;
 
-  const db = getDb();
-  const isBooked = db.prepare(
-    "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
-  );
-  // One block row per court-hour, so re-blocking an hour revises it.
-  const insert = db.prepare(`
-    INSERT INTO slot_blocks (court_id, date, hour, reason, places, span) VALUES (?, ?, ?, ?, ?, ${SLOT})
-    ON CONFLICT (court_id, date, hour)
-    DO UPDATE SET reason = excluded.reason, places = excluded.places
-  `);
-
-  // Counted in the cells asked for (an hour is one), not the half hours stored.
-  const cells = new Set<number>();
+  let blockIds: number[] = [];
   let strandedAt: number | null = null;
-  await db.transaction(async () => {
-    for (const hour of valid) {
-      const booked = (await isBooked.get(courtId, date, hour) as { n: number }).n;
-      // Taking out more places than are free would strand a booking.
-      const wanted = partial ? places! : court.capacity;
-      if (booked + wanted > court.capacity) {
-        if (partial && strandedAt === null) strandedAt = hour;
-        continue;
+  let strandedFree = 0;
+  const writeBlocks = () => withTransaction(async () => {
+    // Blocking blocked time revises it, rather than stacking a second block. A
+    // tournament's hold leaves blocks staff made where they are: that time is
+    // simply not the tournament's.
+    if (!details.tournamentId) for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.tournament_id === null);
+    const occupants = (await occupantsOn([court], date, zone)).get(court.id)!;
+    for (const span of spans) {
+      // Where the time asked for can take this block: between what holds it, and where enough places are free.
+      const edges = [...new Set([span.start, span.end, ...occupants.flatMap((o) => [o.occupied.start, o.occupied.end])])]
+        .filter((m) => m >= span.start && m <= span.end)
+        .sort((a, b) => a - b);
+      let run: Span | null = null;
+      const flush = async () => {
+        if (run) blockIds.push(await writeBlock(court, date, run, zone, { reason, places: partial ? places : null, ...details }));
+        run = null;
+      };
+      for (let i = 0; i + 1 < edges.length; i++) {
+        const piece = { start: edges[i], end: edges[i + 1] };
+        const used = peakPlaces(occupants, piece);
+        if (used + wanted <= court.capacity) {
+          run = run && run.end === piece.start ? { start: run.start, end: piece.end } : (await flush(), piece);
+        } else {
+          await flush();
+          // Taking out more places than are free would strand a booking.
+          if (partial && strandedAt === null) {
+            strandedAt = piece.start;
+            strandedFree = court.capacity - used;
+          }
+        }
       }
-      if ((await insert.run(courtId, date, hour, reason ?? null, partial ? places! : null)).changes > 0)
-        cells.add(cellOf(hour, unit));
+      await flush();
     }
-  })();
-  const changed = cells.size;
-
-  if (changed === 0 && strandedAt !== null)
-    return {
-      ok: false,
-      error: `Only ${court.capacity - (await isBooked.get(courtId, date, strandedAt) as { n: number }).n} place(s) are free at ${formatHour(strandedAt)}.`,
-    };
-  return { ok: true, changed };
+  });
+  // A booking made or moved between reading what holds the court and writing
+  // the block makes the write conflict: read again, and block around it.
+  for (let attempt = 0; ; attempt++) {
+    blockIds = [];
+    strandedAt = null;
+    strandedFree = 0;
+    try {
+      await writeBlocks();
+      break;
+    } catch (err) {
+      if (!isConflict(err) || attempt >= 4) throw err;
+    }
+  }
+  if (blockIds.length === 0 && strandedAt !== null)
+    return { ok: false, error: `Only ${strandedFree} place(s) are free at ${formatMinute(strandedAt)}.` };
+  // Counted in the columns asked for (an hour is one), not in minutes.
+  const blocked = (await getDb()
+    .prepare(`SELECT start_min, end_min FROM blocks WHERE id IN (${blockIds.map(() => "?").join(",") || "NULL"})`)
+    .all(...blockIds)) as { start_min: number; end_min: number }[];
+  const changed = cells.filter((m) => blocked.some((b) => b.start_min < Math.min(m + grid, closeMin) && b.end_min > m)).length;
+  return { ok: true, changed, blockIds };
 }
 
-export async function unblockSlots(courtId: number, date: string, hours: number[]): Promise<BlockResult> {
+/**
+ * Take block time within `span` off a court, from one tournament's holds only
+ * when `tournamentId` is given. Returns the minutes freed.
+ */
+export async function releaseBlockTime(courtId: number, date: string, span: Span, tournamentId?: number): Promise<number> {
+  const court = await getCourt(courtId);
+  if (!court) return 0;
+  const { zone } = await courtVenueHours(courtId);
+  return withTransaction(() => carveBlocks(court, date, span, zone, tournamentId === undefined ? undefined : (b) => b.tournament_id === tournamentId));
+}
+
+/** Take block time off a court: exact minutes, or columns of the staff schedule. */
+export async function unblockSlots(courtId: number, date: string, when: number[] | WhenInput): Promise<BlockResult> {
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
-  // Cells of the schedule, as blockSlots takes them.
-  const unit = await scheduleUnit(court.venueId);
-  const valid = [...new Set(expandSlots([...new Set(hours)].filter((h) => onSlot(h, unit)), unit))];
-  if (valid.length === 0) return { ok: false, error: "No valid hours given." };
-  const gone = (await getDb()
-    .prepare(`DELETE FROM slot_blocks WHERE court_id = ? AND date = ? AND hour IN (${valid.map(() => "?").join(",")}) RETURNING hour`)
-    .all(courtId, date, ...valid)) as { hour: number }[];
-  return { ok: true, changed: new Set(gone.map((g) => cellOf(Number(g.hour), unit))).size };
-}
-
-/** The cell of a `unit` long that a half hour of the diary falls in: 9.5 is in the hour from 9. */
-function cellOf(hour: number, unit: number): number {
-  return Math.floor(hour / unit + 1e-9) * unit;
+  const { openMin, closeMin, zone } = await courtVenueHours(courtId, date);
+  const { spans, cells, grid } = await blockSpans(court, when, openMin, closeMin);
+  if (spans.length === 0) return { ok: false, error: "No valid hours given." };
+  const before = (await getDb().prepare("SELECT start_min, end_min FROM blocks WHERE court_id = ? AND date = ?").all(courtId, date)) as {
+    start_min: number;
+    end_min: number;
+  }[];
+  await withTransaction(async () => {
+    for (const span of spans) await carveBlocks(court, date, span, zone);
+  });
+  const changed = cells.filter((m) => before.some((b) => b.start_min < Math.min(m + grid, closeMin) && b.end_min > m)).length;
+  return { ok: true, changed, blockIds: [] };
 }
 
 /** Admin cancellation by code — no phone check, works even after start time. */
@@ -2155,7 +2314,7 @@ export async function adminCancelBooking(code: string): Promise<CancelResult> {
   const claimed = await db.transaction(async () => {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
     if (done.changes !== 1) return false;
-    await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+    await releaseBooking(booking.id);
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
@@ -2170,27 +2329,53 @@ export type RescheduleResult =
   | {
       ok: true;
       booking: Booking;
-      from: { date: string; startHour: number; endHour: number; courtId: number };
+      from: { date: string; startMin: number; endMin: number; startHour: number; endHour: number; courtId: number };
       /** What the price went up (or down) by; 0 when it stayed as it was. */
       priceChange: number;
       /** What the new time costs against the old at today's rates, when the price was left as paid. */
       unchargedDifference: number;
+      /** The court's rules staff went past, to be recorded. */
+      overrides?: PolicyBreach[];
     }
   | Refusal;
+
+/** Move a booking's claims to another court and time, inside the caller's transaction. Throws `23P01` when it is held. */
+async function reclaimBooking(booking: Booking, court: Court, date: string, span: Span, zone: string, policy: BookingPolicy): Promise<void> {
+  await unclaim({ kind: "booking", bookingId: booking.id });
+  await claim({
+    court,
+    source: { kind: "booking", bookingId: booking.id },
+    date,
+    span,
+    zone,
+    bufferBefore: policy.bufferBefore,
+    bufferAfter: policy.bufferAfter,
+  });
+  await getDb()
+    .prepare("UPDATE bookings SET court_id = ?, date = ?, start_min = ?, end_min = ?, starts_at = ?, ends_at = ? WHERE id = ?")
+    .run(court.id, date, span.start, span.end, instantOf(date, span.start, zone).toISOString(), instantOf(date, span.end, zone).toISOString(), booking.id);
+}
+
+/** When a booking was made, for the last-minute price it was given. */
+function bookedAtOf(booking: Booking): number | undefined {
+  const at = Date.parse(`${booking.createdAt.replace(" ", "T")}${booking.createdAt.includes("Z") ? "" : "Z"}`);
+  return Number.isFinite(at) ? at : undefined;
+}
 
 /**
  * Move a booking to another date or time — the same length, at the same
  * venue, for the same sport — keeping its code, how it was paid, its extras
  * and any promo. The alternative is cancel-and-book-again, which is a new
- * code, a refund to sort out and, for the customer, the risk the slot they
+ * code, a refund to sort out and, for the customer, the risk the time they
  * had goes while they rebook.
  *
  * It stays on its court when that is free then, and otherwise goes to
  * another court of the same sport (or to `courtId`, for staff choosing one).
  *
  * Customers may change a booking up to the same cutoff as cancelling it, to a
- * time inside the booking window. Staff may change it at any time before it
- * has finished.
+ * time inside the booking window and the court's booking policy. Staff may
+ * change it at any time before it has finished, outside the policy too
+ * (returned as `overrides`, to be recorded).
  *
  * The price follows the court time: an unpaid booking is repriced at the new
  * time's rate, up or down. A paid one keeps what was paid — a customer may not
@@ -2199,7 +2384,14 @@ export type RescheduleResult =
  */
 export async function rescheduleBooking(
   code: string,
-  to: { date: string; startHour: number; courtId?: number },
+  to: {
+    date: string;
+    start?: number;
+    startHour?: number;
+    courtId?: number;
+    /** Staff allowed to (a manager) going past the new court's booking policy; recorded by the caller. */
+    override?: boolean;
+  },
   by: "staff" | "customer"
 ): Promise<RescheduleResult> {
   const db = getDb();
@@ -2221,28 +2413,23 @@ export async function rescheduleBooking(
   if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
-  // The hours of the day it is moving to, which may not be the day it is on.
-  const { openHour, closeHour, zone } = await courtVenueHours(booking.courtId, to.date);
-  const length = booking.endHour - booking.startHour;
-  const oldHours = slotsBetween(booking.startHour, booking.endHour, SLOT);
+  const fromCourt = await getCourt(booking.courtId);
+  if (!fromCourt) return refuse("COURT_NOT_FOUND");
+  const start = to.start ?? (to.startHour === undefined ? NaN : minutesOf(to.startHour));
+  if (!isMinute(start) || !isValidDateString(to.date)) return refuse("SLOT_PAST");
+  const length = booking.endMin - booking.startMin;
+  const span = { start, end: start + length };
+  const { zone } = await courtVenueHours(booking.courtId);
   if (by === "customer") {
     const cutoff = await cancelCutoffForBooking(booking.id);
     if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone))
       return cutoff === 0 ? refuse("RESCHEDULE_STARTED") : refuse("RESCHEDULE_CUTOFF", { n: cutoff });
-  } else if (isPastSlot(booking.date, oldHours[oldHours.length - 1], zone)) {
+  } else if (minutesUntil(booking.date, booking.endMin, zone) <= 0) {
     return { ok: false, error: "That booking has already finished." };
   }
-
-  const fromCourt = await getCourt(booking.courtId);
-  if (!fromCourt) return refuse("COURT_NOT_FOUND");
-  // It may start where its sport's bookings start: on the hour, or the half hour.
-  if (!onSlot(to.startHour, await sellUnit(fromCourt.venueId, fromCourt.sport)) || !/^\d{4}-\d{2}-\d{2}$/.test(to.date))
-    return refuse("SLOT_PAST");
-  const hours = slotsBetween(to.startHour, to.startHour + length, SLOT);
-  if (!isBookableDate(to.date, zone, await venueAheadDays(fromCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
-  if (isPastSlot(to.date, hours[0], zone)) return refuse("SLOT_PAST");
+  if (by === "customer" && !isBookableDate(to.date, zone, await venueAheadDays(fromCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
+  if (minutesUntil(to.date, span.start, zone) <= 0) return refuse("SLOT_PAST");
   if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
-  if (hours[0] < openHour || hours[hours.length - 1] >= closeHour) return refuse("HOURS_OUTSIDE_OPENING");
 
   // The courts it could go to, its own first.
   let candidates: Court[];
@@ -2267,76 +2454,44 @@ export async function rescheduleBooking(
       ).map(toCourt),
     ];
   }
-  const sameSlot = to.date === booking.date && to.startHour === booking.startHour;
-  if (sameSlot && candidates.length === 1 && candidates[0].id === fromCourt.id) return refuse("RESCHEDULE_SAME");
-  if (sameSlot && to.courtId === undefined) return refuse("RESCHEDULE_SAME");
+  const sameTime = to.date === booking.date && span.start === booking.startMin;
+  if (sameTime && candidates.length === 1 && candidates[0].id === fromCourt.id) return refuse("RESCHEDULE_SAME");
+  if (sameTime && to.courtId === undefined) return refuse("RESCHEDULE_SAME");
 
-  const classHours = await classHoursOn(to.date, fromCourt.venueId);
-  const takenAt = db.prepare(
-    "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ? AND booking_id != ?"
-  );
-  /** Room on this court for the whole new time, not counting this booking's own places? */
-  const fits = async (court: Court): Promise<boolean> => {
-    if (hours.some((h) => classHours.has(`${court.id}:${h}`))) return false;
-    const blocked = await blockedPlacesFor(court.id, to.date, hours);
-    for (const hour of hours) {
-      const taken = Number(((await takenAt.get(court.id, to.date, hour, booking.id)) as { n: number }).n);
-      if (taken + (blocked.get(hour) ?? 0) >= court.capacity) return false;
-    }
-    return true;
-  };
-
+  const days = await courtDays(candidates, to.date);
   const member = (date: string) => memberPricing(fromCourt.venueId, booking.phone, date);
   const rules = await peakRules(fromCourt.venueId);
-  // What the old time cost when booked: a last-minute price stays with the hour
-  // it was given for, so moving away from it costs the difference.
-  const bookedAt = Date.parse(`${booking.createdAt.replace(" ", "T")}${booking.createdAt.includes("Z") ? "" : "Z"}`);
   const players = booking.players ?? 1;
-  const oldCourtPrice = courtPrice(fromCourt, booking.date, oldHours, await member(booking.date), rules, Number.isFinite(bookedAt) ? bookedAt : undefined, players);
+  // What the old time cost when booked: a last-minute price stays with the time
+  // it was given for, so moving away from it costs the difference.
+  const fromPolicy = await policyFor(fromCourt);
+  const oldPrice = quoteBooking(fromCourt, fromPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await member(booking.date), rules, bookedAtOf(booking), players).total;
   const newMember = await member(to.date);
+  let firstRefusal: Refusal | null = null;
 
-  const seatsTaken = db.prepare(
-    "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ? AND booking_id != ?"
-  );
   for (const court of candidates) {
-    if (!(await fits(court))) continue;
-    const delta = Math.round((courtPrice(court, to.date, hours, newMember, rules, undefined, players) - oldCourtPrice) * 100) / 100;
+    const day = days.get(court.id)!;
+    // The court's rules for the new time; the length is the booking's own, kept as it was.
+    const breaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone)).filter((b) => b !== "LENGTH");
+    if (breaches.length > 0 && !(by === "staff" && to.override === true)) {
+      firstRefusal ??= breachRefusal(day.policy, span, breaches[0]);
+      continue;
+    }
+    const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     // A payment page open for the old price would settle it short.
     if (!paid && delta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
     const priceChange = paid ? 0 : Math.max(-booking.totalPrice, delta);
     try {
-      await db.transaction(async () => {
-        await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
-        // Checked again in here: a block, class or waiting-list offer since the look above.
-        if (await noRoomAt(court, to.date, hours)) throw new Error("FULL");
-        const insert = db.prepare(
-          `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${SLOT})`
-        );
-        for (const hour of hours) {
-          const used = new Set(
-            ((await seatsTaken.all(court.id, to.date, hour, booking.id)) as { seat: number }[]).map((r) => r.seat)
-          );
-          let seat: number | null = null;
-          for (let s = 0; s < court.capacity; s++) {
-            if (!used.has(s)) {
-              seat = s;
-              break;
-            }
-          }
-          if (seat === null) throw new Error("FULL");
-          // The unique index is the real guard; a racing insert fails here.
-          await insert.run(booking.id, court.id, to.date, hour, seat);
-        }
-        await db
-          .prepare(
-            "UPDATE bookings SET court_id = ?, date = ?, start_hour = ?, end_hour = ?, total_price = total_price + ? WHERE id = ?"
-          )
-          .run(court.id, to.date, hours[0], hours[hours.length - 1] + SLOT, priceChange, booking.id);
-      })();
+      await withTransaction(async () => {
+        // The claims are what decide: a booking, class, block or waiting-list offer there refuses it.
+        await reclaimBooking(booking, court, to.date, span, zone, day.policy);
+        if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
+        await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
+      });
     } catch (err) {
-      if ((err instanceof Error && err.message === "FULL") || isUniqueViolation(err)) return refuse("RESCHEDULE_TAKEN");
+      if (isConflict(err)) continue;
       throw err;
     }
     // The time it left may now be free for somebody waiting on it.
@@ -2344,24 +2499,27 @@ export async function rescheduleBooking(
     return {
       ok: true,
       booking: (await getBookingById(booking.id))!,
-      from: { date: booking.date, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id },
+      from: { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id },
       priceChange,
       unchargedDifference: paid ? delta : 0,
+      ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
   }
-  return refuse("RESCHEDULE_TAKEN");
+  return firstRefusal ?? refuse("RESCHEDULE_TAKEN");
 }
 
 /**
- * The start times a booking could be changed to on a date: one for each hour
- * a court of its sport is free for its whole length, its own court first,
- * with what the court time would cost and how that compares with now.
+ * The start times a booking could be changed to on a date: each start a
+ * court of its sport allows where it is free for the booking's whole length,
+ * its own court first, with what the court time would cost and how that
+ * compares with now.
  */
 export interface RescheduleOption {
+  startMin: number;
   startHour: number;
   courtId: number;
   courtName: string;
-  /** The court time at the new slot. */
+  /** The court time at the new time. */
   price: number;
   /** That, less what the court time costs where it is now. */
   difference: number;
@@ -2374,53 +2532,50 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
   if (!court) return [];
   const { zone } = await venueHours(court.venueId);
   if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)) || (await getVenueClosure(court.venueId, date))) return [];
-  const length = booking.endHour - booking.startHour;
+  const length = booking.endMin - booking.startMin;
   const member = await memberPricing(court.venueId, booking.phone, date);
   const rules = await peakRules(court.venueId);
-  const now = courtPrice(
+  const players = booking.players ?? 1;
+  const ownPolicy = await policyFor(court);
+  const now = quoteBooking(court, ownPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await memberPricing(court.venueId, booking.phone, booking.date), rules, undefined, players).total;
+  const courts = [
     court,
-    booking.date,
-    slotsBetween(booking.startHour, booking.endHour, SLOT),
-    await memberPricing(court.venueId, booking.phone, booking.date),
-    rules,
-    undefined,
-    booking.players ?? 1
-  );
-  const grid = await getAvailability(court.venueId, date, court.sport, member);
-  grid.sort((a, b) => (a.court.id === court.id ? -1 : b.court.id === court.id ? 1 : a.court.id - b.court.id));
-  /** Free for one more, counting this booking's own places as free. */
-  const free = (c: CourtAvailability, hour: number) => {
-    const slot = c.slots.find((s) => s.hour === hour);
-    if (!slot || slot.className || slot.blocked) return false;
-    if (slot.available) return true;
-    const own = c.court.id === booking.courtId && date === booking.date && hour >= booking.startHour && hour < booking.endHour;
-    return own && slot.booked - 1 + (slot.blockedPlaces ?? 0) < slot.capacity;
-  };
-  const options: RescheduleOption[] = [];
-  // The grid's cells are what the sport is sold by; its start times are theirs.
-  const unit = grid[0]?.unit ?? 1;
-  const hoursOf = grid[0]?.slots.map((s) => s.hour) ?? [];
-  for (const start of hoursOf) {
-    if (date === booking.date && start === booking.startHour) continue;
-    const cells = slotsBetween(start, start + length, unit);
-    if (isPastSlot(date, start, zone)) continue;
-    const fitting = grid.find((c) => cells.every((h) => free(c, h)));
-    if (fitting) {
-      const price = courtPrice(fitting.court, date, slotsBetween(start, start + length, SLOT), member, rules, undefined, booking.players ?? 1);
-      options.push({
-        startHour: start,
-        courtId: fitting.court.id,
-        courtName: fitting.court.name,
+    ...(
+      (await getDb()
+        .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
+        .all(court.venueId, court.sport, court.id)) as CourtRow[]
+    ).map(toCourt),
+  ];
+  const days = await courtDays(courts, date);
+  const held = await occupantsOn(courts, date, zone);
+  // Its own time counts as free: it is what is being moved.
+  const own = (o: Occupant) => o.bookingId === booking.id;
+  const options = new Map<number, RescheduleOption>();
+  for (const c of courts) {
+    const day = days.get(c.id)!;
+    if (day.closed) continue;
+    for (const start of startsWithin(day.policy, day.openMin, day.closeMin - length + 1)) {
+      if (options.has(start) || (date === booking.date && start === booking.startMin)) continue;
+      if (minutesUntil(date, start, zone) <= 0) continue;
+      const span = { start, end: start + length };
+      if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).some((b) => b !== "LENGTH")) continue;
+      if (!fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter }, own)) continue;
+      const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players).total;
+      options.set(start, {
+        startMin: start,
+        startHour: hoursOf(start),
+        courtId: c.id,
+        courtName: c.name,
         price,
         difference: Math.round((price - now) * 100) / 100,
       });
     }
   }
-  return options;
+  return [...options.values()].sort((a, b) => a.startMin - b.startMin);
 }
 
 /**
- * Where "Book again" takes a customer: the same court and hours on the next
+ * Where "Book again" takes a customer: the same court and time on the next
  * day they are free — the same weekday first, since most regulars play the
  * same night each week — else another court of the same sport, else just the
  * venue. Only a link: the customer still sees the price and taps Book.
@@ -2430,26 +2585,33 @@ export async function bookAgainLink(code: string): Promise<string | null> {
   if (!booking || booking.classId !== null) return null;
   const court = await getCourt(booking.courtId);
   if (!court) return null;
-  const length = booking.endHour - booking.startHour;
   const today = todayISO();
   // After the booking itself: "again" from one still to come means another time.
   const days = Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => addDays(today, i)).filter((d) => d > booking.date);
   const sameWeekday = (d: string) =>
     new Date(`${d}T00:00:00Z`).getUTCDay() === new Date(`${booking.date}T00:00:00Z`).getUTCDay();
   const ordered = [...days.filter(sameWeekday), ...days.filter((d) => !sameWeekday(d))];
-  const { zone } = await venueHours(court.venueId);
-  // Looked up in the grid, whose cells are what the sport is sold by.
-  const hours = slotsBetween(booking.startHour, booking.endHour, await sellUnit(court.venueId, court.sport));
+  const span = { start: booking.startMin, end: booking.endMin };
   const link = (date: string, courtId: number) =>
-    `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${courtId}&hour=${booking.startHour}&duration=${length}`;
+    `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${courtId}&start=${span.start}&minutes=${span.end - span.start}`;
+  const courts = [
+    court,
+    ...(
+      (await getDb()
+        .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
+        .all(court.venueId, court.sport, court.id)) as CourtRow[]
+    ).map(toCourt),
+  ];
   for (const date of ordered) {
-    if (isPastSlot(date, hours[0], zone) || (await getVenueClosure(court.venueId, date))) continue;
-    const grid = await getAvailability(court.venueId, date, court.sport);
-    const free = (c: CourtAvailability) => hours.every((h) => c.slots.find((s) => s.hour === h)?.available);
-    const own = grid.find((c) => c.court.id === court.id);
-    if (own && free(own)) return link(date, court.id);
-    const other = grid.find(free);
-    if (other) return link(date, other.court.id);
+    const days2 = await courtDays(courts, date);
+    const first = days2.get(court.id)!;
+    if (first.closed || minutesUntil(date, span.start, first.zone) <= 0) continue;
+    const held = await occupantsOn(courts, date, first.zone);
+    for (const c of courts) {
+      const day = days2.get(c.id)!;
+      if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, day.zone)).length > 0) continue;
+      if (fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter })) return link(date, c.id);
+    }
   }
   return `/venue/${court.venueId}?sport=${court.sport}`;
 }
@@ -2457,6 +2619,16 @@ export async function bookAgainLink(code: string): Promise<string | null> {
 export type MoveResult =
   | { ok: true; booking: Booking; fromCourt: Court; toCourt: Court }
   | Refusal;
+
+/** What is in the way of a booking on a court, said for staff. */
+async function inTheWay(booking: Booking, court: Court, policy: BookingPolicy, zone: string): Promise<string> {
+  const held = (await occupantsOn([court], booking.date, zone)).get(court.id)!;
+  const span = { start: booking.startMin, end: booking.endMin };
+  const why = whyTaken(held, court, span, { before: policy.bufferBefore, after: policy.bufferAfter }, (o) => o.bookingId === booking.id);
+  if (why?.why === "class") return `${court.name} is running ${(await classNamesFor([why.classId])).get(why.classId) ?? "a class"} at that time.`;
+  if (why?.why === "blocked") return `${court.name} is blocked off for part of that time.`;
+  return `${court.name} is already taken at ${formatMinute(span.start)}.`;
+}
 
 /**
  * Move a confirmed booking to another court, keeping everything that makes it
@@ -2500,72 +2672,17 @@ export async function moveBooking(code: string, toCourtId: number): Promise<Move
       error: `${toCourt.name} is for ${SPORT_LABELS[toCourt.sport]}, not ${SPORT_LABELS[fromCourt.sport]}.`,
     };
 
-  const hours = await bookingHours(booking);
+  const zone = await courtZone(booking.courtId);
   // A booking that is wholly in the past is history; there is nothing to move.
-  if (isPastSlot(booking.date, hours[hours.length - 1], await courtZone(booking.courtId)))
+  if (minutesUntil(booking.date, booking.endMin, zone) <= 0)
     return { ok: false, error: "That booking has already finished." };
 
-  const blockedThere = await blockedPlacesFor(toCourtId, booking.date, hours);
-  const takenThere = db.prepare(
-    "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
-  );
-  for (const hour of hours) {
-    const out = blockedThere.get(hour) ?? 0;
-    if (out === 0) continue;
-    const taken = (await takenThere.get(toCourtId, booking.date, hour) as { n: number }).n;
-    if (taken + out >= toCourt.capacity)
-      return { ok: false, error: `${toCourt.name} is blocked off for part of that time.` };
-  }
-
-  const classHours = await classHoursOn(booking.date, toCourt.venueId);
-  for (const hour of hours) {
-    const session = classHours.get(`${toCourtId}:${hour}`);
-    if (session)
-      return { ok: false, error: `${toCourt.name} is running ${session.name} at that time.` };
-  }
-
-  const seatsTaken = db.prepare(
-    "SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
-  );
-
+  const policy = await policyFor(toCourt);
   try {
-    await db.transaction(async () => {
-      // Free the old places first, so a court can be swapped with itself in a
-      // shared facility and so the target sees a true picture.
-      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
-      const none = await noRoomAt(toCourt, booking.date, hours);
-      if (none?.why === "class") throw new Error(`CLASS:${none.name}`);
-      if (none?.why === "blocked") throw new Error("BLOCKED");
-      if (none) throw new Error(`FULL:${none.hour}`);
-
-      const insert = db.prepare(
-        `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span) VALUES (?, ?, ?, ?, ?, ${SLOT})`
-      );
-      for (const hour of hours) {
-        const used = new Set(
-          (await seatsTaken.all(toCourtId, booking.date, hour) as { seat: number }[]).map((r) => r.seat)
-        );
-        let seat: number | null = null;
-        for (let s = 0; s < toCourt.capacity; s++) {
-          if (!used.has(s)) { seat = s; break; }
-        }
-        if (seat === null) throw new Error(`FULL:${hour}`);
-        // The unique index is the real guard; a racing insert fails here.
-        await insert.run(booking.id, toCourtId, booking.date, hour, seat);
-      }
-      await db.prepare("UPDATE bookings SET court_id = ? WHERE id = ?").run(toCourtId, booking.id);
-    })();
+    // Its claims go to the other court in one step; the constraints refuse it there if anything holds that time.
+    await withTransaction(() => reclaimBooking(booking, toCourt, booking.date, { start: booking.startMin, end: booking.endMin }, zone, policy));
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("FULL:")) {
-      const hour = err.message.slice(5);
-      return { ok: false, error: `${toCourt.name} is already taken at ${formatHour(Number(hour))}.` };
-    }
-    if (err instanceof Error && err.message.startsWith("CLASS:"))
-      return { ok: false, error: `${toCourt.name} is running ${err.message.slice(6)} at that time.` };
-    if (err instanceof Error && err.message === "BLOCKED")
-      return { ok: false, error: `${toCourt.name} is blocked off for part of that time.` };
-    if (isUniqueViolation(err))
-      return { ok: false, error: `${toCourt.name} was taken while you were moving it. Try again.` };
+    if (isConflict(err)) return { ok: false, error: await inTheWay(booking, toCourt, policy, zone) };
     throw err;
   }
 
@@ -2586,27 +2703,20 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
   if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
   const court = await getCourt(booking.courtId);
   if (!court) return [];
-  const hours = await bookingHours(booking);
-  const db = getDb();
   const candidates = (
-    await db
+    await getDb()
       .prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? AND id != ? ORDER BY id")
       .all(court.venueId, court.sport, court.id) as CourtRow[]
   ).map(toCourt);
-
-  const classHours = await classHoursOn(booking.date, court.venueId);
-  // Booked, or offered to somebody on the waiting list, as the move itself counts.
-  const taken = await countTakenPlaces(booking.date, undefined, candidates.map((c) => c.id));
-  const free: Court[] = [];
-  candidates: for (const c of candidates) {
-    const blocked = await blockedPlacesFor(c.id, booking.date, hours);
-    for (const hour of hours) {
-      if (classHours.has(`${c.id}:${hour}`)) continue candidates;
-      if ((taken.get(`${c.id}:${hour}`) ?? 0) + (blocked.get(hour) ?? 0) >= c.capacity) continue candidates;
-    }
-    free.push(c);
-  }
-  return free;
+  if (candidates.length === 0) return [];
+  const days = await courtDays(candidates, booking.date);
+  const held = await occupantsOn(candidates, booking.date, days.get(candidates[0].id)!.zone);
+  const span = { start: booking.startMin, end: booking.endMin };
+  // Booked, blocked, a class, or offered to somebody on the waiting list, as the move itself counts; its own time is free.
+  return candidates.filter((c) => {
+    const p = days.get(c.id)!.policy;
+    return fits(held.get(c.id)!, c.capacity, span, { before: p.bufferBefore, after: p.bufferAfter }, (o) => o.bookingId === booking.id);
+  });
 }
 
 export interface OccupancyDay {
@@ -2620,86 +2730,58 @@ export interface OccupancyReport {
   days: OccupancyDay[];
 }
 
-/** Booked/blocked hour counts per court for `numDays` days from `start`. */
+/**
+ * Hours booked and blocked per court for `numDays` days from `start`: court
+ * time, so a shared facility counts each place held, and only blocks that
+ * take the whole resource take hours out of the day.
+ */
 export async function getOccupancy(venueId: number, start: string, numDays: number): Promise<OccupancyReport> {
   const db = getDb();
   const courts = (
     await db.prepare("SELECT * FROM courts WHERE venue_id = ? ORDER BY id").all(venueId) as CourtRow[]
   ).map(toCourt);
-  const courtIds = new Set(courts.map((c) => c.id));
-
   const dates = Array.from({ length: numDays }, (_, i) => addDays(start, i));
-  const end = dates[dates.length - 1];
-
-  const bookedRows = await db
-    .prepare(`
-      SELECT court_id, date, SUM(span) AS n FROM booking_slots
-      WHERE date >= ? AND date <= ? GROUP BY court_id, date
-    `)
-    .all(start, end) as { court_id: number; date: string; n: number }[];
-  // A partial block does not remove an hour from the day, so only count the
-  // blocks that take the whole resource.
-  const blockedRows = await db
-    .prepare(`
-      SELECT b.court_id AS court_id, b.date AS date, SUM(b.span) AS n
-      FROM blocks_between(?, ?) b JOIN courts c ON c.id = b.court_id
-      WHERE COALESCE(b.places, c.capacity) >= c.capacity
-      GROUP BY b.court_id, b.date
-    `)
-    .all(start, end) as { court_id: number; date: string; n: number }[];
-
-  const bookedMap = new Map(
-    bookedRows.filter((r) => courtIds.has(r.court_id)).map((r) => [`${r.court_id}:${r.date}`, r.n])
-  );
-  const blockedMap = new Map(
-    blockedRows.filter((r) => courtIds.has(r.court_id)).map((r) => [`${r.court_id}:${r.date}`, r.n])
-  );
-
-  const { openHour, closeHour } = await venueHours(venueId);
-
-  return {
-    totalSlotsPerDay: closeHour - openHour,
-    courts,
-    days: dates.map((date) => ({
+  const { openMin, closeMin, zone } = await venueHours(venueId);
+  const days: OccupancyDay[] = [];
+  for (const date of dates) {
+    const held = await occupantsOn(courts, date, zone);
+    const on = await venueHours(venueId, date);
+    const day = { start: on.openMin, end: on.closeMin };
+    const minutes = (list: Occupant[], each: (o: Occupant) => number) =>
+      list.reduce((sum, o) => sum + Math.max(0, Math.min(o.span.end, day.end) - Math.max(o.span.start, day.start)) * each(o), 0);
+    days.push({
       date,
-      perCourt: courts.map((c) => ({
-        courtId: c.id,
-        booked: bookedMap.get(`${c.id}:${date}`) ?? 0,
-        blocked: blockedMap.get(`${c.id}:${date}`) ?? 0,
-      })),
-    })),
-  };
-}
-
-/**
- * What the venue's sports are sold by, unless a sport says otherwise (Rules by
- * sport): 60 (from the hour, in hours) or 30 (from any half hour, in halves).
- * The diary is kept in half hours whatever this says, so changing it moves
- * nothing: bookings stand as they are, and new ones follow the new unit.
- */
-export async function setSlotMinutes(venueId: number, minutes: unknown): Promise<{ ok: true; slotMinutes: 30 | 60 } | { ok: false; error: string }> {
-  if (minutes !== 30 && minutes !== 60) return { ok: false, error: "Slots are 30 or 60 minutes." };
-  const done = await getDb().prepare("UPDATE venues SET slot_minutes = ? WHERE id = ?").run(minutes, venueId);
-  if (done.changes === 0) return refuse("VENUE_NOT_FOUND");
-  return { ok: true, slotMinutes: minutes };
+      perCourt: courts.map((c) => {
+        const occupants = held.get(c.id)!;
+        return {
+          courtId: c.id,
+          booked: minutes(occupants.filter((o) => o.kind === "booking"), (o) => o.places) / 60,
+          blocked: minutes(occupants.filter((o) => (o.kind === "block" || o.kind === "outage") && o.places >= c.capacity), () => 1) / 60,
+        };
+      }),
+    });
+  }
+  return { totalSlotsPerDay: (closeMin - openMin) / 60, courts, days };
 }
 
 export type VenueEditResult = { ok: true; venue: Venue } | Refusal;
 
-/** Validate a venue's trading hours, defaulting anything not given. */
+/** Validate a venue's usual hours (minutes, or hours as the older forms give them), defaulting anything not given. */
 function normaliseHours(
   open: number | undefined,
   close: number | undefined
-): { ok: true; openHour: number; closeHour: number } | Refusal {
-  const openHour = open ?? DEFAULT_OPEN_HOUR;
-  const closeHour = close ?? DEFAULT_CLOSE_HOUR;
-  if (!Number.isInteger(openHour) || !Number.isInteger(closeHour))
-    return { ok: false, error: "Opening hours must be whole hours." };
-  if (openHour < OPEN_HOUR || openHour > 23 || closeHour > LATEST_CLOSE_HOUR)
-    return { ok: false, error: `Open from midnight, and close by ${LATEST_CLOSE_HOUR - 24} AM the next morning at the latest.` };
-  if (closeHour - openHour < 1)
-    return { ok: false, error: "A venue must be open for at least an hour." };
-  return { ok: true, openHour, closeHour };
+): { ok: true; openMin: number; closeMin: number } | Refusal {
+  const openMin = open ?? DEFAULT_OPEN_HOUR * 60;
+  const closeMin = close ?? DEFAULT_CLOSE_HOUR * 60;
+  const checked = validateUsualHours(openMin, closeMin);
+  if (!checked.ok) return { ok: false, error: checked.error };
+  return { ok: true, openMin, closeMin };
+}
+
+/** Minutes from a request that may give minutes, or hours (18.5) the older way. */
+function minutesFrom(min: number | undefined, hour: number | undefined): number | undefined {
+  if (min !== undefined) return min;
+  return hour === undefined ? undefined : minutesOf(hour);
 }
 
 export async function createVenue(input: {
@@ -2707,12 +2789,15 @@ export async function createVenue(input: {
   area: string;
   address: string;
   phone: string;
+  /** Its usual hours, in minutes of the day (or hours, the older way). */
+  openMin?: number;
+  closeMin?: number;
   openHour?: number;
   closeHour?: number;
   /** A business setting itself up: nobody else sees it until it goes live. */
   draft?: boolean;
 }): Promise<VenueEditResult> {
-  const hours = normaliseHours(input.openHour, input.closeHour);
+  const hours = normaliseHours(minutesFrom(input.openMin, input.openHour), minutesFrom(input.closeMin, input.closeHour));
   if (!hours.ok) return hours;
   // A late close may not run into the next morning's opening.
   const overlap = validateWeekHours(null, hours);
@@ -2720,7 +2805,7 @@ export async function createVenue(input: {
   const db = getDb();
   const info = await db
     .prepare(
-      `INSERT INTO venues (name, area, address, phone, open_hour, close_hour, published_at)
+      `INSERT INTO venues (name, area, address, phone, open_min, close_min, published_at)
        VALUES (?, ?, ?, ?, ?, ?, ${input.draft ? "NULL" : "datetime('now')"})`
     )
     .run(
@@ -2728,8 +2813,8 @@ export async function createVenue(input: {
       input.area.trim(),
       input.address.trim(),
       input.phone.trim(),
-      hours.openHour,
-      hours.closeHour
+      hours.openMin,
+      hours.closeMin
     );
   const venue = toVenue(
     await db.prepare("SELECT * FROM venues WHERE id = ?").get(info.lastInsertRowid) as VenueRow
@@ -2776,6 +2861,9 @@ export async function updateVenue(
     address?: string;
     phone?: string;
     cancelCutoffHours?: number;
+    /** Usual hours in minutes of the day (or hours, the older way). */
+    openMin?: number;
+    closeMin?: number;
     openHour?: number;
     closeHour?: number;
     /** Weekdays with hours of their own, or closed (lib/week-hours.ts); null puts every day back on the usual hours. */
@@ -2793,8 +2881,8 @@ export async function updateVenue(
   const current = toVenue(row);
 
   const hours = normaliseHours(
-    changes.openHour ?? current.openHour,
-    changes.closeHour ?? current.closeHour
+    minutesFrom(changes.openMin, changes.openHour) ?? current.openMin,
+    minutesFrom(changes.closeMin, changes.closeHour) ?? current.closeMin
   );
   if (!hours.ok) return hours;
   const week = validateWeekHours(changes.weekHours !== undefined ? changes.weekHours : current.weekHours ?? null, hours);
@@ -2802,14 +2890,14 @@ export async function updateVenue(
   // Narrowing a day, or closing one, would strand anything already sold outside the new hours.
   const sold = (await db
     .prepare(`
-      SELECT DISTINCT s.date, s.hour FROM booking_slots s
-      WHERE s.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND s.date >= ?
+      SELECT DISTINCT b.date, b.start_min, b.end_min FROM bookings b
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.status = 'confirmed' AND b.class_id IS NULL
     `)
-    .all(venueId, todayISO())) as { date: string; hour: number }[];
-  const next = { openHour: hours.openHour, closeHour: hours.closeHour, weekHours: week.week };
+    .all(venueId, todayISO())) as { date: string; start_min: number; end_min: number }[];
+  const next = { openMin: hours.openMin, closeMin: hours.closeMin, weekHours: week.week };
   const stranded = sold.filter((r) => {
     const on = hoursOn(next, r.date);
-    return on.closed || Number(r.hour) < on.openHour || Number(r.hour) >= on.closeHour;
+    return on.closed || r.start_min < on.openMin || r.end_min > on.closeMin;
   });
   if (stranded.length > 0)
     return {
@@ -2837,7 +2925,7 @@ export async function updateVenue(
 
   await db.prepare(
     `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
-                       open_hour = ?, close_hour = ?, week_hours = ?, staffed_from = ?, staffed_to = ?,
+                       open_min = ?, close_min = ?, week_hours = ?, staffed_from = ?, staffed_to = ?,
                        emergency_phone = ?, emergency_info = ? WHERE id = ?`
   ).run(
     changes.name?.trim() ?? current.name,
@@ -2845,8 +2933,8 @@ export async function updateVenue(
     changes.address?.trim() ?? current.address,
     changes.phone?.trim() ?? current.phone,
     changes.cancelCutoffHours ?? current.cancelCutoffHours,
-    hours.openHour,
-    hours.closeHour,
+    hours.openMin,
+    hours.closeMin,
     week.week ? JSON.stringify(week.week) : null,
     staffedFrom,
     staffedTo,
@@ -2951,7 +3039,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
       LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = c.sport
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
       WHERE b.user_id = ?
-      ORDER BY b.date DESC, b.start_hour DESC
+      ORDER BY b.date DESC, b.start_min DESC
     `)
     .all(userId) as (BookingRow & {
     court_name: string;
@@ -3278,15 +3366,15 @@ export async function presentAtVenue(venueId: number): Promise<number> {
   const { zone } = await venueHours(venueId);
   const rows = await getDb()
     .prepare(`
-      SELECT b.date, b.end_hour FROM check_ins ci
+      SELECT b.ends_at FROM check_ins ci
       JOIN bookings b ON b.id = ci.booking_id
       JOIN courts c ON c.id = b.court_id
       WHERE c.venue_id = ? AND ci.checked_out_at IS NULL
         AND b.status = 'confirmed' AND b.date = ?
     `)
-    .all(venueId, todayISO(zone)) as { date: string; end_hour: number }[];
+    .all(venueId, todayISO(zone)) as { ends_at: Date }[];
   const now = Date.now();
-  return rows.filter((r) => slotStartsAt(r.date, r.end_hour, zone).getTime() > now).length;
+  return rows.filter((r) => new Date(r.ends_at).getTime() > now).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -3677,18 +3765,18 @@ export async function getLiveOccupancy(venueId: number): Promise<LiveOccupancy[]
 
   const rows = await db
     .prepare(`
-      SELECT b.court_id, b.date, b.end_hour FROM check_ins ci
+      SELECT b.court_id, b.ends_at FROM check_ins ci
       JOIN bookings b ON b.id = ci.booking_id
       JOIN courts c ON c.id = b.court_id
       WHERE c.venue_id = ? AND ci.checked_out_at IS NULL
         AND b.status = 'confirmed' AND b.date = ?
     `)
-    .all(venueId, todayISO(zone)) as { court_id: number; date: string; end_hour: number }[];
+    .all(venueId, todayISO(zone)) as { court_id: number; ends_at: Date }[];
 
   const now = Date.now();
   const present = new Map<number, number>();
   for (const row of rows) {
-    if (slotStartsAt(row.date, row.end_hour, zone).getTime() <= now) continue;
+    if (new Date(row.ends_at).getTime() <= now) continue;
     present.set(row.court_id, (present.get(row.court_id) ?? 0) + 1);
   }
 
@@ -3765,6 +3853,7 @@ export async function createCourt(input: {
       input.capacity ?? 1,
       input.deposit ?? 0
     );
+  // A court taking one booking at a time is given a space of its own by the database (lib/claims.ts).
   return { ok: true, court: (await getCourt(info.lastInsertRowid as number))! };
 }
 
@@ -3782,9 +3871,6 @@ export async function updateCourt(
     unmanned?: boolean;
     /** null clears the stored code, which also switches unmanned off. */
     accessCode?: string | null;
-    /** The shortest and longest one booking may be, in hours; null for one slot, and four hours. */
-    minHours?: number | null;
-    maxHours?: number | null;
     /** Priced per player, and the most one booking takes (null for DEFAULT_MAX_PLAYERS). */
     perPlayer?: boolean;
     maxPlayers?: number | null;
@@ -3798,22 +3884,33 @@ export async function updateCourt(
   if (changes.capacity !== undefined && changes.capacity > 1 && (await db.prepare("SELECT 1 FROM court_links WHERE whole_id = ? OR part_id = ?").get(courtId, courtId)))
     return { ok: false, error: "This court shares its floor with others, so it is booked whole. Unlink it first." };
 
+  // What holds the court from now on, to check a change of capacity against.
+  const upcoming = changes.capacity !== undefined && changes.capacity !== court.capacity
+    ? ((await db
+        .prepare(
+          `SELECT lower(occupied) AS lo, upper(occupied) AS hi, COALESCE(places, 1) AS places FROM claims
+            WHERE court_id = ? AND active AND (upper(occupied) IS NULL OR upper(occupied) > now())`
+        )
+        .all(courtId)) as { lo: Date; hi: Date | null; places: number }[])
+    : [];
+  // One booking at a time and places are held differently (lib/claims.ts): a
+  // court changes between them only with nothing to come on it.
+  if (changes.capacity !== undefined && (changes.capacity === 1) !== (court.capacity === 1) && upcoming.length > 0)
+    return { ok: false, error: "This court has bookings or blocks to come. Change between one booking at a time and places once they are over." };
   // Shrinking capacity below what is already booked would strand those
   // bookings, so refuse rather than silently overbook.
-  if (changes.capacity !== undefined && changes.capacity < court.capacity) {
-    const peak = await db
-      .prepare(`
-        SELECT COUNT(*) AS n FROM booking_slots
-        WHERE court_id = ? AND date >= substr(datetime('now'), 1, 10)
-        GROUP BY date, hour ORDER BY n DESC LIMIT 1
-      `)
-      .get(courtId) as { n: number } | undefined;
-    if (peak && peak.n > changes.capacity) {
+  if (changes.capacity !== undefined && changes.capacity < court.capacity && court.capacity > 1) {
+    const edges = upcoming
+      .flatMap((c) => [[new Date(c.lo).getTime(), Number(c.places)], [c.hi === null ? Infinity : new Date(c.hi).getTime(), -Number(c.places)]] as [number, number][])
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    let load = 0;
+    let peak = 0;
+    for (const [, d] of edges) peak = Math.max(peak, (load += d));
+    if (peak > changes.capacity)
       return {
         ok: false,
-        error: `Capacity cannot go below ${peak.n} — that many places are already booked in an upcoming hour.`,
+        error: `Capacity cannot go below ${peak} — that many places are already booked at an upcoming time.`,
       };
-    }
   }
 
   const memberOffPeak =
@@ -3881,14 +3978,6 @@ export async function updateCourt(
       error: "Something hired out against a deposit needs someone at the counter, so it cannot be unmanned.",
     };
 
-  const minHours = changes.minHours !== undefined ? changes.minHours : court.minHours ?? null;
-  const maxHours = changes.maxHours !== undefined ? changes.maxHours : court.maxHours ?? null;
-  const lengthOk = (h: number | null) => h === null || (Number.isFinite(h) && h >= 0.5 && h <= MAX_COURT_HOURS && Number.isInteger(h * 2));
-  if (!lengthOk(minHours) || !lengthOk(maxHours))
-    return { ok: false, error: `A booking's length is in half hours, up to ${MAX_COURT_HOURS} hours.` };
-  if (minHours !== null && minHours > (maxHours ?? MAX_HOURS_PER_BOOKING))
-    return { ok: false, error: "The shortest booking is longer than the longest." };
-
   const perPlayer = changes.perPlayer ?? court.perPlayer ?? false;
   const maxPlayers = changes.maxPlayers !== undefined ? changes.maxPlayers : court.maxPlayers ?? null;
   if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > MAX_PLAYERS))
@@ -3903,7 +3992,7 @@ export async function updateCourt(
     await db.prepare(`
       UPDATE courts SET name = ?, off_peak_rate = ?, peak_rate = ?,
                         member_off_peak_rate = ?, member_peak_rate = ?, capacity = ?,
-                        deposit = ?, unmanned = ?, access_code = ?, min_hours = ?, max_hours = ?,
+                        deposit = ?, unmanned = ?, access_code = ?,
                         per_player = ?, max_players = ?
       WHERE id = ?
     `).run(
@@ -3916,8 +4005,6 @@ export async function updateCourt(
       deposit,
       unmanned ? 1 : 0,
       newCode,
-      minHours,
-      maxHours,
       perPlayer ? 1 : 0,
       maxPlayers,
       courtId
@@ -3949,7 +4036,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       LEFT JOIN coaches k ON k.id = b.coach_id
       LEFT JOIN venue_accounts ac ON ac.id = b.account_id
       WHERE b.date = ?${venue.sql}
-      ORDER BY v.id, c.id, b.start_hour
+      ORDER BY v.id, c.id, b.start_min
     `)
     .all(date, ...venue.params) as (BookingRow & {
     court_name: string;
@@ -4049,8 +4136,8 @@ interface ClassRow {
   name: string;
   instructor: string;
   date: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
   capacity: number;
   price: number;
   status: ClassStatus;
@@ -4087,8 +4174,10 @@ function toClass(r: ClassRow): ClassSession {
     name: r.name,
     instructor: r.instructor,
     date: r.date,
-    startHour: r.start_hour,
-    endHour: r.end_hour,
+    startMin: r.start_min,
+    endMin: r.end_min,
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
     capacity: r.capacity,
     price: r.price,
     status: r.status,
@@ -4142,7 +4231,7 @@ export async function listClasses(filter: {
   }
 
   const rows = await getDb()
-    .prepare(`${CLASS_SELECT} WHERE ${clauses.join(" AND ")} ORDER BY cl.date, cl.start_hour, cl.id`)
+    .prepare(`${CLASS_SELECT} WHERE ${clauses.join(" AND ")} ORDER BY cl.date, cl.start_min, cl.id`)
     .all(...params) as ClassRow[];
   return rows.map(toClass);
 }
@@ -4152,16 +4241,21 @@ export type CreateClassResult =
   | Refusal;
 
 /**
- * Schedule a class, optionally repeating weekly for a term. The resource must
- * be free for those hours — a class cannot be laid over existing bookings.
+ * Schedule a class, optionally repeating weekly for a term. A class holds its
+ * court (all of a shared facility's places) for its time, with the court's
+ * buffers: it cannot be laid over bookings, blocks or another class, and
+ * nothing can be booked over it afterwards.
  */
 export async function createClassSessions(input: {
   courtId: number;
   name: string;
   instructor: string;
   date: string;
-  startHour: number;
-  endHour: number;
+  /** Its time, in minutes of the day (or hours, the older way). */
+  start?: number;
+  end?: number;
+  startHour?: number;
+  endHour?: number;
   capacity: number;
   price: number;
   weeks?: number;
@@ -4170,7 +4264,9 @@ export async function createClassSessions(input: {
   /** A share off each session for joining the whole term at once. */
   termOffPercent?: number | null;
 }): Promise<CreateClassResult> {
-  const { courtId, date, startHour, endHour } = input;
+  const { courtId, date } = input;
+  const start = minutesFrom(input.start, input.startHour);
+  const end = minutesFrom(input.end, input.endHour);
   const weeks = input.weeks ?? 1;
   const who = input.who ?? "anyone";
   if (who !== "anyone" && who !== "women" && who !== "men") return { ok: false, error: "Anyone, women only or men only." };
@@ -4182,8 +4278,8 @@ export async function createClassSessions(input: {
   const termOff = input.termOffPercent ?? null;
   if (termOff !== null && (!Number.isInteger(termOff) || termOff < 0 || termOff > 50))
     return { ok: false, error: "Take 0 to 50 percent off for the whole term." };
-  const { openHour, closeHour, zone } = await courtVenueHours(courtId, date);
-  if (startHour < openHour || endHour > closeHour || endHour <= startHour)
+  const day = await courtDay(court, date);
+  if (!isMinute(start) || !isMinute(end) || start < day.openMin || end > day.closeMin || end <= start)
     return { ok: false, error: "Class hours are outside operating hours." };
   if (await getVenueClosure(court.venueId, date))
     return refuse("VENUE_CLOSED");
@@ -4192,50 +4288,57 @@ export async function createClassSessions(input: {
       ok: false,
       error: `Capacity must be 1–${court.capacity}, the capacity of ${court.name}.`,
     };
-  if (isPastSlot(date, startHour, zone))
+  if (minutesUntil(date, start, day.zone) <= 0)
     return { ok: false, error: "That start time has already passed." };
 
-  // Every half hour of the diary the class covers.
-  const hours = slotsBetween(startHour, endHour, SLOT);
+  const span = { start, end };
   const db = getDb();
   const seriesCode = weeks > 1 ? randomCode("CL-") : null;
 
-  const taken = db.prepare(
-    `SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour IN (${hours
-      .map(() => "?")
-      .join(",")})`
-  );
-  const insert = db.prepare(`
-    INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price, series_code, who, term_off_percent)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
   try {
-    const created = await db.transaction(async () => {
+    const created = await withTransaction(async () => {
       const sessions: ClassSession[] = [];
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
-        if ((await taken.get(courtId, weekDate, ...hours) as { n: number }).n > 0)
-          throw new Error(`BOOKED:${weekDate}`);
-        const clashes = await classHoursOn(weekDate, court.venueId);
-        if (hours.some((h) => clashes.has(`${courtId}:${h}`)))
-          throw new Error(`CLASH:${weekDate}`);
-
-        const id = (await insert.run(
-          courtId, input.name.trim(), input.instructor.trim(), weekDate,
-          startHour, endHour, input.capacity, input.price, seriesCode, who, seriesCode ? termOff : null
-        )).lastInsertRowid as number;
-        sessions.push((await getClass(id))!);
+        const row = (await db
+          .prepare(
+            `INSERT INTO classes (court_id, name, instructor, date, start_min, end_min, capacity, price, series_code, who, term_off_percent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+          )
+          .get(
+            courtId, input.name.trim(), input.instructor.trim(), weekDate,
+            start, end, input.capacity, input.price, seriesCode, who, seriesCode ? termOff : null
+          )) as { id: number };
+        try {
+          await withTransaction(() =>
+            claim({
+              court,
+              source: { kind: "class", classId: row.id },
+              date: weekDate,
+              span,
+              zone: day.zone,
+              places: court.capacity,
+              bufferBefore: day.policy.bufferBefore,
+              bufferAfter: day.policy.bufferAfter,
+            })
+          );
+        } catch (err) {
+          if (!isConflict(err)) throw err;
+          const held = (await occupantsOn([court], weekDate, day.zone)).get(court.id)!;
+          const why = whyTaken(held, court, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter });
+          throw new Error(`${why?.why === "class" ? "CLASH" : "BOOKED"}:${weekDate}`);
+        }
+        sessions.push((await getClass(row.id))!);
       }
       return sessions;
-    })();
+    });
     return { ok: true, classes: created, seriesCode };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("BOOKED:"))
       return {
         ok: false,
-        error: `${message.slice(7)} already has bookings in those hours. Cancel them first.`,
+        error: `${message.slice(7)} already has bookings or blocks in those hours. Cancel them first.`,
       };
     if (message.startsWith("CLASH:"))
       return { ok: false, error: `${message.slice(6)} already has a class at that time.` };
@@ -4245,7 +4348,11 @@ export async function createClassSessions(input: {
 
 export type EnrolResult = { ok: true; booking: Booking } | Refusal;
 
-/** Take a place in a class. The enrolment is an ordinary booking. */
+/**
+ * Take a place in a class. The enrolment is a booking of the class's time,
+ * holding a place in the class (the class holds the court). The class row is
+ * locked while its places are counted, so two people cannot take its last.
+ */
 export async function enrolInClass(input: {
   classId: number;
   name: string;
@@ -4256,10 +4363,11 @@ export async function enrolInClass(input: {
   waitlistId?: number;
 }): Promise<EnrolResult> {
   return withTransaction(async () => {
+    await getDb().prepare("SELECT id FROM classes WHERE id = ? FOR UPDATE").get(input.classId);
     const session = await getClass(input.classId);
     if (!session) return refuse("CLASS_NOT_FOUND");
     if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
-    if (isPastSlot(session.date, session.startHour, (await venueHours(session.venueId)).zone))
+    if (minutesUntil(session.date, session.startMin, (await venueHours(session.venueId)).zone) <= 0)
       return refuse("CLASS_STARTED");
     if (session.enrolled + (await classOfferHolds(session.id, input.waitlistId)) >= session.capacity)
       return refuse("CLASS_FULL");
@@ -4274,11 +4382,11 @@ export async function enrolInClass(input: {
       .get(session.id, input.phone.trim());
     if (already) return refuse("ALREADY_ENROLLED");
 
-    const hours = await bookingHours(session);
     const result = await createBookingSeries({
       courtId: session.courtId,
       date: session.date,
-      hours,
+      start: session.startMin,
+      end: session.endMin,
       weeks: 1,
       name: input.name,
       phone: input.phone,
@@ -4288,11 +4396,11 @@ export async function enrolInClass(input: {
     });
     if (!result.ok) return { ok: false, error: result.error };
 
-    // Price the enrolment at the class rate, not the court's hourly rate.
+    // Price the enrolment at the class rate, not the court's.
     await getDb()
-      .prepare("UPDATE bookings SET total_price = ? WHERE id = ?")
+      .prepare("UPDATE bookings SET total_price = ?, fee_amount = 0 WHERE id = ?")
       .run(session.price, result.bookings[0].id);
-    return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price } };
+    return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price, feeAmount: 0 } };
   });
 }
 
@@ -4312,7 +4420,7 @@ export async function classTerm(classId: number): Promise<TermInfo | null> {
   const rows = (await getDb()
     .prepare(`${CLASS_SELECT} WHERE cl.series_code = ? AND cl.status = 'scheduled' AND cl.date >= ? ORDER BY cl.date`)
     .all(session.seriesCode, session.date)) as ClassRow[];
-  const sessions = rows.map(toClass).filter((c) => c.enrolled < c.capacity && !isPastSlot(c.date, c.startHour, zone));
+  const sessions = rows.map(toClass).filter((c) => c.enrolled < c.capacity && minutesUntil(c.date, c.startMin, zone) > 0);
   if (sessions.length < 2) return null;
   const offPercent = session.termOffPercent ?? 0;
   const total = roundMoney(sessions.reduce((sum, c) => sum + roundMoney((c.price * (100 - offPercent)) / 100), 0));
@@ -4372,9 +4480,11 @@ export async function cancelClassSession(classId: number): Promise<{
 
   await db.transaction(async () => {
     await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
+    // The court is free again for that time.
+    await release({ kind: "class", classId });
     for (const row of enrolments) {
       await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(row.id);
-      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(row.id);
+      await releaseBooking(row.id);
     }
   })();
   for (const row of enrolments) await refundBooking(row.id);
@@ -5239,8 +5349,9 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
     sport: court.sport,
     date: booking.date,
     hours: booking.endHour - booking.startHour,
-    // A code is for the court: a coach's fee is theirs, not the venue's to discount.
-    price: booking.totalPrice - (booking.coachFee ?? 0),
+    // A code is for the court time: a coach's fee is theirs, and setup and
+    // cleanup fees are not time, as with concessions.
+    price: booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0),
   });
   if (!quote.ok) return quote;
 
@@ -5250,7 +5361,7 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
       const blocked = promoBlockedReason(fresh);
       if (blocked) throw new Error(`BLOCKED:${blocked}`);
       // Re-derive against the live price, not the quoted one.
-      const discount = promoDiscount(fresh, booking.totalPrice - (booking.coachFee ?? 0));
+      const discount = promoDiscount(fresh, booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0));
       if (discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
       // One customer cannot take a code's every use: counted by phone, however it is typed.
       if (fresh.maxPerCustomer !== null) {
@@ -5317,6 +5428,9 @@ interface PassRow {
   venue_name: string;
   sport: Sport | null;
   name: string;
+  kind: PassKind;
+  entry_minutes: number | null;
+  max_minutes: number | null;
   entries: number;
   price: number;
   holder_name: string;
@@ -5331,7 +5445,7 @@ interface PassRow {
 
 const PASS_SELECT = `
   SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.name,
-         p.entries, p.price, p.holder_name, p.holder_phone, p.expires_on,
+         p.kind, p.entry_minutes, p.max_minutes, p.entries, p.price, p.holder_name, p.holder_phone, p.expires_on,
          p.status, p.created_at, p.coach_id, k.name AS coach_name,
          (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent
   FROM passes p JOIN venues v ON v.id = p.venue_id LEFT JOIN coaches k ON k.id = p.coach_id
@@ -5348,6 +5462,9 @@ function toPass(r: PassRow): Pass {
     coachId: r.coach_id,
     coachName: r.coach_name,
     name: r.name,
+    kind: r.kind,
+    entryMinutes: r.entry_minutes,
+    maxMinutes: r.max_minutes,
     entries: r.entries,
     remaining,
     price: r.price,
@@ -5362,11 +5479,11 @@ function toPass(r: PassRow): Pass {
 }
 
 /** Why a pass cannot be spent today, or null when it can. */
-function passBlockedReason(pass: Pick<Pass, "status" | "expiresOn" | "remaining">): string | null {
+function passBlockedReason(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">): string | null {
   if (pass.status === "void") return "This pass was cancelled.";
   // expires_on is inclusive, so a pass is good for the whole of that day.
   if (pass.expiresOn < todayISO()) return `This pass expired on ${pass.expiresOn}.`;
-  if (pass.remaining <= 0) return "This pass has no entries left.";
+  if (pass.remaining <= 0) return pass.kind === "time" ? "This pass has no time left." : "This pass has no entries left.";
   return null;
 }
 
@@ -5434,7 +5551,17 @@ export async function issuePass(input: {
   venueId: number;
   sport?: Sport | null;
   name: string;
+  /** Session (entries) or time (minutes of court time); session if not said. */
+  kind?: PassKind;
+  /** Entries sold on a session pass; minutes of court time on a time pass. */
   entries: number;
+  /**
+   * A session pass's entry: the minutes one covers (a booking spends one per
+   * so many minutes or part), or null for one a booking. 60 if not said.
+   */
+  entryMinutes?: number | null;
+  /** The longest booking the pass may pay for, in minutes; null: any. */
+  maxMinutes?: number | null;
   price: number;
   holderName: string;
   holderPhone: string;
@@ -5456,8 +5583,19 @@ export async function issuePass(input: {
     if (name.length < 2) return { ok: false, error: "Give the pass a name." };
     if (holderName.length < 2 || holderPhone.length < 6)
       return { ok: false, error: "A holder name and phone number are required." };
-    if (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_ENTRIES)
+    const kind = input.kind ?? "session";
+    if (kind !== "session" && kind !== "time") return { ok: false, error: "A pass spends entries or court time." };
+    if (kind === "session" && (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_ENTRIES))
       return { ok: false, error: `Entries must be 1–${MAX_PASS_ENTRIES}.` };
+    if (kind === "time" && (!Number.isInteger(input.entries) || input.entries < 1 || input.entries > MAX_PASS_MINUTES))
+      return { ok: false, error: `Court time must be 1–${MAX_PASS_MINUTES} minutes.` };
+    // A time pass spends what was booked, to the minute: no entry to size.
+    const entryMinutes = kind === "time" ? null : input.entryMinutes === undefined ? 60 : input.entryMinutes;
+    if (entryMinutes !== null && (!Number.isInteger(entryMinutes) || entryMinutes < 1 || entryMinutes > DAY_MINUTES))
+      return { ok: false, error: `An entry covers 1–${DAY_MINUTES} minutes, or a whole booking.` };
+    const maxMinutes = input.maxMinutes ?? null;
+    if (maxMinutes !== null && (!Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > DAY_MINUTES))
+      return { ok: false, error: `The longest booking a pass pays for is 1–${DAY_MINUTES} minutes.` };
     if (!isAmount(input.price))
       return { ok: false, error: `Price must be ${money(0)} or more, to the ${region().currency.minor}.` };
     if (!isValidDateString(input.expiresOn))
@@ -5484,15 +5622,18 @@ export async function issuePass(input: {
 
     const info = await db
       .prepare(`
-        INSERT INTO passes (code, venue_id, sport, name, entries, price, holder_name,
+        INSERT INTO passes (code, venue_id, sport, name, kind, entry_minutes, max_minutes, entries, price, holder_name,
                             holder_phone, user_id, expires_on, admin_id, coach_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("PS-"),
         input.venueId,
         input.sport ?? null,
         name,
+        kind,
+        entryMinutes,
+        maxMinutes,
         input.entries,
         input.price,
         holderName,
@@ -5509,7 +5650,7 @@ export async function issuePass(input: {
       userId: input.userId ?? null,
       name: holderName,
       phone: holderPhone,
-      lines: [{ description: `${name} (${pass.code}), ${input.entries} entries, until ${input.expiresOn}`, amount: input.price }],
+      lines: [{ description: `${name} (${pass.code}), ${passAmount(pass, input.entries)}, until ${input.expiresOn}`, amount: input.price }],
       paidVia: input.price === 0 ? null : "At the counter",
       taxable: true,
     });
@@ -5563,9 +5704,10 @@ export type PassPayResult =
   | Refusal;
 
 /**
- * Settle a booking with a pass: one entry per booked hour, all or nothing.
- * The remaining count is re-read inside the transaction so two concurrent
- * bookings cannot spend the same entry.
+ * Settle a booking with a pass, all or nothing: a time pass spends the
+ * minutes booked, a session pass its entries (`passCost`). The remaining
+ * balance is re-read inside the transaction so two concurrent bookings
+ * cannot spend the same entry.
  */
 export async function payBookingWithPass(bookingId: number, passCode: string): Promise<PassPayResult> {
   const db = getDb();
@@ -5591,21 +5733,20 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
   if (normalisePhone(pass.holderPhone) !== normalisePhone(booking.phone))
     return refuse("PASS_WRONG_PHONE");
 
-  // An entry an hour; a booking with a half hour in it spends the whole hour.
-  const hours = Math.ceil(booking.endHour - booking.startHour);
+  const cost = passCost(pass, booking.endMin - booking.startMin);
+  if (!cost.ok) return { ok: false, error: `That pass pays for bookings up to ${formatLength(cost.maxMinutes)}.` };
+  const units = cost.units;
 
   try {
     await db.transaction(async () => {
       const fresh = (await passById(pass.id))!;
       const blocked = passBlockedReason(fresh);
       if (blocked) throw new Error(`BLOCKED:${blocked}`);
-      if (fresh.remaining < hours)
-        throw new Error(
-          `BLOCKED:This pass has ${fresh.remaining} ${fresh.remaining === 1 ? "entry" : "entries"} left, and this booking needs ${hours}.`
-        );
+      if (fresh.remaining < units)
+        throw new Error(`BLOCKED:This pass has ${passAmount(fresh, fresh.remaining)} left, and this booking needs ${passAmount(fresh, units)}.`);
       await db.prepare(
         "INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)"
-      ).run(pass.id, -hours, `Booking ${booking.code}`, booking.id);
+      ).run(pass.id, -units, `Booking ${booking.code}`, booking.id);
       if (!await claimPayment(booking.id, "pass")) throw new Error("RACED");
     })();
   } catch (err) {
@@ -5615,7 +5756,13 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
     throw err;
   }
 
-  return { ok: true, pass: (await passById(pass.id))!, spent: hours };
+  return { ok: true, pass: (await passById(pass.id))!, spent: units };
+}
+
+/** "3 entries", "1 h 30 min": an amount of what a pass holds. */
+export function passAmount(pass: Pick<Pass, "kind">, units: number): string {
+  if (pass.kind === "time") return formatLength(units);
+  return `${units} ${units === 1 ? "entry" : "entries"}`;
 }
 
 /** Empty is the same as unset for optional text a venue types in. */
@@ -5656,7 +5803,7 @@ export async function refundBookingToPass(bookingId: number, share = 1): Promise
     const code = (await db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
       | { code: string }
       | undefined)?.code;
-    // Whole entries only: a late cancellation's share is rounded down.
+    // Whole entries (or minutes) only: a late cancellation's share is rounded down.
     const back = Math.floor(-charge.delta * share);
     if (back > 0)
       await db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
@@ -5707,8 +5854,8 @@ interface WaitlistRow {
   class_id: number | null;
   court_id: number | null;
   date: string | null;
-  start_hour: number | null;
-  end_hour: number | null;
+  start_min: number | null;
+  end_min: number | null;
   name: string;
   phone: string;
   email: string | null;
@@ -5726,8 +5873,10 @@ function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
     classId: r.class_id,
     courtId: r.court_id,
     date: r.date,
-    startHour: r.start_hour,
-    endHour: r.end_hour,
+    startMin: r.start_min,
+    endMin: r.end_min,
+    startHour: r.start_min === null ? null : hoursOf(r.start_min),
+    endHour: r.end_min === null ? null : hoursOf(r.end_min),
     name: r.name,
     phone: r.phone,
     status: r.status,
@@ -5767,6 +5916,8 @@ async function expireStaleOffers(): Promise<{ classIds: number[]; slots: { court
         "UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ? AND status = 'offered'"
       ).run(row.id);
       if (done.changes !== 1) continue;
+      // Its hold on the court goes with it.
+      await release({ kind: "offer", waitlistId: row.id });
       if (row.class_id) freed.classIds.push(row.class_id);
       else if (row.court_id && row.date) freed.slots.push({ courtId: row.court_id, date: row.date });
     }
@@ -5812,7 +5963,7 @@ export async function joinClassWaitlist(input: {
     const session = await getClass(input.classId);
     if (!session) return refuse("CLASS_NOT_FOUND");
     if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
-    if (isPastSlot(session.date, session.startHour, (await venueHours(session.venueId)).zone))
+    if (minutesUntil(session.date, session.startMin, (await venueHours(session.venueId)).zone) <= 0)
       return refuse("CLASS_STARTED");
     if (session.enrolled < session.capacity)
       return refuse("CLASS_HAS_PLACES");
@@ -5912,15 +6063,13 @@ export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
       });
       if (!enrolled.ok) return { ok: false, error: enrolled.error };
       booking = enrolled.booking;
-    } else if (row.court_id && row.date && row.start_hour !== null && row.end_hour !== null) {
-      // Booked as the customer would book it: in what the sport is sold by here.
-      const claimed = await getCourt(row.court_id);
-      const unit = claimed ? await sellUnit(claimed.venueId, claimed.sport) : SLOT;
-      const hours = slotsBetween(row.start_hour, row.end_hour, unit);
+    } else if (row.court_id && row.date && row.start_min !== null && row.end_min !== null) {
+      // Booked as the customer would book it; the offer's own hold becomes the booking's.
       const created = await createBookingSeries({
         courtId: row.court_id,
         date: row.date,
-        hours,
+        start: row.start_min,
+        end: row.end_min,
         weeks: 1,
         name: row.name,
         phone: row.phone,
@@ -5933,6 +6082,7 @@ export async function claimWaitlistOffer(token: string): Promise<ClaimResult> {
         await db.prepare(
           "UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ?"
         ).run(row.id);
+        await release({ kind: "offer", waitlistId: row.id });
         return { ok: false, error: created.error };
       }
       booking = created.bookings[0];
@@ -5962,6 +6112,7 @@ export async function leaveWaitlist(entryId: number, phone: string): Promise<{ o
     if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
 
     await db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
+    await release({ kind: "offer", waitlistId: row.id });
     // Someone dropping out may free a live offer for the next person.
     if (row.class_id) await offerClassPlace(row.class_id);
     else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
@@ -5994,12 +6145,12 @@ export async function listWaitlistFor(phone: string): Promise<WaitlistEntry[]> {
     if (row.class_id) {
       const session = await getClass(row.class_id);
       if (session) {
-        entry.label = `${session.name} · ${session.date} ${formatHourLabel(session.startHour)}`;
+        entry.label = `${session.name} · ${session.date} ${formatMinute(session.startMin)}`;
       }
-    } else if (row.court_id && row.date && row.start_hour !== null) {
+    } else if (row.court_id && row.date && row.start_min !== null) {
       const court = await getCourt(row.court_id);
       if (court) {
-        entry.label = `${court.name} · ${row.date} ${formatHourLabel(row.start_hour)}`;
+        entry.label = `${court.name} · ${row.date} ${formatMinute(row.start_min)}`;
       }
     }
     entries.push(entry);
@@ -6007,41 +6158,25 @@ export async function listWaitlistFor(phone: string): Promise<WaitlistEntry[]> {
   return entries;
 }
 
-function formatHourLabel(hour: number): string {
-  const h = hour % 24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  return `${h % 12 === 0 ? 12 : h % 12}:00 ${suffix}`;
+/* ---------------- Waitlists for ordinary time ---------------- */
+
+/** Is this time free on this resource right now, with its buffers, for one more? */
+async function slotTimeFree(court: Court, date: string, span: Span, policy: BookingPolicy, zone: string): Promise<boolean> {
+  const held = (await occupantsOn([court], date, zone)).get(court.id)!;
+  return fits(held, court.capacity, span, { before: policy.bufferBefore, after: policy.bufferAfter });
 }
 
-/* ---------------- Waitlists for ordinary slots ---------------- */
-
-/** Are all these hours free on this resource right now? */
-async function slotHoursFree(courtId: number, date: string, hours: number[]): Promise<boolean> {
-  const court = await getCourt(courtId);
-  if (!court) return false;
-  const db = getDb();
-  const classes = await classHoursOn(date, court.venueId);
-  const blocked = await blockedPlacesFor(courtId, date, hours);
-  for (const hour of hours) {
-    if (classes.has(`${courtId}:${hour}`)) return false;
-    const taken = await db
-      .prepare(
-        "SELECT COUNT(*) AS n FROM booking_slots WHERE court_id = ? AND date = ? AND hour = ?"
-      )
-      .get(courtId, date, hour) as { n: number };
-    if (taken.n + (blocked.get(hour) ?? 0) >= court.capacity) return false;
-  }
-  return true;
-}
-
-/** Queue for a court or facility slot that is currently taken. */
+/** Queue for court or facility time that is currently taken. */
 export async function joinSlotWaitlist(input: {
   courtId: number;
   date: string;
   /** The language to make the offer in, when one comes. */
   locale?: string;
-  startHour: number;
-  endHour: number;
+  /** The time wanted, in minutes of the day (or hours, the older way). */
+  start?: number;
+  end?: number;
+  startHour?: number;
+  endHour?: number;
   name: string;
   phone: string;
   email?: string;
@@ -6049,45 +6184,44 @@ export async function joinSlotWaitlist(input: {
 }): Promise<WaitlistResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
-    const { courtId, date, startHour, endHour } = input;
+    const { courtId, date } = input;
+    const start = minutesFrom(input.start, input.startHour);
+    const end = minutesFrom(input.end, input.endHour);
 
     const waitCourt = await getCourt(courtId);
     if (!waitCourt) return refuse("COURT_NOT_FOUND");
-    const { openHour, closeHour, zone } = await courtVenueHours(courtId, date);
-    // In what the sport is sold by here, as a booking would be.
-    const unit = await sellUnit(waitCourt.venueId, waitCourt.sport);
-    if (endHour <= startHour || startHour < openHour || endHour > closeHour || !onSlot(startHour, unit) || !onSlot(endHour, unit))
-      return refuse("THOSE_HOURS_OUTSIDE_OPENING");
-    if (await getVenueClosure(waitCourt.venueId, date))
-      return refuse("VENUE_CLOSED");
-    // As long as a booking of this court may be.
-    const longest = bookingLengths(waitCourt, unit).max;
-    if (endHour - startHour > longest)
-      return refuse("MAX_HOURS", { max: longest });
-    if (!isBookableDate(date, zone, await venueAheadDays(waitCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
-    if (isPastSlot(date, startHour, zone)) return refuse("TIME_PAST");
+    if (!isValidDateString(date)) return refuse("THOSE_HOURS_OUTSIDE_OPENING");
+    const day = await courtDay(waitCourt, date);
+    if (!isMinute(start) || !isMinute(end) || end <= start) return refuse("THOSE_HOURS_OUTSIDE_OPENING");
+    const span = { start, end };
+    if (day.closed) return refuse("VENUE_CLOSED");
+    // Asked for as a booking would be: the court's rules.
+    const breaches = policyBreaches(day.policy, span, day, minutesUntil(date, start, day.zone)).filter((b) => b !== "NOTICE");
+    if (breaches.includes("HOURS")) return refuse("THOSE_HOURS_OUTSIDE_OPENING");
+    if (breaches.length > 0) return breachRefusal(day.policy, span, breaches[0]);
+    if (!isBookableDate(date, day.zone, await venueAheadDays(waitCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
+    if (minutesUntil(date, start, day.zone) <= 0) return refuse("TIME_PAST");
 
-    const hours = slotsBetween(startHour, endHour, SLOT);
-    if (await slotHoursFree(courtId, date, hours))
+    if (await slotTimeFree(waitCourt, date, span, day.policy, day.zone))
       return refuse("SLOT_FREE_BOOK_IT");
 
     const db = getDb();
     const already = await db
       .prepare(`
         SELECT id FROM waitlist
-        WHERE court_id = ? AND date = ? AND start_hour = ? AND phone_key(phone) = phone_key(?)
+        WHERE court_id = ? AND date = ? AND start_min = ? AND phone_key(phone) = phone_key(?)
           AND status IN ('waiting','offered')
       `)
-      .get(courtId, date, startHour, input.phone.trim());
+      .get(courtId, date, start, input.phone.trim());
     if (already) return refuse("ALREADY_WAITING");
 
     const info = await db
       .prepare(`
-        INSERT INTO waitlist (court_id, date, start_hour, end_hour, name, phone, email, user_id, locale)
+        INSERT INTO waitlist (court_id, date, start_min, end_min, name, phone, email, user_id, locale)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
-        courtId, date, startHour, endHour,
+        courtId, date, start, end,
         input.name.trim(), input.phone.trim(), input.email?.trim() ?? null,
         input.userId ?? null, input.locale ?? "en"
       );
@@ -6108,26 +6242,49 @@ async function slotQueue(courtId: number, date: string): Promise<WaitlistRow[]> 
 }
 
 /**
- * Hours freed up on a resource: offer them to the longest waiter whose
- * requested window is now entirely free. One live offer per resource and day,
- * so overlapping windows cannot be promised to two people at once.
+ * Time freed up on a resource: offer it to the longest waiter whose wanted
+ * time is now entirely free. The offer claims that time until it is taken up
+ * or runs out, so nobody else can book it meanwhile; one live offer per
+ * resource and day, so overlapping windows cannot be promised to two people
+ * at once.
  */
 export async function offerSlotPlace(courtId: number, date: string): Promise<WaitlistEntry | null> {
   return withTransaction(async () => {
     await expireStaleOffers();
     const queue = await slotQueue(courtId, date);
     if (queue.some((row) => row.status === "offered")) return null;
+    const court = await getCourt(courtId);
+    if (!court) return null;
+    const day = await courtDay(court, date);
 
     for (const row of queue) {
-      if (row.status !== "waiting" || row.start_hour === null || row.end_hour === null) continue;
-      const hours = await bookingHours({ courtId, startHour: row.start_hour, endHour: row.end_hour });
-      if (isPastSlot(date, row.start_hour, await courtZone(courtId))) continue;
-      if (!await slotHoursFree(courtId, date, hours)) continue;
+      if (row.status !== "waiting" || row.start_min === null || row.end_min === null) continue;
+      const span = { start: row.start_min, end: row.end_min };
+      if (minutesUntil(date, span.start, day.zone) <= 0) continue;
+      if (!(await slotTimeFree(court, date, span, day.policy, day.zone))) continue;
 
       const db = getDb();
-      await db.prepare(
-        "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
-      ).run(randomBytes(16).toString("hex"), row.id);
+      try {
+        await withTransaction(async () => {
+          await db.prepare(
+            "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
+          ).run(randomBytes(16).toString("hex"), row.id);
+          await claim({
+            court,
+            source: { kind: "offer", waitlistId: row.id },
+            date,
+            span,
+            zone: day.zone,
+            bufferBefore: day.policy.bufferBefore,
+            bufferAfter: day.policy.bufferAfter,
+            expiresAt: new Date(Date.now() + WAITLIST_OFFER_MINUTES * 60_000),
+          });
+        });
+      } catch (err) {
+        // Taken in the moment between looking and offering: the next in line may want other time.
+        if (isConflict(err)) continue;
+        throw err;
+      }
       return toWaitlistEntry(
         await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow,
         true
@@ -6142,6 +6299,8 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
 export interface BookingHit {
   code: string;
   date: string;
+  startMin: number;
+  endMin: number;
   startHour: number;
   endHour: number;
   courtName: string;
@@ -6165,11 +6324,11 @@ export async function searchBookings(query: string, venueIds?: number[]): Promis
   const digits = q.replace(/\D/g, "");
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.date, b.start_hour, b.end_hour, c.name AS court_name, v.name AS venue_name, b.name, b.phone, b.status, b.payment_status
+      `SELECT b.code, b.date, b.start_min, b.end_min, c.name AS court_name, v.name AS venue_name, b.name, b.phone, b.status, b.payment_status
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE b.date BETWEEN ? AND ?${venues.sql}
           AND (UPPER(b.code) = UPPER(?) OR (? <> '' AND b.phone_key = phone_key(?)) OR LOWER(b.email) = LOWER(?) OR b.name ILIKE ?)
-        ORDER BY b.date DESC, b.start_hour DESC LIMIT 50`
+        ORDER BY b.date DESC, b.start_min DESC LIMIT 50`
     )
     .all(
       addDays(todayISO(), -90),
@@ -6183,8 +6342,8 @@ export async function searchBookings(query: string, venueIds?: number[]): Promis
     )) as {
     code: string;
     date: string;
-    start_hour: number;
-    end_hour: number;
+    start_min: number;
+    end_min: number;
     court_name: string;
     venue_name: string;
     name: string;
@@ -6195,8 +6354,10 @@ export async function searchBookings(query: string, venueIds?: number[]): Promis
   return rows.map((r) => ({
     code: r.code,
     date: r.date,
-    startHour: Number(r.start_hour),
-    endHour: Number(r.end_hour),
+    startMin: r.start_min,
+    endMin: r.end_min,
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
     courtName: r.court_name,
     venueName: r.venue_name,
     name: r.name,

@@ -12,8 +12,8 @@ import {
   createVenue,
   joinSlotWaitlist,
   searchAvailability,
-  updateCourt,
 } from "../src/lib/store";
+import { policySettings, updatePolicy } from "../src/lib/booking-policy";
 import { addDays, todayISO } from "../src/lib/time";
 
 /**
@@ -32,7 +32,7 @@ const hours = (from: number, count: number) => Array.from({ length: count }, (_,
 
 beforeAll(async () => {
   await getDb().prepare("UPDATE venues SET published_at = NULL").run();
-  const made = await createVenue({ name: "Arena Panjang", area: "Klang", address: "x", phone: "0333330000", openHour: 8, closeHour: 23 });
+  const made = await createVenue({ name: "Arena Panjang", area: "Klang", address: "x", phone: "0333330000", openMin: 8 * 60, closeMin: 23 * 60 });
   if (!made.ok) throw new Error("venue");
   venueId = made.venue.id;
   await getDb().prepare("UPDATE venues SET published_at = datetime('now') WHERE id = ?").run(venueId);
@@ -47,12 +47,14 @@ beforeAll(async () => {
 });
 
 describe("a court's own booking length", () => {
-  it("is set in half hours, the shortest no longer than the longest", async () => {
-    expect(await updateCourt(pitch, { minHours: 0.3 })).toMatchObject({ ok: false });
-    expect(await updateCourt(pitch, { minHours: 5 })).toMatchObject({ ok: false });
-    expect(await updateCourt(hall, { maxHours: 13 })).toMatchObject({ ok: false });
-    expect(await updateCourt(pitch, { minHours: 2 })).toMatchObject({ ok: true, court: { minHours: 2, maxHours: null } });
-    expect(await updateCourt(hall, { maxHours: 6 })).toMatchObject({ ok: true, court: { maxHours: 6 } });
+  it("is the court's booking policy, in whole minutes, the shortest no longer than the longest", async () => {
+    expect(await updatePolicy({ court: pitch }, { minLength: 0.5 })).toMatchObject({ ok: false });
+    expect(await updatePolicy({ court: pitch }, { minLength: 300, maxLength: 240 })).toMatchObject({ ok: false });
+    expect(await updatePolicy({ court: hall }, { maxLength: 13 * 60 })).toMatchObject({ ok: false });
+    expect(await updatePolicy({ court: pitch }, { minLength: 120 })).toMatchObject({ ok: true, settings: { minLength: 120 } });
+    expect(await updatePolicy({ court: hall }, { maxLength: 360 })).toMatchObject({ ok: true, settings: { maxLength: 360 } });
+    // Left unset, the rest is inherited: the hour steps and four hours at most.
+    expect(await policySettings({ court: pitch })).toMatchObject({ minLength: 120, maxLength: null });
   });
 
   it("refuses a booking shorter than the court's shortest, or longer than its longest", async () => {

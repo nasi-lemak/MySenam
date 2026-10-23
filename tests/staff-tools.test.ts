@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 import { bookingsCsv } from "../src/lib/export";
-import { createBooking, createCourt, createVenue, searchBookings, setSlotMinutes } from "../src/lib/store";
+import { createBooking, createCourt, createVenue, searchBookings } from "../src/lib/store";
+import { updatePolicy } from "../src/lib/booking-policy";
 import { addDays, todayISO } from "../src/lib/time";
 
 /** The desk finding a booking for the customer in front of it, and the export reading half hours right. */
@@ -25,7 +26,7 @@ beforeAll(async () => {
   if (!c.ok || !d.ok) throw new Error("court");
   courtId = c.court.id;
   otherCourtId = d.court.id;
-  await setSlotMinutes(venueId, 30);
+  await updatePolicy({ venue: venueId }, { startEvery: 30, lengthStep: 30 });
   const made = await createBooking({ courtId, date: addDays(todayISO(), 3), hours: [10.5, 11], name: "Nurul Aina", phone: "012-555 4321", email: "Aina@Example.my" });
   if (!made.ok) throw new Error(made.error);
   code = made.booking.code;

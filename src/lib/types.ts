@@ -1,7 +1,7 @@
 import type { WeekHours } from "./week-hours";
 import type { ErrorCode } from "./i18n";
 import type { Amenity, CourtFeatures } from "./facilities";
-import { region } from "./region";
+import { region } from "./region.ts";
 export type Sport =
   | "badminton"
   | "tennis"
@@ -74,16 +74,6 @@ export const SPORT_ICONS: Record<Sport, string> = {
   kayak: "🛶",
 };
 
-/**
- * How long a game usually is, where it is not an hour: what search asks for
- * when the sport is picked. Padel is sold in 90-minute games.
- */
-export const SPORT_USUAL_HOURS: Partial<Record<Sport, number>> = { padel: 1.5 };
-
-export function usualHours(sport: Sport): number {
-  return SPORT_USUAL_HOURS[sport] ?? 1;
-}
-
 export interface Venue {
   id: number;
   name: string;
@@ -92,13 +82,14 @@ export interface Venue {
   phone: string;
   /** Customers may cancel until this many hours before the booking starts. */
   cancelCutoffHours: number;
-  /** Trading hours: the first bookable hour, and when the last one ends (past 24 is after midnight). */
+  /** Trading hours in minutes of the day: when it opens, and when it closes (past 1440 is after midnight). */
+  openMin: number;
+  closeMin: number;
+  /** The same in hours (18.5 is 18:30), for display. */
   openHour: number;
   closeHour: number;
   /** Weekdays with hours of their own, or closed; null when every day keeps the usual ones (lib/week-hours.ts). */
   weekHours?: WeekHours | null;
-  /** Sold by the hour (60) or the half hour (30). */
-  slotMinutes: 30 | 60;
   /** The venue's time zone (IANA), which its courts' times are in. */
   timeZone: string;
   /**
@@ -167,9 +158,6 @@ export interface Court extends CourtFeatures {
   memberOffPeakRate: number | null;
   memberPeakRate: number | null;
   capacity: number;
-  /** The shortest and longest one booking of it may be, in hours; null: one slot, and MAX_HOURS_PER_BOOKING. */
-  minHours?: number | null;
-  maxHours?: number | null;
   /** Its rates are per player, and a booking says how many play, up to `maxPlayers` (DEFAULT_MAX_PLAYERS). */
   perPlayer?: boolean;
   maxPlayers?: number | null;
@@ -290,9 +278,21 @@ export interface Booking {
   taxRate?: number | null;
   code: string;
   courtId: number;
-  date: string; // YYYY-MM-DD
+  /** The venue's business day it is on (YYYY-MM-DD). */
+  date: string;
+  /** Minutes of that day it starts and ends (1087 is 18:07; past 1440 is after midnight). */
+  startMin: number;
+  endMin: number;
+  /** The same in hours (18.5 is 18:30), for display and the public API. */
   startHour: number;
   endHour: number; // exclusive
+  /** The moments it starts and ends, where the venue is (ISO 8601). */
+  startsAt?: string;
+  endsAt?: string;
+  /** Setup and cleanup fees, part of `totalPrice`, shown apart from the time. */
+  feeAmount?: number;
+  /** Made by staff outside the court's booking policy (what, and who, is in the activity log). */
+  policyOverride?: boolean;
   name: string;
   phone: string;
   email: string | null;
@@ -356,6 +356,9 @@ export interface ClassSession {
   name: string;
   instructor: string;
   date: string;
+  /** Minutes of the day it runs, and the same in hours. */
+  startMin: number;
+  endMin: number;
   startHour: number;
   endHour: number;
   capacity: number;
@@ -414,7 +417,23 @@ export interface Pass {
   coachId?: number | null;
   coachName?: string | null;
   name: string;
-  /** Entries sold, and how many are left after spends and refunds. */
+  /**
+   * How it is spent: `session` passes spend entries, `time` passes spend
+   * minutes of court time (a time credit).
+   */
+  kind: PassKind;
+  /**
+   * A session pass: the minutes one entry covers, a booking spending one
+   * entry per so many minutes or part of them; null, one entry a booking
+   * whatever its length.
+   */
+  entryMinutes: number | null;
+  /** The longest booking it may pay for, in minutes; null: any length. */
+  maxMinutes: number | null;
+  /**
+   * What was sold, and what is left after spends and refunds: entries on a
+   * session pass, minutes on a time pass.
+   */
   entries: number;
   remaining: number;
   price: number;
@@ -429,6 +448,7 @@ export interface Pass {
 }
 
 export type PassStatus = "active" | "void";
+export type PassKind = "session" | "time";
 
 /** One movement of entries. Spends are negative, refunds positive. */
 export interface PassEntry {
@@ -541,6 +561,8 @@ export interface HireRecord {
 export const MAX_HIRE_NOTE = 500;
 
 export const MAX_PASS_ENTRIES = 200;
+/** The most court time a time pass may hold: 500 hours. */
+export const MAX_PASS_MINUTES = 500 * 60;
 /** How far ahead a pass may be set to expire. */
 export const MAX_PASS_MONTHS = 24;
 
@@ -552,6 +574,9 @@ export interface WaitlistEntry {
   classId: number | null;
   courtId: number | null;
   date: string | null;
+  /** The time wanted, in minutes of the day, and the same in hours. */
+  startMin: number | null;
+  endMin: number | null;
   startHour: number | null;
   endHour: number | null;
   name: string;
@@ -576,14 +601,25 @@ export interface WaitlistEntry {
  */
 export const WAITLIST_OFFER_MINUTES = 30;
 
+/**
+ * One column of the booking board: `grid` minutes from `minute`. The board
+ * draws time; what may be booked is the court's policy, and `starts` on its
+ * CourtAvailability says where a booking may begin and how long it may run.
+ */
 export interface SlotInfo {
+  /** Its start, in minutes of the day and in hours. */
+  minute: number;
   hour: number;
+  /** What this column of time costs, at the court's rates. */
   rate: number;
   /** A last-minute price: this percent off, for booking it now. */
   lastMinute?: number;
   /** In the venue's peak hours: an off-peak-only concession does not apply. */
   peak?: boolean;
+  /** Nothing holds any of it (customers are not told why: a buffer, a booking, a block). */
   available: boolean;
+  /** Some of it is held, not all (a booking from 18:07). */
+  partly?: boolean;
   /** Places already taken, and the resource's total, for this hour. */
   booked: number;
   capacity: number;
@@ -592,6 +628,8 @@ export interface SlotInfo {
   classId?: number;
   /** Closed by staff, so queuing for it would be pointless. */
   blocked?: boolean;
+  /** Outside this court's hours that day (its own, or the venue's). */
+  outside?: boolean;
   /**
    * Places out of service while others remain bookable — two kayaks of six in
    * for repair. Absent when the hour is fully blocked, which `blocked` says.
@@ -627,15 +665,39 @@ export interface LiveOccupancy {
   level: Busyness;
 }
 
+/** What a customer may pick on a court: its policy's rules, without its buffers. */
+export interface PublicPolicy {
+  startEvery: number;
+  startOffset: number;
+  startTimes: number[] | null;
+  lengthStep: number;
+  minLength: number;
+  maxLength: number;
+  lengths: number[] | null;
+  defaultLength: number;
+  noticeMinutes: number;
+}
+
+/** Where a booking may start on a court, and the longest it may run from there. */
+export interface StartOption {
+  minute: number;
+  /** The longest booking from here that fits what is free and the court's hours. */
+  maxLength: number;
+}
+
 export interface CourtAvailability {
   court: Court;
-  /** What the court's sport is sold by here, in hours (1 or 0.5): each slot is that long. */
+  /** The board's column width in hours (and `grid` in minutes): a display choice, from the policy. */
   unit: number;
+  grid: number;
+  policy: PublicPolicy;
   slots: SlotInfo[];
+  /** Where a booking may start now, free and within the rules. */
+  starts: StartOption[];
 }
 
 // The outer bounds any venue may trade within. Each venue sets its own
-// open_hour/close_hour inside this range; these are the defaults and the
+// open and close inside this range; these are the defaults and the
 // limits the UI offers.
 export const OPEN_HOUR = 0;
 export const CLOSE_HOUR = 24;
@@ -684,8 +746,3 @@ export interface Refusal {
 /** The deposits a venue may take online to hold a booking, as a percent of the price (lib/holds.ts). */
 export const DEPOSIT_PERCENTS = [10, 20, 25, 30, 40, 50] as const;
 
-/** How short and how long one booking of this court may be, in hours, where a slot is `step` hours. */
-export function bookingLengths(court: Pick<Court, "minHours" | "maxHours">, step: number): { min: number; max: number } {
-  const max = court.maxHours ?? MAX_HOURS_PER_BOOKING;
-  return { min: Math.min(Math.max(court.minHours ?? step, step), max), max };
-}

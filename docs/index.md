@@ -19,8 +19,8 @@ home ([`AGENTS.md`](../AGENTS.md)).
 | Subject | Authoritative document |
 | ------- | ---------------------- |
 | Rules that span features and must not break | [Business rules](product/business-rules.md) |
-| Booking, availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, who may book | [Booking](features/booking.md) |
-| Prices, peak bands, holidays, last-minute prices, concessions, promo codes, memberships, passes | [Pricing](features/pricing.md) |
+| Booking rules (starts, lengths, buffers, notice), availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, who may book | [Booking](features/booking.md) |
+| Prices to the minute, fees, peak bands, holidays, last-minute prices, concessions, promo codes, memberships, passes | [Pricing](features/pricing.md) |
 | Paying online, holds and deposits, stored credit and its ownership, gift vouchers, split costs, extras, counter sales, company accounts | [Payments and credit](features/payments-and-credit.md) |
 | Classes, coaching, tournaments, leagues, open games, women-only and men-only | [Programmes](features/programmes.md) |
 | Check-in, unstaffed hours, equipment hire, notes, waivers, hire enquiries | [Venue operations](features/venue-operations.md) |
@@ -37,7 +37,7 @@ home ([`AGENTS.md`](../AGENTS.md)).
 | Stack, structure, several instances | [Overview](architecture/overview.md) |
 | Schema, migrations, conventions | [Database](architecture/database.md) |
 | What is guaranteed under concurrent requests | [Booking concurrency](architecture/booking-concurrency.md) |
-| Proposed: reservations as exact intervals (review and plan, not built) | [Booking time model](architecture/interval-booking-review.md) |
+| Court time as intervals: claims, spaces, booking policies, prices from minutes, the migration from half hours | [Booking time model](architecture/interval-booking-review.md) |
 | Platform, business, branch, venue; staff roles; how boundaries are enforced | [Tenancy](architecture/tenancy.md) |
 | Sign-in, sessions, two-factor, Google, phone checks, passwords | [Authentication](architecture/authentication.md) |
 | Rate limits and abuse controls | [Security](architecture/security.md) |
@@ -54,8 +54,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0006 Per-venue payment accounts](architecture/decisions/0006-per-venue-payment-accounts.md) ·
 [0007 Stored-credit ownership](architecture/decisions/0007-stored-credit-ownership.md) ·
 [0008 Slot length per venue](architecture/decisions/0008-slot-length-per-venue.md) (superseded) ·
-[0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md) ·
-[0010 Interval booking (proposed)](architecture/decisions/0010-interval-booking.md)
+[0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md) (superseded) ·
+[0010 Interval booking](architecture/decisions/0010-interval-booking.md)
 
 ## Integrations
 

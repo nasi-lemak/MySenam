@@ -443,7 +443,7 @@ export default function MyBookingPage() {
                         fetch("/api/bookings/reschedule", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ code, phone, date, startHour: o.startHour }),
+                          body: JSON.stringify({ code, phone, date, start: o.startMin }),
                         })
                       }
                       onDone={async (_booking, message) => {

@@ -115,7 +115,7 @@ const pgDump = () => process.env.MYSENAM_PG_DUMP || "pg_dump";
 const pgRestore = () => process.env.MYSENAM_PG_RESTORE || "pg_restore";
 
 /** Tables a real backup must contain; a dump without them is not one. */
-const MUST_HAVE = ["venues", "courts", "bookings", "booking_slots", "users", "wallet_entries"];
+const MUST_HAVE = ["venues", "courts", "bookings", "claims", "users", "wallet_entries"];
 
 export type VerifyResult = { ok: true; bookings: number | null } | { ok: false; error: string };
 

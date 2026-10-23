@@ -11,6 +11,7 @@ vi.mock("../src/lib/transports", async (original) => ({
   },
 }));
 
+import { createOutage } from "../src/lib/outages";
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser, type User } from "../src/lib/auth";
@@ -137,9 +138,8 @@ describe("setting one up", () => {
 
     const t = await tournament({ startHour: 9, endHour: 12 });
     await entries(t.id, 4);
-    await getDb()
-      .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason) VALUES (?, ?, ?, 'Net torn')")
-      .run(courts[1], t.startsOn, t.startsOn);
+    // Taken out as staff would: the outage takes the tournament's hold on that court with it.
+    expect(await createOutage({ courtId: courts[1], startsOn: t.startsOn, endsOn: t.startsOn, reason: "Net torn", adminId: ownerId })).toMatchObject({ ok: true });
     const drawn = await makeDraw(t.id, fixed);
     if (!drawn.ok) throw new Error(drawn.error);
     expect(drawn.value.matches.filter((m) => m.status === "scheduled" && m.courtId !== null).every((m) => m.courtId === courts[0])).toBe(true);
@@ -208,7 +208,7 @@ describe("a knockout", () => {
     const final = done.matches.find((m) => m.round === 3)!;
     expect(final.winner).not.toBeNull();
     // The hours it no longer needs, later than today, are back on sale.
-    const left = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM slot_blocks WHERE tournament_id = ?").get(t.id)) as { n: number };
+    const left = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks WHERE tournament_id = ?").get(t.id)) as { n: number };
     expect(left.n).toBe(0);
   });
 
@@ -279,15 +279,12 @@ describe("groups, then a knockout", () => {
 });
 
 describe("court time", () => {
-  // The hours held, each as both its halves of the diary.
+  // The hours held, "court:hour" for each hour a hold covers.
   const heldHours = async (id: number) => {
     const rows = (await getDb()
-      .prepare("SELECT court_id, hour FROM slot_blocks WHERE tournament_id = ? ORDER BY court_id, hour")
-      .all(id)) as { court_id: number; hour: number }[];
-    const held = rows.map((b) => `${b.court_id}:${b.hour}`);
-    const hours = [...new Set(rows.map((b) => `${b.court_id}:${Math.floor(Number(b.hour))}`))];
-    expect(held).toEqual(hours.flatMap((h) => [h, `${h.split(":")[0]}:${Number(h.split(":")[1]) + 0.5}`]));
-    return hours;
+      .prepare("SELECT court_id, start_min, end_min FROM blocks WHERE tournament_id = ? ORDER BY court_id, start_min")
+      .all(id)) as { court_id: number; start_min: number; end_min: number }[];
+    return rows.flatMap((b) => Array.from({ length: (b.end_min - b.start_min) / 60 }, (_, i) => `${b.court_id}:${b.start_min / 60 + i}`));
   };
 
   it("is held whole until the draw, then only from each court's first match to its last", async () => {
@@ -351,7 +348,7 @@ describe("calling one off", () => {
     sent.length = 0;
     expect((await cancelTournament(t.id)).ok).toBe(true);
     expect(sent).toHaveLength(2);
-    const held = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM slot_blocks WHERE tournament_id = ?").get(t.id)) as { n: number };
+    const held = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks WHERE tournament_id = ?").get(t.id)) as { n: number };
     expect(held.n).toBe(0);
     const owed = (await getDb().prepare("SELECT refund_due::float AS due FROM online_payments WHERE bill_id = 'entry-bill-1'").get()) as { due: number };
     expect(owed.due).toBe(20);

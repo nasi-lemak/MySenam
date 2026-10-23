@@ -1,7 +1,9 @@
 import { getDb, withTransaction } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
-import { adminCancelBooking } from "./store";
+import { adminCancelBooking, courtDaysFor, courtZone, getCourt, releaseBlockTime } from "./store";
 import { addDays, isValidDateString, todayISO } from "./time";
+import { claim, isConflict, unclaim } from "./claims";
+import { DAY_MINUTES, hoursOf } from "./interval";
 
 /**
  * A court out of service for days at a time — resurfacing, a torn net, a
@@ -9,10 +11,9 @@ import { addDays, isValidDateString, todayISO } from "./time";
  *
  * Blocking an hour (store.blockSlots) is for an hour; this is for a stretch
  * of days, including ones not yet in the booking window. Nothing else needs
- * to know about it: every question about what is blocked goes through
- * `blocks_between` in the database (db/migrations/0009), which counts every
- * trading hour of an outage as blocked, so the court is closed wherever a
- * block would close it.
+ * to know about it: the outage claims the court for those whole days
+ * (lib/claims.ts), so it is closed wherever a block would close it, and the
+ * database refuses anything booked over it.
  *
  * What is already booked in the stretch is not left to be discovered on the
  * day. Taking the court out lists it, and goes ahead only when staff say to
@@ -36,6 +37,8 @@ export interface Affected {
   /** A booking's code, or a class's id. */
   ref: string;
   date: string;
+  /** When it starts, in minutes of the day and in hours. */
+  startMin: number;
   startHour: number;
   name: string;
 }
@@ -87,35 +90,58 @@ export async function affectedBy(courtId: number, startsOn: string, endsOn: stri
   const db = getDb();
   const from = startsOn < todayISO() ? todayISO() : startsOn;
   const to = endsOn ?? "9999-12-31";
+  // Whatever holds the court's spaces: its own bookings and classes, and those
+  // of courts sharing its floor (lib/court-links.ts), which the outage closes too.
+  const holding = `(c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id = ?) OR (c.space_id IS NULL AND c.court_id = ?))`;
   const bookings = (await db
     .prepare(
-      `SELECT b.code, b.date, MIN(s.hour) AS start_hour, b.name FROM bookings b
-         JOIN booking_slots s ON s.booking_id = b.id
-        WHERE s.court_id = ? AND b.date >= ? AND b.date <= ?
-          AND b.status = 'confirmed' AND b.class_id IS NULL
-        GROUP BY b.id, b.code, b.date, b.name ORDER BY b.date, start_hour`
+      `SELECT DISTINCT b.code, b.date, b.start_min, b.name FROM claims c JOIN bookings b ON b.id = c.booking_id
+        WHERE c.active AND ${holding} AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+        ORDER BY b.date, b.start_min`
     )
-    .all(courtId, from, to)) as { code: string; date: string; start_hour: number; name: string }[];
-  // A class on a court sharing the floor is in the way too: the outage closes
-  // the courts linked to this one (lib/court-links.ts). Bookings need no such
-  // care: theirs are mirrored onto this court as shadow places.
+    .all(courtId, courtId, from, to)) as { code: string; date: string; start_min: number; name: string }[];
   const classes = (await db
     .prepare(
-      `SELECT id, date, start_hour, name FROM classes
-        WHERE court_id IN (
-                SELECT ?::int
-                UNION SELECT part_id FROM court_links WHERE whole_id = ?
-                UNION SELECT whole_id FROM court_links WHERE part_id = ?
-                UNION SELECT o.whole_id FROM court_links a
-                        JOIN court_links o ON o.part_id = a.part_id AND o.whole_id <> a.whole_id
-                       WHERE a.whole_id = ?)
-          AND date >= ? AND date <= ? AND status = 'scheduled' ORDER BY date, start_hour`
+      `SELECT DISTINCT k.id, k.date, k.start_min, k.name FROM claims c JOIN classes k ON k.id = c.class_id
+        WHERE c.active AND ${holding} AND k.date >= ? AND k.date <= ? AND k.status = 'scheduled'
+        ORDER BY k.date, k.start_min`
     )
-    .all(courtId, courtId, courtId, courtId, from, to)) as { id: number; date: string; start_hour: number; name: string }[];
+    .all(courtId, courtId, from, to)) as { id: number; date: string; start_min: number; name: string }[];
   return [
-    ...bookings.map((b) => ({ kind: "booking" as const, ref: b.code, date: b.date, startHour: b.start_hour, name: b.name })),
-    ...classes.map((c) => ({ kind: "class" as const, ref: String(c.id), date: c.date, startHour: c.start_hour, name: c.name })),
-  ].sort((a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour);
+    ...bookings.map((b) => ({ kind: "booking" as const, ref: b.code, date: b.date, startMin: b.start_min, startHour: hoursOf(b.start_min), name: b.name })),
+    ...classes.map((c) => ({ kind: "class" as const, ref: String(c.id), date: c.date, startMin: c.start_min, startHour: hoursOf(c.start_min), name: c.name })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
+}
+
+/** Days from one date to another, counting both. */
+function daysFrom(first: string, last: string): number {
+  return Math.round((Date.parse(`${last}T00:00:00Z`) - Date.parse(`${first}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/**
+ * Claim a court out of service for whole business days, from the first to
+ * the last, or on: from where the day before's late hours end (its 1 AM is
+ * that night's, not the first day's) to where the last day closes, past
+ * midnight where it runs that late. Throws `23P01` over anything held.
+ */
+async function claimOutage(outageId: number, courtId: number, startsOn: string, endsOn: string | null): Promise<void> {
+  const court = await getCourt(courtId);
+  if (!court) return;
+  const closesAt = async (date: string) => {
+    const day = (await courtDaysFor([courtId], date)).get(courtId);
+    return day && !day.closed ? day.closeMin : 0;
+  };
+  const start = Math.max(0, (await closesAt(addDays(startsOn, -1))) - DAY_MINUTES);
+  const end = endsOn === null ? DAY_MINUTES : (daysFrom(startsOn, endsOn) - 1) * DAY_MINUTES + Math.max(DAY_MINUTES, await closesAt(endsOn));
+  await claim({
+    court,
+    source: { kind: "outage", outageId },
+    date: startsOn,
+    span: { start, end },
+    zone: await courtZone(courtId),
+    places: court.capacity,
+    openEnded: endsOn === null,
+  });
 }
 
 export type OutageResult =
@@ -190,15 +216,38 @@ export async function createOutage(input: {
     }
     if (affected.length > 0) await tickOutbox();
 
-    const closed = await withTransaction(async () => {
-      const again = await overlap();
-      if (again) return alreadyOut(again);
-      if ((await affectedBy(input.courtId, input.startsOn, input.endsOn)).length > 0) return null;
-      const info = await db
-        .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by) VALUES (?, ?, ?, ?, ?)")
-        .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId);
-      return { ok: true as const, id: info.lastInsertRowid as number };
-    });
+    let closed: { ok: true; id: number } | ReturnType<typeof alreadyOut> | null;
+    try {
+      closed = await withTransaction(async () => {
+        const again = await overlap();
+        if (again) return alreadyOut(again);
+        if ((await affectedBy(input.courtId, input.startsOn, input.endsOn)).length > 0) return null;
+        const info = await db
+          .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by) VALUES (?, ?, ?, ?, ?)")
+          .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId);
+        // Blocks in those days give way: a court out of service needs no block,
+        // and a tournament's hold there is time its draw cannot use.
+        const blocks = (await db
+          .prepare(
+            `SELECT DISTINCT k.court_id, k.date, k.start_min, k.end_min FROM claims c JOIN blocks k ON k.id = c.block_id
+              WHERE c.active AND (c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id = ?) OR (c.space_id IS NULL AND c.court_id = ?))
+                AND k.date >= ? AND k.date <= ?`
+          )
+          .all(input.courtId, input.courtId, input.startsOn, input.endsOn ?? "9999-12-31")) as {
+          court_id: number;
+          date: string;
+          start_min: number;
+          end_min: number;
+        }[];
+        for (const k of blocks) await releaseBlockTime(k.court_id, k.date, { start: k.start_min, end: k.end_min });
+        // The claim is what keeps bookings out: anything that arrived meanwhile refuses it, and it goes round again.
+        await claimOutage(info.lastInsertRowid as number, input.courtId, input.startsOn, input.endsOn);
+        return { ok: true as const, id: info.lastInsertRowid as number };
+      });
+    } catch (err) {
+      if (!isConflict(err)) throw err;
+      closed = null;
+    }
     if (closed && !closed.ok) return closed;
     if (closed) return { ok: true, outage: (await outageById(closed.id))!, cancelled };
   }
@@ -216,6 +265,13 @@ export async function endOutage(id: number): Promise<{ ok: true } | { ok: false;
   if (outage.endsOn !== null && outage.endsOn < today) return { ok: false, error: "That is over already." };
   const db = getDb();
   if (outage.startsOn >= today) await db.prepare("DELETE FROM court_outages WHERE id = ?").run(id);
-  else await db.prepare("UPDATE court_outages SET ends_on = ? WHERE id = ?").run(addDays(today, -1), id);
+  else
+    await withTransaction(async () => {
+      const last = addDays(today, -1);
+      await db.prepare("UPDATE court_outages SET ends_on = ? WHERE id = ?").run(last, id);
+      // Its claim shrinks to the days it was out.
+      await unclaim({ kind: "outage", outageId: id });
+      await claimOutage(id, outage.courtId, outage.startsOn, last);
+    });
   return { ok: true };
 }

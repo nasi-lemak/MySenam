@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { rainOut } from "@/lib/rain-outs";
-import { formatHour } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
+import { readMinute } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 /**
- * `{ venueId, courtIds, date, fromHour, untilHour, reason?, preview? }`:
+ * `{ venueId, courtIds, date, fromMin, untilMin, reason?, preview? }` (minutes
+ * of the day or HH:MM; `fromHour`/`untilHour` the older form):
  * rained off (lib/rain-outs.ts). With `preview`, only what it would call off.
  */
 export async function POST(req: NextRequest) {
@@ -22,8 +24,8 @@ export async function POST(req: NextRequest) {
     venueId: body.venueId as number,
     courtIds,
     date: String(body.date ?? ""),
-    fromHour: Number(body.fromHour),
-    untilHour: Number(body.untilHour),
+    fromMin: readMinute(body, "fromMin", "fromHour"),
+    untilMin: readMinute(body, "untilMin", "untilHour"),
     reason: typeof body.reason === "string" ? body.reason : undefined,
     preview: body.preview === true,
   });
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest) {
     await logAction(admin, {
       venueId: body.venueId as number,
       action: "booking.cancelled",
-      detail: `Rained off ${body.date} ${formatHour(Number(body.fromHour))}–${formatHour(Number(body.untilHour))}: ${result.bookings.length} booking(s), ${result.classes} class(es) called off`,
+      detail: `Rained off ${body.date} ${formatMinute(readMinute(body, "fromMin", "fromHour"))}–${formatMinute(readMinute(body, "untilMin", "untilHour"))}: ${result.bookings.length} booking(s), ${result.classes} class(es) called off`,
     });
   return NextResponse.json(result);
 }

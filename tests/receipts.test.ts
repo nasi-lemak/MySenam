@@ -28,7 +28,7 @@ import {
   voidPass,
 } from "../src/lib/store";
 import { setVenueTax } from "../src/lib/tax";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { createTournament, enter, setEntry } from "../src/lib/tournaments";
 
 /**
@@ -58,7 +58,7 @@ beforeAll(async () => {
   if (!user.ok) throw new Error(user.error);
   customer = user.user;
   date = addDays(todayISO(), 3);
-  while (isPeak(date, 9)) date = addDays(date, 1);
+  while (isPeakMinute(date, 9 * 60)) date = addDays(date, 1);
 });
 
 describe("receipts for what is sold", () => {

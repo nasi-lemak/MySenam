@@ -1,6 +1,7 @@
 # ADR 0004: Plain Postgres for bookings, not TimescaleDB
 
-- **Status:** current
+- **Status:** current. Since [ADR 0010](0010-interval-booking.md), court
+  time is `claims`, not `booking_slots`; see *Hundreds of GB* below.
 - **Context:** whether bookings, messages and the ledger should move to a
   time-series database (TimescaleDB) as data grows, and what to do as it does.
 - **Decision:** keep everything in plain PostgreSQL. Grow with continuous
@@ -33,9 +34,11 @@ What to do as it grows:
   Move to continuous backups with point-in-time recovery: pgBackRest or WAL-G
   to R2 on the Droplet, or DigitalOcean's managed Postgres, which includes
   them.
-- **Hundreds of GB:** partition `booking_slots` by month. Its unique key
-  already includes the date, so it partitions cleanly, and old months can be
-  detached and archived. `bookings` cannot be partitioned the same way without
+- **Hundreds of GB:** `claims` holds one row per booking per space, far fewer
+  than the old half-hour rows, but cannot be partitioned by month: a
+  partitioned table's exclusion constraint must include the partition key by
+  equality, which a booking past midnight would cross. Archive inactive and
+  past claims instead (they decide nothing once the time has gone). `bookings` cannot be partitioned the same way without
   giving up a single unique index on booking codes, which customers look
   bookings up by.
 - **Compression:** Postgres compresses only large values, and these rows are

@@ -1,8 +1,9 @@
 import { getDb } from "./db";
 import { region } from "./region";
 import { siteOrigin, venueIsListed } from "./seo";
-import { getAvailability, getVenue } from "./store";
-import { addDays, slotStartsAt, todayISO } from "./time";
+import { getAvailability, getVenue, policyForSport } from "./store";
+import { instantOf } from "./interval";
+import { addDays, todayISO } from "./time";
 import { SPORT_LABELS, type Sport } from "./types";
 
 /**
@@ -111,20 +112,19 @@ export async function availabilityFeed(days = FEED_DAYS): Promise<Record<string,
       const date = addDays(today, i);
       for (const sport of sports) {
         const grid = await getAvailability(v.id, date, sport);
-        const hours = [...new Set(grid.flatMap((g) => g.slots.map((s) => s.hour)))].filter((h) => Number.isInteger(h));
-        for (const hour of hours) {
-          // Each court's hour from here: whole, so both halves where it sells halves.
-          const slots = grid
-            .map((g) => g.slots.filter((s) => s.hour >= hour && s.hour < hour + 1))
-            .filter((within, i) => within.length * grid[i].unit === 1);
-          const open = slots.filter((within) => within.every((s) => s.available)).length;
-          if (slots.length === 0) continue;
+        if (grid.length === 0) continue;
+        // A game of the sport's usual length here, from each start some court allows and is free for.
+        const length = (await policyForSport(v.id, sport)).defaultLength;
+        const starts = [...new Set(grid.flatMap((g) => g.starts.map((s) => s.minute)))].sort((a, b) => a - b);
+        for (const minute of starts) {
+          const open = grid.filter((g) => g.starts.some((s) => s.minute === minute && s.maxLength >= length)).length;
+          if (open === 0) continue;
           availability.push({
             merchant_id: merchantId(v.id),
             service_id: serviceId(v.id, sport),
-            start_sec: Math.floor(slotStartsAt(date, hour, v.timeZone).getTime() / 1000),
-            duration_sec: 3600,
-            spots_total: slots.length,
+            start_sec: Math.floor(instantOf(date, minute, v.timeZone).getTime() / 1000),
+            duration_sec: length * 60,
+            spots_total: grid.length,
             spots_open: open,
           });
         }

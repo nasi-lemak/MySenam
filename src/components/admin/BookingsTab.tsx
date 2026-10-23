@@ -554,7 +554,7 @@ export function BookingsTab() {
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, startHour: o.startHour, courtId: o.courtId }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId }),
             })
           }
           onDone={(booking) => {

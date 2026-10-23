@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
-import { formatHour } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
 import { SPORT_ICONS } from "@/lib/types";
 import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
 
@@ -74,7 +74,7 @@ export default function TournamentPage() {
           <Link href={`/venue/${x.venueId}`} className="underline">
             {x.venueName}
           </Link>{" "}
-          · {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatHour(x.startHour), end: formatHour(x.endHour) })}
+          · {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatMinute(x.startMin), end: formatMinute(x.endMin) })}
         </p>
         <p className="mt-1 text-sm text-slate-500">
           {x.category !== "open" && `${t(`cat.${x.category}`)} · `}
@@ -142,11 +142,11 @@ export default function TournamentPage() {
           <ul className="mt-2 divide-y divide-slate-100 text-sm">
             {x.matches
               .filter((m) => m.status !== "bye" && m.date)
-              .sort((a, b) => `${a.date}${String(a.hour).padStart(2, "0")}`.localeCompare(`${b.date}${String(b.hour).padStart(2, "0")}`))
+              .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0))
               .map((m) => (
                 <li key={m.id} className="flex flex-wrap gap-x-3 py-1.5">
                   <span className="w-36 shrink-0 text-slate-500">
-                    {m.date} {formatHour(m.hour!)}, {m.courtName}
+                    {m.date} {formatMinute(m.minute!)}, {m.courtName}
                   </span>
                   <span className="flex-1">
                     <Side id={m.a} m={m} names={names} t={t} /> v <Side id={m.b} m={m} names={names} t={t} />

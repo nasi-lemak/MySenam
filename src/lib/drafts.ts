@@ -65,7 +65,7 @@ export async function deleteStaleDrafts(photoKeys: string[] = []): Promise<numbe
       `DELETE FROM waitlist WHERE court_id IN (${courts}) OR class_id IN (SELECT id FROM classes WHERE court_id IN (${courts}))`,
       `DELETE FROM bookings WHERE court_id IN (${courts})`,
       `DELETE FROM classes WHERE court_id IN (${courts})`,
-      `DELETE FROM slot_blocks WHERE court_id IN (${courts})`,
+      `DELETE FROM blocks WHERE court_id IN (${courts})`,
       `DELETE FROM courts WHERE venue_id IN (${v})`,
       `DELETE FROM promo_codes WHERE venue_id IN (${v})`,
       `DELETE FROM inductions WHERE venue_id IN (${v})`,

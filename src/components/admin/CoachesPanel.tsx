@@ -4,12 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import type { Coach, CoachHours } from "@/lib/coaching";
 import type { CoachContact } from "@/lib/coach-schedule";
 import { SPORT_LABELS, type Sport } from "@/lib/types";
-import { formatHour } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
+import { ClockField } from "@/components/ClockField";
 import { money } from "@/lib/region";
 import type { ManagedVenue } from "./shared";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const TIMES = Array.from({ length: 49 }, (_, i) => i / 2);
 
 interface Draft {
   id?: number;
@@ -22,7 +22,7 @@ interface Draft {
   until: number;
 }
 
-const blank = (sports: Sport[]): Draft => ({ name: "", bio: "", sports: sports.slice(0, 1), rate: "80", days: [1, 2, 3, 4, 5], from: 9, until: 17 });
+const blank = (sports: Sport[]): Draft => ({ name: "", bio: "", sports: sports.slice(0, 1), rate: "80", days: [1, 2, 3, 4, 5], from: 9 * 60, until: 17 * 60 });
 
 /**
  * A venue's coaches for one-to-one lessons: who, what they coach, their fee
@@ -71,8 +71,8 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       sports: c.sports,
       rate: String(c.rate),
       days: [...new Set(c.hours.map((h) => h.weekday))],
-      from: first?.from ?? 9,
-      until: first?.until ?? 17,
+      from: first?.from ?? 9 * 60,
+      until: first?.until ?? 17 * 60,
     });
   }
 
@@ -122,7 +122,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
               <span className="font-medium">{c.name}</span> · {c.sports.map((s) => SPORT_LABELS[s]).join(", ")} · {money(c.rate)}/hr
               <span className="block text-xs text-slate-500">
                 {c.active
-                  ? c.hours.map((h) => `${DAYS[h.weekday]} ${formatHour(h.from)}–${formatHour(h.until)}`).join(", ") || "No hours set"
+                  ? c.hours.map((h) => `${DAYS[h.weekday]} ${formatMinute(h.from)}–${formatMinute(h.until)}`).join(", ") || "No hours set"
                   : "Not taking lessons"}
               </span>
               {/* Set by the coach at their own link (lib/coaching.ts): days off, when nobody can book them. */}
@@ -202,17 +202,9 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                 {d}
               </button>
             ))}
-            <select aria-label="From" value={draft.from} onChange={(e) => setDraft({ ...draft, from: Number(e.target.value) })} className={input}>
-              {TIMES.slice(0, -1).map((h) => (
-                <option key={h} value={h}>{formatHour(h)}</option>
-              ))}
-            </select>
+            <ClockField label="From" value={draft.from} onChange={(m) => setDraft({ ...draft, from: m })} className={input} />
             to
-            <select aria-label="Until" value={draft.until} onChange={(e) => setDraft({ ...draft, until: Number(e.target.value) })} className={input}>
-              {TIMES.slice(1).map((h) => (
-                <option key={h} value={h}>{h === 24 ? "Midnight" : formatHour(h)}</option>
-              ))}
-            </select>
+            <ClockField label="Until" value={draft.until} after={draft.from} onChange={(m) => setDraft({ ...draft, until: m })} className={input} />
           </div>
           <div className="flex gap-2">
             <button onClick={save} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white">

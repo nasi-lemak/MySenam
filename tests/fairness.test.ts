@@ -76,8 +76,8 @@ describe("class sessions a venue schedules itself", () => {
     const { POST } = await import("../src/app/api/admin/classes/route");
     await getDb()
       .prepare(
-        `INSERT INTO classes (court_id, name, instructor, date, start_hour, end_hour, capacity, price)
-         SELECT ?, 'Filler', 'Coach', to_char(current_date + (g % 60) + 1, 'YYYY-MM-DD'), 6 + (g % 14), 7 + (g % 14), 10, 20
+        `INSERT INTO classes (court_id, name, instructor, date, start_min, end_min, capacity, price)
+         SELECT ?, 'Filler', 'Coach', to_char(current_date + (g % 60) + 1, 'YYYY-MM-DD'), (6 + (g % 14)) * 60, (7 + (g % 14)) * 60, 10, 20
            FROM generate_series(1, ?) g`
       )
       .run(courtId, VENUE_CAPS.upcomingClassSessions - 1);

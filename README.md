@@ -10,9 +10,10 @@ marketplace of independent venues or as one business's own booking site.
 ## What it does
 
 - **Booking**: live availability per venue and across venues; exclusive
-  courts and shared facilities with places; linked courts; per-court booking
-  lengths, half-hour slots, "any court", several courts at once and weekly
-  series; waitlists; moving, cancelling and late-cancel rules; public,
+  courts and shared facilities with places; linked courts; bookings to the
+  minute within each court's booking rules (starts, lengths, buffers),
+  "any court", several courts at once and weekly series; waitlists; moving,
+  cancelling and late-cancel rules; public,
   members-only and private venues.
 - **Pricing and money**: peak bands and holidays, last-minute prices,
   concessions, promo codes, memberships, passes, stored credit and gift

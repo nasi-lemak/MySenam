@@ -12,7 +12,7 @@ import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { createBooking, createVenue, sellMembership } from "../src/lib/store";
 import { getDb } from "../src/lib/db";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { POST as addCourt } from "../src/app/api/admin/courts/route";
 
 /** Prices with cents, as Singapore's are: S$4.80 an hour, not only S$5. */
@@ -43,7 +43,7 @@ describe("prices to the cent", () => {
     expect(court).toMatchObject({ offPeakRate: 4.8, peakRate: 6.3, deposit: 2.5 });
 
     let date = addDays(todayISO(), 2);
-    while (isPeak(date, 9)) date = addDays(date, 1);
+    while (isPeakMinute(date, 9 * 60)) date = addDays(date, 1);
     const booked = await createBooking({ courtId: court.id, date, hours: [9, 10, 11], name: "Siti", phone: "91234567" });
     if (!booked.ok) throw new Error(booked.error);
     // 4.8 × 3 is 14.399999… in floating point; the price is 14.40.

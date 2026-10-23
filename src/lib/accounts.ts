@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hoursOf } from "./interval";
 import { getDb, withTransaction } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { enqueue } from "./outbox";
@@ -414,16 +415,16 @@ export async function listInvoices(venueId: number, accountId?: number): Promise
 export async function invoiceLines(invoiceId: number): Promise<InvoiceLine[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.date, b.start_hour, b.end_hour, c.name AS court_name, b.name, ${OWED}::float AS owed
+      `SELECT b.code, b.date, b.start_min, b.end_min, c.name AS court_name, b.name, ${OWED}::float AS owed
          FROM bookings b JOIN courts c ON c.id = b.court_id
-        WHERE b.account_invoice_id = ? ORDER BY b.date, b.start_hour, b.id`
+        WHERE b.account_invoice_id = ? ORDER BY b.date, b.start_min, b.id`
     )
-    .all(invoiceId)) as { code: string; date: string; start_hour: number; end_hour: number; court_name: string; name: string; owed: number }[];
+    .all(invoiceId)) as { code: string; date: string; start_min: number; end_min: number; court_name: string; name: string; owed: number }[];
   return rows.map((r) => ({
     code: r.code,
     date: r.date,
-    startHour: Number(r.start_hour),
-    endHour: Number(r.end_hour),
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
     courtName: r.court_name,
     bookedBy: r.name,
     amount: roundMoney(Number(r.owed)),

@@ -19,8 +19,11 @@ The search page works the same way: the time of day is one tap — *Any time*,
 *Morning*, *Afternoon*, *Evening* — and *Custom…* opens the from and until
 hours for anyone who wants an exact window. The sports to pick from are the
 ones somebody here has a court for, as on the home page, classes and games;
-how long is an hour, an hour and a half, or whole hours up to twelve, and
-picking padel asks for its 90 minutes ([sports](booking.md#sports)). On a phone, *Area* and the
+how long is 30, 45, 60, 75, 90, 120, 150 or 180 minutes, or whole hours up
+to twelve, and picking padel asks for its 90 minutes
+([sports](booking.md#sports)). A result is a start each court's
+[booking rules](booking.md#booking-rules-starts-lengths-buffers) allow, for a
+length they allow, free for all of it, buffers included. On a phone, *Area* and the
 must-haves (showers, parking and so on) fold under *More filters*, which says
 how many are on; *Near me* stays in view.
 
@@ -46,7 +49,7 @@ Search results can be sorted three ways (`sort=` on `/api/search`):
 - **Nearest**, offered only once there is a place: one row per venue, the
   closest first, with every free start time under it as a button straight to
   booking — for "the closest place with anything tonight".
-- **Cheapest**: one row per venue, the one with the cheapest hour first.
+- **Cheapest**: one row per venue, the one with the cheapest booking first.
 
 Each venue and time is still its cheapest court whichever way it is sorted.
 Following a result or a card from a search near somewhere carries the place

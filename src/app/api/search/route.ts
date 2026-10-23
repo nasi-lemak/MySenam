@@ -5,16 +5,17 @@ import { releaseExpiredHolds } from "@/lib/holds";
 import { readFacilityFilters } from "@/lib/facilities";
 import { coversFor } from "@/lib/photos";
 import { isValidDateString, todayISO } from "@/lib/time";
-import { CLOSE_HOUR, MAX_COURT_HOURS, OPEN_HOUR, Sport, SPORTS } from "@/lib/types";
+import { MAX_COURT_HOURS, Sport, SPORTS } from "@/lib/types";
+import { DAY_MINUTES, isMinute, parseClock } from "@/lib/interval";
 import { region } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
-function parseHour(value: string | null, fallback: number): number | null {
+/** A time of day from the query: HH:MM, or hours (18, 18.5). Null when it does not read. */
+function parseTime(value: string | null, fallback: number): number | null {
   if (value === null || value === "") return fallback;
-  const hour = Number(value);
-  if (!Number.isInteger(hour) || hour < OPEN_HOUR || hour > CLOSE_HOUR) return null;
-  return hour;
+  const minute = value.includes(":") ? parseClock(value) : Number.isFinite(Number(value)) ? Math.round(Number(value) * 60) : null;
+  return isMinute(minute) ? minute : null;
 }
 
 export async function GET(req: NextRequest) {
@@ -28,25 +29,22 @@ export async function GET(req: NextRequest) {
   if (!isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
 
-  const fromHour = parseHour(params.get("from"), OPEN_HOUR);
-  const toHour = parseHour(params.get("to"), CLOSE_HOUR);
-  if (fromHour === null || toHour === null)
-    return NextResponse.json(
-      { error: `Hours must be between ${OPEN_HOUR} and ${CLOSE_HOUR}.` },
-      { status: 400 }
-    );
-  if (fromHour > toHour)
+  // The earliest and latest start wanted: `from=18:00&to=21:30` (or hours, `from=18`).
+  const fromMin = parseTime(params.get("from"), 0);
+  const toMin = parseTime(params.get("to"), DAY_MINUTES);
+  if (fromMin === null || toMin === null)
+    return NextResponse.json({ error: "from and to are times of day: HH:MM, or hours." }, { status: 400 });
+  if (fromMin > toMin)
     return NextResponse.json({ error: "'from' must not be after 'to'." }, { status: 400 });
 
+  // How long: `minutes=75`, or `duration` in hours (1.5). Each court's own
+  // policy says whether it takes that length; those that do not are left out.
+  const minutesParam = params.get("minutes");
   const durationParam = params.get("duration");
-  const duration = durationParam ? Number(durationParam) : 1;
-  // A court may allow up to MAX_COURT_HOURS; the search leaves out those that do not.
-  // Half hours too (padel's 90 minutes), found at venues that sell half hours.
-  if (!Number.isInteger(duration * 2) || duration < 1 || duration > MAX_COURT_HOURS)
-    return NextResponse.json(
-      { error: `Duration must be 1–${MAX_COURT_HOURS} hours, in half hours.` },
-      { status: 400 }
-    );
+  const minutes = minutesParam ? Number(minutesParam) : durationParam ? Math.round(Number(durationParam) * 60) : 60;
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_COURT_HOURS * 60)
+    return NextResponse.json({ error: `A booking is 1 minute to ${MAX_COURT_HOURS} hours long.` }, { status: 400 });
+  const duration = minutes / 60;
 
   // On a storefront, only its venues.
   const venueIds = (await storefrontForRequest(req))?.venueIds;
@@ -61,7 +59,7 @@ export async function GET(req: NextRequest) {
   // country is too much to work out for one page of results — and a court
   // three states away is no use to whoever is asking. Ask where first.
   if (!area && (await countSearchCourts({ sport: sport as Sport, venueIds, near })) > SEARCH_COURT_LIMIT)
-    return NextResponse.json({ date, sport, duration, results: [], areas, needsArea: true });
+    return NextResponse.json({ date, sport, duration, minutes, results: [], areas, needsArea: true });
 
   // `sort=nearest` needs somewhere to be near; without it, soonest.
   const asked = params.get("sort");
@@ -73,9 +71,9 @@ export async function GET(req: NextRequest) {
     limit: sort === "soonest" ? undefined : 200,
     sport: sport as Sport,
     date,
-    fromHour,
-    toHour,
-    duration,
+    fromMin,
+    toMin,
+    minutes,
     area,
     venueIds,
     near,
@@ -88,5 +86,5 @@ export async function GET(req: NextRequest) {
 
   // A thumbnail for each venue found that has one.
   const covers = Object.fromEntries(await coversFor([...new Set(results.map((r) => r.venue.id))]));
-  return NextResponse.json({ date, sport, duration, sort, results, areas, covers, needsArea: false });
+  return NextResponse.json({ date, sport, duration, minutes, sort, results, areas, covers, needsArea: false });
 }

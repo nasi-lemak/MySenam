@@ -60,27 +60,26 @@ describe("filling an empty install", () => {
     expect(await count("SELECT COUNT(*) AS n FROM memberships")).toBeGreaterThan(0);
     expect(await count("SELECT COUNT(*) AS n FROM promo_codes")).toBeGreaterThan(0);
     expect(await count("SELECT COUNT(*) AS n FROM wallet_entries")).toBeGreaterThan(0);
-    expect(await count("SELECT COUNT(*) AS n FROM slot_blocks")).toBeGreaterThan(0);
+    expect(await count("SELECT COUNT(*) AS n FROM blocks")).toBeGreaterThan(0);
     expect(await count("SELECT COUNT(*) AS n FROM venue_closures")).toBeGreaterThan(0);
     expect(await count("SELECT COUNT(*) AS n FROM inductions")).toBeGreaterThan(0);
     expect(await count("SELECT COUNT(*) AS n FROM users")).toBeGreaterThan(0);
   });
 
   it("never sells the same hour twice, however it was written", async () => {
+    // No two active claims overlap on one space.
     const clashes = await count(`
-      SELECT COUNT(*) AS n FROM (
-        SELECT court_id, date, hour, seat, COUNT(*) AS c
-        FROM booking_slots GROUP BY court_id, date, hour, seat HAVING COUNT(*) > 1
-      )
+      SELECT COUNT(*) AS n FROM claims a JOIN claims b
+        ON a.space_id = b.space_id AND a.id < b.id AND a.occupied && b.occupied
+       WHERE a.active AND b.active
     `);
     expect(clashes).toBe(0);
-    // And nothing was sold above a resource's capacity.
+    // And nothing was sold above a shared resource's capacity at any moment it starts.
     const over = await count(`
-      SELECT COUNT(*) AS n FROM (
-        SELECT s.court_id, s.date, s.hour, COUNT(*) AS taken, c.capacity
-        FROM booking_slots s JOIN courts c ON c.id = s.court_id
-        GROUP BY s.court_id, s.date, s.hour, c.capacity HAVING COUNT(*) > c.capacity
-      )
+      SELECT COUNT(*) AS n FROM claims a JOIN courts c ON c.id = a.court_id
+       WHERE a.active AND a.space_id IS NULL
+         AND (SELECT SUM(b.places) FROM claims b
+               WHERE b.court_id = a.court_id AND b.active AND b.space_id IS NULL AND b.occupied @> lower(a.occupied)) > c.capacity
     `);
     expect(over).toBe(0);
   });
@@ -91,19 +90,19 @@ describe("filling an empty install", () => {
     // Evenings cost more than mornings on the same court.
     const court = (await listVenues())[0].courts[0].id;
     const evening = await getDb()
-      .prepare("SELECT total_price AS p FROM bookings WHERE court_id = ? AND start_hour >= 19 LIMIT 1")
+      .prepare("SELECT total_price AS p FROM bookings WHERE court_id = ? AND start_min >= 19 * 60 LIMIT 1")
       .get(court) as { p: number } | undefined;
     const morning = await getDb()
-      .prepare("SELECT total_price AS p FROM bookings WHERE court_id = ? AND start_hour <= 10 LIMIT 1")
+      .prepare("SELECT total_price AS p FROM bookings WHERE court_id = ? AND start_min <= 10 * 60 LIMIT 1")
       .get(court) as { p: number } | undefined;
     if (evening && morning) expect(evening.p).toBeGreaterThanOrEqual(morning.p);
   });
 
   it("leaves no cancelled booking holding a court", async () => {
     const held = await count(`
-      SELECT COUNT(*) AS n FROM booking_slots s
+      SELECT COUNT(*) AS n FROM claims s
       JOIN bookings b ON b.id = s.booking_id
-      WHERE b.status = 'cancelled'
+      WHERE b.status = 'cancelled' AND s.active
     `);
     expect(held).toBe(0);
   });

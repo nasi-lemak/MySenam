@@ -132,12 +132,12 @@ describe("a phone number is not proof of identity", () => {
       (
         await getDb()
           .prepare(
-            "SELECT COUNT(*) AS n FROM booking_slots s JOIN bookings b ON b.id = s.booking_id WHERE b.code = ?"
+            "SELECT COUNT(*) AS n FROM claims c JOIN bookings b ON b.id = c.booking_id WHERE b.code = ? AND c.active"
           )
           .get(walkIn.code) as { n: number }
       ).n
-      // Its hour: both halves of the diary.
-    ).toBe(2);
+      // Its claim on its court.
+    ).toBe(1);
   });
 });
 

@@ -4,15 +4,12 @@ import { useEffect, useState } from "react";
 import type { Holiday } from "@/lib/peak";
 import { calendarUntil, MY_STATES } from "@/lib/holiday-calendar";
 import { region } from "@/lib/region";
-import { formatHour, todayISO, type PeakRules } from "@/lib/time";
+import { todayISO, type PeakRules } from "@/lib/time";
+import { clockOf, parseClock } from "@/lib/interval";
 
 type Rules = Omit<PeakRules, "holidays">;
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-/** A window starts on the hour from midnight and ends on it, up to the next midnight. */
-const STARTS = Array.from({ length: 24 }, (_, h) => h);
-const ENDS = Array.from({ length: 24 }, (_, h) => h + 1);
-const hourLabel = (h: number) => (h % 24 === 0 ? "Midnight" : formatHour(h));
 
 /**
  * When a venue's peak rates apply: the hours on working days and at the
@@ -128,33 +125,34 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
 
   if (!rules) return null;
   const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
+  // Any minute: peak from 17:45, to midnight or past it (an end at or before the start runs into the next morning).
   const span = (fromKey: "weekdayFrom" | "weekendFrom", untilKey: "weekdayUntil" | "weekendUntil") => (
     <span className="inline-flex items-center gap-1">
-      <select
+      <input
+        type="time"
+        step={60}
         aria-label="From"
-        value={rules[fromKey]}
-        onChange={(e) => setRules({ ...rules, [fromKey]: Number(e.target.value) })}
+        value={clockOf(rules[fromKey])}
+        onChange={(e) => {
+          const m = parseClock(e.target.value);
+          if (m !== null) setRules({ ...rules, [fromKey]: m });
+        }}
         className={input}
-      >
-        {STARTS.map((h) => (
-          <option key={h} value={h}>
-            {hourLabel(h)}
-          </option>
-        ))}
-      </select>
+      />
       to
-      <select
+      <input
+        type="time"
+        step={60}
         aria-label="Until"
-        value={rules[untilKey]}
-        onChange={(e) => setRules({ ...rules, [untilKey]: Number(e.target.value) })}
+        value={clockOf(rules[untilKey])}
+        onChange={(e) => {
+          const m = parseClock(e.target.value);
+          if (m === null) return;
+          // The same time as the start is no peak; earlier is the next morning (00:00 is midnight).
+          setRules({ ...rules, [untilKey]: m < rules[fromKey] ? m + 1440 : m });
+        }}
         className={input}
-      >
-        {ENDS.map((h) => (
-          <option key={h} value={h}>
-            {hourLabel(h)}
-          </option>
-        ))}
-      </select>
+      />
     </span>
   );
 
@@ -162,8 +160,8 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <h3 className="font-semibold">When peak rates apply</h3>
       <p className="mt-1 text-xs text-slate-500">
-        Each court above has an off-peak and a peak rate; these hours decide which one an hour costs. The same time twice
-        means no peak; Midnight to Midnight is all day. Holidays are priced like the weekend.
+        Each court above has an off-peak and a peak rate; these times decide which one each minute costs, so a booking across the change pays each part at its own rate. The same time twice
+        means no peak; 00:00 to 00:00 is all day. Holidays are priced like the weekend.
       </p>
       <div className="mt-3 space-y-2">
         <p>

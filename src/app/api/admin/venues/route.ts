@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readMinute } from "@/lib/api";
+import { isMinute } from "@/lib/interval";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { createVenue } from "@/lib/store";
-import { LATEST_CLOSE_HOUR, OPEN_HOUR } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -27,16 +28,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `A valid ${field} is required.` }, { status: 400 });
   }
 
-  const hours: { openHour?: number; closeHour?: number } = {};
-  for (const field of ["openHour", "closeHour"] as const) {
-    const value = input[field];
-    if (value === undefined) continue;
-    if (!Number.isInteger(value) || (value as number) < OPEN_HOUR || (value as number) > LATEST_CLOSE_HOUR)
-      return NextResponse.json(
-        { error: `Opening hours must be whole hours, from midnight to ${LATEST_CLOSE_HOUR - 24} AM the next morning.` },
-        { status: 400 }
-      );
-    hours[field] = value as number;
+  // Usual hours: minutes of the day or HH:MM (openHour and closeHour, the older form); checked in lib/week-hours.ts.
+  const hours: { openMin?: number; closeMin?: number } = {};
+  for (const [field, older] of [["openMin", "openHour"], ["closeMin", "closeHour"]] as const) {
+    if (input[field] === undefined && input[older] === undefined) continue;
+    const value = readMinute(input, field, older);
+    if (!isMinute(value))
+      return NextResponse.json({ error: "Opening hours are times of day, from midnight to 4 AM the next morning." }, { status: 400 });
+    hours[field] = value;
   }
 
   const result = await createVenue({

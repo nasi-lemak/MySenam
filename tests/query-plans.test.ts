@@ -36,8 +36,8 @@ import { addDays, todayISO } from "../src/lib/time";
 
 const BIG_TABLES = new Set([
   "bookings",
-  "booking_slots",
-  "slot_blocks",
+  "claims",
+  "blocks",
   "classes",
   // What the daily retention prune reads: years of these, on a big install.
   "check_ins",

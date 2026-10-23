@@ -2,10 +2,11 @@ import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
 import { sportRules } from "@/lib/sport-rules";
 import { variesByDay, weekLines } from "@/lib/week-hours";
-import { getVenue, listVenueClosures, readNear, sellUnits } from "@/lib/store";
+import { getVenue, listVenueClosures, readNear } from "@/lib/store";
+import { formatMinute, isMinute, parseClock } from "@/lib/interval";
 import { distanceM } from "@/lib/geo";
-import { todayISO, addDays, formatHour, onSlot, slotsBetween } from "@/lib/time";
-import { MAX_HOURS_PER_BOOKING, Sport, SPORTS } from "@/lib/types";
+import { todayISO, addDays } from "@/lib/time";
+import { Sport, SPORTS } from "@/lib/types";
 import BookingBoard from "@/components/BookingBoard";
 import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
@@ -54,7 +55,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const cover = (await venuePhotos(venue.id))[0];
   const image = cover ? new URL(photoAt(cover, 1200), origin).toString() : null;
   const title = `${venue.name} — ${sports} in ${venue.area}`;
-  const description = `Book ${sports.toLowerCase()} at ${venue.name}, ${venue.address}. Open ${formatHour(venue.openHour)} to ${formatHour(venue.closeHour)}; see what is free and book online.`;
+  const description = `Book ${sports.toLowerCase()} at ${venue.name}, ${venue.address}. Open ${formatMinute(venue.openMin)} to ${formatMinute(venue.closeMin)}; see what is free and book online.`;
   return {
     title: `${title} | ${siteName()}`,
     description,
@@ -137,7 +138,7 @@ export default async function VenuePage({
   // A weekday's short name in the reader's language: 0 is Sunday.
   const dayName = (day: number) =>
     new Date(Date.UTC(2026, 0, 4 + day)).toLocaleDateString(intlTag(t.locale), { weekday: "short", timeZone: "UTC" });
-  const initial = parseInitialSelection(query, sports, dates, await sellUnits(venue.id));
+  const initial = parseInitialSelection(query, sports, dates);
   // Only closures inside the booking window are worth warning about.
   const closures = (await listVenueClosures(venue.id, today)).filter((c) => dates.includes(c.date));
   // Courts out for a stretch that touches the booking window.
@@ -223,7 +224,7 @@ export default async function VenuePage({
                   {dayName(l.from)}
                   {l.to !== l.from && `–${dayName(l.to)}`}
                 </span>{" "}
-                {l.hours === "closed" ? t("venue.closedDay") : `${formatHour(l.hours.open)} – ${formatHour(l.hours.close)}`}
+                {l.hours === "closed" ? t("venue.closedDay") : `${formatMinute(l.hours.open)} – ${formatMinute(l.hours.close)}`}
               </li>
             ))}
           </ul>
@@ -232,8 +233,8 @@ export default async function VenuePage({
           {!variesByDay(venue.weekHours) && (
             <>
               {t("venue.openDaily", {
-                from: formatHour(venue.openHour),
-                to: formatHour(venue.closeHour),
+                from: formatMinute(venue.openMin),
+                to: formatMinute(venue.closeMin),
               })}{" "}
               ·{" "}
             </>
@@ -371,14 +372,13 @@ export default async function VenuePage({
   );
 }
 
-/** Turn ?date=&sport=&court=&hour=&duration= from a search result into a selection. */
-function parseInitialSelection(
-  query: Record<string, string | string[] | undefined>,
-  sports: Sport[],
-  dates: string[],
-  /** What each sport is sold by here, in hours: 1, or 0.5 by the half hour. */
-  units: Record<Sport, number>
-) {
+/**
+ * Turn ?date=&sport=&court=&start=&minutes= from a search result (or "Book
+ * again") into a selection: `start` in minutes of the day or HH:MM, `minutes`
+ * its length. The older `hour=&duration=` (hours) reads the same way. Whether
+ * the court takes that time is the board's to check against its starts.
+ */
+function parseInitialSelection(query: Record<string, string | string[] | undefined>, sports: Sport[], dates: string[]) {
   const one = (key: string) => {
     const value = query[key];
     return Array.isArray(value) ? value[0] : value;
@@ -387,13 +387,16 @@ function parseInitialSelection(
   const sport = one("sport");
   const date = one("date");
   const courtId = Number(one("court"));
-  const hour = Number(one("hour"));
-  const duration = Number(one("duration") ?? 1);
-  const shown = sport && sports.includes(sport as Sport) ? (sport as Sport) : sports[0];
-  const step = shown ? units[shown] : 1;
-
-  const validDuration =
-    onSlot(duration, step) && duration >= step && duration <= MAX_HOURS_PER_BOOKING;
+  const rawStart = one("start");
+  const start =
+    rawStart !== undefined
+      ? /^\d+$/.test(rawStart)
+        ? Number(rawStart)
+        : parseClock(rawStart)
+      : one("hour") !== undefined
+        ? Math.round(Number(one("hour")) * 60)
+        : null;
+  const minutes = one("minutes") !== undefined ? Number(one("minutes")) : one("duration") !== undefined ? Math.round(Number(one("duration")) * 60) : undefined;
 
   return {
     sport: sport && SPORTS.includes(sport as Sport) && sports.includes(sport as Sport)
@@ -401,9 +404,7 @@ function parseInitialSelection(
       : undefined,
     date: date && dates.includes(date) ? date : undefined,
     courtId: Number.isInteger(courtId) && courtId > 0 ? courtId : undefined,
-    hours:
-      onSlot(hour, step) && validDuration
-        ? slotsBetween(hour, hour + duration, step)
-        : undefined,
+    start: isMinute(start) ? start : undefined,
+    minutes: minutes !== undefined && Number.isInteger(minutes) && minutes > 0 ? minutes : undefined,
   };
 }

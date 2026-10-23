@@ -4,7 +4,8 @@ import { getDb } from "./db";
 import { money } from "./region";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
-import { addDays, formatHour, todayISO } from "./time";
+import { addDays, todayISO } from "./time";
+import { formatMinute } from "./interval";
 import { venueZoneOf } from "./zones";
 
 /**
@@ -49,8 +50,8 @@ export async function venueForFeed(token: string): Promise<number | null> {
 interface BookingRow {
   code: string;
   date: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
   name: string;
   phone: string;
   total_price: number;
@@ -64,8 +65,8 @@ interface ClassRow {
   name: string;
   instructor: string;
   date: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
   capacity: number;
   court_name: string;
   enrolled: number;
@@ -87,31 +88,32 @@ export async function staffCalendar(venueId: number): Promise<string> {
   const until = addDays(today, DAYS_AHEAD);
   const bookings = (await db
     .prepare(
-      `SELECT b.code, b.date, b.start_hour, b.end_hour, b.name, b.phone, b.total_price, b.payment_status,
+      `SELECT b.code, b.date, b.start_min, b.end_min, b.name, b.phone, b.total_price, b.payment_status,
               c.name AS court_name, k.name AS coach_name
          FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id
         WHERE c.venue_id = ? AND b.status = 'confirmed' AND b.class_id IS NULL AND b.date BETWEEN ? AND ?
-        ORDER BY b.date, b.start_hour`
+        ORDER BY b.date, b.start_min`
     )
     .all(venueId, from, until)) as BookingRow[];
   const classes = (await db
     .prepare(
-      `SELECT k.id, k.name, k.instructor, k.date, k.start_hour, k.end_hour, k.capacity, c.name AS court_name,
+      `SELECT k.id, k.name, k.instructor, k.date, k.start_min, k.end_min, k.capacity, c.name AS court_name,
               (SELECT COUNT(*)::int FROM bookings e WHERE e.class_id = k.id AND e.status = 'confirmed') AS enrolled
          FROM classes k JOIN courts c ON c.id = k.court_id
         WHERE c.venue_id = ? AND k.status = 'scheduled' AND k.date BETWEEN ? AND ?
-        ORDER BY k.date, k.start_hour`
+        ORDER BY k.date, k.start_min`
     )
     .all(venueId, from, until)) as ClassRow[];
 
   const host = new URL(await venueBaseUrl(venueId)).host;
   const stamp = toUtcStamp(today, 0, zone);
+  // Times as minutes of the business day.
   const event = (uid: string, date: string, start: number, end: number, summary: string, description: string) => [
     "BEGIN:VEVENT",
     `UID:${uid}@${host}`,
     `DTSTAMP:${stamp}`,
-    `DTSTART:${toUtcStamp(date, start, zone)}`,
-    `DTEND:${toUtcStamp(date, end, zone)}`,
+    `DTSTART:${toUtcStamp(date, start / 60, zone)}`,
+    `DTEND:${toUtcStamp(date, end / 60, zone)}`,
     `SUMMARY:${icsText(summary)}`,
     `DESCRIPTION:${icsText(description)}`,
     `LOCATION:${icsText(venue.address)}`,
@@ -131,11 +133,11 @@ export async function staffCalendar(venueId: number): Promise<string> {
       event(
         `booking-${b.code}`,
         b.date,
-        Number(b.start_hour),
-        Number(b.end_hour),
+        Number(b.start_min),
+        Number(b.end_min),
         `${b.court_name}: ${b.name}${b.coach_name ? `, lesson with ${b.coach_name}` : ""}${b.payment_status === "paid" || Number(b.total_price) === 0 ? "" : " (unpaid)"}`,
         [
-          `${b.code}, ${formatHour(Number(b.start_hour))}–${formatHour(Number(b.end_hour))}`,
+          `${b.code}, ${formatMinute(Number(b.start_min))}–${formatMinute(Number(b.end_min))}`,
           `${b.name}, ${b.phone}`,
           `${money(Number(b.total_price))}, ${b.payment_status === "paid" ? "paid" : "not paid yet"}`,
         ].join("\n")
@@ -145,8 +147,8 @@ export async function staffCalendar(venueId: number): Promise<string> {
       event(
         `class-${k.id}`,
         k.date,
-        Number(k.start_hour),
-        Number(k.end_hour),
+        Number(k.start_min),
+        Number(k.end_min),
         `${k.name} (${k.enrolled}/${k.capacity})`,
         `${k.court_name}, with ${k.instructor}. ${k.enrolled} of ${k.capacity} places taken.`
       )

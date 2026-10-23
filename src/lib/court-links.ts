@@ -1,5 +1,7 @@
-import { getDb, isUniqueViolation } from "./db";
-import { todayISO } from "./time";
+import { getDb, withTransaction } from "./db";
+import { isConflict } from "./claims";
+import { localDateOf } from "./time";
+import { venueZoneOf } from "./zones";
 
 /**
  * Linked courts: one floor sold more than one way.
@@ -10,10 +12,12 @@ import { todayISO } from "./time";
  * do not take each other, and two wholes over the same court (futsal and
  * netball over the same badminton courts) take each other through it.
  *
- * The database does the holding (db/migrations/0072): each booked hour is
- * mirrored onto the linked courts as a `shadow` slot, so the same unique key
- * that stops two bookings of one court stops a booking across a link, however
- * two requests race. Blocks and outages carry across links the same way.
+ * The database does the holding (ADR 0010): each court that takes one
+ * booking at a time is a space, and a whole is the set of its own space and
+ * its parts' (`court_spaces`). Booking a court claims every space it covers,
+ * so the exclusion constraint that stops two bookings of one court stops a
+ * booking across a link, however two requests race, at any depth. Blocks,
+ * classes and outages claim spaces the same way.
  *
  * Only exclusive courts link (a shared facility sells places, not the floor),
  * one level deep: a whole is not itself part of something, nor a part a whole.
@@ -77,66 +81,58 @@ export async function setCourtParts(
     if (nested.length > 0) return { ok: false, error: `${nested[0].name} takes other courts itself, so it cannot be part of this one.` };
   }
 
-  const today = todayISO();
+  const spaceOf = async (courtId: number) =>
+    ((await db.prepare("SELECT id FROM spaces WHERE court_id = ?").get(courtId)) as { id: number } | undefined)?.id;
+  const own = await spaceOf(wholeId);
+  if (own === undefined) return { ok: false, error: "Court not found." };
   try {
-    await db.transaction(async () => {
+    await withTransaction(async () => {
       const before = (await linkedParts(wholeId)).filter((p) => !parts.includes(p));
       for (const part of before) {
-        // Shadows of this link go with it: the whole's bookings on the part, the part's on the whole.
-        await db
-          .prepare(
-            `DELETE FROM booking_slots s USING bookings b
-              WHERE s.booking_id = b.id AND s.shadow = 1
-                AND ((b.court_id = ? AND s.court_id = ?) OR (b.court_id = ? AND s.court_id = ?))`
-          )
-          .run(wholeId, part, part, wholeId);
+        const space = await spaceOf(part);
+        // The whole no longer covers the part: its claims there go with the link.
+        if (space !== undefined) {
+          await db.prepare("DELETE FROM claims WHERE court_id = ? AND space_id = ?").run(wholeId, space);
+          await db.prepare("DELETE FROM court_spaces WHERE court_id = ? AND space_id = ?").run(wholeId, space);
+        }
         await db.prepare("DELETE FROM court_links WHERE whole_id = ? AND part_id = ?").run(wholeId, part);
       }
       const already = await linkedParts(wholeId);
       for (const part of parts.filter((p) => !already.includes(p))) {
+        const space = await spaceOf(part);
+        if (space === undefined) continue;
         await db.prepare("INSERT INTO court_links (whole_id, part_id) VALUES (?, ?)").run(wholeId, part);
-        // What is already sold from today takes the other side too, as a new booking would.
+        await db.prepare("INSERT INTO court_spaces (court_id, space_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(wholeId, space);
+        // What the whole holds from now on takes the part too, as a new booking would.
         await db
           .prepare(
-            `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span, shadow)
-             SELECT booking_id, ?::int, date, hour, 0, span, 1 FROM booking_slots WHERE court_id = ? AND shadow = 0 AND date >= ?
-             UNION ALL
-             SELECT booking_id, ?::int, date, hour, -?::int, span, 1 FROM booking_slots WHERE court_id = ? AND shadow = 0 AND date >= ?`
+            `INSERT INTO claims (venue_id, court_id, space_id, kind, booking_id, class_id, block_id, outage_id, waitlist_id,
+                                 during, occupied, buffer_before, buffer_after, active, expires_at)
+             SELECT venue_id, court_id, ?, kind, booking_id, class_id, block_id, outage_id, waitlist_id,
+                    during, occupied, buffer_before, buffer_after, active, expires_at
+               FROM claims
+              WHERE court_id = ? AND space_id = ? AND active AND (upper(occupied) IS NULL OR upper(occupied) > now())`
           )
-          .run(part, wholeId, today, wholeId, part, part, today);
+          .run(space, wholeId, own);
       }
-      // Big courts sharing a part take each other through it (migration 0087):
-      // what this court's links now say, for what is sold from today.
-      await db
-        .prepare(
-          `DELETE FROM booking_slots s USING bookings b
-            WHERE s.booking_id = b.id AND s.shadow = 1 AND s.date >= ? AND s.seat = -b.court_id
-              AND (b.court_id = ? OR s.court_id = ?)
-              AND NOT EXISTS (SELECT 1 FROM court_links l WHERE l.whole_id = s.court_id AND l.part_id = b.court_id)`
-        )
-        .run(today, wholeId, wholeId);
-      await db
-        .prepare(
-          `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span, shadow)
-           SELECT DISTINCT s.booking_id, o.whole_id, s.date, s.hour, -s.court_id, s.span, 1
-             FROM booking_slots s
-             JOIN court_links a ON a.whole_id = s.court_id
-             JOIN court_links o ON o.part_id = a.part_id AND o.whole_id <> a.whole_id
-            WHERE s.shadow = 0 AND s.date >= ? AND (s.court_id = ? OR o.whole_id = ?)`
-        )
-        .run(today, wholeId, wholeId);
-    })();
+    });
   } catch (err) {
-    if (!isUniqueViolation(err, "booking_slots")) throw err;
+    if (!isConflict(err)) throw err;
+    // The first time the whole and a court it would take are both held.
     const clash = (await db
       .prepare(
-        `SELECT MIN(w.date) AS date FROM booking_slots w JOIN booking_slots p ON p.date = w.date AND p.hour = w.hour AND p.booking_id <> w.booking_id
-          WHERE w.court_id = ? AND w.shadow = 0 AND w.date >= ? AND p.court_id IN (${parts.map(() => "?").join(",")})`
+        `SELECT min(lower(w.during)) AS at, v.time_zone, v.lat, v.lng FROM claims w
+           JOIN spaces s ON s.court_id IN (${parts.map(() => "?").join(",")})
+           JOIN claims p ON p.space_id = s.id AND p.court_id <> ? AND p.active AND p.occupied && w.occupied
+           JOIN venues v ON v.id = w.venue_id
+          WHERE w.court_id = ? AND w.space_id = ? AND w.active AND (upper(w.occupied) IS NULL OR upper(w.occupied) > now())
+          GROUP BY v.time_zone, v.lat, v.lng`
       )
-      .get(wholeId, today, ...parts)) as { date: string | null } | undefined;
+      .get(...parts, wholeId, wholeId, own)) as { at: Date | null; time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+    const date = clash?.at ? localDateOf(new Date(clash.at).toISOString(), venueZoneOf(clash)) : null;
     return {
       ok: false,
-      error: `${whole.name} and a court it would take are both booked at the same time${clash?.date ? ` on ${clash.date}` : ""}. Move one of them first.`,
+      error: `${whole.name} and a court it would take are both booked at the same time${date ? ` on ${date}` : ""}. Move one of them first.`,
     };
   }
   return { ok: true, parts: await linkedParts(wholeId) };

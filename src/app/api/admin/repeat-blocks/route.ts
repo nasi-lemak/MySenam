@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
 import { endRepeatBlock, listRepeatBlocks, repeatBlock } from "@/lib/repeat-blocks";
-import { formatHour } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
+import { readMinute } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ repeats: await listRepeatBlocks(venueId) }, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** `{ venueId, courtIds, from, days, fromHour, untilHour, weeks, reason }`: block those hours every week. */
+/**
+ * `{ venueId, courtIds, from, days, fromMin, untilMin, weeks, reason }`: block
+ * that time every week (minutes of the day or HH:MM; `fromHour`/`untilHour`
+ * the older form).
+ */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
@@ -33,8 +38,8 @@ export async function POST(req: NextRequest) {
     courtIds: numbers(body.courtIds),
     from: String(body.from ?? ""),
     days: numbers(body.days),
-    fromHour: Number(body.fromHour),
-    untilHour: Number(body.untilHour),
+    fromMin: readMinute(body, "fromMin", "fromHour"),
+    untilMin: readMinute(body, "untilMin", "untilHour"),
     weeks: Number(body.weeks),
     reason: String(body.reason ?? ""),
   });
@@ -42,7 +47,7 @@ export async function POST(req: NextRequest) {
   await logFromRequest(req, {
     venueId,
     action: "block.repeated",
-    detail: `${String(body.reason)}: ${formatHour(Number(body.fromHour))}–${formatHour(Number(body.untilHour))} weekly for ${String(body.weeks)} weeks from ${String(body.from)} (${done.code})`,
+    detail: `${String(body.reason)}: ${formatMinute(readMinute(body, "fromMin", "fromHour"))}–${formatMinute(readMinute(body, "untilMin", "untilHour"))} weekly for ${String(body.weeks)} weeks from ${String(body.from)} (${done.code})`,
   });
   return NextResponse.json(done);
 }

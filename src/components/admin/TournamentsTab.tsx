@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
-import { addDays, formatHour } from "@/lib/time";
+import { addDays } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
+import { ClockField } from "@/components/ClockField";
 import { SPORTS, type Sport } from "@/lib/types";
 import type { Match, Tournament, TournamentDetail } from "@/lib/tournaments";
 import { currencySymbol, money } from "@/lib/region";
@@ -111,13 +113,14 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
     advance: "2",
     startsOn: start,
     endsOn: start,
-    startHour: Math.max(venue.openHour, 9),
-    endHour: Math.min(venue.closeHour, 18),
+    // Each day's time, in minutes of the day, and how long each match is given on court.
+    startMin: Math.max(venue.openMin, 9 * 60),
+    endMin: Math.min(venue.closeMin, 18 * 60),
+    matchMinutes: "60",
     courtIds: [] as number[],
     description: "",
   });
   const courts = venue.courts.filter((c) => c.sport === f.sport);
-  const hours = Array.from({ length: venue.closeHour - venue.openHour + 1 }, (_, i) => venue.openHour + i);
   const label = "flex flex-col text-xs font-medium text-slate-500";
 
   return (
@@ -131,6 +134,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           maxEntries: Number(f.maxEntries),
           groupSize: Number(f.groupSize),
           advance: Number(f.advance),
+          matchMinutes: Number(f.matchMinutes),
           courtIds: f.courtIds.length ? f.courtIds : courts.map((c) => c.id),
         });
         if (ok) setF({ ...f, name: "", description: "" });
@@ -229,23 +233,15 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         </label>
         <label className={label}>
           From
-          <select value={f.startHour} onChange={(e) => setF({ ...f, startHour: Number(e.target.value) })} className={input}>
-            {hours.slice(0, -1).map((h) => (
-              <option key={h} value={h}>
-                {formatHour(h)}
-              </option>
-            ))}
-          </select>
+          <ClockField label="From" value={f.startMin} onChange={(m) => setF({ ...f, startMin: m })} className={input} />
         </label>
         <label className={label}>
           Until
-          <select value={f.endHour} onChange={(e) => setF({ ...f, endHour: Number(e.target.value) })} className={input}>
-            {hours.filter((h) => h > f.startHour).map((h) => (
-              <option key={h} value={h}>
-                {formatHour(h)}
-              </option>
-            ))}
-          </select>
+          <ClockField label="Until" value={f.endMin} after={f.startMin} onChange={(m) => setF({ ...f, endMin: m })} className={input} />
+        </label>
+        <label className={label}>
+          Each match (minutes)
+          <input type="number" min={5} max={600} value={f.matchMinutes} onChange={(e) => setF({ ...f, matchMinutes: e.target.value })} className={input} />
         </label>
         <fieldset className="text-sm">
           <legend className="text-xs font-medium text-slate-500">Courts (all, unless you pick)</legend>
@@ -297,7 +293,7 @@ function Manage({
           </h2>
           <p className="text-sm text-slate-500">
             {t.startsOn}
-            {t.endsOn !== t.startsOn && ` to ${t.endsOn}`}, {formatHour(t.startHour)}–{formatHour(t.endHour)} ·{" "}
+            {t.endsOn !== t.startsOn && ` to ${t.endsOn}`}, {formatMinute(t.startMin)}–{formatMinute(t.endMin)} ·{" "}
             {t.format === "groups" ? "groups, then knockout" : "knockout"} · {t.teamSize === 2 ? "doubles" : "singles"} ·{" "}
             {money(t.entryFee)} · <a href={`/tournaments/${t.id}`} target="_blank" rel="noopener" className="underline">public page ↗</a>
           </p>
@@ -401,7 +397,7 @@ function Manage({
           <ul className="mt-2 space-y-2 text-sm">
             {t.matches
               .filter((m) => m.status !== "bye")
-              .sort((a, b) => `${a.date}${a.hour}`.localeCompare(`${b.date}${b.hour}`) || (a.courtId ?? 0) - (b.courtId ?? 0))
+              .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0) || (a.courtId ?? 0) - (b.courtId ?? 0))
               .map((m) => (
                 <MatchRow key={m.id} m={m} names={names} venue={venue} save={(body) => post(`${base}/matches/${m.id}`, body)} />
               ))}
@@ -429,7 +425,7 @@ function MatchRow({
   return (
     <li className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
       <span className="w-40 shrink-0 text-xs text-slate-500">
-        {m.date} {m.hour !== null && formatHour(m.hour)} · {m.courtName ?? "—"}
+        {m.date} {m.minute !== null && formatMinute(m.minute)} · {m.courtName ?? "—"}
         <br />
         {label}
       </span>

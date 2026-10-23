@@ -93,7 +93,7 @@ export async function customerReport(venueId: number, from: string, to: string):
     .prepare(
       `SELECT b.phone_key, (array_agg(b.name ORDER BY b.date DESC, b.id DESC))[1] AS name,
               (array_agg(b.phone ORDER BY b.date DESC, b.id DESC))[1] AS phone,
-              COUNT(*)::int AS bookings, SUM(b.end_hour - b.start_hour)::float AS hours, SUM(b.total_price)::float AS spent,
+              COUNT(*)::int AS bookings, (SUM(b.end_min - b.start_min) / 60.0)::float AS hours, SUM(b.total_price)::float AS spent,
               (SELECT MIN(x.date) FROM bookings x WHERE x.phone_key = b.phone_key AND x.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
                  AND x.status = 'confirmed' AND x.demo = 0) AS since
          FROM bookings b

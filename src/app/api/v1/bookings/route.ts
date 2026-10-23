@@ -4,6 +4,7 @@ import { notifyBookingConfirmed } from "@/lib/notify";
 import { bookingsBetween, MAX_RANGE_DAYS, spanDays } from "@/lib/public-api";
 import { createBooking, getCourt } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
+import { readTime } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +21,12 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ courtId, date, hours: [9, 10], name, phone, email? }` → a booking, as the
- * venue's own system makes it (write keys). The customer is sent the usual
- * confirmation. Unpaid; the venue settles it as any other.
+ * `{ courtId, date, start, end, name, phone, email? }` → a booking, as the
+ * venue's own system makes it (write keys). `start` and `end` are minutes of
+ * the business day or HH:MM (`minutes` may stand for `end`; `hours`, a list
+ * of grid times, is the older form). The court's booking policy applies as
+ * to any customer. The customer is sent the usual confirmation. Unpaid; the
+ * venue settles it as any other.
  */
 export async function POST(req: NextRequest) {
   const caller = await apiCaller(req, "write");
@@ -32,14 +36,14 @@ export async function POST(req: NextRequest) {
   const court = await getCourt(body.courtId as number);
   if (!court || court.venueId !== caller.venueId) return NextResponse.json({ error: "That court is not at this key's venue." }, { status: 404 });
   if (typeof body.date !== "string" || !isValidDateString(body.date)) return NextResponse.json({ error: "date (YYYY-MM-DD) is required." }, { status: 400 });
-  if (!Array.isArray(body.hours) || body.hours.length === 0 || !body.hours.every((h) => typeof h === "number"))
-    return NextResponse.json({ error: "hours is a list of slot start hours." }, { status: 400 });
+  const time = readTime(body);
+  if (!time.ok) return NextResponse.json({ error: time.error }, { status: 400 });
   if (typeof body.name !== "string" || body.name.trim().length < 2 || typeof body.phone !== "string" || body.phone.trim().length < 7)
     return NextResponse.json({ error: "name and phone are required." }, { status: 400 });
   const made = await createBooking({
     courtId: court.id,
     date: body.date,
-    hours: body.hours as number[],
+    ...time.when,
     name: body.name.trim(),
     phone: body.phone.trim(),
     email: typeof body.email === "string" && body.email.trim() ? body.email.trim() : undefined,

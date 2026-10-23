@@ -5,7 +5,8 @@ Authoritative for instructor-led classes and terms, one-to-one coaching, tournam
 ## Classes
 
 A class is an instructor-led session held on a shared facility. While it runs
-the resource is **reserved**: those hours disappear from general booking and
+the resource is **reserved** (a claim on the court for the session's exact
+minutes): that time disappears from general booking and
 from cross-venue search, and a walk-in attempt is told to enrol instead. A class
 cannot be laid over existing bookings, or over another class.
 
@@ -51,11 +52,14 @@ booking is paid.
   is its own line on the receipt, *Coaching with Ana Lim*. A promo code comes
   off the court, not the coach's fee. The sales journal files it under
   *Coaching*.
-- **A coach is in one place at a time.** Each lesson claims the coach's slots
-  in `coach_slots`, whose key is the coach and the time. A second lesson for
-  the same time, on any court, is refused (*Ana Lim has just been booked*),
-  and the court it had picked is let go as if never booked. A cancelled
-  lesson's slots are cleared by the next booking that wants them.
+- **A coach is in one place at a time.** Each lesson claims the coach for
+  its exact minutes (`coach_claims`, under a database constraint that
+  refuses two overlapping claims for one coach). A second lesson overlapping
+  it, on any court, is refused (*Ana Lim has just been booked*), and the
+  court it had picked is let go as if never booked. Cancelling a lesson
+  releases the coach. The fee is the coach's hourly fee for the minutes
+  booked; lesson starts and lengths follow the court's
+  [booking rules](booking.md#booking-rules-starts-lengths-buffers).
 - **Weekly lessons**, for a signed-in customer, as with a weekly court:
   *Repeat* on the lesson form books the same time for up to 12 weeks, and a
   week the coach or every court is already taken is skipped and listed
@@ -67,9 +71,10 @@ booking is paid.
 ### Lesson packs
 
 A pass sold for one coach (*Credit & passes → Multi-visit passes → For:
-Lessons with Ana Lim*, `passes.coach_id`, migration 0061). Each entry pays an
-hour of lesson with that coach, court and coach fee together, and it pays
-nothing else. A court pass no longer pays a lesson, since the coach's fee
+Lessons with Ana Lim*, `passes.coach_id`, migration 0061). It spends as any
+[pass](pricing.md#multi-visit-passes) does (an entry an hour unless set
+otherwise, or court time to the minute) on lessons with that coach, court and
+coach fee together, and it pays nothing else. A court pass no longer pays a lesson, since the coach's fee
 would go unpaid; the customer is told to use a lesson pack or pay another way.
 The pack's receipt is filed under *Coaching* in the sales journal.
 
@@ -100,8 +105,8 @@ Late-cancellation fees are not split with the coach.
 ### A coach's own week and time off
 
 At their private schedule link (`/coach/<token>`), a coach can also set the
-hours they take lessons each week (several stretches a day, on the hour or
-half hour) and add time off, a day or a stretch of days up to a year ahead
+hours they take lessons each week (several stretches a day, to the minute)
+and add time off, a day or a stretch of days up to a year ahead
 (`setCoachHours`, `addTimeOff` in `src/lib/coaching.ts`). Nobody can book a
 lesson with them in time off; lessons already booked then stand, and the
 coach is told how many, to ask the venue to move them. Staff see the time
@@ -114,7 +119,8 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
 `/tournaments`.
 
 - **Setting one up**: sport, singles or doubles, level, entry fee, most
-  entries, days (up to two weeks) and daily hours, and which courts. Those
+  entries, days (up to two weeks), daily hours to the minute, how long each
+  match is given on court (60 minutes unless set), and which courts. Those
   hours are **held at once** — ordinary blocks with the tournament's name, so
   every booking path already treats them as taken. It will not hold over a
   booking already made, or a court out of service, and says which.
@@ -126,7 +132,7 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   one or two go through to a knockout. Seeds staff set are kept apart and get
   the byes; everybody else is drawn by lot. Each group's runner-up is put in
   the other half of the knockout from its winner. Every match gets a court and
-  an hour within those held, with nobody playing twice at once and no round
+  a time within those held, one match length each, with nobody playing twice at once and no round
   before the one feeding it — or the draw says how many matches did not fit
   and changes nothing. Everybody is emailed their first match.
 - **Results**: staff enter the score as sets ("21-15, 18-21, 21-10") and who

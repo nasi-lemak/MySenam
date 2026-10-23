@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readMinute } from "@/lib/api";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
 import { setSportRules, sportRules } from "@/lib/sport-rules";
@@ -13,6 +14,13 @@ async function venueOf(req: NextRequest, raw: unknown) {
   return denyVenue(admin, venueId) ?? venueId;
 }
 
+/** A peak window's times, in minutes of the day or HH:MM, as minutes. */
+function minutesOfPeak(peak: unknown): unknown {
+  if (!peak || typeof peak !== "object" || Array.isArray(peak)) return peak;
+  const p = peak as Record<string, unknown>;
+  return Object.fromEntries((["weekdayFrom", "weekdayUntil", "weekendFrom", "weekendUntil"] as const).map((k) => [k, readMinute(p, k)]));
+}
+
 /** `?venueId` → each sport's own rules here, over the venue's (lib/sport-rules.ts). */
 export async function GET(req: NextRequest) {
   const venueId = await venueOf(req, req.nextUrl.searchParams.get("venueId"));
@@ -20,13 +28,13 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ rules: await sportRules(venueId) }, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** `{ venueId, sport, cutoffHours, lateKeep, peak, slotMinutes }`, each null for the venue's (managers). */
+/** `{ venueId, sport, cutoffHours, lateKeep, peak }`, each null for the venue's (managers). Booking times are /api/admin/booking-policies. */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   const venueId = await venueOf(req, body.venueId);
   if (venueId instanceof NextResponse) return venueId;
-  const set = await setSportRules(venueId, body.sport, { cutoffHours: body.cutoffHours, lateKeep: body.lateKeep, peak: body.peak, slotMinutes: body.slotMinutes });
+  const set = await setSportRules(venueId, body.sport, { cutoffHours: body.cutoffHours, lateKeep: body.lateKeep, peak: minutesOfPeak(body.peak) });
   if (!set.ok) return NextResponse.json(set, { status: 400 });
   await logFromRequest(req, {
     venueId,

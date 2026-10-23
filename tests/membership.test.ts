@@ -19,7 +19,7 @@ import {
 import { registerUser } from "../src/lib/auth";
 import { authenticateAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 
 const PHONE = "0123456789";
 await ensureBootstrapAdmin();
@@ -32,7 +32,7 @@ const future = (o = 3) => addDays(todayISO(), o);
 function nextWeekday(from = 3): string {
   for (let o = from; o < from + 7; o++) {
     const d = future(o);
-    if (!isPeak(d, 10)) return d;
+    if (!isPeakMinute(d, 10 * 60)) return d;
   }
   throw new Error("no weekday in range");
 }
@@ -128,18 +128,18 @@ describe("member rates", () => {
     const court = (await venue()).courts.find((c) => c.sport === "badminton")!;
     expect(hasMemberRate(court)).toBe(false);
     // With no member rate, a member pays the public price.
-    expect(computePrice(court, weekday, [10, 10.5], true)).toBe(computePrice(court, weekday, [10, 10.5], false));
+    expect(computePrice(court, weekday, { start: 600, end: 660 }, true)).toBe(computePrice(court, weekday, { start: 600, end: 660 }, false));
 
     expect(await updateCourt(court.id, { memberOffPeakRate: 10 })).toMatchObject({ ok: true });
     const rated = (await getCourt(court.id))!;
     expect(hasMemberRate(rated)).toBe(true);
-    expect(computePrice(rated, weekday, [10, 10.5], true)).toBe(10);
-    expect(computePrice(rated, weekday, [10, 10.5], false)).toBe(rated.offPeakRate);
+    expect(computePrice(rated, weekday, { start: 600, end: 660 }, true)).toBe(10);
+    expect(computePrice(rated, weekday, { start: 600, end: 660 }, false)).toBe(rated.offPeakRate);
 
     // Peak is untouched until its own member rate is set.
-    expect(computePrice(rated, weekday, [19, 19.5], true)).toBe(rated.peakRate);
+    expect(computePrice(rated, weekday, { start: 1140, end: 1200 }, true)).toBe(rated.peakRate);
     await updateCourt(court.id, { memberPeakRate: 18 });
-    expect(computePrice((await getCourt(court.id))!, weekday, [19, 19.5], true)).toBe(18);
+    expect(computePrice((await getCourt(court.id))!, weekday, { start: 1140, end: 1200 }, true)).toBe(18);
 
     // Clearing it puts members back on the public rate.
     await updateCourt(court.id, { memberOffPeakRate: null, memberPeakRate: null });
@@ -157,7 +157,7 @@ describe("member rates", () => {
 
   it("charges a member the member rate when they book", async () => {
     const weekday = nextWeekday(5);
-    expect(isPeak(weekday, 10)).toBe(false);
+    expect(isPeakMinute(weekday, 10 * 60)).toBe(false);
     const court = (await venue()).courts.filter((c) => c.sport === "badminton")[1];
     await updateCourt(court.id, { memberOffPeakRate: 9 });
     await sell({ holderPhone: "0195550000", holderName: "Member Mei" });
@@ -202,7 +202,7 @@ describe("member rates", () => {
     });
     expect(after).toMatchObject({ ok: true });
     if (after.ok)
-      expect(after.booking.totalPrice).toBe(computePrice((await getCourt(court.id))!, lapsedDate, [14, 14.5], false));
+      expect(after.booking.totalPrice).toBe(computePrice((await getCourt(court.id))!, lapsedDate, { start: 840, end: 900 }, false));
 
     await updateCourt(court.id, { memberOffPeakRate: null, memberPeakRate: null });
   });

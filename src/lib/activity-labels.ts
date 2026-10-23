@@ -17,6 +17,7 @@ export interface StaffAction {
 /** Plain words for each kind of entry, for the log's reader. */
 export const ACTION_LABELS: Record<string, string> = {
   "booking.created": "Booked",
+  "booking.override": "Booked or moved outside a court's booking rules",
   "booking.cancelled": "Cancelled a booking",
   "booking.moved": "Moved a booking",
   "booking.rescheduled": "Changed a booking's time",

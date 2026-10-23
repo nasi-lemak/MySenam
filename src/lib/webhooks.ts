@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hoursOf } from "./interval";
 import dns from "dns";
 import https from "https";
 import net from "net";
@@ -168,8 +169,8 @@ interface SeenRow {
   status: string;
   payment_status: string;
   date: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
   court_id: number;
   court_name: string;
   sport: string;
@@ -186,15 +187,18 @@ interface SeenRow {
 }
 
 const stateOf = (r: SeenRow) =>
-  JSON.stringify({ s: r.status, p: r.payment_status, d: r.date, h: [Number(r.start_hour), Number(r.end_hour)], c: r.court_id });
+  JSON.stringify({ s: r.status, p: r.payment_status, d: r.date, m: [r.start_min, r.end_min], c: r.court_id });
 
 const bookingOf = (r: SeenRow) => ({
   code: r.code,
   status: r.status,
   paymentStatus: r.payment_status,
   date: r.date,
-  startHour: Number(r.start_hour),
-  endHour: Number(r.end_hour),
+  // Minutes of the business day, and the same in hours for older receivers.
+  startMin: r.start_min,
+  endMin: r.end_min,
+  startHour: hoursOf(r.start_min),
+  endHour: hoursOf(r.end_min),
   courtId: r.court_id,
   courtName: r.court_name,
   sport: r.sport,
@@ -225,7 +229,7 @@ export async function sweepWebhookEvents(now = new Date()): Promise<number> {
   for (const { venue_id } of venues) {
     const rows = (await db
       .prepare(
-        `SELECT b.id, c.venue_id, b.code, b.status, b.payment_status, b.date, b.start_hour, b.end_hour, b.court_id, c.name AS court_name,
+        `SELECT b.id, c.venue_id, b.code, b.status, b.payment_status, b.date, b.start_min, b.end_min, b.court_id, c.name AS court_name,
                 c.sport, b.name, b.phone, b.email, b.total_price, b.shares_paid, b.deposit_paid, b.coach_id, b.no_show, b.created_at, w.state AS seen
            FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN webhook_seen w ON w.booking_id = b.id
           WHERE c.venue_id = ? AND b.demo = 0 AND b.date BETWEEN ? AND ?`
@@ -238,10 +242,10 @@ export async function sweepWebhookEvents(now = new Date()): Promise<number> {
       if (r.seen === null) {
         if (r.created_at >= recent && r.status === "confirmed") event = "booking.created";
       } else {
-        const was = JSON.parse(r.seen) as { s: string; p: string; d: string; h: number[]; c: number };
+        const was = JSON.parse(r.seen) as { s: string; p: string; d: string; m?: number[]; c: number };
         if (was.s !== r.status && r.status === "cancelled") event = "booking.cancelled";
         else if (was.p !== r.payment_status && r.payment_status === "paid") event = "booking.paid";
-        else if (was.d !== r.date || was.h[0] !== Number(r.start_hour) || was.h[1] !== Number(r.end_hour) || was.c !== r.court_id) event = "booking.changed";
+        else if (was.d !== r.date || was.m?.[0] !== r.start_min || was.m?.[1] !== r.end_min || was.c !== r.court_id) event = "booking.changed";
       }
       if (event) queued += await queue(venue_id, event, { booking: bookingOf(r) });
       await db

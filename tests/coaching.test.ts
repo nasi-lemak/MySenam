@@ -9,10 +9,10 @@ vi.mock("next/headers", () => ({
 }));
 
 import { NextRequest } from "next/server";
-import { coachById, lessonSlots, listCoaches, retireCoach, saveCoach, type Coach } from "../src/lib/coaching";
+import { coachById, lessonStarts, listCoaches, retireCoach, saveCoach, type Coach } from "../src/lib/coaching";
 import { bookingSale } from "../src/lib/documents";
 import { getDb } from "../src/lib/db";
-import { adminCancelBooking, createCourt, createPromoCode, createVenue, findBooking, rescheduleBooking, venueHours } from "../src/lib/store";
+import { adminCancelBooking, createCourt, createPromoCode, createVenue, findBooking, rescheduleBooking } from "../src/lib/store";
 import { ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as book } from "../src/app/api/bookings/route";
@@ -50,10 +50,10 @@ beforeAll(async () => {
 
 describe("a venue's coaches", () => {
   it("are checked as they are added", async () => {
-    const hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 8, until: 20 }));
+    const hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 8 * 60, until: 20 * 60 }));
     expect(await saveCoach(venueId, { name: "", sports: ["tennis"], rate: 80, hours })).toMatchObject({ ok: false });
     expect(await saveCoach(venueId, { name: "Ana", sports: [], rate: 80, hours })).toMatchObject({ ok: false });
-    expect(await saveCoach(venueId, { name: "Ana", sports: ["tennis"], rate: 80, hours: [{ weekday: 1, from: 18, until: 9 }] })).toMatchObject({ ok: false });
+    expect(await saveCoach(venueId, { name: "Ana", sports: ["tennis"], rate: 80, hours: [{ weekday: 1, from: 18 * 60, until: 9 * 60 }] })).toMatchObject({ ok: false });
     const saved = await saveCoach(venueId, { name: "Ana Lim", bio: "Former state player.", sports: ["tennis"], rate: 80, hours });
     if (!saved.ok) throw new Error(saved.error);
     coach = saved.coach;
@@ -93,13 +93,17 @@ describe("booking a lesson", () => {
   });
 
   it("offers only the times the coach is free and a court is", async () => {
-    const venue = await venueHours(venueId);
-    const free = await lessonSlots(coach, date, () => true, venue, 1);
-    expect(free).not.toContain(10);
-    expect(free).toContain(11);
-    expect(free).not.toContain(20);
+    const starts = await lessonStarts(coach, date, "tennis");
+    const at = (minute: number) => starts.find((s) => s.minute === minute);
+    // Taken at 10, free from 11; the coach stops at 20:00, so 19:00 is the last hour-long lesson.
+    expect(at(10 * 60)).toBeUndefined();
+    expect(at(11 * 60)).toBeTruthy();
+    expect(at(19 * 60)?.maxLength).toBe(60);
+    expect(at(20 * 60)).toBeUndefined();
     const res = await slotsRoute(new NextRequest(`http://localhost/api/coaching/slots?coachId=${coach.id}&date=${date}`));
-    expect((await res.json()).slots).toEqual(free);
+    const body = await res.json();
+    expect(body.starts).toEqual(starts);
+    expect(body.policy).toMatchObject({ startEvery: 60, defaultLength: 60 });
   });
 
   it("frees the coach when the lesson is cancelled", async () => {

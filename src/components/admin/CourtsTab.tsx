@@ -1,12 +1,13 @@
 "use client";
 
 import { PeakHoursEditor } from "./PeakHoursEditor";
-import { SlotLengthEditor } from "./SlotLengthEditor";
+import { BookingPolicyEditor } from "./BookingPolicyEditor";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
 import { SportRulesEditor } from "./SportRulesEditor";
-import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS, SPORT_LABELS, SPORTS, usualHours } from "@/lib/types";
+import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, SPORT_ICONS, SPORT_LABELS, SPORTS } from "@/lib/types";
+import { usualMinutes } from "@/lib/booking-rules";
 import type { Court, Induction, Sport, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
@@ -116,7 +117,7 @@ export function CourtsTab({
 
   async function saveLengths(
     court: Court,
-    change: { minHours?: number | null; maxHours?: number | null; perPlayer?: boolean; maxPlayers?: number | null }
+    change: { perPlayer?: boolean; maxPlayers?: number | null }
   ) {
     setError(null);
     setNotice(null);
@@ -296,7 +297,7 @@ export function CourtsTab({
         <CourtLinksEditor key={`links-${venue.id}`} venueId={venue.id} courts={venue.courts.filter((c) => c.capacity === 1)} />
       )}
 
-      {venue && <SlotLengthEditor key={`slots-${venue.id}`} venueId={venue.id} />}
+      {venue && <BookingPolicyEditor key={`policies-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
 
       {venue && <PeakHoursEditor key={venue.id} venueId={venue.id} />}
 
@@ -329,51 +330,16 @@ export function CourtsTab({
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold">How one booking is sold</h3>
+          <h3 className="font-semibold">Priced per player</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Court by court: futsal booked two hours at least, or a hall for a whole afternoon (the usual is one slot up to four
-            hours; classes are not held to it). And a court can be priced per player, its rates then a head an hour, with the
-            customer saying how many play.
+            A court can be priced per player, its rates then a head an hour, with the customer saying how many play. When
+            bookings start and how long they run are the booking rules above.
           </p>
           <table className="mt-2 w-full min-w-[480px] text-sm">
             <tbody>
               {venue.courts.map((court) => (
                 <tr key={court.id} className="border-t border-slate-100">
                   <td className="py-1.5 pr-3 font-medium">{court.name}</td>
-                  <td className="py-1.5 pr-3">
-                    <label className="flex items-center gap-1.5 text-xs text-slate-600">
-                      At least
-                      <select
-                        value={court.minHours ?? ""}
-                        onChange={(e) => saveLengths(court, { minHours: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
-                      >
-                        <option value="">one slot</option>
-                        {[1, 1.5, 2, 3, 4].map((h) => (
-                          <option key={h} value={h}>
-                            {h} {h === 1 ? "hour" : "hours"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
-                  <td className="py-1.5">
-                    <label className="flex items-center gap-1.5 text-xs text-slate-600">
-                      At most
-                      <select
-                        value={court.maxHours ?? ""}
-                        onChange={(e) => saveLengths(court, { maxHours: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
-                      >
-                        <option value="">4 hours</option>
-                        {[1, 2, 3, 5, 6, 8, 10, 12].map((h) => (
-                          <option key={h} value={h}>
-                            {h} {h === 1 ? "hour" : "hours"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
                   <td className="py-1.5 pl-3">
                     {court.capacity === 1 && (
                       <span className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -610,19 +576,17 @@ export function CourtsTab({
 }
 
 /**
- * A sport whose game is not an hour (padel's is 90 minutes): it is sold by the
- * half hour, whatever the venue's other sports are, unless Rules by sport says
- * otherwise (ADR 0008).
+ * A sport whose game is not an hour (padel's is 90 minutes): its courts start
+ * every half hour and offer that length first, unless the booking rules say
+ * otherwise.
  */
 function UsualLengthHint({ sport }: { sport: Sport }) {
-  const hours = usualHours(sport);
-  if (hours === 1) return null;
-  const length = `${hours * 60} minutes`;
+  const minutes = usualMinutes(sport);
+  if (minutes === 60) return null;
   return (
     <p className="basis-full text-xs text-slate-500">
-      {SPORT_LABELS[sport]} is usually booked for {length}, so it is sold by the half hour here whatever the venue&apos;s other
-      sports are sold by (Rules by sport can change that). To sell nothing shorter than a game, set this court&apos;s shortest
-      booking to {hours} hours once it is added.
+      {SPORT_LABELS[sport]} is usually booked for {minutes} minutes, so its courts start every half hour and offer {minutes} minutes
+      first. Change that, or sell nothing shorter than a game, in the booking rules once the court is added.
     </p>
   );
 }

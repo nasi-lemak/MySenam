@@ -19,7 +19,7 @@ import {
   topUpWallet,
 } from "../src/lib/store";
 import { setVenueTax } from "../src/lib/tax";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { sellVoucher } from "../src/lib/vouchers";
 
 /**
@@ -53,7 +53,7 @@ beforeAll(async () => {
   if (!court.ok) throw new Error("court");
   courtId = court.court.id;
   await setVenueTax(venueId, { registered: true, rate: 6, regNo: "W10-1234-56789012" });
-  while (isPeak(date, 9)) date = addDays(date, 1);
+  while (isPeakMinute(date, 9 * 60)) date = addDays(date, 1);
   const user = await registerUser({ name: "Nurul Ain", email: "nurul.ledger@example.my", phone: "0198887777", password: "a long enough password" });
   if (!user.ok) throw new Error(user.error);
 

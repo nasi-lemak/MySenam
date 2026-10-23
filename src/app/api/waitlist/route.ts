@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classRefusal } from "@/lib/who";
-import { refusal } from "@/lib/api";
+import { readMinute, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { customerMayBook } from "@/lib/limits";
 import { takesPaymentOnline } from "@/lib/payments";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
-import { isSlotHour, isValidDateString } from "@/lib/time";
+import { isValidDateString } from "@/lib/time";
+import { isMinute } from "@/lib/interval";
 import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +20,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { classId, courtId, date, startHour, endHour, name, phone, email, confirmWho } = (body ??
-    {}) as Record<string, unknown>;
+  const { classId, courtId, date, name, phone, email, confirmWho } = (body ?? {}) as Record<string, unknown>;
+  // The time wanted: start and end in minutes of the day or HH:MM (startHour and endHour, the older form).
+  const start = readMinute((body ?? {}) as Record<string, unknown>, "start", "startHour");
+  const end = readMinute((body ?? {}) as Record<string, unknown>, "end", "endHour");
 
   const forClass = classId !== undefined && classId !== null;
   if (forClass) {
@@ -31,11 +34,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "classId or courtId is required." }, { status: 400 });
     if (typeof date !== "string" || !isValidDateString(date))
       return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-    if (!isSlotHour(startHour) || !(isSlotHour(endHour) || endHour === 24) || (endHour as number) <= (startHour as number))
-      return NextResponse.json(
-        { error: "startHour and endHour must be whole or half hours, the end after the start." },
-        { status: 400 }
-      );
+    if (!isMinute(start) || !isMinute(end) || end <= start)
+      return NextResponse.json({ error: "start and end must be minutes of the day or HH:MM, the end after the start." }, { status: 400 });
   }
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Please provide your name." }, { status: 400 });
@@ -84,8 +84,8 @@ export async function POST(req: NextRequest) {
     : await joinSlotWaitlist({
         courtId: courtId as number,
         date: date as string,
-        startHour: startHour as number,
-        endHour: endHour as number,
+        start,
+        end,
         ...person,
       });
   if (!result.ok) return refusal(result);

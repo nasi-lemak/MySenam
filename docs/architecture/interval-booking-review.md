@@ -1,388 +1,292 @@
-# Booking time model: review and plan
+# Booking time model
 
-**Status: proposal awaiting a decision.** Nothing here is built. What works
-today is described in [booking](../features/booking.md) and
-[ADR 0009](decisions/0009-half-hour-diary-sold-by-sport.md); this document
-reviews that model against interval-based storage, recommends one, and plans
-the change. The decision it asks for is
-[ADR 0010](decisions/0010-interval-booking.md).
+Authoritative for how court time is stored and protected: intervals, spaces,
+claims, booking policies, how prices are worked out from minutes, and how the
+half-hour diary was migrated. The decision is
+[ADR 0010](decisions/0010-interval-booking.md); what customers and staff see
+is [booking](../features/booking.md) and [pricing](../features/pricing.md);
+what holds under concurrent requests is
+[booking concurrency](booking-concurrency.md).
 
-## Summary
+## In one paragraph
 
-**Recommendation: store every reservation as an exact interval** (a
-`tstzrange` in UTC, plus the venue's business date), and let the database
-refuse overlaps itself: an **exclusion constraint** for exclusive space, and a
-**locking capacity trigger** for shared facilities. Linked courts become sets
-of **atomic spaces** a booking claims, rather than shadow rows. What a customer
-may book (start times, increments, minimum, maximum and fixed lengths,
-buffers, hours) becomes a **booking policy** per court, per sport at a venue,
-or per venue. The grid becomes a way of showing time, not a way of storing it.
+Every reservation is an exact interval to the minute. What occupies a court
+(a booking, a held booking, a waiting-list offer, a class, a block, a
+tournament's hold, an outage) is a **claim** on it. The database refuses two
+claims that overlap on the same **space** (an exclusion constraint) and more
+claims than a shared facility has **places** (a trigger). Which intervals a
+customer may pick is a **booking policy**, inherited from the most specific
+level that sets each rule. The booking board's grid is a way of showing
+time, not of storing it.
 
-The half-hour grain was never a requirement of the domain. It was the price
-of enforcing conflicts with a unique key: `UNIQUE (court_id, date, hour, seat)`
-only works if every row is the same size. Prototypes in this review show that
-both Postgres 16 and PGlite enforce interval overlap directly, under
-concurrent load, without any grid.
+## Time
 
-It is a large change: about 70 SQL statements over 14 modules, every
-booking path, pricing, search and the booking board. It is the right time to
-make it. Nothing is in production, so the migration only has to carry
-development data. Every month of new features on the grid adds to what has
-to be moved.
+- **Minutes of the business day.** `bookings.start_min`/`end_min`, and the
+  same on classes, blocks, waiting-list entries, tournaments and coach
+  hours, count minutes from the venue's midnight on `date`, up to 1680
+  (04:00 the next morning, `LATEST_MINUTE` in `src/lib/interval.ts`). A
+  booking from 23:30 to 01:00 is minutes 1410–1500 of the evening it
+  started.
+- **Moments.** Each claim's `during` is a `tstzrange` of real instants,
+  half-open `[start, end)`, worked out from the business date, the minutes
+  and the venue's time zone (`instantOf`, `rangeLiteral`). Bookings also
+  carry `starts_at` and `ends_at`. Checks on the table keep both ends on a
+  whole minute.
+- Opening hours, peak windows and court hours are minutes too
+  (`venues.open_min`/`close_min`, `week_hours`, `peak_*_min`).
 
-## Why storage is in half hours today
+## Spaces: courts and the courts they share a floor with
 
-| When | What | Why |
-| ---- | ---- | --- |
-| Migration 0001 | `booking_slots(court_id, date, hour INTEGER, seat)`, unique | One row per court-hour made double-selling impossible with a unique key ([ADR 0002](decisions/0002-database-enforced-concurrency.md)) |
-| 0042 | Hours became `double precision`; a venue could sell halves; rows got `span` | Half-hour selling without changing the key |
-| 0072, 0087 | A trigger copies each slot onto linked courts as "shadows" | The unique key can only see one court, so links needed copies |
-| 0088 ([ADR 0009](decisions/0009-half-hour-diary-sold-by-sport.md)) | Every row became a half hour | Mixed hour and half-hour selling would otherwise put rows of two sizes under one key |
+- `spaces`: one per court that takes one booking at a time (capacity 1).
+  `court_spaces(court_id, space_id)` says which spaces a court covers: its
+  own, and, for a court over others (a futsal pitch over four badminton
+  courts, [linked courts](../features/booking.md#courts-that-share-a-floor)),
+  theirs too.
+- Booking a court claims **every** space it covers. A pitch conflicts with
+  each court under it; two pitches over the same court conflict through its
+  space; two courts under one pitch do not conflict with each other. No
+  shadow rows and no seat numbers.
+- The database keeps a court's own space in step with its capacity, however
+  the court is written (trigger `courts_own_space`, migration 0090): made
+  with capacity 1, it gets one; turned into a shared facility, it loses it.
+  Links add and remove other courts' spaces (`src/lib/court-links.ts`).
+- Shared facilities (capacity above 1: a gym floor, a kayak fleet) have no
+  spaces. Their claims hold a number of places.
 
-Each step kept the unique key working. None was chosen because a half hour is
-the right precision for a booking.
+## Claims
 
-## Audit: where time lives now
+`claims` (migration 0089, `src/lib/claims.ts`):
 
-| Thing | Stored as | Conflict protection |
-| ----- | --------- | ------------------- |
-| Bookings | `bookings.date` (venue-local text), `start_hour`/`end_hour` (local decimal hours, past 24 for after midnight) | Its `booking_slots` rows |
-| Court occupancy | `booking_slots`: one row per half hour per place, `seat` 0…capacity−1 | `UNIQUE (court_id, date, hour, seat)` |
-| Linked courts | Shadow rows written by a trigger, at seat 0 or −(court id) | The same unique key, one level of links deep |
-| Shared-capacity facilities | Seats picked in application code, net of blocks and offers | Serializable transaction only; no database check |
-| Blocks, tournament holds, repeating blocks, rain-outs | `slot_blocks`, one row per half hour | `UNIQUE (court_id, date, hour)` for blocks only; bookings check blocks in code |
-| Outages | `court_outages` (date range), expanded into half hours by `own_blocks_between` | Checked in code |
-| Classes | `classes(start_hour, end_hour)`; enrolments are bookings holding the class court's seats | Checked in code by each path |
-| Coaches | `coach_slots(coach_id, date, hour)` primary key | Primary key, half hours |
-| Waitlist offers, pay-to-hold | Bookings or counts read by `countTakenPlaces` | Checked in code |
-| Opening hours | `open_hour`/`close_hour`, `week_hours` (local decimal hours) | Checked in code |
-| Pricing | Sum over half-hour slots, each half the hourly rate, peak by slot start | — |
+| Column | Meaning |
+| ------ | ------- |
+| `kind` | `booking`, `offer`, `class`, `block` or `outage`, with exactly the matching `booking_id`, `waitlist_id`, `class_id`, `block_id` or `outage_id` |
+| `court_id`, `venue_id` | What was claimed; a trigger (`claims_belong`) refuses a court of another venue, a space the court does not cover, places on an exclusive court and spaces on a shared one |
+| `space_id` or `places` | One claim per space for an exclusive court; one claim with a number of places for a shared facility |
+| `during` | The time sold or held |
+| `occupied` | `during` widened by the buffers before and after, as they were when the claim was made |
+| `active` | Cancelling, releasing or expiring a claim sets it false; the row stays for history |
+| `expires_at` | When a waiting-list offer lapses |
 
-What the audit found, beyond "it is a grid":
-
-1. **Only bookings and blocks are protected by the database.** Classes,
-   outages, offers and the capacity of shared facilities are protected by
-   application code repeated in several paths, inside serializable
-   transactions. [Booking concurrency](booking-concurrency.md) already
-   records "each path still applies its own blocks and classes" as a gap.
-2. **Linked courts are a trigger plus a seat-numbering convention.** Two
-   wholes over one part needed a second convention (migration 0087). Links
-   go one level deep.
-3. **Local wall-clock decimals** (`date` + `hour`, with 25 meaning 1 AM the
-   next day) need special cases: `isPastSlot` handles hours past 24
-   separately. They cannot express a daylight-saving change, which matters
-   the day a venue opens somewhere that has one.
-4. **Precision is fixed by storage**: 15-minute starts, 50-minute lessons, a
-   10-minute changeover or a 75-minute padel game cannot be sold.
-5. **Storage grows with time, not bookings**: two rows per hour per place,
-   plus shadows; a two-hour booking on a whole with three parts is 16 rows.
-6. **Conversions everywhere**: `SLOT`, `expandSlots`, cells, `scheduleUnit`,
-   `span` sums. Every new feature has to translate between what is sold and
-   what is stored.
-
-## The options
-
-- **A. Keep the half-hour grid** (today).
-- **B. A finer grid** (5- or 1-minute rows): the same code with a smaller
-  `SLOT`.
-- **C. Interval claims with database constraints** (recommended): one row
-  per booking per atomic space, `tstzrange`, an exclusion constraint for
-  exclusive space, and a locking trigger for capacity.
-- **D. Intervals checked by application code only**, relying on the
-  serializable transactions the app already uses.
-
-| | A. Half-hour grid | B. Finer grid | C. Intervals + constraints | D. Intervals, app checks |
-| - | ----------------- | ------------- | -------------------------- | ------------------------ |
-| **Correctness** | Strong for bookings and blocks; classes, outages, offers and capacity are code-checked; links by trigger | As A | Every occupant (booking, class, block, outage, tournament, hold, offer) is a claim under the same constraint; links by shared spaces at any depth; capacity by trigger | Correct only while every path remembers every check; drops [ADR 0002](decisions/0002-database-enforced-concurrency.md) |
-| **Precision** | 30 minutes | 5 or 1 minute | Any minute (or second) | Any |
-| **Performance** | 2 rows/hour/place (+ shadows); unique-key inserts are cheap; reads by `(court_id, date)` | 12× to 60× the rows of A; a 1-minute day is 1,440 rows per court | 1 row per booking per space; a GiST insert costs more than a B-tree one but there are far fewer; reads by `(court_id, business_date)` B-tree, overlap by GiST | Like C, without the constraint's write cost |
-| **Complexity** | Low per feature, high in aggregate: conversions, shadows, spans, seats | As A, plus volume | New: interval arithmetic, policies, time zones done once. Removed: shadows, seat juggling, spans, grid conversions | Least schema; most hidden coupling |
-| **Extensibility** | New lengths and buffers need a finer grid | Buffers and odd lengths possible but costly | Buffers, fixed lengths, per-resource starts, minute bookings, overnight, daylight saving | As C, minus the guarantee |
-| **Migration risk** | None | Large row rewrite | One structured rewrite of development data, checked by a reconciliation in the migration | As C |
-
-B buys precision with volume and keeps every weakness of A. D is simpler but
-gives up the property this codebase was built on: the database, not the
-paths, refuses a double booking. **C is the long-term design.**
-
-## Evidence from prototypes
-
-Run in this review against the project's own PGlite and Postgres 16 (scripts
-were scratch work, not committed):
-
-- **Exclusion on PGlite**: `EXCLUDE USING gist (unit WITH =, during WITH &&)`
-  refused a 1-minute overlap, accepted an adjacent 47-minute booking, freed
-  the time when the claim was deactivated, and held an overnight range across
-  midnight with no "hour 25".
-- **Exclusion under concurrency on Postgres 16**: 50 rounds of 8 concurrent
-  transactions inserting overlapping windows on one space: exactly one
-  committed per round, 301 refused with `23P01`, the rest ended in deadlocks
-  (`40P01`, already retried by `withTransaction`); no overlapping pair
-  remained.
-- **Capacity under concurrency**: a pool of 3 places, 30 rounds of 8
-  overlapping one-place requests at 7-minute offsets: 110 committed, 130
-  refused as full, and **at no instant more than 3 places held**. This held
-  both under the app's serializable transactions and with a row lock on the
-  resource (`SELECT … FOR UPDATE`); the lock needs no serializable retry, so
-  it can live in a trigger.
-- **No extension needed**: `EXCLUDE USING gist (int4range(space_id, space_id, '[]') WITH &&, during WITH &&)`
-  works on stock Postgres and PGlite without `btree_gist`, so managed hosts
-  that restrict extensions are not a risk. (`btree_gist` also ships with
-  PGlite 0.5 if preferred.)
-- **Multiranges** (`range_agg`) work on both engines (Postgres 14+; PGlite is
-  18), for occupancy reports and free-time computation.
-
-## Recommended design
-
-### Time
-
-- `during tstzrange` (UTC instants, half-open `[start, end)`, never empty),
-  plus `business_date date`: the venue's trading day it belongs to, so a
-  booking from 23:30 to 01:00 belongs to the evening it started. The venue's
-  time zone (already stored) converts both ways.
-- Minute precision by `CHECK`: `date_trunc('minute', lower(during)) = lower(during)`,
-  and the same for `upper`. Finer is possible but not needed.
-- Opening hours stay as they are, local minutes from the business day's
-  midnight (`week_hours`, past 24:00 allowed), converted to instants per date.
-
-### Atomic spaces (exclusive resources and links)
-
-- **`spaces`**: the smallest things that can be double-booked: each badminton
-  court, the strip of a pitch no smaller court covers.
-- **`court_spaces(court_id, space_id)`**: a court is the set of spaces it
-  occupies. A plain court is one space. A futsal pitch over three badminton
-  courts is those three spaces (plus its own if it covers more).
-- Booking a court claims **every one of its spaces**. A pitch then conflicts
-  with each court under it, two pitches sharing a court conflict through that
-  court's space, and two courts under one pitch do not conflict with each
-  other. This is what migrations 0072 and 0087 did with shadows and seat
-  numbers, without either, at any depth.
-
-### Claims: one table for everything that occupies time
-
-```sql
-CREATE TABLE claims (
-  id            bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  venue_id      integer NOT NULL REFERENCES venues(id),
-  court_id      integer NOT NULL REFERENCES courts(id),   -- what was booked
-  space_id      integer REFERENCES spaces(id),            -- exclusive: one row per space
-  places        integer,                                  -- shared facility: places held
-  kind          text NOT NULL CHECK (kind IN
-                  ('booking','hold','offer','class','block','tournament','outage')),
-  booking_id    integer REFERENCES bookings(id) ON DELETE CASCADE,
-  class_id      integer REFERENCES classes(id) ON DELETE CASCADE,
-  block_id      integer,  tournament_id integer,  outage_id integer,
-  business_date date NOT NULL,
-  during        tstzrange NOT NULL,                       -- the time sold or held
-  occupied      tstzrange NOT NULL,                       -- during, widened by buffers
-  active        boolean NOT NULL DEFAULT true,
-  expires_at    timestamptz,                              -- holds and offers
-  CHECK ((space_id IS NULL) <> (places IS NULL)),
-  CHECK (NOT isempty(during) AND lower_inc(during) AND NOT upper_inc(during)),
-  CHECK (occupied @> during),
-  EXCLUDE USING gist (int4range(space_id, space_id, '[]') WITH &&, occupied WITH &&)
-    WHERE (active AND space_id IS NOT NULL)
-    DEFERRABLE INITIALLY IMMEDIATE
-);
-CREATE INDEX claims_court_day ON claims (court_id, business_date) WHERE active;
-```
-
-- **Exclusive space**: the exclusion constraint. Nothing that occupies a
-  space (a booking, a class, a block, an outage, a tournament, a
-  pay-to-hold, a waitlist offer) can overlap another on it, whatever path
-  wrote it.
-- **Shared capacity** (kayak fleets, gym floors): a `BEFORE INSERT OR UPDATE`
-  trigger locks the court row (`FOR UPDATE`), computes the peak of places
-  held over the new claim's `occupied` range (a sweep over overlapping
-  claims, as prototyped), and raises if it would exceed capacity. Partial
-  blocks are claims with `places`. The lock serialises writers on one
-  facility only.
-- **Buffers**: `occupied` is `during` widened by the court's buffer before
-  and after, snapshotted at write time. Changing a buffer affects new claims
-  only.
-- **Deferrable** so a swap (two bookings exchanging courts) can defer the
-  check to commit.
-- **Expiring claims** (holds, offers): the sweep that already cancels
-  expired holds deactivates them. A booking path first deactivates expired
-  claims overlapping its window, in its own transaction.
+- **Exclusive space**: `EXCLUDE USING gist (int4range(space_id, space_id,
+  '[]') WITH &&, occupied WITH &&) WHERE (active AND space_id IS NOT NULL)`.
+  `int4range(id, id, '[]') &&` is equality, so no extension is needed on
+  Postgres or PGlite. A refused claim raises `23P01`, which `isConflict`
+  recognises and each path turns into "taken".
+- **Shared capacity**: `claims_capacity` locks the court row
+  (`FOR NO KEY UPDATE`, which does not wait on the key-share locks the
+  foreign keys of the rows being written take), sweeps the places held over
+  the new claim's `occupied` range, and raises `23P01` if the peak would pass
+  the court's capacity. A partly blocked facility is a block claim of some
+  places. The lock serialises writers on one facility only.
 - **Coaches**: `coach_claims(coach_id, booking_id, during)` with the same
-  exclusion on `coach_id`: a coach is never in two lessons, enforced by the
-  database instead of a half-hour primary key.
-- **Tenancy**: a claim's court, spaces and venue must agree (trigger or
-  composite foreign keys). The constraint is per space, so one venue's
-  writes never contend with another's.
-- **No partitioning of `claims`**: a partitioned table's exclusion
-  constraint must include the partition key by equality, which an overnight
-  booking would cross. Old claims are archived by the retention job instead.
+  exclusion on `coach_id`, so a coach is never in two lessons at once.
+- **Outages** claim whole business days: from the end of the previous day's
+  late hours to the end of the last day's (or open-ended, for *until further
+  notice*), so a court out of service is out for every minute it could have
+  been booked (`claimOutage` in `src/lib/outages.ts`).
+- **Reading**: `occupantsOn(courts, date)` returns every active claim on the
+  courts (and the courts sharing their spaces) for a business day, with its
+  minutes, kind, reason and places. Availability, search, waiting lists,
+  moving, rescheduling, the staff schedule and the reports all read it;
+  `fits`, `peakPlaces` and `freeStretches` answer "is this free" in memory.
 
-### Booking policies
+## Booking policies
 
-What may be booked, separate from what is stored. One table, most specific
-wins: court, else sport at venue, else venue, else platform defaults.
+What may be booked is kept apart from what can be stored
+(`src/lib/booking-rules.ts` for the rules, browser-safe;
+`src/lib/booking-policy.ts` for storing and resolving them; table
+`booking_policies`).
 
-| Setting | Example |
-| ------- | ------- |
-| Start times | every 30 minutes from :00; every 15 minutes; or listed (18:00, 19:30, 21:00) |
-| Duration | increments of 30 minutes; between 60 and 120 minutes; or fixed choices (90 only) |
-| Buffers | 10 minutes after each booking |
-| Hours | the venue's, or the court's own |
-| Who | customers, or staff only (staff may book any minute where allowed) |
+| Setting | Default (platform) | Notes |
+| ------- | ------------------ | ----- |
+| Starts every / first start past the hour | 60 / 0 | Or only at listed times (18:00, 19:30, 21:00) |
+| Lengths go up by / shortest / longest | 60 / 60 / 240 | Or only listed lengths (60, 90, 120) |
+| Length offered first | 60, or the shortest | What the board picks on a tap |
+| Kept free before / after | 0 / 0 | Buffers: time no customer can book, not charged |
+| Court's own hours by weekday | the venue's | Within the venue's day |
+| Book at least this far ahead | 0 minutes | Notice |
+| Each part at its own rate, or all at the rate when it starts | each part | `rateMode` |
+| Charge by steps of / at least (minutes) / at least (amount) | none | Rounding and minimums |
+| Prices for set lengths | none | 90 minutes RM40, RM55 when it starts at peak |
+| Setup fee / cleanup fee | 0 | Shown apart from the time |
 
-Today's settings map onto it: a venue's *Booked by* and a sport's *Sold by*
-become start step and increment (60 or 30); a court's shortest and longest
-booking become minimum and maximum; padel's usual 90 minutes becomes a
-suggested length.
+- **Inheritance, setting by setting**: a court's own, else its sport's at
+  the venue, else the venue's, else its business's (every branch), else the
+  platform's for the sport, else the platform's (`resolvePolicy`). Padel's
+  platform setting is from any half hour, in half hours, 90 minutes first
+  (`SPORT_POLICY`). Clearing a setting goes back to inheriting it; a level
+  with nothing set is removed.
+- **Who sets them**: managers of the venue, in *Courts & rates → Booking
+  rules* (`BookingPolicyEditor`), or `POST /api/admin/booking-policies`. The
+  business level needs the owner or a manager of that business. Changes are
+  in the activity log.
+- **Checking a request** (`policyBreaches`): the start, the length, the
+  court's hours that day, and the notice. A customer request that breaks one
+  is refused, naming the rule (*Bookings on Court 1 start on the hour*).
+- **Staff past the rules**: a manager may book, move or reschedule outside a
+  policy (`override: true`; the board's *Book outside this court's rules*).
+  The booking is marked `policy_override` and the activity log records who
+  and what (`booking.override`). Front-desk staff and customers may not. No
+  one, override or not, books over a claim or into a buffer: those are the
+  database's to refuse.
+- **The board** draws columns of a sensible width for the policy
+  (`gridMinutes`: the start step where it is 15 to 60 minutes, else the
+  largest such that divides it), at the finest any court of the sport needs.
+  A cell is free, partly held or held. Availability also gives each court's
+  `starts`: every minute a booking may start and the longest it may run from
+  there.
 
-### How each feature works on intervals
+## Prices from minutes
 
-| Feature | On intervals |
-| ------- | ------------ |
-| **Booking** | Validate against the policy, then insert the booking and its claims in one transaction; a `23P01` is "taken" |
-| **Linked courts** | Spaces (above); no trigger, any depth |
-| **Several courts at once, any court** | All claims in one transaction, inserted in space order to limit deadlocks; one refusal aborts all |
-| **Shared capacity** | Capacity trigger; places held are claims |
-| **Classes** | A session is one claim on its court (all its spaces, or its full capacity). Enrolments count against the class's own capacity under a lock on the class row; they no longer hold court seats |
-| **Tournaments** | Claims per court for the day, narrowed after the draw by updating `during` |
-| **Blocks, repeating blocks, rain-outs** | Claims of kind `block`, any length |
-| **Outages** | One claim per space for the outage range (open-ended allowed: an unbounded upper end); taking a court out over existing bookings is refused by the constraint, which is today's rule, now enforced |
-| **Closures, opening hours** | Policy, checked when booking; not occupancy |
-| **Weekly series** | One booking and its claims per week; a `SAVEPOINT` around each week turns a `23P01` into a skipped week when skipping is asked for |
-| **Waitlists** | Entries keep a wanted interval; an offer is a claim with `expires_at`; matching asks whether the wanted interval is free |
-| **Moving, rescheduling** | `UPDATE` the claims' court, spaces and `during` in place, so a booking can overlap its own old time; swaps defer the constraint |
-| **Pricing** | Integrate the rate over the interval: split at peak and holiday boundaries, each piece at its rate for its minutes, rounded once per booking. A half hour still costs half the hourly rate; aligned bookings price exactly as today |
-| **Passes** | An entry per hour or part of one (today's rule), from minutes |
-| **Coaching** | Fee from minutes; coach claims |
-| **Search** | Candidate starts from each court's policy; one query for the day's active claims of the candidate courts; an in-memory sweep finds which candidates are free for the duration |
-| **Availability grid** | Drawn at the policy's start step; a cell shows free, partly taken or taken from the claims overlapping it; picking a cell picks a start, and the length comes from the policy |
-| **Staff schedule** | The same claims drawn at any zoom, including minute-level bookings |
-| **Reports, occupancy** | Minutes from `upper − lower`; occupancy from `range_agg` clipped to opening hours |
-| **Calendar and Google feeds, messages** | Instants straight from `during`; local display by the venue's zone |
+`priceBooking` in `src/lib/pricing.ts` is the one function quotes, bookings,
+weekly series, moves, reschedules and refunds price through:
+
+- **Pro rata by default**: the minutes booked, each part at the rate in
+  force then. Boundaries are the peak window's start and end (to the minute,
+  per sport and per day, holidays as weekends) and the last-minute window's.
+- **Arithmetic** in the currency's minor units, as whole numbers (rate ×
+  minutes × percent), rounded once, half up, per booking.
+- **Policy options**: the whole booking at the rate when it starts; a set
+  length priced outright (its peak price when it starts at peak); billing in
+  steps or at least so many minutes (the extra minutes priced at the rate in
+  force then); a minimum charge; setup and cleanup fees, kept in
+  `bookings.fee_amount` and shown apart from the time.
+- **Member and tier prices**, per-player courts and last-minute prices apply
+  to each part; concessions and promo codes discount the court time, not the
+  fees.
+- **The quote**: `GET /api/quote` returns the same figures the booking will
+  be charged, with each part, before anything is booked; the board shows it.
+
+## Passes
+
+A pass is a session pass or a time pass (`passes.kind`, `passCost` in
+`src/lib/pass-rules.ts`):
+
+- **Session pass**: one entry per `entry_minutes` booked or part of them
+  (60 for passes sold before, which is the rule they were sold under; 60 for
+  new ones unless set), or one entry a booking whatever its length when
+  blank.
+- **Time pass**: the minutes booked, to the minute.
+- Either may cap the length of a booking it pays for (`max_minutes`).
+  Refunds return exactly what was spent.
+
+## How each feature works on claims
+
+| Feature | On claims |
+| ------- | --------- |
+| Booking, held bookings | Policy checked, then the booking and its claims inserted in one transaction; a held (unpaid) booking's claims lapse with it |
+| Any court, several courts | Each court tried in turn / all in one transaction; one refusal undoes the lot |
+| Weekly bookings | One booking and its claims per week; a savepoint around each week turns a `23P01` into a skipped week when skipping is asked for |
+| Shared facilities | Place claims under the capacity trigger |
+| Classes | One claim per session on its court (every space, or every place); enrolments count against the class's own capacity |
+| Blocks, repeating blocks, rain-outs, tournament holds | A `blocks` row, any minutes, and its claims; re-blocking revises rather than stacks; a block made while a booking lands is retried around it |
+| Outages | Claims for whole business days, open-ended allowed |
+| Waiting lists | Entries keep the minutes wanted; an offer is a claim with `expires_at` |
+| Moving, rescheduling | The booking's claims released and claimed again in one transaction, so a booking may slide over its own old time |
+| Coaching | Lesson claims for the court, coach claims for the coach |
+| Search | Candidate starts from each court's policy, one read of the day's claims for the candidate courts, a sweep in memory |
+| Reports, exports, feeds, messages | Minutes from the booking; moments from `starts_at`/`ends_at` |
 
 ## API compatibility
 
-- **Public API v1** (`/api/v1`) keeps every field it has:
-  - Booking creation still accepts `hours` (read as starts of the court's
-    start step, then joined into one interval).
-  - It also accepts `start` and `end` (ISO 8601 with offset), or `start` and
-    `minutes`.
-  - Responses keep `date`, `startHour` and `endHour` (local decimal hours,
-    possibly fractional) and add `startsAt` and `endsAt`.
-  - Availability keeps `slots` and `unit`, now drawn from the policy, and
-    adds the policy (start times, lengths) and the day's busy intervals.
-  - Webhook payloads gain `startsAt` and `endsAt`. Nothing is removed in v1.
-- **The app's own routes** change with the screens that call them, in the
-  same change.
-- **Exports, calendar feed, Google feeds**: same columns and formats, from
-  intervals.
+- Requests may give `start` and `end`, or `start` and `minutes`, as minutes
+  of the day or `HH:MM`; or, as before, `hours`: starts of the board's
+  columns, end to end, joined into one interval (`readTime` in
+  `src/lib/api.ts`, `spanFor` in `src/lib/store.ts`).
+- Public API bookings and webhooks keep `startHour` and `endHour` (hours,
+  possibly fractional) and add `startMin`, `endMin`, `startsAt` and
+  `endsAt`. Availability adds `policy`, `starts` and `grid` beside `slots`
+  ([external API](../integrations/external-api.md)).
 
-## Migration
+## Migration from the half-hour diary
 
-A new migration after 0088 (applied migrations are never edited):
+Three migrations, each in its own transaction, with a check run by the app
+between them (`src/lib/db-steps.ts`, run by `migrate` in `src/lib/db.ts`
+straight after the named migration's SQL; a step that throws undoes the
+migration):
 
-1. **Spaces**: one per court of capacity 1; courts linked as wholes take
-   their parts' spaces plus their own; capacity courts get none (they hold
-   places).
-2. **Policies**: from `venues.slot_minutes`, `sport_rules.slot_minutes`,
-   `courts.min_hours` and `max_hours`, padel's half hours.
-3. **Claims**:
-   - Bookings (confirmed, and pending ones still holding): `during` from
-     `date`, `start_hour` and `end_hour` in the venue's zone. Postgres reads
-     hour 25 as the next day's 1 AM without special cases.
-   - Blocks: grouped into runs per court, reason, places, tournament and
-     repeat code.
-   - Outages, classes, live offers: one claim each.
-   - Coach slots: grouped per booking.
-4. **Reconciliation inside the migration**: for every court and half hour in
-   the data, places held before must equal places held after, or the
-   migration raises and nothing is committed. Creating the exclusion
-   constraint itself fails on any overlap the old data hid.
-5. **Old tables renamed, not dropped** (`legacy_booking_slots`,
-   `legacy_slot_blocks`, `legacy_coach_slots`). They are dropped by a later
-   migration once the new paths have run, which is a **destructive step
-   flagged for review**.
-6. The SQLite import script and the demo data write intervals.
+1. **0089** adds minutes beside the decimal hours, spaces, `blocks`,
+   `claims`, `coach_claims`, `booking_policies`, the pass columns, and turns
+   today's settings into policies (a venue or sport sold by the half hour
+   starts and runs in half hours; a court's shortest and longest booking are
+   its own). Its step stages each venue's time zone as the app works it out.
+2. **0090** turns the diary into claims: bookings holding the diary, blocks
+   (half hours alike joined into one block), outages, classes and coaches'
+   lessons. It refuses a booking whose diary is not one stretch of exactly
+   its own time. Its step then compares, for every court and half hour the
+   diary had anything in, what the diary held with what the claims hold, and
+   that every claim's moments come back to the minutes they were made from;
+   any difference stops the migration with nothing changed.
+3. **0091** drops `booking_slots`, `slot_blocks`, `coach_slots`, the shadow
+   trigger, `blocks_between` and the decimal-hour and slot-length columns. It
+   only runs once 0090 and its check have committed.
 
-Risk is low because there is no production data. The reconciliation makes a
-wrong conversion fail loudly rather than move a booking.
+Classes and outages are claimed more widely than the diary showed them (a
+class always held its court; an outage now takes whole days), so the check
+confirms they are there rather than that they match. Outages migrated from
+the diary cover whole calendar days of the business date; new ones cover the
+late hours as well ([known limitations](../roadmap/known-limitations.md)).
 
-## Implementation phases
+**Backup and rollback.** 0091 is destructive and there is no
+down-migration. Take a backup before upgrading (`npm run backup`); rolling
+back is restoring it and deploying the previous version
+([deployment](../operations/deployment.md#upgrading),
+[backups](../operations/backups.md)). The backup's contents check counts
+`claims` among the tables a backup must have.
 
-Each phase ends with typecheck, lint, the docs check, the whole suite on
-PGlite and Postgres, and the documentation of what changed.
+## The owner's decisions, and the defaults chosen
 
-1. **Time core.** A small interval module: local ↔ UTC per venue zone,
-   business dates, half-open arithmetic, a policy validator (starts,
-   increments, fixed lengths, minimum and maximum, buffers, hours) and
-   candidate generation. Unit-tested on its own, including overnight hours
-   and a daylight-saving zone.
-2. **Schema and migration.** Spaces, policies, claims, the exclusion
-   constraint, the capacity trigger, coach claims, and the migration with
-   its reconciliation. Constraint tests insert directly in SQL, bypassing the
-   app, to prove the database refuses on its own.
-3. **Write paths.** Booking, series, several courts, any court, holds,
-   offers, blocks, repeating blocks, rain-outs, outages, classes and
-   enrolments, tournaments, coaching, moving, rescheduling, cancelling. The
-   seat and shadow code goes.
-4. **Read paths.** Availability, staff schedule, search, waitlist matching,
-   occupancy and reports, exports, calendar and Google feeds, privacy export.
-5. **Money.** Interval pricing (peak, holidays, member and concession rates,
-   per player, last-minute), passes, coach fees, deposits, refunds. Every
-   existing price test must give the same price for aligned bookings.
-6. **Screens.** The policy editor (court, sport, venue), the booking board
-   (start and length pickers over the grid, partly-taken cells), and the
-   staff schedule at any precision.
-7. **API and clean-up.** v1 additions with compatibility tests. Remove
-   `SLOT`, `expandSlots`, `span`, `blocks_between` and the shadow trigger. ADR
-   0010 becomes current and ADR 0009 is superseded.
-8. **Drop the legacy tables** (separate, flagged).
+The owner decided (October 2026):
 
-## Tests
+1. **Interval storage** with database-level conflict protection, linked
+   resources, concurrent and atomic multi-court bookings included.
+2. **Minute-level bookings for customers** wherever a court's rules permit,
+   with sensible default increments, configurable per resource. Staff may be
+   allowed past scheduling rules, never past a physical conflict, and that
+   is audited.
+3. **Pro-rata pricing by default**, with fixed-length prices, minimum billed
+   minutes, minimum charges and other rounding as options; the final price
+   shown before confirming; exact money arithmetic.
+4. **Several pass models**: time passes spend the minutes booked; session
+   passes spend entries by their own rules; passes already sold keep theirs.
+5. **Buffers are unavailable time**, not shown to customers as such, shown
+   to staff with their reason; not charged, though disclosed setup or
+   cleanup fees may be.
+6. **Peak boundaries to the minute**, a booking priced across several rate
+   periods, consistently for quotes, rescheduling, refunds, passes and weekly
+   bookings.
+7. **Drop the old tables** once migration, integrity and regression checks,
+   and backup and rollback, are in place.
 
-- **The database alone**: overlapping claims refused by raw SQL on one
-  space, through a whole and its part, and two wholes over one part. Adjacent
-  claims accepted. Buffers widen what is refused. Capacity refused past the
-  limit, with partial blocks counted. Inactive and expired claims ignored.
-  Tenancy mismatches refused.
-- **Races on Postgres** (`Promise.all`, as `tests/concurrency.test.ts`
-  does):
-  - the last minute of an exclusive court, through a whole and its part;
-  - the last place of a shared facility;
-  - two group bookings sharing one court, all or nothing;
-  - a class against a booking;
-  - an outage against a booking;
-  - a reschedule against a new booking.
-- **Policies**: starts on and off the step, listed starts, fixed lengths,
-  increments, minimum and maximum, buffers, hours past midnight, staff-only
-  minute bookings.
-- **An oracle test**: random bookings, moves and cancellations are applied
-  both through the app and to a simple minute-by-minute model; at the end,
-  occupancy must agree at every minute.
-- **Pricing**: every existing price test unchanged for aligned bookings;
-  minute bookings across a peak boundary; rounding once per booking.
-- **Migration**: a database seeded on the old schema (hourly and half-hour
-  venues, links, shared facilities, blocks, outages, classes, coaches,
-  tournaments, offers) migrates with identical occupancy; a seeded overlap
-  makes the migration fail.
-- **API**: v1 requests written for today's API get the same answers; new
-  fields present.
-- **Performance**: a benchmark seeding hundreds of venues and weeks of
-  bookings, comparing availability, search and booking times before and
-  after on Postgres. It is an acceptance check for phase 4, with the target
-  set before the work starts.
-- **Browser**: book a 90-minute padel game from 9:30, a 15-minute-step court,
-  and a court with a changeover buffer, on the production build.
+Where those left a rule open, these defaults were chosen; each is a setting
+or a single place in the code if the owner wants it otherwise:
 
-## Decisions for the owner
+| Question | Default |
+| -------- | ------- |
+| Who may go past the rules | Managers of the venue (not front-desk staff, not the API); each booking marked, the activity log naming the rules passed |
+| The platform's rules | On the hour, 60 to 240 minutes in hours, 60 first, no buffers, no notice; padel from any half hour, in half hours, 90 first |
+| Two buffers side by side | Each booking keeps its own: 10 minutes after one and 10 before the next leave 20 minutes |
+| Billing steps and minimum minutes | The extra minutes are priced at the rate in force then, as if booked |
+| A fixed-length price at peak | Its peak price applies when the booking starts at peak |
+| A minimum charge on a per-player court | Applies to the whole booking, after multiplying by the players |
+| Last-minute prices | Per minute: each minute starting within the window is discounted |
+| Discounts and fees | Concessions and promo codes come off the court time, never setup or cleanup fees; an off-peak-only concession is refused if any minute is at peak |
+| Session passes | One entry per 60 minutes or part, for passes already sold (their rule) and new ones unless set; blank is one a booking |
+| Outages | Every minute of each business day, late hours included; migrated ones whole calendar days |
+| Opening hours | To the minute; a venue still opens for at least an hour |
+| Unstaffed hours | Still whole hours ([known limitations](../roadmap/known-limitations.md)) |
 
-These change business rules, so they are not assumed here:
+## How it is tested
 
-1. **Adopt interval storage (ADR 0010)**, superseding ADR 0009 before
-   production.
-2. **Minute-level bookings**: allowed for customers wherever a policy
-   permits, or staff only by default?
-3. **Prices for lengths that are not whole increments**: pro rata to the
-   minute (proposed), or rounded up to the increment?
-4. **Pass entries**: one per hour or part (today's rule), or pro rata?
-5. **Buffers**: who sees them (staff only, or "changeover" on the board), and
-   whether they are ever charged.
-6. **Peak hours to the minute** (today whole hours only)?
-7. **When to drop the legacy tables** after the switch.
+| What | Where |
+| ---- | ----- |
+| The database refuses on its own: raw SQL inserts of an overlapping claim and of a place past capacity | `tests/capacity.test.ts` "is still the database that prevents overbooking" |
+| Races on Postgres: the last court, a shared floor's places, a class, a pitch against a court, an outage and a block against bookings | `tests/concurrency.test.ts`, `tests/court-links.test.ts`, `tests/outages.test.ts`, `tests/move.test.ts` |
+| Any minute, buffers, staff past the rules, several courts, weekly series, waiting lists, passes | `tests/intervals.test.ts` |
+| Policies: starts, lengths, grid, breaches, validation, inheritance, the route | `tests/booking-policies.test.ts` |
+| Pricing to the minute, peak boundaries, rounding, fixed prices, steps, minimums, fees, last-minute | `tests/pricing.test.ts` |
+| The migration: a diary seeded on the old schema migrates to the same occupancy and is dropped; a mismatch stops it | `tests/interval-migration.test.ts` |
+| The board: starts and lengths, partly held cells, quotes, override | `tests/components/booking-board.test.tsx` |
+
+The suite runs on PGlite and on Postgres 16
+([testing](../development/testing.md)); races only show on Postgres.

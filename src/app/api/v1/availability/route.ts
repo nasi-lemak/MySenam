@@ -7,10 +7,12 @@ import { SPORTS, type Sport } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 /**
- * `?date=YYYY-MM-DD[&sport=]` → each court's slots that day, with their price
- * and whether they are free. A court's `unit` is what its sport is sold by
- * here, in hours (1 or 0.5): each slot is that long, and a booking's `hours`
- * are starts of slots that long.
+ * `?date=YYYY-MM-DD[&sport=]` → each court's day. `starts` is what may be
+ * booked: each minute of the day a booking may start at, and the longest it
+ * may run from there; `policy` says which lengths (`lengths`, or
+ * `minLength` to `maxLength` in steps of `lengthStep`). `slots` is the same
+ * day drawn as a grid of `grid` minutes, for showing: a column is free,
+ * partly held or held, with its price.
  */
 export async function GET(req: NextRequest) {
   const caller = await apiCaller(req, "availability");
@@ -26,8 +28,11 @@ export async function GET(req: NextRequest) {
       id: g.court.id,
       name: g.court.name,
       sport: g.court.sport,
+      policy: g.policy,
+      starts: g.starts,
+      grid: g.grid,
       unit: g.unit,
-      slots: g.slots.map((s) => ({ hour: s.hour, rate: s.rate, available: s.available, booked: s.booked, capacity: s.capacity })),
+      slots: g.slots.map((s) => ({ minute: s.minute, hour: s.hour, rate: s.rate, available: s.available, partly: s.partly ?? false, booked: s.booked, capacity: s.capacity })),
     })),
   });
 }

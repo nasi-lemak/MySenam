@@ -12,14 +12,18 @@ themselves are in [booking](../features/booking.md).
   (`src/lib/db.ts`). On PGlite there is one connection and transactions run
   one after another, so the PGlite test run cannot show a race; the Postgres
   run in CI can.
-- **One row per place per slot.** `booking_slots` has
-  `UNIQUE (court_id, date, hour, seat)` (`db/migrations/0001_initial.sql`). A
-  booking picks the lowest free seat inside its transaction and retries on a
-  unique violation (`createBookingSeries` in `src/lib/store.ts`).
-- **Linked courts.** A trigger writes shadow slots: a whole's hour onto each of
-  its parts, and a part's hour onto its wholes
-  (`db/migrations/0072_linked_courts.sql`).
-- **Claims.** Money-moving updates claim their row first
+- **Claims on court time** ([booking time model](interval-booking-review.md#claims)).
+  Everything that occupies a court is a row in `claims`. An exclusion
+  constraint refuses two active claims whose time (buffers included)
+  overlaps on the same space, and a trigger that locks the court refuses a
+  claim that would put a shared facility over its capacity at any moment.
+  Both raise `23P01`, which every path turns into "taken"; a path that reads
+  first and writes after (blocking around bookings) works it out again.
+- **Linked courts.** A court over others covers their spaces, so its claims
+  and theirs meet in the same constraint, at any number of courts sharing
+  one.
+- **Coaches.** `coach_claims` has the same constraint per coach.
+- **Claiming money.** Money-moving updates claim their row first
   (`… WHERE status = 'confirmed'`, `… WHERE status = 'pending'`), so a second
   attempt changes nothing.
 
@@ -27,11 +31,12 @@ themselves are in [booking](../features/booking.md).
 
 | Guarantee | Status | Evidence | Gaps |
 | --------- | ------ | -------- | ---- |
-| An exclusive court hour is sold once | Verified on Postgres | Unique key; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/capacity.test.ts` | Eight parallel requests only. Relies on every row being half an hour, whatever the sport is sold by ([ADR 0009](decisions/0009-half-hour-diary-sold-by-sport.md)); `tests/half-hour.test.ts` books overlapping hour and half-hour units against each other. |
-| A shared facility never holds more than its capacity | Verified | Seat chosen inside the serializable transaction below capacity net of booked, blocked and offered places; "sells a shared floor's places once each"; `tests/waitlist.test.ts` "partly blocked" | No database `CHECK`. |
-| Linked courts take each other | Verified on Postgres | Trigger (`0072_linked_courts.sql`, `0087_wholes_over_one_part.sql`); `tests/court-links.test.ts` including a two-request race and two wholes over one part | One level deep. |
-| Every path sees the same availability | Met | Grid, search, any court, the move picker and the room checks of moving and rescheduling count booked and offered places through one function (`countTakenPlaces`); `tests/waitlist.test.ts` "a place offered to somebody waiting" | Each path still applies its own blocks and classes. |
-| An outage or block does not land on a booking made at the same moment | Met | `createOutage` saves the outage in a transaction that re-checks for bookings and classes; moving and rescheduling check blocks, classes and offers inside theirs; `tests/outages.test.ts` "a booking made while a court is being taken out" | The move and reschedule race is guarded but not forced by a test. |
+| A minute of an exclusive court is sold once | Verified on Postgres | Exclusion constraint `claims_no_overlap` (migration 0089); raw SQL refused in `tests/capacity.test.ts` "is still the database that prevents overbooking"; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/intervals.test.ts` "race for the same minutes, and only one gets them" | Eight parallel requests only. |
+| A shared facility never holds more than its capacity | Verified on Postgres | Capacity trigger `claims_capacity` under a court-row lock, counting bookings, offers and partial blocks; raw SQL refused in `tests/capacity.test.ts`; "sells a shared floor's places once each"; `tests/intervals.test.ts` "fills a shared facility to its places at every moment" | — |
+| Linked courts take each other | Verified on Postgres | Shared spaces; `tests/court-links.test.ts` including a two-request race and two wholes over one part; `tests/intervals.test.ts` "holds the court over it too" | Linking is one level deep (a rule of the editor, not of storage). |
+| Nothing overlaps a block, class, outage, offer or buffer | Verified on Postgres | All are claims under the same constraint; `tests/outages.test.ts` "a booking made while a court is being taken out"; `tests/move.test.ts` "never leave a booking inside the block"; `tests/intervals.test.ts` buffers | — |
+| A coach is in one lesson at a time | Verified | `coach_claims_no_overlap`; `tests/coaching.test.ts` "will not put the coach in two places at once" | Not raced in a test on Postgres. |
+| Every path sees the same availability | Met | Grid, search, any court, waiting lists, the move picker and rescheduling read one list of claims (`occupantsOn` in `src/lib/claims.ts`); the database refuses whatever a stale read lets through | — |
 | A group booking (several courts) is all or nothing | Verified | One transaction; `tests/group-bookings.test.ts` "even when something breaks part-way" | — |
 | A cancellation refunds once | Verified | Claim on `status = 'confirmed'`; `tests/concurrency.test.ts`, `tests/auto-refunds.test.ts` | — |
 | Credit and pass entries are spent once | Verified on Postgres | "spends credit once", "refunds a pass entry once" | No database constraint against a negative balance (chargebacks may make one deliberately). |
@@ -45,8 +50,9 @@ cover them, in [known limitations](../roadmap/known-limitations.md#fixed-since-t
 - Put every read that decides a write inside the same `withTransaction`.
 - Do no external side effect (a message, an HTTP call) inside a transaction:
   it may run more than once. Queue messages in the outbox instead.
-- When availability changes, change the shared computation
-  (`countTakenPlaces`, `blockedPlacesFor`, `blocks_between`), and add the case
-  to the tests of every path listed above.
+- Anything new that occupies a court is a claim (`claim` in
+  `src/lib/claims.ts`), never a check of its own; catch `isConflict` where a
+  refusal means "taken". Add the case to the tests of every path listed
+  above.
 - Add a concurrent test (`Promise.all`) for any new check-then-write path, and
   run the suite on Postgres (`TEST_DATABASE_URL`) before relying on it.

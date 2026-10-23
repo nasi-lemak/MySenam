@@ -1,5 +1,6 @@
 "use client";
 
+import { ClockField } from "@/components/ClockField";
 import { useCallback, useEffect, useState } from "react";
 import { CoachesPanel } from "./CoachesPanel";
 import { formatHour } from "@/lib/time";
@@ -27,8 +28,9 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     name: "",
     instructor: "",
     date: todayLocal(),
-    startHour: "19",
-    endHour: "20",
+    // Minutes of the day: classes start and end on any minute.
+    start: 19 * 60,
+    end: 20 * 60,
     capacity: "12",
     price: "25",
     weeks: "1",
@@ -71,8 +73,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           name: form.name,
           instructor: form.instructor,
           date: form.date,
-          startHour: Number(form.startHour),
-          endHour: Number(form.endHour),
+          start: form.start,
+          end: form.end,
           capacity: Number(form.capacity),
           price: Number(form.price),
           weeks: Number(form.weeks),
@@ -277,16 +279,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             onChange={(e) => setForm({ ...form, date: e.target.value })}
             className={inputClass}
           />
-          <input
-            required type="number" min={8} max={22} value={form.startHour}
-            onChange={(e) => setForm({ ...form, startHour: e.target.value })}
-            title="Start hour" className={`w-20 ${inputClass}`}
-          />
-          <input
-            required type="number" min={9} max={23} value={form.endHour}
-            onChange={(e) => setForm({ ...form, endHour: e.target.value })}
-            title="End hour" className={`w-20 ${inputClass}`}
-          />
+          <ClockField label="Starts" value={form.start} onChange={(m) => setForm({ ...form, start: m })} className={`w-28 ${inputClass}`} />
+          <ClockField label="Ends" value={form.end} after={form.start} onChange={(m) => setForm({ ...form, end: m })} className={`w-28 ${inputClass}`} />
           <input
             required type="number" min={1} value={form.capacity}
             onChange={(e) => setForm({ ...form, capacity: e.target.value })}

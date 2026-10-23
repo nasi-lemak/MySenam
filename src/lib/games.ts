@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { hoursOf } from "./interval";
 import { venueZoneOf } from "./zones";
 import { isBlocked } from "./limits";
 import { accessRefusal } from "./access";
@@ -108,8 +109,8 @@ interface GameRow {
   court_name: string;
   sport: Sport;
   date: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
   level: Level | null;
   who: Who;
   spots: number;
@@ -126,7 +127,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 const GAME_SELECT = `
   SELECT g.id, g.booking_id, b.code AS booking_code, g.host_id, u.name AS host_name, hl.level AS host_level,
          v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, v.time_zone, c.name AS court_name, c.sport,
-         b.date, b.start_hour, b.end_hour, g.level, g.who, g.spots,
+         b.date, b.start_min, b.end_min, g.level, g.who, g.spots,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') AS joined,
          g.share::float AS share, g.auto_accept, g.note, g.status,
          EXISTS (SELECT 1 FROM venue_payment_accounts a WHERE a.venue_id = v.id AND a.enabled = 1) AS pay_online
@@ -152,8 +153,8 @@ function toGame(r: GameRow): OpenGame {
     courtName: r.court_name,
     sport: r.sport,
     date: r.date,
-    startHour: r.start_hour,
-    endHour: r.end_hour,
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
     level: r.level,
     who: r.who,
     spots: r.spots,
@@ -209,14 +210,14 @@ export async function openGame(
   const db = getDb();
   const booking = (await db
     .prepare(
-      `SELECT b.id, b.user_id, b.date, b.start_hour, b.status, b.class_id, b.total_price::float AS total_price,
+      `SELECT b.id, b.user_id, b.date, b.start_min, b.status, b.class_id, b.total_price::float AS total_price,
               b.hold_until, b.payment_status, v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE UPPER(b.code) = UPPER(?)`
     )
     .get(input.bookingCode.trim())) as
     | {
-        id: number; user_id: number | null; date: string; start_hour: number; status: string; class_id: number | null;
+        id: number; user_id: number | null; date: string; start_min: number; status: string; class_id: number | null;
         total_price: number; open: boolean; time_zone: string | null; lat: number | null; lng: number | null;
         hold_until: string | null; payment_status: string;
       }
@@ -224,7 +225,7 @@ export async function openGame(
   if (!booking || booking.user_id !== hostId) return { ok: false, error: "That is not one of your bookings.", status: 404 };
   if (booking.status !== "confirmed") return { ok: false, error: "That booking is cancelled." };
   if (booking.class_id !== null) return { ok: false, error: "A class place cannot be shared." };
-  if (isPastSlot(booking.date, booking.start_hour, venueZoneOf(booking))) return { ok: false, error: "That booking has already started." };
+  if (isPastSlot(booking.date, hoursOf(booking.start_min), venueZoneOf(booking))) return { ok: false, error: "That booking has already started." };
   if (!booking.open) return { ok: false, error: "That venue is not taking bookings at the moment." };
   // Held only until paid: players' shares could arrive after it was let go.
   if (booking.hold_until && booking.payment_status === "unpaid")
@@ -464,12 +465,12 @@ export async function findGames(filter: {
     params.push(filter.near.lat - dLat, filter.near.lat + dLat, filter.near.lng - dLng, filter.near.lng + dLng);
   }
   const rows = (await getDb()
-    .prepare(`${GAME_SELECT} WHERE ${clauses.join(" AND ")} ORDER BY b.date, b.start_hour, g.id LIMIT 200`)
+    .prepare(`${GAME_SELECT} WHERE ${clauses.join(" AND ")} ORDER BY b.date, b.start_min, g.id LIMIT 200`)
     .all(...params)) as GameRow[];
 
   const games: OpenGame[] = [];
   for (const r of rows) {
-    if (isPastSlot(r.date, r.start_hour, venueZoneOf(r))) continue;
+    if (isPastSlot(r.date, hoursOf(r.start_min), venueZoneOf(r))) continue;
     const game = toGame(r);
     if (filter.near) {
       const km = Math.round(distanceM(filter.near, { lat: r.lat!, lng: r.lng! }) / 100) / 10;
@@ -500,14 +501,14 @@ export async function myGames(userId: number): Promise<{ hosting: OpenGame[]; pl
   const since = addDays(todayISO(), -7);
   const db = getDb();
   const hosting = ((await db
-    .prepare(`${GAME_SELECT} WHERE g.host_id = ? AND b.date >= ? ORDER BY b.date, b.start_hour`)
+    .prepare(`${GAME_SELECT} WHERE g.host_id = ? AND b.date >= ? ORDER BY b.date, b.start_min`)
     .all(userId, since)) as GameRow[]).map(toGame);
   for (const g of hosting) g.players = await gamePlayers(g.id);
   const playing = ((await db
     .prepare(
       `${GAME_SELECT} WHERE b.date >= ? AND g.id IN (
          SELECT game_id FROM open_game_players WHERE user_id = ? AND status IN ('requested', 'accepted'))
-       ORDER BY b.date, b.start_hour`
+       ORDER BY b.date, b.start_min`
     )
     .all(since, userId)) as GameRow[]).map(toGame);
   for (const g of playing) g.mine = await myPlace(userId, g.id);

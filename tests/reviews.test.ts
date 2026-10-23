@@ -153,7 +153,7 @@ describe("what is shown", () => {
     expect(await replyToReview(latest.id, venueId, "Thanks for coming!")).toMatchObject({ ok: true, review: { reply: "Thanks for coming!" } });
     expect(await replyToReview(latest.id, venueId + 999, "x")).toMatchObject({ ok: false });
     const ld = venueJsonLd({
-      name: "Star Courts", address: "x", area: "PJ", phone: "1", openHour: 7, closeHour: 23, lat: null, lng: null,
+      name: "Star Courts", address: "x", area: "PJ", phone: "1", openMin: 7 * 60, closeMin: 23 * 60, lat: null, lng: null,
       url: "https://x", image: null, sports: ["badminton"], rating: await venueRating(venueId),
     });
     expect(ld.aggregateRating).toMatchObject({ "@type": "AggregateRating", ratingValue: 4, reviewCount: 3 });

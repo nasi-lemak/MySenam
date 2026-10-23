@@ -17,6 +17,9 @@ export async function GET(req: NextRequest) {
       address: v.address,
       phone: v.phone,
       timeZone: v.timeZone,
+      // Usual hours in minutes of the business day (and in hours).
+      openMin: v.openMin,
+      closeMin: v.closeMin,
       openHour: v.openHour,
       closeHour: v.closeHour,
       // Weekdays with their own hours, or closed; null when every day keeps the usual ones.

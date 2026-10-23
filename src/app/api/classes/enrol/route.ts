@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
         venueId: forClass.venueId,
         sport: forClass.sport,
         date: forClass.date,
-        hours: Array.from({ length: forClass.endHour - forClass.startHour }, (_, i) => forClass.startHour + i),
+        span: { start: forClass.startMin, end: forClass.endMin },
       });
       if (!priced.ok) return refusal(priced);
     }

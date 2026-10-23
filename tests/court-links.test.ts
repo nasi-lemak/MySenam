@@ -122,7 +122,7 @@ describe("booking across a link", () => {
   it("counts time sold once, on the court that was booked", async () => {
     const report = await venueReport(venueId, date, date);
     const real = (await getDb()
-      .prepare("SELECT COALESCE(SUM(s.span), 0)::float AS h FROM booking_slots s JOIN bookings k ON k.id = s.booking_id WHERE s.date = ? AND s.shadow = 0 AND k.status = 'confirmed' AND s.court_id IN (?, ?, ?, ?)")
+      .prepare("SELECT COALESCE(SUM(k.end_min - k.start_min), 0)::float / 60 AS h FROM bookings k WHERE k.date = ? AND k.status = 'confirmed' AND k.court_id IN (?, ?, ?, ?)")
       .get(date, pitch, a, b, c)) as { h: number };
     expect(report!.utilisation.courts.soldHours).toBe(real.h);
   });

@@ -26,7 +26,7 @@ import {
   updateCourt,
 } from "../src/lib/store";
 import { getDb } from "../src/lib/db";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { MAX_HOURS_PER_BOOKING } from "../src/lib/types";
 
 const PHONE = "0123456789";
@@ -41,7 +41,7 @@ function expectedPrice(
   hours: number[]
 ): number {
   return hours.reduce(
-    (sum, h) => sum + (isPeak(date, h) ? court.peakRate : court.offPeakRate),
+    (sum, h) => sum + (isPeakMinute(date, h * 60) ? court.peakRate : court.offPeakRate),
     0
   );
 }

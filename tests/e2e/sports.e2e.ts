@@ -5,8 +5,8 @@ import { launch } from "./browser";
 /**
  * Sports on the production build: a customer is offered only the sports
  * somebody has a court for, and padel is searched for in its 90-minute games,
- * sold by the half hour at a venue that sells its other sports by the hour
- * (ADR 0009).
+ * starting on any half hour by its booking rules at a venue whose other
+ * sports start on the hour (ADR 0010).
  */
 
 const url = inject("e2eUrl");
@@ -58,7 +58,7 @@ describe("sports", () => {
     await page.close();
   });
 
-  it("finds padel's 90-minute games, on the half hour too, at a venue selling hours", async () => {
+  it("finds padel's 90-minute games, on the half hour too, at a venue booked by the hour", async () => {
     const { venue } = (await admin("/api/admin/venues", {
       name: "E2E Padel Club",
       area: "Mont Kiara",
@@ -72,13 +72,13 @@ describe("sports", () => {
 
     const page = await browser.newPage();
     await page.goto(`${url}/search?sport=padel&date=${tomorrow()}`);
-    const length = page.locator("select").filter({ hasText: "1.5 hours" });
+    const length = page.locator("select").filter({ hasText: "1 h 30 min" });
     // Padel asks for its 90 minutes; badminton for an hour; back to padel, 90 again.
-    await expect.poll(() => length.inputValue()).toBe("1.5");
+    await expect.poll(() => length.inputValue()).toBe("90");
     await page.getByRole("button", { name: /Badminton/ }).click();
-    await expect.poll(() => length.inputValue()).toBe("1");
+    await expect.poll(() => length.inputValue()).toBe("60");
     await page.getByRole("button", { name: /Padel/ }).click();
-    await expect.poll(() => length.inputValue()).toBe("1.5");
+    await expect.poll(() => length.inputValue()).toBe("90");
     // And finds them, starting on the half hour as well as the hour.
     await page.getByText("E2E Padel Club").first().waitFor({ timeout: 15_000 });
     await expect.poll(async () => (await page.locator("body").innerText()).match(/\d{1,2}:30 [AP]M/) !== null).toBe(true);

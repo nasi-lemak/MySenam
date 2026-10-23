@@ -75,7 +75,7 @@ async function snapshot(venueId: number): Promise<string> {
       .get(venueId)) as { v: string };
     parts.push(`${table_name}:${row.v}`);
   }
-  for (const table of ["bookings", "booking_slots", "classes", "slot_blocks", "court_outages"]) {
+  for (const table of ["bookings", "classes", "court_outages"]) {
     const row = (await db
       .prepare(
         `SELECT COALESCE(string_agg(t::text, '|' ORDER BY t::text), '') AS v FROM ${table} t

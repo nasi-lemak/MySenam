@@ -36,15 +36,15 @@ describe("a sport's own rules", () => {
     expect(await setSportRules(venueId, "curling", { cutoffHours: 2 })).toMatchObject({ ok: false });
     expect(await setSportRules(venueId, "tennis", { cutoffHours: 100 })).toMatchObject({ ok: false });
     expect(await setSportRules(venueId, "tennis", { lateKeep: 120 })).toMatchObject({ ok: false });
-    expect(await setSportRules(venueId, "tennis", { peak: { weekdayFrom: 20, weekdayUntil: 18, weekendFrom: 0, weekendUntil: 24 } })).toMatchObject({ ok: false });
+    expect(await setSportRules(venueId, "tennis", { peak: { weekdayFrom: 20 * 60, weekdayUntil: 18 * 60, weekendFrom: 0 * 60, weekendUntil: 24 * 60 } })).toMatchObject({ ok: false });
     expect(await setSportRules(venueId, "pickleball", { cutoffHours: 6 })).toMatchObject({ ok: true });
     expect(await setSportRules(venueId, "pickleball", {})).toEqual({ ok: true, rules: null });
     expect(await sportRules(venueId)).toEqual([]);
   });
 
   it("move the peak hours for that sport only", async () => {
-    const set = await setSportRules(venueId, "tennis", { peak: { weekdayFrom: 17, weekdayUntil: 24, weekendFrom: 0, weekendUntil: 24 } });
-    expect(set).toMatchObject({ ok: true, rules: { peak: { weekdayFrom: 17 } } });
+    const set = await setSportRules(venueId, "tennis", { peak: { weekdayFrom: 17 * 60, weekdayUntil: 24 * 60, weekendFrom: 0 * 60, weekendUntil: 24 * 60 } });
+    expect(set).toMatchObject({ ok: true, rules: { peak: { weekdayFrom: 17 * 60 } } });
     const day = await getAvailability(venueId, weekday);
     const at = (court: number, hour: number) => day.find((d) => d.court.id === court)!.slots.find((s) => s.hour === hour)!;
     expect(at(tennis, 17)).toMatchObject({ rate: 60, peak: true });

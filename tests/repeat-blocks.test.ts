@@ -46,14 +46,14 @@ describe("blocking the same hours every week", () => {
     });
     if (!done.ok) throw new Error(done.error);
     expect(done.blocked).toBe(8);
-    expect(done.clashes).toEqual([{ courtName: "Court A", date: addDays(tuesday, 7), hour: 9 }]);
+    expect(done.clashes).toEqual([{ courtName: "Court A", date: addDays(tuesday, 7), minute: 9 * 60, hour: 9 }]);
     expect(await free(courtA, tuesday, 8)).toBe(false);
     expect(await free(courtB, addDays(tuesday, 21), 9)).toBe(false);
     // Not the Wednesday, nor the fifth week, nor the hour after.
     expect(await free(courtA, addDays(tuesday, 1), 8)).toBe(true);
     expect(await free(courtA, addDays(tuesday, 28), 8)).toBe(true);
     expect(await free(courtA, tuesday, 10)).toBe(true);
-    const reason = (await getDb().prepare("SELECT reason FROM slot_blocks WHERE court_id = ? AND date = ? AND hour = 8").get(courtA, tuesday)) as { reason: string };
+    const reason = (await getDb().prepare("SELECT reason FROM blocks WHERE court_id = ? AND date = ? AND start_min = 480").get(courtA, tuesday)) as { reason: string };
     expect(reason.reason).toBe("SK Klang PE lessons");
   });
 

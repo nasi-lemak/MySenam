@@ -13,7 +13,7 @@ import { getDb } from "../src/lib/db";
 import { bookingAlerts, setBookingAlerts } from "../src/lib/notify";
 import { createBooking, listVenues } from "../src/lib/store";
 import { enqueue, MESSAGES_PER_RECIPIENT_PER_DAY } from "../src/lib/outbox";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { POST as book } from "../src/app/api/bookings/route";
 
 /** The venue hears about bookings customers make online, where it asked to. */
@@ -32,7 +32,7 @@ beforeAll(async () => {
   venueId = venue.id;
   courtId = venue.courts.find((c) => c.capacity === 1)!.id;
   date = addDays(todayISO(), 4);
-  while (isPeak(date, 9)) date = addDays(date, 1);
+  while (isPeakMinute(date, 9 * 60)) date = addDays(date, 1);
 });
 
 describe("new-booking alerts", () => {

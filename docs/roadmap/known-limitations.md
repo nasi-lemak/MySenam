@@ -37,8 +37,33 @@ No numbered booking defect is open; see
 
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly series skips weeks inside the cancellation cutoff
 silently rather than applying the late-cancel policy to them; rescheduling
-does not check the target court's booking-length limits (P3, unconfirmed
+keeps a booking's length even where the target court's booking rules would
+not offer it (its start, hours and notice are checked) (P3, unconfirmed
 whether intended).
+
+Known limits of the [booking time model](../architecture/interval-booking-review.md)
+(the owner's decisions and the defaults chosen for open questions are listed
+there):
+
+- **No load benchmark yet** of availability and search on claims at
+  marketplace size (hundreds of venues, weeks of bookings); `tests/query-plans.test.ts`
+  checks the indexes are used, not the timings (P2).
+- **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), while
+  bookings are to the minute: a booking from 21:30 at a venue staffed until
+  22:00 counts as staffed (P3).
+- **A court's own weekly hours** can be set through the API but not yet in
+  the booking-rules editor ([roadmap](roadmap.md)) (P3).
+- **Daylight saving** is not handled specially: Malaysia and Singapore have
+  none, so it is untested; a venue in a zone with a change would see a
+  missing or repeated hour that night (P3).
+- **Outages migrated from the half-hour diary** cover whole calendar days of
+  their dates; outages made since also cover the late hours past midnight
+  (P3).
+- **Adjacent buffers add up**: two bookings each with a 10-minute buffer on
+  the side they meet are 20 minutes apart, not 10 (by design, for review).
+- **The old tables are gone** (migration 0091): rolling back the upgrade is
+  restoring the backup taken before it
+  ([deployment](../operations/deployment.md#upgrading)).
 
 ### Money (M)
 
@@ -67,7 +92,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B2 | Search, any court, the move picker, moving and rescheduling count waiting-list offers through one function | `tests/waitlist.test.ts` |
 | B3 | Choosing a place counts blocked places as well as offers | `tests/waitlist.test.ts` |
 | B4 | An outage is saved in a transaction that re-checks; classes on linked courts are listed; tournament clashes are re-checked in theirs | `tests/outages.test.ts`, `tests/court-links.test.ts` |
-| B5 | Every slot row is half an hour, so a change of selling unit cannot meet a booking of another size ([ADR 0009](../architecture/decisions/0009-half-hour-diary-sold-by-sport.md)) | `tests/half-hour.test.ts` |
+| B5 | Court time is exact intervals under one database constraint, so bookings of any length meet correctly ([ADR 0010](../architecture/decisions/0010-interval-booking.md); first fixed by half-hour rows under ADR 0009) | `tests/intervals.test.ts` |
 | B6 | Search and the waiting list take as long a booking as the court allows | `tests/booking-lengths.test.ts` |
 | B7 | Moving and rescheduling check blocks, classes and offers inside their transaction | `tests/move.test.ts` (guards the outcome; the race is not forced) |
 | B8 | A group booking is one transaction | `tests/group-bookings.test.ts` |

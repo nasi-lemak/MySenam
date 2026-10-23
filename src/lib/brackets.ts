@@ -1,7 +1,7 @@
 /**
  * The arithmetic of a tournament, kept apart from the database: who meets
  * whom, where the byes fall, how a group finishes, and how matches fit into
- * the hours a venue has given. lib/tournaments.ts stores what this decides.
+ * the time a venue has given. lib/tournaments.ts stores what this decides.
  */
 
 /** The smallest power of two that holds n. */
@@ -202,10 +202,11 @@ export function standings(
   });
 }
 
+/** A court's time for one match: from `minute` of the day, one match long. */
 export interface Slot {
   courtId: number;
   date: string;
-  hour: number;
+  minute: number;
 }
 
 export interface ToSchedule {
@@ -219,20 +220,20 @@ export interface ToSchedule {
 /**
  * Fit matches into the hours held, earliest first, so that nobody plays two
  * at once and a match starts only after the ones feeding it have finished.
- * One match an hour on a court. Returns where each goes, or the number of
- * matches that did not fit.
+ * One match a slot on a court (the slots of one tournament are all one match
+ * long). Returns where each goes, or the number of matches that did not fit.
  */
 export function scheduleMatches(
   matches: ToSchedule[],
   slots: Slot[]
 ): { ok: true; placed: Map<string, Slot> } | { ok: false; unplaced: number } {
-  const ordered = [...slots].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour || a.courtId - b.courtId);
+  const ordered = [...slots].sort((a, b) => a.date.localeCompare(b.date) || a.minute - b.minute || a.courtId - b.courtId);
   const taken = new Set<number>();
-  const busy = new Map<string, Set<string>>(); // "date:hour" → sides playing then
+  const busy = new Map<string, Set<string>>(); // "date:minute" → sides playing then
   const at = new Map<string, number>(); // key → index of its slot
   const placed = new Map<string, Slot>();
   let unplaced = 0;
-  const time = (s: Slot) => `${s.date}:${String(s.hour).padStart(2, "0")}`;
+  const time = (s: Slot) => `${s.date}:${String(s.minute).padStart(4, "0")}`;
 
   for (const match of matches) {
     const earliest = Math.max(-1, ...match.after.map((k) => at.get(k) ?? Infinity));

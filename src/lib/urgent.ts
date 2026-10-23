@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { hoursOf } from "./interval";
 import { getDb } from "./db";
 
 /**
@@ -53,7 +54,7 @@ interface NoticeRow {
   phone: string;
   email: string | null;
   date: string;
-  start_hour: number;
+  start_min: number;
   summary: string;
   created_at: string;
   acked_at: string | null;
@@ -69,16 +70,17 @@ export async function createNotice(input: {
   phone: string;
   email: string | null;
   date: string;
-  startHour: number;
+  /** When the booking starts, in minutes of the day. */
+  startMin: number;
   summary: string;
 }): Promise<{ id: number; token: string }> {
   const token = randomBytes(12).toString("base64url");
   const info = await getDb()
     .prepare(
-      `INSERT INTO urgent_notices (venue_id, booking_id, kind, name, phone, email, date, start_hour, summary, ack_token)
+      `INSERT INTO urgent_notices (venue_id, booking_id, kind, name, phone, email, date, start_min, summary, ack_token)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(input.venueId, input.bookingId, input.kind, input.name, input.phone, input.email, input.date, input.startHour, input.summary, token);
+    .run(input.venueId, input.bookingId, input.kind, input.name, input.phone, input.email, input.date, input.startMin, input.summary, token);
   return { id: info.lastInsertRowid as number, token };
 }
 
@@ -123,7 +125,7 @@ async function withMessages(rows: NoticeRow[]): Promise<UrgentNotice[]> {
       phone: r.phone,
       email: r.email,
       date: r.date,
-      startHour: r.start_hour,
+      startHour: hoursOf(r.start_min),
       summary: r.summary,
       createdAt: r.created_at,
       ackedAt: r.acked_at,
@@ -140,7 +142,7 @@ export async function openNotices(venueIds: number[] | null): Promise<UrgentNoti
   if (venueIds && venueIds.length === 0) return [];
   const only = venueIds ? ` AND venue_id IN (${venueIds.map(() => "?").join(",")})` : "";
   const rows = (await getDb()
-    .prepare(`SELECT * FROM urgent_notices WHERE resolved_at IS NULL${only} ORDER BY date, start_hour, id`)
+    .prepare(`SELECT * FROM urgent_notices WHERE resolved_at IS NULL${only} ORDER BY date, start_min, id`)
     .all(...(venueIds ?? []))) as NoticeRow[];
   return withMessages(rows);
 }

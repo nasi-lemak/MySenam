@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
-import { CLOSE_HOUR, MAX_EMERGENCY_INFO } from "@/lib/types";
+import { MAX_EMERGENCY_INFO } from "@/lib/types";
 import type { VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
-import { closeLabel, HOUR_CHOICES, localTime, todayLocal } from "./shared";
+import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
+import { ClockField } from "@/components/ClockField";
 import { WEEKDAYS, type DayHours, type WeekHours } from "@/lib/week-hours";
 import { MessagesPanel } from "./MessagesPanel";
 import { BlockedPhonesPanel } from "./BlockedPhonesPanel";
@@ -519,8 +520,8 @@ function VenueRow({
     address: venue.address,
     phone: venue.phone,
     cancelCutoffHours: venue.cancelCutoffHours,
-    openHour: venue.openHour,
-    closeHour: venue.closeHour,
+    openMin: venue.openMin,
+    closeMin: venue.closeMin,
     weekHours: (venue.weekHours ?? null) as WeekHours | null,
     staffedFrom: venue.staffedFrom,
     staffedTo: venue.staffedTo,
@@ -533,8 +534,8 @@ function VenueRow({
     fields.address !== venue.address ||
     fields.phone !== venue.phone ||
     fields.cancelCutoffHours !== venue.cancelCutoffHours ||
-    fields.openHour !== venue.openHour ||
-    fields.closeHour !== venue.closeHour ||
+    fields.openMin !== venue.openMin ||
+    fields.closeMin !== venue.closeMin ||
     JSON.stringify(fields.weekHours) !== JSON.stringify(venue.weekHours ?? null) ||
     fields.staffedFrom !== venue.staffedFrom ||
     fields.staffedTo !== venue.staffedTo ||
@@ -584,31 +585,22 @@ function VenueRow({
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
         Opens
-        <select
-          value={fields.openHour}
-          onChange={(e) => setFields({ ...fields, openHour: Number(e.target.value) })}
-          className={`mt-1 w-24 ${inputClass}`}
-        >
-          {HOUR_CHOICES.filter((h) => h < CLOSE_HOUR).map((h) => (
-            <option key={h} value={h}>
-              {formatHour(h)}
-            </option>
-          ))}
-        </select>
+        <ClockField
+          label="Opens"
+          value={fields.openMin}
+          onChange={(m) => setFields({ ...fields, openMin: m })}
+          className={`mt-1 w-28 ${inputClass}`}
+        />
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
         Closes
-        <select
-          value={fields.closeHour}
-          onChange={(e) => setFields({ ...fields, closeHour: Number(e.target.value) })}
-          className={`mt-1 w-24 ${inputClass}`}
-        >
-          {HOUR_CHOICES.filter((h) => h > fields.openHour).map((h) => (
-            <option key={h} value={h}>
-              {closeLabel(h)}
-            </option>
-          ))}
-        </select>
+        <ClockField
+          label="Closes"
+          value={fields.closeMin}
+          after={fields.openMin}
+          onChange={(m) => setFields({ ...fields, closeMin: m })}
+          className={`mt-1 w-28 ${inputClass}`}
+        />
       </label>
       <details className="w-full text-xs text-slate-600" open={fields.weekHours !== null}>
         <summary className="cursor-pointer font-medium text-slate-500">Different hours on some days</summary>
@@ -631,7 +623,7 @@ function VenueRow({
                   aria-label={`${WEEKDAYS[day]} hours`}
                   value={d === null ? "usual" : d === "closed" ? "closed" : "own"}
                   onChange={(e) =>
-                    setDay(e.target.value === "usual" ? null : e.target.value === "closed" ? "closed" : { open: fields.openHour, close: fields.closeHour })
+                    setDay(e.target.value === "usual" ? null : e.target.value === "closed" ? "closed" : { open: fields.openMin, close: fields.closeMin })
                   }
                   className={inputClass}
                 >
@@ -641,31 +633,20 @@ function VenueRow({
                 </select>
                 {d !== null && d !== "closed" && (
                   <>
-                    <select
-                      aria-label={`${WEEKDAYS[day]} opens`}
+                    <ClockField
+                      label={`${WEEKDAYS[day]} opens`}
                       value={d.open}
-                      onChange={(e) => setDay({ open: Number(e.target.value), close: Math.max(d.close, Number(e.target.value) + 1) })}
+                      onChange={(m) => setDay({ open: m, close: Math.max(d.close, m + 1) })}
                       className={inputClass}
-                    >
-                      {HOUR_CHOICES.filter((h) => h < CLOSE_HOUR).map((h) => (
-                        <option key={h} value={h}>
-                          {formatHour(h)}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     to
-                    <select
-                      aria-label={`${WEEKDAYS[day]} closes`}
+                    <ClockField
+                      label={`${WEEKDAYS[day]} closes`}
                       value={d.close}
-                      onChange={(e) => setDay({ open: d.open, close: Number(e.target.value) })}
+                      after={d.open}
+                      onChange={(m) => setDay({ open: d.open, close: m })}
                       className={inputClass}
-                    >
-                      {HOUR_CHOICES.filter((h) => h > d.open).map((h) => (
-                        <option key={h} value={h}>
-                          {closeLabel(h)}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </>
                 )}
               </div>
@@ -704,7 +685,7 @@ function VenueRow({
                 setFields({
                   ...fields,
                   staffedFrom: e.target.value === "" ? null : Number(e.target.value),
-                  staffedTo: e.target.value === "" ? null : (fields.staffedTo ?? fields.closeHour),
+                  staffedTo: e.target.value === "" ? null : (fields.staffedTo ?? Math.min(Math.ceil(fields.closeMin / 60), 28)),
                 })
               }
               className={`mt-1 w-28 ${inputClass}`}

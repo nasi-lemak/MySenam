@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hoursOf } from "./interval";
 import { icsText, toUtcStamp } from "./booking-links";
 import { coachById, type Coach } from "./coaching";
 import { getDb } from "./db";
@@ -100,16 +101,16 @@ export interface Lesson {
 export async function coachLessons(coachId: number, from: string, until: string): Promise<Lesson[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.date, b.start_hour, b.end_hour, b.name, b.phone, b.payment_status, c.name AS court
+      `SELECT b.code, b.date, b.start_min, b.end_min, b.name, b.phone, b.payment_status, c.name AS court
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE b.coach_id = ? AND b.status = 'confirmed' AND b.date BETWEEN ? AND ?
-        ORDER BY b.date, b.start_hour`
+        ORDER BY b.date, b.start_min`
     )
     .all(coachId, from, until)) as {
     code: string;
     date: string;
-    start_hour: number;
-    end_hour: number;
+    start_min: number;
+    end_min: number;
     name: string;
     phone: string;
     payment_status: string;
@@ -118,8 +119,8 @@ export async function coachLessons(coachId: number, from: string, until: string)
   return rows.map((r) => ({
     code: r.code,
     date: r.date,
-    startHour: Number(r.start_hour),
-    endHour: Number(r.end_hour),
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
     court: r.court,
     student: r.name,
     phone: r.phone,
@@ -166,7 +167,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - 2 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
   const rows = (await db
     .prepare(
-      `SELECT b.id, b.code, b.date, b.start_hour, b.end_hour, b.name, b.status, k.id AS coach_id, k.name AS coach, k.email,
+      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, b.name, b.status, k.id AS coach_id, k.name AS coach, k.email,
               c.name AS court, v.id AS venue_id, v.name AS venue,
               EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
@@ -179,8 +180,8 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
     id: number;
     code: string;
     date: string;
-    start_hour: number;
-    end_hour: number;
+    start_min: number;
+    end_min: number;
     name: string;
     status: string;
     coach_id: number;
@@ -201,7 +202,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
       court: r.court,
       venue: r.venue,
       date: r.date,
-      time: `${formatHour(Number(r.start_hour))}–${formatHour(Number(r.end_hour))}`,
+      time: `${formatHour(hoursOf(r.start_min))}–${formatHour(hoursOf(r.end_min))}`,
       code: r.code,
     };
     await enqueue({
@@ -246,7 +247,7 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
     .prepare(
       `SELECT k.id, k.name,
               COUNT(b.id) FILTER (WHERE b.no_show = 0) AS lessons,
-              COALESCE(SUM(b.end_hour - b.start_hour) FILTER (WHERE b.no_show = 0), 0)::float AS hours,
+              COALESCE(SUM(b.end_min - b.start_min) FILTER (WHERE b.no_show = 0) / 60.0, 0)::float AS hours,
               COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status = 'paid'), 0)::float AS paid,
               COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status <> 'paid'), 0)::float AS unpaid,
               COUNT(b.id) FILTER (WHERE b.no_show = 1) AS no_shows,
@@ -296,17 +297,17 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
 export async function coachPayoutsCsv(venueId: number, from: string, to: string): Promise<string> {
   const rows = (await getDb()
     .prepare(
-      `SELECT k.name AS coach, b.date, b.start_hour, b.end_hour, b.code, b.name AS student, c.name AS court,
+      `SELECT k.name AS coach, b.date, b.start_min, b.end_min, b.code, b.name AS student, c.name AS court,
               b.coach_fee::float AS fee, b.payment_status, b.no_show
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id
         WHERE k.venue_id = ? AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
-        ORDER BY k.name, b.date, b.start_hour`
+        ORDER BY k.name, b.date, b.start_min`
     )
     .all(venueId, from, to)) as {
     coach: string;
     date: string;
-    start_hour: number;
-    end_hour: number;
+    start_min: number;
+    end_min: number;
     code: string;
     student: string;
     court: string;
@@ -319,7 +320,7 @@ export async function coachPayoutsCsv(venueId: number, from: string, to: string)
     rows.map((r) => [
       r.coach,
       r.date,
-      `${formatHour(Number(r.start_hour))}–${formatHour(Number(r.end_hour))}`,
+      `${formatHour(hoursOf(r.start_min))}–${formatHour(hoursOf(r.end_min))}`,
       r.code,
       r.student,
       r.court,

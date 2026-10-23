@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hoursOf } from "./interval";
 import { getDb } from "./db";
 import { creditReceipt } from "./documents";
 import { findBooking, getCourt, getVenue } from "./store";
@@ -116,7 +117,7 @@ export async function splitByToken(token: string): Promise<SplitView | null> {
   const db = getDb();
   const r = (await db
     .prepare(
-      `SELECT s.*, b.code, b.date, b.start_hour, b.end_hour, b.name, b.status, b.payment_status, b.total_price::float AS total,
+      `SELECT s.*, b.code, b.date, b.start_min, b.end_min, b.name, b.status, b.payment_status, b.total_price::float AS total,
               c.name AS court, v.id AS venue_id, v.name AS venue, v.time_zone, v.lat, v.lng
          FROM booking_splits s JOIN bookings b ON b.id = s.booking_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE s.token = ?`
@@ -130,8 +131,8 @@ export async function splitByToken(token: string): Promise<SplitView | null> {
         token: string;
         code: string;
         date: string;
-        start_hour: number;
-        end_hour: number;
+        start_min: number;
+        end_min: number;
         name: string;
         status: string;
         payment_status: string;
@@ -151,7 +152,7 @@ export async function splitByToken(token: string): Promise<SplitView | null> {
       ? "cancelled"
       : r.payment_status === "paid"
         ? "paid"
-        : isPastSlot(r.date, Number(r.start_hour), venueZoneOf(r))
+        : isPastSlot(r.date, hoursOf(r.start_min), venueZoneOf(r))
           ? "started"
           : paid >= r.parts - 1
             ? "full"
@@ -168,8 +169,8 @@ export async function splitByToken(token: string): Promise<SplitView | null> {
     venueName: r.venue,
     courtName: r.court,
     date: r.date,
-    startHour: Number(r.start_hour),
-    endHour: Number(r.end_hour),
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
     total: r.total,
     host: r.name.trim().split(/\s+/)[0],
     closed,

@@ -61,6 +61,8 @@ export const POLICIES = {
   guestInvite: { limit: 20, windowMs: 60 * MINUTE },
   /** A browser reporting its errors: a broken page sends a few, a script flooding the log many. */
   clientError: { limit: 20, windowMs: 10 * MINUTE },
+  /** Pricing a booking before it is made: a person changing the length a few times a minute, not a scrape of every price. */
+  quote: { limit: 120, windowMs: 10 * MINUTE },
   /** A venue's own systems on the public API, per key: plenty for a front-desk screen polling, not a scrape. */
   api: { limit: 120, windowMs: MINUTE },
 } satisfies Record<string, Policy>;

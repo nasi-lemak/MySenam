@@ -13,7 +13,7 @@ import { NextRequest } from "next/server";
 import { createApiKey, revokeApiKey } from "../src/lib/api-keys";
 import { getDb } from "../src/lib/db";
 import { availabilityFeed, merchantFeed, serviceFeed, setGoogleReserve } from "../src/lib/google-feeds";
-import { adminCancelBooking, createBooking, createCourt, createVenue, setPaymentStatus } from "../src/lib/store";
+import { adminCancelBooking, createBooking, createCourt, createVenue, rescheduleBooking, setPaymentStatus } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { addEndpoint, deliverWebhooks, isPrivate, listEndpoints, pinnedLookup, signature, sweepWebhookEvents, transport } from "../src/lib/webhooks";
 import { GET as venueGet } from "../src/app/api/v1/venue/route";
@@ -149,7 +149,7 @@ describe("webhooks", () => {
     await sweepWebhookEvents();
     await setPaymentStatus(made.booking.code, true, "cash");
     await sweepWebhookEvents();
-    await getDb().prepare("UPDATE bookings SET start_hour = 15, end_hour = 16 WHERE id = ?").run(made.booking.id);
+    await rescheduleBooking(made.booking.code, { date: day, start: 15 * 60 }, "staff");
     await sweepWebhookEvents();
     await adminCancelBooking(made.booking.code);
     await sweepWebhookEvents();

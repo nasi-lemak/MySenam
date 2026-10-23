@@ -109,7 +109,7 @@ describe("asking for payment to hold a booking", () => {
     const slot = grid.availability[0].slots.find((s: { hour: number }) => s.hour === 10);
     expect(slot.available).toBe(true);
     expect(await findBooking(booking.code, "0191110002")).toMatchObject({ status: "cancelled", releasedUnpaid: true });
-    expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM booking_slots WHERE booking_id = ?").get(booking.id)) as { n: number }).toEqual({ n: 0 });
+    expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM claims WHERE booking_id = ? AND active").get(booking.id)) as { n: number }).toEqual({ n: 0 });
     // Somebody else can have it.
     expect((await post({ hours: [10], phone: "0191110003" })).status).toBe(201);
   });

@@ -8,6 +8,7 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined }),
 }));
 
+import { updatePolicy } from "../src/lib/booking-policy";
 import { NextRequest } from "next/server";
 import { ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
@@ -25,7 +26,6 @@ import {
   createVenue,
   findBooking,
   rescheduleBooking,
-  setSlotMinutes,
 } from "../src/lib/store";
 import { addDays, slotStartsAt, todayISO } from "../src/lib/time";
 
@@ -47,7 +47,7 @@ afterEach(() => vi.useRealTimers());
 beforeAll(async () => {
   await ensureBootstrapAdmin();
   adminId = ((await getDb().prepare("SELECT id FROM admins ORDER BY id LIMIT 1").get()) as { id: number }).id;
-  const made = await createVenue({ name: "Rules Hall", area: "PJ", address: "x", phone: "0312348888", openHour: 8, closeHour: 22 });
+  const made = await createVenue({ name: "Rules Hall", area: "PJ", address: "x", phone: "0312348888", openMin: 8 * 60, closeMin: 22 * 60 });
   if (!made.ok) throw new Error("venue");
   venueId = made.venue.id;
   const court = await createCourt({ venueId, name: "Court 1", sport: "badminton", offPeakRate: 20, peakRate: 20 });
@@ -58,12 +58,13 @@ beforeAll(async () => {
 describe("half hours through the public route", () => {
   it("takes a booking that starts on the half hour, where the venue sells them", async () => {
     // A venue of its own: one with half-hour bookings in its diary cannot go back to hours.
-    const made = await createVenue({ name: "Half Rules", area: "PJ", address: "x", phone: "0312348887", openHour: 8, closeHour: 22 });
+    const made = await createVenue({ name: "Half Rules", area: "PJ", address: "x", phone: "0312348887", openMin: 8 * 60, closeMin: 22 * 60 });
     if (!made.ok) throw new Error("venue");
     const court = await createCourt({ venueId: made.venue.id, name: "Court 1", sport: "badminton", offPeakRate: 20, peakRate: 20 });
     if (!court.ok) throw new Error("court");
     const courtId = court.court.id;
-    expect(await setSlotMinutes(made.venue.id, 30)).toMatchObject({ ok: true });
+    // Its booking rules: a start every half hour, lengths by the half hour.
+    expect(await updatePolicy({ venue: made.venue.id }, { startEvery: 30, lengthStep: 30, minLength: 30 })).toMatchObject({ ok: true });
     resetRateLimits();
     const { POST } = await import("../src/app/api/bookings/route");
     const res = await POST(
@@ -76,15 +77,27 @@ describe("half hours through the public route", () => {
     const body = await res.json();
     expect(res.status).toBe(201);
     expect(body.booking).toMatchObject({ startHour: 10.5, endHour: 11.5 });
-    // Not a quarter past, though.
+    // Not a quarter past, though: the court's rules say so, in the customer's words.
     const odd = await POST(
       new NextRequest("http://localhost/api/bookings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ courtId, date: addDays(todayISO(ZONE), 2), hours: [12.25], name: "Quarter", phone: phone() }),
+        body: JSON.stringify({ courtId, date: addDays(todayISO(ZONE), 2), start: "12:15", minutes: 60, name: "Quarter", phone: phone() }),
       })
     );
-    expect(odd.status).toBe(400);
+    expect(odd.status).toBe(409);
+    expect(await odd.json()).toMatchObject({ code: "POLICY_START" });
+    // Exact minutes, where the court's rules allow any minute: 18:07 to 19:23.
+    expect(await updatePolicy({ court: courtId }, { startEvery: 1, lengthStep: 1, minLength: 5 })).toMatchObject({ ok: true });
+    const exact = await POST(
+      new NextRequest("http://localhost/api/bookings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ courtId, date: addDays(todayISO(ZONE), 2), start: "18:07", end: "19:23", name: "To The Minute", phone: phone() }),
+      })
+    );
+    expect(exact.status).toBe(201);
+    expect((await exact.json()).booking).toMatchObject({ startMin: 18 * 60 + 7, endMin: 19 * 60 + 23 });
   });
 });
 

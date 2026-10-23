@@ -38,7 +38,7 @@ describe("calling off a rained-off afternoon", () => {
     const preview = await rainOut({ venueId, courtIds: [outdoor], date, fromHour: 14, untilHour: 18, preview: true });
     expect(preview).toMatchObject({ ok: true, classes: 0, blocked: 0 });
     if (!preview.ok) return;
-    expect(preview.bookings).toEqual([{ code: a.code, name: "Hafiz", startHour: 15 }]);
+    expect(preview.bookings).toEqual([{ code: a.code, name: "Hafiz", startMin: 15 * 60, startHour: 15 }]);
     expect((await findBooking(a.code, "0123000001"))?.status).toBe("confirmed");
   });
 
@@ -55,7 +55,7 @@ describe("calling off a rained-off afternoon", () => {
     expect(done).toMatchObject({ ok: true, classes: 1, blocked: 1 });
     if (!done.ok) return;
     expect(done.bookings.map((b) => b.code).sort()).toEqual(
-      [inside.code, (await getDb().prepare("SELECT code FROM bookings WHERE name = 'Hafiz' AND start_hour = 15").get() as { code: string }).code].sort()
+      [inside.code, (await getDb().prepare("SELECT code FROM bookings WHERE name = 'Hafiz' AND start_min = 900").get() as { code: string }).code].sort()
     );
     expect((await findBooking(inside.code, "0123000003"))?.status).toBe("cancelled");
     expect((await findBooking(before.code, "0123000002"))?.status).toBe("confirmed");
@@ -74,7 +74,7 @@ describe("calling off a rained-off afternoon", () => {
     expect(slot(16)?.available).toBe(false);
     expect(slot(13)?.available).toBe(true);
     const blocked = (await getDb()
-      .prepare("SELECT reason FROM slot_blocks WHERE court_id = ? AND date = ? AND hour = 16")
+      .prepare("SELECT reason FROM blocks WHERE court_id = ? AND date = ? AND start_min <= 960 AND end_min > 960")
       .get(outdoor, date)) as { reason: string } | undefined;
     expect(blocked?.reason).toBe("Thunderstorm");
   });

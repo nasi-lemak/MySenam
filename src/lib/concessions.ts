@@ -4,7 +4,8 @@ import { peakRules } from "./peak";
 import { phoneKey } from "./phone";
 import { roundMoney } from "./region";
 import { getBookingById as bookingById, getCourt } from "./store";
-import { addDays, forSport, isPeak, isValidDateString, SLOT, todayISO } from "./time";
+import { addDays, forSport, isValidDateString, todayISO } from "./time";
+import { touchesPeak } from "./pricing";
 import { SPORTS, type Booking, type Refusal, type Sport } from "./types";
 import { errorText, translator, type ErrorCode } from "./i18n";
 
@@ -145,10 +146,11 @@ export async function applyConcession(
   if (flags.last_minute === 1 || flags.concession_id !== null) return refuse("ONE_DISCOUNT");
   if (concession.offPeakOnly) {
     const rules = forSport(await peakRules(court.venueId), court.sport);
-    for (let h = booking.startHour; h < booking.endHour; h += SLOT)
-      if (isPeak(booking.date, h, rules)) return refuse("CONCESSION_OFF_PEAK", { name: concession.name });
+    if (touchesPeak(booking.date, { start: booking.startMin, end: booking.endMin }, rules))
+      return refuse("CONCESSION_OFF_PEAK", { name: concession.name });
   }
-  const off = roundMoney(((booking.totalPrice - (booking.coachFee ?? 0)) * concession.percent) / 100);
+  // Off the court time only: not a coach's fee, nor a setup or cleanup fee.
+  const off = roundMoney(((booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0)) * concession.percent) / 100);
   const check: ConcessionCheck = (await proofOnFile(court.venueId, booking.phone, concession.id, booking.date)) ? "seen" : "due";
   await db
     .prepare(

@@ -140,7 +140,7 @@ describe("spending a pass", () => {
     const booking = await book([14, 15, 16]);
     expect(await payBookingWithPass(booking.id, pass.code)).toMatchObject({
       ok: false,
-      error: "This pass has 1 entry left, and this booking needs 3.",
+      error: "This pass has 1 entry left, and this booking needs 3 entries.",
     });
     // Nothing was taken.
     expect((await getPass(pass.code))?.remaining).toBe(1);
@@ -302,5 +302,45 @@ describe("finding a customer's passes", () => {
     const listed = await listPassesForVenue(venue.id);
     expect(listed[0].id).toBe(pass.id);
     expect(listed.every((p) => p.venueId === venue.id)).toBe(true);
+  });
+});
+
+describe("selling a pass at the counter", () => {
+  it("sells entries or court time, as the venue counts them", async () => {
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../src/app/api/admin/passes/route");
+    const { ADMIN_SESSION_COOKIE, createAdminSession } = await import("../src/lib/admin-auth");
+    const venue = (await listVenues())[0];
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(ADMIN_ID)).token}`;
+    const sellBy = (body: Record<string, unknown>) =>
+      POST(
+        new NextRequest("http://localhost/api/admin/passes", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            venueId: venue.id,
+            name: "Counter pass",
+            price: 100,
+            holderName: "Aisyah",
+            holderPhone: PHONE,
+            expiresOn: addDays(todayISO(), 90),
+            ...body,
+          }),
+        })
+      );
+
+    // Ten hours of court time, spent to the minute, on bookings of up to two hours.
+    const time = await sellBy({ kind: "time", entries: 600, maxMinutes: 120 });
+    expect(time.status).toBe(201);
+    expect((await time.json()).pass).toMatchObject({ kind: "time", entries: 600, remaining: 600, entryMinutes: null, maxMinutes: 120 });
+    // Five visits, whatever their length.
+    const visits = await sellBy({ entries: 5, entryMinutes: null });
+    expect((await visits.json()).pass).toMatchObject({ kind: "session", entries: 5, entryMinutes: null });
+    // An hour an entry unless said.
+    expect((await (await sellBy({ entries: 5 })).json()).pass).toMatchObject({ entryMinutes: 60 });
+
+    expect((await sellBy({ kind: "minutes", entries: 5 })).status).toBe(400);
+    expect((await sellBy({ kind: "time", entries: 0 })).status).toBe(400);
+    expect((await sellBy({ entries: 5, entryMinutes: 7.5 })).status).toBe(400);
   });
 });

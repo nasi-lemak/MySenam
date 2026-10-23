@@ -1,12 +1,45 @@
 # Pricing, discounts, memberships and passes
 
-Authoritative for how a price is worked out: peak bands, holidays, last-minute prices, per-player courts, concessions, promo codes, memberships and multi-visit passes.
+Authoritative for how a price is worked out: prices to the minute, peak bands, holidays, last-minute prices, per-player courts, concessions, promo codes, memberships and multi-visit passes.
+
+## Prices to the minute
+
+A booking costs the minutes booked, each part at the rate in force then
+(`priceBooking` in `src/lib/pricing.ts`; how it is computed is in the
+[booking time model](../architecture/interval-booking-review.md#prices-from-minutes)).
+At RM20 an hour off-peak and RM30 at peak from 6 PM, 5:30 to 6:30 PM costs
+RM10 + RM15 = RM25, and 75 minutes off-peak costs RM25. Sums are worked in
+sen or cents as whole numbers and rounded once, half up, per booking.
+
+A venue can change that court by court, sport by sport or for the whole
+venue, under *Courts & rates → Booking rules → More* (inherited like the
+other [booking rules](booking.md#booking-rules-starts-lengths-buffers)):
+
+- **All at the rate when it starts**, instead of each part at its own.
+- **Prices for set lengths**: 90 minutes for RM40, RM55 when it starts at
+  peak. Other lengths are priced by the minute.
+- **Charge by steps** (40 minutes billed as an hour with steps of 30) or
+  **at least** so many minutes; the extra minutes are priced at the rate in
+  force then.
+- **Charge at least** an amount for the court time.
+- **Setup and cleanup fees**: a fixed amount on every booking, shown apart
+  from the time on the booking form, the confirmation and the receipt
+  (`bookings.fee_amount`). Buffers kept free around a booking are never
+  charged on their own; a fee is how a venue charges for setting up.
+
+The booking form shows the server's quote before anything is booked
+(`GET /api/quote`): each part and its rate, the minutes billed and any fees.
+That is the price charged. Quotes, bookings, weekly bookings, moves,
+rescheduling and refunds all price through the same function, so they never
+disagree. Member and tier prices, per-player prices and last-minute prices
+apply to each part; concessions and promo codes come off the court time,
+never the fees.
 
 ## Peak hours and holidays
 
 Each court has an off-peak and a peak rate. **Courts & rates → When peak
-rates apply** decides which one an hour costs, venue by venue (a manager's
-setting):
+rates apply** decides which one each minute costs, venue by venue (a
+manager's setting; times to the minute):
 
 - **Weekday hours**: the peak window on working days, 6 PM to midnight to
   begin with. The same time twice means no weekday peak.
@@ -29,29 +62,32 @@ Department: the rest of 2026 and all of 2027. The settings page says how far
 it reaches. Each new year's schedule is added there when it is published,
 usually in the middle of the year before.
 
-The rules price the slot grid, search results, cheapest-court ordering,
-bookings, weekly series and moves. A change applies from then on: a booking
-keeps the price it was made at. The columns are on `venues`
-(`peak_weekday_from`, `peak_weekday_until`, `peak_weekend_days`,
-`peak_weekend_from`, `peak_weekend_until`), with the dates in
+The rules price the booking grid, search results, cheapest-court ordering,
+quotes, bookings, weekly series and moves. A change applies from then on: a
+booking keeps the price it was made at. The columns are on `venues`
+(`peak_weekday_from_min`, `peak_weekday_until_min`, `peak_weekend_days`,
+`peak_weekend_from_min`, `peak_weekend_until_min`, minutes of the day), with the dates in
 `venue_holidays` (migration 0038); the defaults are the rule every venue had
 before.
 
 
 ### Last-minute prices
 
-A venue can fill hours that would otherwise go empty (*Courts & rates → When peak
-rates apply → Last-minute prices*, migration 0060): an hour still free
-within 1 to 24 hours of starting costs 5% to 50% less, for whoever books it
-then. Off-peak hours only unless the venue unticks that, with a warning
-that regulars may learn to wait for the lower price on busy evenings.
+A venue can fill time that would otherwise go empty (*Courts & rates → When peak
+rates apply → Last-minute prices*, migration 0060): court time starting
+within 1 to 24 hours of booking costs 5% to 50% less, for whoever books it
+then. Off-peak time only unless the venue unticks that, with a warning
+that regulars may learn to wait for the lower price on busy evenings. It is
+worked out minute by minute: booked 45 minutes before a one-hour booking
+with a one-hour window, the minutes starting within the hour (the first 16)
+are discounted and the rest are not.
 
-- The grid marks those hours (*−20%*) and shows the lower price; the
+- The grid marks that time (*−20%*) and shows the lower price; the
   booking form says it is a last-minute price for booking now, and that
   the venue's usual cancellation rules apply. Search results show the price
   as it is now.
-- It is a price for a booking made now (`computePrice(..., at)`): a booking
-  already made keeps what it cost, a booking moved into such an hour keeps
+- It is a price for a booking made now (`priceBooking({ ..., at })`): a booking
+  already made keeps what it cost, a booking moved into such time keeps
   the price it was booked at, and later weeks of a weekly series are too far
   ahead to qualify.
 - It cannot be had by cancelling and booking again: somebody who cancelled a
@@ -65,7 +101,7 @@ that regulars may learn to wait for the lower price on busy evenings.
 Some courts are sold by the head: pickleball at RM8 a player an hour. Under
 *Courts → How one booking is sold*, a court booked whole can be priced *per
 player*, taking up to 8 players in one booking unless the venue says
-otherwise (`courtPrice` in `src/lib/store.ts`).
+otherwise (`priceBooking` in `src/lib/pricing.ts`).
 
 - Its rates are then per player: the grid reads *RM8–10/player/hr*, search
   results say *per player*, and the booking form asks how many play and
@@ -229,12 +265,25 @@ set under *Credit → Plans and tiers*:
 
 ## Multi-visit passes
 
-A pass is a block of entries bought up front — the classic "10 sessions" a
-Malaysian sports centre sells over the counter. **One entry covers one booked
-hour**, so a 2-hour booking spends two. That keeps a pass worth exactly what it
-replaces, rather than making a 4-hour block the same price as a 1-hour one.
+A pass is bought up front — the classic "10 sessions" a Malaysian sports
+centre sells over the counter. It counts one of two ways, chosen when it is
+sold (*Credit & passes → Spends*; `passes.kind`, `passCost` in
+`src/lib/pass-rules.ts`):
 
-Entries are an append-only ledger (`pass_entries`), the same shape as the credit
+- **Entries** (a session pass). Each entry covers so many minutes of a
+  booking or part of them, an hour unless the venue says otherwise, so with
+  an hour a 90-minute booking spends two entries and a 2-hour booking two.
+  Left blank, an entry is one booking whatever its length (a gym visit).
+  Passes sold before bookings went to the minute count an hour an entry,
+  which is what they were sold as.
+- **Court time** (a time pass): hours of court time, sold in quarter hours
+  and spent to the minute, so a 75-minute booking takes 75 minutes.
+
+Either kind can be limited to bookings of up to so many minutes. The booking
+form says what a booking would spend before it is made, and refuses a
+booking longer than the pass allows.
+
+Entries and minutes are an append-only ledger (`pass_entries`), the same shape as the credit
 wallet: `remaining = entries + SUM(delta)`, spends negative and refunds
 positive. Nothing ever rewrites a running total, so the history is the balance.
 
@@ -247,8 +296,9 @@ cannot spend the same entry:
 - the booking's phone number matches the holder's. Malaysian numbers are
   compared on digits with the country code folded away, so `+60 12-345 6789`
   and `012-345 6789` are the same person;
-- enough entries remain for the whole booking. A pass pays in full or not at
-  all — there is no part-paying a slot and owing the rest.
+- the booking is no longer than the pass allows, and enough remains for the
+  whole of it. A pass pays in full or not at all — there is no part-paying a
+  booking and owing the rest.
 
 Payment is best-effort, like paying from credit: a pass that cannot cover the
 booking leaves it standing as **unpaid** with the reason, rather than throwing

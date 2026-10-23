@@ -10,17 +10,20 @@ import {
   CourtAvailability,
   isHire,
   isShared,
-  MAX_HOURS_PER_BOOKING,
   MAX_RECUR_WEEKS,
   MAX_GROUP_COURTS,
   DEFAULT_MAX_PLAYERS,
-  bookingLengths,
   Sport,
   SPORT_ICONS,
   Pass,
+  PublicPolicy,
+  StartOption,
   VenueClosure,
 } from "@/lib/types";
-import { consecutive, formatHour, isPastSlot } from "@/lib/time";
+import { formatMinute, parseClock } from "@/lib/interval";
+import { isPastSlot } from "@/lib/time";
+import { lengthsUpTo } from "@/lib/booking-rules";
+import { passCost } from "@/lib/pass-rules";
 import WaiverTick from "@/components/WaiverTick";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -33,6 +36,7 @@ import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
+import { lengthLabel } from "@/lib/length-label";
 import { money, intlTag, region, plainAmount, localTimeOf, shortDate } from "@/lib/region";
 
 interface Props {
@@ -41,16 +45,35 @@ interface Props {
   venueName?: string;
   sports: Sport[];
   dates: string[];
-  /** Slot to pre-select, e.g. when arriving from a search result. */
-  initial?: { sport?: Sport; date?: string; courtId?: number; hours?: number[] };
+  /** A booking to pre-select, e.g. when arriving from a search result: its start and length in minutes. */
+  initial?: { sport?: Sport; date?: string; courtId?: number; start?: number; minutes?: number };
 }
 
 /** A selection on the "Any court" row, rather than on a named court. */
 const ANY_COURT = -1;
 
+/**
+ * What is picked: a court (or any court), a start in minutes of the day, and
+ * a length in minutes. The grid is a way of picking it; the booking is the
+ * start and length, to the minute.
+ */
 interface Selection {
   courtId: number;
-  hours: number[];
+  start: number;
+  length: number;
+}
+
+/** What the server says a booking would cost (/api/quote). */
+interface Quote {
+  total: number;
+  court: number;
+  fees: number;
+  billedMinutes: number;
+  allowed: boolean;
+  error?: string;
+  code?: string;
+  vars?: Record<string, string | number>;
+  others: { courtId: number; total: number; allowed: boolean }[];
 }
 
 interface Confirmation {
@@ -99,32 +122,27 @@ const BUSY_STYLES: Record<string, string> = {
   full: "bg-slate-100 text-slate-300",
 };
 
-/**
- * A taken slot can be queued for; a blocked, class-reserved or past one
- * cannot, because no cancellation will ever free it. Past by the venue's clock.
- */
-/**
- * The cheapest court free for every one of these hours, and what it costs;
- * null when no single court is. The server picks the same way.
- */
-function cheapestWholeCourt(
-  availability: CourtAvailability[] | null | undefined,
-  hours: number[]
-): { total: number; lastMinute: number } | null {
-  let best: { total: number; lastMinute: number } | null = null;
-  for (const a of availability ?? []) {
-    const slots = hours.map((h) => a.slots.find((s) => s.hour === h));
-    if (slots.some((s) => !s || !s.available)) continue;
-    const total = slots.reduce((sum, s) => sum + s!.rate, 0);
-    if (!best || total < best.total)
-      best = { total, lastMinute: Math.max(0, ...slots.map((s) => s!.lastMinute ?? 0)) };
-  }
-  return best;
+/** The starts on the "Any court" row: every court's, each with the longest any court allows from there. */
+function anyStarts(availability: CourtAvailability[]): StartOption[] {
+  const best = new Map<number, number>();
+  for (const a of availability) for (const s of a.starts) best.set(s.minute, Math.max(best.get(s.minute) ?? 0, s.maxLength));
+  return [...best].sort((x, y) => x[0] - y[0]).map(([minute, maxLength]) => ({ minute, maxLength }));
 }
 
+/** The length to start with: the policy's usual one where it fits, else the longest that does. */
+function firstLength(policy: PublicPolicy, maxLength: number): number | null {
+  const lengths = lengthsUpTo(policy, maxLength);
+  if (lengths.length === 0) return null;
+  return lengths.includes(policy.defaultLength) ? policy.defaultLength : lengths[lengths.length - 1];
+}
+
+/**
+ * A taken cell can be queued for; a blocked, class-reserved, shut or past one
+ * cannot, because no cancellation will ever free it. Past by the venue's clock.
+ */
 function canQueue(slot: CourtAvailability["slots"][number], date: string, zone: string): boolean {
-  if (slot.available || slot.blocked || slot.className) return false;
-  return !isPastSlot(date, slot.hour, zone);
+  if (slot.available || slot.blocked || slot.className || slot.outside) return false;
+  return !isPastSlot(date, slot.minute / 60, zone);
 }
 
 function formatDateLabel(t: T, date: string): { day: string; num: string } {
@@ -146,46 +164,48 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   );
   // Applied once, after the first availability load resolves.
   const pendingInitial = useRef(
-    initial?.courtId && initial.hours?.length
-      ? { courtId: initial.courtId, hours: initial.hours }
-      : null
+    initial?.courtId && initial.start !== undefined ? { courtId: initial.courtId, start: initial.start, minutes: initial.minutes } : null
   );
   const [availability, setAvailability] = useState<CourtAvailability[] | null>(null);
   const [closure, setClosure] = useState<VenueClosure | null>(null);
   const [memberRates, setMemberRates] = useState(false);
-  // The venue's clock, which the slots and "already passed" go by.
+  // The venue's clock, which the times and "already passed" go by.
   const [zone, setZone] = useState(region().timeZone);
   // The most weeks one weekly booking may run at this venue.
   const [maxWeeks, setMaxWeeks] = useState(MAX_RECUR_WEEKS);
   // Concession prices offered here.
   const [concessions, setConcessions] = useState<Concession[]>([]);
+  // A manager of this venue, who may book outside its rules.
+  const [mayOverride, setMayOverride] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [waitlistSlot, setWaitlistSlot] = useState<{
     court: Court;
-    hour: number;
+    minute: number;
+    length: number;
   } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  // Open the grid on the first hour there is something to book (or on the
-  // hour already chosen, arriving from search), not on the venue's opening
-  // hour. On a phone only four hours fit; in the evening those four are the
+  // Open the grid on the first time there is something to book (or on the
+  // time already chosen, arriving from search), not on the venue's opening
+  // hour. On a phone only a few columns fit; in the evening those are the
   // morning's, all past and greyed out, and the free ones are off to the right
   // where a first-time visitor will not think to look.
   useEffect(() => {
     const grid = gridRef.current;
     if (!grid || !availability || grid.scrollWidth <= grid.clientWidth) return;
-    const hours = availability[0]?.slots.map((s) => s.hour) ?? [];
-    const target =
-      selection?.hours[0] ??
-      hours.find((h) => availability.some((a) => a.slots.find((s) => s.hour === h)?.available));
+    const cells = availability[0]?.slots ?? [];
+    const width = availability[0]?.grid ?? 60;
+    const firstFree = cells.find((c) => availability.some((a) => a.slots.find((s) => s.minute === c.minute)?.available))?.minute;
+    const chosen = selection ? cells.find((c) => c.minute <= selection.start && selection.start < c.minute + width)?.minute : undefined;
+    const target = chosen ?? firstFree;
     if (target === undefined) return;
-    const column = grid.querySelector<HTMLElement>(`th[data-hour="${target}"]`);
+    const column = grid.querySelector<HTMLElement>(`th[data-minute="${target}"]`);
     const courtNames = grid.querySelector<HTMLElement>("th");
     if (column && courtNames) grid.scrollLeft = Math.max(column.offsetLeft - courtNames.offsetWidth, 0);
-    // Only when a new day or sport is loaded, not on every tap of a slot.
+    // Only when a new day or sport is loaded, not on every tap of a cell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availability]);
 
@@ -199,10 +219,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       );
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("board.loadFailed"));
-      const slots: CourtAvailability[] = data.availability;
-      setAvailability(slots);
+      const courts: CourtAvailability[] = data.availability;
+      setAvailability(courts);
       setClosure(data.closure ?? null);
       setMemberRates(data.memberRates === true);
+      setMayOverride(data.mayOverride === true);
       if (typeof data.timeZone === "string") setZone(data.timeZone);
       if (Number.isInteger(data.seriesWeeks)) setMaxWeeks(data.seriesWeeks);
       setConcessions(Array.isArray(data.concessions) ? data.concessions : []);
@@ -210,11 +231,13 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       const pending = pendingInitial.current;
       if (pending) {
         pendingInitial.current = null;
-        const courtAvail = slots.find((a) => a.court.id === pending.courtId);
-        const stillFree = pending.hours.every(
-          (h) => courtAvail?.slots.find((s) => s.hour === h)?.available
-        );
-        if (stillFree) setSelection({ courtId: pending.courtId, hours: pending.hours });
+        const court = courts.find((a) => a.court.id === pending.courtId);
+        const option = court?.starts.find((s) => s.minute === pending.start);
+        if (court && option) {
+          const allowed = lengthsUpTo(court.policy, option.maxLength);
+          const length = pending.minutes !== undefined && allowed.includes(pending.minutes) ? pending.minutes : firstLength(court.policy, option.maxLength);
+          if (length) setSelection({ courtId: court.court.id, start: option.minute, length });
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("board.loadFailed"));
@@ -236,29 +259,36 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     [availability]
   );
 
-  /** What this sport is sold by here, in hours: 1, or 0.5 by the half hour. */
-  const step = useMemo(() => availability?.[0]?.unit ?? 1, [availability]);
+  /** The width of a column, in minutes: a way of showing the day, not what may be booked. */
+  const grid = availability?.[0]?.grid ?? 60;
 
   /**
-   * A synthetic row standing for "whichever court, pick the cheapest". Worth
-   * offering only when there is more than one court to choose between.
+   * A row standing for "whichever court, pick the cheapest". Worth offering
+   * only when there is more than one court to choose between.
    */
   const anyRow = useMemo(() => {
     if (!availability || availability.length < 2) return null;
-    const slots = availability[0].slots.map((_, i) => {
-      const hour = availability[0].slots[i].hour;
-      const free = availability
-        .map((a) => a.slots[i])
-        .filter((s) => s && s.hour === hour && s.available);
+    return availability[0].slots.map((cell, i) => {
+      const free = availability.map((a) => a.slots[i]).filter((s) => s && s.minute === cell.minute && s.available);
       return {
-        hour,
+        minute: cell.minute,
         available: free.length > 0,
         rate: free.length > 0 ? Math.min(...free.map((s) => s.rate)) : 0,
         courts: free.length,
       };
     });
-    return slots;
   }, [availability]);
+
+  /** The starts and rules of the court picked (or of "any court"). */
+  const picked = useMemo(() => {
+    if (!selection || !availability) return null;
+    if (selection.courtId === ANY_COURT) {
+      const first = availability[0];
+      return first ? { starts: anyStarts(availability), policy: first.policy } : null;
+    }
+    const a = availability.find((x) => x.court.id === selection.courtId);
+    return a ? { starts: a.starts, policy: a.policy } : null;
+  }, [selection, availability]);
 
   const selectedCourt = useMemo(() => {
     if (selection?.courtId === ANY_COURT) {
@@ -279,74 +309,65 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
   }, [availability, selection, t]);
 
-  /**
-   * For "Any court", the court the server will give: the cheapest one free for
-   * every hour picked. The cheapest rate per hour across all courts would add
-   * up to a price no single court charges.
-   */
-  const anyChoice = useMemo(
-    () => (selection?.courtId === ANY_COURT ? cheapestWholeCourt(availability, selection.hours) : null),
-    [selection, availability]
-  );
-
-  const totalPrice = useMemo(() => {
-    if (!selection || !availability) return 0;
-    if (selection.courtId === ANY_COURT) return anyChoice?.total ?? 0;
-    const courtAvail = availability.find((a) => a.court.id === selection.courtId);
-    if (!courtAvail) return 0;
-    return selection.hours.reduce(
-      (sum, h) => sum + (courtAvail.slots.find((s) => s.hour === h)?.rate ?? 0),
-      0
-    );
-  }, [selection, availability, anyChoice]);
-
-  /**
-   * Other courts free for every hour picked, to book with it as one: whole
-   * courts that take a booking that long, with what those hours cost there.
-   */
+  /** Other whole courts free for the same start and length, to book with it as one. */
   const alsoFree = useMemo(() => {
     if (!selection || !availability || selection.courtId === ANY_COURT) return [];
-    const length = selection.hours.length * step;
     return availability
       .filter((a) => a.court.id !== selection.courtId && a.court.capacity === 1)
-      .filter((a) => {
-        const l = bookingLengths(a.court, step);
-        return length >= l.min && length <= l.max;
-      })
-      .filter((a) => selection.hours.every((h) => a.slots.find((s) => s.hour === h)?.available))
-      .map((a) => ({
-        court: a.court,
-        price: selection.hours.reduce((sum, h) => sum + (a.slots.find((s) => s.hour === h)?.rate ?? 0), 0),
-      }));
-  }, [selection, availability, step]);
+      .filter((a) => lengthsUpTo(a.policy, selection.length).includes(selection.length))
+      .filter((a) => (a.starts.find((s) => s.minute === selection.start)?.maxLength ?? 0) >= selection.length)
+      .map((a) => a.court);
+  }, [selection, availability]);
 
-  /** The last-minute discount on the hours picked, if any: the form says what it is. */
+  /** The columns the selection covers, for showing it, and for what they say (peak, last-minute). */
+  const coveredCells = useCallback(
+    (courtId: number) => {
+      if (!selection || !availability) return [];
+      const row = courtId === ANY_COURT ? availability[0] : availability.find((a) => a.court.id === courtId);
+      return (row?.slots ?? []).filter((c) => c.minute < selection.start + selection.length && c.minute + grid > selection.start);
+    },
+    [selection, availability, grid]
+  );
+
+  /** The last-minute discount on the time picked, if any: the form says what it is. */
   const lastMinute = useMemo(() => {
-    if (!selection || !availability) return 0;
-    if (selection.courtId === ANY_COURT) return anyChoice?.lastMinute ?? 0;
-    const slots = availability.find((a) => a.court.id === selection.courtId)?.slots ?? [];
-    return Math.max(0, ...selection.hours.map((h) => slots.find((s) => s.hour === h)?.lastMinute ?? 0));
-  }, [selection, availability, anyChoice]);
+    if (!selection) return 0;
+    return Math.max(0, ...coveredCells(selection.courtId).map((c) => c.lastMinute ?? 0));
+  }, [selection, coveredCells]);
 
-  function toggleSlot(courtId: number, hour: number) {
+  /**
+   * A tap on a cell. On a new court (or nothing picked yet), it picks the
+   * first start in that cell, or the latest one before it that runs into it,
+   * for the court's usual length. On the court already picked, a cell after
+   * the start stretches the booking to end with that cell, as far as the
+   * court's lengths and what is free allow; a cell inside it lets it go.
+   */
+  function tapCell(courtId: number, minute: number) {
     setError(null);
+    const starts = courtId === ANY_COURT ? anyStarts(availability ?? []) : (availability?.find((a) => a.court.id === courtId)?.starts ?? []);
+    const policy = (courtId === ANY_COURT ? availability?.[0] : availability?.find((a) => a.court.id === courtId))?.policy;
+    if (!policy) return;
     setSelection((prev) => {
-      if (!prev || prev.courtId !== courtId) return { courtId, hours: [hour] };
-      const hours = prev.hours.includes(hour)
-        ? prev.hours.filter((h) => h !== hour)
-        : [...prev.hours, hour].sort((a, b) => a - b);
-      if (hours.length === 0) return null;
-      // Keep the selection contiguous: if toggling breaks contiguity, restart from this slot.
-      if (!consecutive(hours, step)) return { courtId, hours: [hour] };
-      // As long as this court may be booked for: its own limit, or four hours.
-      const court = availability?.find((a) => a.court.id === courtId)?.court;
-      const longest = court ? bookingLengths(court, step).max : MAX_HOURS_PER_BOOKING;
-      if (hours.length * step > longest) return prev;
-      // "Any court" still means one court for the whole booking.
-      if (courtId === ANY_COURT && !cheapestWholeCourt(availability, hours)) return { courtId, hours: [hour] };
-      return { courtId, hours };
+      if (prev && prev.courtId === courtId) {
+        if (minute < prev.start + prev.length && minute + grid > prev.start) return null;
+        if (minute >= prev.start + prev.length) {
+          const most = starts.find((s) => s.minute === prev.start)?.maxLength ?? prev.length;
+          const allowed = lengthsUpTo(policy, most);
+          const wanted = minute + grid - prev.start;
+          const length = allowed.find((l) => l >= wanted) ?? allowed[allowed.length - 1];
+          return length ? { ...prev, length } : prev;
+        }
+      }
+      const option =
+        starts.find((s) => s.minute >= minute && s.minute < minute + grid) ??
+        [...starts].reverse().find((s) => s.minute < minute && s.minute + s.maxLength > minute);
+      if (!option) return prev;
+      const length = firstLength(policy, option.maxLength);
+      return length ? { courtId, start: option.minute, length } : prev;
     });
   }
+
+  const startLabel = (minute: number) => formatMinute(minute).replace(":00 ", " ").replace(" ", "");
 
   return (
     <div className="space-y-5">
@@ -422,8 +443,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                   {t("board.court")}
                 </th>
                 {availability[0].slots.map((slot) => (
-                  <th key={slot.hour} data-hour={slot.hour} className="px-1 py-2 text-center font-medium text-slate-500">
-                    {formatHour(slot.hour).replace(":00 ", "").replace(" ", "")}
+                  <th key={slot.minute} data-minute={slot.minute} className="px-1 py-2 text-center font-medium text-slate-500">
+                    {startLabel(slot.minute)}
                   </th>
                 ))}
               </tr>
@@ -439,29 +460,29 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                   </td>
                   {anyRow.map((slot) => {
                     const isSelected =
-                      selection?.courtId === ANY_COURT && selection.hours.includes(slot.hour);
+                      selection?.courtId === ANY_COURT && slot.minute < selection.start + selection.length && slot.minute + grid > selection.start;
                     return (
-                      <td key={slot.hour} className="p-1 text-center">
+                      <td key={slot.minute} className="p-1 text-center">
                         <button
-                          disabled={!slot.available}
-                          onClick={() => toggleSlot(ANY_COURT, slot.hour)}
+                          disabled={!slot.available && !isSelected}
+                          onClick={() => tapCell(ANY_COURT, slot.minute)}
                           title={
                             slot.available
                               ? t.plural("board.anyFree", slot.courts, {
-                                  time: formatHour(slot.hour),
+                                  time: formatMinute(slot.minute),
                                   rate: slot.rate,
                                 })
                               : t("board.anyNone")
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
-                            !slot.available
-                              ? "cursor-not-allowed bg-slate-100 text-slate-300"
-                              : isSelected
-                                ? "bg-teal-600 text-white shadow"
+                            isSelected
+                              ? "bg-teal-600 text-white shadow"
+                              : !slot.available
+                                ? "cursor-not-allowed bg-slate-100 text-slate-300"
                                 : "bg-teal-100 text-teal-800 hover:bg-teal-200"
                           }`}
                         >
-                          {slot.available ? (slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)) : "—"}
+                          {slot.available || isSelected ? (slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)) : "—"}
                         </button>
                       </td>
                     );
@@ -482,52 +503,69 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                   </td>
                   {slots.map((slot) => {
                     const isSelected =
-                      selection?.courtId === court.id && selection.hours.includes(slot.hour);
+                      selection?.courtId === court.id && slot.minute < selection.start + selection.length && slot.minute + grid > selection.start;
                     const shared = isShared(court);
                     const left = slot.capacity - slot.booked;
                     const level = busyness(slot.booked, slot.capacity);
+                    const queue = canQueue(slot, date, zone);
+                    // Partly held: a booking may still start in it, or run into it.
+                    const pickable = slot.available || (slot.partly === true && !slot.outside);
                     return (
-                      <td key={slot.hour} className="p-1 text-center">
+                      <td key={slot.minute} className="p-1 text-center">
                         <button
-                          disabled={!slot.available && !canQueue(slot, date, zone)}
+                          disabled={!pickable && !queue && !isSelected}
                           onClick={() =>
-                            slot.available
-                              ? toggleSlot(court.id, slot.hour)
-                              : setWaitlistSlot({ court, hour: slot.hour })
+                            pickable || isSelected
+                              ? tapCell(court.id, slot.minute)
+                              : setWaitlistSlot({ court, minute: slot.minute, length: grid })
                           }
                           title={
-                            !slot.available
-                              ? canQueue(slot, date, zone)
-                                ? t("board.queueHint")
-                                : slot.className
-                                  ? t("board.reservedFor", { name: slot.className })
-                                  : t("board.unavailable")
-                              : shared
-                                ? t("board.sharedSlot", {
-                                    time: formatHour(slot.hour),
-                                    rate: slot.rate,
-                                    left,
-                                    capacity: slot.capacity,
-                                    level: t(`busy.${level}` as Phrase),
-                                  })
-                                : t("board.plainSlot", {
-                                    time: formatHour(slot.hour),
-                                    rate: slot.rate,
-                                  })
+                            slot.partly
+                              ? t("board.partlyHint")
+                              : !slot.available
+                                ? queue
+                                  ? t("board.queueHint")
+                                  : slot.className
+                                    ? t("board.reservedFor", { name: slot.className })
+                                    : t("board.unavailable")
+                                : shared
+                                  ? t("board.sharedSlot", {
+                                      time: formatMinute(slot.minute),
+                                      rate: slot.rate,
+                                      left,
+                                      capacity: slot.capacity,
+                                      level: t(`busy.${level}` as Phrase),
+                                    })
+                                  : t("board.plainSlot", {
+                                      time: formatMinute(slot.minute),
+                                      rate: slot.rate,
+                                    })
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
-                            !slot.available
-                              ? canQueue(slot, date, zone)
-                                ? "cursor-pointer bg-slate-100 text-slate-400 hover:bg-amber-100 hover:text-amber-700"
-                                : "cursor-not-allowed bg-slate-100 text-slate-300"
-                              : isSelected
-                                ? "bg-teal-600 text-white shadow"
-                                : shared
-                                  ? BUSY_STYLES[level]
-                                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            isSelected
+                              ? "bg-teal-600 text-white shadow"
+                              : slot.partly
+                                ? "bg-gradient-to-r from-emerald-50 to-slate-100 text-emerald-700 hover:from-emerald-100"
+                                : !slot.available
+                                  ? queue
+                                    ? "cursor-pointer bg-slate-100 text-slate-400 hover:bg-amber-100 hover:text-amber-700"
+                                    : "cursor-not-allowed bg-slate-100 text-slate-300"
+                                  : shared
+                                    ? BUSY_STYLES[level]
+                                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           }`}
                         >
-                          {!slot.available ? (canQueue(slot, date, zone) ? "+" : "—") : shared ? left : slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)}
+                          {slot.partly
+                            ? "½"
+                            : !slot.available
+                              ? queue
+                                ? "+"
+                                : "—"
+                              : shared
+                                ? left
+                                : slot.rate === 0
+                                  ? t("price.free")
+                                  : plainAmount(slot.rate)}
                           {slot.available && slot.lastMinute && (
                             <span className={`block text-[9px] font-semibold leading-none ${isSelected ? "text-white" : "text-amber-700"}`}>
                               {t("lm.badge", { n: slot.lastMinute })}
@@ -544,7 +582,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
             <span>
               <span className="mr-1 inline-block h-3 w-3 rounded bg-emerald-100 align-middle" />
-              {step < 1 ? t("board.legendFreeHalf") : t("board.legendFree")}
+              {t("board.legendCell", { len: lengthLabel(t, grid) })}
+            </span>
+            <span>
+              <span className="mr-1 inline-block h-3 w-3 rounded bg-gradient-to-r from-emerald-100 to-slate-100 align-middle" />
+              {t("board.legendPartly")}
             </span>
             {hasShared && (
               <span>
@@ -560,11 +602,6 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
               <span className="mr-1 inline-block h-3 w-3 rounded bg-slate-100 align-middle" />
               {t("board.legendTaken")}
             </span>
-            <span className="ml-auto">
-              {t("board.maxHours", {
-                n: Math.max(MAX_HOURS_PER_BOOKING, ...(availability ?? []).map((a) => bookingLengths(a.court, step).max)),
-              })}
-            </span>
           </div>
         </div>
       ) : (
@@ -574,22 +611,24 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       )}
 
       {/* Booking bar */}
-      {selection && selectedCourt && (
+      {selection && selectedCourt && picked && (
         <BookingForm
           t={t}
           venueName={venueName}
           court={selectedCourt}
           date={date}
-          hours={selection.hours}
-          step={step}
+          selection={selection}
+          starts={picked.starts}
+          policy={picked.policy}
+          mayOverride={mayOverride && selection.courtId !== ANY_COURT}
+          onChange={setSelection}
           maxWeeks={maxWeeks}
           alsoFree={alsoFree}
           concessions={concessions.filter(
             (c) =>
               (c.sport === null || c.sport === selectedCourt.sport) &&
-              !(c.offPeakOnly && selection.hours.some((h) => availability?.find((a) => a.court.id === selectedCourt.id)?.slots.find((sl) => sl.hour === h)?.peak))
+              !(c.offPeakOnly && coveredCells(selection.courtId).some((cell) => cell.peak))
           )}
-          totalPrice={totalPrice}
           lastMinute={lastMinute}
           onBooked={(c) => {
             setConfirmation(c);
@@ -608,8 +647,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           t={t}
           court={waitlistSlot.court}
           date={date}
-          hour={waitlistSlot.hour}
-          step={step}
+          minute={waitlistSlot.minute}
+          length={waitlistSlot.length}
           onClose={() => setWaitlistSlot(null)}
         />
       )}
@@ -626,12 +665,14 @@ function BookingForm({
   venueName,
   court,
   date,
-  hours,
-  step,
+  selection,
+  starts,
+  policy,
+  mayOverride = false,
+  onChange,
   maxWeeks = MAX_RECUR_WEEKS,
   alsoFree = [],
   concessions = [],
-  totalPrice: courtPrice,
   lastMinute = 0,
   onBooked,
   onError,
@@ -640,21 +681,27 @@ function BookingForm({
   venueName: string;
   court: Court;
   date: string;
-  hours: number[];
-  /** One slot's length in hours. */
-  step: number;
+  selection: Selection;
+  /** Where a booking may start on this court, and the longest from each. */
+  starts: StartOption[];
+  /** What this court allows: lengths, and its usual one. */
+  policy: PublicPolicy;
+  /** A manager of this venue, who may book outside its rules. */
+  mayOverride?: boolean;
+  onChange: (s: Selection) => void;
   /** The most weeks one weekly booking may run here. */
   maxWeeks?: number;
-  /** Other courts free then, to book with this one as one, and what those hours cost on each. */
-  alsoFree?: { court: Court; price: number }[];
-  /** Concession prices that apply to these hours on this court. */
+  /** Other courts free for the same time, to book with this one as one. */
+  alsoFree?: Court[];
+  /** Concession prices that apply to this time on this court. */
   concessions?: Concession[];
-  totalPrice: number;
-  /** Percent off the hours picked, for booking them now. */
+  /** Percent off the time picked, for booking it now. */
   lastMinute?: number;
   onBooked: (c: Confirmation) => void;
   onError: (msg: string) => void;
 }) {
+  const { start, length } = selection;
+  const end = start + length;
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -663,27 +710,53 @@ function BookingForm({
   const [weeks, setWeeks] = useState(1);
   // Other courts booked with this one, at the same time.
   const [more, setMore] = useState<number[]>([]);
-  const hoursKey = hours.join(",");
-  useEffect(() => setMore([]), [court.id, hoursKey, date]);
-  const moreChosen = alsoFree.filter((a) => more.includes(a.court.id));
+  useEffect(() => setMore([]), [court.id, start, length, date]);
+  const moreChosen = alsoFree.filter((c) => more.includes(c.id));
+  // A manager booking outside the court's rules: any start, any length; what holds the court still decides.
+  const [override, setOverride] = useState(false);
   // A concession price: that share off the court time, shown at the counter.
   const [concessionId, setConcessionId] = useState<number | null>(null);
   const concession = concessions.find((c) => c.id === concessionId) ?? null;
   // On a court priced per player, how many play: the price is for each of them.
   const [players, setPlayers] = useState(2);
   const mostPlayers = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
-  const perHead = court.perPlayer ? players : 1;
-  const courtsTotal = courtPrice * perHead + moreChosen.reduce((sum, a) => sum + a.price * (a.court.perPlayer ? players : 1), 0);
-  const totalPrice = Math.round(courtsTotal * (1 - (concession?.percent ?? 0) / 100) * 100) / 100;
-  // This court's own shortest and longest booking, when it has them.
-  const lengths = bookingLengths(court, step);
-  const ownLengths = court.id !== ANY_COURT && (court.minHours != null || court.maxHours != null);
-  const tooShort = court.id !== ANY_COURT && hours.length * step < lengths.min;
+
+  // The price, as the server will charge it: worked out there, shown before booking.
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const moreKey = more.join(",");
+  useEffect(() => {
+    let live = true;
+    setQuote(null);
+    const where = court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`;
+    const timer = setTimeout(() => {
+      fetch(
+        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${court.perPlayer ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}`,
+        { cache: "no-store" }
+      )
+        .then((res) => res.json())
+        .then((data) => live && typeof data.total === "number" && setQuote({ others: [], ...data }))
+        .catch(() => {});
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [court.id, court.venueId, court.sport, court.perPlayer, date, start, end, players, moreKey]);
+  const othersTotal = (quote?.others ?? []).filter((o) => more.includes(o.courtId)).reduce((sum, o) => sum + o.total, 0);
+  const off = (concession?.percent ?? 0) / 100;
+  // A concession is off the court time, not a setup or cleanup fee.
+  const totalPrice = quote
+    ? Math.round((quote.court * (1 - off) + quote.fees + othersTotal * (1 - off)) * 100) / 100
+    : null;
+  const optionAt = starts.find((s) => s.minute === start);
+  const lengths = lengthsUpTo(policy, optionAt?.maxLength ?? length);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
   const [passCode, setPassCode] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
+  const chosenPass = myPasses.find((p) => p.code === passCode) ?? null;
+  const passSpend = chosenPass ? passCost(chosenPass, length) : null;
   // Company or school accounts here this customer may charge to (lib/accounts.ts).
   const [accounts, setAccounts] = useState<{ id: number; name: string }[]>([]);
   const [chargeTo, setChargeTo] = useState<number | null>(null);
@@ -696,7 +769,7 @@ function BookingForm({
   const [picked, setPicked] = useState<Picked>({});
   const [offered, setOffered] = useState<OfferedAddon[]>([]);
   const extras = pickedTotal(offered, picked);
-  const withExtras = Math.round((totalPrice + extras) * 100) / 100;
+  const withExtras = totalPrice === null ? null : Math.round((totalPrice + extras) * 100) / 100;
   const hasExtras = pickedList(picked).length > 0;
 
   // Prefill contact details: from the account, or from this device's last booking.
@@ -758,7 +831,9 @@ function BookingForm({
             ? { venueId: court.venueId, sport: court.sport }
             : { courtId: court.id }),
           date,
-          hours,
+          start,
+          end,
+          ...(override ? { override: true } : {}),
           name,
           phone,
           email,
@@ -772,7 +847,7 @@ function BookingForm({
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
-          ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((a) => a.court.id) } : {}),
+          ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((c) => c.id) } : {}),
           ...(concession ? { concessionId: concession.id } : {}),
           ...(court.perPlayer ? { players } : {}),
         }),
@@ -782,7 +857,7 @@ function BookingForm({
       if (
         !res.ok &&
         court.id !== ANY_COURT &&
-        accountDetour(data, `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${court.id}&hour=${hours[0]}&duration=${hours.length * step}`)
+        accountDetour(data, `/venue/${court.venueId}?date=${date}&sport=${court.sport}&court=${court.id}&start=${start}&minutes=${length}`)
       )
         return;
       if (!res.ok && accountDetour(data)) return;
@@ -806,9 +881,16 @@ function BookingForm({
         <div className="min-w-[12rem] flex-1">
           <div className="font-semibold text-teal-700">{court.name}</div>
           <div className="text-sm text-slate-600">
-            {date} · {formatHour(hours[0])} – {formatHour(hours[hours.length - 1] + step)} ·{" "}
-            <span className="font-semibold text-slate-900">{withExtras === 0 ? t("price.free") : `${money(withExtras)}`}</span>
+            {date} · {formatMinute(start)} – {formatMinute(end)} · {lengthLabel(t, length)} ·{" "}
+            <span className="font-semibold text-slate-900">
+              {withExtras === null ? t("quote.loading") : withExtras === 0 ? t("price.free") : `${money(withExtras)}`}
+            </span>
           </div>
+          {quote && quote.fees > 0 && <div className="text-xs text-slate-500">{t("quote.fees", { amount: quote.fees })}</div>}
+          {quote && quote.billedMinutes !== length && quote.billedMinutes > 0 && (
+            <div className="text-xs text-slate-500">{t("quote.billed", { len: lengthLabel(t, quote.billedMinutes) })}</div>
+          )}
+          {quote && !quote.allowed && !override && <div className="text-xs font-medium text-amber-700">{translateError(t, quote)}</div>}
           {remembered && (
             <button
               type="button"
@@ -830,6 +912,14 @@ function BookingForm({
             </div>
           )}
         </div>
+        <TimePicker
+          t={t}
+          selection={selection}
+          starts={starts}
+          lengths={lengths}
+          override={override}
+          onChange={onChange}
+        />
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("form.name")}
           <input
@@ -880,14 +970,14 @@ function BookingForm({
         )}
         <button
           type="submit"
-          disabled={submitting || tooShort}
+          disabled={submitting || withExtras === null || (quote !== null && !quote.allowed && !override)}
           className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50"
         >
           {submitting
             ? t("form.booking")
             : weeks > 1
-              ? t("form.bookWeeks", { weeks, amount: withExtras })
-              : t("form.book", { amount: withExtras })}
+              ? t("form.bookWeeks", { weeks, amount: withExtras ?? 0 })
+              : t("form.book", { amount: withExtras ?? 0 })}
         </button>
       </div>
       {court.perPlayer && (
@@ -906,7 +996,7 @@ function BookingForm({
               ))}
             </select>
           </label>
-          <span className="text-slate-500">{t("form.playersNote", { n: players, price: money(courtPrice) })}</span>
+          {quote && <span className="text-slate-500">{t("form.playersNote", { n: players, price: money(quote.court / players) })}</span>}
         </div>
       )}
       {concessions.length > 0 && (
@@ -933,32 +1023,37 @@ function BookingForm({
         <details className="mt-2 text-xs text-slate-600" open={more.length > 0}>
           <summary className="cursor-pointer font-medium text-teal-700">{t("form.alsoBook")}</summary>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-            {alsoFree.map((a) => (
-              <label key={a.court.id} className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  className="accent-teal-600"
-                  checked={more.includes(a.court.id)}
-                  // The most courts booked together, this one included.
-                  disabled={!more.includes(a.court.id) && more.length + 1 >= MAX_GROUP_COURTS}
-                  onChange={(e) => setMore(e.target.checked ? [...more, a.court.id] : more.filter((id) => id !== a.court.id))}
-                />
-                {a.court.name} · {a.price === 0 ? t("price.free") : money(a.price)}
-              </label>
-            ))}
+            {alsoFree.map((c) => {
+              const price = quote?.others.find((o) => o.courtId === c.id)?.total;
+              return (
+                <label key={c.id} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    className="accent-teal-600"
+                    checked={more.includes(c.id)}
+                    // The most courts booked together, this one included.
+                    disabled={!more.includes(c.id) && more.length + 1 >= MAX_GROUP_COURTS}
+                    onChange={(e) => setMore(e.target.checked ? [...more, c.id] : more.filter((id) => id !== c.id))}
+                  />
+                  {c.name}
+                  {price !== undefined && ` · ${price === 0 ? t("price.free") : money(price)}`}
+                </label>
+              );
+            })}
           </div>
           <p className="mt-1 text-slate-500">{t("form.alsoBookNote")}</p>
         </details>
       )}
-      {(tooShort || ownLengths) && (
-        <p className={`mt-2 text-xs ${tooShort ? "font-medium text-amber-700" : "text-slate-500"}`}>
-          {t("board.lengths", { min: lengths.min, max: lengths.max, court: court.name })}
-        </p>
+      {mayOverride && (
+        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} className="accent-teal-600" />
+          {t("form.override")}
+        </label>
       )}
       {more.length === 0 && (
       <AddonPicker
         t={t}
-        query={`${court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`}&date=${date}&hours=${hours.join(",")}`}
+        query={`${court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}`}&date=${date}&start=${start}&end=${end}`}
         picked={picked}
         onChange={setPicked}
         onList={setOffered}
@@ -1011,8 +1106,9 @@ function BookingForm({
       </div>
       )}
 
-      {/* A pass covers one entry per booked hour, so it settles the whole slot —
-          court time only, so not a booking with extras. Not on an account, which pays on its invoice. */}
+      {/* A pass settles the whole booking: entries or minutes of court time, by
+          its own rule — court time only, so not a booking with extras. Not on an
+          account, which pays on its invoice. */}
       {chargeTo !== null ? null : hasExtras ? (
         (myPasses.length > 0 || passCode.trim() !== "") && (
           <p className="mt-2 text-xs text-slate-500">{t("err.PASS_NOT_FOR_EXTRAS")}</p>
@@ -1029,7 +1125,7 @@ function BookingForm({
             <option value="">{t("form.passNone")}</option>
             {myPasses.map((p) => (
               <option key={p.id} value={p.code}>
-                {t("form.passOption", { name: p.name, n: p.remaining })}
+                {p.kind === "time" ? t("form.passOptionTime", { name: p.name, len: lengthLabel(t, p.remaining) }) : t("form.passOption", { name: p.name, n: p.remaining })}
               </option>
             ))}
           </select>
@@ -1041,14 +1137,14 @@ function BookingForm({
             className="w-36 rounded-md border border-slate-300 px-2 py-1 font-mono focus:border-teal-500 focus:outline-none"
           />
         )}
-        {passCode.trim() !== "" && (
+        {passSpend && !passSpend.ok && <span className="font-medium text-amber-700">{t("form.passTooLong", { len: lengthLabel(t, passSpend.maxMinutes) })}</span>}
+        {passSpend && passSpend.ok && chosenPass && (
           <span className="text-slate-500">
-            {t.plural("form.passSpend", Math.ceil(hours.length * step), {
-              per:
-                weeks > 1
-                  ? t("form.passPerWeek", { total: Math.ceil(hours.length * step) * weeks })
-                  : "",
-            })}
+            {chosenPass.kind === "time"
+              ? t("form.passSpendTime", { len: lengthLabel(t, passSpend.units), per: weeks > 1 ? t("form.passPerWeekTime", { len: lengthLabel(t, passSpend.units * weeks) }) : "" })
+              : t.plural("form.passSpend", passSpend.units, {
+                  per: weeks > 1 ? t("form.passPerWeek", { total: passSpend.units * weeks }) : "",
+                })}
           </span>
         )}
       </div>
@@ -1075,6 +1171,108 @@ function BookingForm({
         <BookingTermsNotice venueId={court.venueId} sport={court.sport} />
       </div>
     </form>
+  );
+}
+
+/**
+ * The start and length of a booking, picked in the form: the court's starts
+ * and lengths by default, or any minute and length for a manager booking
+ * outside the rules. A long list of starts (a court taking bookings at any
+ * minute) is typed rather than scrolled.
+ */
+function TimePicker({
+  t,
+  selection,
+  starts,
+  lengths,
+  override,
+  onChange,
+}: {
+  t: T;
+  selection: Selection;
+  starts: StartOption[];
+  lengths: number[];
+  override: boolean;
+  onChange: (s: Selection) => void;
+}) {
+  const field = "mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none";
+  const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  // Typed: "18:07", read as a minute of the day this booking's day (past midnight stays after it).
+  const typed = (text: string) => {
+    const m = parseClock(text);
+    if (m === null) return null;
+    return selection.start >= 1440 && m < 240 ? m + 1440 : m;
+  };
+  const freeStart = override || starts.length > 96;
+  const freeLength = override || lengths.length > 48;
+  return (
+    <>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        {t("board.start")}
+        {freeStart ? (
+          <input
+            type="time"
+            step={60}
+            value={clock(selection.start)}
+            onChange={(e) => {
+              const m = typed(e.target.value);
+              if (m === null) return;
+              const option = starts.find((s) => s.minute === m);
+              const length = override || !option ? selection.length : Math.min(selection.length, option.maxLength);
+              onChange({ ...selection, start: m, length });
+            }}
+            className={field}
+          />
+        ) : (
+          <select
+            value={selection.start}
+            onChange={(e) => {
+              const m = Number(e.target.value);
+              const option = starts.find((s) => s.minute === m);
+              const fits = option ? lengths.filter((l) => l <= option.maxLength) : [];
+              onChange({ ...selection, start: m, length: fits.includes(selection.length) ? selection.length : (fits[fits.length - 1] ?? selection.length) });
+            }}
+            className={field}
+          >
+            {starts.map((s) => (
+              <option key={s.minute} value={s.minute}>
+                {formatMinute(s.minute)}
+              </option>
+            ))}
+          </select>
+        )}
+      </label>
+      <label className="flex flex-col text-xs font-medium text-slate-500">
+        {t("board.length")}
+        {freeLength ? (
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            value={selection.length}
+            onChange={(e) => {
+              const l = Number(e.target.value);
+              if (Number.isInteger(l) && l > 0) onChange({ ...selection, length: l });
+            }}
+            className={`${field} w-24`}
+            aria-describedby="length-minutes"
+          />
+        ) : (
+          <select value={selection.length} onChange={(e) => onChange({ ...selection, length: Number(e.target.value) })} className={field}>
+            {lengths.map((l) => (
+              <option key={l} value={l}>
+                {lengthLabel(t, l)}
+              </option>
+            ))}
+          </select>
+        )}
+        {freeLength && (
+          <span id="length-minutes" className="mt-0.5 font-normal text-slate-400">
+            {t("board.inMinutes")}
+          </span>
+        )}
+      </label>
+    </>
   );
 }
 
@@ -1146,7 +1344,7 @@ function ConfirmationModal({
             ...(isSeries
               ? ([] as [string, string][])
               : ([[t("done.date"), booking.date]] as [string, string][])),
-            [t("done.time"), `${formatHour(booking.startHour)} – ${formatHour(booking.endHour)}`],
+            [t("done.time"), `${formatMinute(booking.startMin)} – ${formatMinute(booking.endMin)}`],
             ...((booking.players ?? 1) > 1 ? ([[t("done.players"), String(booking.players)]] as [string, string][]) : ([] as [string, string][])),
             ...(confirmation.addons?.length
               ? ([
@@ -1286,15 +1484,16 @@ function SlotWaitlistModal({
   t,
   court,
   date,
-  hour,
-  step,
+  minute,
+  length,
   onClose,
 }: {
   t: T;
   court: Court;
   date: string;
-  hour: number;
-  step: number;
+  /** The time wanted: from this minute of the day, this long. */
+  minute: number;
+  length: number;
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
@@ -1335,8 +1534,8 @@ function SlotWaitlistModal({
         body: JSON.stringify({
           courtId: court.id,
           date,
-          startHour: hour,
-          endHour: hour + step,
+          start: minute,
+          end: minute + length,
           name,
           phone,
           email,
@@ -1366,7 +1565,7 @@ function SlotWaitlistModal({
               {t("queue.onBody", {
                 position,
                 court: court.name,
-                time: formatHour(hour),
+                time: formatMinute(minute),
               })}
             </p>
             <p className="mt-3 text-xs text-slate-500">
@@ -1383,7 +1582,7 @@ function SlotWaitlistModal({
           <>
             <h2 className="text-lg font-bold">{court.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {date} · {formatHour(hour)} – {formatHour(hour + step)}
+              {date} · {formatMinute(minute)} – {formatMinute(minute + length)}
             </p>
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {t("queue.taken")}

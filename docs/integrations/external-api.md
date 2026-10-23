@@ -20,16 +20,22 @@ are limited to 120 a minute per key.
 | Call | Scope | What |
 | --- | --- | --- |
 | `GET /venue` | read | The venue, its hours and courts with rates |
-| `GET /availability?date=&sport=` | read | Each court's slots that day: price, free or not |
+| `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
 | `GET /bookings?from=&to=` | read | Bookings in up to 31 days, cancelled ones too |
 | `GET /bookings/<code>` | read | One booking |
-| `POST /bookings` | write | `{ courtId, date, hours, name, phone, email? }`: books it unpaid; the customer gets the usual confirmation |
+| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation |
 | `POST /bookings/<code>/cancel` | write | Cancels as staff would; the customer is told |
 
-A booking reads `{ code, status, paymentStatus, date, startHour, endHour,
+Times of day are minutes from the venue's midnight on the booking's date
+(`1087` is 18:07; past `1440` is after midnight) or `"HH:MM"`. A booking must
+keep to the court's booking rules (start times, lengths, notice), as on the
+venue's page; the refusal says which rule. A booking reads `{ code, status,
+paymentStatus, date, startMin, endMin, startsAt, endsAt, startHour, endHour,
 courtId, courtName, sport, name, phone, email, totalPrice, paidByOthers,
-coachId, noShow, createdAt }`. A key only ever sees its own venue: another
-venue's court or booking is *not found*.
+depositPaid, coachId, noShow, createdAt }`: `startsAt` and `endsAt` are the
+moments themselves (ISO 8601, UTC); `startHour` and `endHour` are the same
+times in hours, kept for clients written before minutes. A key only ever
+sees its own venue: another venue's court or booking is *not found*.
 
 **Webhooks.** Up to 5 HTTPS addresses per venue. Each gets a signing secret,
 shown once. `booking.created`, `booking.paid`, `booking.changed` (date, time
@@ -64,8 +70,9 @@ What is here is the second, as a draft (`src/lib/google-feeds.ts`): the
 merchant, service and availability feeds, shaped after the Actions Center
 feed specification, for venues that ticked *Include this venue in the feeds*
 (off by default) and are live and public. A service is one sport for an hour
-at one venue, priced from its cheapest off-peak court; availability is how
-many of that sport's courts are free at each hour, for 14 days. Platform
+at one venue for the length its booking rules offer first,
+priced from its cheapest off-peak court; availability is how many of that
+sport's courts may start such a booking at each allowed start, for 14 days. Platform
 owners download them from the same panel. The field names should be checked
 against Google's current specification during onboarding. **Not built:** the
 Booking Server API, and uploading the feeds.

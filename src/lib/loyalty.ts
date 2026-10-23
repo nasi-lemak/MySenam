@@ -52,7 +52,7 @@ export async function loyaltyStanding(venueId: number, phoneKey: string): Promis
 }
 
 const PLAYED = `
-  SELECT COALESCE(SUM(b.end_hour - b.start_hour), 0)::float AS hours
+  SELECT COALESCE((SUM(b.end_min - b.start_min) / 60.0), 0)::float AS hours
     FROM bookings b JOIN courts c ON c.id = b.court_id
    WHERE c.venue_id = ? AND b.date < ? AND b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0
      AND b.class_id IS NULL AND b.payment_status = 'paid' AND b.total_price > 0
@@ -70,14 +70,14 @@ export async function grantLoyalty(): Promise<number> {
   for (const v of venues) {
     const rows = (await db
       .prepare(
-        `SELECT b.phone_key, SUM(b.end_hour - b.start_hour)::float AS hours,
+        `SELECT b.phone_key, (SUM(b.end_min - b.start_min) / 60.0)::float AS hours,
                 (SELECT COUNT(*) FROM loyalty_rewards lr WHERE lr.venue_id = c.venue_id AND lr.phone_key = b.phone_key) AS rewards
            FROM bookings b JOIN courts c ON c.id = b.court_id
           WHERE c.venue_id = ? AND b.date < ? AND b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0
             AND b.class_id IS NULL AND b.payment_status = 'paid' AND b.total_price > 0 AND b.phone_key <> ''
             AND NOT EXISTS (SELECT 1 FROM pass_entries pe JOIN loyalty_rewards lr ON lr.pass_id = pe.pass_id WHERE pe.booking_id = b.id)
           GROUP BY c.venue_id, b.phone_key
-         HAVING SUM(b.end_hour - b.start_hour) >= ?`
+         HAVING (SUM(b.end_min - b.start_min) / 60.0) >= ?`
       )
       .all(v.id, todayISO(), v.loyalty_every)) as { phone_key: string; hours: number; rewards: number | string }[];
     for (const r of rows) {

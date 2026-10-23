@@ -70,8 +70,8 @@ describe("a venue page", () => {
       address: "12 Jalan SS2/61",
       area: "Petaling Jaya",
       phone: "+60 3-1234 5678",
-      openHour: 8,
-      closeHour: 23,
+      openMin: 8 * 60,
+      closeMin: 23 * 60,
       lat: 3.1,
       lng: 101.6,
       url: "https://book.example.my/venue/1",
@@ -89,8 +89,8 @@ describe("a venue page", () => {
 
   it("gives each run of days its own hours, late ones past midnight too, and leaves closed days out", () => {
     const ld = venueJsonLd({
-      name: "Late Arena", address: "x", area: "PJ", phone: "1", openHour: 16, closeHour: 24, lat: null, lng: null, url: "https://x", image: null, sports: ["futsal"],
-      weekHours: ["closed", null, null, null, null, { open: 16, close: 26 }, { open: 8, close: 26 }],
+      name: "Late Arena", address: "x", area: "PJ", phone: "1", openMin: 16 * 60, closeMin: 24 * 60, lat: null, lng: null, url: "https://x", image: null, sports: ["futsal"],
+      weekHours: ["closed", null, null, null, null, { open: 16 * 60, close: 26 * 60 }, { open: 8 * 60, close: 26 * 60 }],
     });
     expect(ld.openingHoursSpecification).toEqual([
       { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"], opens: "16:00", closes: "00:00" },

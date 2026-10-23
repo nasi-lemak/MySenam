@@ -49,7 +49,7 @@ beforeAll(async () => {
   otherVenueId = elsewhere.venue.id;
   for (const name of ["Court 1", "Court 2"]) await createCourt({ venueId, name, sport: "tennis", offPeakRate: 20, peakRate: 20 });
   await createCourt({ venueId: otherVenueId, name: "C", sport: "tennis", offPeakRate: 20, peakRate: 20 });
-  const hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 8, until: 20 }));
+  const hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 8 * 60, until: 20 * 60 }));
   const a = await saveCoach(venueId, { name: "Ana Lim", sports: ["tennis"], rate: 80, hours });
   const b = await saveCoach(otherVenueId, { name: "Ben", sports: ["tennis"], rate: 50, hours });
   if (!a.ok || !b.ok) throw new Error("coach");

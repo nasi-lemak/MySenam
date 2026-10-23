@@ -14,7 +14,7 @@ export async function bookingsBetween(venueId: number, from: string, to: string)
   const rows = (await getDb()
     .prepare(
       `SELECT b.code FROM bookings b JOIN courts c ON c.id = b.court_id
-        WHERE c.venue_id = ? AND b.demo = 0 AND b.date BETWEEN ? AND ? ORDER BY b.date, b.start_hour, b.id LIMIT 1000`
+        WHERE c.venue_id = ? AND b.demo = 0 AND b.date BETWEEN ? AND ? ORDER BY b.date, b.start_min, b.id LIMIT 1000`
     )
     .all(venueId, from, to)) as { code: string }[];
   const out: Record<string, unknown>[] = [];

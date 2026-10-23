@@ -1,4 +1,5 @@
 import { isOpen, venueIsOpen } from "./listing";
+import { hoursOf } from "./interval";
 import { creditScope, isMarketplace } from "./mode";
 import { getDb, withTransaction } from "./db";
 import {
@@ -335,7 +336,7 @@ export interface OnlinePayment {
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
   const codes = await getDb()
     .prepare(
-      "SELECT b.code FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ? ORDER BY b.date, b.start_hour"
+      "SELECT b.code FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ? ORDER BY b.date, b.start_min"
     )
     .all(r.id) as { code: string }[];
   return {
@@ -1195,7 +1196,7 @@ export async function startSharePayment(user: { id: number; name: string; phone:
   const row = (await db
     .prepare(
       `SELECT p.id AS player_id, p.status, p.paid_at, g.share::float AS share, b.id AS booking_id, b.code,
-              b.status AS booking_status, b.payment_status, c.venue_id, c.name AS court_name, b.date, b.start_hour, b.end_hour
+              b.status AS booking_status, b.payment_status, c.venue_id, c.name AS court_name, b.date, b.start_min, b.end_min
          FROM open_game_players p
          JOIN open_games g ON g.id = p.game_id
          JOIN bookings b ON b.id = g.booking_id
@@ -1215,8 +1216,8 @@ export async function startSharePayment(user: { id: number; name: string; phone:
         venue_id: number;
         court_name: string;
         date: string;
-        start_hour: number;
-        end_hour: number;
+        start_min: number;
+        end_min: number;
       }
     | undefined;
   if (!row || row.status !== "accepted") return { ok: false, error: "You are not in that game.", status: 404 };
@@ -1246,7 +1247,7 @@ export async function startSharePayment(user: { id: number; name: string; phone:
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(user.phone),
-      description: `${venue.name}: share of ${row.court_name}, ${row.date} ${formatHour(row.start_hour)}-${formatHour(row.end_hour)} (${row.code})`,
+      description: `${venue.name}: share of ${row.court_name}, ${row.date} ${formatHour(hoursOf(row.start_min))}-${formatHour(hoursOf(row.end_min))} (${row.code})`,
       redirectUrl: `${await venueBaseUrl(row.venue_id)}/payments/return`,
       reference: { label: "Booking", value: row.code },
     });
@@ -1288,12 +1289,12 @@ async function settleShare(row: PaymentRow): Promise<void> {
   await db.prepare("UPDATE bookings SET shares_paid = ? WHERE id = ?").run(sharesPaid, target.booking_id);
   const court = (await db
     .prepare(
-      `SELECT c.name, b.date, b.start_hour, b.end_hour, p.user_id FROM bookings b JOIN courts c ON c.id = b.court_id
+      `SELECT c.name, b.date, b.start_min, b.end_min, p.user_id FROM bookings b JOIN courts c ON c.id = b.court_id
          JOIN open_game_players p ON p.id = ? WHERE b.id = ?`
     )
-    .get(target.id, target.booking_id)) as { name: string; date: string; start_hour: number; end_hour: number; user_id: number };
+    .get(target.id, target.booking_id)) as { name: string; date: string; start_min: number; end_min: number; user_id: number };
   await receiptPayment(row, {
-    description: `Share of ${court.name}, ${court.date} ${formatHour(court.start_hour)}–${formatHour(court.end_hour)}`,
+    description: `Share of ${court.name}, ${court.date} ${formatHour(hoursOf(court.start_min))}–${formatHour(hoursOf(court.end_min))}`,
     userId: court.user_id,
     taxable: true,
   });

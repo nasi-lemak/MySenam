@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { peakRules, setLastMinute, setPeakRules, upcomingHolidays } from "@/lib/peak";
-import { formatHour } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
+import { readMinute } from "@/lib/api";
 import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +24,11 @@ export async function GET(req: NextRequest) {
 }
 
 const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const span = (from: number, until: number) => (from === until ? "none" : `${formatHour(from)}–${formatHour(until)}`);
+const span = (from: number, until: number) => (from === until ? "none" : `${formatMinute(from)}–${formatMinute(until)}`);
 
 /**
- * `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }`,
+ * `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }`
+ * (each time in minutes of the day, or HH:MM; peak may start and end on any minute),
  * or `{ venueId, lastMinute: { hours, percent, offPeakOnly } | { off: true } }`.
  */
 export async function POST(req: NextRequest) {
@@ -46,7 +48,10 @@ export async function POST(req: NextRequest) {
     const { holidays: _, ...rules } = await peakRules(venueId);
     return NextResponse.json({ rules });
   }
-  const result = await setPeakRules(venueId, body);
+  const times = Object.fromEntries(
+    (["weekdayFrom", "weekdayUntil", "weekendFrom", "weekendUntil"] as const).map((k) => [k, readMinute(body, k)])
+  );
+  const result = await setPeakRules(venueId, { ...body, ...times });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   const r = result.rules;
   await logFromRequest(req, {

@@ -126,6 +126,12 @@ export function apiBooking(b: Booking & { courtName?: string; sport?: string }):
     status: b.status,
     paymentStatus: b.paymentStatus,
     date: b.date,
+    // Minutes of the business day (past 1440 is after midnight), the moments
+    // themselves, and the same in hours for older readers.
+    startMin: b.startMin,
+    endMin: b.endMin,
+    startsAt: b.startsAt ?? null,
+    endsAt: b.endsAt ?? null,
     startHour: b.startHour,
     endHour: b.endHour,
     courtId: b.courtId,

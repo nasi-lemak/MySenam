@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { releaseBooking } from "./claims";
 import { takesPaymentOnline } from "./payments";
 import { DEPOSIT_PERCENTS } from "./types";
 import { offerSlotPlace, settleCancelled } from "./store";
@@ -133,7 +134,7 @@ export async function releaseExpiredHolds(): Promise<number> {
         )
         .run(b.id);
       if (claimed.changes === 0) return false;
-      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(b.id);
+      await releaseBooking(b.id);
       return true;
     })();
     if (done) released.push(b);

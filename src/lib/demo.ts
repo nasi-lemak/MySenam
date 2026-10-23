@@ -1,8 +1,11 @@
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
+import { claim, isConflict } from "./claims";
+import { instantOf } from "./interval";
 import {
   blockSlots,
   closeVenueDay,
   computePrice,
+  courtZone,
   createBooking,
   createClassSessions,
   createPromoCode,
@@ -16,7 +19,7 @@ import {
 } from "./store";
 import { registerUser } from "./auth";
 import { Court } from "./types";
-import { addDays, SLOT, todayISO } from "./time";
+import { addDays, todayISO } from "./time";
 import { peakRules } from "./peak";
 import { money, region } from "./region";
 
@@ -208,7 +211,6 @@ export async function refreshDemoData(opts: { adminId: number }): Promise<SeedRe
       "access_reveals",
       "hire_records",
       "check_ins",
-      "booking_slots",
       "waitlist",
       "promo_uses",
       "pass_entries",
@@ -217,7 +219,7 @@ export async function refreshDemoData(opts: { adminId: number }): Promise<SeedRe
       "sessions",
       "bookings",
       "classes",
-      "slot_blocks",
+      "blocks",
       "inductions",
       "memberships",
       "passes",
@@ -262,7 +264,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
   /** Each venue's peak hours, looked up once rather than for every booking invented. */
   const rulesOf = new Map<number, Awaited<ReturnType<typeof peakRules>>>();
 
-  /** Insert a booking that has already happened, slots and all. */
+  /** Insert a booking that has already happened, with its claim on the court. */
   const insertPast = async (
     court: Court,
     date: string,
@@ -271,58 +273,54 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     opts2: { paid: boolean; cancelled: boolean; noShow: boolean; checkedIn: boolean }
   ) => {
     if (!rulesOf.has(court.venueId)) rulesOf.set(court.venueId, await peakRules(court.venueId));
-    const price = computePrice(court, date, [hour, hour + SLOT], false, rulesOf.get(court.venueId));
+    const span = { start: hour * 60, end: hour * 60 + 60 };
+    const price = computePrice(court, date, span, false, rulesOf.get(court.venueId));
     const code = `MS-${Math.floor(rng() * 1e9).toString(36).toUpperCase().padStart(6, "0").slice(0, 6)}`;
     const status = opts2.cancelled ? "cancelled" : "confirmed";
-    const info = await db
-      .prepare(
-        `INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, total_price,
-                               status, payment_status, paid_at, no_show, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        code,
-        court.id,
-        date,
-        hour,
-        hour + 1,
-        NAMES[who % NAMES.length],
-        phoneFor(who),
-        price,
-        status,
-        opts2.paid ? "paid" : "unpaid",
-        opts2.paid ? `${date} ${String(hour).padStart(2, "0")}:05:00` : null,
-        opts2.noShow ? 1 : 0,
-        `${addDays(date, -3)} 09:00:00`
-      );
-    const bookingId = info.lastInsertRowid as number;
-
-    if (!opts2.cancelled) {
-      // The UNIQUE constraint still decides: if this hour is taken, so be it.
-      // The lowest place free for both of its half hours, in one statement
-      // rather than one try per place, the same place in each.
-      const slot = await db.prepare(
-        `INSERT INTO booking_slots (booking_id, court_id, date, hour, seat, span)
-         SELECT ?, ?, ?, h.h, s.seat, ${SLOT}
-           FROM (SELECT seat FROM generate_series(0, ? - 1) AS seat
-                  WHERE NOT EXISTS (
-                    SELECT 1 FROM booking_slots t WHERE t.court_id = ? AND t.date = ? AND t.hour IN (?, ?) AND t.seat = seat.seat
-                  )
-                  ORDER BY seat LIMIT 1) s
-          CROSS JOIN (VALUES (?::double precision), (?::double precision)) AS h(h)
-         ON CONFLICT DO NOTHING`
-      ).run(bookingId, court.id, date, court.capacity, court.id, date, hour, hour + SLOT, hour, hour + SLOT);
-      if (slot.changes !== 2) {
-        await db.prepare("DELETE FROM bookings WHERE id = ?").run(bookingId);
-        return null;
-      }
-      if (opts2.checkedIn && !opts2.noShow)
-        await db.prepare("INSERT INTO check_ins (booking_id, checked_in_at, checked_out_at) VALUES (?, ?, ?)").run(
-          bookingId,
-          `${date} ${String(hour).padStart(2, "0")}:02:00`,
-          `${date} ${String(hour + 1).padStart(2, "0")}:05:00`
-        );
+    const zone = await courtZone(court.id);
+    const at = (minute: number) => instantOf(date, minute, zone).toISOString();
+    let bookingId: number | null = null;
+    try {
+      bookingId = await withTransaction(async () => {
+        const info = await db
+          .prepare(
+            `INSERT INTO bookings (code, court_id, date, start_min, end_min, starts_at, ends_at, name, phone, total_price,
+                                   status, payment_status, paid_at, no_show, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            code,
+            court.id,
+            date,
+            span.start,
+            span.end,
+            at(span.start),
+            at(span.end),
+            NAMES[who % NAMES.length],
+            phoneFor(who),
+            price,
+            status,
+            opts2.paid ? "paid" : "unpaid",
+            opts2.paid ? `${date} ${String(hour).padStart(2, "0")}:05:00` : null,
+            opts2.noShow ? 1 : 0,
+            `${addDays(date, -3)} 09:00:00`
+          );
+        const id = info.lastInsertRowid as number;
+        // The database still decides: if this hour is taken, so be it.
+        if (!opts2.cancelled) await claim({ court, source: { kind: "booking", bookingId: id }, date, span, zone });
+        return id;
+      });
+    } catch (err) {
+      if (isConflict(err)) return null;
+      throw err;
     }
+
+    if (!opts2.cancelled && opts2.checkedIn && !opts2.noShow)
+      await db.prepare("INSERT INTO check_ins (booking_id, checked_in_at, checked_out_at) VALUES (?, ?, ?)").run(
+        bookingId,
+        `${date} ${String(hour).padStart(2, "0")}:02:00`,
+        `${date} ${String(hour + 1).padStart(2, "0")}:05:00`
+      );
     return bookingId;
   };
 

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readMinute } from "@/lib/api";
+import { isMinute } from "@/lib/interval";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { ALERT_EVERY, crossed, upcomingClassSessions, VENUE_CAPS } from "@/lib/limits";
 import { tellOwners } from "@/lib/owner-alerts";
@@ -44,8 +46,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { courtId, name, instructor, date, startHour, endHour, capacity, price, weeks, who, termOffPercent } =
-    (body ?? {}) as Record<string, unknown>;
+  const { courtId, name, instructor, date, capacity, price, weeks, who, termOffPercent } = (body ?? {}) as Record<string, unknown>;
+  // Its time: start and end in minutes of the day or HH:MM (startHour and endHour, the older form).
+  const start = readMinute((body ?? {}) as Record<string, unknown>, "start", "startHour");
+  const end = readMinute((body ?? {}) as Record<string, unknown>, "end", "endHour");
 
   if (!Number.isInteger(courtId) || (courtId as number) <= 0)
     return NextResponse.json({ error: "courtId is required." }, { status: 400 });
@@ -60,10 +64,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Instructor name is required." }, { status: 400 });
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-  for (const [label, value] of [["startHour", startHour], ["endHour", endHour]] as const) {
-    if (!Number.isInteger(value))
-      return NextResponse.json({ error: `${label} must be a whole hour.` }, { status: 400 });
-  }
+  if (!isMinute(start) || !isMinute(end) || end <= start)
+    return NextResponse.json({ error: "start and end must be minutes of the day or HH:MM, the end after the start." }, { status: 400 });
   if (!Number.isInteger(capacity) || (capacity as number) < 1)
     return NextResponse.json({ error: "Capacity must be at least 1." }, { status: 400 });
   if (!isAmount(price))
@@ -92,8 +94,8 @@ export async function POST(req: NextRequest) {
     name: name as string,
     instructor: instructor as string,
     date,
-    startHour: startHour as number,
-    endHour: endHour as number,
+    start,
+    end,
     capacity: capacity as number,
     price: price as number,
     weeks: (weeks as number) ?? 1,

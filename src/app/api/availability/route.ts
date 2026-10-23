@@ -3,6 +3,7 @@ import { seriesWeeks } from "@/lib/house-rules";
 import { listConcessions } from "@/lib/concessions";
 import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
+import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
 import { shows, storefrontForRequest } from "@/lib/storefront";
 import { mayShowVenue } from "@/lib/listing";
 import { releaseExpiredHolds } from "@/lib/holds";
@@ -60,5 +61,10 @@ export async function GET(req: NextRequest) {
     seriesWeeks: await seriesWeeks(venueId),
     // Concession prices offered here, chosen at booking and shown at the counter.
     concessions: await listConcessions(venueId),
+    // A manager of this venue may book outside its booking rules (recorded).
+    mayOverride: await (async () => {
+      const admin = await getSessionAdmin(req);
+      return !!admin && admin.role !== "desk" && canAccessVenue(admin, venueId);
+    })(),
   });
 }

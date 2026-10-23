@@ -5,7 +5,7 @@ import { VouchersPanel } from "./VouchersPanel";
 import { CounterSalesPanel } from "./CounterSalesPanel";
 import { AccountsPanel } from "./AccountsPanel";
 import { useCallback, useEffect, useState } from "react";
-import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
+import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP, SPORT_ICONS, SPORT_LABELS } from "@/lib/types";
 import type { Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
@@ -229,7 +229,10 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
   const [form, setForm] = useState({
     name: "10-hour badminton pass",
     sport: "",
+    kind: "session" as "session" | "time",
     entries: "10",
+    entryMinutes: "60",
+    maxMinutes: "",
     price: "120",
     holderName: "",
     holderPhone: "",
@@ -270,7 +273,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           venueId,
           name: form.name,
           sport: form.sport || null,
-          entries: Number(form.entries),
+          kind: form.kind,
+          // A time pass is sold in hours here, kept in minutes.
+          entries: form.kind === "time" ? Math.round(Number(form.entries) * 60) : Number(form.entries),
+          entryMinutes: form.kind === "time" || form.entryMinutes.trim() === "" ? null : Number(form.entryMinutes),
+          maxMinutes: form.maxMinutes.trim() === "" ? null : Number(form.maxMinutes),
           price: Number(form.price),
           holderName: form.holderName,
           holderPhone: form.holderPhone,
@@ -311,9 +318,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     <section className="border-t border-slate-200 pt-6">
       <h2 className="text-lg font-bold">Multi-visit passes</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Sell a block of entries up front. One entry covers one booked hour, so a 2-hour booking
-        spends two. The holder quotes the pass code when booking. A lesson pack is a pass for one coach: each entry
-        pays a whole hour&apos;s lesson, court and coach, and it pays nothing else. A court pass does not pay lessons.
+        Sell entries or court time up front. An entry covers so many minutes or part of them (an hour unless you
+        say), or a whole booking when left blank, so with an hour a 90-minute booking spends two. A time pass
+        spends the minutes booked, exactly. The holder quotes the pass code when booking. A lesson pack is a pass
+        for one coach: it pays lessons with that coach, court and coach, and nothing else. A court pass does not pay
+        lessons.
       </p>
 
       {error && (
@@ -386,15 +395,53 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Entries
+          Spends
+          <select
+            value={form.kind}
+            onChange={(e) => setForm({ ...form, kind: e.target.value as "session" | "time" })}
+            className={`mt-1 w-40 ${inputClass}`}
+          >
+            <option value="session">Entries</option>
+            <option value="time">Court time</option>
+          </select>
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {form.kind === "time" ? "Hours of court time" : "Entries"}
           <input
             type="number"
-            min={1}
-            max={MAX_PASS_ENTRIES}
+            min={form.kind === "time" ? 0.25 : 1}
+            step={form.kind === "time" ? 0.25 : 1}
+            max={form.kind === "time" ? MAX_PASS_MINUTES / 60 : MAX_PASS_ENTRIES}
             required
             value={form.entries}
             onChange={(e) => setForm({ ...form, entries: e.target.value })}
             className={`mt-1 w-24 ${inputClass}`}
+          />
+        </label>
+        {form.kind === "session" && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            An entry covers (minutes)
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              placeholder="A whole booking"
+              value={form.entryMinutes}
+              onChange={(e) => setForm({ ...form, entryMinutes: e.target.value })}
+              className={`mt-1 w-32 ${inputClass}`}
+            />
+          </label>
+        )}
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Longest booking (minutes)
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            placeholder="Any"
+            value={form.maxMinutes}
+            onChange={(e) => setForm({ ...form, maxMinutes: e.target.value })}
+            className={`mt-1 w-28 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
@@ -489,7 +536,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   <span className="font-semibold">{pass.remaining}</span>
-                  <span className="text-slate-400"> / {pass.entries}</span>
+                  <span className="text-slate-400">
+                    {" "}
+                    / {pass.entries}
+                    {pass.kind === "time" ? " min" : pass.entryMinutes ? ` × ${pass.entryMinutes} min` : " bookings"}
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">{pass.expiresOn}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">

@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const bookings = (await db
     .prepare(
       `SELECT b.code FROM bookings b JOIN courts c ON c.id = b.court_id
-        WHERE c.venue_id = ? AND b.date = ? AND b.status = 'confirmed' AND b.class_id IS NULL ORDER BY b.start_hour`
+        WHERE c.venue_id = ? AND b.date = ? AND b.status = 'confirmed' AND b.class_id IS NULL ORDER BY b.start_min`
     )
     .all(venueId, date)) as { code: string }[];
   const classes = (await db

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+import { claimsOf } from "./helpers/bookings";
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
@@ -14,7 +15,7 @@ import {
   rescheduleOptions,
   setPaymentStatus,
 } from "../src/lib/store";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { POST as customerPost, GET as customerGet } from "../src/app/api/bookings/reschedule/route";
 import { POST as staffPost } from "../src/app/api/admin/bookings/reschedule/route";
 
@@ -36,7 +37,7 @@ function weekday(n: number): string {
   let d = todayISO();
   for (let found = 0; found < n; ) {
     d = addDays(d, 1);
-    if (!isPeak(d, 10)) found++;
+    if (!isPeakMinute(d, 10 * 60)) found++;
   }
   return d;
 }
@@ -52,12 +53,7 @@ async function book(courtId: number, hours: number[], date: string, who = phone(
   if (!r.ok) throw new Error(r.error);
   return r.booking;
 }
-const slotsOf = async (id: number) =>
-  (await getDb().prepare("SELECT court_id, date, hour FROM booking_slots WHERE booking_id = ? ORDER BY hour").all(id)) as {
-    court_id: number;
-    date: string;
-    hour: number;
-  }[];
+const slotsOf = claimsOf;
 
 describe("changing a booking's time", () => {
   it("keeps the code, moves its places, and frees the old time", async () => {
@@ -71,8 +67,8 @@ describe("changing a booking's time", () => {
     if (!done.ok) return;
     expect(done.booking).toMatchObject({ code: b.code, date: later, startHour: 14, endHour: 16, courtId: c1.id, totalPrice: b.totalPrice });
     expect(done.from).toMatchObject({ date, startHour: 10 });
-    // Held as the diary's half hours.
-    expect(await slotsOf(b.id)).toEqual([14, 14.5, 15, 15.5].map((hour) => ({ court_id: c1.id, date: later, hour })));
+    // Held as one claim, to the minute.
+    expect(await slotsOf(b.id)).toEqual([{ court_id: c1.id, date: later, start: 14 * 60, end: 16 * 60 }]);
     // The old time is somebody else's to book now.
     await book(c1.id, [10, 11], date);
   });
@@ -85,7 +81,7 @@ describe("changing a booking's time", () => {
     expect(options.find((o) => o.startHour === 11 && o.courtId === c1.id)).toBeTruthy();
     expect(options.some((o) => o.startHour === 10)).toBe(false);
     expect(await rescheduleBooking(b.code, { date, startHour: 11 }, "customer")).toMatchObject({ ok: true });
-    expect((await slotsOf(b.id)).map((s) => s.hour)).toEqual([11, 11.5, 12, 12.5]);
+    expect((await slotsOf(b.id)).map((s) => [s.start, s.end])).toEqual([[11 * 60, 13 * 60]]);
   });
 
   it("goes to another court of the sport when its own is taken, and refuses when none is free", async () => {
@@ -176,7 +172,7 @@ describe("changing a booking's time", () => {
     if (!made.ok) throw new Error(made.error);
     await getDb()
       .prepare(
-        "INSERT INTO bookings (code, court_id, date, start_hour, end_hour, name, phone, total_price, class_id) VALUES ('MS-CLS001', ?, ?, 9, 10, 'X', '0123', 20, ?)"
+        "INSERT INTO bookings (code, court_id, date, start_min, end_min, starts_at, ends_at, name, phone, total_price, class_id) VALUES ('MS-CLS001', ?, ?, 540, 600, now(), now() + interval '1 hour', 'X', '0123', 20, ?)"
       )
       .run(c2.id, addDays(date, 1), made.classes[0].id);
     expect(await rescheduleBooking("MS-CLS001", { date, startHour: 15 }, "staff")).toMatchObject({ code: "RESCHEDULE_CLASS" });
@@ -257,7 +253,7 @@ describe("booking again", () => {
     // Its court is taken a week on, but another is free.
     await book(c1.id, [17, 18], next);
     const url = await bookAgainLink(b.code);
-    expect(url).toMatch(new RegExp(`^/venue/${c1.venueId}\\?date=${next}&sport=badminton&court=(?!${c1.id}&)\\d+&hour=17&duration=2$`));
+    expect(url).toMatch(new RegExp(`^/venue/${c1.venueId}\\?date=${next}&sport=badminton&court=(?!${c1.id}&)\\d+&start=1020&minutes=120$`));
     void c2;
 
     const res = await GET(new NextRequest(`http://localhost/api/bookings/again?code=${b.code}&phone=${who}`));

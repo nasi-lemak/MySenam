@@ -100,10 +100,10 @@ describe("scores", () => {
 
 describe("scheduling", () => {
   const slots = [
-    { courtId: 1, date: "2026-11-01", hour: 9 },
-    { courtId: 2, date: "2026-11-01", hour: 9 },
-    { courtId: 1, date: "2026-11-01", hour: 10 },
-    { courtId: 2, date: "2026-11-01", hour: 10 },
+    { courtId: 1, date: "2026-11-01", minute: 540 },
+    { courtId: 2, date: "2026-11-01", minute: 540 },
+    { courtId: 1, date: "2026-11-01", minute: 600 },
+    { courtId: 2, date: "2026-11-01", minute: 600 },
   ];
 
   it("plays matches side by side, the final after the semis, nobody twice at once", () => {
@@ -116,9 +116,9 @@ describe("scheduling", () => {
       slots
     );
     if (!result.ok) throw new Error("did not fit");
-    expect(result.placed.get("sf1")).toEqual({ courtId: 1, date: "2026-11-01", hour: 9 });
-    expect(result.placed.get("sf2")).toEqual({ courtId: 2, date: "2026-11-01", hour: 9 });
-    expect(result.placed.get("final")?.hour).toBe(10);
+    expect(result.placed.get("sf1")).toEqual({ courtId: 1, date: "2026-11-01", minute: 540 });
+    expect(result.placed.get("sf2")).toEqual({ courtId: 2, date: "2026-11-01", minute: 540 });
+    expect(result.placed.get("final")?.minute).toBe(600);
 
     const clash = scheduleMatches(
       [
@@ -128,7 +128,7 @@ describe("scheduling", () => {
       slots
     );
     if (!clash.ok) throw new Error("did not fit");
-    expect(clash.placed.get("y")?.hour).toBe(10);
+    expect(clash.placed.get("y")?.minute).toBe(600);
   });
 
   it("says how many did not fit", () => {

@@ -20,10 +20,11 @@ import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl } from "./outbox";
 import { siteName } from "./site";
-import { offerSlotPlace, venueHours } from "./store";
+import { blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
 import { sendPlainEmail } from "./transports";
-import { addDays, formatHour, isPastSlot, isValidDateString, SLOT, todayISO } from "./time";
+import { addDays, isValidDateString, todayISO } from "./time";
+import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
 import { SPORTS, type Sport } from "./types";
 import type { Level } from "./games";
 import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
@@ -72,8 +73,13 @@ export interface Tournament {
   advance: number;
   startsOn: string;
   endsOn: string;
+  /** The time of each day it holds its courts, in minutes of the day and in hours. */
+  startMin: number;
+  endMin: number;
   startHour: number;
   endHour: number;
+  /** How long each match is given on court. */
+  matchMinutes: number;
   description: string | null;
   status: TournamentStatus;
   courtIds: number[];
@@ -103,6 +109,8 @@ export interface Match {
   courtId: number | null;
   courtName: string | null;
   date: string | null;
+  /** When it starts, in minutes of the day and in hours. */
+  minute: number | null;
   hour: number | null;
   score: string | null;
   winner: number | null;
@@ -141,8 +149,9 @@ interface TRow {
   advance: number;
   starts_on: string;
   ends_on: string;
-  start_hour: number;
-  end_hour: number;
+  start_min: number;
+  end_min: number;
+  match_minutes: number;
   description: string | null;
   status: TournamentStatus;
   court_ids: number[];
@@ -169,8 +178,11 @@ function toTournament(r: TRow): Tournament {
     advance: r.advance,
     startsOn: r.starts_on,
     endsOn: r.ends_on,
-    startHour: r.start_hour,
-    endHour: r.end_hour,
+    startMin: r.start_min,
+    endMin: r.end_min,
+    startHour: hoursOf(r.start_min),
+    endHour: hoursOf(r.end_min),
+    matchMinutes: r.match_minutes ?? 60,
     description: r.description,
     status: r.status,
     courtIds: (r.court_ids ?? []).map(Number),
@@ -266,7 +278,7 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
     court_id: number | null;
     court_name: string | null;
     date: string | null;
-    hour: number | null;
+    start_min: number | null;
     score: string | null;
     winner: number | null;
     status: Match["status"];
@@ -282,7 +294,8 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
     courtId: r.court_id,
     courtName: r.court_name,
     date: r.date,
-    hour: r.hour,
+    minute: r.start_min,
+    hour: r.start_min === null ? null : hoursOf(r.start_min),
     score: r.score,
     winner: r.winner,
     status: r.status,
@@ -307,8 +320,13 @@ export interface TournamentInput {
   advance?: number;
   startsOn: string;
   endsOn: string;
-  startHour: number;
-  endHour: number;
+  /** The time each day, in minutes of the day (or hours, the older way). */
+  startMin?: number;
+  endMin?: number;
+  startHour?: number;
+  endHour?: number;
+  /** How long each match is given on court; an hour unless said. */
+  matchMinutes?: number;
   courtIds: number[];
   description?: string;
 }
@@ -319,11 +337,11 @@ async function tournamentZone(tournamentId: number): Promise<string> {
   return (await venueHours(row?.venue_id ?? 0)).zone;
 }
 
-/** Every day, hour and court a tournament would hold. */
-function heldSlots(t: { startsOn: string; endsOn: string; startHour: number; endHour: number; courtIds: number[] }): Slot[] {
+/** Every day, court and match slot a tournament would hold: one match long each, from the start of its time. */
+function heldSlots(t: { startsOn: string; endsOn: string; startMin: number; endMin: number; matchMinutes: number; courtIds: number[] }): Slot[] {
   const slots: Slot[] = [];
   for (let d = t.startsOn; d <= t.endsOn; d = addDays(d, 1))
-    for (let h = t.startHour; h < t.endHour; h++) for (const c of t.courtIds) slots.push({ courtId: c, date: d, hour: h });
+    for (let m = t.startMin; m + t.matchMinutes <= t.endMin; m += t.matchMinutes) for (const c of t.courtIds) slots.push({ courtId: c, date: d, minute: m });
   return slots;
 }
 
@@ -343,21 +361,26 @@ export async function createTournament(input: TournamentInput, adminId: number):
     return { ok: false, error: "Between 2 and 128 entries." };
   if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
   const venue = (await db
-    .prepare("SELECT open_hour, close_hour, week_hours, slot_minutes, time_zone, lat, lng FROM venues WHERE id = ?")
+    .prepare("SELECT open_min, close_min, week_hours, time_zone, lat, lng FROM venues WHERE id = ?")
     .get(input.venueId)) as
-    | { open_hour: number; close_hour: number; week_hours: string | null; slot_minutes: number; time_zone: string | null; lat: number | null; lng: number | null }
+    | { open_min: number; close_min: number; week_hours: string | null; time_zone: string | null; lat: number | null; lng: number | null }
     | undefined;
   if (!venue) return { ok: false, error: "Venue not found." };
   // Today where the venue is.
   if (input.startsOn <= todayISO(venueZoneOf(venue))) return { ok: false, error: "It has to start after today, so players can enter." };
-  if (input.endHour <= input.startHour) return { ok: false, error: "The hours must be within the venue's opening hours." };
+  const startMin = input.startMin ?? (input.startHour === undefined ? NaN : minutesOf(input.startHour));
+  const endMin = input.endMin ?? (input.endHour === undefined ? NaN : minutesOf(input.endHour));
+  const matchMinutes = input.matchMinutes ?? 60;
+  if (!Number.isInteger(matchMinutes) || matchMinutes < 5 || matchMinutes > 600) return { ok: false, error: "Give each match 5 minutes to 10 hours." };
+  if (!(endMin > startMin)) return { ok: false, error: "The hours must be within the venue's opening hours." };
+  if (endMin - startMin < matchMinutes) return { ok: false, error: "The time each day must fit at least one match." };
   // Every day of it, by that day's own hours.
-  const usual = { openHour: venue.open_hour, closeHour: venue.close_hour, weekHours: parseWeekHours(venue.week_hours) };
+  const usual = { openMin: venue.open_min, closeMin: venue.close_min, weekHours: parseWeekHours(venue.week_hours) };
   for (let d = input.startsOn; d <= input.endsOn; d = addDays(d, 1)) {
     const on = hoursOn(usual, d);
     if (on.closed) return { ok: false, error: `The venue is closed on ${d}.` };
-    if (input.startHour < on.openHour || input.endHour > on.closeHour)
-      return { ok: false, error: `The hours must be within the venue's opening hours, which on ${d} are ${formatHour(on.openHour)}–${formatHour(on.closeHour)}.` };
+    if (startMin < on.openMin || endMin > on.closeMin)
+      return { ok: false, error: `The hours must be within the venue's opening hours, which on ${d} are ${formatMinute(on.openMin)}–${formatMinute(on.closeMin)}.` };
   }
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length === 0) return { ok: false, error: "Hold at least one court." };
@@ -370,7 +393,6 @@ export async function createTournament(input: TournamentInput, adminId: number):
   // Out of service, or already booked in those hours: say so, rather than
   // hold over it. Asked again inside the transaction that holds the hours, so
   // a booking or an outage made meanwhile is seen there.
-  const slots = heldSlots({ ...input, courtIds });
   const inTheWay = async (): Promise<{ ok: false; error: string; clashes?: number } | null> => {
     const out = (await db
       .prepare(
@@ -380,13 +402,16 @@ export async function createTournament(input: TournamentInput, adminId: number):
       )
       .get(...courtIds, input.endsOn, input.startsOn)) as { name: string } | undefined;
     if (out) return { ok: false, error: `${out.name} is out of service then. Choose other courts or days.` };
+    // Bookings holding these courts' spaces in that time each day, a court sharing their floor's too.
     const { clashes } = (await db
       .prepare(
-        `SELECT COUNT(DISTINCT s.booking_id)::int AS clashes FROM booking_slots s
-          WHERE s.court_id IN (${courtIds.map(() => "?").join(",")}) AND s.date >= ? AND s.date <= ?
-            AND s.hour >= ? AND s.hour < ?`
+        `SELECT COUNT(DISTINCT b.id)::int AS clashes FROM claims c JOIN bookings b ON b.id = c.booking_id
+          WHERE c.active
+            AND (c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id IN (${courtIds.map(() => "?").join(",")}))
+                 OR (c.space_id IS NULL AND c.court_id IN (${courtIds.map(() => "?").join(",")})))
+            AND b.date >= ? AND b.date <= ? AND b.start_min < ? AND b.end_min > ?`
       )
-      .get(...courtIds, input.startsOn, input.endsOn, input.startHour, input.endHour)) as { clashes: number };
+      .get(...courtIds, ...courtIds, input.startsOn, input.endsOn, endMin, startMin)) as { clashes: number };
     if (clashes > 0)
       return {
         ok: false,
@@ -405,8 +430,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
     const info = await db
       .prepare(
         `INSERT INTO tournaments (venue_id, name, sport, format, team_size, category, level, entry_fee, max_entries, group_size, advance,
-                                  starts_on, ends_on, start_hour, end_hour, description, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                  starts_on, ends_on, start_min, end_min, match_minutes, description, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.venueId,
@@ -422,23 +447,21 @@ export async function createTournament(input: TournamentInput, adminId: number):
         input.advance === 1 ? 1 : 2,
         input.startsOn,
         input.endsOn,
-        input.startHour,
-        input.endHour,
+        startMin,
+        endMin,
+        matchMinutes,
         input.description?.trim().slice(0, 2000) || null,
         adminId
       );
     id = info.lastInsertRowid as number;
     for (const c of courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
-    // The hours, held: both halves of each in the diary. An hour staff had
-    // already blocked stays theirs, and is simply not one the draw can use.
-    // Matches are drawn by the hour.
-    const hold = db.prepare(
-      `INSERT INTO slot_blocks (court_id, date, hour, reason, tournament_id, span) VALUES (?, ?, ?, ?, ?, ${SLOT})
-       ON CONFLICT (court_id, date, hour) DO NOTHING`
-    );
-    for (const s of slots)
-      for (const half of [s.hour, s.hour + SLOT])
-        await hold.run(s.courtId, s.date, half, `Tournament: ${name}`, id);
+    // The time, held each day on each court. Time staff had already blocked
+    // stays theirs, and is simply not time the draw can use.
+    for (let d = input.startsOn; d <= input.endsOn; d = addDays(d, 1))
+      for (const c of courtIds) {
+        const held = await blockSlots(c, d, { start: startMin, end: endMin }, `Tournament: ${name}`, undefined, { tournamentId: id });
+        if (!held.ok) throw new Error(held.error);
+      }
     return null;
   })();
   if (refused) return refused;
@@ -458,11 +481,12 @@ export async function cancelTournament(id: number): Promise<Result> {
   const t = await tournamentById(id);
   if (!t || t.status === "cancelled" || t.status === "finished") return { ok: false, error: "That cannot be called off now." };
   const freed = (await db
-    .prepare("SELECT DISTINCT court_id, date FROM slot_blocks WHERE tournament_id = ? AND date >= ?")
+    .prepare("SELECT DISTINCT court_id, date FROM blocks WHERE tournament_id = ? AND date >= ?")
     .all(id, todayISO())) as { court_id: number; date: string }[];
   await db.transaction(async () => {
     await db.prepare("UPDATE tournaments SET status = 'cancelled' WHERE id = ?").run(id);
-    await db.prepare("DELETE FROM slot_blocks WHERE tournament_id = ?").run(id);
+    // Its holds go, and their claims with them.
+    await db.prepare("DELETE FROM blocks WHERE tournament_id = ?").run(id);
     await db
       .prepare(
         `UPDATE online_payments SET refund_due = amount
@@ -709,21 +733,16 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       after: m.after.filter((k) => !byes.has(k)),
     }));
   const zone = await tournamentZone(tournamentId);
-  const slots = (
-    (await db
-      // Not an hour on a court taken out of service since.
-      .prepare(
-        `SELECT s.court_id, s.date, s.hour FROM slot_blocks s
-          WHERE s.tournament_id = ? AND s.hour = FLOOR(s.hour)
-            AND NOT EXISTS (
-              SELECT 1 FROM court_outages o
-               WHERE o.court_id = s.court_id AND o.starts_on <= s.date AND (o.ends_on IS NULL OR o.ends_on >= s.date))
-          ORDER BY s.date, s.hour, s.court_id`
-      )
-      .all(tournamentId)) as { court_id: number; date: string; hour: number }[]
-  )
-    .filter((s) => !isPastSlot(s.date, s.hour, zone))
-    .map((s) => ({ courtId: s.court_id, date: s.date, hour: s.hour }));
+  // The match slots wholly inside what is still held (an outage since takes its hold away).
+  const holds = (await db
+    .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ? ORDER BY date, start_min")
+    .all(tournamentId)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+  const now = Date.now();
+  const slots = heldSlots(t).filter(
+    (s) =>
+      holds.some((h) => h.court_id === s.courtId && h.date === s.date && h.start_min <= s.minute && s.minute + t.matchMinutes <= h.end_min) &&
+      instantOf(s.date, s.minute, zone).getTime() > now
+  );
   const scheduled = scheduleMatches(toPlay, slots);
   if (!scheduled.ok)
     return {
@@ -739,7 +758,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       const info = await db
         .prepare(
           `INSERT INTO tournament_matches (tournament_id, stage, group_no, round, position, entry_a, entry_b,
-                                           next_match_id, next_slot, court_id, date, hour, winner, status)
+                                           next_match_id, next_slot, court_id, date, start_min, winner, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
@@ -754,7 +773,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
           m.nextSlot,
           at?.courtId ?? null,
           at?.date ?? null,
-          at?.hour ?? null,
+          at?.minute ?? null,
           m.bye ? (m.a ?? m.b) : null,
           m.bye ? "bye" : "scheduled"
         );
@@ -844,7 +863,7 @@ async function fillKnockoutIfGroupsDone(tournamentId: number): Promise<void> {
     const match = firstRoundMatches[i];
     await db.prepare("UPDATE tournament_matches SET entry_a = ?, entry_b = ? WHERE id = ?").run(a, b, match.id);
     if ((a === null) !== (b === null)) {
-      await db.prepare("UPDATE tournament_matches SET status = 'bye', winner = ?, court_id = NULL, date = NULL, hour = NULL WHERE id = ?").run(a ?? b, match.id);
+      await db.prepare("UPDATE tournament_matches SET status = 'bye', winner = ?, court_id = NULL, date = NULL, start_min = NULL WHERE id = ?").run(a ?? b, match.id);
       const next = (await db.prepare("SELECT next_match_id, next_slot FROM tournament_matches WHERE id = ?").get(match.id)) as {
         next_match_id: number | null;
         next_slot: "a" | "b" | null;
@@ -866,47 +885,57 @@ async function finishIfDone(tournamentId: number): Promise<void> {
 }
 
 /**
- * Give back the held hours no match needs. Once the draw is made, every
- * match has its court and hour and none ever moves, so on each court each
- * day only the hours from its first match still to play to its last are
- * needed — those between stay held, so a match that runs over does not run
- * into somebody's booking. A court with nothing left to play that day is
- * given back whole; when the last match is in, everything left is. Hours
- * already gone stay, as the record of what was held. Whoever is waiting for
- * a court that day is offered what came free. Returns how many hours.
+ * Give back the held time no match needs. Once the draw is made, every
+ * match has its court and time and none ever moves, so on each court each
+ * day only the time from its first match still to play to the end of its
+ * last is needed — the time between stays held, so a match that runs over
+ * does not run into somebody's booking. A court with nothing left to play
+ * that day is given back whole; when the last match is in, everything left
+ * is. Time already gone stays, as the record of what was held. Whoever is
+ * waiting for a court that day is offered what came free. Returns how many
+ * hours came free.
  */
 export async function releaseUnneeded(tournamentId: number): Promise<number> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
-  // Before the draw nobody knows which hours will be needed.
+  // Before the draw nobody knows which time will be needed.
   if (!t || (t.status !== "drawn" && t.status !== "finished")) return 0;
   const held = (await db
-    .prepare("SELECT id, court_id, date, hour FROM slot_blocks WHERE tournament_id = ?")
-    .all(tournamentId)) as { id: number; court_id: number; date: string; hour: number }[];
-  const spans = new Map(
+    .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ?")
+    .all(tournamentId)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+  const needed = new Map(
     (
       (await db
         .prepare(
-          `SELECT court_id, date, MIN(hour) AS first, MAX(hour) AS last FROM tournament_matches
+          `SELECT court_id, date, MIN(start_min) AS first, MAX(start_min) AS last FROM tournament_matches
             WHERE tournament_id = ? AND status = 'scheduled' AND court_id IS NOT NULL
             GROUP BY court_id, date`
         )
         .all(tournamentId)) as { court_id: number; date: string; first: number; last: number }[]
-    ).map((r) => [`${r.court_id}:${r.date}`, r])
+    ).map((r) => [`${r.court_id}:${r.date}`, { start: r.first, end: r.last + t.matchMinutes }])
   );
   const zone = await tournamentZone(tournamentId);
-  const free = held.filter((b) => {
-    if (isPastSlot(b.date, b.hour, zone)) return false;
-    const span = spans.get(`${b.court_id}:${b.date}`);
-    // By the hour: a match at 18:00 still needs the 18:30 half of a half-hour venue.
-    const hour = Math.floor(b.hour);
-    return !span || hour < span.first || hour > span.last;
-  });
-  if (free.length === 0) return 0;
-  await db.prepare(`DELETE FROM slot_blocks WHERE id IN (${free.map(() => "?").join(",")})`).run(...free.map((b) => b.id));
-  const days = new Map(free.map((b) => [`${b.court_id}:${b.date}`, b]));
+  let freed = 0;
+  const days = new Map<string, { court_id: number; date: string }>();
+  for (const b of held) {
+    // Not what has gone by: from the next minute on.
+    const nowMinute = Math.ceil((Date.now() - instantOf(b.date, 0, zone).getTime()) / 60_000);
+    const keep = needed.get(`${b.court_id}:${b.date}`);
+    const from = Math.max(b.start_min, nowMinute);
+    const pieces = keep
+      ? [{ start: from, end: Math.min(b.end_min, keep.start) }, { start: Math.max(from, keep.end), end: b.end_min }]
+      : [{ start: from, end: b.end_min }];
+    for (const piece of pieces) {
+      if (piece.end <= piece.start) continue;
+      const minutes = await releaseBlockTime(b.court_id, b.date, piece, tournamentId);
+      if (minutes > 0) {
+        freed += minutes;
+        days.set(`${b.court_id}:${b.date}`, b);
+      }
+    }
+  }
   for (const b of days.values()) await offerSlotPlace(b.court_id, b.date);
-  return free.length;
+  return freed / 60;
 }
 
 // ------------------------------------------------------------ telling people
@@ -939,7 +968,7 @@ async function tellFirstMatches(d: TournamentDetail): Promise<void> {
     const first = d.matches.find((m) => m.status === "scheduled" && (m.a === r.id || m.b === r.id));
     const bye = d.matches.some((m) => m.status === "bye" && m.winner === r.id);
     const text = first
-      ? `Your first match in ${d.name}: ${first.date} ${formatHour(first.hour!)}, ${first.courtName}, against ${names.get(first.a === r.id ? first.b! : first.a!) ?? "to be decided"}.`
+      ? `Your first match in ${d.name}: ${first.date} ${formatMinute(first.minute!)}, ${first.courtName}, against ${names.get(first.a === r.id ? first.b! : first.a!) ?? "to be decided"}.`
       : bye
         ? `You have a bye in the first round of ${d.name}. Your next match is on the draw.`
         : `The draw for ${d.name} is made.`;

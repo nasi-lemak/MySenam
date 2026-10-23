@@ -1,7 +1,7 @@
 import tzlookup from "@photostructure/tz-lookup";
-import { getDb } from "./db";
-import { region } from "./region";
-import { isTimeZone } from "./time";
+import { getDb } from "./db.ts";
+import { region } from "./region.ts";
+import { isTimeZone } from "./time.ts";
 
 /**
  * Which time zone a venue is in. Server only: the boundaries come with the

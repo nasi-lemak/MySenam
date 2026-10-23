@@ -1,18 +1,19 @@
 import { addDays, dayOfWeek } from "./time";
-import { LATEST_CLOSE_HOUR, OPEN_HOUR } from "./types";
+import { DAY_MINUTES, LATEST_MINUTE, formatMinute } from "./interval";
 
 /**
- * A venue's hours, weekday by weekday.
+ * Opening hours, weekday by weekday, in minutes from midnight (ADR 0010).
  *
- * Each venue has its usual hours (`open_hour`, `close_hour`). A weekday can
- * keep them (null), have its own, or be closed (a closed weekday is treated
- * as a closure: lib/store.ts `getVenueClosure`). Index 0 is Sunday, as
- * `Date.getUTCDay()` counts.
+ * A venue has its usual hours (`open_min`, `close_min`). A weekday can keep
+ * them (null), have its own, or be closed (a closed weekday is treated as a
+ * closure: lib/store.ts `getVenueClosure`). Index 0 is Sunday, as
+ * `Date.getUTCDay()` counts. A court's booking policy may have hours of its
+ * own in the same form (lib/booking-policy.ts).
  *
- * Hours may run past midnight: a close of 26 is 2 AM the next morning, and
- * those hours belong to the day they started on (a booking from 1 AM is on
+ * Hours may run past midnight: a close of 1560 is 2 AM the next morning, and
+ * those minutes belong to the day they started on (a booking from 1 AM is on
  * the evening's date). They may not reach into the next day's own opening,
- * so the same moment can never be two slots.
+ * so the same moment can never belong to two days.
  */
 
 export type DayHours = { open: number; close: number } | "closed" | null;
@@ -34,36 +35,47 @@ export function parseWeekHours(raw: unknown): WeekHours | null {
   const week = value.map((d): DayHours => {
     if (d === "closed") return "closed";
     if (d && typeof d === "object" && Number.isFinite((d as { open: unknown }).open) && Number.isFinite((d as { close: unknown }).close))
-      return { open: Number((d as { open: number }).open), close: Number((d as { close: number }).close) };
+      return { open: Math.round(Number((d as { open: number }).open)), close: Math.round(Number((d as { close: number }).close)) };
     return null;
   });
   return week.every((d) => d === null) ? null : week;
 }
 
 export interface HoursOn {
-  openHour: number;
-  closeHour: number;
+  openMin: number;
+  closeMin: number;
   /** Shut that weekday every week. */
   closed: boolean;
 }
 
 /** The hours on one date, from the usual hours and the weekday's own. */
-export function hoursOn(venue: { openHour: number; closeHour: number; weekHours?: WeekHours | null }, date: string): HoursOn {
+export function hoursOn(venue: { openMin: number; closeMin: number; weekHours?: WeekHours | null }, date: string): HoursOn {
   const day = venue.weekHours?.[dayOfWeek(date)] ?? null;
-  if (day === "closed") return { openHour: venue.openHour, closeHour: venue.openHour, closed: true };
-  if (day) return { openHour: day.open, closeHour: day.close, closed: false };
-  return { openHour: venue.openHour, closeHour: venue.closeHour, closed: false };
+  if (day === "closed") return { openMin: venue.openMin, closeMin: venue.openMin, closed: true };
+  if (day) return { openMin: day.open, closeMin: day.close, closed: false };
+  return { openMin: venue.openMin, closeMin: venue.closeMin, closed: false };
+}
+
+/** Usual hours as given, checked: open before close, within midnight and 4 AM the next morning. */
+export function validateUsualHours(openMin: unknown, closeMin: unknown): { ok: true } | { ok: false; error: string } {
+  if (!Number.isInteger(openMin) || !Number.isInteger(closeMin)) return { ok: false, error: "Opening hours are whole minutes." };
+  const open = openMin as number;
+  const close = closeMin as number;
+  if (open < 0 || open >= DAY_MINUTES || close > LATEST_MINUTE)
+    return { ok: false, error: `Open from midnight, and close by ${formatMinute(LATEST_MINUTE)} the next morning at the latest.` };
+  if (close - open < 60) return { ok: false, error: "A venue must be open for at least an hour." };
+  return { ok: true };
 }
 
 /**
- * A week of hours as given, checked: each day open at least an hour, within
- * midnight to LATEST_CLOSE_HOUR, on whole hours, and no day's late hours
- * running into the next day's opening. null back means every day keeps the
- * usual hours.
+ * A week of hours as given, checked: each day opening before it closes,
+ * within midnight to 4 AM the next morning, and no day's late hours running
+ * into the next day's opening. null back means every day keeps the usual
+ * hours.
  */
 export function validateWeekHours(
   input: unknown,
-  usual: { openHour: number; closeHour: number }
+  usual: { openMin: number; closeMin: number }
 ): { ok: true; week: WeekHours | null } | { ok: false; error: string } {
   if (input === null || input === undefined) return checkOverlap(null, usual);
   if (!Array.isArray(input) || input.length !== 7) return { ok: false, error: "Give seven days, Sunday first." };
@@ -74,15 +86,15 @@ export function validateWeekHours(
     else if (d === "closed") week.push("closed");
     else if (typeof d === "object" && Number.isInteger((d as { open: unknown }).open) && Number.isInteger((d as { close: unknown }).close)) {
       const { open, close } = d as { open: number; close: number };
-      if (open < OPEN_HOUR || open > 23 || close > LATEST_CLOSE_HOUR || close - open < 1)
-        return { ok: false, error: `${WEEKDAYS[i]}: open on the hour, at least an hour, and close by ${LATEST_CLOSE_HOUR - 24} AM the next morning at the latest.` };
+      if (open < 0 || open >= DAY_MINUTES || close > LATEST_MINUTE || close <= open)
+        return { ok: false, error: `${WEEKDAYS[i]}: open before you close, and close by ${formatMinute(LATEST_MINUTE)} the next morning at the latest.` };
       week.push({ open, close });
     } else return { ok: false, error: `${WEEKDAYS[i]}: the usual hours, its own, or closed.` };
   }
   return checkOverlap(week.every((d) => d === null) ? null : week, usual);
 }
 
-function checkOverlap(week: WeekHours | null, usual: { openHour: number; closeHour: number }): { ok: true; week: WeekHours | null } | { ok: false; error: string } {
+function checkOverlap(week: WeekHours | null, usual: { openMin: number; closeMin: number }): { ok: true; week: WeekHours | null } | { ok: false; error: string } {
   const venue = { ...usual, weekHours: week };
   // A Sunday, so index i is weekday i.
   const sunday = "2026-01-04";
@@ -90,7 +102,7 @@ function checkOverlap(week: WeekHours | null, usual: { openHour: number; closeHo
     const today = hoursOn(venue, addDays(sunday, i));
     const tomorrow = hoursOn(venue, addDays(sunday, i + 1));
     if (today.closed || tomorrow.closed) continue;
-    if (today.closeHour - 24 > tomorrow.openHour)
+    if (today.closeMin - DAY_MINUTES > tomorrow.openMin)
       return { ok: false, error: `${WEEKDAYS[i]} runs past ${WEEKDAYS[(i + 1) % 7]}'s opening. Close earlier, or open ${WEEKDAYS[(i + 1) % 7]} later.` };
   }
   return { ok: true, week };
@@ -105,7 +117,7 @@ export function variesByDay(week: WeekHours | null | undefined): boolean {
  * The week as lines for a page, Monday first, runs of days with the same
  * hours together: Mon–Fri 4 PM–12 AM, Sat–Sun 7 AM–12 AM, or a day closed.
  */
-export function weekLines(venue: { openHour: number; closeHour: number; weekHours?: WeekHours | null }): {
+export function weekLines(venue: { openMin: number; closeMin: number; weekHours?: WeekHours | null }): {
   from: number;
   to: number;
   hours: { open: number; close: number } | "closed";
@@ -115,7 +127,7 @@ export function weekLines(venue: { openHour: number; closeHour: number; weekHour
   const lines: { from: number; to: number; hours: { open: number; close: number } | "closed" }[] = [];
   for (const day of order) {
     const on = hoursOn(venue, addDays(sunday, day));
-    const hours = on.closed ? ("closed" as const) : { open: on.openHour, close: on.closeHour };
+    const hours = on.closed ? ("closed" as const) : { open: on.openMin, close: on.closeMin };
     const last = lines[lines.length - 1];
     const same =
       last && (last.hours === "closed" ? hours === "closed" : hours !== "closed" && last.hours.open === hours.open && last.hours.close === hours.close);

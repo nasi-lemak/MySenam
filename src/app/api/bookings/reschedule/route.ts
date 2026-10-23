@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isSlotHour } from "@/lib/time";
+import { isMinute, parseClock } from "@/lib/interval";
 import { refusal } from "@/lib/api";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ options: await rescheduleOptions(booking.code, date) });
 }
 
-/** `{ code, phone, date, startHour }` → the booking, at its new time. */
+/** `{ code, phone, date, start }` → the booking, at its new time (`start` in minutes of the day or HH:MM; `startHour` the older form). */
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -32,8 +32,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const { code, phone, date, startHour } = body ?? {};
-  if (typeof code !== "string" || typeof phone !== "string" || typeof date !== "string" || !isSlotHour(startHour))
-    return NextResponse.json({ error: "code, phone, date and startHour are required." }, { status: 400 });
+  const start =
+    body.start !== undefined ? (typeof body.start === "string" ? parseClock(body.start) : body.start) : typeof startHour === "number" ? Math.round(startHour * 60) : null;
+  if (typeof code !== "string" || typeof phone !== "string" || typeof date !== "string" || !isMinute(start))
+    return NextResponse.json({ error: "code, phone, date and start are required." }, { status: 400 });
   const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
   // The code and the phone number together, as for cancelling.
@@ -45,7 +47,7 @@ export async function POST(req: NextRequest) {
     const tooMany = await houseRuleRefusal({ venueId, phone: booking.phone, dates: [date], excluding: booking.id });
     if (tooMany) return refusal(tooMany);
   }
-  const result = await rescheduleBooking(booking.code, { date, startHour: startHour as number }, "customer");
+  const result = await rescheduleBooking(booking.code, { date, start }, "customer");
   if (!result.ok) return refusal(result);
   await notifyRescheduled(result.booking, "customer", result.priceChange);
   await tickOutbox();

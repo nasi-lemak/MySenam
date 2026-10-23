@@ -47,6 +47,16 @@ from inside the app. The DigitalOcean kit's deploy script takes one with the
 live version, just before it switches to the new one, and puts the old version
 back if the new one does not answer.
 
+Rolling back past a migration means restoring that backup and deploying the
+previous version: putting the old code back alone is not enough once a
+migration has changed the schema. This matters most for the upgrade to
+interval bookings (migrations 0089–0091): 0090 checks that the new claims hold
+exactly what the half-hour diary held and stops, changing nothing, if not;
+0091 then drops the diary for good
+([booking time model](../architecture/interval-booking-review.md#migration-from-the-half-hour-diary)).
+Restore the backup into a scratch database first to know it works
+([backups](backups.md)).
+
 ## Before going live: what only a live account can prove
 
 The tests run every gateway and API against recorded answers, not the real

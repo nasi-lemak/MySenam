@@ -16,7 +16,7 @@ import { venueReport } from "../src/lib/reports";
 import { bookingsCsv } from "../src/lib/export";
 import { notifyPaid } from "../src/lib/notify";
 import { messagesForBooking } from "../src/lib/outbox";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 
 /**
  * A venue's own SST or GST: prices stay what customers pay, and receipts,
@@ -44,7 +44,7 @@ beforeAll(async () => {
   if (!court.ok) throw new Error("court");
   courtId = court.court.id;
   date = addDays(todayISO(), 3);
-  while (isPeak(date, 9)) date = addDays(date, 1);
+  while (isPeakMinute(date, 9 * 60)) date = addDays(date, 1);
 });
 
 describe("the arithmetic", () => {

@@ -47,8 +47,9 @@ export function venueJsonLd(venue: {
   address: string;
   area: string;
   phone: string;
-  openHour: number;
-  closeHour: number;
+  /** Usual opening and closing, in minutes of the day. */
+  openMin: number;
+  closeMin: number;
   weekHours?: WeekHours | null;
   lat: number | null;
   lng: number | null;
@@ -58,7 +59,7 @@ export function venueJsonLd(venue: {
   /** From verified bookings, shown only from a few reviews up (lib/reviews.ts). */
   rating?: { average: number; count: number } | null;
 }): Record<string, unknown> {
-  const hh = (h: number) => `${String(h % 24).padStart(2, "0")}:00`;
+  const hh = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   return {
     "@context": "https://schema.org",
     "@type": "SportsActivityLocation",

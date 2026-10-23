@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, issuePass, listPassesForVenue } from "@/lib/store";
-import { MAX_PASS_ENTRIES, Sport, SPORTS } from "@/lib/types";
+import { MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Sport, SPORTS } from "@/lib/types";
 import { logAction } from "@/lib/activity";
 import { money, region, isAmount } from "@/lib/region";
 
@@ -43,8 +43,23 @@ export async function POST(req: NextRequest) {
     if (typeof input[field] !== "string" || (input[field] as string).trim() === "")
       return NextResponse.json({ error: `A valid ${field} is required.` }, { status: 400 });
   }
-  if (!Number.isInteger(input.entries) || (input.entries as number) < 1 || (input.entries as number) > MAX_PASS_ENTRIES)
-    return NextResponse.json({ error: `Entries must be 1–${MAX_PASS_ENTRIES}.` }, { status: 400 });
+  // A session pass sells entries; a time pass, minutes of court time (`entries` either way).
+  const kind = input.kind === undefined || input.kind === null || input.kind === "" ? "session" : input.kind;
+  if (kind !== "session" && kind !== "time")
+    return NextResponse.json({ error: "kind must be session or time." }, { status: 400 });
+  const most = kind === "time" ? MAX_PASS_MINUTES : MAX_PASS_ENTRIES;
+  if (!Number.isInteger(input.entries) || (input.entries as number) < 1 || (input.entries as number) > most)
+    return NextResponse.json(
+      { error: kind === "time" ? `Court time must be 1–${most} minutes.` : `Entries must be 1–${most}.` },
+      { status: 400 }
+    );
+  // Minutes an entry covers (null: a whole booking), and the longest booking it pays for (null: any).
+  const optionalMinutes = (v: unknown): number | null | undefined | false =>
+    v === undefined ? undefined : v === null || v === "" ? null : Number.isInteger(v) ? (v as number) : false;
+  const entryMinutes = optionalMinutes(input.entryMinutes);
+  const maxMinutes = optionalMinutes(input.maxMinutes);
+  if (entryMinutes === false || maxMinutes === false)
+    return NextResponse.json({ error: "entryMinutes and maxMinutes are whole minutes, or null." }, { status: 400 });
   if (!isAmount(input.price))
     return NextResponse.json({ error: `Price must be ${money(0)} or more, to the ${region().currency.minor}.` }, { status: 400 });
 
@@ -74,7 +89,10 @@ export async function POST(req: NextRequest) {
     venueId: venueId as number,
     sport,
     name: input.name as string,
+    kind,
     entries: input.entries as number,
+    entryMinutes,
+    maxMinutes,
     price: input.price as number,
     holderName: input.holderName as string,
     holderPhone: input.holderPhone as string,
@@ -87,7 +105,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: result.pass.venueId,
     action: "pass.sold",
-    detail: `${input.holderName as string}, ${input.entries as number} entries, ${money(input.price as number)}`,
+    detail: `${input.holderName as string}, ${input.entries as number} ${kind === "time" ? "minutes" : "entries"}, ${money(input.price as number)}`,
   });
   return NextResponse.json({ pass: result.pass }, { status: 201 });
 }

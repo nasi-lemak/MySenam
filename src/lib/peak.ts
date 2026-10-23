@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { DEFAULT_PEAK, isValidDateString, todayISO, type LastMinute, type PeakRules } from "./time";
 import { venueZoneOf } from "./zones";
+import { LATEST_MINUTE } from "./interval";
 import { isMyState, publicHolidays } from "./holiday-calendar";
 import { region } from "./region";
 
@@ -19,11 +20,11 @@ export interface Holiday {
 
 interface Row {
   id: number;
-  peak_weekday_from: number;
-  peak_weekday_until: number;
+  peak_weekday_from_min: number;
+  peak_weekday_until_min: number;
   peak_weekend_days: string;
-  peak_weekend_from: number;
-  peak_weekend_until: number;
+  peak_weekend_from_min: number;
+  peak_weekend_until_min: number;
   last_minute_hours: number | null;
   last_minute_percent: number | null;
   last_minute_off_peak: number;
@@ -33,14 +34,14 @@ interface Row {
 }
 
 const toRules = (row: Row, holidays: string[]): PeakRules => ({
-  weekdayFrom: row.peak_weekday_from,
-  weekdayUntil: row.peak_weekday_until,
+  weekdayFrom: row.peak_weekday_from_min,
+  weekdayUntil: row.peak_weekday_until_min,
   weekendDays: row.peak_weekend_days
     .split(",")
     .filter(Boolean)
     .map(Number),
-  weekendFrom: row.peak_weekend_from,
-  weekendUntil: row.peak_weekend_until,
+  weekendFrom: row.peak_weekend_from_min,
+  weekendUntil: row.peak_weekend_until_min,
   holidays,
   ...(row.last_minute_hours && row.last_minute_percent
     ? { lastMinute: { hours: row.last_minute_hours, percent: row.last_minute_percent, offPeakOnly: row.last_minute_off_peak === 1, zone: venueZoneOf(row) } }
@@ -56,7 +57,7 @@ export async function peakRulesFor(venueIds: number[]): Promise<Map<number, Peak
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT id, peak_weekday_from, peak_weekday_until, peak_weekend_days, peak_weekend_from, peak_weekend_until,
+      `SELECT id, peak_weekday_from_min, peak_weekday_until_min, peak_weekend_days, peak_weekend_from_min, peak_weekend_until_min,
               last_minute_hours, last_minute_percent, last_minute_off_peak, time_zone, lat, lng
        FROM venues WHERE id IN (${list})`
     )
@@ -89,18 +90,19 @@ export async function upcomingHolidays(venueId: number): Promise<Holiday[]> {
 
 type Result<T> = { ok: true } & T | { ok: false; error: string };
 
-const isHour = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 24;
+/** A minute of the business day a peak window may start or end at: midnight to 4 AM the next morning. */
+const isPeakMinute = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= LATEST_MINUTE;
 
 /**
  * Set when peak applies: `{ weekdayFrom, weekdayUntil, weekendDays,
- * weekendFrom, weekendUntil }`. A window with the same start and end has no
- * peak at all; 0 to 24 is the whole day. Prices of bookings already made
- * stay as they are.
+ * weekendFrom, weekendUntil }`, in minutes of the day (1050 is 17:30). A
+ * window with the same start and end has no peak at all; 0 to 1440 is the
+ * whole day. Prices of bookings already made stay as they are.
  */
 export async function setPeakRules(venueId: number, input: Record<string, unknown>): Promise<Result<{ rules: PeakRules }>> {
   const { weekdayFrom, weekdayUntil, weekendFrom, weekendUntil, weekendDays } = input;
-  if (!isHour(weekdayFrom) || !isHour(weekdayUntil) || !isHour(weekendFrom) || !isHour(weekendUntil))
-    return { ok: false, error: "Peak hours run from a whole hour, 0 to 24." };
+  if (!isPeakMinute(weekdayFrom) || !isPeakMinute(weekdayUntil) || !isPeakMinute(weekendFrom) || !isPeakMinute(weekendUntil))
+    return { ok: false, error: "Peak times are whole minutes of the day, from midnight to 4 AM the next morning." };
   if (weekdayFrom > weekdayUntil || weekendFrom > weekendUntil)
     return { ok: false, error: "Peak hours end after they start." };
   if (
@@ -112,8 +114,8 @@ export async function setPeakRules(venueId: number, input: Record<string, unknow
   const days = [...new Set(weekendDays as number[])].sort((a, b) => a - b);
   await getDb()
     .prepare(
-      `UPDATE venues SET peak_weekday_from = ?, peak_weekday_until = ?, peak_weekend_days = ?,
-         peak_weekend_from = ?, peak_weekend_until = ? WHERE id = ?`
+      `UPDATE venues SET peak_weekday_from_min = ?, peak_weekday_until_min = ?, peak_weekend_days = ?,
+         peak_weekend_from_min = ?, peak_weekend_until_min = ? WHERE id = ?`
     )
     .run(weekdayFrom, weekdayUntil, days.join(","), weekendFrom, weekendUntil, venueId);
   return { ok: true, rules: await peakRules(venueId) };

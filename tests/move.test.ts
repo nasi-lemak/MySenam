@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+import { bookingsInsideBlocks, claimsOf, moveBookingToDate } from "./helpers/bookings";
 import {
   adminCancelBooking,
   blockSlots,
@@ -37,11 +38,7 @@ async function book(courtId: number, hours: number[], date: string, name = "Aisy
   if (!r.ok) throw new Error(r.error);
   return r.booking;
 }
-async function slotsOf(bookingId: number) {
-  return await getDb()
-    .prepare("SELECT court_id, hour, seat FROM booking_slots WHERE booking_id = ? ORDER BY hour")
-    .all(bookingId) as { court_id: number; hour: number; seat: number }[];
-}
+const slotsOf = claimsOf;
 
 describe("moving a booking to another court", () => {
   it("keeps the booking's identity: code, price, payment and check-in", async () => {
@@ -74,10 +71,8 @@ describe("moving a booking to another court", () => {
     expect(row.payment_status).toBe("paid");
     expect(row.checked_in_at).not.toBeNull();
 
-    // The slots followed, and nothing was left behind on the old court.
-    const slots = await slotsOf(b.id);
-    expect(slots.map((s) => s.hour)).toEqual([10, 10.5, 11, 11.5]);
-    expect(slots.every((s) => s.court_id === c2.id)).toBe(true);
+    // The claim followed, and nothing was left behind on the old court.
+    expect(await slotsOf(b.id)).toEqual([{ court_id: c2.id, date, start: 600, end: 720 }]);
   });
 
   it("frees the court it left", async () => {
@@ -104,9 +99,8 @@ describe("moving a booking to another court", () => {
 
     // Critically, the booking is untouched — not half-moved.
     const slots = await slotsOf(b.id);
-    // Three hours: six halves of the diary.
-    expect(slots).toHaveLength(6);
-    expect(slots.every((s) => s.court_id === c1.id)).toBe(true);
+    // Three hours, one claim on its own court.
+    expect(slots).toEqual([{ court_id: c1.id, date, start: 840, end: 1020 }]);
   });
 
   it("refuses a blocked target, and a target running a class", async () => {
@@ -155,8 +149,7 @@ describe("moving a booking to another court", () => {
 
     // Back-date a booking's slots so it reads as finished, as time would.
     const past = await book(c1.id, [20], future(10));
-    await getDb().prepare("UPDATE bookings SET date = ? WHERE id = ?").run(addDays(todayISO(), -1), past.id);
-    await getDb().prepare("UPDATE booking_slots SET date = ? WHERE booking_id = ?").run(addDays(todayISO(), -1), past.id);
+    await moveBookingToDate(past.id, addDays(todayISO(), -1));
     expect(await moveBooking(past.code, c2.id)).toMatchObject({ ok: false, error: "That booking has already finished." });
   });
 
@@ -215,14 +208,8 @@ describe("a block and a move at the same moment", () => {
       const [c1, c2] = await courts();
       const b = await book(c1.id, [9], date);
       await Promise.all([blockSlots(c2.id, date, [9], "Leak"), moveBooking(b.code, c2.id)]);
-      const clash = (await getDb()
-        .prepare(
-          `SELECT COUNT(*)::int AS n FROM booking_slots s JOIN slot_blocks k ON k.court_id = s.court_id AND k.date = s.date AND k.hour = s.hour
-            WHERE s.booking_id = ?`
-        )
-        .get(b.id)) as { n: number };
-      expect(clash.n).toBe(0);
-      await getDb().prepare("DELETE FROM slot_blocks WHERE court_id = ? AND date = ?").run(c2.id, date);
+      expect(await bookingsInsideBlocks(b.id)).toBe(0);
+      await getDb().prepare("DELETE FROM blocks WHERE court_id = ? AND date = ?").run(c2.id, date);
       await adminCancelBooking(b.code);
     });
 });

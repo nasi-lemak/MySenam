@@ -124,14 +124,14 @@ describe("choosing extras", () => {
   });
 
   it("offers only this sport's and says how many rentals are left", async () => {
-    const list = await offered(venueId, "badminton", day, [18, 19]);
+    const list = await offered(venueId, "badminton", day, { start: 18 * 60, end: 20 * 60 });
     expect(list.map((a) => a.name).sort()).toEqual(["Racket", "Shuttle tube"]);
     expect(list.find((a) => a.id === racket)!.left).toBe(3);
     expect(list.find((a) => a.id === tube)!.left).toBeNull();
   });
 
   it("prices a choice and refuses what is not on offer", async () => {
-    const at = { venueId, sport: "badminton" as const, date: day, hours: [18] };
+    const at = { venueId, sport: "badminton" as const, date: day, span: { start: 18 * 60, end: 19 * 60 } };
     expect(await priceChoice([{ addonId: racket, quantity: 2 }, { addonId: tube, quantity: 1 }], at)).toMatchObject({ ok: true, total: 28.56 });
     expect(await priceChoice([{ addonId: racket, quantity: 0 }], at)).toMatchObject({ ok: false, code: "ADDON_QUANTITY" });
     expect(await priceChoice([{ addonId: racket, quantity: 21 }], at)).toMatchObject({ ok: false, code: "ADDON_QUANTITY" });
@@ -155,8 +155,8 @@ describe("choosing extras", () => {
     expect(await addonsFor([])).toEqual(new Map());
 
     // One racket left at 19:00, three again at 20:00.
-    expect((await offered(venueId, "badminton", day, [19])).find((a) => a.id === racket)!.left).toBe(1);
-    expect((await offered(venueId, "badminton", day, [20])).find((a) => a.id === racket)!.left).toBe(3);
+    expect((await offered(venueId, "badminton", day, { start: 19 * 60, end: 20 * 60 })).find((a) => a.id === racket)!.left).toBe(1);
+    expect((await offered(venueId, "badminton", day, { start: 20 * 60, end: 21 * 60 })).find((a) => a.id === racket)!.left).toBe(3);
 
     // Another court, the same rackets.
     const second = await book([19], "0130000002", day, court2);
@@ -164,7 +164,7 @@ describe("choosing extras", () => {
     // Refused as a whole: the booking stands at its own price, with nothing on it.
     expect(await hasAddons(second.id)).toBe(false);
     expect(await attachAddons(second.id, [{ addonId: racket, quantity: 1 }])).toMatchObject({ ok: true });
-    expect((await offered(venueId, "badminton", day, [19])).find((a) => a.id === racket)!.left).toBe(0);
+    expect((await offered(venueId, "badminton", day, { start: 19 * 60, end: 20 * 60 })).find((a) => a.id === racket)!.left).toBe(0);
     const third = await book([19], "0130000003", addDays(day, 1));
     // Another day is another stock.
     expect(await attachAddons(third.id, [{ addonId: racket, quantity: 3 }])).toMatchObject({ ok: true });
@@ -174,7 +174,7 @@ describe("choosing extras", () => {
 
     // A cancelled booking gives its rackets back.
     await getDb().prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(second.id);
-    expect((await offered(venueId, "badminton", day, [19])).find((a) => a.id === racket)!.left).toBe(1);
+    expect((await offered(venueId, "badminton", day, { start: 19 * 60, end: 20 * 60 })).find((a) => a.id === racket)!.left).toBe(1);
 
     // The desk sees them on the day's list.
     const desk = await listBookingsForDate(day, venueId);

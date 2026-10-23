@@ -16,7 +16,7 @@ import { offeredGateways } from "../src/lib/gateways";
 import { stripe, stripeSignatureValid } from "../src/lib/gateways/stripe";
 import { paymentByBill, paymentSettings, savePaymentSettings, startBookingPayment } from "../src/lib/payments";
 import { createBooking, createCourt, createVenue } from "../src/lib/store";
-import { addDays, isPeak, todayISO } from "../src/lib/time";
+import { addDays, isPeakMinute, todayISO } from "../src/lib/time";
 import { POST as callback } from "../src/app/api/payments/[provider]/callback/route";
 import { POST as book } from "../src/app/api/bookings/route";
 import { setHoldPolicy } from "../src/lib/holds";
@@ -90,7 +90,7 @@ beforeAll(async () => {
   if (!court.ok) throw new Error("court");
   // An off-peak morning, whatever day the suite runs on.
   let offPeak = addDays(todayISO(), 2);
-  while (isPeak(offPeak, 9)) offPeak = addDays(offPeak, 1);
+  while (isPeakMinute(offPeak, 9 * 60)) offPeak = addDays(offPeak, 1);
   const booked = await createBooking({
     courtId: court.court.id,
     date: offPeak,

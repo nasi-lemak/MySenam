@@ -1,4 +1,5 @@
 import { hasBeenLive } from "./listing";
+import { hoursOf } from "./interval";
 import { coachNames } from "./coaching";
 import { refundLines } from "./refund-text";
 import type { CancelRefund } from "./payments";
@@ -368,7 +369,7 @@ interface OfferRow {
   class_id: number | null;
   court_id: number | null;
   date: string | null;
-  start_hour: number | null;
+  start_min: number | null;
   class_name: string | null;
   court_name: string | null;
   venue_id: number | null;
@@ -391,7 +392,7 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
               w.class_id, w.court_id,
               -- A class entry carries no date of its own; the class has it.
               COALESCE(c.date, w.date) AS date,
-              COALESCE(c.start_hour, w.start_hour) AS start_hour,
+              COALESCE(c.start_min, w.start_min) AS start_min,
               c.name AS class_name,
               ct.name AS court_name,
               COALESCE(cc.venue_id, ct.venue_id) AS venue_id
@@ -411,7 +412,7 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
   for (const row of rows) {
     if (row.venue_id === null) continue;
     const what = row.class_name ?? row.court_name;
-    if (!what || !row.date || row.start_hour === null) continue;
+    if (!what || !row.date || row.start_min === null) continue;
     const message = await notifyWaitlistOffer({
       venueId: row.venue_id,
       name: row.name,
@@ -420,7 +421,7 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
       locale: isLocale(row.locale) ? row.locale : "en",
       what,
       date: row.date,
-      startHour: row.start_hour,
+      startHour: hoursOf(row.start_min),
       token: row.offer_token,
     });
     if (message) written.push(message);
@@ -524,7 +525,7 @@ export async function notifyVenueCancelled(booking: Booking, what?: string): Pro
     phone: booking.phone,
     email: booking.email ?? null,
     date: booking.date,
-    startHour: booking.startHour,
+    startMin: booking.startMin,
     summary: `${venue.name} cancelled booking ${booking.code}: ${where}, ${when}.`,
   });
   await deliver(booking, {
@@ -565,7 +566,7 @@ export async function notifyMoved(booking: Booking): Promise<number | null> {
     phone: booking.phone,
     email: booking.email ?? null,
     date: booking.date,
-    startHour: booking.startHour,
+    startMin: booking.startMin,
     summary: `${venue.name} moved booking ${booking.code} to ${where}, ${when}.`,
   });
   await deliver(booking, {
@@ -647,7 +648,7 @@ export async function notifyRescheduled(
     phone: booking.phone,
     email: booking.email ?? null,
     date: booking.date,
-    startHour: booking.startHour,
+    startMin: booking.startMin,
     summary: `${venue.name} changed booking ${booking.code} to ${where}, ${when}.`,
   });
   await deliver(booking, {
@@ -750,7 +751,7 @@ export async function notifyReminders(now = new Date()): Promise<number> {
   let written = 0;
   for (const r of rows) {
     const zone = venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng });
-    const start = slotStartsAt(r.date as string, r.start_hour as number, zone).getTime();
+    const start = slotStartsAt(r.date as string, hoursOf(r.start_min as number), zone).getTime();
     const made = Date.parse(`${(r.created_at as string).replace(" ", "T")}Z`);
     if (start <= now.getTime() || start - now.getTime() > 24 * 3_600_000) continue;
     if (start - made < 24 * 3_600_000) continue;
@@ -773,7 +774,7 @@ export async function notifyReminders(now = new Date()): Promise<number> {
         vars: {
           name: firstName(r.name as string),
           code: r.code as string,
-          ...slot(locale, court.name, venue.name, { date: r.date as string, startHour: r.start_hour as number, endHour: r.end_hour as number }),
+          ...slot(locale, court.name, venue.name, { date: r.date as string, startHour: hoursOf(r.start_min as number), endHour: hoursOf(r.end_min as number) }),
           link: `${await venueBaseUrl(venue.id)}/my-booking`,
         },
       },

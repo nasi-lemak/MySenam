@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatHour, isSlotHour } from "@/lib/time";
+import { formatLength, formatMinute, isMinute, parseClock } from "@/lib/interval";
+import { breachMessage } from "@/lib/booking-rules";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
-import { getCourt, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
+import { getCourt, getVenueIdForBookingCode, policyForCourt, rescheduleBooking, rescheduleOptions } from "@/lib/store";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
 
@@ -23,7 +24,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ options: await rescheduleOptions(code, date) });
 }
 
-/** `{ code, date, startHour, courtId? }` → the booking at its new time; the customer is told. */
+/**
+ * `{ code, date, start, courtId?, override? }` → the booking at its new time
+ * (`start` in minutes of the day or HH:MM; `startHour` the older form); the
+ * customer is told. `override`: a manager going past the court's booking
+ * rules, recorded in the activity log.
+ */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -33,9 +39,13 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, date, startHour, courtId } = body ?? {};
-  if (typeof code !== "string" || typeof date !== "string" || !isSlotHour(startHour))
-    return NextResponse.json({ error: "code, date and startHour are required." }, { status: 400 });
+  const { code, date, startHour, courtId, override } = body ?? {};
+  const start =
+    body.start !== undefined ? (typeof body.start === "string" ? parseClock(body.start) : body.start) : typeof startHour === "number" ? Math.round(startHour * 60) : null;
+  if (typeof code !== "string" || typeof date !== "string" || !isMinute(start))
+    return NextResponse.json({ error: "code, date and start (minutes of the day or HH:MM) are required." }, { status: 400 });
+  if (override === true && admin.role === "desk")
+    return NextResponse.json({ error: "Only a manager may move a booking outside the court's booking rules.", code: "OVERRIDE_NOT_ALLOWED" }, { status: 403 });
   if (courtId !== undefined && courtId !== null && !Number.isInteger(courtId))
     return NextResponse.json({ error: "courtId must be a court's id." }, { status: 400 });
   const venueId = await getVenueIdForBookingCode(code);
@@ -50,7 +60,7 @@ export async function POST(req: NextRequest) {
   }
   const result = await rescheduleBooking(
     code,
-    { date, startHour: startHour as number, ...(typeof courtId === "number" ? { courtId } : {}) },
+    { date, start, ...(typeof courtId === "number" ? { courtId } : {}), override: override === true },
     "staff"
   );
   if (!result.ok) return NextResponse.json(result, { status: 409 });
@@ -58,10 +68,21 @@ export async function POST(req: NextRequest) {
     venueId,
     action: "booking.rescheduled",
     bookingCode: result.booking.code,
-    detail: `${result.from.date} ${formatHour(result.from.startHour)} → ${result.booking.date} ${formatHour(result.booking.startHour)}${
+    detail: `${result.from.date} ${formatMinute(result.from.startMin)} → ${result.booking.date} ${formatMinute(result.booking.startMin)}${
       result.priceChange !== 0 ? `, price ${result.priceChange > 0 ? "+" : ""}${money(result.priceChange)}` : ""
     }`,
   });
+  if (result.overrides && result.overrides.length > 0) {
+    const rules = await policyForCourt(result.booking.courtId);
+    await logAction(admin, {
+      venueId,
+      action: "booking.override",
+      bookingCode: result.booking.code,
+      detail: `${result.booking.date} ${formatMinute(result.booking.startMin)}, ${formatLength(result.booking.endMin - result.booking.startMin)}: past ${result.overrides
+        .map((b) => (rules ? breachMessage(rules, b) : b))
+        .join("; ")}`,
+    });
+  }
   await notifyRescheduled(result.booking, "staff", result.priceChange);
   await tickOutbox();
   return NextResponse.json({

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pass, SPORT_ICONS } from "@/lib/types";
 import { useT } from "@/components/Language";
 import { sportLabel } from "@/lib/i18n";
+import { lengthLabel } from "@/lib/length-label";
 
 /** The signed-in customer's multi-visit passes. */
 export default function MyPasses() {
@@ -37,6 +38,8 @@ export default function MyPasses() {
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {passes.map((pass) => {
+          // A time pass counts court time; a session pass, entries.
+          const amount = (n: number) => (pass.kind === "time" ? lengthLabel(t, n) : String(n));
           const used = pass.entries - pass.remaining;
           const pct = pass.entries > 0 ? Math.round((pass.remaining / pass.entries) * 100) : 0;
           return (
@@ -66,10 +69,10 @@ export default function MyPasses() {
               <div className="mt-3">
                 <div className="flex items-baseline justify-between text-sm">
                   <span>
-                    <span className="text-2xl font-bold text-teal-700">{pass.remaining}</span>
-                    <span className="text-slate-500">{t("passes.ofLeft", { n: pass.entries })}</span>
+                    <span className="text-2xl font-bold text-teal-700">{amount(pass.remaining)}</span>
+                    <span className="text-slate-500">{t(pass.kind === "time" ? "passes.ofLeftTime" : "passes.ofLeft", { n: amount(pass.entries) })}</span>
                   </span>
-                  <span className="text-xs text-slate-400">{t("passes.used", { n: used })}</span>
+                  <span className="text-xs text-slate-400">{t(pass.kind === "time" ? "passes.usedTime" : "passes.used", { n: amount(used) })}</span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
                   <div

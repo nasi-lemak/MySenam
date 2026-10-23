@@ -2,7 +2,8 @@ import { getDb } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { refundCancelled } from "./payments";
 import { adminCancelBooking, blockSlots, getCourt, venueHours } from "./store";
-import { isPastSlot, isValidDateString, SLOT, slotsBetween, todayISO } from "./time";
+import { isValidDateString, todayISO } from "./time";
+import { hoursOf, instantOf, minutesOf } from "./interval";
 import type { Booking } from "./types";
 
 /**
@@ -19,14 +20,17 @@ export interface RainOut {
   venueId: number;
   courtIds: number[];
   date: string;
-  fromHour: number;
-  untilHour: number;
+  /** The time rained off, in minutes of the day (or hours, the older way). */
+  fromMin?: number;
+  untilMin?: number;
+  fromHour?: number;
+  untilHour?: number;
   reason?: string;
   preview?: boolean;
 }
 
 export type RainOutResult =
-  | { ok: true; bookings: Booking[] | { code: string; name: string; startHour: number }[]; classes: number; blocked: number }
+  | { ok: true; bookings: Booking[] | { code: string; name: string; startMin: number; startHour: number }[]; classes: number; blocked: number }
   | { ok: false; error: string };
 
 export async function rainOut(input: RainOut): Promise<RainOutResult> {
@@ -37,32 +41,36 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
     const court = await getCourt(id);
     if (!court || court.venueId !== input.venueId) return { ok: false, error: "Those courts are not all at this venue." };
   }
-  const { openHour, closeHour, zone } = await venueHours(input.venueId, input.date);
-  if (!(input.fromHour < input.untilHour) || input.fromHour < openHour || input.untilHour > closeHour)
+  const from = input.fromMin ?? (input.fromHour === undefined ? NaN : minutesOf(input.fromHour));
+  const until = input.untilMin ?? (input.untilHour === undefined ? NaN : minutesOf(input.untilHour));
+  const { openMin, closeMin, zone } = await venueHours(input.venueId, input.date);
+  if (!(from < until) || from < openMin || until > closeMin)
     return { ok: false, error: "Give hours inside the day's opening hours, the first before the last." };
 
   const db = getDb();
   const marks = courtIds.map(() => "?").join(",");
-  // By the slots they hold, so a booking across a linked court is found too (lib/court-links.ts).
+  // By what holds the courts' spaces, so a booking across a linked court is found too (lib/court-links.ts).
+  const holding = `(c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id IN (${marks})) OR (c.space_id IS NULL AND c.court_id IN (${marks})))`;
   const bookings = (await db
     .prepare(
-      `SELECT DISTINCT b.code, b.name, b.start_hour, b.end_hour FROM booking_slots s JOIN bookings b ON b.id = s.booking_id
-        WHERE s.court_id IN (${marks}) AND s.date = ? AND s.hour >= ? AND s.hour < ?
-          AND b.status = 'confirmed' AND b.class_id IS NULL
-        ORDER BY b.start_hour`
+      `SELECT DISTINCT b.code, b.name, b.start_min, b.end_min FROM claims c JOIN bookings b ON b.id = c.booking_id
+        WHERE c.active AND ${holding} AND b.date = ? AND b.start_min < ? AND b.end_min > ?
+          AND b.status = 'confirmed'
+        ORDER BY b.start_min`
     )
-    .all(...courtIds, input.date, input.fromHour, input.untilHour)) as { code: string; name: string; start_hour: number; end_hour: number }[];
+    .all(...courtIds, ...courtIds, input.date, until, from)) as { code: string; name: string; start_min: number; end_min: number }[];
   const classes = (await db
     .prepare(
-      `SELECT id FROM classes WHERE court_id IN (${marks}) AND date = ? AND status = 'scheduled'
-          AND start_hour < ? AND end_hour > ?`
+      `SELECT DISTINCT k.id FROM claims c JOIN classes k ON k.id = c.class_id
+        WHERE c.active AND ${holding} AND k.date = ? AND k.status = 'scheduled' AND k.start_min < ? AND k.end_min > ?`
     )
-    .all(...courtIds, input.date, input.untilHour, input.fromHour)) as { id: number }[];
+    .all(...courtIds, ...courtIds, input.date, until, from)) as { id: number }[];
   // One that has finished is left alone, as when staff cancel one (lib/store.ts `adminCancelBooking`).
-  const live = bookings.filter((b) => !isPastSlot(input.date, Number(b.end_hour), zone));
+  const now = Date.now();
+  const live = bookings.filter((b) => instantOf(input.date, b.end_min, zone).getTime() > now);
 
   if (input.preview)
-    return { ok: true, bookings: live.map((b) => ({ code: b.code, name: b.name, startHour: Number(b.start_hour) })), classes: classes.length, blocked: 0 };
+    return { ok: true, bookings: live.map((b) => ({ code: b.code, name: b.name, startMin: b.start_min, startHour: hoursOf(b.start_min) })), classes: classes.length, blocked: 0 };
 
   const cancelled: Booking[] = [];
   let classesOff = 0;
@@ -74,12 +82,13 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
     await notifyVenueCancelled(done.booking);
     cancelled.push(done.booking);
   }
-  // Nobody books what is left of those hours meanwhile.
-  const hours = slotsBetween(input.fromHour, input.untilHour, SLOT).filter((h) => !isPastSlot(input.date, h, zone));
+  // Nobody books what is left of that time meanwhile: from the next minute, or the start.
+  const nowMinute = Math.ceil((now - instantOf(input.date, 0, zone).getTime()) / 60_000);
+  const start = Math.max(from, nowMinute);
   let blocked = 0;
   const reason = (input.reason ?? "").trim().slice(0, 80) || "Rained off";
-  if (hours.length > 0)
-    for (const id of courtIds) if ((await blockSlots(id, input.date, hours, reason, undefined, SLOT)).ok) blocked++;
+  if (start < until)
+    for (const id of courtIds) if ((await blockSlots(id, input.date, { start, end: until }, reason)).ok) blocked++;
   await tickOutbox();
   return { ok: true, bookings: cancelled, classes: classesOff, blocked };
 }

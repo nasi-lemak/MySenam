@@ -23,12 +23,21 @@ change, update this page, and update [feature status](feature-status.md).
 
 ## Bookings
 
-- **One slot rule everywhere.** Every court's diary is half hours. Every
-  route that takes a time (booking, waitlist, extras, moving, blocking)
-  accepts starts on the unit the sport is sold by there (`unitFor()`; blocking
-  the venue's finest), and uses the same availability:
-  bookings, blocks, outages, closures and linked courts
-  ([booking](../features/booking.md)).
+- **Nothing overlaps on a court.** Everything that holds court time
+  (bookings, held bookings, waiting-list offers, classes, blocks, tournament
+  holds, outages, buffers) is a claim, and the database refuses an overlap
+  or a shared facility over capacity whatever wrote it
+  ([booking time model](../architecture/interval-booking-review.md)).
+- **One set of booking rules everywhere.** Every route that takes a time
+  (booking, any court, several courts, weekly bookings, waitlist, moving,
+  rescheduling, the public API) checks the court's booking rules (starts,
+  lengths, hours, notice) the same way. Only a manager may go past them, and
+  it is recorded; nobody goes past a claim or a buffer
+  ([booking](../features/booking.md#booking-rules-starts-lengths-buffers)).
+- **One price for the same time.** Quotes, bookings, weekly bookings,
+  moves, rescheduling and refunds price court time through one function,
+  to the minute, rounded once; discounts come off the court time, never
+  setup or cleanup fees ([pricing](../features/pricing.md#prices-to-the-minute)).
 - **Weekly bookings skip closed weeks**, saying which and why, rather than
   booking into a day the venue is shut.
 - **Cancelling happens once.** A cancellation claims the booking

@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { releaseBooking } from "./claims";
 import { addDays, todayISO } from "./time";
 import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
 import { bookingCancelled, forgetPlayer } from "./games";
@@ -375,7 +376,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
     },
     signIns: await all("SELECT provider, email, created_at FROM user_identities WHERE user_id = ?", userId),
     bookings: await all(
-      `SELECT b.code, b.date, b.start_hour, b.end_hour, b.total_price, b.status,
+      `SELECT b.code, b.date, b.start_min, b.end_min, b.total_price, b.status,
               b.payment_status, b.created_at, c.name AS court, v.name AS venue
        FROM bookings b
        JOIN courts c ON c.id = b.court_id
@@ -417,7 +418,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     games: await all(
-      `SELECT b.date, b.start_hour, v.name AS venue, c.sport,
+      `SELECT b.date, b.start_min, v.name AS venue, c.sport,
               CASE WHEN g.host_id = ? THEN 'host' ELSE p.status END AS role,
               g.share, p.paid_at AS share_paid_at, p.no_show
          FROM open_games g
@@ -457,7 +458,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     waitlist: await all(
-      `SELECT w.status, w.date, w.start_hour, w.end_hour, w.name, w.phone, w.email, w.created_at, k.name AS class
+      `SELECT w.status, w.date, w.start_min, w.end_min, w.name, w.phone, w.email, w.created_at, k.name AS class
          FROM waitlist w LEFT JOIN classes k ON k.id = w.class_id
         WHERE w.user_id = ? ORDER BY w.id`,
       userId
@@ -570,18 +571,18 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
     phone,
     venues: names.map((v) => v.name),
     bookings: await all(
-      `SELECT b.code, b.date, b.start_hour, b.end_hour, b.name, b.phone, b.email, b.total_price, b.status, b.payment_status,
+      `SELECT b.code, b.date, b.start_min, b.end_min, b.name, b.phone, b.email, b.total_price, b.status, b.payment_status,
               b.paid_via, b.no_show, b.late_cancelled, b.created_at, c.name AS court, v.name AS venue,
               ci.checked_in_at, ci.checked_out_at
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
          LEFT JOIN check_ins ci ON ci.booking_id = b.id
         WHERE c.venue_id IN (${marks}) AND b.phone_key = phone_key(?)
-        ORDER BY b.date DESC, b.start_hour DESC`,
+        ORDER BY b.date DESC, b.start_min DESC`,
       ...venueIds,
       phone
     ),
     waitlist: await all(
-      `SELECT w.status, w.date, w.start_hour, w.end_hour, w.name, w.phone, w.email, w.created_at, k.name AS class
+      `SELECT w.status, w.date, w.start_min, w.end_min, w.name, w.phone, w.email, w.created_at, k.name AS class
          FROM waitlist w
          LEFT JOIN classes k ON k.id = w.class_id
          LEFT JOIN courts c ON c.id = COALESCE(w.court_id, k.court_id)
@@ -760,7 +761,7 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       .all(userId, today) as { id: number }[];
     for (const booking of upcoming) {
       await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-      await db.prepare("DELETE FROM booking_slots WHERE booking_id = ?").run(booking.id);
+      await releaseBooking(booking.id);
       // Players in an open game on it hear it is off, and are owed their shares.
       await bookingCancelled(booking.id);
       // So are friends who paid a share of it.

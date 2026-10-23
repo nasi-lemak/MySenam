@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { formatHour } from "@/lib/time";
-import { MAX_CANCEL_CUTOFF_HOURS, SPORT_LABELS, usualHours, type Sport } from "@/lib/types";
+import { clockOf, parseClock } from "@/lib/interval";
+import { MAX_CANCEL_CUTOFF_HOURS, SPORT_LABELS, type Sport } from "@/lib/types";
 
 interface SportPeak {
   weekdayFrom: number;
@@ -16,18 +16,17 @@ interface Rules {
   cutoffHours: number | null;
   lateKeep: number | "none" | null;
   peak: SportPeak | null;
-  slotMinutes: 30 | 60 | null;
 }
 
 const CUTOFFS = [0, 1, 2, 3, 6, 12, 24, 48, MAX_CANCEL_CUTOFF_HOURS];
 const KEEPS = [0, 25, 50, 75, 100];
-const HOURS = Array.from({ length: 25 }, (_, h) => h);
 
 /**
  * A sport's own rules here, over the venue's (lib/sport-rules.ts): when it can
- * be cancelled for free, what a late cancellation keeps, its peak hours, and
- * whether it is sold by the hour or the half hour.
- * Anything left as "venue's" follows the venue's settings.
+ * be cancelled for free, what a late cancellation keeps, and its peak hours
+ * (to the minute). Anything left as "venue's" follows the venue's settings;
+ * when its bookings start and how long they run are its booking rules
+ * (BookingPolicyEditor).
  */
 export function SportRulesEditor({ venueId, sports }: { venueId: number; sports: Sport[] }) {
   const [rules, setRules] = useState<Rules[] | null>(null);
@@ -43,7 +42,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
     void load();
   }, [load]);
 
-  const of = (sport: Sport): Rules => rules?.find((r) => r.sport === sport) ?? { sport, cutoffHours: null, lateKeep: null, peak: null, slotMinutes: null };
+  const of = (sport: Sport): Rules => rules?.find((r) => r.sport === sport) ?? { sport, cutoffHours: null, lateKeep: null, peak: null };
 
   async function save(next: Rules) {
     setError(null);
@@ -59,15 +58,14 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
     await load();
   }
 
-  // One sport has the venue's settings to itself, unless its usual game is
-  // not whole hours (padel's 90 minutes), when what it is sold by is its own.
-  if (!rules || (sports.length < 2 && sports.every((s) => Number.isInteger(usualHours(s))))) return null;
+  // One sport has the venue's settings to itself.
+  if (!rules || sports.length < 2) return null;
   return (
     <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <h3 className="font-semibold">Rules by sport</h3>
       <p className="mt-1 text-xs text-slate-500">
         Where one sport needs different rules from the rest: tennis cancelled a day ahead while badminton is two hours, or pickleball
-        at peak from 5 PM, or padel sold by the hour. Anything left on <em>venue&apos;s</em> follows the venue&apos;s settings. Customers see the sport&apos;s
+        at peak from 5 PM. Anything left on <em>venue&apos;s</em> follows the venue&apos;s settings. Customers see the sport&apos;s
         own rules before they book it.
       </p>
       <table className="mt-2 w-full min-w-[640px] text-xs">
@@ -76,7 +74,6 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
             <th className="py-1 pr-2 font-medium">Sport</th>
             <th className="py-1 pr-2 font-medium">Free cancellation until</th>
             <th className="py-1 pr-2 font-medium">Cancelled later, online</th>
-            <th className="py-1 pr-2 font-medium">Sold by</th>
             <th className="py-1 font-medium">Peak hours</th>
           </tr>
         </thead>
@@ -84,15 +81,22 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
           {sports.map((sport) => {
             const r = of(sport);
             const sel = "rounded-md border border-slate-300 px-1.5 py-1 text-xs";
-            const peak = r.peak ?? { weekdayFrom: 18, weekdayUntil: 24, weekendFrom: 0, weekendUntil: 24 };
+            const peak = r.peak ?? { weekdayFrom: 18 * 60, weekdayUntil: 24 * 60, weekendFrom: 0, weekendUntil: 24 * 60 };
+            // Any minute; an end at or before the start runs into the next morning (00:00 is midnight).
             const hourSel = (key: keyof SportPeak) => (
-              <select value={peak[key]} onChange={(e) => save({ ...r, peak: { ...peak, [key]: Number(e.target.value) } })} className={sel}>
-                {HOURS.map((h) => (
-                  <option key={h} value={h}>
-                    {h === 24 ? "midnight" : formatHour(h)}
-                  </option>
-                ))}
-              </select>
+              <input
+                type="time"
+                step={60}
+                defaultValue={clockOf(peak[key])}
+                onBlur={(e) => {
+                  let m = parseClock(e.target.value);
+                  if (m === null) return;
+                  const from = key === "weekdayUntil" ? peak.weekdayFrom : key === "weekendUntil" ? peak.weekendFrom : null;
+                  if (from !== null && m < from) m += 1440;
+                  if (m !== peak[key]) void save({ ...r, peak: { ...peak, [key]: m } });
+                }}
+                className={sel}
+              />
             );
             return (
               <tr key={sport} className="border-t border-slate-100 align-top">
@@ -126,17 +130,6 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
                         keep {k}%
                       </option>
                     ))}
-                  </select>
-                </td>
-                <td className="py-1.5 pr-2">
-                  <select
-                    value={r.slotMinutes ?? ""}
-                    onChange={(e) => save({ ...r, slotMinutes: e.target.value === "" ? null : (Number(e.target.value) as 30 | 60) })}
-                    className={sel}
-                  >
-                    <option value="">{Number.isInteger(usualHours(sport)) ? "venue's" : "half hour (usual)"}</option>
-                    <option value={60}>the hour</option>
-                    <option value={30}>the half hour</option>
                   </select>
                 </td>
                 <td className="py-1.5">

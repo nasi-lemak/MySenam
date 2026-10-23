@@ -87,10 +87,11 @@ describe("shared-capacity resources", () => {
     expect(a.ok && b.ok).toBe(true);
     if (!a.ok || !b.ok) return;
 
-    const seats = await getDb()
-      .prepare("SELECT seat FROM booking_slots WHERE court_id = ? AND date = ? AND hour = 14 ORDER BY seat")
-      .all(court.id, date) as { seat: number }[];
-    expect(seats.map((s) => s.seat)).toEqual([0, 1]);
+    // Each holds one place of the two, for its own time.
+    const held = (await getDb()
+      .prepare("SELECT places FROM claims WHERE court_id = ? AND active AND kind = 'booking' ORDER BY id")
+      .all(court.id)) as { places: number }[];
+    expect(held.map((h) => h.places)).toEqual([1, 1]);
 
     // full, then one cancels and the place is reusable
     expect(
@@ -111,12 +112,25 @@ describe("shared-capacity resources", () => {
     expect(booking.ok).toBe(true);
     if (!booking.ok) return;
 
-    // taking the same place twice violates UNIQUE (court, date, hour, seat)
+    // Holding the same time twice, however it is written, is refused by the
+    // exclusion constraint (code 23P01), whatever the application checked first.
     await expect(
       db
-        .prepare("INSERT INTO booking_slots (booking_id, court_id, date, hour, seat) VALUES (?, ?, ?, ?, ?)")
-        .run(booking.booking.id, court.id, date, 9, 0)
-    ).rejects.toThrow(/duplicate key value violates unique constraint/);
+        .prepare(
+          `INSERT INTO claims (venue_id, court_id, space_id, kind, booking_id, during, occupied)
+           SELECT venue_id, court_id, space_id, 'booking', booking_id, during, occupied FROM claims WHERE booking_id = ?`
+        )
+        .run(booking.booking.id)
+    ).rejects.toMatchObject({ code: "23P01" });
+    // Nor can it be held by places instead, round the constraint.
+    await expect(
+      db
+        .prepare(
+          `INSERT INTO claims (venue_id, court_id, places, kind, booking_id, during, occupied)
+           SELECT venue_id, court_id, 1, 'booking', booking_id, during, occupied FROM claims WHERE booking_id = ?`
+        )
+        .run(booking.booking.id)
+    ).rejects.toMatchObject({ code: "23514" });
   });
 
   it("hides a full shared slot from cross-venue search", async () => {

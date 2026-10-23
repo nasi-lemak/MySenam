@@ -1,8 +1,10 @@
-import { getDb, isUniqueViolation, withTransaction } from "./db";
+import { getDb, withTransaction } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { isAmount, money, roundMoney } from "./region";
-import { addDays, isPastSlot, isValidDateString, SLOT, slotsBetween, todayISO } from "./time";
-import { SPORTS, type Refusal, type Sport } from "./types";
+import { addDays, isValidDateString, todayISO } from "./time";
+import { SPORTS, type Refusal, type Sport, type StartOption } from "./types";
+import { LATEST_MINUTE, freeWithin, instantOf, minuteOfDay, rangeLiteral, type Span } from "./interval";
+import { isConflict, occupantsOn } from "./claims";
 
 /**
  * One-to-one coaching. A venue lists its coaches, what each coaches, their
@@ -11,15 +13,16 @@ import { SPORTS, type Refusal, type Sport } from "./types";
  * them, and the coach's fee goes on top of its price, so paying, cancelling,
  * receipts and reports all work as for any booking.
  *
- * A coach is in one place at a time. Each lesson writes a row per slot into
- * `coach_slots`, keyed on the coach and the time, so two lessons cannot take
- * the same coach at once. A cancelled lesson's rows are cleared when it is
- * cancelled, or found stale and cleared by the next booking that wants the time.
+ * A coach is in one place at a time. Each lesson claims the coach for its
+ * time (`coach_claims`), and an exclusion constraint refuses two lessons that
+ * overlap by a minute, whatever courts they are on. A cancelled lesson lets
+ * its claim go (lib/store.ts `releaseBooking`).
  */
 
 export interface CoachHours {
   /** 0 is Sunday. */
   weekday: number;
+  /** Minutes of the day they start and stop taking lessons. */
   from: number;
   until: number;
 }
@@ -62,8 +65,8 @@ interface CoachRow {
 async function withHours(rows: CoachRow[]): Promise<Coach[]> {
   if (rows.length === 0) return [];
   const hours = (await getDb()
-    .prepare(`SELECT coach_id, weekday, from_hour, until_hour FROM coach_hours WHERE coach_id IN (${rows.map(() => "?").join(",")}) ORDER BY weekday, from_hour`)
-    .all(...rows.map((r) => r.id))) as { coach_id: number; weekday: number; from_hour: number; until_hour: number }[];
+    .prepare(`SELECT coach_id, weekday, from_min, until_min FROM coach_hours WHERE coach_id IN (${rows.map(() => "?").join(",")}) ORDER BY weekday, from_min`)
+    .all(...rows.map((r) => r.id))) as { coach_id: number; weekday: number; from_min: number; until_min: number }[];
   const off = (await getDb()
     .prepare(
       `SELECT id, coach_id, from_date, until_date, reason FROM coach_time_off
@@ -80,7 +83,7 @@ async function withHours(rows: CoachRow[]): Promise<Coach[]> {
     active: r.active === 1,
     hours: hours
       .filter((h) => h.coach_id === r.id)
-      .map((h) => ({ weekday: h.weekday, from: Number(h.from_hour), until: Number(h.until_hour) })),
+      .map((h) => ({ weekday: h.weekday, from: h.from_min, until: h.until_min })),
     timeOff: off.filter((o) => o.coach_id === r.id).map((o) => ({ id: o.id, from: o.from_date, until: o.until_date, reason: o.reason })),
   }));
 }
@@ -126,8 +129,8 @@ function readHours(raw: unknown): CoachHours[] | string {
     const weekday = Number(h?.weekday);
     const from = Number(h?.from);
     const until = Number(h?.until);
-    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6 || !(from >= 0 && until <= 24 && from < until) || from * 2 !== Math.round(from * 2) || until * 2 !== Math.round(until * 2))
-      return "Each stretch of hours needs a day, and a start before its end, on the hour or half hour.";
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6 || !Number.isInteger(from) || !Number.isInteger(until) || !(from >= 0 && until <= LATEST_MINUTE && from < until))
+      return "Each stretch of hours needs a day, and a start before its end, in minutes of the day.";
     hours.push({ weekday, from, until });
   }
   return hours;
@@ -144,7 +147,7 @@ export async function setCoachHours(coachId: number, raw: unknown): Promise<{ ok
     const db = getDb();
     await db.prepare("DELETE FROM coach_hours WHERE coach_id = ?").run(coachId);
     for (const h of hours)
-      await db.prepare("INSERT INTO coach_hours (coach_id, weekday, from_hour, until_hour) VALUES (?, ?, ?, ?)").run(coachId, h.weekday, h.from, h.until);
+      await db.prepare("INSERT INTO coach_hours (coach_id, weekday, from_min, until_min) VALUES (?, ?, ?, ?)").run(coachId, h.weekday, h.from, h.until);
     await db.prepare("UPDATE coaches SET self_changed_at = datetime('now') WHERE id = ?").run(coachId);
     return { ok: true as const, coach: (await coachById(coachId))! };
   });
@@ -200,7 +203,7 @@ export async function saveCoach(venueId: number, input: CoachInput & { id?: unkn
         .get(venueId, name, bio, sports.join(","), rate)) as { id: number }).id;
     }
     for (const h of hours)
-      await db.prepare("INSERT INTO coach_hours (coach_id, weekday, from_hour, until_hour) VALUES (?, ?, ?, ?)").run(id, h.weekday, h.from, h.until);
+      await db.prepare("INSERT INTO coach_hours (coach_id, weekday, from_min, until_min) VALUES (?, ?, ?, ?)").run(id, h.weekday, h.from, h.until);
     return { ok: true as const, coach: (await coachById(id))! };
   });
 }
@@ -213,82 +216,87 @@ export async function retireCoach(id: number, venueId: number): Promise<boolean>
 
 const weekdayOf = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay();
 
-/** Does the coach take lessons through all of these slots, each `step` hours long, on that day? */
-export function coachWorks(coach: Coach, date: string, hours: number[], step: number): boolean {
+/** Does the coach take lessons through the whole of this time on that day? */
+export function coachWorks(coach: Coach, date: string, span: Span): boolean {
   if (coach.timeOff.some((o) => date >= o.from && date <= o.until)) return false;
-  const day = coach.hours.filter((h) => h.weekday === weekdayOf(date));
-  return hours.every((h) => day.some((w) => h >= w.from && h + step <= w.until));
+  return coach.hours.some((w) => w.weekday === weekdayOf(date) && span.start >= w.from && span.end <= w.until);
 }
 
-/** Slots this coach is already taken, by a lesson still standing. */
-async function takenSlots(coachId: number, date: string): Promise<Set<number>> {
+/** The time this coach is already in lessons on a date, in that day's minutes. */
+async function coachBusy(coachId: number, date: string, zone: string): Promise<Span[]> {
+  const day = `[${instantOf(date, -24 * 60, zone).toISOString()},${instantOf(date, LATEST_MINUTE + 24 * 60, zone).toISOString()})`;
   const rows = (await getDb()
-    .prepare(
-      `SELECT s.hour FROM coach_slots s JOIN bookings b ON b.id = s.booking_id
-        WHERE s.coach_id = ? AND s.date = ? AND b.status = 'confirmed'`
-    )
-    .all(coachId, date)) as { hour: number }[];
-  return new Set(rows.map((r) => Number(r.hour)));
+    .prepare(`SELECT lower(during) AS lo, upper(during) AS hi FROM coach_claims WHERE coach_id = ? AND active AND during && ?::tstzrange`)
+    .all(coachId, day)) as { lo: Date; hi: Date }[];
+  return rows.map((r) => ({ start: minuteOfDay(new Date(r.lo), date, zone), end: minuteOfDay(new Date(r.hi), date, zone) }));
 }
 
 /**
- * The slots a lesson with this coach can start in on a date: the coach takes
- * lessons then, is not already taken, it has not passed, and a court of one
- * of their sports is free.
+ * Where a lesson with this coach can start on a date, and the longest it may
+ * run from each: a start a court of the sport allows and is free from, while
+ * the coach takes lessons then and is in no other.
  */
-export async function lessonSlots(
-  coach: Coach,
-  date: string,
-  freeCourtAt: (hour: number) => boolean,
-  venue: { openHour: number; closeHour: number; zone: string },
-  /** What the lesson's sport is sold by here: each slot is that long. */
-  unit: number
-): Promise<number[]> {
-  const taken = await takenSlots(coach.id, date);
-  return slotsBetween(venue.openHour, venue.closeHour, unit).filter(
-    (h) =>
-      coachWorks(coach, date, [h], unit) &&
-      slotsBetween(h, h + unit, SLOT).every((half) => !taken.has(half)) &&
-      !isPastSlot(date, h, venue.zone) &&
-      freeCourtAt(h)
-  );
+export async function lessonStarts(coach: Coach, date: string, sport: Sport): Promise<StartOption[]> {
+  // Imported here: lib/store.ts reads this module.
+  const { courtDaysFor, startOptions } = await import("./store");
+  const courts = ((await getDb().prepare("SELECT * FROM courts WHERE venue_id = ? AND sport = ? ORDER BY id").all(coach.venueId, sport)) as { id: number }[]).map((c) => c.id);
+  if (courts.length === 0) return [];
+  const days = await courtDaysFor(courts, date);
+  const first = [...days.values()][0];
+  const held = await occupantsOn([...days.values()].map((d) => d.court), date, first.zone);
+  const busy = await coachBusy(coach.id, date, first.zone);
+  const free = coach.timeOff.some((o) => date >= o.from && date <= o.until)
+    ? []
+    : coach.hours.filter((w) => w.weekday === weekdayOf(date)).flatMap((w) => freeWithin({ start: w.from, end: w.until }, busy));
+  const best = new Map<number, number>();
+  for (const day of days.values()) {
+    for (const option of startOptions(day, held.get(day.court.id)!, date)) {
+      const window = free.find((f) => f.start <= option.minute && option.minute < f.end);
+      if (!window) continue;
+      const longest = Math.min(option.maxLength, window.end - option.minute);
+      if (longest < day.policy.minLength) continue;
+      best.set(option.minute, Math.max(best.get(option.minute) ?? 0, longest));
+    }
+  }
+  return [...best].sort((a, b) => a[0] - b[0]).map(([minute, maxLength]) => ({ minute, maxLength }));
 }
 
 export type AttachResult = { ok: true; fee: number } | Refusal;
 
 /**
- * Put the coach on a booking just made: their slots claimed, their fee on its
- * price. Refused, and nothing changed, when the coach is taken or not working
- * then; the caller lets the booking go.
+ * Put the coach on a booking just made: the coach claimed for its time,
+ * their fee on its price, pro rata to the minute. Refused, and nothing
+ * changed, when the coach is taken or not working then; the caller lets the
+ * booking go.
  */
 export async function attachCoach(bookingId: number, coach: Coach): Promise<AttachResult> {
   const db = getDb();
   const booking = (await db
-    .prepare("SELECT b.id, b.date, b.start_hour, b.end_hour, c.sport, c.venue_id FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?")
-    .get(bookingId)) as { id: number; date: string; start_hour: number; end_hour: number; sport: Sport; venue_id: number } | undefined;
+    .prepare(
+      `SELECT b.id, b.date, b.start_min, b.end_min, c.sport, c.venue_id, v.time_zone, v.lat, v.lng
+         FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id WHERE b.id = ?`
+    )
+    .get(bookingId)) as
+    | { id: number; date: string; start_min: number; end_min: number; sport: Sport; venue_id: number; time_zone: string | null; lat: number | null; lng: number | null }
+    | undefined;
   if (!booking || booking.venue_id !== coach.venueId || !coach.active) return refuse("COACH_NOT_FOUND");
   if (!coach.sports.includes(booking.sport)) return refuse("COACH_NOT_FOUND");
-  // The coach's time is kept in the diary's half hours, as the court's is.
-  const hours = slotsBetween(Number(booking.start_hour), Number(booking.end_hour), SLOT);
-  if (!coachWorks(coach, booking.date, hours, SLOT)) return refuse("COACH_NOT_WORKING", { name: coach.name });
-  const fee = roundMoney(coach.rate * hours.length * SLOT);
+  const span = { start: booking.start_min, end: booking.end_min };
+  if (!coachWorks(coach, booking.date, span)) return refuse("COACH_NOT_WORKING", { name: coach.name });
+  const fee = roundMoney((coach.rate * (span.end - span.start)) / 60);
+  const { venueZoneOf } = await import("./zones");
+  const zone = venueZoneOf(booking);
   try {
     await withTransaction(async () => {
-      // Rows left by a lesson since cancelled are stale: clear them first.
       await db
-        .prepare(
-          `DELETE FROM coach_slots WHERE coach_id = ? AND date = ?
-             AND booking_id IN (SELECT id FROM bookings WHERE status <> 'confirmed')`
-        )
-        .run(coach.id, booking.date);
-      for (const h of hours)
-        await db.prepare("INSERT INTO coach_slots (coach_id, date, hour, booking_id) VALUES (?, ?, ?, ?)").run(coach.id, booking.date, h, bookingId);
+        .prepare("INSERT INTO coach_claims (coach_id, booking_id, during) VALUES (?, ?, ?::tstzrange)")
+        .run(coach.id, bookingId, rangeLiteral(booking.date, span.start, span.end, zone));
       await db
         .prepare("UPDATE bookings SET coach_id = ?, coach_fee = ?, total_price = total_price + ? WHERE id = ?")
         .run(coach.id, fee, fee, bookingId);
     });
   } catch (err) {
-    if (isUniqueViolation(err)) return refuse("COACH_TAKEN", { name: coach.name });
+    if (isConflict(err)) return refuse("COACH_TAKEN", { name: coach.name });
     throw err;
   }
   return { ok: true, fee };

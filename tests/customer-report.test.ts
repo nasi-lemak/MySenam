@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+import { moveBookingToDate } from "./helpers/bookings";
 import { customerReport } from "../src/lib/customer-report";
 import { getDb } from "../src/lib/db";
 import { createBooking, createCourt, createVenue } from "../src/lib/store";
@@ -20,8 +21,8 @@ async function played(name: string, phone: string, daysAgo: number, extra: Recor
   if (!made.ok) throw new Error(made.error);
   if (hour > 21) hour = 8;
   const sets = Object.keys(extra).map((k) => `, ${k} = ?`).join("");
-  await getDb().prepare(`UPDATE bookings SET date = ?${sets} WHERE id = ?`).run(addDays(today, -daysAgo), ...Object.values(extra), made.booking.id);
-  await getDb().prepare("UPDATE booking_slots SET date = ? WHERE booking_id = ?").run(addDays(today, -daysAgo), made.booking.id);
+  await moveBookingToDate(made.booking.id, addDays(today, -daysAgo));
+  if (sets) await getDb().prepare(`UPDATE bookings SET ${sets.slice(2)} WHERE id = ?`).run(...Object.values(extra), made.booking.id);
 }
 
 beforeAll(async () => {

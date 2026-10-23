@@ -83,12 +83,12 @@ describe("booking several courts as one", () => {
   });
 
   it("is all or nothing even when something breaks part-way", async () => {
-    // The third court's places cannot be written: the database itself refuses.
+    // The third court's claim cannot be written: the database itself refuses.
     const db = getDb();
     await db.exec(`
       CREATE OR REPLACE FUNCTION refuse_test_court() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN RAISE EXCEPTION 'disk full'; END $$;
-      CREATE TRIGGER refuse_test_court BEFORE INSERT ON booking_slots
+      CREATE TRIGGER refuse_test_court BEFORE INSERT ON claims
         FOR EACH ROW WHEN (NEW.court_id = ${courts[2]}) EXECUTE FUNCTION refuse_test_court();
     `);
     try {
@@ -98,7 +98,7 @@ describe("booking several courts as one", () => {
       ).rejects.toThrow();
       expect(await bookingCount()).toBe(before);
     } finally {
-      await db.exec("DROP TRIGGER refuse_test_court ON booking_slots; DROP FUNCTION refuse_test_court();");
+      await db.exec("DROP TRIGGER refuse_test_court ON claims; DROP FUNCTION refuse_test_court();");
     }
   });
 

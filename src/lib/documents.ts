@@ -2,6 +2,7 @@ import { getDb, isUniqueViolation } from "./db";
 import { roundMoney } from "./region";
 import { taxIncluded, venueTax } from "./tax";
 import { formatHour } from "./time";
+import { hoursOf } from "./interval";
 import { PAID_VIA_LABELS, SPORT_LABELS, type PaidVia } from "./types";
 
 /**
@@ -306,7 +307,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   const db = getDb();
   const b = (await db
     .prepare(
-      `SELECT b.code, b.user_id, b.name, b.phone, b.date, b.start_hour, b.end_hour, b.total_price::float AS total_price,
+      `SELECT b.code, b.user_id, b.name, b.phone, b.date, b.start_min, b.end_min, b.total_price::float AS total_price,
               b.shares_paid::float AS shares_paid, b.deposit_paid::float AS deposit_paid, b.tax_rate, b.status, b.payment_status, b.paid_via,
               b.coach_fee::float AS coach_fee, k.name AS coach_name,
               b.concession_name, b.concession_off::float AS concession_off, b.concession_check, b.players,
@@ -315,7 +316,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     )
     .get(bookingId)) as
     | {
-        code: string; user_id: number | null; name: string; phone: string; date: string; start_hour: number; end_hour: number;
+        code: string; user_id: number | null; name: string; phone: string; date: string; start_min: number; end_min: number;
         total_price: number; shares_paid: number; deposit_paid: number; tax_rate: number | string | null; status: string; payment_status: string;
         paid_via: string | null; court_name: string; sport: string; venue_id: number;
         coach_fee: number; coach_name: string | null;
@@ -336,7 +337,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   const discount = (promo?.discount ?? 0) + concession;
   const lines: Line[] = [
     {
-      description: `${b.court_name} (${SPORT_LABELS[b.sport as keyof typeof SPORT_LABELS] ?? b.sport}), ${b.date} ${formatHour(b.start_hour)}–${formatHour(b.end_hour)}${
+      description: `${b.court_name} (${SPORT_LABELS[b.sport as keyof typeof SPORT_LABELS] ?? b.sport}), ${b.date} ${formatHour(hoursOf(b.start_min))}–${formatHour(hoursOf(b.end_min))}${
         Number(b.players) > 1 ? `, ${b.players} players` : ""
       }`,
       amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee),

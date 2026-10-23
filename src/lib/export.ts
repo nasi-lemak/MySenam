@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { hoursOf } from "./interval";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
 import { currencySymbol } from "./region";
 import { taxIncluded, taxName } from "./tax";
@@ -30,7 +31,7 @@ const hour = (h: number) => `${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ?
 export async function bookingsCsv(venueId: number, from: string, to: string): Promise<string> {
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.series_code, b.date, b.start_hour, b.end_hour, c.name AS court, c.sport,
+      `SELECT b.code, b.series_code, b.date, b.start_min, b.end_min, c.name AS court, c.sport,
               b.name, b.phone, b.email, b.status, b.released_unpaid, b.total_price, b.tax_rate, b.payment_status, b.paid_via, b.paid_at,
               (SELECT discount FROM promo_uses u WHERE u.booking_id = b.id) AS discount,
               (SELECT STRING_AGG(a.quantity || ' x ' || a.name, '; ') FROM booking_addons a WHERE a.booking_id = b.id) AS extras,
@@ -38,7 +39,7 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
          FROM bookings b JOIN courts c ON c.id = b.court_id
          LEFT JOIN check_ins ci ON ci.booking_id = b.id
         WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ?
-        ORDER BY b.date, b.start_hour, b.id`
+        ORDER BY b.date, b.start_min, b.id`
     )
     .all(venueId, from, to)) as Record<string, unknown>[];
   return toCsv(
@@ -50,8 +51,8 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
       r.code,
       r.series_code,
       r.date,
-      hour(Number(r.start_hour)),
-      hour(Number(r.end_hour)),
+      hour(hoursOf(r.start_min as number)),
+      hour(hoursOf(r.end_min as number)),
       r.court,
       r.sport,
       r.name,

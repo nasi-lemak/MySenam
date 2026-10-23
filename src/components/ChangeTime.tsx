@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import type { RescheduleOption } from "@/lib/store";
-import { addDays, formatHour, todayISO } from "@/lib/time";
+import { addDays, todayISO } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
 import type { Booking } from "@/lib/types";
 import { MAX_ADVANCE_DAYS } from "@/lib/types";
 import { money } from "@/lib/region";
@@ -37,7 +38,7 @@ export function ChangeTime({
   const [options, setOptions] = useState<RescheduleOption[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const length = booking.endHour - booking.startHour;
+  const length = booking.endMin - booking.startMin;
   // A customer who has paid may not move to a dearer time; staff may.
   const paidLimit = !staff && booking.paymentStatus === "paid";
 
@@ -57,7 +58,7 @@ export function ChangeTime({
     };
   }, [date, optionsUrl, t]);
 
-  const when = (o: RescheduleOption) => `${date}, ${formatHour(o.startHour)}–${formatHour(o.startHour + length)}`;
+  const when = (o: RescheduleOption) => `${date}, ${formatMinute(o.startMin)}–${formatMinute(o.startMin + length)}`;
 
   async function choose(o: RescheduleOption) {
     if (!window.confirm(t("resched.confirm", { code: booking.code, when: when(o) }))) return;
@@ -97,12 +98,12 @@ export function ChangeTime({
         {options !== null && shown.length === 0 && <p className="text-xs text-slate-600">{t("resched.none")}</p>}
         {shown.map((o) => (
           <button
-            key={`${o.startHour}-${o.courtId}`}
+            key={`${o.startMin}-${o.courtId}`}
             disabled={busy}
             onClick={() => choose(o)}
             className="rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-left text-xs font-semibold text-teal-700 hover:bg-teal-100 disabled:opacity-50"
           >
-            {formatHour(o.startHour)}–{formatHour(o.startHour + length)}
+            {formatMinute(o.startMin)}–{formatMinute(o.startMin + length)}
             <span className="block font-normal text-slate-500">
               {o.courtId !== booking.courtId || staff ? `${o.courtName} · ` : ""}{money(o.price.toFixed(2))}
               {o.difference !== 0 && ` (${o.difference > 0 ? "+" : "−"}${money(Math.abs(o.difference).toFixed(2))})`}

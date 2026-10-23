@@ -1,6 +1,8 @@
 # ADR 0009: A half-hour diary, sold by the sport
 
-- **Status:** current; supersedes [ADR 0008](0008-slot-length-per-venue.md).
+- **Status:** superseded by [ADR 0010](0010-interval-booking.md) before it
+  reached production; it superseded [ADR 0008](0008-slot-length-per-venue.md).
+  The tables and functions it names were dropped by migration 0091.
 - **Context:** padel is sold in 90-minute games, badminton by the hour, and a
   hall with both wants each sold its own way. Under ADR 0008 a venue's slot
   length was both how its diary was stored and how it was sold, so a mixed

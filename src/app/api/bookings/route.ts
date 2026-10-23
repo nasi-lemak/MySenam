@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyConcession, concessionById } from "@/lib/concessions";
 import { phoneRefusal } from "@/lib/phone-check";
-import { refusal } from "@/lib/api";
+import { readTime, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
+import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
+import { logAction } from "@/lib/activity";
+import { breachMessage } from "@/lib/booking-rules";
 import {
   applyPromo,
   createBookingOnAnyCourt,
@@ -14,7 +17,8 @@ import {
   getVenue,
   payBookingFromWallet,
   payBookingWithPass,
-  sellUnit,
+  policyForCourt,
+  requestedSpan,
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
 import { customerMayBook, guestSurge } from "@/lib/limits";
@@ -23,7 +27,8 @@ import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
 import { cutoffFor } from "@/lib/sport-rules";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { addDays, isSlotHour, isValidDateString, todayISO } from "@/lib/time";
+import { addDays, isValidDateString, todayISO } from "@/lib/time";
+import { formatLength, formatMinute } from "@/lib/interval";
 import { windowFor } from "@/lib/house-rules";
 import { MAX_SERIES_WEEKS, Sport, SPORTS } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
@@ -50,7 +55,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, hours, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver } =
+  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -69,8 +74,10 @@ export async function POST(req: NextRequest) {
   }
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-  if (!Array.isArray(hours) || hours.length === 0 || !hours.every(isSlotHour))
-    return NextResponse.json({ error: "hours must be a list of slot start times (whole or half hours)." }, { status: 400 });
+  // Exact minutes (start and end, or start and a length), or the older list of grid columns.
+  const time = readTime((body ?? {}) as Record<string, unknown>);
+  if (!time.ok) return NextResponse.json({ error: time.error }, { status: 400 });
+  const when = time.when;
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Please provide your name." }, { status: 400 });
   if (typeof phone !== "string" || !/^\+?[0-9 -]{7,20}$/.test(phone.trim()))
@@ -96,6 +103,17 @@ export async function POST(req: NextRequest) {
 
   const limited = await rateLimit(req, "booking");
   if (limited) return limited;
+
+  // Staff may book outside a court's booking policy (its starts, lengths,
+  // hours, notice and window), never over anything that holds the court.
+  // Managers only, at their own venue, and each time it is recorded.
+  let staff: Awaited<ReturnType<typeof getSessionAdmin>> = null;
+  if (override === true) {
+    staff = await getSessionAdmin(req);
+    const venueToOverride = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
+    if (!staff || staff.role === "desk" || venueToOverride === undefined || !canAccessVenue(staff, venueToOverride))
+      return refusal({ ok: false, error: "Only a manager of this venue may book outside its booking rules.", code: "OVERRIDE_NOT_ALLOWED" }, 403);
+  }
 
   const user = await getSessionUser(req);
   // An account books with a number the venue can reach, checked where numbers are.
@@ -151,7 +169,9 @@ export async function POST(req: NextRequest) {
     const lessonSport = anyCourt ? (sport as Sport) : (await getCourt(courtId as number))?.sport;
     if (!coach || !coach.active || coach.venueId !== venueOfBooking || !lessonSport || !coach.sports.includes(lessonSport))
       return refusal({ ok: false, error: "That coach does not give lessons in this sport here.", code: "COACH_NOT_FOUND" });
-    if (!coachWorks(coach, date, hours as number[], await sellUnit(coach.venueId, lessonSport)))
+    const lesson = await requestedSpan(anyCourt ? { venueId: venueOfBooking!, sport: lessonSport } : { courtId: courtId as number }, when);
+    if (!lesson.ok) return refusal(lesson);
+    if (!coachWorks(coach, date, lesson.span))
       return refusal({
         ok: false,
         error: `${coach.name} does not take lessons at that time. Pick one of the times shown.`,
@@ -167,11 +187,13 @@ export async function POST(req: NextRequest) {
       return refusal({ ok: false, error: "A pass pays for court time only. Pay for a booking with extras another way.", code: "PASS_NOT_FOR_EXTRAS" });
     const court = anyCourt ? null : await getCourt(courtId as number);
     if (venueOfBooking !== undefined && (anyCourt || court)) {
+      const asked = await requestedSpan(anyCourt ? { venueId: venueOfBooking, sport: sport as Sport } : { courtId: court!.id }, when);
+      if (!asked.ok) return refusal(asked);
       const priced = await priceChoice(chosen, {
         venueId: venueOfBooking,
         sport: anyCourt ? (sport as Sport) : court!.sport,
         date,
-        hours: hours as number[],
+        span: asked.span,
       });
       if (!priced.ok) return refusal(priced);
     }
@@ -179,7 +201,8 @@ export async function POST(req: NextRequest) {
 
   const common = {
     date,
-    hours: hours as number[],
+    ...when,
+    ...(staff ? { staff: { override: true } } : {}),
     weeks: (weeks as number) ?? 1,
     name: name.trim(),
     phone: phone.trim(),
@@ -201,6 +224,21 @@ export async function POST(req: NextRequest) {
       : await createBookingSeries({ ...common, courtId: courtId as number });
 
   if (!result.ok) return refusal(result);
+
+  // Outside the court's rules, on a manager's say: on the record.
+  if (staff && result.overrides && result.overrides.length > 0) {
+    const first = result.bookings[0];
+    const rules = await policyForCourt(first.courtId);
+    for (const booking of result.bookings)
+      await logAction(staff, {
+        venueId: (await getCourt(booking.courtId))?.venueId ?? null,
+        action: "booking.override",
+        bookingCode: booking.code,
+        detail: `${booking.date} ${formatMinute(booking.startMin)}, ${formatLength(booking.endMin - booking.startMin)}: past ${result.overrides
+          .map((b) => (rules ? breachMessage(rules, b) : b))
+          .join("; ")}`,
+      });
+  }
 
   // The coach goes on before anything is paid, so the fee is in every total
   // that follows. Taken meanwhile by somebody else: the court goes too.

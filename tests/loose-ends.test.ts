@@ -77,7 +77,7 @@ describe("search", () => {
 describe("messages", () => {
   it("name the coach on a lesson's confirmation", async () => {
     const saved = await saveCoach(venueId, {
-      name: "Ana Lim", sports: ["tennis"], rate: 50, hours: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 8, until: 20 })),
+      name: "Ana Lim", sports: ["tennis"], rate: 50, hours: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: 8 * 60, until: 20 * 60 })),
     });
     if (!saved.ok) throw new Error(saved.error);
     const res = await post({ venueId, sport: "tennis", date: addDays(todayISO(), 3), hours: [10], coachId: saved.coach.id });

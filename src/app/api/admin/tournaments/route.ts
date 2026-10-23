@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readMinute } from "@/lib/api";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format } from "@/lib/tournaments";
 import type { Level } from "@/lib/games";
@@ -47,8 +48,10 @@ export async function POST(req: NextRequest) {
       advance: Number(b.advance) || undefined,
       startsOn: String(b.startsOn ?? ""),
       endsOn: String(b.endsOn ?? ""),
-      startHour: Number(b.startHour),
-      endHour: Number(b.endHour),
+      // Each day's time, in minutes of the day or HH:MM (startHour and endHour, the older form), and each match's length.
+      startMin: readMinute(b, "startMin", "startHour"),
+      endMin: readMinute(b, "endMin", "endHour"),
+      ...(b.matchMinutes !== undefined ? { matchMinutes: Number(b.matchMinutes) } : {}),
       courtIds: Array.isArray(b.courtIds) ? b.courtIds.map(Number) : [],
       description: typeof b.description === "string" ? b.description : undefined,
     },

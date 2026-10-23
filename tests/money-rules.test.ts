@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+import { moveBookingToDate } from "./helpers/bookings";
 import { ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
 import { savePaymentSettings, settleBill, startBookingPayment } from "../src/lib/payments";
@@ -129,8 +130,7 @@ describe("marking a booking unpaid", () => {
 describe("cancelling by staff", () => {
   it("is not for an hour already played, nor is closing a day gone by", async () => {
     const b = await book(15);
-    await getDb().prepare("UPDATE bookings SET date = ? WHERE id = ?").run(addDays(todayISO(ZONE), -1), b.id);
-    await getDb().prepare("UPDATE booking_slots SET date = ? WHERE booking_id = ?").run(addDays(todayISO(ZONE), -1), b.id);
+    await moveBookingToDate(b.id, addDays(todayISO(ZONE), -1));
     expect(await adminCancelBooking(b.code)).toMatchObject({ ok: false, code: "CANCEL_PLAYED" });
     expect(await closeVenueDay(venueId, addDays(todayISO(ZONE), -1))).toMatchObject({ ok: false, code: "CLOSURE_PAST" });
   });

@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { SPORTS, type Refusal, type Sport } from "./types";
+import type { Span } from "./interval";
 import { errorText, translator, type ErrorCode } from "./i18n";
-import { slotsBetween } from "./time";
 
 /**
  * Extras with a booking: a racket and a tube of shuttles for a casual player,
@@ -157,26 +157,28 @@ export function readAddonInput(b: Record<string, unknown>): AddonInput {
   };
 }
 
-/** Rentals of this add-on already out in each of these hours of a day. */
-async function rentedOut(addonId: number, date: string, hours: number[], excludeBookingId?: number): Promise<number> {
+/** The most of this add-on out on hire at any moment of a time on a day. */
+async function rentedOut(addonId: number, date: string, span: Span, excludeBookingId?: number): Promise<number> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT b.start_min, b.end_min, ba.quantity FROM booking_addons ba JOIN bookings b ON b.id = ba.booking_id
+        WHERE ba.addon_id = ? AND b.status = 'confirmed' AND b.date = ? AND b.start_min < ? AND b.end_min > ?
+          AND b.id <> ?`
+    )
+    .all(addonId, date, span.end, span.start, excludeBookingId ?? 0)) as { start_min: number; end_min: number; quantity: number }[];
+  const edges = rows
+    .flatMap((r) => [[Math.max(r.start_min, span.start), r.quantity], [Math.min(r.end_min, span.end), -r.quantity]] as [number, number][])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let load = 0;
   let most = 0;
-  for (const h of hours) {
-    const { n } = (await getDb()
-      .prepare(
-        `SELECT COALESCE(SUM(ba.quantity), 0)::int AS n FROM booking_addons ba JOIN bookings b ON b.id = ba.booking_id
-          WHERE ba.addon_id = ? AND b.status = 'confirmed' AND b.date = ? AND b.start_hour <= ? AND b.end_hour > ?
-            AND b.id <> ?`
-      )
-      .get(addonId, date, h, h, excludeBookingId ?? 0)) as { n: number };
-    most = Math.max(most, n);
-  }
+  for (const [, d] of edges) most = Math.max(most, (load += d));
   return most;
 }
 
-/** What a venue offers with this sport at this time, with how many rentals are left. */
-export async function offered(venueId: number, sport: Sport, date: string, hours: number[]): Promise<Addon[]> {
+export async function offered(venueId: number, sport: Sport, date: string, span: Span | null): Promise<Addon[]> {
   const list = await listAddons(venueId, { activeOnly: true, sport });
-  for (const a of list) a.left = a.stock === null ? null : Math.max(0, a.stock - (await rentedOut(a.id, date, hours)));
+  // No time chosen yet: what the venue has, before anything is out.
+  for (const a of list) a.left = a.stock === null ? null : Math.max(0, a.stock - (span ? await rentedOut(a.id, date, span) : 0));
   return list;
 }
 
@@ -189,7 +191,7 @@ function refuse(code: ErrorCode, vars?: Record<string, string | number>): Refusa
 /** Check what was chosen against what is offered, and price it. */
 export async function priceChoice(
   chosen: Chosen[],
-  at: { venueId: number; sport: Sport; date: string; hours: number[]; excludeBookingId?: number }
+  at: { venueId: number; sport: Sport; date: string; span: Span; excludeBookingId?: number }
 ): Promise<ChooseResult> {
   const lines: BookingAddon[] = [];
   const seen = new Set<number>();
@@ -202,7 +204,7 @@ export async function priceChoice(
     if (!addon || !addon.active || addon.venueId !== at.venueId || (addon.sport !== null && addon.sport !== at.sport))
       return refuse("ADDON_NOT_OFFERED");
     if (addon.stock !== null) {
-      const left = addon.stock - (await rentedOut(addon.id, at.date, at.hours, at.excludeBookingId));
+      const left = addon.stock - (await rentedOut(addon.id, at.date, at.span, at.excludeBookingId));
       if (c.quantity > left)
         return left <= 0
           ? refuse("ADDON_SOLD_OUT", { name: addon.name.toLowerCase() })
@@ -224,14 +226,12 @@ export async function attachAddons(bookingId: number, chosen: Chosen[]): Promise
   return db.transaction(async () => {
     const b = (await db
       .prepare(
-        `SELECT b.id, b.date, b.start_hour, b.end_hour, c.venue_id, c.sport
+        `SELECT b.id, b.date, b.start_min, b.end_min, c.venue_id, c.sport
            FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
       )
-      .get(bookingId)) as { id: number; date: string; start_hour: number; end_hour: number; venue_id: number; sport: Sport } | undefined;
+      .get(bookingId)) as { id: number; date: string; start_min: number; end_min: number; venue_id: number; sport: Sport } | undefined;
     if (!b) return refuse("BOOKING_NOT_FOUND");
-    // By the half hour, which finds an overlap whichever way the venue sells.
-    const hours = slotsBetween(b.start_hour, b.end_hour, 0.5);
-    const priced = await priceChoice(chosen, { venueId: b.venue_id, sport: b.sport, date: b.date, hours, excludeBookingId: b.id });
+    const priced = await priceChoice(chosen, { venueId: b.venue_id, sport: b.sport, date: b.date, span: { start: b.start_min, end: b.end_min }, excludeBookingId: b.id });
     if (!priced.ok) return priced;
     for (const l of priced.lines)
       await db

@@ -67,8 +67,6 @@ export async function PATCH(
     deposit,
     unmanned,
     accessCode,
-    minHours,
-    maxHours,
     perPlayer,
     maxPlayers,
   } = (body ?? {}) as Record<string, unknown>;
@@ -83,8 +81,6 @@ export async function PATCH(
     deposit?: number;
     unmanned?: boolean;
     accessCode?: string | null;
-    minHours?: number | null;
-    maxHours?: number | null;
     perPlayer?: boolean;
     maxPlayers?: number | null;
   } = {};
@@ -95,12 +91,6 @@ export async function PATCH(
   if (maxPlayers !== undefined) {
     if (maxPlayers !== null && typeof maxPlayers !== "number") return NextResponse.json({ error: "maxPlayers must be a number, or null." }, { status: 400 });
     changes.maxPlayers = maxPlayers as number | null;
-  }
-  // The shortest and longest one booking may be; null for the usual (checked in lib/store.ts).
-  for (const [key, h] of [["minHours", minHours], ["maxHours", maxHours]] as const) {
-    if (h === undefined) continue;
-    if (h !== null && typeof h !== "number") return NextResponse.json({ error: `${key} must be a number of hours, or null.` }, { status: 400 });
-    changes[key] = h as number | null;
   }
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length < 2)

@@ -50,8 +50,10 @@ Everything is in one Postgres database ([database](database.md)). Every path
 that checks and then writes — a court's last free hour, a wallet balance, a
 pass entry, a class's last place — runs in one `SERIALIZABLE` transaction,
 retried on a serialization failure or deadlock (`withTransaction` in
-`src/lib/db.ts`). Double-booking of an exclusive court is additionally
-prevented by a unique key on `booking_slots (court_id, date, hour)`. What is
+`src/lib/db.ts`). Overlapping court time is additionally refused by the
+database itself: everything that occupies a court is a claim, under an
+exclusion constraint for exclusive courts and a capacity trigger for shared
+facilities ([booking time model](interval-booking-review.md)). What is
 and is not proven about this is in
 [booking concurrency](booking-concurrency.md).
 

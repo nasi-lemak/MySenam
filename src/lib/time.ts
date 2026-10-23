@@ -1,5 +1,5 @@
-import { MAX_ADVANCE_DAYS } from "./types";
-import { region } from "./region";
+import { MAX_ADVANCE_DAYS } from "./types.ts";
+import { region } from "./region.ts";
 
 /**
  * Time zones. Every venue keeps its courts' times in its own wall-clock time:
@@ -92,11 +92,12 @@ export function dayOfWeek(date: string): number {
 }
 
 /**
- * When a venue's peak rate applies. Each venue sets its own (migration 0038);
- * the default is weekday evenings from 18:00 and all weekend.
+ * When a venue's peak rate applies. Each venue sets its own; the default is
+ * weekday evenings from 18:00 and all weekend. Times are minutes of the
+ * business day (ADR 0010), so a peak can start at 17:30 or 17:45.
  */
 export interface PeakRules {
-  /** Peak on a working day from this hour until `weekdayUntil`. The same hour twice: no peak. */
+  /** Peak on a working day from this minute until `weekdayUntil`. The same minute twice: no peak. */
   weekdayFrom: number;
   weekdayUntil: number;
   /** The days (0 = Sunday) priced as the weekend: Friday and Saturday in some states. */
@@ -106,9 +107,9 @@ export interface PeakRules {
   /** Dates priced as the weekend: public, school and festive holidays. */
   holidays: string[];
   /**
-   * Last-minute prices: an hour starting within `hours` of now costs
-   * `percent` less, for a booking made now; only off-peak hours where
-   * `offPeakOnly`. Times are the venue's, in `zone`. Null: none.
+   * Last-minute prices: time starting within `hours` of now costs `percent`
+   * less, for a booking made now; only off-peak time where `offPeakOnly`.
+   * Times are the venue's, in `zone`. Null: none.
    */
   lastMinute?: LastMinute | null;
   /** A sport's own peak window here, over the venue's (lib/sport-rules.ts); applied by `forSport`. */
@@ -129,32 +130,36 @@ export interface LastMinute {
 }
 
 export const DEFAULT_PEAK: PeakRules = {
-  weekdayFrom: 18,
-  weekdayUntil: 24,
+  weekdayFrom: 18 * 60,
+  weekdayUntil: 24 * 60,
   weekendDays: [0, 6],
   weekendFrom: 0,
-  weekendUntil: 24,
+  weekendUntil: 24 * 60,
   holidays: [],
 };
 
-/**
- * The last-minute discount (percent) on the slot starting at `hour` on `date`,
- * for a booking made at `at`; 0 when none applies.
- */
-export function lastMinuteOff(date: string, hour: number, rules: PeakRules, at: number): number {
-  const lm = rules.lastMinute;
-  if (!lm) return 0;
-  if (lm.offPeakOnly && isPeak(date, hour, rules)) return 0;
-  const until = slotStartsAt(date, hour, lm.zone).getTime() - at;
-  return until > 0 && until <= lm.hours * 3_600_000 ? lm.percent : 0;
+/** The peak window on a date: the weekend's on weekend days and holidays, else the weekday's. */
+export function peakWindow(date: string, rules: PeakRules = DEFAULT_PEAK): { from: number; until: number } {
+  const weekend = rules.weekendDays.includes(dayOfWeek(date)) || rules.holidays.includes(date);
+  return weekend ? { from: rules.weekendFrom, until: rules.weekendUntil } : { from: rules.weekdayFrom, until: rules.weekdayUntil };
 }
 
-/** Is the hour starting at `hour` on `date` priced at the peak rate? */
-export function isPeak(date: string, hour: number, rules: PeakRules = DEFAULT_PEAK): boolean {
-  const weekend = rules.weekendDays.includes(dayOfWeek(date)) || rules.holidays.includes(date);
-  return weekend
-    ? hour >= rules.weekendFrom && hour < rules.weekendUntil
-    : hour >= rules.weekdayFrom && hour < rules.weekdayUntil;
+/** Is minute `minute` of `date` at the peak rate? */
+export function isPeakMinute(date: string, minute: number, rules: PeakRules = DEFAULT_PEAK): boolean {
+  const w = peakWindow(date, rules);
+  return minute >= w.from && minute < w.until;
+}
+
+/**
+ * The last-minute discount (percent) on time starting at minute `minute` of
+ * `date`, for a booking made at `at`; 0 when none applies.
+ */
+export function lastMinuteOffAt(date: string, minute: number, rules: PeakRules, at: number): number {
+  const lm = rules.lastMinute;
+  if (!lm) return 0;
+  if (lm.offPeakOnly && isPeakMinute(date, minute, rules)) return 0;
+  const until = slotStartsAt(date, minute / 60, lm.zone).getTime() - at;
+  return until > 0 && until <= lm.hours * 3_600_000 ? lm.percent : 0;
 }
 
 export function addDays(date: string, days: number): string {
@@ -198,45 +203,6 @@ export function slotStartsAt(date: string, hour: number, zone: string = installZ
   let at = wall - zoneOffsetMinutes(new Date(wall), zone) * 60_000;
   at = wall - zoneOffsetMinutes(new Date(at), zone) * 60_000;
   return new Date(at);
-}
-
-/**
- * How time is kept: every court's diary is in half hours, whatever it is sold
- * by (ADR 0008). A booking of 10–11 holds the slots 10 and 10.5; a block, a
- * class or an outage covers each half it falls on. What a customer may pick
- * is the sport's own unit (`sellUnit` in lib/store.ts), made of these.
- */
-export const SLOT = 0.5;
-
-/** The half hours that slots of `unit` hours starting at `hours` cover: [10, 11] by the hour is 10, 10.5, 11, 11.5. */
-export function expandSlots(hours: number[], unit: number): number[] {
-  return hours.flatMap((h) => slotsBetween(h, h + unit, SLOT));
-}
-
-/** The slots from `start` up to `end`, each `step` hours long: 18, 18.5, 19… */
-export function slotsBetween(start: number, end: number, step = 1): number[] {
-  const out: number[] = [];
-  for (let i = 0; start + i * step < end - 1e-9; i++) out.push(start + i * step);
-  return out;
-}
-
-/** Whether these slot starts follow on from each other without a gap. */
-export function consecutive(hours: number[], step = 1): boolean {
-  return hours.every((h, i) => i === 0 || Math.abs(h - hours[i - 1] - step) < 1e-9);
-}
-
-/** Whether a time falls on a slot boundary: any hour, or the half hour where slots are halves. */
-export function onSlot(hour: number, step = 1): boolean {
-  return Number.isFinite(hour) && Math.abs(hour / step - Math.round(hour / step)) < 1e-9;
-}
-
-/**
- * A slot's start as a request may give it: on the hour or the half hour,
- * within the day. Whether the venue sells halves is checked where it books.
- */
-export function isSlotHour(h: unknown): h is number {
-  // Past 24 for a venue open after midnight: its 1 AM is hour 25 of the evening before.
-  return typeof h === "number" && onSlot(h, 0.5) && h >= 0 && h < 28;
 }
 
 /** Hours from now until a slot starts; negative once it has begun. */

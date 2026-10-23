@@ -1,6 +1,9 @@
 # ADR 0002: Concurrency is the database's job
 
-- **Status:** current.
+- **Status:** current. The court-time mechanism it names was replaced by
+  claims under an exclusion constraint and a capacity trigger
+  ([ADR 0010](0010-interval-booking.md)), which applies this decision to
+  everything that holds a court.
 - **Context:** two customers can try to book the last free hour, spend the
   same balance or take the last class place at the same moment, possibly on
   different app instances.
