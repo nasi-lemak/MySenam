@@ -115,7 +115,8 @@ describe("refunding through Stripe", () => {
       .prepare("SELECT SUM(amount)::float AS total FROM online_refunds WHERE payment_id = ?")
       .get(id)) as { total: number };
     expect(total).toBe(18.5);
-    expect(a.ok && a.pending).toBe(true);
+    // Whichever of the two got there first, Stripe's refund is still on its way.
+    expect([a, b].find((r) => r.ok)).toMatchObject({ pending: true });
   });
 
   it("cannot also be marked refunded by hand while the Stripe refund is on its way", async () => {
