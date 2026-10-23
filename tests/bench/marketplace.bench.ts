@@ -19,6 +19,9 @@ import { describe, expect, it } from "vitest";
 const url = process.env.BENCH_DATABASE_URL;
 const VENUES = Number(process.env.BENCH_VENUES ?? 400);
 const RUNS = Number(process.env.BENCH_RUNS ?? 20);
+/** The mixed-traffic phase: so many customers at once, for so long. */
+const WORKERS = Number(process.env.BENCH_WORKERS ?? 16);
+const SECONDS = Number(process.env.BENCH_SECONDS ?? 20);
 
 /** Venue types: what their resources are, and how many of each. */
 const TYPES: { weight: number; courts: [string, number, number][] }[] = [
@@ -47,21 +50,27 @@ function rng(seed: number) {
   };
 }
 
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
 function stats(ms: number[]) {
   const s = [...ms].sort((a, b) => a - b);
   const at = (p: number) => s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
-  return { p50: Math.round(at(50) * 10) / 10, p95: Math.round(at(95) * 10) / 10, max: Math.round(s[s.length - 1] * 10) / 10 };
+  return { n: s.length, p50: round1(at(50)), p95: round1(at(95)), p99: round1(at(99)), max: round1(s[s.length - 1]) };
 }
+
+/** Statements sent so far (lib/db.ts), to count what each operation costs. */
+let queries: () => number = () => 0;
 
 async function time<T>(label: string, runs: number, fn: (i: number) => Promise<T>, out: Record<string, unknown>) {
   await fn(-1); // warm
   const ms: number[] = [];
+  const q0 = queries();
   for (let i = 0; i < runs; i++) {
     const t0 = performance.now();
     await fn(i);
     ms.push(performance.now() - t0);
   }
-  out[label] = stats(ms);
+  out[label] = { ...stats(ms), queries: round1((queries() - q0) / runs) };
   console.log(`BENCH ${label}: ${JSON.stringify(out[label])}`);
 }
 
@@ -69,7 +78,8 @@ describe.skipIf(!url)("a marketplace at scale", () => {
   it("is filled, then timed", async () => {
     process.env.DATABASE_URL = url;
     process.env.MYSENAM_GEOCODER = "off";
-    const { getDb } = await import("../../src/lib/db");
+    const { getDb, transactionStats, resetTransactionStats } = await import("../../src/lib/db");
+    queries = () => transactionStats().queries;
     const store = await import("../../src/lib/store");
     const { createResources } = await import("../../src/lib/resources");
     const { checkIntegrity } = await import("../../src/lib/integrity");
@@ -208,12 +218,11 @@ describe.skipIf(!url)("a marketplace at scale", () => {
       }
       return null;
     };
-    let made = 0;
+    // Free times found first, so the booking alone is timed.
+    const frees = await Promise.all(Array.from({ length: RUNS + 1 }, (_, i) => free(i + 1000)));
     await time("book a court (customer)", RUNS, async (i) => {
-      const f = await free(i + 1000);
-      if (!f) return;
-      const r = await store.createBooking({ ...f, end: f.start + 60, name: "Bench Live", phone: `017${String(1000000 + i + 1000)}` });
-      if (r.ok) made++;
+      const f = frees[i + 1];
+      if (f) await store.createBooking({ ...f, end: f.start + 60, name: "Bench Live", phone: `017${String(1000000 + i + 1000)}` });
     }, out);
     // A place on a shared floor: the capacity trigger sums what else is held then.
     const floors = (await db
@@ -252,10 +261,78 @@ describe.skipIf(!url)("a marketplace at scale", () => {
     };
     console.log(`BENCH 50 bookings at once: ${JSON.stringify(out["50 bookings at once"])}`);
 
+    // Mixed traffic: customers searching, opening venue grids and booking, all at once.
+    const pgStats = async () =>
+      (await db
+        .prepare(
+          `SELECT xact_commit::int AS commits, xact_rollback::int AS rollbacks, blks_read::int AS read, blks_hit::int AS hit, deadlocks::int AS deadlocks
+             FROM pg_stat_database WHERE datname = current_database()`
+        )
+        .get()) as Record<string, number>;
+    const before = await pgStats();
+    resetTransactionStats();
+    const cpu0 = process.cpuUsage();
+    const lat: Record<string, number[]> = { search: [], grid: [], book: [] };
+    const outcome = { booked: 0, refused: 0, busy: 0, errors: [] as string[] };
+    const stopAt = performance.now() + SECONDS * 1000;
+    let rss = 0;
+    let k = 5000;
+    await Promise.all(
+      Array.from({ length: WORKERS }, async () => {
+        while (performance.now() < stopAt) {
+          const i = k++;
+          const roll = i % 10;
+          const t0 = performance.now();
+          try {
+            if (roll < 6) {
+              await store.searchAvailability({ sport: "badminton", date: date(i), fromMin: 17 * 60, toMin: 22 * 60, minutes: 60, area: pick(i).area });
+              lat.search.push(performance.now() - t0);
+            } else if (roll < 8) {
+              await store.getAvailability(pick(i).id, date(i));
+              lat.grid.push(performance.now() - t0);
+            } else {
+              const f = await free(i);
+              const t1 = performance.now();
+              if (!f) continue;
+              const r = await store.createBooking({ ...f, end: f.start + 60, name: "Bench Mixed", phone: `016${String(1000000 + i)}` });
+              lat.book.push(performance.now() - t1);
+              if (r.ok) outcome.booked++;
+              else if (r.code === "BUSY") outcome.busy++;
+              else outcome.refused++;
+            }
+          } catch (e) {
+            outcome.errors.push((e as Error).message.slice(0, 80));
+          }
+          rss = Math.max(rss, process.memoryUsage().rss);
+        }
+      })
+    );
+    const cpu = process.cpuUsage(cpu0);
+    const after = await pgStats();
+    const tx = transactionStats();
+    const ops = lat.search.length + lat.grid.length + lat.book.length;
+    out["mixed traffic"] = {
+      workers: WORKERS,
+      seconds: SECONDS,
+      pool: Number(process.env.DATABASE_POOL_SIZE ?? 10),
+      opsPerSecond: round1(ops / SECONDS),
+      search: stats(lat.search),
+      grid: stats(lat.grid),
+      book: stats(lat.book),
+      ...outcome,
+      retries: tx.retries,
+      exhausted: tx.exhausted,
+      queriesPerOp: round1(tx.queries / Math.max(ops, 1)),
+      appCpuSeconds: round1((cpu.user + cpu.system) / 1e6),
+      appPeakRssMb: Math.round(rss / 1e6),
+      db: Object.fromEntries(Object.keys(after).map((key) => [key, after[key] - before[key]])),
+    };
+    console.log(`BENCH mixed traffic: ${JSON.stringify(out["mixed traffic"])}`);
+
     await time("daily integrity check", Math.min(RUNS, 3), () => checkIntegrity(), out);
     console.log(`BENCH RESULT ${JSON.stringify(out)}`);
     // Vitest shows a passing test's output only sometimes; the file is always there.
     fs.writeFileSync(path.join(os.tmpdir(), "mysenam-bench.json"), JSON.stringify(out, null, 2));
-    expect(made).toBeGreaterThan(0);
+    expect(outcome.booked).toBeGreaterThan(0);
   });
 });

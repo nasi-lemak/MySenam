@@ -1278,7 +1278,27 @@ export async function sportsOfferedAt(venueIds?: number[], opts: { courtsOnly?: 
  * view (a storefront's, an area's), then how many of them offer it, then the
  * catalogue's order. Search keeps the catalogue's order and lists them all.
  */
+/**
+ * Popularity across the marketplace or an area, kept ten minutes: it counts
+ * a month of bookings (about 200 ms at 400 venues) and only orders the home
+ * page's buttons, so a few minutes old is as good as now. Asked about given
+ * venues (a storefront), it is counted fresh.
+ */
+const POPULARITY_MS = 10 * 60_000;
+const popularity = new Map<string, { at: number; order: Sport[] }>();
+
 export async function activitiesByPopularity(scope: { venueIds?: number[]; area?: string } = {}): Promise<Sport[]> {
+  if (scope.venueIds !== undefined) return countPopularity(scope);
+  const key = scope.area ?? "";
+  const kept = popularity.get(key);
+  if (kept && Date.now() - kept.at < POPULARITY_MS) return kept.order;
+  const order = await countPopularity(scope);
+  if (popularity.size > 500) popularity.clear();
+  popularity.set(key, { at: Date.now(), order });
+  return order;
+}
+
+async function countPopularity(scope: { venueIds?: number[]; area?: string }): Promise<Sport[]> {
   const offered = await sportsOfferedAt(scope.venueIds, { courtsOnly: true });
   const params: unknown[] = [addDays(todayISO(), -30)];
   let where = `${listRule(scope.venueIds)} AND NOT c.classes_only`;
@@ -1415,13 +1435,17 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_access: "public" | "members" | "private";
     v_ahead: number | null;
   })[];
-  if (rows.length === 0) return [];
+  // Near somewhere, the box the database searched is cut to the circle before
+  // anything is worked out about the courts in its corners.
+  const near = input.near;
+  const inReach = near ? rows.filter((r) => distanceM(near, { lat: r.v_lat!, lng: r.v_lng! }) / 1000 <= near.km + 0.05) : rows;
+  if (inReach.length === 0) return [];
   const zoneOfRow = (row: (typeof rows)[number]) => venueZoneOf({ time_zone: row.v_time_zone, lat: row.v_lat, lng: row.v_lng });
   // Each court as offered for the activity searched for: its rules and rates for it.
-  const allCourts = rows.map((r) => courtFor(toCourt(r), input.sport));
+  const allCourts = inReach.map((r) => courtFor(toCourt(r), input.sport));
   // Not a court whose policy will not take a booking that long.
   const days = await courtDays(allCourts, input.date);
-  const candidates = rows.filter((row) => lengthAllowed(days.get(row.id)!.policy, length) && !days.get(row.id)!.closed);
+  const candidates = inReach.filter((row) => lengthAllowed(days.get(row.id)!.policy, length) && !days.get(row.id)!.closed);
   if (candidates.length === 0) return [];
   const zones = new Map(candidates.map((row) => [row.v_id, zoneOfRow(row)]));
   const held = await occupantsOn(candidates.map(toCourt), input.date, (venueId) => zones.get(venueId)!);

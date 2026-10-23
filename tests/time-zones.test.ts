@@ -64,6 +64,16 @@ describe("turning a venue's clock into moments", () => {
     expect(zoneOffsetMinutes(new Date("2026-07-15T12:00:00Z"), "America/New_York")).toBe(-240);
   });
 
+  it("stays exact on the day a clock changes, however often it is asked", () => {
+    // New York goes from -5 to -4 at 07:00 UTC on 8 March 2026; ask either side twice.
+    for (let i = 0; i < 2; i++) {
+      expect(zoneOffsetMinutes(new Date("2026-03-08T06:59:00Z"), "America/New_York")).toBe(-300);
+      expect(zoneOffsetMinutes(new Date("2026-03-08T07:00:00Z"), "America/New_York")).toBe(-240);
+      expect(zoneOffsetMinutes(new Date("2026-03-08T23:59:59Z"), "America/New_York")).toBe(-240);
+      expect(zoneOffsetMinutes(new Date("2026-03-08T00:00:00Z"), "America/New_York")).toBe(-300);
+    }
+  });
+
   it("puts 18:00 at the right moment either side of a clock change", () => {
     expect(slotStartsAt("2026-10-21", 18, "Asia/Kuching").toISOString()).toBe("2026-10-21T10:00:00.000Z");
     expect(slotStartsAt("2026-10-21", 18.5, "Asia/Singapore").toISOString()).toBe("2026-10-21T10:30:00.000Z");

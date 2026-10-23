@@ -255,50 +255,65 @@ export async function occupantsOn(
     outage_id: number | null;
     waitlist_id: number | null;
     places: number | null;
-    lo: Date;
-    hi: Date | null;
-    olo: Date;
-    ohi: Date | null;
+    lo: number;
+    hi: number | null;
+    olo: number;
+    ohi: number | null;
     buffer_before: number;
     buffer_after: number;
   };
+  // Moments as epoch milliseconds: numbers are much quicker to read than timestamps.
+  const ms = (e: string) => `(extract(epoch FROM ${e}) * 1000)::float8`;
   const cols = `c.kind, c.court_id, c.booking_id, c.class_id, c.block_id, c.outage_id, c.waitlist_id, c.places,
-    lower(c.during) AS lo, upper(c.during) AS hi, lower(c.occupied) AS olo, upper(c.occupied) AS ohi, c.buffer_before, c.buffer_after`;
+    ${ms("lower(c.during)")} AS lo, ${ms("upper(c.during)")} AS hi, ${ms("lower(c.occupied)")} AS olo, ${ms("upper(c.occupied)")} AS ohi,
+    c.buffer_before, c.buffer_after`;
   const live = "c.active AND (c.expires_at IS NULL OR c.expires_at > now())";
   const rows: Row[] = [];
-  // One window per venue: courts are asked about a venue at a time or across a search.
-  for (const v of venues) {
-    const mineX = exclusive.filter((id) => courts.find((c) => c.id === id)!.venueId === v);
-    const mineS = shared.filter((id) => courts.find((c) => c.id === id)!.venueId === v);
-    if (mineX.length)
-      rows.push(
-        ...((await db
-          .prepare(
-            `SELECT DISTINCT cs.court_id AS for_court, ${cols}
-               FROM court_spaces cs JOIN claims c ON c.space_id = cs.space_id
-              WHERE cs.court_id IN (${mineX.map(() => "?").join(",")}) AND ${live} AND c.occupied && ?::tstzrange`
-          )
-          .all(...mineX, windows.get(v))) as Row[])
-      );
-    if (mineS.length)
-      rows.push(
-        ...((await db
-          .prepare(
-            `SELECT c.court_id AS for_court, ${cols}
-               FROM claims c
-              WHERE c.court_id IN (${mineS.map(() => "?").join(",")}) AND c.space_id IS NULL AND ${live} AND c.occupied && ?::tstzrange`
-          )
-          .all(...mineS, windows.get(v))) as Row[])
-      );
-  }
+  // Two queries whatever the number of courts or venues: each court asked
+  // about with its venue's window, and its claims read by space or court
+  // first, then time (idx_claims_space_ends, idx_claims_court_ends). Reading
+  // by time alone read every claim in the marketplace for that day (B12).
+  const byId = new Map(courts.map((c) => [c.id, c]));
+  const windowOf = (courtId: number) => windows.get(byId.get(courtId)!.venueId)!;
+  if (exclusive.length)
+    rows.push(
+      ...((await db
+        .prepare(
+          `SELECT DISTINCT x.court AS for_court, ${cols}
+             FROM unnest(?::int[], ?::tstzrange[]) AS x(court, win)
+             JOIN court_spaces cs ON cs.court_id = x.court
+             CROSS JOIN LATERAL (
+               SELECT * FROM claims c
+                WHERE c.space_id = cs.space_id AND COALESCE(upper(c.occupied), 'infinity'::timestamptz) > lower(x.win)
+                  AND c.active AND c.space_id IS NOT NULL AND c.occupied && x.win
+             ) c
+            WHERE ${live}`
+        )
+        .all(exclusive, exclusive.map(windowOf))) as Row[])
+    );
+  if (shared.length)
+    rows.push(
+      ...((await db
+        .prepare(
+          `SELECT x.court AS for_court, ${cols}
+             FROM unnest(?::int[], ?::tstzrange[]) AS x(court, win)
+             CROSS JOIN LATERAL (
+               SELECT * FROM claims c
+                WHERE c.court_id = x.court AND COALESCE(upper(c.occupied), 'infinity'::timestamptz) > lower(x.win)
+                  AND c.active AND c.space_id IS NULL AND c.occupied && x.win
+             ) c
+            WHERE ${live}`
+        )
+        .all(shared, shared.map(windowOf))) as Row[])
+    );
   const seen = new Set<string>();
   for (const r of rows) {
-    const court = courts.find((c) => c.id === r.for_court)!;
-    const key = `${r.for_court}|${r.kind}|${r.booking_id ?? r.class_id ?? r.block_id ?? r.outage_id ?? r.waitlist_id}|${new Date(r.lo).getTime()}`;
+    const court = byId.get(r.for_court)!;
+    const key = `${r.for_court}|${r.kind}|${r.booking_id ?? r.class_id ?? r.block_id ?? r.outage_id ?? r.waitlist_id}|${r.lo}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const z = zoneOf(court.venueId);
-    const m = (at: Date | null, open: number) => (at === null ? open : minuteOfDay(new Date(at), date, z));
+    const m = (at: number | null, open: number) => (at === null ? open : minuteOfDay(new Date(at), date, z));
     out.get(r.for_court)!.push({
       kind: r.kind,
       bookingId: r.booking_id,

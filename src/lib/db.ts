@@ -355,15 +355,18 @@ export interface TransactionStats {
   retries: Record<string, number>;
   /** Transactions that ran out of tries. */
   exhausted: number;
+  /** Statements sent through `prepare`, in transactions or not. */
+  queries: number;
 }
-const stats: TransactionStats = { transactions: 0, retries: {}, exhausted: 0 };
+const stats: TransactionStats = { transactions: 0, retries: {}, exhausted: 0, queries: 0 };
 export function transactionStats(): TransactionStats {
-  return { transactions: stats.transactions, retries: { ...stats.retries }, exhausted: stats.exhausted };
+  return { ...stats, retries: { ...stats.retries } };
 }
 export function resetTransactionStats(): void {
   stats.transactions = 0;
   stats.retries = {};
   stats.exhausted = 0;
+  stats.queries = 0;
 }
 
 /**
@@ -438,6 +441,7 @@ async function runQuery(sql: string, params: unknown[]): Promise<QueryResult> {
   const inTx = txStore.getStore();
   const text = toPostgresParams(withReturning(sql));
   const values = params.map(param);
+  stats.queries++;
   if (inTx) return inTx.query(text, values);
   return (await opened()).query(text, values);
 }

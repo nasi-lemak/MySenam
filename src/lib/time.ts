@@ -73,10 +73,33 @@ function wallClock(at: Date, zone: string): { y: number; m: number; d: number; h
   return { y: +parts.year, m: +parts.month, d: +parts.day, h: +parts.hour % 24, min: +parts.minute, s: +parts.second };
 }
 
-/** How far ahead of UTC a zone is at a moment, in minutes (negative west of Greenwich). */
-export function zoneOffsetMinutes(at: Date, zone: string): number {
+function exactOffsetMinutes(at: Date, zone: string): number {
   const w = wallClock(at, zone);
   return Math.round((Date.UTC(w.y, w.m - 1, w.d, w.h, w.min, w.s) - Math.floor(at.getTime() / 1000) * 1000) / 60_000);
+}
+
+/**
+ * A zone's offset for each UTC day it has been asked about: one clock reading
+ * at each end of the day, the same offset at both meaning the whole day. A
+ * search turns thousands of claims into minutes of the day, and asking the
+ * clock for each was most of its time (B12). A day the offset changes is
+ * never kept: each moment of it is asked about on its own.
+ */
+const DAY_MS = 86_400_000;
+const offsets = new Map<string, number | null>();
+
+/** How far ahead of UTC a zone is at a moment, in minutes (negative west of Greenwich). */
+export function zoneOffsetMinutes(at: Date, zone: string): number {
+  const day = Math.floor(at.getTime() / DAY_MS);
+  const key = `${zone}|${day}`;
+  let offset = offsets.get(key);
+  if (offset === undefined) {
+    const first = exactOffsetMinutes(new Date(day * DAY_MS), zone);
+    offset = first === exactOffsetMinutes(new Date((day + 1) * DAY_MS - 1), zone) ? first : null;
+    if (offsets.size > 20_000) offsets.clear();
+    offsets.set(key, offset);
+  }
+  return offset ?? exactOffsetMinutes(at, zone);
 }
 
 /** Today's date (YYYY-MM-DD) in a zone: the install's unless a venue's is given. */
