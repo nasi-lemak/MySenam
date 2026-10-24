@@ -9,13 +9,18 @@ vi.mock("next/headers", () => ({
 }));
 
 const sent: { to: string; subject: string }[] = [];
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (to: string, subject: string) => {
-    sent.push({ to, subject });
-    return true;
-  },
-}));
+// Emails to staff, applicants and account holders are queued (lib/outbox.ts, emailPlain); each one queued is also noted here.
+vi.mock("../src/lib/outbox", async (original) => {
+  const real = await original<typeof import("../src/lib/outbox")>();
+  return {
+    ...real,
+    emailPlain: async (input: Parameters<typeof real.emailPlain>[0]) => {
+      const queued = await real.emailPlain(input);
+      sent.push({ to: input.to, subject: input.subject });
+      return queued;
+    },
+  };
+});
 
 import { NextRequest } from "next/server";
 import {

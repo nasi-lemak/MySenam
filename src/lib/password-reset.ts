@@ -3,9 +3,8 @@ import { getDb } from "./db";
 import { ensureBootstrapAdmin } from "./admin-auth";
 import { hashPassword, sessionKey, verifyPassword } from "./auth";
 import { keyedHash } from "./secrets";
-import { baseUrl } from "./outbox";
+import { baseUrl, drainOutbox, emailPlain } from "./outbox";
 import { siteName } from "./site";
-import { sendPlainEmail } from "./transports";
 import { errorText, translator, type ErrorCode, type Locale } from "./i18n";
 
 /**
@@ -61,13 +60,18 @@ export async function requestReset(kind: AccountKind, email: string, locale: Loc
     .run(kind, account.id, hashOf(token));
   const tr = translator(kind === "admin" ? "en" : locale);
   const link = `${baseUrl()}/reset-password?kind=${kind}&token=${token}`;
-  // Not awaited: a reply that took as long as sending an email would say the
-  // address has an account.
-  void sendPlainEmail(
-    account.email,
-    tr("reset.emailSubject", { site: siteName() }),
-    tr("reset.emailBody", { name: account.name.split(/\s+/)[0], link, minutes: RESET_MINUTES })
-  ).catch(() => false);
+  // Queued, so a mail server that is down delays the link rather than losing
+  // it; not sent once the link has run out, and never sent again to another
+  // address. The sending is not awaited: a reply that took as long as sending
+  // an email would say the address has an account.
+  await emailPlain({
+    to: account.email,
+    subject: tr("reset.emailSubject", { site: siteName() }),
+    text: tr("reset.emailBody", { name: account.name.split(/\s+/)[0], link, minutes: RESET_MINUTES }),
+    kind: "account_email",
+    expiresMinutes: RESET_MINUTES,
+  });
+  void drainOutbox().catch(() => null);
   return { ok: true };
 }
 

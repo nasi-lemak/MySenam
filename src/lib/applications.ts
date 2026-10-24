@@ -2,8 +2,8 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { hashPassword } from "./auth";
 import { createVenue } from "./store";
-import { sendPlainEmail } from "./transports";
-import { baseUrl } from "./outbox";
+import { emailConfig } from "./transports";
+import { baseUrl, drainOutbox, emailPlain, transportOverridden } from "./outbox";
 import { siteName } from "./site";
 import { startBilling } from "./billing";
 import { tellOwners } from "./owner-alerts";
@@ -214,6 +214,27 @@ const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex"
 /** How long the link in the confirmation email works. */
 export const CONFIRM_DAYS = RETENTION.unconfirmedApplicationDays;
 
+/**
+ * An email to somebody who applied: queued in the outbox, so a mail server
+ * that is down delays it rather than losing it, then tried at once. False
+ * where no mail server is set up (or sending is only logged), so the caller
+ * goes on without it, as it says.
+ */
+async function emailApplicant(
+  to: string,
+  subject: string,
+  text: string,
+  opts: { kind: "account_email" | "applicant"; dedupeKey: string; expiresMinutes?: number }
+): Promise<boolean> {
+  if (!transportOverridden() && (!emailConfig() || process.env.MYSENAM_SEND === "log")) {
+    if (process.env.MYSENAM_SEND === "log") console.info(`[email] → ${to}\n${subject}\n${text}\n`);
+    return false;
+  }
+  await emailPlain({ to, subject, text, kind: opts.kind, dedupeKey: opts.dedupeKey, expiresMinutes: opts.expiresMinutes });
+  await drainOutbox().catch(() => null);
+  return true;
+}
+
 export const MIN_PASSWORD = 10;
 
 export type SubmitResult = { ok: true; application: VenueApplication } | { ok: false; error: string };
@@ -294,13 +315,14 @@ export async function submitApplication(input: {
   const id = info.lastInsertRowid as number;
 
   const site = siteName();
-  const emailSent = await sendPlainEmail(
+  const emailSent = await emailApplicant(
     email,
     `Confirm your email for ${site}`,
     `Hi ${input.contactName.trim()},\n\nThanks for signing ${input.businessName.trim()} up to ${site}. ` +
       `Follow this link to confirm this is your email, and your account opens straight away:\n\n` +
       `${baseUrl()}/list-your-venue/confirm?token=${token}\n\n` +
-      `The link works for ${CONFIRM_DAYS} days. If you did not sign up, ignore this email and nothing happens.\n\n${site}`
+      `The link works for ${CONFIRM_DAYS} days. If you did not sign up, ignore this email and nothing happens.\n\n${site}`,
+    { kind: "account_email", dedupeKey: `application-confirm:${id}`, expiresMinutes: CONFIRM_DAYS * 24 * 60 }
   );
   if (!emailSent) {
     await db.prepare("UPDATE venue_applications SET email_check = 'unsent', email_token = NULL WHERE id = ?").run(id);
@@ -698,13 +720,14 @@ export async function approveApplication(
   const { billing_starts_on: from } = (await db
     .prepare("SELECT billing_starts_on FROM venues WHERE id = ?")
     .get(venueId)) as { billing_starts_on: string | null };
-  const emailed = await sendPlainEmail(
+  const emailed = await emailApplicant(
     row.email,
     `${row.business_name} is live on ${site}`,
     `Hi ${row.contact_name},\n\n${row.business_name} is live on ${site}: customers can find it, book it and pay it now.\n\n` +
       `${baseUrl()}/venue/${venueId}\n\n` +
       (from ? `It is free until ${from}; your first invoice comes after that.\n\n` : "") +
-      site
+      site,
+    { kind: "applicant", dedupeKey: `application-decision:${id}:${Date.now()}` }
   );
   return { ok: true, application: (await applicationById(id))!, emailed };
 }
@@ -751,7 +774,7 @@ async function approveFromBefore(row: Row, deciderId: number, checks: readonly s
   }
 
   const site = siteName();
-  const emailed = await sendPlainEmail(
+  const emailed = await emailApplicant(
     row.email,
     `${row.business_name} is on ${site}`,
     `Hi ${row.contact_name},\n\n${row.business_name} has been approved on ${site}.\n\n` +
@@ -759,7 +782,8 @@ async function approveFromBefore(row: Row, deciderId: number, checks: readonly s
         ? `It is in your dashboard now: add its courts and rates, and check its opening hours. `
         : `Sign in at ${baseUrl()}/admin with ${row.email} and the password you chose when you applied, ` +
           `then follow the setup steps at the top of the dashboard. `) +
-      `It appears to customers once it has its first court.\n\n${site}`
+      `It appears to customers once it has its first court.\n\n${site}`,
+    { kind: "applicant", dedupeKey: `application-decision:${row.id}:${Date.now()}` }
   );
   return { ok: true, application: (await applicationById(row.id))!, emailed };
 }
@@ -785,7 +809,7 @@ export async function rejectApplication(
   ).run(why, deciderId, id);
 
   const site = siteName();
-  const emailed = await sendPlainEmail(
+  const emailed = await emailApplicant(
     row.email,
     row.venue_id !== null ? `${row.business_name} is not live yet` : `Your application to ${site}`,
     row.venue_id !== null
@@ -793,7 +817,9 @@ export async function rejectApplication(
           `${why ? `\n\n${why}` : ""}\n\nEverything you set up is still in your dashboard. ` +
           `Once it is put right, send it to go live again from there.\n\n${site}`
       : `Hi ${row.contact_name},\n\nThank you for applying to list ${row.business_name} on ${site}. ` +
-          `We are not able to take it on at the moment.${why ? `\n\n${why}` : ""}\n\n${site}`
+          `We are not able to take it on at the moment.${why ? `\n\n${why}` : ""}\n\n${site}`,
+    // A draft refused, put right and refused again is told again: one per decision.
+    { kind: "applicant", dedupeKey: `application-decision:${id}:${Date.now()}` }
   );
   return { ok: true, application: (await applicationById(id))!, emailed };
 }

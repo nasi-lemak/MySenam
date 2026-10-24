@@ -3,13 +3,18 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 const sent: string[] = [];
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (_to: string, subject: string) => {
-    sent.push(subject);
-    return true;
-  },
-}));
+// Emails to staff, applicants and account holders are queued (lib/outbox.ts, emailPlain); each one queued is also noted here.
+vi.mock("../src/lib/outbox", async (original) => {
+  const real = await original<typeof import("../src/lib/outbox")>();
+  return {
+    ...real,
+    emailPlain: async (input: Parameters<typeof real.emailPlain>[0]) => {
+      const queued = await real.emailPlain(input);
+      sent.push(input.subject);
+      return queued;
+    },
+  };
+});
 
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin } from "../src/lib/admin-auth";

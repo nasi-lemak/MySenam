@@ -65,6 +65,13 @@ const sendEmail = () => {
   process.env.MAIL_FROM = "hello@mysenam.my";
 };
 
+/** Subjects of the alerts queued for staff that name this business. */
+async function alertsAbout(businessName: string): Promise<string[]> {
+  return ((await getDb()
+    .prepare("SELECT subject FROM messages WHERE kind = 'staff_alert' AND subject LIKE ? ORDER BY id")
+    .all(`%${businessName}%`)) as { subject: string }[]).map((m) => m.subject);
+}
+
 /** The link in the last confirmation email sent. */
 function linkToken(): string {
   const mails = sendMail.mock.calls as unknown as [{ subject: string; text: string }][];
@@ -154,8 +161,8 @@ describe("going live", () => {
     sendEmail();
     const asked = await askToGoLive();
     expect(asked.status).toBe("pending");
-    // Confirming asked nobody anything; asking to go live told the owner.
-    expect(sendMail).toHaveBeenLastCalledWith(expect.objectContaining({ subject: `${asked.businessName} asks to go live` }));
+    // Confirming asked nobody anything; asking to go live told the owner (queued for them, as alerts to staff are).
+    expect(await alertsAbout(asked.businessName)).toEqual([`${asked.businessName} asks to go live`]);
     expect((await listApplications())[0]).toMatchObject({
       id: asked.id,
       setup: { courts: 1, sports: "badminton", lowRate: 15, highRate: 25 },
@@ -312,13 +319,16 @@ describe("confirming the email", () => {
     expect(applied.application.venueId).toBeNull();
     const signIn = () => authenticateAdmin(applied.application.email, "a long enough password");
     expect(await signIn()).toBeNull();
-    expect(sendMail).toHaveBeenCalledTimes(1);
+    const confirmations = () =>
+      (sendMail.mock.calls as unknown as [{ to: string; subject: string }][]).filter(([m]) => m.to === applied.application.email);
+    expect(confirmations()).toHaveLength(1);
 
     const token = linkToken();
     expect(await confirmApplicationEmail(token)).toBe("confirmed");
     expect((await signIn())?.venueIds).toEqual([(await applicationById(applied.application.id))!.venueId]);
     // A draft is nothing for the platform owner to hear about yet.
-    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(confirmations()).toHaveLength(1);
+    expect(await alertsAbout(applied.application.businessName)).toEqual([]);
     // The link works once.
     expect(await confirmApplicationEmail(token)).toBe("unknown");
     expect(await confirmApplicationEmail("")).toBe("unknown");

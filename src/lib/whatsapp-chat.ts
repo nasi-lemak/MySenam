@@ -79,7 +79,7 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
     if (claimed.changes === 1) {
       const message = (await messageById(held.id))!;
       // Paid for like any WhatsApp message: Meta may charge for a reply too.
-      if (paidByVenue(message.kind) && !(await spendCredit(message.venueId, message.id))) {
+      if (paidByVenue(message.kind) && !(await spendCredit(message.venueId!, message.id))) {
         await db.prepare("UPDATE messages SET free = 0, next_attempt_at = datetime('now') WHERE id = ?").run(held.id);
         return { answered: false, reason: "no WhatsApp credit" };
       }
@@ -87,7 +87,7 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
       try {
         providerId = ((await post.send(message)) || {}).providerId ?? null;
       } catch (err) {
-        if (paidByVenue(message.kind)) await refundCredit(message.venueId, message.id);
+        if (paidByVenue(message.kind)) await refundCredit(message.venueId!, message.id);
         // Back to the queue as the template it was.
         await db
           .prepare("UPDATE messages SET free = 0, next_attempt_at = datetime('now'), last_error = ? WHERE id = ?")
@@ -131,7 +131,7 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
     );
   const id = info.lastInsertRowid as number;
   const venuePays = paidByVenue(original.kind);
-  if (venuePays && !(await spendCredit(original.venueId, id))) {
+  if (venuePays && !(await spendCredit(original.venueId!, id))) {
     await db.prepare("UPDATE messages SET status = 'abandoned', last_error = 'Not sent: no WhatsApp credit left.' WHERE id = ?").run(id);
     return { answered: false, reason: "no WhatsApp credit" };
   }
@@ -139,7 +139,7 @@ export async function answerChat(from: string, text: string): Promise<ChatAnswer
   try {
     providerId = ((await post.send((await messageById(id))!)) || {}).providerId ?? null;
   } catch (err) {
-    if (venuePays) await refundCredit(original.venueId, id);
+    if (venuePays) await refundCredit(original.venueId!, id);
     await db
       .prepare("UPDATE messages SET status = 'abandoned', attempts = 1, last_error = ? WHERE id = ?")
       .run(err instanceof Error ? err.message : String(err), id);

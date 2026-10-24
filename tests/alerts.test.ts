@@ -3,13 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 const sent: { to: string; subject: string; text: string }[] = [];
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (to: string, subject: string, text: string) => {
-    sent.push({ to, subject, text });
-    return true;
-  },
-}));
+// Emails to staff, applicants and account holders are queued (lib/outbox.ts, emailPlain); each one queued is also noted here.
+vi.mock("../src/lib/outbox", async (original) => {
+  const real = await original<typeof import("../src/lib/outbox")>();
+  return {
+    ...real,
+    emailPlain: async (input: Parameters<typeof real.emailPlain>[0]) => {
+      const queued = await real.emailPlain(input);
+      sent.push({ to: input.to, subject: input.subject, text: input.text });
+      return queued;
+    },
+  };
+});
 // League housekeeping breaks, to see the scheduler tell somebody.
 vi.mock("../src/lib/leagues", async (original) => ({
   ...(await original<typeof import("../src/lib/leagues")>()),

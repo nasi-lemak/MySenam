@@ -151,16 +151,17 @@ describe("credit", () => {
     const id = await venue();
     const desk = await createAdmin({ name: "Desk", email: `low${id}@chat.my`, password: "desk-password", venueId: id });
     if (!desk.ok) throw new Error(desk.error);
-    const log = vi.spyOn(console, "info").mockImplementation(() => {});
-    process.env.MYSENAM_SEND = "log";
+    // The staff email is queued, to the desk's address, like any other message.
+    const toDesk = async () =>
+      ((await getDb()
+        .prepare("SELECT subject FROM messages WHERE kind = 'staff_alert' AND recipient = ? ORDER BY id")
+        .all(`low${id}@chat.my`)) as { subject: string }[]).map((m) => m.subject);
     await grantCredit(id, LOW_CREDIT + 1, ownerId);
     await spendCredit(id, null);
-    expect(log.mock.calls.some((c) => String(c[0]).includes(`${LOW_CREDIT} WhatsApp messages left`))).toBe(true);
+    expect((await toDesk()).some((s) => s.includes(`${LOW_CREDIT} WhatsApp messages left`))).toBe(true);
     await grantCredit(id, -LOW_CREDIT + 1, ownerId);
     await spendCredit(id, null);
-    expect(log.mock.calls.some((c) => String(c[0]).includes("WhatsApp credit used up"))).toBe(true);
-    delete process.env.MYSENAM_SEND;
-    log.mockRestore();
+    expect((await toDesk()).some((s) => s.includes("WhatsApp credit used up"))).toBe(true);
   });
 
   it("is checked when a WhatsApp message is about to go, and given back if it cannot", async () => {

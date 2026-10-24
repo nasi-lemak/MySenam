@@ -4,13 +4,18 @@ process.env.MYSENAM_DB = ":memory:";
 process.env.MYSENAM_MARKETPLACE = "on";
 
 const sent: { to: string; subject: string; text: string }[] = [];
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (to: string, subject: string, text: string) => {
-    sent.push({ to, subject, text });
-    return true;
-  },
-}));
+// Emails to staff, applicants and account holders are queued (lib/outbox.ts, emailPlain); each one queued is also noted here.
+vi.mock("../src/lib/outbox", async (original) => {
+  const real = await original<typeof import("../src/lib/outbox")>();
+  return {
+    ...real,
+    emailPlain: async (input: Parameters<typeof real.emailPlain>[0]) => {
+      const queued = await real.emailPlain(input);
+      sent.push({ to: input.to, subject: input.subject, text: input.text });
+      return queued;
+    },
+  };
+});
 
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
@@ -65,6 +70,9 @@ async function liveBusiness(): Promise<{ venueId: number; businessId: number; ma
 }
 
 beforeAll(async () => {
+  // Email is set up: the application's confirmation link goes out (through a transport that takes it).
+  const { setTransport } = await import("../src/lib/outbox");
+  setTransport({ name: "test", send: async () => undefined });
   await ensureBootstrapAdmin();
   ownerId = (await listAdmins()).find((a) => a.venueId === null && a.businessId === null)!.id;
 });

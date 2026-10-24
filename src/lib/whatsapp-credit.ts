@@ -1,9 +1,9 @@
 import { getDb } from "./db";
 import { openCheckout, platformAccount } from "./gateways";
 import { isMarketplace } from "./mode";
-import { baseUrl, chatRepliesOn, transportOverridden } from "./outbox";
+import { baseUrl, chatRepliesOn, emailPlain, transportOverridden } from "./outbox";
 import { siteName } from "./site";
-import { sendPlainEmail, whatsappConfig } from "./transports";
+import { whatsappConfig } from "./transports";
 
 /**
  * WhatsApp: urgent news for everybody, everything else paid for before it is sent.
@@ -161,7 +161,7 @@ async function warnVenue(venueId: number, left: number): Promise<void> {
       ? "Your customers' confirmations and reminders now go by email only, and the booking code is still shown on screen. Urgent news — your cancellations and moves, waitlist offers — still goes on WhatsApp. "
       : `Only ${left} WhatsApp messages are left. When they run out, confirmations go by email only. `) +
     `Buy more under Venue details → WhatsApp at ${baseUrl()}/admin.`;
-  for (const s of staff) await sendPlainEmail(s.email, subject, text);
+  for (const s of staff) await emailPlain({ to: s.email, subject, text, kind: "staff_alert", venueId, expiresMinutes: 7 * 24 * 60 });
 }
 
 // ------------------------------------------------------------------- packs

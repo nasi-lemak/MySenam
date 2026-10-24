@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { listMessages, messageById, outboxSummary, retryMessage } from "@/lib/outbox";
+import { denyVenue, requireAdmin, requireOwner } from "@/lib/admin-auth";
+import { listMessages, listPlatformMessages, messageById, outboxSummary, retryMessage } from "@/lib/outbox";
 import { tickOutbox } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
-/** What this venue has told its customers, and what is still waiting. */
+/** What this venue has told its customers, and what is still waiting; or, for owners, what the platform itself sent (`?platform=1`). */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+
+  // The platform's own: to applicants, password resets, alerts to staff. Owners only.
+  if (req.nextUrl.searchParams.get("platform") === "1") {
+    const refused = requireOwner(admin);
+    if (refused) return refused;
+    await tickOutbox();
+    return NextResponse.json({ messages: await listPlatformMessages(), summary: null }, { headers: { "Cache-Control": "no-store" } });
+  }
 
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
   if (!Number.isInteger(venueId) || venueId <= 0)
@@ -40,7 +48,7 @@ export async function POST(req: NextRequest) {
   // A message belongs to a venue, and an operator may only touch their own.
   const existing = await messageById(id as number);
   if (!existing) return NextResponse.json({ error: "Message not found." }, { status: 404 });
-  const denied = denyVenue(admin, existing.venueId);
+  const denied = existing.venueId === null ? requireOwner(admin) : denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
   const retried = await retryMessage(id as number, recipient as string | undefined);

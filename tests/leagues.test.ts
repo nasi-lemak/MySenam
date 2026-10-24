@@ -3,15 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 process.env.MYSENAM_DB = ":memory:";
 
 const sent: { to: string; subject: string; text: string }[] = [];
-// Emails to the venue's staff go straight out (lib/owner-alerts.ts).
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async (to: string, subject: string, text: string) => {
-    sent.push({ to, subject, text });
-    return true;
-  },
-}));
-// Programme emails are queued (lib/outbox.ts, emailPlayer); each one queued is also noted here, as sent.
+// Programme emails (lib/outbox.ts, emailPlayer) and emails to the venue's staff (emailPlain) are queued; each one queued is also noted here, as sent.
 vi.mock("../src/lib/outbox", async (original) => {
   const real = await original<typeof import("../src/lib/outbox")>();
   return {
@@ -23,6 +15,11 @@ vi.mock("../src/lib/outbox", async (original) => {
         .prepare("SELECT recipient, subject, body FROM messages WHERE kind = 'programme' ORDER BY id DESC LIMIT 1")
         .get()) as { recipient: string; subject: string; body: string } | undefined;
       if (queued) sent.push({ to: queued.recipient, subject: queued.subject, text: queued.body });
+    },
+    emailPlain: async (input: Parameters<typeof real.emailPlain>[0]) => {
+      const queued = await real.emailPlain(input);
+      sent.push({ to: input.to, subject: input.subject, text: input.text });
+      return queued;
     },
   };
 });

@@ -59,19 +59,26 @@ export type MessageKind =
   /** By email only, to the venue: a private hire enquiry from its page (lib/enquiries.ts). */
   | "hire_enquiry"
   /** By email only, to a player: a tournament, league or open game they are in (lib/tournaments.ts, leagues.ts, games.ts). */
-  | "programme";
+  | "programme"
+  /** By email only, about somebody's own account: confirming a venue application's address, its decision, a password reset link. */
+  | "account_email"
+  /** By email only, to the platform's owners or a venue's staff: something they would want to know (lib/owner-alerts.ts, alerts.ts). */
+  | "staff_alert"
+  /** By email only, to somebody who applied to list a venue: the decision on it (lib/applications.ts). */
+  | "applicant";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "hire_enquiry"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "hire_enquiry", "staff_alert"];
 
 export interface OutboxMessage {
   id: number;
   bookingId: number | null;
-  venueId: number;
+  /** Null for one that belongs to no venue (an applicant, a password reset, the platform's owners). */
+  venueId: number | null;
   kind: MessageKind;
   channel: Channel;
   recipient: string;
@@ -107,7 +114,7 @@ export interface OutboxMessage {
 interface MessageRow {
   id: number;
   booking_id: number | null;
-  venue_id: number;
+  venue_id: number | null;
   kind: string;
   channel: string;
   recipient: string;
@@ -184,7 +191,8 @@ export function baseUrl(): string {
 
 export interface Compose {
   bookingId?: number | null;
-  venueId: number;
+  /** Null for a message that belongs to no venue. */
+  venueId: number | null;
   kind: MessageKind;
   /** A phone number for WhatsApp, an address for email. */
   recipient: string;
@@ -204,6 +212,8 @@ export interface Compose {
   calendar?: string;
   /** The urgent notice this carries (lib/urgent.ts). */
   noticeId?: number;
+  /** Not sent after this many minutes, when what it carries stops working (a reset link). */
+  expiresMinutes?: number;
 }
 
 /**
@@ -245,7 +255,7 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
   // A confirmation waits a few minutes for the customer to open the chat
   // themselves, when they can: the same words as a reply cost nothing.
   const hold =
-    input.channel === "whatsapp" && HELD_KINDS.includes(input.kind) && (await chatOfferedFor(input.venueId)) ? chatHoldMinutes() : 0;
+    input.channel === "whatsapp" && input.venueId !== null && HELD_KINDS.includes(input.kind) && (await chatOfferedFor(input.venueId)) ? chatHoldMinutes() : 0;
   // Past the day's limit for this recipient, it is written down but never
   // sent, with the reason, where staff can see it.
   const capped =
@@ -253,8 +263,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const info = await db
     .prepare(
       `INSERT INTO messages
-         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at, calendar, notice_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), ?, ?)
+         (booking_id, venue_id, kind, channel, recipient, locale, subject, body, params, dedupe_key, status, last_error, next_attempt_at, calendar, notice_id, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), ?, ?, ${input.expiresMinutes ? "datetime('now', ?)" : "NULL"})
        ON CONFLICT(dedupe_key) DO NOTHING`
     )
     .run(
@@ -272,7 +282,8 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null,
       `+${hold} minutes`,
       input.channel === "email" ? (input.calendar ?? null) : null,
-      input.noticeId ?? null
+      input.noticeId ?? null,
+      ...(input.expiresMinutes ? [`+${Math.round(input.expiresMinutes)} minutes`] : [])
     );
   if (info.changes === 0 && input.dedupeKey) {
     const existing = await db
@@ -280,7 +291,9 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       .get(input.dedupeKey) as MessageRow;
     return toMessage(existing);
   }
-  return (await messageById(info.lastInsertRowid as number))!;
+  const written = (await messageById(info.lastInsertRowid as number))!;
+  if (capped) await forgetAccountLink(written);
+  return written;
 }
 
 // ------------------------------------------------------------- chat replies
@@ -336,6 +349,28 @@ export async function listMessages(venueId: number, limit = 50): Promise<OutboxM
       .prepare("SELECT * FROM messages WHERE venue_id = ? ORDER BY id DESC LIMIT ?")
       .all(venueId, limit) as MessageRow[]
   ).map(toMessage);
+}
+
+/** Messages that belong to no venue: to applicants, password resets, alerts to staff. For the platform's owners. */
+export async function listPlatformMessages(limit = 50): Promise<OutboxMessage[]> {
+  return (
+    (await getDb().prepare("SELECT * FROM messages WHERE venue_id IS NULL ORDER BY id DESC LIMIT ?").all(limit)) as MessageRow[]
+  )
+    .map(toMessage)
+    // A link into somebody's account is theirs alone: its subject and how it went are shown, never the link.
+    .map((m) => (m.kind === "account_email" ? { ...m, body: ACCOUNT_LINK_HIDDEN, params: null } : m));
+}
+
+const ACCOUNT_LINK_HIDDEN = "(Not shown or kept: it carries a link into somebody's account.)";
+
+/**
+ * Once an email carrying a link into somebody's account has gone, or been
+ * given up, its text is not kept: the link (a password reset, an address to
+ * confirm) would otherwise sit in the database and its backups.
+ */
+async function forgetAccountLink(message: OutboxMessage): Promise<void> {
+  if (message.kind !== "account_email") return;
+  await getDb().prepare("UPDATE messages SET body = ?, params = NULL WHERE id = ?").run(ACCOUNT_LINK_HIDDEN, message.id);
 }
 
 export async function messagesForBooking(bookingId: number): Promise<OutboxMessage[]> {
@@ -486,11 +521,23 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       .run(message.id);
     if (claimed.changes !== 1) continue;
     const attempts = message.attempts + 1;
+    // What it carries has run out (a reset link): sending it now would only confuse.
+    const expired = (await db
+      .prepare("SELECT 1 FROM messages WHERE id = ? AND expires_at IS NOT NULL AND expires_at <= datetime('now')")
+      .get(message.id)) as unknown;
+    if (expired) {
+      await db
+        .prepare("UPDATE messages SET status = 'abandoned', last_error = ? WHERE id = ?")
+        .run("Not sent: it ran out before it could go (the link in it no longer works).", message.id);
+      await forgetAccountLink(message);
+      result.abandoned++;
+      continue;
+    }
     // A WhatsApp message the venue pays for is paid before it goes
     // (lib/whatsapp-credit.ts); with nothing left to pay with, it does not go
     // at all. Urgent news is the platform's to pay.
-    const paid = message.channel === "whatsapp" && paidByVenue(message.kind);
-    if (paid && !(await spendCredit(message.venueId, message.id))) {
+    const paid = message.channel === "whatsapp" && message.venueId !== null && paidByVenue(message.kind);
+    if (paid && !(await spendCredit(message.venueId!, message.id))) {
       await db
         .prepare("UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?")
         .run(attempts, "Not sent: no WhatsApp credit left. The customer still had the booking code on screen, and any email.", message.id);
@@ -502,14 +549,16 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       await db.prepare(
         "UPDATE messages SET status = 'sent', attempts = ?, sent_at = datetime('now'), last_error = NULL, provider_id = ? WHERE id = ?"
       ).run(attempts, (out && out.providerId) || null, message.id);
+      await forgetAccountLink(message);
       result.sent++;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      if (paid) await refundCredit(message.venueId, message.id);
+      if (paid) await refundCredit(message.venueId!, message.id);
       if (attempts >= MAX_ATTEMPTS) {
         await db.prepare(
           "UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?"
         ).run(attempts, reason, message.id);
+        await forgetAccountLink(message);
         result.abandoned++;
       } else {
         await db.prepare(
@@ -532,7 +581,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
  * venue's account was not set up yet. Staff fix the cause and ask again.
  */
 /** Kinds sent to people who did not book: never to an address staff type in. */
-const NOT_READDRESSED: MessageKind[] = ["campaign", "review_request", "marketing_confirm"];
+const NOT_READDRESSED: MessageKind[] = ["campaign", "review_request", "marketing_confirm", "account_email"];
 
 export async function retryMessage(
   id: number,
@@ -543,6 +592,9 @@ export async function retryMessage(
   // Only what did not go: sending what arrived again is how one customer gets the same message ten times.
   if (existing.status !== "failed" && existing.status !== "abandoned")
     return { ok: false, error: "Only a message that was not sent can be sent again." };
+  // Its link is not kept once it has gone or been given up; a new one is asked for instead.
+  if (existing.kind === "account_email")
+    return { ok: false, error: "This carried a link into somebody's account, which is not kept. They can ask for a new one." };
   const to = recipient?.trim() || null;
   if (to && to !== existing.recipient) {
     if (NOT_READDRESSED.includes(existing.kind))
@@ -598,6 +650,37 @@ export async function recordDelivery(report: { id: string; status: string; times
  * transaction as what it is about: a change undone, or run again after a
  * conflict, queues nothing twice.
  */
+/**
+ * An email of plain text, written as it is (not in the customer's language:
+ * these go to staff, applicants and account holders in the words chosen
+ * where they are sent from). Queued like any other message, so it is retried
+ * when the mail server is down and listed with how it went. Accepted by the
+ * mail server is "sent"; that is not proof anybody read it.
+ */
+export async function emailPlain(input: {
+  to: string;
+  subject: string;
+  text: string;
+  kind: "account_email" | "staff_alert" | "applicant";
+  /** The venue it is about, where there is one; null for the platform's own. */
+  venueId?: number | null;
+  dedupeKey?: string;
+  expiresMinutes?: number;
+}): Promise<OutboxMessage> {
+  return enqueue({
+    venueId: input.venueId ?? null,
+    kind: input.kind,
+    channel: "email",
+    recipient: input.to,
+    locale: "en",
+    subject: "msg.programmeSubject",
+    body: "msg.programmeBody",
+    vars: { subject: input.subject, text: input.text },
+    dedupeKey: input.dedupeKey,
+    expiresMinutes: input.expiresMinutes,
+  });
+}
+
 export async function emailPlayer(input: { venueId: number; userId: number; subject: string; body: string; link: string }): Promise<void> {
   const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(input.userId)) as { name: string; email: string } | undefined;
   if (!user) return;

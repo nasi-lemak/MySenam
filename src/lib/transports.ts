@@ -183,27 +183,6 @@ function transporterFor(url: string): Transporter {
   return mailer.transporter;
 }
 
-/**
- * One email outside the outbox, for the few messages that are not to a
- * customer about a booking — a venue told its application was approved.
- * Best-effort: false when email is not set up or the server refused it, and
- * whoever is acting is told to pass the news on themselves.
- */
-export async function sendPlainEmail(to: string, subject: string, text: string): Promise<boolean> {
-  const config = emailConfig();
-  if (!config || process.env.MYSENAM_SEND === "log") {
-    if (process.env.MYSENAM_SEND === "log") console.info(`[email] → ${to}\n${subject}\n${text}\n`);
-    return false;
-  }
-  try {
-    await transporterFor(config.url).sendMail({ from: config.from, to, subject, text });
-    return true;
-  } catch (err) {
-    console.error(`[mysenam] could not email ${to}:`, err);
-    return false;
-  }
-}
-
 export function unsubscribeHeaders(link: unknown): { headers?: Record<string, string> } {
   if (typeof link !== "string" || !/\/unsubscribe\/[\w-]+$/.test(link)) return {};
   const oneClick = link.replace(/\/unsubscribe\/([\w-]+)$/, "/api/unsubscribe/$1");

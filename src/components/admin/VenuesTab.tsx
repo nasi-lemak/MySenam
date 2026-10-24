@@ -162,7 +162,7 @@ export function VenuesTab({
 
       <DataRequestPanel venues={venues} />
 
-      <MessagesPanel venues={venues} />
+      <MessagesPanel venues={venues} isOwner={isOwner} />
 
       <ReviewsPanel venues={venues} isOwner={isOwner} />
 

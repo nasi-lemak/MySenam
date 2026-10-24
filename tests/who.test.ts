@@ -7,10 +7,6 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers({ host: "localhost:3000" }),
   cookies: async () => ({ get: () => undefined }),
 }));
-vi.mock("../src/lib/transports", async (original) => ({
-  ...(await original<typeof import("../src/lib/transports")>()),
-  sendPlainEmail: async () => true,
-}));
 
 import { NextRequest } from "next/server";
 import { ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";

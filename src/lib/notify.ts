@@ -57,7 +57,7 @@ async function deliver(
   const to: { channel: Channel; recipient: string }[] = [];
   const email = person.email?.trim();
   if (email) to.push({ channel: "email", recipient: email });
-  if (whatsapp && person.phone.trim() && (await whatsappFor(message.venueId, message.kind)))
+  if (whatsapp && message.venueId !== null && person.phone.trim() && (await whatsappFor(message.venueId, message.kind)))
     to.push({ channel: "whatsapp", recipient: person.phone.trim() });
   let first = null;
   for (const [i, address] of to.entries()) {

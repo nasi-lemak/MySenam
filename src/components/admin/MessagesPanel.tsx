@@ -29,7 +29,10 @@ const KIND_LABELS: Record<string, string> = {
  * delivered is worth seeing, and a wrong number is worth being able to fix
  * without re-making the booking.
  */
-export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
+/** The choice that shows the platform's own emails (applicants, password resets, alerts to staff): owners only. */
+const PLATFORM = 0;
+
+export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenue[]; isOwner?: boolean }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [messages, setMessages] = useState<OutboxMessage[] | null>(null);
   const [summary, setSummary] = useState<OutboxSummary | null>(null);
@@ -41,7 +44,9 @@ export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(`/api/admin/messages?venueId=${venueId}`, { cache: "no-store" });
+      const res = await fetch(venueId === PLATFORM ? "/api/admin/messages?platform=1" : `/api/admin/messages?venueId=${venueId}`, {
+        cache: "no-store",
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not load messages");
       setMessages(data.messages);
@@ -79,7 +84,7 @@ export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">Messages to customers</h2>
-        {venues.length > 1 && (
+        {(venues.length > 1 || isOwner) && (
           <select
             value={venueId}
             onChange={(e) => setVenueId(Number(e.target.value))}
@@ -90,6 +95,7 @@ export function MessagesPanel({ venues }: { venues: ManagedVenue[] }) {
                 {v.name}
               </option>
             ))}
+            {isOwner && <option value={PLATFORM}>Platform emails (applicants, resets, alerts)</option>}
           </select>
         )}
       </div>
