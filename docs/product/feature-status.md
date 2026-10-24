@@ -121,7 +121,7 @@ Authoritative: [pricing](../features/pricing.md), [payments and credit](../featu
 | Stored credit and its scope | IMPLEMENTED_AND_TESTED | Append-only ledger; sold at the counter; spent once; venue or platform scope | `src/lib/store.ts`, `src/lib/mode.ts` | `tests/wallet.test.ts`, `tests/credit-scope.test.ts`, `tests/concurrency.test.ts` | Spending never goes below nothing, but a chargeback on credit already spent does, on purpose, with no database guard; such balances are reported apart, as owed by customers |
 | Online top-ups | IMPLEMENTED_AND_TESTED | Into the venue's account; credited once on settlement | `src/lib/payments.ts`, `src/app/api/my/wallet/route.ts` | `tests/topups.test.ts` | Gateway leg below |
 | Gift vouchers | IMPLEMENTED_AND_TESTED | Sold at the counter or online; printable; redeemed as credit | `src/lib/vouchers.ts` | `tests/vouchers.test.ts` | Online purchase: gateway and email legs in [integrations](#integrations) |
-| Company and school accounts | IMPLEMENTED_AND_TESTED | Named bookers, limit, monthly emailed invoice, mark paid | `src/lib/accounts.ts`, `src/app/account-invoice/[token]` | `tests/accounts.test.ts` | Invoice email and page in English only |
+| Company and school accounts | IMPLEMENTED_AND_TESTED | Named bookers, limit, monthly emailed invoice, mark paid; email and invoice in the account's language | `src/lib/accounts.ts`, `src/app/account-invoice/[token]` | `tests/accounts.test.ts` | Invoice wording in Malay, Chinese and Tamil not reviewed by a native speaker; email delivery needs the email integration row |
 
 ## Classes and coaching
 

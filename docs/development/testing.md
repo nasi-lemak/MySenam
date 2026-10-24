@@ -422,7 +422,7 @@ container, Node 22.
 | Real services: payments, messaging, MyInvois, Google sign-in, off-site storage | None checked; each stays `INTEGRATION_VERIFICATION_REQUIRED` |
 | Remote staging, restore of a production backup | Not run |
 
-The one change after `d7060e0` is in a test: `tests/backup.test.ts` set its
+The one change between `d7060e0` and the commit adding this record is in a test: `tests/backup.test.ts` set its
 fake clock to dates the real clock had passed, and PGlite's Postgres, reading
 the same clock, re-armed a timer every millisecond (17,232 Node
 `TimeoutOverflowWarning`s in the PGlite run, none on Postgres). Its dates now

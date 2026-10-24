@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { hoursOf } from "./interval";
 import { getDb, withTransaction } from "./db";
-import { errorText, translator, type ErrorCode } from "./i18n";
+import { errorText, isLocale, offeredLocales, translator, type ErrorCode, type Locale } from "./i18n";
 import { enqueue } from "./outbox";
 import { phoneKey } from "./phone";
 import { isAmount, roundMoney } from "./region";
@@ -45,6 +45,8 @@ export interface Account {
   taxNo: string | null;
   termsDays: number;
   creditLimit: number | null;
+  /** The language its invoices are written in: one the install offers, its first unless chosen. */
+  locale: Locale;
   bookers: AccountBooker[];
   /** Played or booked on it, not yet invoiced. */
   uninvoiced: number;
@@ -99,6 +101,13 @@ interface AccountRow {
   tax_no: string | null;
   terms_days: number;
   credit_limit: number | string | null;
+  locale: string | null;
+}
+
+/** An account's language, if the install still offers it; else the install's first. */
+function invoiceLocale(stored: string | null): Locale {
+  const offered = offeredLocales();
+  return isLocale(stored) && offered.includes(stored) ? stored : offered[0];
 }
 
 async function withTotals(rows: AccountRow[]): Promise<Account[]> {
@@ -131,6 +140,7 @@ async function withTotals(rows: AccountRow[]): Promise<Account[]> {
       taxNo: r.tax_no,
       termsDays: Number(r.terms_days),
       creditLimit: r.credit_limit === null ? null : Number(r.credit_limit),
+      locale: invoiceLocale(r.locale),
       bookers: bookers.filter((b) => b.account_id === r.id).map((b) => ({ name: b.name, phone: b.phone })),
       uninvoiced: roundMoney(Number(s?.uninvoiced ?? 0)),
       owing: roundMoney(Number(s?.owing ?? 0)),
@@ -170,14 +180,17 @@ export async function saveAccount(
     return { ok: false, error: `Days to pay must be 0–${MAX_TERMS_DAYS}.` };
   const limit = input.creditLimit === undefined || input.creditLimit === null || input.creditLimit === "" ? null : input.creditLimit;
   if (limit !== null && !isAmount(limit, 1, MAX_CREDIT_LIMIT)) return { ok: false, error: "A limit must be an amount, or blank for none." };
-  const values = [name, text(input.contact, 120), email, text(input.address, 400), text(input.taxNo, 40), termsDays, limit];
+  const locale = input.locale === undefined || input.locale === null || input.locale === "" ? null : input.locale;
+  if (locale !== null && !(typeof locale === "string" && isLocale(locale) && offeredLocales().includes(locale)))
+    return { ok: false, error: "Invoices can be written in one of this site's languages only." };
+  const values = [name, text(input.contact, 120), email, text(input.address, 400), text(input.taxNo, 40), termsDays, limit, locale];
   const db = getDb();
   let id: number;
   if (input.id !== undefined) {
     id = Number(input.id);
     const done = await db
       .prepare(
-        `UPDATE venue_accounts SET name = ?, contact = ?, email = ?, address = ?, tax_no = ?, terms_days = ?, credit_limit = ?
+        `UPDATE venue_accounts SET name = ?, contact = ?, email = ?, address = ?, tax_no = ?, terms_days = ?, credit_limit = ?, locale = ?
           WHERE id = ? AND venue_id = ? AND closed_at IS NULL`
       )
       .run(...values, id, venueId);
@@ -185,8 +198,8 @@ export async function saveAccount(
   } else {
     const row = (await db
       .prepare(
-        `INSERT INTO venue_accounts (venue_id, name, contact, email, address, tax_no, terms_days, credit_limit)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+        `INSERT INTO venue_accounts (venue_id, name, contact, email, address, tax_no, terms_days, credit_limit, locale)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
       )
       .get(venueId, ...values)) as { id: number };
     id = row.id;
@@ -365,18 +378,18 @@ export async function issueInvoice(accountId: number, period: string, opts: { em
     await db.prepare(`UPDATE bookings SET account_invoice_id = ? WHERE id IN (${rows.map(() => "?").join(",")})`).run(made.id, ...rows.map((r) => r.id));
     return (await invoiceById(made.id))!;
   });
-  if (invoice && opts.email !== false) await emailInvoice(invoice, account.email);
+  if (invoice && opts.email !== false) await emailInvoice(invoice, account);
   return invoice;
 }
 
-async function emailInvoice(invoice: AccountInvoice, email: string): Promise<void> {
+async function emailInvoice(invoice: AccountInvoice, account: Account): Promise<void> {
   const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(invoice.venueId)) as { name: string };
   await enqueue({
     venueId: invoice.venueId,
     kind: "account_invoice",
     channel: "email",
-    recipient: email,
-    locale: "en",
+    recipient: account.email,
+    locale: account.locale,
     subject: "msg.accountInvoiceSubject",
     body: "msg.accountInvoice",
     dedupeKey: `account-invoice:${invoice.id}`,

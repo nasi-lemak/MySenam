@@ -328,8 +328,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/admin/accounts` | `?venueId` → the venue's company and school accounts, and its invoices to them |
-| POST | `/api/admin/accounts` | `{ venueId, id?, name, email, contact?, address?, taxNo?, termsDays?, creditLimit? }`: open one, or change it (managers) |
+| GET | `/api/admin/accounts` | `?venueId` → the venue's company and school accounts, its invoices to them, and the `languages` an invoice can be in |
+| POST | `/api/admin/accounts` | `{ venueId, id?, name, email, contact?, address?, taxNo?, termsDays?, creditLimit?, locale? }`: open one, or change it (managers); `locale`, one of the site's languages, is what its invoices are written in |
 | DELETE | `/api/admin/accounts` | `?venueId&id`: closed to new bookings; what is on it is still invoiced (managers) |
 | POST | `/api/admin/accounts/bookers` | `{ venueId, accountId, name, phone }`: somebody who may charge their own bookings to the account (managers) |
 | DELETE | `/api/admin/accounts/bookers` | `?venueId&accountId&phone`: no longer (managers) |

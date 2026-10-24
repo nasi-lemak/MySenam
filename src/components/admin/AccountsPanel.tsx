@@ -5,9 +5,10 @@ import type { Account, AccountInvoice } from "@/lib/accounts";
 import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
+import { LOCALE_NAMES, type Locale } from "@/lib/i18n";
 import { todayLocal } from "./shared";
 
-const BLANK = { name: "", contact: "", email: "", address: "", taxNo: "", termsDays: "30", creditLimit: "" };
+const BLANK = { name: "", contact: "", email: "", address: "", taxNo: "", termsDays: "30", creditLimit: "", locale: "" };
 
 /**
  * Company and school accounts (lib/accounts.ts): open one, say whose numbers
@@ -18,6 +19,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [invoices, setInvoices] = useState<AccountInvoice[]>([]);
+  const [languages, setLanguages] = useState<Locale[]>([]);
   const [form, setForm] = useState<typeof BLANK & { id?: number }>(BLANK);
   const [booker, setBooker] = useState<Record<number, { name: string; phone: string }>>({});
   const [paying, setPaying] = useState<number | null>(null);
@@ -31,6 +33,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
     const data = await res.json();
     setAccounts(data.accounts);
     setInvoices(data.invoices);
+    setLanguages(data.languages ?? []);
   }, [venueId]);
 
   useEffect(() => {
@@ -103,6 +106,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 <span className="font-semibold">{a.name}</span>{" "}
                 <span className="text-slate-500">
                   · {a.email} · {a.termsDays} days to pay{a.creditLimit !== null ? ` · limit ${money(a.creditLimit)}` : ""}
+                  {languages.length > 1 ? ` · invoices in ${LOCALE_NAMES[a.locale]}` : ""}
                 </span>
               </div>
               <div className="text-slate-700">
@@ -183,6 +187,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                     taxNo: a.taxNo ?? "",
                     termsDays: String(a.termsDays),
                     creditLimit: a.creditLimit === null ? "" : String(a.creditLimit),
+                    locale: a.locale,
                   })
                 }
               >
@@ -219,6 +224,18 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
             Limit (blank: none)
             <input type="number" min={1} step="0.01" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} className={input} />
           </label>
+          {languages.length > 1 && (
+            <label className="flex flex-1 flex-col text-xs text-slate-500">
+              Invoices in
+              <select value={form.locale || languages[0]} onChange={(e) => setForm({ ...form, locale: e.target.value })} className={input}>
+                {languages.map((l) => (
+                  <option key={l} value={l}>
+                    {LOCALE_NAMES[l]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div className="flex gap-2 sm:col-span-3">
           <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{form.id ? "Save" : "Open account"}</button>

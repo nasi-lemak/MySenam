@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
 import { closeAccount, listAccounts, listInvoices, saveAccount } from "@/lib/accounts";
+import { offeredLocales } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -13,17 +14,17 @@ async function venueOf(req: NextRequest, raw: unknown) {
   return denyVenue(admin, venueId) ?? venueId;
 }
 
-/** `?venueId` → the venue's company and school accounts, and its invoices to them (lib/accounts.ts). */
+/** `?venueId` → the venue's company and school accounts, its invoices to them (lib/accounts.ts), and the languages an invoice can be in. */
 export async function GET(req: NextRequest) {
   const venueId = await venueOf(req, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
   return NextResponse.json(
-    { accounts: await listAccounts(venueId), invoices: await listInvoices(venueId) },
+    { accounts: await listAccounts(venueId), invoices: await listInvoices(venueId), languages: offeredLocales() },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
 
-/** `{ venueId, id?, name, email, contact?, address?, taxNo?, termsDays?, creditLimit? }`: open one, or change it (managers). */
+/** `{ venueId, id?, name, email, contact?, address?, taxNo?, termsDays?, creditLimit?, locale? }`: open one, or change it (managers). */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });

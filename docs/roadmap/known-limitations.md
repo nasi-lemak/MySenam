@@ -43,9 +43,10 @@ applies too; these are the items where something is missing today.
 | Blocker | Why it matters | Owner action |
 | ------- | -------------- | ------------ |
 | Email has never been sent through a real provider ([integrations](#integrations-awaiting-live-verification-or-a-partner)) | Booking confirmations, password resets and every game, tournament and league message go by email | Open the SMTP account, set SPF, DKIM and DMARC on the sending domain, set `SMTP_URL` and `MAIL_FROM`, and pass the email check |
-| Off-site backups have never been written to a real bucket, and where they may go is not decided ([backup and restore](#production-readiness)) | Without an off-site copy, losing the server loses every booking and balance | Choose the provider and country (Backblaze B2 is abroad, so it waits on a lawyer and `OFFSITE_TRANSFER_APPROVED`; Amazon S3 in Malaysia does not), set `OFFSITE_DATA_LOCATION`, pass `npm run verify-offsite -- --go` and the drill on an isolated server ([backups](../operations/backups.md#verifying-a-real-bucket)) |
+| Off-site backups have never been written to a real bucket ([backup and restore](#production-readiness)) | Without an off-site copy, losing the server loses every booking and balance | Backups may be held abroad (the owner, 24 October 2026): open the Backblaze B2 bucket (US West), do and record the transfer steps in [privacy](../architecture/privacy.md#backups-held-abroad) with a lawyer's answers to its open points, then set `OFFSITE_DATA_LOCATION=US` and `OFFSITE_TRANSFER_APPROVED=US`, pass `npm run verify-offsite -- --go` and the drill on an isolated server ([backups](../operations/backups.md#verifying-a-real-bucket)) |
 | `/terms` and `/privacy` are unreviewed drafts ([gaps](#gaps-in-verification-and-documentation)) | Legal exposure from the first customer | A Malaysian lawyer reviews both and their translations; set `OPERATOR_NAME` and `OPERATOR_EMAIL` |
 | The breach-notification rules are not confirmed, and nobody is named to lead an incident ([gaps](#gaps-in-verification-and-documentation)) | A breach could be reported late, or to the wrong party | A lawyer confirms the Malaysian rules in [incident response](../operations/incident-response.md#a-suspected-breach-of-personal-data); the owner names the incident lead |
+| Customer pages, messages and invoices in Malay, Chinese and Tamil are machine-assisted, partly never reviewed by a native speaker ([languages](#languages)) | The launch promises all four languages (the owner, 24 October 2026): a wrong phrase in a booking, refund or invoice misleads the customer who relies on it | A native speaker of each reviews what [languages](#languages) lists, Tamil first; or the owner accepts the risk for a language here |
 | The operating company and where the data is hosted are not decided ([launch providers](../integrations/launch-providers.md#operating-company-and-jurisdictions)) | The privacy notice, the provider contracts and the gateway accounts all name them | The owner decides the entity, its tax registration and the hosting country, and has them written into the privacy notice and venue agreement |
 
 ### Blockers only where a feature is switched on
@@ -78,7 +79,6 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | ---------- | ------------------ | -------------- |
 | Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs and company accounts work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
-| Messages in English only: company-account invoices and the terms; the staff dashboard. Not reviewed by a native speaker: Tamil, built-in activity names in Malay and Chinese, and the game, tournament and league emails in Malay, Chinese and Tamil ([languages](#languages)) | Booking messages, programme emails and the customer pages are in the customer's language; the rest are not | Decide which languages the launch promises. At least have a native speaker review the Malay customer pages and messages first |
 | Defaults marked *for review*: adjacent buffers add up; at most eight places per booking unless the venue sets more; a first lesson needing a sign-off is booked at the counter ([booking time model](#booking-and-availability-b), [activities](#activities)) | As described | Accept as the launch defaults |
 
 ### Accepted
@@ -93,7 +93,13 @@ each release checked by hand and its record kept in
 the commit to be launched is judged by;
 Billplz refunds by hand for a small Malaysian launch
 ([launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide));
-negative stored credit after a chargeback, reported apart (M14).
+negative stored credit after a chargeback, reported apart (M14);
+the launch promises customers English, Malay, simplified Chinese and Tamil
+(the owner, 24 October 2026; the staff dashboard stays English,
+[languages](#languages));
+off-site backups may be held abroad (the owner, 24 October 2026), once the
+transfer steps in [privacy](../architecture/privacy.md#backups-held-abroad)
+are done.
 
 ### Not affecting the first launch
 
@@ -133,12 +139,12 @@ changes; 6 to 8 name what they wait for. As of 24 October 2026: no defect
 | [Remote staging](#production-readiness) never run; [load](#production-readiness) measured on one machine | 6 | The owner | An agreed spend for a droplet; re-run the benchmark on the production set-up |
 | [Terms and privacy notice](#gaps-in-verification-and-documentation) unreviewed; [breach-notification rules](#gaps-in-verification-and-documentation) unconfirmed | 7 | Everyone | A Malaysian lawyer's review |
 | [Operating company and data hosting](#blockers-for-any-launch) undecided | 7 | Everyone | The owner decides |
-| [Where off-site backups may go](#blockers-for-any-launch) (B2 abroad) | 7 | Everyone | A lawyer and `OFFSITE_TRANSFER_APPROVED`, or a bucket in Malaysia |
+| [Off-site backups abroad](#blockers-for-any-launch): allowed by the owner; the transfer steps not yet done | 7 | Everyone | The steps in [privacy](../architecture/privacy.md#backups-held-abroad) recorded and a lawyer's answers, then `OFFSITE_TRANSFER_APPROVED` |
 | [Tax on money kept from deposits](#money-m) provisional | 7 | Venues that deduct from deposits | Each venue's adviser's review, recorded |
 | [Charging venues](#blockers-only-where-a-feature-is-switched-on): price and terms undecided | 7 | Venues | The owner decides |
-| [Which languages the launch promises](#languages); native review of Tamil, of activity names in Malay and Chinese, and of programme emails in Malay, Chinese and Tamil | 7 | Customers reading those languages | The owner decides; a native speaker reviews |
+| [Native review](#languages) of Tamil, of activity names in Malay and Chinese, and of programme emails and company-account invoices in Malay, Chinese and Tamil; the four languages are promised | 6 | Customers reading those languages | A native speaker of each reviews ([launch blocker](#blockers-for-any-launch)) |
 | [Defaults for review](#decisions-the-owner-has-to-make): adjacent buffers add up, eight places a booking, a first lesson needing a sign-off at the counter | 7 | Venues with buffers, fleets, sign-offs | The owner accepts or changes each |
-| [Company-account invoices and the terms](#languages) in English | 2 / 7 | Customers reading other languages | Invoices into the dictionaries; the terms after the lawyer's review |
+| [The terms](#languages) in English | 7 | Customers reading other languages | Translated after the lawyer's review |
 | [Staff dashboard](#languages) in English | 2 | Staff | [Roadmap](roadmap.md) (proposed) |
 | [Browser tests](#gaps-in-verification-and-documentation) cover some journeys only | 4 | Everyone, as regressions found late | The journeys named in [users and journeys](../product/users-and-journeys.md#what-the-journeys-show) |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
@@ -159,12 +165,15 @@ two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **78 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, and S12–S14,
 found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (20
+[resolved without a number](#resolved-limitations-without-a-number) (21
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, kinds of kit, clock changes), and two were added: the
 access list matching a typed number, split out when member identity was
-fixed, and the native review of the newly translated emails. In the table
-above, no row is a defect; five are of kinds 2 to 4.
+fixed, and the native review of the newly translated emails. The owner's
+two decisions of 24 October 2026 (the launch languages, backups abroad)
+moved a decision into the launch blockers rather than closing it: native
+review is now required, and the transfer steps remain. In the table above,
+no row is a defect; four are of kinds 2 to 4.
 
 ## Suspected defects
 
@@ -323,18 +332,22 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 The customer pages, booking messages and refusals are in English, Malay,
 Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
 
-- **Company-account invoices and the terms** are in English whatever the
-  customer's language (P2). Game, tournament, league and group emails are in
-  the player's language; in them, round names ("Semi-final 2") and what
+- **The terms** are in English whatever the customer's language, translated
+  once a lawyer has reviewed them (P2). Game, tournament, league and group
+  emails are in the player's language, and a company account's invoices in
+  the account's; in them, round names ("Semi-final 2"), court names and what
   staff typed stay as written (P3).
 - **Not reviewed by a native speaker:** the Malay, Chinese and Tamil wording
-  of game, tournament, league and group emails (machine-assisted) (P2).
+  of game, tournament, league and group emails and of company-account
+  invoices (machine-assisted) (P2).
 - **The staff dashboard** is English only ([roadmap](roadmap.md)) (P2).
 - **Not reviewed by a native speaker:** the Tamil dictionary, and the
   built-in activity names in Malay and Chinese (machine-assisted) (P2).
 
-Which languages the launch promises is a
-[decision for the owner](#decisions-the-owner-has-to-make).
+The launch promises English, Malay, simplified Chinese and Tamil to
+customers (the owner, 24 October 2026), so these reviews are a
+[launch blocker](#blockers-for-any-launch). The staff dashboard is not part
+of that promise.
 
 ### Money (M)
 
@@ -455,6 +468,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Kinds of kit (single and double kayaks) could not be booked together: each kind was a booking of its own | One booking takes some of several kinds at once, a number of each, all or nothing, from the booking form ([booking](../features/booking.md#several-courts-in-one-booking)) | `tests/hire-pricing.test.ts` ("are booked together…"), `tests/components/booking-board.test.tsx` ("kinds of kit") |
 | Daylight saving was not supported: a booking at a wall-clock time skipped or repeated had no defined meaning | Skipped and repeated minutes are found from the runtime's zone database; a booking touching a change is refused (`CLOCK_CHANGE`) and not offered; either side, an hour on the clock is an hour held ([booking time model](../architecture/booking-time-model.md#time)) | `tests/clock-changes.test.ts` (London, New York, Sydney, 2026) |
 | No multipart uploads off-site: a backup part over about 5 GB (a photos archive) was refused | Parts over one PUT go up in 100 MiB parts, each signed and MD5-checked, by the same upload-only key; unfinished ones are dropped by a lifecycle rule ([backups](../operations/backups.md)) | `tests/offsite.test.ts` ("sends a file larger than one upload in parts…", "stops at a part that arrives damaged…"); against the B2 stand-in, not a real bucket |
+| A company account's invoice email and printable invoice were in English whatever the account's language | The venue picks one of the site's languages for the account (`venue_accounts.locale`, migration 0113); the email and the invoice are written in it, whoever opens the link ([payments and credit](../features/payments-and-credit.md#company-and-school-accounts)) | `tests/accounts.test.ts` ("an account's invoices in its language") |
 | Untested paths: the two-year prune of the staff activity log, the daily venue order | Tests added: an entry past two years goes, one inside stays; the order is the same all day, another the next, never by name, each venue once across its pages | `tests/privacy.test.ts` ("keeps the staff activity log two years…"), `tests/browse.test.ts` ("is in a fair order…") |
 | No browser test on a phone-sized screen; a venue's change of a game's time from the staff screen not driven in a browser | Acceptance actors on a phone (390 × 844) or tablet (820 × 1180), each page checked to fit without scrolling sideways; Phone 1 books on a phone, Tablet 1 has a manager move an open game while its player confirms on a phone ([testing](../development/testing.md#visual-acceptance-scenarios)) | `tests/uat/devices.uat.ts`, run against the production build on PGlite, 2 of 2 |
 

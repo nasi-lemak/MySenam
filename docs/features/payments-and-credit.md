@@ -486,7 +486,10 @@ Early on the first of each month, what was played on each account last month
 and not yet invoiced goes on one invoice, which is emailed to the account
 with a link to print it or save it as a PDF: each booking, its date and court,
 who booked it, and what it cost, with the SST or GST included where the venue
-is registered. A manager can also invoice an account at once, for last month
+is registered. The email and the invoice are in the account's language, one
+of the site's that the venue picks when opening it (the site's first unless
+it picks another), whoever opens the link; court names, payment methods and
+what staff typed stay as written. A manager can also invoice an account at once, for last month
 or this month so far. *Mark paid* records how it came in and marks every
 booking on it paid the same way. An unpaid invoice can be withdrawn; its
 bookings go on the next one. Closing an account stops new bookings on it;

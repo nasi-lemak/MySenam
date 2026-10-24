@@ -158,6 +158,13 @@ consent the general rule. This section is the operator's working analysis
 from the regulators' guidance, **not legal advice and not legal approval**.
 The open points at the end are for a lawyer.
 
+**Decided by the owner (24 October 2026): off-site backups may be held
+abroad,** in Backblaze B2 (US West recommended,
+[launch providers](../integrations/launch-providers.md#off-site-backups)).
+That decision chooses the destination; it does not by itself make a transfer
+lawful. `OFFSITE_TRANSFER_APPROVED` is still set only once the steps below
+are done and recorded and a lawyer has answered the open points at the end.
+
 The app's part is narrow:
 
 - it refuses to send until the destination is declared, and checks the

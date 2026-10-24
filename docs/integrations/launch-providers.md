@@ -252,8 +252,8 @@ default retention; the region B2 expects in the signature; default retention
 on an existing B2 bucket (Backblaze's pages disagree); and whether S3 needs
 `Content-MD5` under a default retention alone.
 
-**The app works with all three without changes** — single signed PUTs with
-`Content-MD5`, an upload key that is never asked to read, list or delete, a
+**The app works with all three without changes** — signed PUTs with
+`Content-MD5` (in parts, for a large backup), an upload key that is never asked to read, list or delete, a
 separate read key, client-side encryption, and a restore that takes each
 name's first version where versions can be listed — tested against stand-ins,
 not real buckets ([backups](../operations/backups.md#off-site-copies)).
@@ -347,8 +347,10 @@ Decisions for the operator, before commercial deployment:
    on what it charges venues, and for MyInvois as an intermediary.
 3. Where each install's database, photos and backups are hosted, and the
    privacy notice and venue agreement wording that says so.
-4. The roles and safeguards in [privacy](../architecture/privacy.md#where-personal-data-is-kept),
-   including whether any backup may be held abroad.
+4. The roles and safeguards in [privacy](../architecture/privacy.md#where-personal-data-is-kept).
+   Backups may be held abroad (decided by the owner on 24 October 2026); the
+   transfer safeguards in [privacy](../architecture/privacy.md#backups-held-abroad)
+   are still to be done and recorded.
 5. Each provider's terms, checked by the operator; and the live checks in
    the [launch checklist](../operations/deployment.md#launch-integration-checklist)
    once accounts exist.

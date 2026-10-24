@@ -8,6 +8,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { NextRequest } from "next/server";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   accountsForUser,
   addBooker,
@@ -32,6 +33,7 @@ import { addDays, todayISO } from "../src/lib/time";
 import { POST as book } from "../src/app/api/bookings/route";
 import { POST as chargeRoute } from "../src/app/api/admin/accounts/charge/route";
 import { POST as openRoute } from "../src/app/api/admin/accounts/route";
+import AccountInvoicePage from "../src/app/account-invoice/[token]/page";
 
 /**
  * Company and school accounts: their people book through the month, the
@@ -195,5 +197,49 @@ describe("the numbers on an account", () => {
     expect(await closeAccount(venueId, schoolId)).toBe(true);
     expect(await accountsForUser(venueId, teacher.id)).toEqual([]);
     expect((await post({ hours: [18], chargeTo: schoolId }, teacher.cookie)).status).toBe(403);
+  });
+});
+
+describe("an account's invoices in its language", () => {
+  const page = async (token: string) => renderToStaticMarkup(await AccountInvoicePage({ params: Promise.resolve({ token }) }));
+
+  async function invoiced(name: string, email: string, hour: number, locale?: string) {
+    const made = await saveAccount(venueId, { name, email, ...(locale ? { locale } : {}) });
+    if (!made.ok) throw new Error(made.error);
+    const b = await createBooking({ courtId, date: addDays(todayISO(), 4), hours: [hour], name: "Encik Tan", phone: "0129990002" });
+    if (!b.ok) throw new Error("booking");
+    expect((await chargeToAccount(venueId, made.account.id, [b.booking.id])).ok).toBe(true);
+    await getDb().prepare("UPDATE bookings SET date = ? WHERE id = ?").run(addDays(todayISO(), -1), b.booking.id);
+    const invoice = await issueInvoice(made.account.id, addDays(todayISO(), -1).slice(0, 7));
+    if (!invoice) throw new Error("no invoice");
+    const mail = (await getDb().prepare("SELECT subject, body FROM messages WHERE kind = 'account_invoice' AND recipient = ?").get(email)) as {
+      subject: string;
+      body: string;
+    };
+    return { account: made.account, invoice, mail };
+  }
+
+  it("is one of the site's languages, chosen by the venue; the site's first unless chosen", async () => {
+    expect(await saveAccount(venueId, { name: "Syarikat Lain", email: "a@lain.my", locale: "fr" })).toMatchObject({ ok: false });
+    const plain = await saveAccount(venueId, { name: "Syarikat Biasa", email: "a@biasa.my" });
+    expect(plain).toMatchObject({ ok: true, account: { locale: "en" } });
+  });
+
+  it("emails the invoice and shows it in that language, whoever opens the link", async () => {
+    const { invoice, mail } = await invoiced("Persatuan Badminton Hua Lian", "bendahari@hualian.my", 19, "zh");
+    expect(mail.subject).toContain("账单");
+    expect(mail.body).toContain(`/account-invoice/${invoice.token}`);
+    const html = await page(invoice.token);
+    expect(html).toContain('lang="zh-Hans"');
+    for (const phrase of ["发票", "预订人", "金额", `请于 ${invoice.dueOn} 前付款`]) expect(html).toContain(phrase);
+    expect(html).not.toContain("Booked by");
+  });
+
+  it("in English when the account was given none", async () => {
+    const { invoice, mail } = await invoiced("Acme Sdn Bhd", "accounts@acme.my", 20);
+    expect(mail.subject).toContain("invoice");
+    const html = await page(invoice.token);
+    expect(html).toContain("Booked by");
+    expect(html).toContain(`Please pay by ${invoice.dueOn}, quoting ${invoice.number}.`);
   });
 });
