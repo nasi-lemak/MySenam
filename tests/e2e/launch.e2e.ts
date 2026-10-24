@@ -10,7 +10,7 @@ import { launch } from "./browser";
  */
 
 const url = inject("e2eUrl");
-const OWNER = { email: "owner@e2e.my", password: "an end-to-end owner password" };
+import { OWNER } from "./server";
 let browser: Browser;
 
 /** A page that records anything the content security policy blocked. */

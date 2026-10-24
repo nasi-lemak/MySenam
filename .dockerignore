@@ -1,0 +1,15 @@
+# Only what the build needs goes into the image's build context.
+.git
+.next
+node_modules
+coverage
+artifacts
+data
+reports
+research_notes
+*.db
+*.pem
+.env*
+!.env.example
+secret.key
+tsconfig.tsbuildinfo

@@ -49,26 +49,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test (PGlite)
-        run: npm test
-
-      - name: Test (Postgres 16)
-        run: npm test
-        env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-
-      - name: Build
-        run: npm run build
-
-      # The production build, driven by a real browser (tests/e2e).
+      # The browser for the end-to-end tests, before the checks that need it.
       - name: Install Chromium for the end-to-end tests
         run: npx playwright-core install --with-deps chromium
 
-      - name: End-to-end tests
-        run: npm run e2e
+      # The same checks, in the same order, as anybody runs them by hand or on a
+      # staging machine: typecheck, lint, docs, the suite on PGlite and on this
+      # job's Postgres, the build and the browser tests (scripts/verify.mjs).
+      - name: Verify
+        run: node scripts/verify.mjs ci --report artifacts/verify/ci.json
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-report
+          path: artifacts/verify/

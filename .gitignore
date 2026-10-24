@@ -37,3 +37,6 @@ next-env.d.ts
 
 # The key that unlocks stored payment credentials (lib/secrets.ts).
 secret.key
+
+# Test evidence: verify reports, staging logs, UAT videos, traces and screenshots.
+/artifacts

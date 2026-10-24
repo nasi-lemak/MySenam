@@ -19,7 +19,10 @@
     "coverage": "vitest run --coverage",
     "docs:check": "vitest run tests/docs.test.ts",
     "e2e": "vitest run --config vitest.e2e.config.mts",
-    "bench": "vitest run --config vitest.bench.config.mts"
+    "bench": "vitest run --config vitest.bench.config.mts",
+    "verify": "node scripts/verify.mjs",
+    "stage": "node scripts/stage.mjs",
+    "uat": "vitest run --config vitest.uat.config.mts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

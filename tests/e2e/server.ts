@@ -12,7 +12,10 @@ import type { TestProject } from "vitest/node";
  * as E2E_URL.
  */
 
-export const OWNER = { email: "owner@e2e.my", password: "an end-to-end owner password" };
+export const OWNER = {
+  email: process.env.E2E_OWNER_EMAIL ?? "owner@e2e.my",
+  password: process.env.E2E_OWNER_PASSWORD ?? "an end-to-end owner password",
+};
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
 let server: ChildProcess | undefined;
@@ -28,6 +31,11 @@ const freePort = () =>
   });
 
 export default async function setup(project: TestProject) {
+  // A deployment already running (scripts/stage.mjs): drive it instead of starting one.
+  if (process.env.E2E_URL) {
+    project.provide("e2eUrl", process.env.E2E_URL.replace(/\/$/, ""));
+    return;
+  }
   if (!fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"))) throw new Error("Build the app first: npm run build");
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
