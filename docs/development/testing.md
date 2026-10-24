@@ -207,7 +207,10 @@ screenshot; every person's browser records a video and a Playwright trace
 (`npx playwright-core show-trace <trace.zip>`). Evidence goes to
 `UAT_ARTIFACTS`, or `artifacts/uat/<time>/<scenario>/`, with a
 `summary.json` for the run. Courts and hours are taken from what the venue
-page offers, so the scenarios run on a fresh database or a seeded one.
+page offers, so the scenarios run on a fresh database or a seeded one. A
+person is on a laptop (1280 × 860) unless the scenario puts them on a phone
+(390 × 844) or a tablet (820 × 1180), touch screens both; on those, each page
+is checked to fit the screen without scrolling sideways (`fitsScreen`).
 
 | Scenario | What happens |
 | -------- | ------------ |
@@ -222,9 +225,12 @@ page offers, so the scenarios run on a fresh database or a seeded one.
 | Matchmaking F | A private game invisible to others; only opted-in players suggested; a blocked player turned down; another host refused the roster |
 | Matchmaking G | The share shown, paid at the venue (no online payment configured), nothing charged on joining, the court kept when the game is called off |
 | Matchmaking H | A host moves a game with two players: the new time previewed with who is in it, proposed and held; one keeps their place, the other leaves, and only then does the game move |
+| Phone 1 | On a phone: the home and venue pages fit the screen; a court booked with a tap and found on the account page |
+| Tablet 1 | A venue's manager on a tablet finds an open game's booking on its day, changes its time and gives the reason; the player, on a phone, is told why and confirms; the host sees the game at its new time |
 
-Last run: 15 of 15 against the production build on PGlite (24 October
-2026); 14 of 14, before scenario H was added, against a staging deployment
+Last run: Phone 1 and Tablet 1, 2 of 2, against the production build on
+PGlite (24 October 2026); the other 15 of 15 the same day; 14 of 14, before
+scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from
 a browser: an invitation or held place running out by itself, which needs the
 clock moved (`tests/matchmaking.test.ts` covers it); and paying a share

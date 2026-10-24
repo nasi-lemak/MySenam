@@ -175,8 +175,6 @@ Also, in [open games](../features/matchmaking.md#moving-a-game-to-another-time):
 
 - A proposal waits a day at most (or until the new start, or the
   cancellation cutoff), not a time the venue sets (P3).
-- A venue's change of a game's time, from the staff screen, is tested by
-  route and component tests, not driven in a browser (P3).
 
 
 Known limits of the [booking time model](../architecture/booking-time-model.md)
@@ -400,6 +398,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Daylight saving was not supported: a booking at a wall-clock time skipped or repeated had no defined meaning | Skipped and repeated minutes are found from the runtime's zone database; a booking touching a change is refused (`CLOCK_CHANGE`) and not offered; either side, an hour on the clock is an hour held ([booking time model](../architecture/booking-time-model.md#time)) | `tests/clock-changes.test.ts` (London, New York, Sydney, 2026) |
 | No multipart uploads off-site: a backup part over about 5 GB (a photos archive) was refused | Parts over one PUT go up in 100 MiB parts, each signed and MD5-checked, by the same upload-only key; unfinished ones are dropped by a lifecycle rule ([backups](../operations/backups.md)) | `tests/offsite.test.ts` ("sends a file larger than one upload in parts…", "stops at a part that arrives damaged…"); against the B2 stand-in, not a real bucket |
 | Untested paths: the two-year prune of the staff activity log, the daily venue order | Tests added: an entry past two years goes, one inside stays; the order is the same all day, another the next, never by name, each venue once across its pages | `tests/privacy.test.ts` ("keeps the staff activity log two years…"), `tests/browse.test.ts` ("is in a fair order…") |
+| No browser test on a phone-sized screen; a venue's change of a game's time from the staff screen not driven in a browser | Acceptance actors on a phone (390 × 844) or tablet (820 × 1180), each page checked to fit without scrolling sideways; Phone 1 books on a phone, Tablet 1 has a manager move an open game while its player confirms on a phone ([testing](../development/testing.md#visual-acceptance-scenarios)) | `tests/uat/devices.uat.ts`, run against the production build on PGlite, 2 of 2 |
 
 ## Production readiness
 
@@ -477,6 +476,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| Browser tests cover a few journeys only: eleven end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and fifteen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones. [Users and journeys](../product/users-and-journeys.md#what-the-journeys-show) names the journeys to add first | P2 |
+| Browser tests cover a few journeys only: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and seventeen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), two of them on a phone and a tablet | Most pages are checked by route and component tests, not a browser; on phones and tablets only booking, the games page and the staff bookings screen are driven. [Users and journeys](../product/users-and-journeys.md#what-the-journeys-show) names the journeys to add first | P2 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |
