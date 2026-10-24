@@ -13,6 +13,7 @@
     "test": "vitest run",
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs",
+    "fetch-backup": "node scripts/fetch-backup.mjs",
     "import-sqlite": "node scripts/import-sqlite.mjs",
     "coverage": "vitest run --coverage",
     "docs:check": "vitest run tests/docs.test.ts",

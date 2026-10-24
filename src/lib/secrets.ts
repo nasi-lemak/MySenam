@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { dataDirectory, isEphemeral } from "./db";
+import { dataDirectory, isEphemeral } from "./db.ts";
 
 /**
  * Credentials kept in the database, encrypted.

@@ -863,14 +863,14 @@ function VenueStanding({
  */
 function BackupsPanel() {
   const [state, setState] = useState<{
-    backups: { name: string; bytes: number; takenAt: string }[];
+    backups: { name: string; bytes: number; takenAt: string; complete: boolean }[];
     directory: string;
     database: string;
     hoursSinceLast: number | null;
     offsite: {
       configured: boolean;
       destination: string | null;
-      lastCopied: { name: string; at: string } | null;
+      lastCopied: { name: string; at: string; manifest?: boolean } | null;
       lastError: { at: string; error: string } | null;
     };
     schedule: { hour: number } | null;
@@ -993,6 +993,7 @@ function BackupsPanel() {
                     <>
                       {" "}— last copy <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
                       at {state.offsite.lastCopied.at.slice(0, 10)} {localTime(state.offsite.lastCopied.at)}
+                      {state.offsite.lastCopied.manifest ? ", whole with its manifest" : ", without a manifest"}
                     </>
                   ) : (
                     " — nothing copied yet"
@@ -1016,7 +1017,7 @@ function BackupsPanel() {
                 <table className="w-full min-w-[420px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                      {["Taken", "File", "Size"].map((h) => (
+                      {["Taken", "File", "Size", "Set"].map((h) => (
                         <th key={h} className="px-3 py-2 font-semibold">
                           {h}
                         </th>
@@ -1030,6 +1031,9 @@ function BackupsPanel() {
                         <td className="px-3 py-2 font-mono text-xs">{b.name}</td>
                         <td className="whitespace-nowrap px-3 py-2">
                           {Math.round(b.bytes / 1024)} KB
+                        </td>
+                        <td className={`whitespace-nowrap px-3 py-2 text-xs ${b.complete ? "text-emerald-700" : "text-amber-700"}`}>
+                          {b.complete ? "Whole" : "No manifest or a part missing"}
                         </td>
                       </tr>
                     ))}

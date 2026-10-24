@@ -1,5 +1,7 @@
 import { execFile } from "child_process";
+import crypto from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { dataDirectory, databaseTarget, getDb } from "./db.ts";
@@ -32,6 +34,8 @@ export interface BackupFile {
   bytes: number;
   /** When the snapshot was taken, from its own filename, in local time. */
   takenAt: string;
+  /** Its manifest is there, and every part it names: a set that can be checked and restored whole. */
+  complete: boolean;
 }
 
 export function backupDir(): string {
@@ -77,7 +81,90 @@ function newerFirst(a: string, b: string): number {
 
 function describe(dir: string, name: string): BackupFile {
   const full = path.join(dir, name);
-  return { name, path: full, bytes: fs.statSync(full).size, takenAt: takenAtFrom(name) };
+  return { name, path: full, bytes: fs.statSync(full).size, takenAt: takenAtFrom(name), complete: partsPresent(full) };
+}
+
+/** The manifest of a backup set: what is in it, and each part's SHA-256. */
+export function manifestOf(snapshot: string): string {
+  return snapshot.replace(/\.(dump|tar\.gz)$/, ".manifest.json");
+}
+
+export interface BackupManifest {
+  version: 1;
+  createdAt: string;
+  /** "postgres" (a pg_dump file) or "pglite" (a copy of its data folder). */
+  engine: "postgres" | "pglite";
+  database: { file: string; bytes: number; sha256: string };
+  photos: { file: string; bytes: number; sha256: string; count: number } | null;
+  bookings: number;
+}
+
+const sha256Of = (file: string) =>
+  new Promise<string>((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    fs.createReadStream(file)
+      .on("data", (chunk) => hash.update(chunk))
+      .on("end", () => resolve(hash.digest("hex")))
+      .on("error", reject);
+  });
+
+function partsPresent(snapshot: string): boolean {
+  try {
+    const m = JSON.parse(fs.readFileSync(manifestOf(snapshot), "utf8")) as BackupManifest;
+    return fs.existsSync(snapshot) && (!m.photos || fs.existsSync(path.join(path.dirname(snapshot), m.photos.file)));
+  } catch {
+    return false;
+  }
+}
+
+/** Written last, once every part is in place: a manifest beside a snapshot means the set is whole. */
+async function writeManifest(snapshot: string, info: { engine: BackupManifest["engine"]; bookings: number; photos: number }): Promise<string> {
+  const archive = photosArchiveOf(snapshot);
+  const manifest: BackupManifest = {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    engine: info.engine,
+    database: { file: path.basename(snapshot), bytes: fs.statSync(snapshot).size, sha256: await sha256Of(snapshot) },
+    photos:
+      info.photos > 0
+        ? { file: path.basename(archive), bytes: fs.statSync(archive).size, sha256: await sha256Of(archive), count: info.photos }
+        : null,
+    bookings: info.bookings,
+  };
+  const file = manifestOf(snapshot);
+  const temporary = path.join(path.dirname(file), `.tmp-${path.basename(file)}`);
+  fs.writeFileSync(temporary, JSON.stringify(manifest, null, 2));
+  fs.renameSync(temporary, file);
+  return file;
+}
+
+export type SetCheck = { ok: true; manifest: BackupManifest | null; warnings: string[] } | { ok: false; problems: string[] };
+
+/**
+ * Is this backup set whole and unchanged since it was taken? Each part its
+ * manifest names must be there and hash to what was written down. A set with
+ * no manifest (taken before they were written) is allowed, with a warning:
+ * nothing can say whether its photos belong with it.
+ */
+export async function verifyBackupSet(snapshot: string): Promise<SetCheck> {
+  if (!fs.existsSync(snapshot)) return { ok: false, problems: [`${path.basename(snapshot)} is not there.`] };
+  const file = manifestOf(snapshot);
+  if (!fs.existsSync(file)) return { ok: true, manifest: null, warnings: ["No manifest (an older backup): its parts cannot be checked against each other."] };
+  let manifest: BackupManifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(file, "utf8")) as BackupManifest;
+  } catch {
+    return { ok: false, problems: ["The manifest cannot be read."] };
+  }
+  const problems: string[] = [];
+  if (manifest.database.file !== path.basename(snapshot)) problems.push(`The manifest is for ${manifest.database.file}, not ${path.basename(snapshot)}.`);
+  else if ((await sha256Of(snapshot)) !== manifest.database.sha256) problems.push(`${manifest.database.file} is not what was backed up (its SHA-256 differs).`);
+  if (manifest.photos) {
+    const archive = path.join(path.dirname(snapshot), manifest.photos.file);
+    if (!fs.existsSync(archive)) problems.push(`Its photos (${manifest.photos.file}) are missing.`);
+    else if ((await sha256Of(archive)) !== manifest.photos.sha256) problems.push(`${manifest.photos.file} is not what was backed up (its SHA-256 differs).`);
+  }
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, manifest, warnings: [] };
 }
 
 /** Snapshots on disk, newest first. */
@@ -230,13 +317,14 @@ export function pruneBackups(keep = DEFAULT_KEEP, dir = backupDir()): string[] {
   for (const backup of listBackups(dir).slice(keep)) {
     fs.unlinkSync(backup.path);
     fs.rmSync(photosArchiveOf(backup.path), { force: true });
+    fs.rmSync(manifestOf(backup.path), { force: true });
     dropped.push(backup.name);
   }
   return dropped;
 }
 
 export type BackupResult =
-  | { ok: true; file: BackupFile; bookings: number; pruned: string[]; photos: { file: string | null; count: number } }
+  | { ok: true; file: BackupFile; bookings: number; pruned: string[]; photos: { file: string | null; count: number }; manifest: string }
   | { ok: false; error: string };
 
 /** Take a snapshot, check it, and retire the oldest. */
@@ -300,12 +388,14 @@ export async function createBackup(opts: { dir?: string; keep?: number } = {}): 
   const bookings =
     verified.bookings ??
     Number(((await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get()) as { n: number }).n);
+  const manifest = await writeManifest(final, { engine: target.kind === "postgres" ? "postgres" : "pglite", bookings, photos: photos.photos });
   return {
     ok: true,
     file: describe(dir, name),
     bookings,
     pruned: pruneBackups(keep, dir),
     photos: { file: photos.photos > 0 ? photosArchiveOf(final) : null, count: photos.photos },
+    manifest,
   };
 }
 
@@ -316,4 +406,116 @@ export function hoursSinceLastBackup(dir = backupDir()): number | null {
   // takenAt is local time; the offset is fixed (no DST), so nothing to reason about.
   const taken = Date.parse(`${newest.takenAt.replace(" ", "T")}${isoOffset()}`);
   return Number.isNaN(taken) ? null : (Date.now() - taken) / 3_600_000;
+}
+
+export interface DrillReport {
+  ok: boolean;
+  problems: string[];
+  warnings: string[];
+  /** What came back, counted in the restored copy. */
+  counts: Record<string, number>;
+  photos: number;
+  /** Venues' payment keys in the copy that this install's secret can open; the secret is not in any backup. */
+  paymentKeys: { readable: number; unreadable: number };
+  ms: number;
+}
+
+/**
+ * Restore a backup set somewhere it can do no harm and look at what comes
+ * back: a database of its own beside the live one on a Postgres server
+ * (dropped afterwards), or a PGlite copy in a temporary folder; its photos
+ * unpacked into a temporary folder. The live database and photos are never
+ * touched. This is the check that a backup can actually be restored, and
+ * how long it takes.
+ */
+export async function restoreDrill(snapshot: string): Promise<DrillReport> {
+  const started = Date.now();
+  const report: DrillReport = { ok: false, problems: [], warnings: [], counts: {}, photos: 0, paymentKeys: { readable: 0, unreadable: 0 }, ms: 0 };
+  const set = await verifyBackupSet(snapshot);
+  if (!set.ok) return { ...report, problems: set.problems, ms: Date.now() - started };
+  report.warnings.push(...set.warnings);
+  const COUNTED = ["venues", "courts", "bookings", "claims", "users", "wallet_entries", "online_payments", "receipts", "venue_photos"];
+  let credentials: string[] = [];
+  const target = databaseTarget();
+  try {
+    if (snapshot.endsWith(".dump")) {
+      if (target.kind !== "postgres") throw new Error("A .dump is restored to a Postgres server: set DATABASE_URL to one (the drill uses a database of its own there).");
+      const pg = (await import("pg")).default;
+      const scratch = `mysenam_drill_${Date.now()}_${process.pid}`;
+      const admin = new pg.Client({ connectionString: target.url });
+      await admin.connect();
+      try {
+        await admin.query(`CREATE DATABASE ${scratch}`);
+        try {
+          const env = { ...pgEnvironment(target.url), PGDATABASE: scratch };
+          await run(pgRestore(), ["--no-owner", "--no-privileges", "--exit-on-error", "--dbname", scratch, snapshot], { env, maxBuffer: 64 * 1024 * 1024 });
+          const url = new URL(target.url);
+          url.pathname = `/${scratch}`;
+          const copy = new pg.Client({ connectionString: url.toString() });
+          await copy.connect();
+          try {
+            for (const t of COUNTED) report.counts[t] = Number((await copy.query(`SELECT COUNT(*)::int AS n FROM ${t}`)).rows[0].n);
+            credentials = (await copy.query("SELECT credentials FROM venue_payment_accounts")).rows.map((r: { credentials: string }) => r.credentials);
+          } finally {
+            await copy.end();
+          }
+        } finally {
+          await admin.query(`DROP DATABASE IF EXISTS ${scratch} WITH (FORCE)`);
+        }
+      } finally {
+        await admin.end();
+      }
+    } else {
+      const { PGlite, types } = await import("@electric-sql/pglite");
+      const { citext } = await import("@electric-sql/pglite/contrib/citext");
+      const copy = await PGlite.create({ loadDataDir: new Blob([fs.readFileSync(snapshot)]), extensions: { citext }, parsers: { [types.INT8]: (v: string) => Number(v) } });
+      try {
+        for (const t of COUNTED) report.counts[t] = Number((await copy.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM ${t}`)).rows[0].n);
+        credentials = (await copy.query<{ credentials: string }>("SELECT credentials FROM venue_payment_accounts")).rows.map((r) => r.credentials);
+      } finally {
+        await copy.close();
+      }
+    }
+  } catch (err) {
+    report.problems.push(`The database did not restore: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+  }
+  if (set.manifest && report.counts.bookings !== undefined && report.counts.bookings !== set.manifest.bookings)
+    report.problems.push(`${report.counts.bookings} bookings came back; the manifest says ${set.manifest.bookings} were backed up.`);
+
+  // The photos, unpacked aside and counted against the manifest.
+  const archive = photosArchiveOf(snapshot);
+  if (fs.existsSync(archive)) {
+    const aside = fs.mkdtempSync(path.join(os.tmpdir(), "mysenam-drill-photos-"));
+    try {
+      await run("tar", ["-xzf", archive, "-C", aside], { maxBuffer: 16 * 1024 * 1024 });
+      report.photos = photoFiles(aside).length;
+      if (set.manifest?.photos && report.photos !== set.manifest.photos.count)
+        report.problems.push(`${report.photos} photos came back; the manifest says ${set.manifest.photos.count}.`);
+    } catch (err) {
+      report.problems.push(`The photos did not unpack: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+    } finally {
+      fs.rmSync(aside, { recursive: true, force: true });
+    }
+  }
+
+  // Payment keys are sealed with this install's secret, which no backup holds.
+  const { unseal } = await import("./secrets.ts");
+  for (const raw of credentials) {
+    let readable = true;
+    try {
+      const fields = JSON.parse(raw) as Record<string, unknown>;
+      for (const v of Object.values(fields)) if (typeof v === "string" && v.startsWith("v1:") && unseal(v) === null) readable = false;
+    } catch {
+      readable = false;
+    }
+    if (readable) report.paymentKeys.readable++;
+    else report.paymentKeys.unreadable++;
+  }
+  if (report.paymentKeys.unreadable > 0)
+    report.warnings.push(
+      `${report.paymentKeys.unreadable} venue payment key(s) cannot be opened with this install's secret (MYSENAM_SECRET or secret.key): restore that secret too, or venues reconnect their gateways.`
+    );
+  report.ok = report.problems.length === 0;
+  report.ms = Date.now() - started;
+  return report;
 }

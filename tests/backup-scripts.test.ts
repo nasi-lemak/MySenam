@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
+import http from "http";
 import os from "os";
 import path from "path";
 import sharp from "sharp";
@@ -131,6 +132,98 @@ describe("the backup and restore scripts", () => {
     expect((await venuePhotos(venue.id))[0].caption).toBe("Court one");
     const { getDb } = await import("../src/lib/db");
     await getDb().close();
+  }, 240_000);
+
+  it("drill a backup set fetched back from off-site storage, refuse one that is damaged, and refuse to restore under a running app", async () => {
+    // A bucket that keeps what is put in it, lists it and serves it back.
+    const bucket = new Map<string, Buffer>();
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        const url = new URL(req.url!, "http://x");
+        if (req.method === "PUT") {
+          bucket.set(decodeURIComponent(url.pathname), Buffer.concat(chunks));
+          res.writeHead(200).end();
+        } else if (url.searchParams.get("list-type") === "2") {
+          const prefix = `${url.pathname}/${url.searchParams.get("prefix")}`;
+          const contents = [...bucket]
+            .filter(([k]) => k.startsWith(prefix))
+            .map(([k, v]) => `<Contents><Key>${k.slice(url.pathname.length + 1)}</Key><Size>${v.length}</Size><LastModified>2026-10-24T03:00:00Z</LastModified></Contents>`);
+          res.writeHead(200, { "content-type": "application/xml" }).end(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents.join("")}</ListBucketResult>`);
+        } else if (bucket.has(decodeURIComponent(url.pathname))) {
+          res.writeHead(200).end(bucket.get(decodeURIComponent(url.pathname)));
+        } else res.writeHead(404, { "content-type": "application/xml" }).end("<Error><Code>NoSuchKey</Code></Error>");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const offsite = {
+      OFFSITE_S3_ENDPOINT: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+      OFFSITE_S3_BUCKET: "backups",
+      OFFSITE_S3_ACCESS_KEY_ID: "id",
+      OFFSITE_S3_SECRET_ACCESS_KEY: "secret",
+      OFFSITE_S3_PREFIX: "drill/",
+    };
+    Object.assign(process.env, offsite);
+    Object.assign(env, offsite);
+    try {
+      const { createBackup } = await import("../src/lib/backup");
+      const { copyOffsite } = await import("../src/lib/offsite");
+      const { getDb } = await import("../src/lib/db");
+      const dir = path.join(work, "backups-offsite");
+      const taken = await createBackup({ dir });
+      if (!taken.ok) throw new Error(taken.error);
+      expect((await copyOffsite(taken.file, taken.photos.file, taken.manifest))?.ok).toBe(true);
+      // The manifest went last.
+      expect([...bucket.keys()].at(-1)).toMatch(/\.manifest\.json$/);
+      const before = await fingerprint();
+
+      const listed = await script("fetch-backup.mjs", ["--list"]);
+      expect(listed.code, listed.out).toBe(0);
+      expect(listed.out).toContain(`${taken.file.name}`);
+      expect(listed.out).toContain("whole (manifest)");
+
+      const fetchedDir = path.join(work, "fetched");
+      const fetched = await script("fetch-backup.mjs", [taken.file.name, "--to", fetchedDir]);
+      expect(fetched.code, fetched.out).toBe(0);
+      expect(fetched.out).toContain("every part matches its manifest");
+      expect(fs.readFileSync(path.join(fetchedDir, taken.file.name)).equals(fs.readFileSync(taken.file.path))).toBe(true);
+
+      const drill = await script("restore.mjs", [path.join(fetchedDir, taken.file.name), "--drill"]);
+      expect(drill.code, drill.out).toBe(0);
+      expect(drill.out).toMatch(new RegExp(`Restored aside in [\\d.]+ s: \\d+ venues, .*${taken.bookings} bookings`));
+      expect(drill.out).toContain("Drill passed");
+      expect(await fingerprint()).toEqual(before);
+
+      // Damaged in the bucket: fetched, found out, and not restorable.
+      const photosKey = [...bucket.keys()].find((k) => k.endsWith(".photos.tar.gz"))!;
+      bucket.set(photosKey, Buffer.concat([bucket.get(photosKey)!, Buffer.from("x")]));
+      const damaged = await script("fetch-backup.mjs", [taken.file.name, "--to", path.join(work, "fetched-damaged")]);
+      expect(damaged.code).not.toBe(0);
+      expect(damaged.out).toMatch(/not whole[\s\S]*photos\.tar\.gz is not what was backed up/);
+      const refused = await script("restore.mjs", [path.join(work, "fetched-damaged", taken.file.name), "--force", "--app-stopped"]);
+      expect(refused.code).not.toBe(0);
+      expect(refused.out).toMatch(/not whole, so nothing was restored/);
+      const drilledDamaged = await script("restore.mjs", [path.join(work, "fetched-damaged", taken.file.name), "--drill"]);
+      expect(drilledDamaged.code).not.toBe(0);
+      expect(drilledDamaged.out).toContain("The drill failed");
+
+      // An app instance still holds the scheduler's lease: nothing is replaced.
+      await getDb()
+        .prepare("INSERT INTO settings (key, value) VALUES ('scheduler_lease', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+        .run(`web-1|${Date.now() + 3 * 60_000}`);
+      const leased = await fingerprint();
+      const underApp = await script("restore.mjs", [taken.file.path, "--force"]);
+      expect(underApp.code).not.toBe(0);
+      expect(underApp.out).toContain("looks to be running");
+      expect(await fingerprint()).toEqual(leased);
+    } finally {
+      server.close();
+      for (const k of Object.keys(offsite)) {
+        delete process.env[k];
+        delete (env as Record<string, string | undefined>)[k];
+      }
+    }
   }, 240_000);
 
   it("the SQLite import starts", async () => {

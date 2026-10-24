@@ -3,7 +3,7 @@ import crypto from "crypto";
 import fs from "fs";
 import http from "http";
 import https from "https";
-import { getDb } from "./db";
+import { getDb } from "./db.ts";
 import type { BackupFile } from "./backup";
 
 /**
@@ -215,7 +215,8 @@ export interface OffsiteStatus {
   configured: boolean;
   /** Where copies go, without the credentials. */
   destination: string | null;
-  lastCopied: { name: string; at: string; key: string } | null;
+  /** `manifest`: the set's manifest went too, so the copy can be checked whole when it is fetched back. */
+  lastCopied: { name: string; at: string; key: string; manifest?: boolean } | null;
   lastError: { at: string; error: string } | null;
 }
 
@@ -257,26 +258,150 @@ export async function offsiteStatus(): Promise<OffsiteStatus> {
 }
 
 /**
- * Copy a snapshot off-site if that is set up, and write down how it went —
+ * Copy a backup set off-site if that is set up, and write down how it went —
  * so a copy that has been failing quietly for a week is a red line on the
- * Backups panel, not a surprise on the day it is needed.
+ * Backups panel, not a surprise on the day it is needed. The photos and the
+ * database go first and the manifest last: a manifest in the bucket means
+ * every part it names was accepted, so a half-sent set is recognisable as one.
  */
 export async function copyOffsite(
   backup: Pick<BackupFile, "name" | "path">,
-  /** The snapshot's photos archive (lib/backup.ts), sent first: a copy is not whole without it. */
-  photos?: string | null
+  /** The snapshot's photos archive (lib/backup.ts): a copy is not whole without it. */
+  photos?: string | null,
+  /** The set's manifest (lib/backup.ts), sent last. */
+  manifest?: string | null
 ): Promise<UploadResult | null> {
   const config = offsiteConfig();
   if (!config) return null;
-  const sentPhotos = photos ? await uploadBackup({ name: path.basename(photos), path: photos }, config) : null;
-  const result: UploadResult =
-    sentPhotos && !sentPhotos.ok ? { ok: false, error: `photos: ${sentPhotos.error}` } : await uploadBackup(backup, config);
+  const parts: { label: string; file: Pick<BackupFile, "name" | "path"> }[] = [
+    ...(photos ? [{ label: "photos", file: { name: path.basename(photos), path: photos } }] : []),
+    { label: "database", file: backup },
+    ...(manifest ? [{ label: "manifest", file: { name: path.basename(manifest), path: manifest } }] : []),
+  ];
+  let result: UploadResult = { ok: false, error: "nothing sent" };
+  for (const part of parts) {
+    const sent = await uploadBackup(part.file, config);
+    result = sent.ok || part.label === "database" ? sent : { ok: false, error: `${part.label}: ${sent.error}` };
+    if (!sent.ok) break;
+  }
+  if (result.ok) result = { ok: true, key: config.prefix + backup.name, bytes: parts.reduce((n, p) => n + fs.statSync(p.file.path).size, 0) };
   const now = new Date().toISOString();
   const previous = await stored();
   await remember(
     result.ok
-      ? { lastCopied: { name: backup.name, at: now, key: result.key }, lastError: null }
+      ? { lastCopied: { name: backup.name, at: now, key: result.key, manifest: Boolean(manifest) }, lastError: null }
       : { lastCopied: previous.lastCopied, lastError: { at: now, error: result.error } }
   );
   return result;
+}
+
+// ------------------------------------------------------------- reading back
+
+/**
+ * Reading the bucket is for whoever restores, on the machine they restore
+ * on, with a key that may read: the server's own key need only upload
+ * (above). These sign a GET the same way as the upload.
+ */
+function signedGet(config: OffsiteConfig, url: URL, now = new Date()): Record<string, string> {
+  const payloadHash = hex("");
+  const headers: Record<string, string> = { host: url.host, "x-amz-content-sha256": payloadHash, "x-amz-date": amzDate(now) };
+  headers.authorization = signV4({
+    method: "GET",
+    url,
+    headers,
+    payloadHash,
+    region: config.region,
+    service: "s3",
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    now,
+  });
+  return headers;
+}
+
+function refusal(status: number | undefined, reply: string, what: string): string {
+  const code = reply.match(/<Code>([^<]+)<\/Code>/)?.[1];
+  const message = reply.match(/<Message>([^<]+)<\/Message>/)?.[1];
+  return `Storage refused the ${what} (${status}${code ? ` ${code}` : ""})${message ? `: ${message}` : ""}`;
+}
+
+function get(config: OffsiteConfig, url: URL): Promise<http.IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const send = url.protocol === "http:" ? http.get : https.get;
+    const req = send(url, { headers: signedGet(config, url), timeout: 10 * 60_000 }, resolve);
+    req.on("timeout", () => req.destroy(new Error("The download timed out.")));
+    req.on("error", reject);
+  });
+}
+
+export interface OffsiteObject {
+  /** Its name under the prefix, as it was uploaded. */
+  name: string;
+  bytes: number;
+  lastModified: string;
+}
+
+/** What is in the bucket under this install's prefix (ListObjectsV2), oldest name first. */
+export async function listOffsite(config: OffsiteConfig): Promise<OffsiteObject[]> {
+  const found: OffsiteObject[] = [];
+  let token: string | null = null;
+  do {
+    const url = new URL(`${config.endpoint}/${encodeSegment(config.bucket)}`);
+    url.searchParams.set("list-type", "2");
+    url.searchParams.set("prefix", config.prefix);
+    if (token) url.searchParams.set("continuation-token", token);
+    const res = await get(config, url);
+    let reply = "";
+    for await (const chunk of res) reply += chunk;
+    if (!res.statusCode || res.statusCode >= 300) throw new Error(refusal(res.statusCode, reply, "listing"));
+    for (const [, block] of reply.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const key = block.match(/<Key>([^<]+)<\/Key>/)?.[1] ?? "";
+      found.push({
+        name: key.slice(config.prefix.length).replace(/&amp;/g, "&"),
+        bytes: Number(block.match(/<Size>(\d+)<\/Size>/)?.[1] ?? 0),
+        lastModified: block.match(/<LastModified>([^<]+)<\/LastModified>/)?.[1] ?? "",
+      });
+    }
+    token = /<IsTruncated>true<\/IsTruncated>/.test(reply) ? reply.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1] ?? null : null;
+  } while (token);
+  return found.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/** Download one object to a file, through a temporary name: a cut-off download leaves nothing that looks whole. */
+export async function downloadObject(config: OffsiteConfig, name: string, dest: string): Promise<void> {
+  const res = await get(config, objectUrl(config, name));
+  if (!res.statusCode || res.statusCode >= 300) {
+    let reply = "";
+    for await (const chunk of res) reply += chunk;
+    throw new Error(refusal(res.statusCode, reply, `download of ${name}`));
+  }
+  const temporary = path.join(path.dirname(dest), `.tmp-${path.basename(dest)}`);
+  await new Promise<void>((resolve, reject) => {
+    const out = fs.createWriteStream(temporary);
+    res.on("error", reject).pipe(out).on("error", reject).on("finish", () => resolve());
+  });
+  fs.renameSync(temporary, dest);
+}
+
+/**
+ * Bring one backup set down from the bucket into a folder: its manifest
+ * first, then every part the manifest names. Checking that the parts hash to
+ * what the manifest says is `verifyBackupSet` (lib/backup.ts), which the
+ * restore script runs before anything is restored.
+ */
+export async function fetchOffsiteSet(config: OffsiteConfig, snapshot: string, dir: string): Promise<{ snapshot: string; files: string[] }> {
+  fs.mkdirSync(dir, { recursive: true });
+  const manifestName = snapshot.replace(/\.(dump|tar\.gz)$/, ".manifest.json");
+  const files: string[] = [];
+  const manifestFile = path.join(dir, manifestName);
+  await downloadObject(config, manifestName, manifestFile);
+  files.push(manifestFile);
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as { database: { file: string }; photos: { file: string } | null };
+  if (manifest.database.file !== snapshot) throw new Error(`The manifest in the bucket is for ${manifest.database.file}, not ${snapshot}.`);
+  for (const part of [manifest.database.file, ...(manifest.photos ? [manifest.photos.file] : [])]) {
+    const dest = path.join(dir, part);
+    await downloadObject(config, part, dest);
+    files.push(dest);
+  }
+  return { snapshot: path.join(dir, snapshot), files };
 }

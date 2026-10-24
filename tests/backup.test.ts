@@ -13,11 +13,16 @@ import {
   hoursSinceLastBackup,
   listBackups,
   localPhotosDir,
+  manifestOf,
   photosArchiveOf,
   pruneBackups,
+  restoreDrill,
   restorePhotos,
   verifyBackup,
+  verifyBackupSet,
+  type BackupManifest,
 } from "../src/lib/backup";
+import { getDb } from "../src/lib/db";
 import { createBooking, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 
@@ -248,5 +253,105 @@ describe("the photos with each snapshot (S10)", () => {
     const bucketed = await createBackup({ dir: backups() });
     expect(bucketed.ok && bucketed.photos).toEqual({ file: null, count: 0 });
     expect((await restorePhotos(bucketed.ok ? bucketed.file.path : "")).photos).toBe(0);
+  });
+});
+
+describe("a backup set: the database, its photos and a manifest of both", () => {
+  function photosOnDisk(files: Record<string, string>) {
+    const data = fs.mkdtempSync(path.join(dir, "data-"));
+    vi.stubEnv("MYSENAM_DATA_DIR", data);
+    for (const [name, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(data, "photos", name)), { recursive: true });
+      fs.writeFileSync(path.join(data, "photos", name), content);
+    }
+  }
+  async function taken() {
+    photosOnDisk({ "venues/1/abc-400.webp": "small", "venues/1/abc-1600.webp": "large" });
+    const result = await createBackup({ dir: path.join(dir, "backups") });
+    if (!result.ok) throw new Error(result.error);
+    return result;
+  }
+  const bookings = async () => Number(((await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get()) as { n: number }).n);
+
+  it("names every part with its SHA-256, and is checked whole", async () => {
+    const result = await taken();
+    expect(result.manifest).toBe(manifestOf(result.file.path));
+    const manifest = JSON.parse(fs.readFileSync(result.manifest, "utf8")) as BackupManifest;
+    expect(manifest.database).toMatchObject({ file: result.file.name, bytes: result.file.bytes, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(manifest.photos).toMatchObject({ file: path.basename(photosArchiveOf(result.file.path)), count: 2 });
+    expect(manifest.bookings).toBe(result.bookings);
+    expect(result.file.complete).toBe(true);
+    expect(await verifyBackupSet(result.file.path)).toMatchObject({ ok: true, warnings: [] });
+    // The manifest is not a snapshot of its own.
+    expect(listBackups(path.join(dir, "backups"))).toHaveLength(1);
+  });
+
+  it("is refused when its photos are missing or either part has changed", async () => {
+    const result = await taken();
+    const archive = photosArchiveOf(result.file.path);
+    const original = fs.readFileSync(archive);
+
+    fs.rmSync(archive);
+    expect(listBackups(path.join(dir, "backups"))[0].complete).toBe(false);
+    expect(await verifyBackupSet(result.file.path)).toEqual({ ok: false, problems: [expect.stringMatching(/photos .* are missing/)] });
+
+    const damaged = Buffer.from(original);
+    damaged[damaged.length - 1] ^= 0xff;
+    fs.writeFileSync(archive, damaged);
+    expect(await verifyBackupSet(result.file.path)).toEqual({ ok: false, problems: [expect.stringMatching(/photos\.tar\.gz is not what was backed up/)] });
+
+    fs.writeFileSync(archive, original);
+    fs.appendFileSync(result.file.path, "x");
+    expect(await verifyBackupSet(result.file.path)).toEqual({ ok: false, problems: [expect.stringMatching(/is not what was backed up/)] });
+  });
+
+  it("without a manifest (an older backup) is allowed, with a warning", async () => {
+    const result = await taken();
+    fs.rmSync(result.manifest);
+    expect(await verifyBackupSet(result.file.path)).toMatchObject({ ok: true, manifest: null, warnings: [expect.stringMatching(/No manifest/)] });
+  });
+
+  it("goes whole when it is pruned, manifest and all", async () => {
+    photosOnDisk({ "venues/1/abc-400.webp": "small" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-26T01:00:00+08:00"));
+    const first = await createBackup({ dir: path.join(dir, "backups"), keep: 99 });
+    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    const second = await createBackup({ dir: path.join(dir, "backups"), keep: 99 });
+    if (!first.ok || !second.ok) throw new Error("no backup");
+    pruneBackups(1, path.join(dir, "backups"));
+    expect(fs.existsSync(first.manifest)).toBe(false);
+    expect(fs.existsSync(second.manifest)).toBe(true);
+  });
+
+  it("is restored in a drill somewhere else, counted against its manifest, and the live database is left alone", async () => {
+    const venue = (await listVenues())[0];
+    const made = await createBooking({ courtId: venue.courts[0].id, date: addDays(todayISO(), 3), hours: [10], name: "Drill", phone: "0123000777" });
+    if (!made.ok) throw new Error(made.error);
+    const result = await taken();
+    const live = await bookings();
+
+    const report = await restoreDrill(result.file.path);
+    expect(report.problems).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.counts.bookings).toBe(result.bookings);
+    expect(report.counts.venues).toBeGreaterThan(0);
+    expect(report.photos).toBe(2);
+    expect(report.ms).toBeGreaterThan(0);
+    // Nothing changed here, and nothing left behind on the server.
+    expect(await bookings()).toBe(live);
+    if (process.env.TEST_DATABASE_URL) {
+      const left = (await getDb().prepare("SELECT COUNT(*) AS n FROM pg_database WHERE datname LIKE 'mysenam_drill_%'").get()) as { n: number };
+      expect(Number(left.n)).toBe(0);
+    }
+  }, 120_000);
+
+  it("is not drilled when a part is damaged: the drill says which", async () => {
+    const result = await taken();
+    fs.appendFileSync(photosArchiveOf(result.file.path), "x");
+    const report = await restoreDrill(result.file.path);
+    expect(report.ok).toBe(false);
+    expect(report.problems.join(" ")).toMatch(/photos\.tar\.gz is not what was backed up/);
+    expect(report.counts).toEqual({});
   });
 });
