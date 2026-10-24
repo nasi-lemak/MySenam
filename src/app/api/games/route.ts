@@ -5,6 +5,7 @@ import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { findGames, LEVELS, openGame, type Level } from "@/lib/games";
+import type { Intensity } from "@/lib/player-profiles";
 import { rateLimit } from "@/lib/rate-limit";
 import { readNear } from "@/lib/store";
 import { storefrontForRequest } from "@/lib/storefront";
@@ -41,7 +42,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ games, signedIn: user !== null });
 }
 
-/** `{ bookingCode, spots, level, share, autoAccept, note?, who? }` — open one of your bookings to other players. */
+/**
+ * `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` —
+ * open one of your bookings to other players.
+ */
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
@@ -66,6 +70,10 @@ export async function POST(req: NextRequest) {
     autoAccept: body.autoAccept === true,
     note: typeof body.note === "string" ? body.note : undefined,
     who: typeof body.who === "string" ? (body.who as Who) : undefined,
+    visibility: body.visibility === "private" ? "private" : body.visibility === undefined || body.visibility === "public" ? "public" : (body.visibility as never),
+    waitlist: body.waitlist === true,
+    intensity: typeof body.intensity === "string" ? (body.intensity as Intensity) : undefined,
+    adultsOnly: body.adultsOnly === true,
   });
   if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status ?? 400 });
   return NextResponse.json({ game: result.game }, { status: 201 });

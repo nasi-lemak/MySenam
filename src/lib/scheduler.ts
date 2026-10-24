@@ -1,3 +1,4 @@
+import { expireHolds } from "./games";
 import crypto from "crypto";
 import { getDb } from "./db";
 import { pruneIfDue } from "./privacy";
@@ -180,6 +181,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] passing on waiting-list offers failed:", err);
     await raiseAlert("scheduler:waitlist-offers-failed", "Scheduled work failed: waiting-list offers", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Open games: invitations and held places that ran out; each freed place to the next in line.
+    await expireHolds();
+  } catch (err) {
+    console.error("[mysenam] passing on open-game places failed:", err);
+    await raiseAlert("scheduler:game-places-failed", "Scheduled work failed: open-game invitations and held places", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

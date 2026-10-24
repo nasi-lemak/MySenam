@@ -557,53 +557,156 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 ## Open games: recruiting players
 
 A player who has booked a court can open it to others at `/games` (*Games* in
-the menu): how many players they want, at what level, and what each pays
-towards the court — split evenly unless they say otherwise. Others find open
-games by sport, day, area, level, who can join, or *Near me* (the next 14 days
-by default; full games are not listed), and ask to join; the host accepts or
-declines from the same page, or lets anybody straight in. The `/play` page
-gathers games, tournaments and leagues. Everything needs an account.
+the menu): how many players they want, at what level, casual or competitive,
+what each pays towards the court (split evenly unless they say otherwise),
+whether a full game keeps a waiting list, whether it is adults only, and
+whether it is public or private. Others find public games by sport, day,
+area, level, who can join, or *Near me* (the next 14 days by default; a full
+game is listed only if it keeps a waiting list), and ask to join; the host
+accepts or declines from the same page, or lets anybody straight in. The
+`/play` page gathers games, tournaments and leagues. Everything needs an
+account. Joining a game never books a court: the game is the host's booking
+and only that (`src/lib/games.ts`).
 
 - **Money goes to the venue.** A player who joins pays their share online to
   the venue's own Billplz account, towards the host's booking; staff see
   "RM12 due" instead of the full price, and the host paying online pays only
   the rest. Shares that cover the court mark it paid. Where the venue does not
   take payment online, shares are paid at the counter. The platform never
-  holds anybody's money.
+  holds anybody's money, nothing is charged because players match, and
+  nothing moves between players.
 - **Owed back when the game does not happen to them**: a player leaving or
-  being removed, or the booking being cancelled by anyone, puts their paid
-  share on the venue's list of refunds to make, like any online payment for
-  something that did not happen. A share that arrives after the court was paid
-  for in full, or after they left, is owed back at once. The host owes a
-  handed-back share again; one who had already paid the rest online owes just
-  that share, and what they paid keeps its own receipt
-  ([business rules](../product/business-rules.md#money)).
-- **Privacy.** Players see each other's first name and level, never a phone
-  number or email. Levels are self-rated per sport: beginner, intermediate,
-  advanced or competitive.
+  being removed, the host calling the game off, or the booking being
+  cancelled by anyone, puts their paid share on the venue's list of refunds to
+  make, like any online payment for something that did not happen. A share
+  that arrives after the court was paid for in full, or after they left, is
+  owed back at once. The host owes a handed-back share again; one who had
+  already paid the rest online owes just that share, and what they paid keeps
+  its own receipt ([business rules](../product/business-rules.md#money)).
 - **No-shows.** After the game, the host can mark a player who did not come.
   Three in 90 days, and that player cannot join games until they age out.
 - **The host's tools**: accept, decline, remove a player (who is emailed and
-  owed back), close the game to new requests, and mark no-shows. There is no
-  "cancel the game" of its own: cancelling the booking calls the game off.
-  A booking that has had a game cannot be moved to another time by anyone
-  (`RESCHEDULE_GAME`); staff can move it to another court.
-- Everyone is emailed when it matters: the host when somebody asks, joins or
-  leaves; the player when accepted, declined, removed, or the game is off.
-  These go straight out by email, not through the message queue, and there
-  are no reminders before a game.
-- Closing an account takes the player out of games to come, and calls off
-  games they were hosting; the personal data export includes games and levels.
+  owed back), invite players, share a link, close the game to new requests,
+  call it off while keeping the court, and mark no-shows. A booking that has
+  had a game cannot be moved to another time by anyone (`RESCHEDULE_GAME`);
+  staff can move it to another court.
+- Everyone is emailed through the message queue when it matters: the host
+  when somebody asks, joins or leaves; the player when accepted, declined,
+  removed, invited, offered a freed place, or the game is off. There are no
+  reminders before a game.
+- Closing an account takes the player out of games to come (a place freed
+  goes to the next in line), and calls off games they were hosting; the
+  personal data export includes games, levels, the playing profile, blocks,
+  reports they made and groups.
 
-**What is recruitment, and what is not.** Open games are **player
-recruitment**: a host advertises places and others ask to join. Customers can
-**discover games** by filtering the list. There is **no player discovery**
-(searching for people rather than games), **no matchmaking** (the system never
-suggests players or games from levels, availability or history; saved levels
-only filter the list), no invite-only or private games, no inviting a named
-player, no waiting list for a full game, no messaging between host and
-players, no recurring games (one game per booking), and no team formation.
-These are proposals in the [roadmap](../roadmap/roadmap.md).
+### Where somebody stands in a game
+
+Each person has one row per game, and nobody gets a place twice:
+
+| Status | Meaning |
+| ------ | ------- |
+| `invited` | Asked in by the host or a player, until the invitation expires (48 hours, or the game's start) |
+| `requested` | Asked to join; waiting for the host |
+| `accepted` | In the game |
+| `declined` | The host said no |
+| `left` | Dropped out, withdrew, or turned down an invitation or a freed place |
+| `removed` | Taken out by the host, or an invitation withdrawn |
+| `waitlisted` | Asked when the game was full; in line |
+| `offered` | A freed place held for them until it expires (2 hours, or the game's start) |
+| `expired` | An invitation or a held place that ran out |
+
+A place is taken by somebody `accepted` or holding an `offered` place. Every
+change that takes or frees a place (joining, the host accepting or removing,
+leaving, an offer running out, an account closing) runs in one transaction
+that first locks the game's row, so two people answering at once cannot both
+have the last place (B16, fixed). A freed place goes to whoever has waited
+longest: where the host lets everybody in it is held for them and they are
+emailed to take it or let it go; where the host decides, they become an
+ordinary request. Nobody is ever moved into a game without saying yes. The
+scheduler expires invitations and held places and passes each freed place on;
+each such notice carries a key, so a job run twice sends it once.
+
+### Invitations, links and private games
+
+The host can invite a player suggested to them, or anybody by email address;
+a player in a public game can invite somebody too, but where the host decides
+that is still a request for the host. The host's own invitation is their yes.
+Who may be invited: a declared adult the inviter has come across here (played
+with, been invited by, or in a community group with), or one who has opted in
+to being found or invited; somebody under 18, or who has not said, only by a
+fellow member of a community group, never out of the blue; nobody across a
+block. Inviting by email answers the same whether the address has an account
+or not, and invites only those who may be invited, so it cannot be used to
+find out who uses MySenam. One person sends at most 30 invitations a day, and
+a game holds at most three outstanding per place.
+
+A **private** game is never listed or suggested. Only its host's invitations
+and links lead to it: a link lasts what the host chooses (at most 14 days,
+never past the game), only the SHA-256 of its secret is kept, and the host
+can withdraw every link at once. A link is a way in, not the host's yes.
+
+### Matchmaking
+
+`/games` also suggests games to a signed-in player (`src/lib/matchmaking.ts`,
+`/api/games/recommended`), each with the reasons beside it, by fixed rules
+with no learning:
+
+1. **Hard constraints** decide whether a game can be suggested at all: a
+   public, open game in the next 14 days, not their own and not one they are
+   already part of or were turned down from; one they could join (the game's
+   rule on who plays, adults only, fewer than three recent no-shows, the venue
+   taking their number and letting them in, no block with the host or anyone
+   in it); and within what they asked (distance from their point, the most per
+   share, a level no more than one step from theirs, and a place free or a
+   waiting list). The page shows how many were left out and why, with blocks
+   and venue refusals counted together so neither can be told apart.
+2. **Preferences** rank the rest, by published points (`WEIGHTS`): a sport
+   they gave a level for 20; the same level 25, one step away 10, open to all
+   levels 12; up to 20 for distance, falling to none at the edge of how far
+   they go (or 12 for the area they named); 10 each for a day and a part of the
+   day that suit them and for the same intensity; 5 within their price or
+   free; −15 when only the waiting list is left. Ties go to the sooner game,
+   then the nearer, then the older game. The last place and a host who decides
+   are shown without points.
+
+Levels and ages are what players say about themselves, and reasons say no
+more ("the level you gave"). Nothing ranks by gender, age, race or religion:
+the only rules on who plays are the host's own, and joining enforces the same
+ones.
+
+**Profiles** (`/games/preferences`, `src/lib/player-profiles.ts`) hold only
+what matching needs: an area and a point rounded to about a kilometre (never
+an address, never shown to anyone else), how far, days, parts of the day,
+casual or competitive, the most per share, and whether to hear of suggested
+games. Being **discoverable** (suggested to hosts) and **invitable** by
+anybody are opt-in, off by default, and only for somebody who declares they
+are 18 or over; the declaration is recorded as said, never verified.
+
+**For hosts**, the players suggested for a game (`/api/games/:id/candidates`)
+are only discoverable adults who play the sport, at a level one step or less
+from the game's, for whom the game is within their distance and price, who
+could join it, with no block either way. The host sees a first name, a level,
+a distance band ("within 5 km") and the reasons; never a point, a phone
+number, an email or anything about their calendar. Inviting goes through
+MySenam.
+
+### Blocking and reporting
+
+A player can block, or report to the platform's owners, somebody they have
+come across here (`src/lib/player-safety.ts`). A block works both ways and
+says nothing: neither is suggested to the other, neither can invite the
+other, and neither can join a game the other hosts or plays in, refused in the
+same words as a closed game. Blocking withdraws invitations between them and
+quietly turns down anything the blocked player asked of the blocker's games;
+somebody already in stays until the host removes them, because a paid share
+may hang on it. Reports (no-show, abuse, spam, safety, other) go to the
+owner's list (`/api/admin/player-reports`), one open report per person, at
+most ten a day from one player.
+
+**What is still not here.** There is no messaging between players, no
+recurring game that books its own court, and no team formation for
+tournaments: a tournament entry stays a tournament entry. Planned work is in
+the [roadmap](../roadmap/roadmap.md).
 
 ## Women-only and men-only
 

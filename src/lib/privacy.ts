@@ -326,6 +326,8 @@ export interface CustomerExport {
   /** Open games they hosted or asked to join, and the levels they gave. */
   games: unknown[];
   levels: unknown[];
+  /** How they like to play, who they blocked, reports they made, and their community groups. */
+  matchmaking: { profile: unknown; blocks: unknown[]; reportsMade: unknown[]; groups: unknown[] };
   tournaments: unknown[];
   /** Leagues joined, and each season's box, finish and fee. */
   leagues: unknown[];
@@ -441,6 +443,15 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     levels: await all("SELECT sport, level, updated_at FROM player_levels WHERE user_id = ?", userId),
+    matchmaking: {
+      profile: (await all("SELECT * FROM player_profiles WHERE user_id = ?", userId))[0] ?? null,
+      blocks: await all("SELECT u.name AS blocked, k.created_at FROM player_blocks k JOIN users u ON u.id = k.blocked_id WHERE k.blocker_id = ?", userId),
+      reportsMade: await all("SELECT reason, note, status, created_at FROM player_reports WHERE reporter_id = ?", userId),
+      groups: await all(
+        "SELECT g.name, g.sport, m.role, m.status, m.created_at FROM group_members m JOIN community_groups g ON g.id = m.group_id WHERE m.user_id = ?",
+        userId
+      ),
+    },
     tournaments: await all(
       `SELECT t.name AS tournament, t.starts_on, v.name AS venue, e.name AS entered_as, e.status, e.paid_at,
               e.birth_date AS declared_birth_date, e.partner_birth_date AS declared_partner_birth_date,

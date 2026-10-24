@@ -63,6 +63,125 @@ sold for one activity at a time (`activities.e2e.ts`). Each
 roadmap batch adds the journeys it changes (see the
 [roadmap](../roadmap/roadmap.md#delivered)).
 
+## Three ways to check a change
+
+One runner does the same checks here, on a staging machine and in CI, and
+writes what it tested to `artifacts/verify/<commit>-<time>.json`: the commit,
+whether the tree had uncommitted changes, a digest of the exact content, and
+each step's result and time. A step it could not run (no Postgres, no
+browser) is reported as blocked, never as passed.
+
+```bash
+npm run verify -- fast                 # typecheck, lint, the tests touched by uncommitted changes (about 30 s)
+npm run verify -- fast tests/games.test.ts
+npm run verify -- full                 # typecheck, lint, docs, PGlite, Postgres, build, browser tests
+npm run verify -- pg                   # the suite on Postgres only
+npm run verify -- e2e                  # browser tests; builds only when the source digest changed
+```
+
+Postgres comes from `TEST_DATABASE_URL`, `--pg <url>`, or else a throwaway
+`postgres:16-alpine` container labelled `mysenam.purpose=verify`, removed
+when the run ends however it ends.
+
+### Staging and real services
+
+**On this machine, with Docker** (`npm run stage -- …`, `scripts/stage.mjs`):
+the app as an immutable image built from this source, its own Postgres,
+synthetic data, the tests run against it, the evidence kept, and everything
+made removed again.
+
+```bash
+npm run stage -- run                   # image → up → seed → smoke + e2e → evidence → down
+npm run stage -- run --keep --suite smoke,e2e,uat
+npm run stage -- status                # deployments, their expiry, and leftovers
+npm run stage -- down <id>             # remove one deployment, and check nothing of it is left
+npm run stage -- gc --images 3         # remove expired deployments; keep the newest 3 images
+```
+
+- The image is tagged `mysenam:src-<digest>`, the digest of the exact source
+  (tracked files, uncommitted changes and untracked files), and labelled with
+  it; a deployment refuses an image whose label does not match. One image per
+  source is built once (about 165 s cold, with npm and Next caches mounted
+  into the build) and reused until any file, the lock file or the
+  `Dockerfile` changes. No credential is baked into the image or its cache:
+  the proxy's CA reaches `npm ci` as a build secret.
+- Each deployment has an id (`stg-<yymmddhhmm>-<hex>`) labelled on every
+  container, network and volume it makes, with an expiry (`--ttl`, default
+  4 h). `down` and `gc` remove only what carries those labels; nothing else on
+  the machine is touched. Its record (image, digest, commit, address, owner
+  credentials made for it, timings) is `artifacts/staging/<id>/deployment.json`.
+- The database is fresh and synthetic, never a copy of production:
+  `scripts/seed-synthetic.mjs` signs the generated owner in, fills the demo
+  fortnight through the app, and adds players named `player<seed>-<n>@seed.mysenam.test`
+  (the same seed makes the same people).
+- `smoke` checks health, that venues are listed, that every migration
+  applied, and that the data survives an app restart; `e2e` and `uat` run the
+  browser suites against the deployment (`E2E_URL`).
+
+Measured on this container: start 8.8 s, seed 29.7 s,
+smoke 5 of 5, e2e 11 of 11 against the image on Postgres 16, teardown with
+nothing left.
+
+**Remote, on demand, on DigitalOcean** (`scripts/stage-remote.mjs`): one
+droplet running the same image, its own Postgres and Caddy on
+`<ip>.sslip.io`, seeded synthetic data, destroyed by its own tag.
+
+```bash
+node scripts/stage-remote.mjs plan --ttl 2h --size s-1vcpu-2gb
+node scripts/stage-remote.mjs up --approve-usd 0.10 --ttl 2h
+node scripts/stage-remote.mjs test <id>
+node scripts/stage-remote.mjs down <id>
+node scripts/stage-remote.mjs gc               # destroy expired staging droplets, and only those
+```
+
+- It refuses to create anything until `--approve-usd` covers the estimate,
+  and never above `STAGING_MAX_USD` (default 1). The sizes are an allowlist;
+  s-1vcpu-2gb costs $0.01786 an hour, so a two-hour run is about $0.04.
+  Droplets are billed by the second up to a monthly cap, and a spending alert
+  does not stop charges: `status` lists what is still billable.
+- Droplets carry `mysenam-staging`, `mysenam-stg-<id>` and `expires-<epoch>`
+  tags. `down` deletes by its own tag and checks the droplet is gone; `gc`
+  deletes only expired staging droplets that also carry a deployment tag.
+  Tags are bookkeeping, not a security boundary: the token should belong to a
+  separate DigitalOcean team used for nothing else, scoped to
+  `droplet:create`, `droplet:read`, `droplet:delete`, `tag:*` and
+  `registry:read`.
+- `DIGITALOCEAN_TOKEN` and `STAGING_REGISTRY_AUTH` (a read-only registry
+  credential) come from the environment's secret store; neither is written
+  into the droplet's user data, the record or the logs.
+
+`tests/stage-remote.test.ts` runs it against a stand-in DigitalOcean API.
+**It has not been run against DigitalOcean itself**: that needs a token and
+an agreed spend.
+
+**Real services** (`scripts/verify-integrations.mjs`): checks each provider
+with test-mode or sandbox credentials only, and reports PASS, FAIL, PARTIAL
+or BLOCKED (with what is missing) to `artifacts/integrations/`.
+
+```bash
+node scripts/verify-integrations.mjs all
+node scripts/verify-integrations.mjs stripe --through https://<staging-address>
+node scripts/verify-integrations.mjs email --send
+```
+
+- Stripe refuses any key that is not a test key before making a call; with
+  `--through` it registers a webhook on the staging address, pays a booking
+  in the browser with the 4242 test card, waits for the app to mark it paid,
+  cancels it and refunds it through the gateway, then deletes the webhook.
+- Billplz uses its sandbox only; paying a bill through the app is a step done
+  by hand.
+- Email checks the sending domain's SPF, DKIM (`DKIM_SELECTOR`) and DMARC
+  records and the SMTP login, and sends only with `--send`, to
+  `VERIFY_EMAIL_TO`. WhatsApp and SMS send one message each only to
+  `VERIFY_WHATSAPP_TO` and `VERIFY_SMS_TO`, numbers the operator owns.
+- B2 runs `scripts/verify-offsite.mjs` against the real bucket, with
+  synthetic data.
+- Every secret the environment holds is masked in anything printed or saved.
+
+`tests/verify-integrations.test.ts` runs it against stand-ins. A provider is
+live-verified only when its own run passes with real sandbox credentials; see
+[feature status](../product/feature-status.md) for which have.
+
 ## Marketplace benchmark
 
 ```bash
@@ -191,8 +310,10 @@ nothing about what it does. That is what the feature tests and review are for.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on pull requests, on pushes to `main` and the
-demo branch, and by hand. It type-checks, lints, runs the suite on PGlite and again
-on Postgres 16, builds, and runs the end-to-end tests against that build. It
+demo branch, and by hand. It runs `node scripts/verify.mjs ci` against a
+Postgres 16 service: type-check, lint, documentation, the suite on PGlite and
+again on Postgres, the build, and the end-to-end tests against that build,
+and keeps the run's report as an artifact. It
 skips changes that touch only Markdown, so
 `.github/workflows/docs.yml` runs the documentation checks on those (and on
 every other pull request) instead.

@@ -61,6 +61,8 @@ export const POLICIES = {
   geocode: { limit: 20, windowMs: 10 * MINUTE },
   /** A resident putting guests on a venue's list: a few a day, not a list import. */
   guestInvite: { limit: 20, windowMs: 60 * MINUTE },
+  /** Inviting, blocking and reporting other players: a few an hour for a person, not a mailing list. */
+  social: { limit: 30, windowMs: 60 * MINUTE },
   /** A browser reporting its errors: a broken page sends a few, a script flooding the log many. */
   clientError: { limit: 20, windowMs: 10 * MINUTE },
   /** Pricing a booking before it is made: a person changing the length a few times a minute, not a scrape of every price. */

@@ -159,7 +159,7 @@ describe("remote staging", () => {
 
   it("refuses to run without its token, and says so without printing any", async () => {
     const child = await new Promise<{ code: number | null; out: string }>((resolve) => {
-      const p = spawn(process.execPath, ["scripts/stage-remote.mjs", "status"], { env: { PATH: process.env.PATH, DO_API_URL: apiUrl } });
+      const p = spawn(process.execPath, ["scripts/stage-remote.mjs", "status"], { env: { PATH: process.env.PATH, NODE_ENV: "test", DO_API_URL: apiUrl } });
       let out = "";
       p.stdout.on("data", (c) => (out += c));
       p.stderr.on("data", (c) => (out += c));

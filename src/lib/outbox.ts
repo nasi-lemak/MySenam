@@ -681,7 +681,7 @@ export async function emailPlain(input: {
   });
 }
 
-export async function emailPlayer(input: { venueId: number; userId: number; subject: string; body: string; link: string }): Promise<void> {
+export async function emailPlayer(input: { venueId: number; userId: number; subject: string; body: string; link: string; dedupeKey?: string }): Promise<void> {
   const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(input.userId)) as { name: string; email: string } | undefined;
   if (!user) return;
   const { siteName } = await import("./site");
@@ -695,5 +695,7 @@ export async function emailPlayer(input: { venueId: number; userId: number; subj
     subject: "msg.programmeSubject",
     body: "msg.programmeBody",
     vars: { subject: input.subject, text },
+    // The same notice twice (a job run on two servers) is queued once.
+    dedupeKey: input.dedupeKey,
   });
 }

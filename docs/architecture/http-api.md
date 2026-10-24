@@ -131,6 +131,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/demo`             | Fill an empty install with a demo fortnight — **owner only** |
 | GET    | `/api/admin/retention`        | The retention policy, what is due, and when it last ran — **owner only** |
 | POST   | `/api/admin/retention`        | Apply the retention policy now — **owner only**      |
+| GET    | `/api/admin/player-reports`   | Reports about players, `?status=open\|reviewed&before=<id>` — **owner only** |
+| POST   | `/api/admin/player-reports`   | `{ id }` — mark a report reviewed — **owner only** |
 | GET    | `/api/admin/backup`           | Snapshots, off-site status and backup health — **owner only** |
 | POST   | `/api/admin/backup`           | Take one now — **owner only**                        |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
@@ -148,9 +150,12 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/bookings/split` | `{ code, phone, parts }` → the booking split `parts` ways, and the link to send friends |
 | GET | `/api/classes/term` | `?classId` → the sessions left in this weekly class that can still be joined, and what the term costs |
 | GET | `/api/coaching/slots` | `?coachId&date&sport?` → when a lesson with that coach can start that day (`starts`: minute and longest length), and the lengths the sport's courts allow (`policy`) |
-| GET | `/api/games` | Open games with room, soonest first: `?sport=&date=&area=&level=&who=women`, or `?near=lat,lng&km=` for nearest. Signed in, each says where you stand in it |
-| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who? }` — open one of your bookings to other players |
-| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, or join outright where the host lets everybody in), "leave", "pay" (your share, online, to the venue — answers with where to pay), or, for its host, "close" |
+| GET | `/api/games` | Public open games with room (or a waiting list), soonest first: `?sport=&date=&area=&level=&who=women`, or `?near=lat,lng&km=` for nearest. Signed in, each says where you stand in it. Private games are never listed |
+| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players |
+| GET | `/api/games/recommended` | Signed in: open games suggested for you, best first, each with its score and reasons; `?sport=&offset=&limit=` ([matchmaking](../features/programmes.md#matchmaking)) |
+| GET | `/api/games/:id` | One game as you may see it; a private one only to its host, its players and invitees, or with `?link=` |
+| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`) and "unlink" |
+| GET | `/api/games/:id/candidates` | The host: opted-in players who might suit the game — first name, level, distance band and reasons; `?offset=&limit=` |
 | POST | `/api/games/:id/players/:playerId` | `{ action: "accept" \| "decline" \| "remove" \| "no_show" }` — the host about one player |
 | GET | `/api/geocode` | `?q=` — where an address is, so the map on the application and branch forms can open on it. Asked through here rather than from the browser so every lookup shares one queue and one cache |
 | GET | `/api/leagues` | Leagues taking players: `?sport=` |
@@ -196,6 +201,12 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/my/guests` | `{ venueId, phone, name, days }`: put a guest on the venue's list |
 | DELETE | `/api/my/guests` | `?id=`: take one's own guest off the list |
 | GET | `/api/my/levels` | The signed-in player's level in each sport they have given one for |
+| GET | `/api/my/profile` | How the signed-in player likes to play (area, approximate point, distance, days, times, intensity, most per share, opt-ins, declared age), and their levels |
+| PUT | `/api/my/profile` | Any of those fields; being found or invited by anybody needs a declared 18 or over |
+| GET | `/api/players/blocks` | Who the signed-in player has blocked |
+| POST | `/api/players/blocks` | `{ userId }` — block somebody you have come across here |
+| DELETE | `/api/players/blocks` | `{ userId }` — undo a block |
+| POST | `/api/players/reports` | `{ userId, reason, gameId?, note? }` — report somebody you have come across here to the platform's owners |
 | PUT | `/api/my/levels` | `{ sport, level \| null }` |
 | GET | `/api/my/marketing` | The venues this account agreed to hear from, and whether it still does |
 | POST | `/api/my/marketing` | `{ id }` → stop hearing from that venue |

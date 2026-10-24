@@ -42,7 +42,7 @@ beforeEach(() => {
 
 function run(env: Record<string, string>, ...args: string[]): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ["scripts/verify-integrations.mjs", ...args], { env: { PATH: process.env.PATH, ...env } });
+    const child = spawn(process.execPath, ["scripts/verify-integrations.mjs", ...args], { env: { PATH: process.env.PATH, NODE_ENV: "test", ...env } });
     let out = "";
     child.stdout.on("data", (c) => (out += c));
     child.stderr.on("data", (c) => (out += c));
