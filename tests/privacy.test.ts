@@ -341,6 +341,16 @@ describe("keeping nothing longer than it is needed", () => {
     ).toBe(1);
   });
 
+  it("keeps the staff activity log two years, then lets it go", async () => {
+    const db = getDb();
+    const at = (days: number) => `${addDays(todayISO(), -days)} 12:00:00`;
+    for (const [days, action] of [[731, "log.tooOld"], [729, "log.keptOld"], [0, "log.today"]] as const)
+      await db.prepare("INSERT INTO staff_actions (admin_name, action, detail, created_at) VALUES ('Desk', ?, 'x', ?)").run(action, at(days));
+    await pruneOldData();
+    const left = ((await db.prepare("SELECT action FROM staff_actions WHERE action LIKE 'log.%' ORDER BY action").all()) as { action: string }[]).map((r) => r.action);
+    expect(left).toEqual(["log.keptOld", "log.today"]);
+  });
+
   it("clears phone check codes after a day, whether or not anybody asks for another", async () => {
     const db = getDb();
     const user = await customer("codes@example.com", "0195000030");

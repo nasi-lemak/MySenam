@@ -63,6 +63,23 @@ interface Step {
   error?: string;
 }
 
+/**
+ * The screens people use: a laptop at the counter, a phone in the hand (390 ×
+ * 844, the most common size in Malaysia), a tablet on the desk (820 × 1180).
+ * Phones and tablets are touch screens.
+ */
+export const DEVICES = {
+  desktop: { viewport: { width: 1280, height: 860 } },
+  phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 },
+  tablet: { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 },
+} as const;
+export type Device = keyof typeof DEVICES;
+
+/** Nothing on the page is wider than the screen, so nobody has to scroll sideways. */
+export async function fitsScreen(page: Page): Promise<number> {
+  return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+}
+
 export class Scenario {
   readonly dir: string;
   readonly actors: Actor[] = [];
@@ -74,14 +91,14 @@ export class Scenario {
     fs.mkdirSync(this.dir, { recursive: true });
   }
 
-  /** A person in the scenario, with a browser of their own. */
-  async actor(name: string): Promise<Actor> {
+  /** A person in the scenario, with a browser of their own, on a laptop unless a phone or tablet is said. */
+  async actor(name: string, device: Device = "desktop"): Promise<Actor> {
     const ip = `10.${(process.pid % 200) + 20}.${Math.floor(++ipCounter / 250)}.${ipCounter % 250}`;
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 860 },
+      ...DEVICES[device],
       locale: "en-MY",
       extraHTTPHeaders: { "x-forwarded-for": ip },
-      recordVideo: { dir: path.join(this.dir, "video", name.toLowerCase()), size: { width: 1280, height: 860 } },
+      recordVideo: { dir: path.join(this.dir, "video", name.toLowerCase()), size: DEVICES[device].viewport },
     });
     await context.tracing.start({ screenshots: true, snapshots: true, title: `${this.title}: ${name}` });
     const page = await context.newPage();

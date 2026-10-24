@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -51,6 +51,8 @@ beforeAll(async () => {
     .run();
 });
 
+afterEach(() => vi.useRealTimers());
+
 describe("the venue list", () => {
   it("comes a page at a time, with how many there are in all", async () => {
     const first = await listVenuePage({ pageSize: 25 });
@@ -65,6 +67,31 @@ describe("the venue list", () => {
     const second = await listVenuePage({ pageSize: 25, page: 2 });
     const ids = new Set(first.venues.map((v) => v.id));
     expect(second.venues.some((v) => ids.has(v.id))).toBe(false);
+  });
+
+  it("is in a fair order: the same all day, another the next, never by name, each venue once across its pages", async () => {
+    const order = async () => {
+      const ids: number[] = [];
+      const names: string[] = [];
+      for (let page = 1; ; page++) {
+        const got = await listVenuePage({ pageSize: 25, page });
+        ids.push(...got.venues.map((v) => v.id));
+        names.push(...got.venues.map((v) => v.name));
+        if (ids.length >= got.total || got.venues.length === 0) return { ids, names };
+      }
+    };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-02T04:00:00Z"));
+    const monday = await order();
+    expect(new Set(monday.ids).size).toBe(monday.ids.length);
+    // Asked again the same day: the same order, so paging never shows one twice.
+    expect((await order()).ids).toEqual(monday.ids);
+    // Not by name, so nobody gets to the top by renaming.
+    expect(monday.names).not.toEqual([...monday.names].sort());
+    vi.setSystemTime(new Date("2026-11-03T04:00:00Z"));
+    const tuesday = await order();
+    expect(tuesday.ids).not.toEqual(monday.ids);
+    expect([...tuesday.ids].sort((a, b) => a - b)).toEqual([...monday.ids].sort((a, b) => a - b));
   });
 
   it("narrows to an area, or a sport", async () => {
