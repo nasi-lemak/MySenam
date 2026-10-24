@@ -93,6 +93,13 @@ these once with a real account, in its sandbox where it has one:
 - [ ] **Backups**: the nightly backup runs, the off-site copy lands whole
       (its manifest is in the bucket), and the off-site drill passes on an
       isolated server ([backups](backups.md#restoring-from-the-off-site-copy)).
+      `OFFSITE_DATA_LOCATION` names the bucket's country; a bucket abroad only
+      once the transfer safeguards are recorded
+      ([privacy](../architecture/privacy.md#backups-held-abroad)).
+- [ ] **Operating company and data location decided**: the entity running
+      each install, its tax registration, and where the database, photos and
+      backups are hosted, written into the privacy notice and venue
+      agreement ([launch providers](../integrations/launch-providers.md#operating-company-and-jurisdictions)).
 - [ ] **The scheduler**: `/api/health` shows its heartbeat a minute old at
       most, so holds, reminders, offers and backups happen on time.
 - [ ] **Terms and privacy**: `OPERATOR_NAME`, `OPERATOR_EMAIL` (and
