@@ -1,4 +1,6 @@
 import { expireHolds } from "./games";
+import { extendSeriesIfDue } from "./game-series";
+import { sendMatchNotices } from "./matchmaking";
 import crypto from "crypto";
 import { getDb } from "./db";
 import { pruneIfDue } from "./privacy";
@@ -189,6 +191,16 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] passing on open-game places failed:", err);
     await raiseAlert("scheduler:game-places-failed", "Scheduled work failed: open-game invitations and held places", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Weekly games: dates added to the host's weekly booking get their games.
+    await extendSeriesIfDue(now);
+    // Players who asked hear of games suggested for them, each game once.
+    await sendMatchNotices();
+  } catch (err) {
+    console.error("[mysenam] weekly games and suggested-game emails failed:", err);
+    await raiseAlert("scheduler:matchmaking-failed", "Scheduled work failed: weekly games and suggested-game emails", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

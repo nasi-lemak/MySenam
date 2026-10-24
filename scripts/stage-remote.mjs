@@ -226,8 +226,7 @@ async function gc(dryRun) {
     if (dryRun) say(`Would delete ${d.id} (droplet ${d.dropletId}, expired ${new Date(d.expires * 1000).toISOString()}).`);
     else await down(d.id);
   }
-  const left = (await stagingDroplets()).filter((d) => !dryRun || true);
-  return left;
+  return stagingDroplets();
 }
 
 async function test(id, suite) {

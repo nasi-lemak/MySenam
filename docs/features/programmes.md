@@ -595,7 +595,8 @@ and only that (`src/lib/games.ts`).
   removed, invited, offered a freed place, or the game is off. There are no
   reminders before a game.
 - Closing an account takes the player out of games to come (a place freed
-  goes to the next in line), and calls off games they were hosting; the
+  goes to the next in line), calls off games they were hosting, and deletes
+  the groups they organised; the
   personal data export includes games, levels, the playing profile, blocks,
   reports they made and groups.
 
@@ -703,10 +704,53 @@ may hang on it. Reports (no-show, abuse, spam, safety, other) go to the
 owner's list (`/api/admin/player-reports`), one open report per person, at
 most ten a day from one player.
 
+### Weekly games
+
+A host with a weekly booking (a booking series) can make it a **weekly game**
+(`src/lib/game-series.ts`): a game, with the same settings, on each of its
+upcoming dates. Nothing in it holds a court: a date the host has booked gets a
+game, a date without a booking has none, and the series never books anything
+itself. When the host extends their weekly booking, the scheduler opens the
+new dates' games within the hour. Cancelling one date's booking calls off
+that date's game only. Players are never carried from one week to the next
+without being asked: the host invites last week's players (those who came) to
+this week's game, and each says yes or no as to any invitation. Ending a
+weekly game stops new dates; the host can call off the games still to come at
+the same time, and keeps the court bookings either way.
+
+### Community groups
+
+A **group** (`src/lib/groups.ts`, `/games/groups`) is people who play
+together again and again: a doubles four, a futsal side, a Wednesday crowd.
+It holds no court and no money, and it is not a tournament entry: a team in a
+tournament is still entered as a tournament entry. What it does is let a
+member who hosts a game invite the whole group in one go, through the
+ordinary invitations, each member still saying yes or no; and being in a
+group with somebody is what lets you invite them to games.
+
+Membership is always agreed by both sides: somebody asks and the organiser
+says yes, or the organiser invites and they say yes; nobody joins by
+themselves, because a group is the only way a player under 18 can be invited
+to a game, so it must not be a door anybody can walk through. The organiser
+invites by email, with the same answer whatever the address, and only
+declared adults they have come across or who opted in to being invited; a
+player under 18 asks to join themselves. A public group is listed; a private
+one is seen only by its members and those invited. Members see each other's
+first names only. A group holds 2 to 60 people, an organiser runs at most
+five, and a closed group no longer counts for invitations.
+
+### Emails of suggested games
+
+A player chooses in their preferences whether to hear of games suggested for
+them: never, a daily digest (up to five games), or as they open (at most an
+hourly email, up to three). Each game is told once ever (`match_notices`), and
+the scheduler works through players in the order they were last looked at,
+25 at a time. Each email carries a key, so a run on two servers sends one.
+
 **What is still not here.** There is no messaging between players, no
-recurring game that books its own court, and no team formation for
-tournaments: a tournament entry stays a tournament entry. Planned work is in
-the [roadmap](../roadmap/roadmap.md).
+reminder before a game, and no persistent team that enters tournaments: a
+tournament entry stays a tournament entry. Planned work is in the
+[roadmap](../roadmap/roadmap.md).
 
 ## Women-only and men-only
 

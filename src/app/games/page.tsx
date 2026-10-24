@@ -34,6 +34,8 @@ interface MyBooking {
   /** The venue's time zone (from /api/my/bookings). */
   venueTimeZone?: string;
   sport: Sport;
+  /** Set on a weekly booking (from /api/my/bookings). */
+  seriesCode?: string | null;
 }
 
 /**
@@ -60,6 +62,7 @@ export default function GamesPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   // A game shared with a link: /games?game=12&link=…, shown on top, private or not.
   const [shared, setShared] = useState<{ game: OpenGame; link: string } | null>(null);
+  const [series, setSeries] = useState<{ id: number; title: string | null; games: OpenGame[] }[]>([]);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -79,6 +82,8 @@ export default function GamesPage() {
       const [m, l] = await Promise.all([fetch("/api/my/games", { cache: "no-store" }), fetch("/api/my/levels", { cache: "no-store" })]);
       if (m.ok) setMine(await m.json());
       if (l.ok) setLevels((await l.json()).levels);
+      const s = await fetch("/api/games/series", { cache: "no-store" });
+      if (s.ok) setSeries((await s.json()).series);
     }
     const q = new URLSearchParams(window.location.search);
     const sharedId = Number(q.get("game"));
@@ -129,6 +134,16 @@ export default function GamesPage() {
       <div>
         <h1 className="text-2xl font-bold">{t("games.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">{t("games.intro")}</p>
+        <p className="mt-1 flex gap-4 text-sm">
+          <Link href="/games/groups" className="text-teal-700 underline">
+            {t("groups.title")}
+          </Link>
+          {signedIn && (
+            <Link href="/games/preferences" className="text-teal-700 underline">
+              {t("games.preferences")}
+            </Link>
+          )}
+        </p>
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -149,6 +164,25 @@ export default function GamesPage() {
 
       {signedIn && mine && (mine.hosting.length > 0 || mine.playing.length > 0) && (
         <MyGames t={t} mine={mine} act={act} say={(msg, err) => (err ? setError(err) : setNotice(msg))} />
+      )}
+
+      {series.length > 0 && (
+        <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-sm" data-testid="weekly-games">
+          <h2 className="font-semibold">{t("games.weeklyTitle")}</h2>
+          {series.map((s) => (
+            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {s.title ?? s.games[0]?.venueName} · {t("games.datesLeft", { n: s.games.filter((g) => g.status === "open" && g.date >= today).length })}
+              </span>
+              <button
+                onClick={() => void act(`/api/games/series/${s.id}`, { action: "end", callOffUpcoming: true }, t("games.cancelledGame"))}
+                className="rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium text-red-700 hover:border-red-400"
+              >
+                {t("games.endWeekly")}
+              </button>
+            </div>
+          ))}
+        </section>
       )}
 
       {signedIn && (
@@ -491,6 +525,7 @@ function OpenOne({
   const [waitlist, setWaitlist] = useState(true);
   const [intensity, setIntensity] = useState<Intensity>("any");
   const [adultsOnly, setAdultsOnly] = useState(false);
+  const [weekly, setWeekly] = useState(false);
 
   useEffect(() => {
     fetch("/api/my/bookings", { cache: "no-store" })
@@ -521,7 +556,7 @@ function OpenOne({
           onSubmit={(e) => {
             e.preventDefault();
             void act(
-              "/api/games",
+              weekly && chosen?.seriesCode ? "/api/games/series" : "/api/games",
               {
                 bookingCode: chosen!.code,
                 spots,
@@ -535,7 +570,7 @@ function OpenOne({
                 intensity,
                 adultsOnly,
               },
-              t("games.opened")
+              weekly && chosen?.seriesCode ? t("games.weeklyStarted") : t("games.opened")
             );
           }}
           className="mt-3 flex flex-wrap items-end gap-3 text-sm"
@@ -616,6 +651,12 @@ function OpenOne({
             <input type="checkbox" checked={adultsOnly} onChange={(e) => setAdultsOnly(e.target.checked)} name="adultsOnly" />
             {t("games.adultsOnlyOption")}
           </label>
+          {chosen?.seriesCode && (
+            <label className="flex items-center gap-1.5 pb-2 text-slate-600">
+              <input type="checkbox" checked={weekly} onChange={(e) => setWeekly(e.target.checked)} name="weekly" />
+              {t("games.weekly")}
+            </label>
+          )}
           <input
             placeholder={t("games.note")}
             value={note}

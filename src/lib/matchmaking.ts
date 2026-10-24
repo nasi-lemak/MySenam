@@ -343,3 +343,53 @@ export async function recommendPlayers(
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
   return { ok: true, players: suggestions.slice(offset, offset + limit) };
 }
+
+// ------------------------------------------------------------ telling players of suggested games
+
+/** Players looked at in one go; the rest wait for the next run. */
+const NOTICE_BATCH = 25;
+
+/**
+ * Email players who asked for them the games suggested for them, each game
+ * once ever (match_notices): `digest` players at most once a day, up to five
+ * games; `each` players at most once an hour, up to three. Players are taken
+ * in the order they were last looked at, so everybody gets a turn; a player
+ * with nothing new is simply looked at again later. Safe to run on two
+ * servers at once: the notices are keyed, and a game noted twice is noted once.
+ */
+export async function sendMatchNotices(): Promise<{ checked: number; emailed: number }> {
+  const db = getDb();
+  const due = (await db
+    .prepare(
+      `SELECT user_id, notify_matches FROM player_profiles
+        WHERE notify_matches <> 'none'
+          AND (matches_checked_at IS NULL
+               OR (notify_matches = 'digest' AND matches_checked_at < datetime('now', '-20 hours'))
+               OR (notify_matches = 'each' AND matches_checked_at < datetime('now', '-1 hours')))
+        ORDER BY matches_checked_at NULLS FIRST, user_id LIMIT ${NOTICE_BATCH}`
+    )
+    .all()) as { user_id: number; notify_matches: "digest" | "each" }[];
+  let emailed = 0;
+  for (const p of due) {
+    await db.prepare("UPDATE player_profiles SET matches_checked_at = datetime('now') WHERE user_id = ?").run(p.user_id);
+    const told = new Set(
+      ((await db.prepare("SELECT game_id FROM match_notices WHERE user_id = ?").all(p.user_id)) as { game_id: number }[]).map((r) => r.game_id)
+    );
+    const fresh = (await recommendGames(p.user_id, { limit: 20 })).games.filter((g) => !told.has(g.id)).slice(0, p.notify_matches === "digest" ? 5 : 3);
+    if (fresh.length === 0) continue;
+    for (const g of fresh) await db.prepare("INSERT INTO match_notices (user_id, game_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(p.user_id, g.id);
+    const { baseUrl, emailPlayer } = await import("./outbox");
+    const { formatHour } = await import("./time");
+    const lines = fresh.map((g) => `- ${g.date} ${formatHour(g.startHour)}, ${g.venueName} (${g.courtName})${g.share > 0 ? `, share ${g.share.toFixed(2)}` : ""}`);
+    await emailPlayer({
+      venueId: fresh[0].venueId,
+      userId: p.user_id,
+      subject: fresh.length === 1 ? "A game that suits you" : `${fresh.length} games that suit you`,
+      body: `Open games picked from your playing preferences:\n\n${lines.join("\n")}\n\nAsk to join from the games page. To stop these emails, or have them less often, change your playing preferences.`,
+      link: `${baseUrl()}/games`,
+      dedupeKey: `match-notice:${p.user_id}:${fresh.map((g) => g.id).join(",")}`,
+    });
+    emailed++;
+  }
+  return { checked: due.length, emailed };
+}

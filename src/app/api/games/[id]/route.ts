@@ -4,6 +4,7 @@ import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { askToJoin, cancelGame, closeGame, createGameLink, gameForViewer, inviteByEmail, invitePlayer, leaveGame, revokeGameLinks } from "@/lib/games";
 import { startSharePayment } from "@/lib/payments";
+import { inviteRegulars } from "@/lib/game-series";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
  * (also turns down an invitation or a held place), "pay" (your share,
  * online, to the venue — answers with where to pay), "invite" (`userId` or
  * `email`); or, for its host, "close", "cancel" (call it off, keeping the
- * court), "link" (`hours`: a link to share) and "unlink" (withdraw them all).
+ * court), "link" (`hours`: a link to share), "unlink" (withdraw them all)
+ * and, for a weekly game, "inviteRegulars" (last week's players invited).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req);
@@ -68,6 +70,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ url: made.url, expiresAt: made.expiresAt });
   }
   if (body.action === "unlink") return NextResponse.json({ revoked: await revokeGameLinks(user.id, gameId) });
+  if (body.action === "inviteRegulars") {
+    const limited = await rateLimit(req, "social");
+    if (limited) return limited;
+    const sent = await inviteRegulars(user.id, gameId);
+    if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status });
+    return NextResponse.json(sent);
+  }
   if (body.action === "join") {
     const limited = await rateLimit(req, "booking");
     if (limited) return limited;

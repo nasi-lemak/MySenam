@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { T } from "@/lib/i18n";
 import type { OpenGame } from "@/lib/games";
 import type { PlayerSuggestion } from "@/lib/matchmaking";
+import type { Group } from "@/lib/groups";
 import { reasonText } from "./Suggested";
 
 type Act = (url: string, body: object, done?: string) => Promise<void>;
@@ -18,8 +19,15 @@ export function HostTools({ t, g, act }: { t: T; g: OpenGame; act: Act }) {
   const [email, setEmail] = useState("");
   const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [groups, setGroups] = useState<{ id: number; name: string }[] | null>(null);
   const small = "rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium hover:border-teal-500";
   if (g.status !== "open") return null;
+
+  async function showGroups() {
+    const res = await fetch("/api/groups", { cache: "no-store" });
+    const data = await res.json();
+    setGroups(((data.groups ?? []) as Group[]).filter((x) => x.mine?.status === "member").map((x) => ({ id: x.id, name: x.name })));
+  }
 
   async function showCandidates() {
     const res = await fetch(`/api/games/${g.id}/candidates`, { cache: "no-store" });
@@ -49,10 +57,35 @@ export function HostTools({ t, g, act }: { t: T; g: OpenGame; act: Act }) {
         <button onClick={() => void act(`/api/games/${g.id}`, { action: "unlink" })} className={small}>
           {t("games.unlink")}
         </button>
+        {g.seriesId !== null && (
+          <button onClick={() => void act(`/api/games/${g.id}`, { action: "inviteRegulars" }, t("games.inviteSent"))} className={small}>
+            {t("games.inviteRegulars")}
+          </button>
+        )}
+        <button onClick={() => void showGroups()} className={small}>
+          {t("groups.inviteToGame")}
+        </button>
         <button onClick={() => void act(`/api/games/${g.id}`, { action: "cancel" }, t("games.cancelledGame"))} className={`${small} text-red-700`}>
           {t("games.cancelGame")}
         </button>
       </div>
+      {groups && (
+        <div className="flex flex-wrap gap-2" data-testid="my-groups">
+          {groups.length === 0 ? (
+            <span className="text-xs text-slate-500">{t("groups.none")}</span>
+          ) : (
+            groups.map((x) => (
+              <button
+                key={x.id}
+                onClick={() => void act(`/api/groups/${x.id}`, { action: "inviteToGame", gameId: g.id }, t("games.inviteSent")).then(() => setGroups(null))}
+                className={small}
+              >
+                {x.name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
       {link && (
         <p className="text-xs text-slate-600">
           {t("games.linkMade", { time: link.expiresAt.slice(0, 16) })}{" "}

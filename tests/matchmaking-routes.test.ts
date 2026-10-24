@@ -128,7 +128,7 @@ describe("blocks and reports", () => {
 
     const admin = await import("../src/app/api/admin/player-reports/route");
     const desk = await createAdmin({ name: "Desk", email: "desk@route.my", password: "desk-password-1", venueId: (await listVenues())[0].id });
-    const owner = await createAdmin({ name: "Owner", email: "owner@route.my", password: "owner-password-1" });
+    const owner = await createAdmin({ name: "Owner", email: "owner@route.my", password: "owner-password-1", venueId: null });
     if (!desk.ok || !owner.ok) throw new Error("admins");
     const deskCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
     const ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(owner.admin.id)).token}`;

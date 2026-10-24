@@ -46,7 +46,8 @@ changing it is a decision rather than an accident.
 
 The account page's *Download my data* (`/api/my/data`) covers what is filed
 against the account: bookings, credit, passes and memberships sold to it,
-games, leagues, tournaments, receipts and credit notes, waiting-list places,
+games, the playing profile, people blocked, reports made and community
+groups, leagues, tournaments, receipts and credit notes, waiting-list places,
 gift vouchers used, and the messages still kept about its bookings or sent to
 its address. Its file says what it leaves out: anything filed against a phone
 number at a counter.
@@ -71,6 +72,10 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 - strips the holder from spent passes and lapsed memberships;
 - takes it off every waiting list it joined, passing a place it was waiting
   for or had been offered to the next person, and deletes those entries;
+- takes it out of open games still to come, passing a freed place on, and
+  deletes with the account its playing profile, blocks either way, reports
+  about it, community memberships and the groups it organised; reports it
+  made stay with the reporter's name removed;
 - deletes the account and its sessions;
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and

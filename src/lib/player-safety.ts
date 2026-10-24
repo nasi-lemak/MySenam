@@ -63,6 +63,7 @@ export async function related(a: number, b: number): Promise<boolean> {
           WHERE p1.user_id = ? AND p2.user_id = ? AND p1.status = 'accepted' AND p2.status = 'accepted'
          UNION ALL
          SELECT 1 FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id
+           JOIN community_groups cg ON cg.id = m1.group_id AND cg.status = 'active'
           WHERE m1.user_id = ? AND m2.user_id = ? AND m1.status = 'member' AND m2.status = 'member'
           LIMIT 1`
       )

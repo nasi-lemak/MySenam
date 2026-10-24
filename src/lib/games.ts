@@ -704,6 +704,7 @@ async function mayInvite(inviterId: number, inviteeId: number): Promise<boolean>
     await getDb()
       .prepare(
         `SELECT 1 FROM group_members a JOIN group_members b ON b.group_id = a.group_id
+           JOIN community_groups cg ON cg.id = a.group_id AND cg.status = 'active'
           WHERE a.user_id = ? AND b.user_id = ? AND a.status = 'member' AND b.status = 'member' LIMIT 1`
       )
       .get(inviterId, inviteeId)

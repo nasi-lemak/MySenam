@@ -154,7 +154,15 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players |
 | GET | `/api/games/recommended` | Signed in: open games suggested for you, best first, each with its score and reasons; `?sport=&offset=&limit=` ([matchmaking](../features/programmes.md#matchmaking)) |
 | GET | `/api/games/:id` | One game as you may see it; a private one only to its host, its players and invitees, or with `?link=` |
-| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`) and "unlink" |
+| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`), "unlink" and, on a weekly game, "inviteRegulars" |
+| GET | `/api/games/series` | The signed-in host's weekly games, each with its dates' games |
+| POST | `/api/games/series` | `{ bookingCode, title?, …game settings }` — make one of your weekly bookings a weekly game, a game on each upcoming date |
+| POST | `/api/games/series/:id` | `{ action: "end", callOffUpcoming? }` — the host ends a weekly game; the court bookings stay theirs |
+| GET | `/api/groups` | Community groups to ask to join, `?sport=&area=&offset=`; signed in, your own too |
+| POST | `/api/groups` | `{ name, sport, area?, description?, privacy?, capacity? }` — start a group, which you organise |
+| GET | `/api/groups/:id` | One group as you may see it; a private one only to members and invitees; the roster to members |
+| POST | `/api/groups/:id` | `{ action }`: "join" (ask, or take up an invitation), "leave"; the organiser's "invite" (`email`) and "close"; a member hosting a game, "inviteToGame" (`gameId`) |
+| POST | `/api/groups/:id/members/:memberId` | `{ action: "accept" \| "decline" \| "remove" }` — the organiser on one person |
 | GET | `/api/games/:id/candidates` | The host: opted-in players who might suit the game — first name, level, distance band and reasons; `?offset=&limit=` |
 | POST | `/api/games/:id/players/:playerId` | `{ action: "accept" \| "decline" \| "remove" \| "no_show" }` — the host about one player |
 | GET | `/api/geocode` | `?q=` — where an address is, so the map on the application and branch forms can open on it. Asked through here rather than from the browser so every lookup shares one queue and one cache |
