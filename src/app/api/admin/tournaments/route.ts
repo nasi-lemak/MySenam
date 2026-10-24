@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseRules } from "@/lib/tournament-rules";
 import { readMinute } from "@/lib/api";
+import { TEMPLATES, venueTemplates, type EntryKind } from "@/lib/competition-templates";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format } from "@/lib/tournaments";
 import type { Level } from "@/lib/games";
@@ -9,7 +9,7 @@ import type { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** `?venueId=` — a venue's tournaments, for its staff. */
+/** `?venueId=` — a venue's tournaments, for its staff, with the sport templates and the venue's own to start one from. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -17,10 +17,14 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "Which venue?" }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  return NextResponse.json({ tournaments: await listTournaments([venueId]) });
+  return NextResponse.json({ tournaments: await listTournaments([venueId]), templates: TEMPLATES, venueTemplates: await venueTemplates(venueId) });
 }
 
-/** A new tournament, holding its courts at once. */
+/**
+ * A new tournament, holding its courts at once. `template` (a sport template's key) and `rules` (laid over it)
+ * set its scoring and how it treats somebody who leaves; `entryKind` "team" with `roster: { min, max }` makes it a
+ * team event.
+ */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -41,6 +45,12 @@ export async function POST(req: NextRequest) {
       sport: String(b.sport ?? "") as Sport,
       format: String(b.format ?? "") as Format,
       teamSize: Number(b.teamSize) === 2 ? 2 : 1,
+      entryKind: typeof b.entryKind === "string" ? (b.entryKind as EntryKind) : undefined,
+      roster:
+        b.roster && typeof b.roster === "object"
+          ? { min: Number((b.roster as Record<string, unknown>).min), max: Number((b.roster as Record<string, unknown>).max) }
+          : undefined,
+      template: typeof b.template === "string" && b.template ? b.template : undefined,
       category: typeof b.category === "string" ? (b.category as Category) : undefined,
       level: typeof b.level === "string" && b.level ? (b.level as Level) : null,
       entryFee: Number(b.entryFee ?? 0),
@@ -55,7 +65,7 @@ export async function POST(req: NextRequest) {
       ...(b.matchMinutes !== undefined ? { matchMinutes: Number(b.matchMinutes) } : {}),
       courtIds: Array.isArray(b.courtIds) ? b.courtIds.map(Number) : [],
       description: typeof b.description === "string" ? b.description : undefined,
-      rules: rulesOf(b.rules),
+      rules: b.rules ?? undefined,
     },
     admin.id
   );
@@ -63,8 +73,3 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ tournament: result.value }, { status: 201 });
 }
 
-/** Rules as given, or the defaults when they are missing or not understood (the form only offers valid ones). */
-function rulesOf(raw: unknown) {
-  const parsed = parseRules(raw);
-  return parsed.ok ? parsed.rules : undefined;
-}

@@ -836,8 +836,10 @@ export async function setRules(tournamentId: number, input: unknown): Promise<Re
   const t = await tournamentById(tournamentId);
   if (!t) return { ok: false, error: "Tournament not found." };
   if (t.status !== "open" && t.status !== "closed") return { ok: false, error: "The draw is made: its rules stand as they were." };
-  const parsed = parseRules(input);
+  // Laid over what it has: a change to one rule leaves the rest (its scoring among them) as they were.
+  const parsed = parseRules(input, t.rules);
   if (!parsed.ok) return parsed;
+  if (t.format === "performance" ? !parsed.rules.performance : parsed.rules.performance) return { ok: false, error: "Those rules are for another kind of event." };
   await getDb().prepare("UPDATE tournaments SET rules = ? WHERE id = ?").run(JSON.stringify(parsed.rules), tournamentId);
   return { ok: true, value: (await tournamentById(tournamentId))! };
 }

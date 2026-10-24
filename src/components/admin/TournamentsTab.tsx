@@ -9,8 +9,9 @@ import { addDays } from "@/lib/time";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { type Sport } from "@/lib/types";
-import type { CorrectionPreview, Match, ResultInput, Tournament, TournamentDetail } from "@/lib/tournaments";
-import type { CompetitionRules, OutReason } from "@/lib/tournament-rules";
+import type { CorrectionPreview, IssueReview, Match, ResultInput, Tournament, TournamentDetail } from "@/lib/tournaments";
+import { RANK_KEYS, type CompetitionRules, type OutReason, type RankKey } from "@/lib/tournament-rules";
+import type { CompetitionTemplate, VenueTemplate } from "@/lib/competition-templates";
 import { currencySymbol, money } from "@/lib/region";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -23,6 +24,7 @@ const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
 export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [list, setList] = useState<Tournament[]>([]);
+  const [catalog, setCatalog] = useState<{ templates: CompetitionTemplate[]; venueTemplates: VenueTemplate[] }>({ templates: [], venueTemplates: [] });
   const [open, setOpen] = useState<TournamentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const venue = venues.find((v) => v.id === venueId);
@@ -30,7 +32,11 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   const load = useCallback(async () => {
     if (!venueId) return;
     const res = await fetch(`/api/admin/tournaments?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setList((await res.json()).tournaments);
+    if (res.ok) {
+      const data = await res.json();
+      setList(data.tournaments);
+      setCatalog({ templates: data.templates ?? [], venueTemplates: data.venueTemplates ?? [] });
+    }
   }, [venueId]);
   useEffect(() => {
     void load();
@@ -106,21 +112,42 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
               </ul>
             )}
           </section>
-          <Create venue={venue} post={post} />
+          {catalog.templates.length > 0 && <Create venue={venue} post={post} catalog={catalog} />}
         </>
       )}
     </div>
   );
 }
 
-function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean> }) {
+const FORMAT_LABEL: Record<string, string> = {
+  knockout: "Knockout",
+  groups: "Groups, then knockout",
+  round_robin: "Round robin (everybody plays everybody)",
+  performance: "Heats and a final (times, distances, scores)",
+};
+
+function Create({
+  venue,
+  post,
+  catalog,
+}: {
+  venue: ManagedVenue;
+  post: (url: string, body: object) => Promise<boolean>;
+  catalog: { templates: CompetitionTemplate[]; venueTemplates: VenueTemplate[] };
+}) {
   const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
   const start = addDays(todayLocal(), 14);
+  /** The template a sport starts from: its own, else the general one. */
+  const templateFor = (sport: string) => catalog.templates.find((x) => x.sports.includes(sport)) ?? catalog.templates.find((x) => x.key === "custom")!;
+  const first = templateFor(sports[0] ?? "badminton");
   const [f, setF] = useState({
     name: "",
     sport: (sports[0] ?? "badminton") as Sport,
-    format: "knockout",
+    template: first.key,
+    format: first.formats[0] as string,
     teamSize: 1,
+    entryKind: first.entryKinds[0] as string,
+    roster: first.roster ?? { min: 2, max: 20 },
     category: "open",
     level: "",
     entryFee: "20",
@@ -132,13 +159,28 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
     // Each day's time, in minutes of the day, and how long each match is given on court.
     startMin: Math.max(venue.openMin, 9 * 60),
     endMin: Math.min(venue.closeMin, 18 * 60),
-    matchMinutes: "60",
+    matchMinutes: String(first.matchMinutes),
     courtIds: [] as number[],
     description: "",
-    rules: { groupResultsOnWithdrawal: "stand", groupResultsOnDisqualification: "void", refundBeforeDraw: true } as CompetitionRules,
+    rules: first.rules as CompetitionRules,
   });
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
   const label = "flex flex-col text-xs font-medium text-slate-500";
+  const template = catalog.templates.find((x) => x.key === f.template) ?? first;
+  /** Start from a template: its formats, who enters, the match length and its rules. */
+  const startFrom = (t: CompetitionTemplate, sport = f.sport) =>
+    setF({
+      ...f,
+      sport,
+      template: t.key,
+      format: t.formats.includes(f.format as never) ? f.format : t.formats[0],
+      entryKind: t.entryKinds.includes(f.entryKind as never) ? f.entryKind : t.entryKinds[0],
+      teamSize: t.entryKinds.includes("pair") && f.teamSize === 2 ? 2 : 1,
+      roster: t.roster ?? f.roster,
+      matchMinutes: String(t.matchMinutes),
+      rules: t.rules,
+      courtIds: sport === f.sport ? f.courtIds : [],
+    });
 
   return (
     <form
@@ -146,6 +188,8 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         e.preventDefault();
         const ok = await post("/api/admin/tournaments", {
           ...f,
+          teamSize: f.entryKind === "pair" ? 2 : 1,
+          roster: f.entryKind === "team" ? f.roster : undefined,
           venueId: venue.id,
           entryFee: Number(f.entryFee),
           maxEntries: Number(f.maxEntries),
@@ -170,7 +214,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         </label>
         <label className={label}>
           Sport
-          <select value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value as Sport, courtIds: [] })} className={input}>
+          <select value={f.sport} onChange={(e) => startFrom(templateFor(e.target.value), e.target.value as Sport)} className={input}>
             {sports.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -179,30 +223,87 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           </select>
         </label>
         <label className={label}>
+          Starting from
+          <select
+            value={f.template}
+            onChange={(e) => {
+              const own = catalog.venueTemplates.find((v) => `venue:${v.id}` === e.target.value);
+              if (own)
+                setF({
+                  ...f,
+                  sport: own.sport as Sport,
+                  format: own.format,
+                  entryKind: own.entryKind,
+                  teamSize: own.entryKind === "pair" ? 2 : 1,
+                  roster: own.roster ?? f.roster,
+                  matchMinutes: String(own.matchMinutes),
+                  groupSize: String(own.groupSize),
+                  advance: String(own.advance),
+                  rules: own.rules,
+                  template: templateFor(own.sport).key,
+                });
+              else startFrom(catalog.templates.find((x) => x.key === e.target.value)!);
+            }}
+            className={`w-72 ${input}`}
+          >
+            {catalog.templates
+              .filter((x) => x.sports.includes(f.sport) || x.sports.length === 0 || x.formats.some((fm) => fm !== "performance"))
+              .map((x) => (
+                <option key={x.key} value={x.key}>
+                  {x.label}
+                </option>
+              ))}
+            {catalog.venueTemplates.length > 0 && (
+              <optgroup label="Your own">
+                {catalog.venueTemplates.map((v) => (
+                  <option key={v.id} value={`venue:${v.id}`}>
+                    {v.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        <label className={label}>
           Format
           <select value={f.format} onChange={(e) => setF({ ...f, format: e.target.value })} className={input}>
-            <option value="knockout">Knockout</option>
-            <option value="groups">Groups, then knockout</option>
+            {template.formats.map((fm) => (
+              <option key={fm} value={fm}>
+                {FORMAT_LABEL[fm]}
+              </option>
+            ))}
           </select>
         </label>
         <label className={label}>
-          Play
+          Who enters
           <select
-            value={f.teamSize}
-            onChange={(e) => setF({ ...f, teamSize: Number(e.target.value), category: Number(e.target.value) === 1 && f.category === "mixed" ? "open" : f.category })}
+            value={f.entryKind}
+            onChange={(e) => setF({ ...f, entryKind: e.target.value, teamSize: e.target.value === "pair" ? 2 : 1, category: e.target.value !== "pair" && f.category === "mixed" ? "open" : f.category })}
             className={input}
           >
-            <option value={1}>Singles</option>
-            <option value={2}>Doubles</option>
+            {template.entryKinds.map((k) => (
+              <option key={k} value={k}>
+                {k === "player" ? "Singles (one player)" : k === "pair" ? "Doubles (pairs)" : "Teams, with a roster"}
+              </option>
+            ))}
           </select>
         </label>
+        {f.entryKind === "team" && (
+          <label className={label}>
+            Roster (fewest–most players)
+            <span className="flex gap-1">
+              <input type="number" min={1} max={40} value={f.roster.min} onChange={(e) => setF({ ...f, roster: { ...f.roster, min: Number(e.target.value) } })} className={`w-16 ${input}`} />
+              <input type="number" min={1} max={40} value={f.roster.max} onChange={(e) => setF({ ...f, roster: { ...f.roster, max: Number(e.target.value) } })} className={`w-16 ${input}`} />
+            </span>
+          </label>
+        )}
         <label className={label}>
           Category
-          <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value, teamSize: e.target.value === "mixed" ? 2 : f.teamSize })} className={input}>
+          <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value, entryKind: e.target.value === "mixed" ? "pair" : f.entryKind, teamSize: e.target.value === "mixed" ? 2 : f.teamSize })} className={input}>
             <option value="open">Open to all</option>
             <option value="women">Women&apos;s</option>
             <option value="men">Men&apos;s</option>
-            <option value="mixed">Mixed doubles</option>
+            {template.entryKinds.includes("pair") && <option value="mixed">Mixed doubles</option>}
           </select>
         </label>
         <label className={label}>
@@ -257,7 +358,7 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           <ClockField label="Until" value={f.endMin} after={f.startMin} onChange={(m) => setF({ ...f, endMin: m })} className={input} />
         </label>
         <label className={label}>
-          Each match (minutes)
+          {f.format === "performance" ? "Each heat (minutes)" : "Each match (minutes)"}
           <input type="number" min={5} max={600} value={f.matchMinutes} onChange={(e) => setF({ ...f, matchMinutes: e.target.value })} className={input} />
         </label>
         <fieldset className="text-sm">
@@ -279,7 +380,15 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
         </fieldset>
       </div>
       <textarea placeholder="About it, for players (optional): prizes, rules, shuttles" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={`w-full ${input}`} />
-      <RulesFields rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />
+      <p className="text-xs text-slate-500">
+        {template.note} Templates are common club practice, not a governing body&apos;s regulations: check them against the rules you play
+        under.
+      </p>
+      {f.format !== "performance" && <RulesFields rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />}
+      <details className="rounded-lg border border-slate-200 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700">Scoring and ranking</summary>
+        <ScoringFields rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />
+      </details>
       <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Set it up and hold the courts</button>
     </form>
   );
@@ -317,6 +426,144 @@ function RulesFields({ rules, onChange, disabled = false }: { rules: Competition
       <label className="flex items-center gap-1.5 text-xs text-slate-600">
         <input type="checkbox" disabled={disabled} checked={rules.refundBeforeDraw} onChange={(e) => onChange({ ...rules, refundBeforeDraw: e.target.checked })} />
         Fee paid online owed back to anyone leaving before the draw
+      </label>
+    </div>
+  );
+}
+
+const RANK_LABEL: Record<RankKey, string> = {
+  points: "table points",
+  wins: "wins",
+  set_diff: "set difference",
+  point_diff: "point (or goal) difference",
+  points_for: "points (or goals) scored",
+  head_to_head: "who beat whom",
+};
+
+/** How matches are scored and tables ranked, or how performances are measured (lib/tournament-rules.ts). */
+function ScoringFields({ rules, onChange, disabled = false }: { rules: CompetitionRules; onChange: (r: CompetitionRules) => void; disabled?: boolean }) {
+  const label = "flex flex-col text-xs font-medium text-slate-500";
+  const sc = rules.scoring;
+  const set = (patch: Partial<CompetitionRules["scoring"]>) => onChange({ ...rules, scoring: { ...sc, ...patch } });
+  if (rules.performance) {
+    const p = rules.performance;
+    const setP = (patch: Partial<NonNullable<CompetitionRules["performance"]>>) => onChange({ ...rules, performance: { ...p, ...patch } });
+    return (
+      <div className="mt-2 flex flex-wrap items-end gap-3">
+        <label className={label}>
+          Measured by
+          <select disabled={disabled} value={p.measure} onChange={(e) => setP({ measure: e.target.value as typeof p.measure, better: e.target.value === "time" ? "lower" : "higher" })} className={input}>
+            <option value="time">Time (lower wins)</option>
+            <option value="distance">Distance (higher wins)</option>
+            <option value="score">Score</option>
+          </select>
+        </label>
+        {p.measure === "score" && (
+          <label className={label}>
+            Better score
+            <select disabled={disabled} value={p.better} onChange={(e) => setP({ better: e.target.value as typeof p.better })} className={input}>
+              <option value="higher">Higher</option>
+              <option value="lower">Lower (golf)</option>
+            </select>
+          </label>
+        )}
+        <label className={label}>
+          Attempts, ends or games each
+          <input disabled={disabled} type="number" min={1} max={12} value={p.attempts} onChange={(e) => setP({ attempts: Number(e.target.value) })} className={`w-20 ${input}`} />
+        </label>
+        <label className={label}>
+          Counts
+          <select disabled={disabled} value={p.aggregate} onChange={(e) => setP({ aggregate: e.target.value as typeof p.aggregate })} className={input}>
+            <option value="best">The best attempt</option>
+            <option value="total">The total</option>
+          </select>
+        </label>
+        <label className={label}>
+          In each heat (lanes, targets)
+          <input disabled={disabled} type="number" min={2} max={40} value={p.heatSize} onChange={(e) => setP({ heatSize: Number(e.target.value) })} className={`w-20 ${input}`} />
+        </label>
+        <label className={label}>
+          Into the final (0: none)
+          <input disabled={disabled} type="number" min={0} max={40} value={p.finalSize} onChange={(e) => setP({ finalSize: Number(e.target.value) })} className={`w-20 ${input}`} />
+        </label>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-3">
+      <label className={label}>
+        Scores are
+        <select disabled={disabled} value={sc.kind} onChange={(e) => set({ kind: e.target.value as typeof sc.kind, draws: e.target.value === "tally" ? sc.draws : false })} className={input}>
+          <option value="sets">Sets or games (21-15, 18-21)</option>
+          <option value="tally">One number each (goals, points: 3-2)</option>
+        </select>
+      </label>
+      {sc.kind === "sets" ? (
+        <label className={label}>
+          Best of
+          <select disabled={disabled} value={sc.bestOf} onChange={(e) => set({ bestOf: Number(e.target.value) })} className={input}>
+            {[1, 3, 5, 7].map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <input type="checkbox" disabled={disabled} checked={sc.draws} onChange={(e) => set({ draws: e.target.checked })} />
+          Group matches may be drawn
+        </label>
+      )}
+      <label className={label}>
+        Table points: win / draw / loss
+        <span className="flex gap-1">
+          {(["win", "draw", "loss"] as const).map((k) => (
+            <input
+              key={k}
+              disabled={disabled}
+              type="number"
+              min={0}
+              max={10}
+              value={sc.tablePoints[k]}
+              onChange={(e) => set({ tablePoints: { ...sc.tablePoints, [k]: Number(e.target.value) } })}
+              className={`w-14 ${input}`}
+            />
+          ))}
+        </span>
+      </label>
+      <label className={label}>
+        Tables ranked by, in order
+        <span className="flex flex-wrap gap-1">
+          {[0, 1, 2, 3].map((i) => (
+            <select
+              key={i}
+              disabled={disabled}
+              value={sc.rankBy[i] ?? ""}
+              onChange={(e) => {
+                const next = [...sc.rankBy];
+                if (e.target.value) next[i] = e.target.value as RankKey;
+                else next.splice(i);
+                set({ rankBy: [...new Set(next.filter(Boolean))] });
+              }}
+              className={input}
+            >
+              <option value="">—</option>
+              {RANK_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {RANK_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          ))}
+        </span>
+      </label>
+      <label className={label}>
+        A retirement&apos;s score, as it stood
+        <select disabled={disabled} value={sc.retired} onChange={(e) => set({ retired: e.target.value as typeof sc.retired })} className={input}>
+          <option value="win_only">Counts the win only</option>
+          <option value="as_played">Counts as played in the differences</option>
+        </select>
       </label>
     </div>
   );
@@ -375,7 +622,7 @@ function Manage({
           <p className="text-sm text-slate-500">
             {t.startsOn}
             {t.endsOn !== t.startsOn && ` to ${t.endsOn}`}, {formatMinute(t.startMin)}–{formatMinute(t.endMin)} ·{" "}
-            {t.format === "groups" ? "groups, then knockout" : "knockout"} · {t.teamSize === 2 ? "doubles" : "singles"} ·{" "}
+            {FORMAT_LABEL[t.format].toLowerCase()} · {t.entryKind === "team" ? "teams" : t.teamSize === 2 ? "doubles" : "singles"} ·{" "}
             {money(t.entryFee)} · <a href={`/tournaments/${t.id}`} target="_blank" rel="noopener" className="underline">public page ↗</a>
           </p>
         </div>
@@ -393,6 +640,15 @@ function Manage({
               Make the draw
             </button>
           )}
+          <button
+            onClick={() => {
+              const name = window.prompt("Keep these settings as a template, to start the next one from. Its name:", t.name);
+              if (name) void call(base, { action: "save_template", name }).then((r) => r.ok && setSaid([`Saved as the template "${name}".`]));
+            }}
+            className={small}
+          >
+            Save as template
+          </button>
           {t.status !== "finished" && t.status !== "cancelled" && (
             <button
               onClick={() => window.confirm(`Call off ${t.name}? The courts go back on sale, entrants are told, and fees paid online are owed back.`) && void post(base, { action: "cancel" })}
@@ -418,7 +674,17 @@ function Manage({
             onChange={(rules) => void post(base, { action: "rules", rules })}
           />
         </div>
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-medium text-slate-600">Scoring and ranking{t.template ? ` (from the template ${t.template})` : ""}</summary>
+          <ScoringFields rules={t.rules} disabled={t.status !== "open" && t.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />
+        </details>
       </section>
+
+      {t.issues.filter((i) => i.status === "open").map((i) => (
+        <IssuePanel key={i.id} t={t} issueId={i.id} names={names} venue={venue} call={call} onDone={(changes) => setSaid(changes)} />
+      ))}
+
+      {t.performance && <PerformancePanel t={t} names={names} call={call} />}
 
       {said.length > 0 && (
         <section className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm">
@@ -516,8 +782,18 @@ function Manage({
                         {s.out && <span className="ml-1 text-xs">({s.out}{s.resultsVoid ? ", results void" : ""}, not through)</span>}
                       </td>
                       <td className="text-right text-slate-500">
-                        {s.won}–{s.lost} · sets {s.setDiff >= 0 ? "+" : ""}
-                        {s.setDiff}
+                        {t.rules.scoring.kind === "tally" ? (
+                          <>
+                            {s.won}–{s.drawn}–{s.lost} · {s.pointDiff >= 0 ? "+" : ""}
+                            {s.pointDiff}
+                            {t.rules.scoring.rankBy.includes("points") && ` · ${s.points} pts`}
+                          </>
+                        ) : (
+                          <>
+                            {s.won}–{s.lost} · sets {s.setDiff >= 0 ? "+" : ""}
+                            {s.setDiff}
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -528,15 +804,15 @@ function Manage({
         </section>
       )}
 
-      {t.matches.length > 0 && (
+      {t.matches.some((m) => m.stage === "group" || m.stage === "knockout") && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="font-semibold">Matches</h3>
           <ul className="mt-2 space-y-2 text-sm">
             {t.matches
-              .filter((m) => m.status !== "bye")
+              .filter((m) => m.status !== "bye" && (m.stage === "group" || m.stage === "knockout"))
               .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0) || (a.courtId ?? 0) - (b.courtId ?? 0))
               .map((m) => (
-                <MatchRow key={m.id} m={m} names={names} venue={venue} save={(body) => result(m.id, body as ResultInput)} />
+                <MatchRow key={m.id} m={m} names={names} venue={venue} rules={t.rules} save={(body) => result(m.id, body as ResultInput)} />
               ))}
           </ul>
         </section>
@@ -548,7 +824,17 @@ function Manage({
           <ul className="mt-1 space-y-1">
             {t.corrections.map((c, i) => (
               <li key={i}>
-                {localTime(c.createdAt)} · {c.kind === "replace" ? "put into the knockout" : c.knockout ? "this match's record only, later rounds as played" : "group table only, knockout as played"}: {c.reason}
+                {localTime(c.createdAt)} ·{" "}
+                {c.kind === "replace"
+                  ? "put into the knockout"
+                  : c.kind === "stand"
+                    ? "results let stand"
+                    : c.kind === "replay"
+                      ? "replayed"
+                      : c.knockout
+                        ? "this match's record only, later rounds as played"
+                        : "group table only, knockout as played"}
+                : {c.reason}
                 {c.changes && c.changes.length > 0 && <span className="text-slate-600"> — {c.changes.join(" ")}</span>}
               </li>
             ))}
@@ -645,13 +931,16 @@ function CorrectionPanel({
 function MatchRow({
   m,
   names,
+  rules,
   save,
 }: {
   m: Match;
   names: Map<number, string>;
   venue: ManagedVenue;
+  rules: CompetitionRules;
   save: (body: object) => Promise<boolean>;
 }) {
+  const tally = rules.scoring.kind === "tally";
   const [score, setScore] = useState(m.score ?? "");
   const known = m.a !== null && m.b !== null;
   const side = (id: number | null) => (id === null ? "to be decided" : names.get(id) ?? "?");
@@ -668,7 +957,17 @@ function MatchRow({
       <span className={`min-w-[10rem] flex-1 ${m.winner === m.b && m.b !== null ? "font-semibold" : ""}`}>{side(m.b)}</span>
       {known && (
         <>
-          <input value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 18-21, 21-10" className={`w-40 ${input}`} />
+          <input
+            value={score}
+            onChange={(e) => setScore(e.target.value)}
+            placeholder={tally ? (m.stage === "knockout" ? "2-2 (penalties 4-3)" : "3-2") : "21-15, 18-21, 21-10"}
+            className={`w-40 ${input}`}
+          />
+          {tally && rules.scoring.draws && m.stage === "group" && (
+            <button onClick={() => void save({ winner: null, score })} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+              Drawn
+            </button>
+          )}
           <button onClick={() => void save({ winner: m.a, score })} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
             {names.get(m.a!)?.split(" ")[0]} won
           </button>
@@ -706,10 +1005,261 @@ function MatchRow({
             })}
           </select>
           {m.status !== "scheduled" && (
-            <span className="text-xs text-emerald-700">✓ {m.status === "walkover" ? "walkover" : m.status === "retired" ? `retired ${m.score ?? ""}` : m.score}</span>
+            <span className="text-xs text-emerald-700">
+              ✓ {m.status === "walkover" ? "walkover" : m.status === "retired" ? `retired ${m.score ?? ""}` : m.winner === null ? `drawn ${m.score ?? ""}` : m.score}
+            </span>
           )}
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * A correction left the wrong competitor in matches already played: what it
+ * affects, and the organiser's choice — let the results stand, or replay at
+ * a court and time held for the tournament — with a reason, confirmed
+ * against what was reviewed.
+ */
+function IssuePanel({
+  t,
+  issueId,
+  names,
+  venue,
+  call,
+  onDone,
+}: {
+  t: TournamentDetail;
+  issueId: number;
+  names: Map<number, string>;
+  venue: ManagedVenue;
+  call: (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
+  onDone: (changes: string[]) => void;
+}) {
+  const [review, setReview] = useState<IssueReview | null>(null);
+  const [reason, setReason] = useState("");
+  const [slots, setSlots] = useState<Record<number, { courtId: number; date: string; startMin: number }>>({});
+  const url = `/api/admin/tournaments/${t.id}/issues/${issueId}`;
+  const issue = t.issues.find((i) => i.id === issueId)!;
+  useEffect(() => {
+    void fetch(url, { cache: "no-store" }).then(async (r) => r.ok && setReview(await r.json()));
+  }, [url, t]);
+  const courts = venue.courts.filter((c) => courtOffers(c, t.sport));
+  async function resolve(action: "stand" | "replay") {
+    if (!review) return;
+    if (!window.confirm(action === "stand" ? "Let the results stand as played? It is recorded, with your reason." : "Replay these matches at the times given? What was played stays in the record.")) return;
+    const done = await call(url, { action, reason, token: review.token, slots: action === "replay" ? slots : undefined });
+    if (done.ok) onDone((done.data.changes as string[]) ?? []);
+  }
+  return (
+    <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm" aria-label="Progression to resolve">
+      <h3 className="font-semibold text-red-900">
+        Under review: {names.get(issue.wrongEntry)} went on in place of {issue.rightEntry === null ? "nobody known" : names.get(issue.rightEntry)}
+      </h3>
+      <p className="mt-1 text-xs text-slate-600">The tournament does not finish until this is resolved. Played matches are never changed silently.</p>
+      <ul className="mt-2 list-disc pl-5">
+        {issue.affected.map((a) => (
+          <li key={a.matchId}>{a.text}</li>
+        ))}
+      </ul>
+      {review && (
+        <div className="mt-3 space-y-2">
+          {review.replay.possible ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-slate-700">To replay, give each match a court and a time:</p>
+              {review.replay.matches.map((m) => (
+                <div key={m.matchId} className="flex flex-wrap items-center gap-2">
+                  <span className="w-40 text-xs">{m.name}{m.needsSlot ? "" : " (keeps its time)"}</span>
+                  {m.needsSlot && (
+                    <>
+                      <select
+                        aria-label={`Court for ${m.name}`}
+                        value={slots[m.matchId]?.courtId ?? ""}
+                        onChange={(e) => setSlots({ ...slots, [m.matchId]: { ...(slots[m.matchId] ?? { date: t.endsOn, startMin: t.startMin }), courtId: Number(e.target.value) } })}
+                        className={input}
+                      >
+                        <option value="">court…</option>
+                        {courts.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        aria-label={`Date for ${m.name}`}
+                        value={slots[m.matchId]?.date ?? ""}
+                        onChange={(e) => setSlots({ ...slots, [m.matchId]: { ...(slots[m.matchId] ?? { courtId: courts[0]?.id ?? 0, startMin: t.startMin }), date: e.target.value } })}
+                        className={input}
+                      />
+                      <ClockField
+                        label={`Time for ${m.name}`}
+                        value={slots[m.matchId]?.startMin ?? t.startMin}
+                        onChange={(min) => setSlots({ ...slots, [m.matchId]: { ...(slots[m.matchId] ?? { courtId: courts[0]?.id ?? 0, date: t.endsOn }), startMin: min } })}
+                        className={input}
+                      />
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-red-800">It cannot be replayed here: {review.replay.blockers.join(" ")} Let it stand, or arrange it by hand and record the result.</p>
+          )}
+          <label className="block text-xs font-medium text-slate-600">
+            Why (kept with the resolution)
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Both finalists agreed; appeal upheld" className={`mt-1 w-full ${input}`} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={reason.trim().length < 5} onClick={() => void resolve("stand")} className="rounded-md border border-slate-400 px-3 py-1.5 text-xs font-semibold disabled:opacity-40">
+              Let the results stand
+            </button>
+            <button
+              disabled={!review.replay.possible || reason.trim().length < 5}
+              onClick={() => void resolve("replay")}
+              className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              Replay
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A performance event's heats and final: each competitor's marks, lane by lane, and choosing a final's last places when level. */
+function PerformancePanel({
+  t,
+  names,
+  call,
+}: {
+  t: TournamentDetail;
+  names: Map<number, string>;
+  call: (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
+}) {
+  const p = t.performance!;
+  const rules = t.rules.performance!;
+  const units = t.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.position - b.position);
+  const [chosen, setChosen] = useState<number[]>([]);
+  return (
+    <section className="space-y-3">
+      {p.tieForFinal && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
+          <h3 className="font-semibold">Level for the final&apos;s last place</h3>
+          <p className="mt-1 text-xs text-slate-600">Decide it as your rules say (a swim-off, say), then choose who goes through.</p>
+          <div className="mt-2 flex flex-wrap gap-3">
+            {p.tieForFinal.map((id) => (
+              <label key={id} className="inline-flex items-center gap-1">
+                <input type="checkbox" checked={chosen.includes(id)} onChange={() => setChosen(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id])} />
+                {names.get(id)}
+              </label>
+            ))}
+          </div>
+          <button onClick={() => void call(`/api/admin/tournaments/${t.id}`, { action: "final", chosen })} className="mt-2 rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white">
+            Put them in the final
+          </button>
+        </div>
+      )}
+      {units.map((m) => (
+        <HeatEntry key={m.id} t={t} m={m} lines={p.lines[m.id] ?? []} names={names} attempts={rules.attempts} placeholder={rules.measure === "time" ? "1:02.35" : "7.42"} call={call} />
+      ))}
+    </section>
+  );
+}
+
+function HeatEntry({
+  t,
+  m,
+  lines,
+  names,
+  attempts,
+  placeholder,
+  call,
+}: {
+  t: TournamentDetail;
+  m: Match;
+  lines: NonNullable<TournamentDetail["performance"]>["lines"][number];
+  names: Map<number, string>;
+  attempts: number;
+  placeholder: string;
+  call: (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
+}) {
+  const [rows, setRows] = useState(() =>
+    Object.fromEntries(lines.map((l) => [l.entryId, { attempts: Array.from({ length: attempts }, (_, i) => (l.attempts[i] === undefined ? "" : l.attempts[i] === null ? "X" : String(l.attempts[i]))), status: l.status === "pending" ? "ok" : l.status }]))
+  );
+  if (lines.length === 0)
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500">
+        {m.stage === "final" ? "Final" : `Heat ${m.position}`}: filled once the heats are in.
+      </div>
+    );
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
+      <h3 className="font-semibold">
+        {m.stage === "final" ? "Final" : `Heat ${m.position}`}{" "}
+        <span className="text-xs font-normal text-slate-500">
+          {m.date} {m.minute !== null && formatMinute(m.minute)} · {m.courtName} · {m.status === "done" ? "results in" : "to come"}
+        </span>
+      </h3>
+      <table className="mt-1 w-full">
+        <tbody>
+          {lines
+            .slice()
+            .sort((a, b) => a.lane - b.lane)
+            .map((l) => (
+              <tr key={l.entryId} className="border-t border-slate-100">
+                <td className="w-10 text-xs text-slate-500">{l.lane}</td>
+                <td>{names.get(l.entryId)}</td>
+                <td className="whitespace-nowrap">
+                  {rows[l.entryId]?.attempts.map((a, i) => (
+                    <input
+                      key={i}
+                      aria-label={`${names.get(l.entryId)} attempt ${i + 1}`}
+                      value={a}
+                      disabled={rows[l.entryId].status !== "ok"}
+                      onChange={(e) => {
+                        const next = [...rows[l.entryId].attempts];
+                        next[i] = e.target.value;
+                        setRows({ ...rows, [l.entryId]: { ...rows[l.entryId], attempts: next } });
+                      }}
+                      placeholder={placeholder}
+                      className="mr-1 w-20 rounded border border-slate-300 px-1 py-0.5 text-xs"
+                    />
+                  ))}
+                </td>
+                <td>
+                  <select
+                    aria-label={`${names.get(l.entryId)} status`}
+                    value={rows[l.entryId]?.status}
+                    onChange={(e) => setRows({ ...rows, [l.entryId]: { ...rows[l.entryId], status: e.target.value as typeof l.status } })}
+                    className="rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  >
+                    <option value="ok">result</option>
+                    <option value="dns">did not start</option>
+                    <option value="dnf">did not finish</option>
+                    <option value="dq">disqualified</option>
+                  </select>
+                </td>
+                <td className="text-right text-xs text-slate-600">
+                  {l.shown ?? ""} {l.rank !== null && `(${l.rank})`}
+                </td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+      <button
+        onClick={() =>
+          void call(`/api/admin/tournaments/${t.id}/matches/${m.id}`, {
+            performances: Object.entries(rows)
+              .filter(([, r]) => r.status !== "ok" || r.attempts.some((a) => a.trim()))
+              .map(([entryId, r]) => ({ entryId: Number(entryId), status: r.status, attempts: r.status === "ok" ? r.attempts.filter((a) => a.trim()) : undefined })),
+          })
+        }
+        className="mt-2 rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white"
+      >
+        Save results
+      </button>
+    </div>
   );
 }

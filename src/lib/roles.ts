@@ -41,6 +41,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/(leagues|tournaments)$/, methods: ["POST"] },
   // Calling one off refunds every entry; drawing and seasons shape what people paid for.
   { path: /^\/api\/admin\/(leagues|tournaments)\/\d+$/, methods: ["POST"] },
+  // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
+  { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },

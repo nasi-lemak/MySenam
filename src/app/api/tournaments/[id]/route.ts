@@ -27,7 +27,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
 }
 
-/** `{ action: "enter", partnerName?, partnerGender? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`. */
+/**
+ * `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark? }` (a team's name and roster of
+ * names; a performance event's entry time or mark), `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in to enter." }, { status: 401 });
@@ -54,6 +57,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const result = await enter(user, t.id, {
       partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined,
       partnerGender: typeof body.partnerGender === "string" ? body.partnerGender : undefined,
+      teamName: typeof body.teamName === "string" ? body.teamName : undefined,
+      roster: Array.isArray(body.roster) ? body.roster : undefined,
+      entryMark: typeof body.entryMark === "string" ? body.entryMark : undefined,
     });
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.code ? 403 : 409 });
     return NextResponse.json({ mine: result.value }, { status: 201 });

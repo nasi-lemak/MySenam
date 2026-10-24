@@ -24,6 +24,7 @@ export default function TournamentPage() {
   const [missing, setMissing] = useState(false);
   const [partner, setPartner] = useState("");
   const [partnerGender, setPartnerGender] = useState<"woman" | "man" | "">("");
+  const [team, setTeam] = useState({ name: "", roster: "", mark: "" });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -60,7 +61,20 @@ export default function TournamentPage() {
   const x = data.tournament;
   const names = new Map(x.entries.map((e) => [e.id, e.name]));
   const final = x.matches.filter((m) => m.stage === "knockout").sort((a, b) => b.round - a.round)[0];
-  const champion = x.status === "finished" && final?.winner ? names.get(final.winner) : null;
+  const underReview = x.issues.some((i) => i.status === "open");
+  // The winner: the knockout's final, the round robin's table, or the best performance.
+  const winnerId =
+    x.status !== "finished" || underReview
+      ? null
+      : x.format === "performance"
+        ? x.performance?.ranking.find((r) => r.rank === 1)?.entryId ?? null
+        : x.format === "round_robin"
+          ? x.groups[0]?.table.find((r) => !r.out)?.entryId ?? null
+          : final?.winner ?? null;
+  const champion = winnerId !== null ? names.get(winnerId) : null;
+  const tally = x.rules.scoring.kind === "tally";
+  const byPoints = x.rules.scoring.rankBy.includes("points");
+  const formatLabel = x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : t("tour.knockout");
 
   return (
     <div className="space-y-6">
@@ -79,7 +93,7 @@ export default function TournamentPage() {
         </p>
         <p className="mt-1 text-sm text-slate-500">
           {x.category !== "open" && `${t(`cat.${x.category}`)} · `}
-          {x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")} · {x.format === "groups" ? t("tour.groups") : t("tour.knockout")}
+          {x.entryKind === "team" ? t("tour.teams") : x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")} · {formatLabel}
           {x.level && ` · ${t(`games.level.${x.level}`)}`} · {x.entryFee > 0 ? t("tour.fee", { amount: x.entryFee.toFixed(2) }) : t("tour.free")} ·{" "}
           {t(`tour.status.${x.status}`)}
         </p>
@@ -97,10 +111,15 @@ export default function TournamentPage() {
         setPartner={setPartner}
         partnerGender={partnerGender}
         setPartnerGender={setPartnerGender}
+        team={team}
+        setTeam={setTeam}
         act={act}
       />
 
+      {underReview && <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">{t("tour.underReview")}</p>}
       {x.corrections.length > 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("tour.corrected")}</p>}
+
+      {x.performance && <Performances t={t} x={x} names={names} />}
 
       {x.groups.length > 0 && (
         <section className="grid gap-3 sm:grid-cols-2">
@@ -113,8 +132,10 @@ export default function TournamentPage() {
                     <th className="text-left font-medium" />
                     <th className="w-8 font-medium">{t("tour.played")}</th>
                     <th className="w-8 font-medium">{t("tour.won")}</th>
+                    {tally && <th className="w-8 font-medium">{t("tour.drawnShort")}</th>}
                     <th className="w-8 font-medium">{t("tour.lost")}</th>
-                    <th className="w-12 font-medium">{t("tour.sets")}</th>
+                    <th className="w-12 font-medium">{tally ? t("tour.diff") : t("tour.sets")}</th>
+                    {byPoints && <th className="w-10 font-medium">{t("tour.points")}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -135,11 +156,13 @@ export default function TournamentPage() {
                       </td>
                       <td className="text-center">{s.played}</td>
                       <td className="text-center">{s.won}</td>
+                      {tally && <td className="text-center">{s.drawn}</td>}
                       <td className="text-center">{s.lost}</td>
                       <td className="text-center">
-                        {s.setDiff > 0 ? "+" : ""}
-                        {s.setDiff}
+                        {(tally ? s.pointDiff : s.setDiff) > 0 ? "+" : ""}
+                        {tally ? s.pointDiff : s.setDiff}
                       </td>
+                      {byPoints && <td className="text-center font-medium">{s.points}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -156,7 +179,7 @@ export default function TournamentPage() {
           <h2 className="font-semibold">{t("tour.matches")}</h2>
           <ul className="mt-2 divide-y divide-slate-100 text-sm">
             {x.matches
-              .filter((m) => m.status !== "bye" && m.date)
+              .filter((m) => m.status !== "bye" && m.date && (m.stage === "group" || m.stage === "knockout"))
               .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0))
               .map((m) => (
                 <li key={m.id} className="flex flex-wrap gap-x-3 py-1.5">
@@ -167,7 +190,13 @@ export default function TournamentPage() {
                     <Side id={m.a} m={m} names={names} t={t} /> v <Side id={m.b} m={m} names={names} t={t} />
                   </span>
                   <span className="text-slate-600">
-                    {m.status === "walkover" ? t("tour.walkover") : m.status === "retired" ? `${m.score ?? ""} (${t("tour.retired")})` : m.score}
+                    {m.status === "walkover"
+                      ? t("tour.walkover")
+                      : m.status === "retired"
+                        ? `${m.score ?? ""} (${t("tour.retired")})`
+                        : m.status === "done" && m.winner === null
+                          ? `${m.score ?? ""} (${t("tour.drawn")})`
+                          : m.score}
                   </span>
                 </li>
               ))}
@@ -192,6 +221,73 @@ export default function TournamentPage() {
         </section>
       )}
     </div>
+  );
+}
+
+/** A performance event: every heat and the final, lane by lane, and the overall placings. */
+function Performances({ t, x, names }: { t: T; x: TournamentDetail; names: Map<number, string> }) {
+  const p = x.performance!;
+  const status = (s: string) => (s === "dns" ? t("tour.dns") : s === "dnf" ? t("tour.dnf") : s === "dq" ? t("tour.dq") : t("tour.pending"));
+  const units = x.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.position - b.position);
+  return (
+    <section className="space-y-3">
+      {p.ranking.some((r) => r.rank !== null) && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="font-semibold">{t("tour.results")}</h2>
+          <table className="mt-2 w-full text-sm">
+            <thead className="text-xs text-slate-500">
+              <tr>
+                <th className="w-12 text-left font-medium">{t("tour.rank")}</th>
+                <th className="text-left font-medium" />
+                <th className="text-right font-medium">{t("tour.mark")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.ranking.map((r) => (
+                <tr key={r.entryId} className={r.rank === null ? "text-slate-400" : ""}>
+                  <td>{r.rank ?? "—"}</td>
+                  <td>{names.get(r.entryId)}</td>
+                  <td className="text-right">{r.shown ?? status(r.status)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {units.map((m) => (
+          <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            <h3 className="font-semibold">
+              {m.stage === "final" ? t("tour.final") : t("tour.heat", { n: m.position })}
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                {m.date} {m.minute !== null && formatMinute(m.minute)}, {m.courtName}
+              </span>
+            </h3>
+            <table className="mt-1 w-full">
+              <thead className="text-xs text-slate-500">
+                <tr>
+                  <th className="w-12 text-left font-medium">{t("tour.lane")}</th>
+                  <th className="text-left font-medium" />
+                  <th className="text-right font-medium">{t("tour.mark")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(p.lines[m.id] ?? [])
+                  .slice()
+                  .sort((a, b) => a.lane - b.lane)
+                  .map((l) => (
+                    <tr key={l.entryId}>
+                      <td>{l.lane}</td>
+                      <td>{names.get(l.entryId)}</td>
+                      <td className="text-right">{l.shown ?? status(l.status)}{l.rank !== null && <span className="ml-1 text-xs text-slate-400">({l.rank})</span>}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -255,6 +351,8 @@ function EnterBox({
   setPartner,
   partnerGender,
   setPartnerGender,
+  team,
+  setTeam,
   act,
 }: {
   t: T;
@@ -265,6 +363,8 @@ function EnterBox({
   setPartner: (p: string) => void;
   partnerGender: "woman" | "man" | "";
   setPartnerGender: (g: "woman" | "man" | "") => void;
+  team: { name: string; roster: string; mark: string };
+  setTeam: (v: { name: string; roster: string; mark: string }) => void;
   act: (body: object) => Promise<void>;
 }) {
   const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
@@ -304,7 +404,13 @@ function EnterBox({
         e.preventDefault();
         // In a women's or men's doubles the partner is the same as the event; in mixed, the entrant says.
         const pg = x.category === "women" ? "woman" : x.category === "men" ? "man" : partnerGender || undefined;
-        void act({ action: "enter", partnerName: partner, partnerGender: pg });
+        void act({
+          action: "enter",
+          partnerName: partner,
+          partnerGender: pg,
+          ...(x.entryKind === "team" ? { teamName: team.name, roster: team.roster.split("\n").map((n) => n.trim()).filter(Boolean) } : {}),
+          ...(x.format === "performance" && team.mark.trim() ? { entryMark: team.mark.trim() } : {}),
+        });
       }}
       className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
     >
@@ -333,6 +439,42 @@ function EnterBox({
             <option value="woman">{t("who.partnerWoman")}</option>
             <option value="man">{t("who.partnerMan")}</option>
           </select>
+        </label>
+      )}
+      {x.entryKind === "team" && (
+        <>
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("tour.teamName")}
+            <input
+              required
+              minLength={2}
+              value={team.name}
+              onChange={(e) => setTeam({ ...team, name: e.target.value })}
+              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("tour.roster")}
+            {x.roster && <span className="font-normal">{t("tour.rosterSize", { min: x.roster.min, max: x.roster.max })}</span>}
+            <textarea
+              required
+              rows={4}
+              value={team.roster}
+              onChange={(e) => setTeam({ ...team, roster: e.target.value })}
+              className="mt-1 w-64 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+            />
+          </label>
+        </>
+      )}
+      {x.format === "performance" && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("tour.entryMark")}
+          <input
+            value={team.mark}
+            onChange={(e) => setTeam({ ...team, mark: e.target.value })}
+            placeholder={x.rules.performance?.measure === "time" ? "1:02.35" : "7.42"}
+            className="mt-1 w-32 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          />
         </label>
       )}
       <button className={button}>{t("tour.enter")}</button>

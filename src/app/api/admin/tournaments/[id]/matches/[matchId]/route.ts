@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
-import { applyCorrection, previewResult, recordResult, tournamentDetail, type ResultInput, type TournamentDetail } from "@/lib/tournaments";
+import { applyCorrection, previewResult, recordPerformances, recordResult, tournamentDetail, type PerformanceInput, type ResultInput, type TournamentDetail } from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,9 @@ function knockoutLines(d: TournamentDetail): string {
 }
 
 /**
- * `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result, written to the activity log with the one it replaced.
+ * `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result (`winner: null` for a draw, where the rules
+ * allow one), written to the activity log with the one it replaced; `{ performances: [{ entryId, attempts?, status?,
+ * note? }] }` for a heat or a final.
  * With `preview: true`: what it would change, nothing changed. With `correction: { mode, reason, token }`: a
  * correction after the knockout has begun (a group result, or a knockout result whose next match is played),
  * confirmed against its preview (managers only).
@@ -35,6 +37,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  // A heat or a final: each competitor's marks.
+  if (Array.isArray(body.performances)) {
+    const lines = (body.performances as Record<string, unknown>[]).map(
+      (p): PerformanceInput => ({
+        entryId: Number(p.entryId),
+        attempts: Array.isArray(p.attempts) ? p.attempts.map((a) => String(a ?? "")) : undefined,
+        status: typeof p.status === "string" ? (p.status as PerformanceInput["status"]) : undefined,
+        note: typeof p.note === "string" ? p.note : undefined,
+      })
+    );
+    const done = await recordPerformances(match.id, lines);
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 409 });
+    await logAction(found.admin, { venueId: done.value.venueId, action: "tournament.performances", detail: `${done.value.name}: results for ${lines.length} competitor(s)` });
+    return NextResponse.json({ tournament: done.value });
   }
   const input: ResultInput = {
     winner: body.winner === null ? null : Number(body.winner),

@@ -164,7 +164,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
 | GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
 | GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry |
-| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }` |
+| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }` |
 | POST | `/api/venue-applications` | A venue asking to join. Only a marketplace takes them |
 | POST | `/api/venues/:id/enquiry` | `{ name, phone, email?, kind, wantedOn?, people?, message }`: a private hire enquiry from the venue's page, passed to its staff |
 | GET | `/api/venues/:id/qr` | The venue's booking link as a QR code (SVG), to print or share |
@@ -337,12 +337,14 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/sign-offs` | `{venueId, sport?, phone, name, email?, kind?: "operational" \| "certification", reference?, note?, expiresOn?, wholeBusiness?}`: record one (replacing one for the same number, activity, kind and scope); a certification needs `reference` and `expiresOn`; `wholeBusiness` needs whoever runs the business; `email` links the customer's account; recorded |
 | DELETE | `/api/admin/sign-offs` | `?venueId&id[&reason]`: take one back, who and why kept; recorded |
 | POST | `/api/admin/system` | `{ key }`: dealt with; the next one is news again |
-| GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments, for its staff |
-| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once; `rules?` for somebody leaving |
+| GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments, for its staff, with the sport templates and the venue's own |
+| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once; `format` knockout, groups, round_robin or performance; `template` and `rules?` (scoring, ranking, somebody leaving); `entryKind` and `roster` for teams |
 | GET | `/api/admin/tournaments/:id` | One tournament with its entries and draw |
-| POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }`, or `{ action: "rules", rules }` before the draw |
+| POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }`, `{ action: "rules", rules }` before the draw, `{ action: "final", chosen }` (who takes a performance final's last places when level), or `{ action: "save_template", name }` |
 | POST | `/api/admin/tournaments/:id/entries/:entryId` | `{ paid?, seed?, withdraw?, reason?, note?, preview? }` — staff on one entry; `reason` withdrawn, retired or disqualified (a manager's); `preview: true` says what it would change |
-| POST | `/api/admin/tournaments/:id/matches/:matchId` | `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result; `preview: true` says what it would change; `correction: { mode: "replace" \| "standings_only", reason, token }` after the knockout has begun (a manager's) |
+| POST | `/api/admin/tournaments/:id/matches/:matchId` | `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result (`winner: null` a draw, where the rules allow one); `preview: true` says what it would change; `correction: { mode: "replace" \| "standings_only", reason, token }` after the knockout has begun (a manager's); `{ performances: [{ entryId, attempts?, status?, note? }] }` for a heat or a final |
+| GET | `/api/admin/tournaments/:id/issues/:issueId` | A progression issue a correction left open: the fixtures it affects, whether it can be replayed and which matches need a court and time, and a token |
+| POST | `/api/admin/tournaments/:id/issues/:issueId` | `{ action: "stand" \| "replay", reason, token, slots? }` — resolve it (a manager's): the results as played stand, or the matches are replayed at the courts and times given |
 | GET | `/api/admin/venue-applications` | Venues asking to go live, and how many drafts are being set up, for the platform owner alone |
 | POST | `/api/admin/venue-applications` | `{ id, decision: "approve" \| "reject", checks?, reason? }`; approving needs every one of REVIEW_CHECKS in `checks` |
 | GET | `/api/admin/venue-tax` | `?venueId` → the venue's own tax, the country's usual one to start from, and the treatment of each deduction reason |
