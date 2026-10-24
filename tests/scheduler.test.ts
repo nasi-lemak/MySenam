@@ -98,7 +98,8 @@ describe("a tick", () => {
     expect(result.backup).toMatchObject({ ok: true, offsite: { ok: true } });
     const [taken] = listBackups(dir);
     expect(result.backup?.name).toBe(taken.name);
-    expect(uploads).toEqual([`/backups/mysenam/${taken.name}`]);
+    // The database, then its manifest, sent last.
+    expect(uploads).toEqual([`/backups/mysenam/${taken.name}`, `/backups/mysenam/${taken.name.replace(/\.(dump|tar\.gz)$/, ".manifest.json")}`]);
     expect((await offsiteStatus()).lastCopied?.name).toBe(taken.name);
   });
 
@@ -106,6 +107,6 @@ describe("a tick", () => {
     const result = await runScheduledWork();
     expect(result.backup).toBeNull();
     expect(listBackups(dir)).toHaveLength(1);
-    expect(uploads).toHaveLength(1);
+    expect(uploads).toHaveLength(2);
   });
 });

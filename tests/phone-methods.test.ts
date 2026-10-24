@@ -174,18 +174,18 @@ describe("the site's daily ceiling on codes", () => {
     expect(codesPerDay()).toBe(300);
     await getDb().prepare("DELETE FROM phone_codes").run();
     vi.stubEnv("MYSENAM_PHONE_CODES_PER_DAY", "2");
-    const log = vi.spyOn(console, "info").mockImplementation(() => {});
     const a = await account("012-555 1001");
     const b = await account("012-555 1002");
     expect((await sendPhoneCode(a.id, "012-555 1001")).ok).toBe(true);
     expect((await sendPhoneCode(b.id, "012-555 1002")).ok).toBe(true);
     expect(await sendPhoneCode(a.id, "012-555 1001")).toMatchObject({ ok: false, code: "PHONE_CODES_PAUSED" });
     expect(await sendPhoneCode(b.id, "012-555 1002")).toMatchObject({ ok: false, code: "PHONE_CODES_PAUSED" });
-    const alerts = log.mock.calls.filter((c) => String(c[0]).includes("Phone codes paused for today"));
+    // Queued in the outbox for the owners, like every alert to them.
+    const alerts = (await getDb()
+      .prepare("SELECT recipient FROM messages WHERE kind = 'staff_alert' AND subject LIKE '%Phone codes paused for today%'")
+      .all()) as { recipient: string }[];
     expect(alerts.length).toBeGreaterThanOrEqual(1);
     // Once per owner, not once per refusal.
-    const owners = new Set(alerts.map((c) => String(c[0]).split("\n")[0]));
-    expect(alerts.length).toBe(owners.size);
-    log.mockRestore();
+    expect(alerts.length).toBe(new Set(alerts.map((r) => r.recipient)).size);
   });
 });
