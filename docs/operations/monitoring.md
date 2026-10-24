@@ -35,6 +35,8 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   single-upload limit raises `offsite-near-limit`
   ([backups](backups.md#backup-health)).
 
+What to do about one is [incident response](incident-response.md).
+
 Each kind is told once, then again only after six hours if it is still
 happening, with how many times it has. It goes by email to every platform
 owner, through the outbox like every other email (retried while the mail

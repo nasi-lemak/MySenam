@@ -35,6 +35,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 
 | Subject | Authoritative document |
 | ------- | ---------------------- |
+| Who uses MySenam, their roles as the code has them, and the main journeys through it | [Users and journeys](product/users-and-journeys.md) |
 | Rules that span features and must not break | [Business rules](product/business-rules.md) |
 | What can be booked: the activity catalogue, resource templates, operators' own activities, resources offering several, quantity, sign-offs, localised names, and which activities are fully supported | [Activities](features/activities.md) |
 | Booking rules (starts, lengths, buffers, notice), availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, who may book | [Booking](features/booking.md) |
@@ -57,7 +58,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Stack, structure, several instances | [Overview](architecture/overview.md) |
 | Schema, migrations, conventions | [Database](architecture/database.md) |
 | What is guaranteed under concurrent requests | [Booking concurrency](architecture/booking-concurrency.md) |
-| Court time as intervals: claims, spaces, booking policies, prices from minutes, the migration from half hours | [Booking time model](architecture/interval-booking-review.md) |
+| Court time as intervals: claims, spaces, booking policies, prices from minutes, the migration from half hours | [Booking time model](architecture/booking-time-model.md) |
 | Platform, business, branch, venue; staff roles; how boundaries are enforced | [Tenancy](architecture/tenancy.md) |
 | Sign-in, sessions, two-factor, Google, phone checks, passwords | [Authentication](architecture/authentication.md) |
 | Rate limits and abuse controls | [Security](architecture/security.md) |
@@ -82,7 +83,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0014 Off-site backups encrypted and located](architecture/decisions/0014-off-site-backups-encrypted-and-located.md) ·
 [0015 Backblaze B2 preferred; signed backup sets](architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md) ·
 [0016 Matchmaking on open games](architecture/decisions/0016-matchmaking-on-open-games.md) ·
-[0017 Staging and verification modes](architecture/decisions/0017-staging-and-verification-modes.md)
+[0017 Staging and verification modes](architecture/decisions/0017-staging-and-verification-modes.md) ·
+[0018 Moving open games by consent](architecture/decisions/0018-moving-open-games-by-consent.md)
 
 ## Integrations
 
@@ -106,6 +108,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Production, proxies, upgrading, staging before a release, the launch checklist | [Deployment](operations/deployment.md); kit in [`deploy/digitalocean`](../deploy/digitalocean/README.md) |
 | Backups, off-site copies, restoring (disaster recovery) | [Backups](operations/backups.md) |
 | Alerts, errors, health checks | [Monitoring](operations/monitoring.md) |
+| What to do when something goes wrong: severity, containment, evidence, recovery, breach notification in Malaysia and Singapore | [Incident response](operations/incident-response.md) |
 | Installs from before Postgres or before the rename from MudahTempah | [Legacy installs](archive/migrations/legacy-installs.md) |
 
 ## Plans, research and audits

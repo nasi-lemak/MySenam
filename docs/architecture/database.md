@@ -31,7 +31,7 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   midnight in the venue's time zone, past 1440 after midnight
   ([booking](../features/booking.md#hours-by-weekday-and-after-midnight)).
   Court time itself is a `tstzrange` of real moments on each claim
-  ([booking time model](interval-booking-review.md#time)).
+  ([booking time model](booking-time-model.md#time)).
 - **Money** is `NUMERIC(12,2)` in the currency's major unit (ringgit or
   dollars); arithmetic is rounded to the cent (`roundMoney` in
   `src/lib/region.ts`).

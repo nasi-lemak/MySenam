@@ -53,7 +53,7 @@ retried on a serialization failure or deadlock (`withTransaction` in
 `src/lib/db.ts`). Overlapping court time is additionally refused by the
 database itself: everything that occupies a court is a claim, under an
 exclusion constraint for exclusive courts and a capacity trigger for shared
-facilities ([booking time model](interval-booking-review.md)). What is
+facilities ([booking time model](booking-time-model.md)). What is
 and is not proven about this is in
 [booking concurrency](booking-concurrency.md).
 

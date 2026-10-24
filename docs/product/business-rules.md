@@ -27,7 +27,7 @@ change, update this page, and update [feature status](feature-status.md).
   (bookings, held bookings, waiting-list offers, classes, blocks, tournament
   holds, outages, buffers) is a claim, and the database refuses an overlap
   or a shared facility over capacity whatever wrote it
-  ([booking time model](../architecture/interval-booking-review.md)).
+  ([booking time model](../architecture/booking-time-model.md)).
 - **One set of booking rules everywhere.** Every route that takes a time
   (booking, any court, several courts, weekly bookings, waitlist, moving,
   rescheduling, the public API) checks the court's booking rules (starts,

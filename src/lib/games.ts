@@ -96,6 +96,23 @@ export interface GamePlayer {
   expiresAt: string | null;
   /** Invited, rather than asking. */
   invited: boolean;
+  /** In the game, and not yet answered a change of its time (lib/game-moves.ts). */
+  toConfirm: boolean;
+}
+
+/** A change of a game's time: one waiting for its players, or the venue's, still to be confirmed by some. */
+export interface GameMove {
+  id: number;
+  /** "proposal": the host's, waiting for the players; "venue": made by the venue, with its reason. */
+  kind: "proposal" | "venue";
+  status: "pending" | "applied" | "withdrawn" | "expired" | "failed";
+  from: { date: string; startMin: number; endMin: number; courtName: string };
+  to: { date: string; startMin: number; endMin: number; courtName: string };
+  reason: string | null;
+  /** A proposal's hold on the new time lasts until then. */
+  expiresAt: string | null;
+  /** Players in the game still to answer. */
+  waitingFor: number;
 }
 
 export interface OpenGame {
@@ -137,8 +154,10 @@ export interface OpenGame {
   note: string | null;
   status: GameStatus;
   distanceKm?: number;
-  /** For whoever is asking: their place in it, if any. */
-  mine?: { playerId: number; status: PlayerStatus; paid: boolean; expiresAt: string | null } | null;
+  /** For whoever is asking: their place in it, if any; `toConfirm` while a change of time waits for their answer. */
+  mine?: { playerId: number; status: PlayerStatus; paid: boolean; expiresAt: string | null; toConfirm?: boolean } | null;
+  /** A change of time its players are being asked about (for the host and those in it). */
+  move?: GameMove | null;
   /** For whoever is asking: it is their own game. */
   yours?: boolean;
   /** For its host: everybody who asked. */
@@ -187,8 +206,9 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
 const GAME_SELECT = `
   SELECT g.id, g.booking_id, b.code AS booking_code, g.host_id, u.name AS host_name, hl.level AS host_level,
-         v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, v.time_zone, c.name AS court_name, b.sport,
-         b.date, b.start_min, b.end_min, g.level, g.who, g.spots,
+         v.id AS venue_id, v.name AS venue_name, v.area, v.lat, v.lng, v.time_zone, COALESCE(wc.name, c.name) AS court_name, b.sport,
+         COALESCE(g.was_date, b.date) AS date, COALESCE(g.was_start_min, b.start_min) AS start_min,
+         COALESCE(g.was_end_min, b.end_min) AS end_min, g.level, g.who, g.spots,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') AS joined,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'offered') AS held,
          (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'waitlisted') AS waiting,
@@ -200,6 +220,8 @@ const GAME_SELECT = `
     JOIN courts c ON c.id = b.court_id
     JOIN venues v ON v.id = c.venue_id
     JOIN users u ON u.id = g.host_id
+    -- Where a called-off game was, if its booking has moved since (migration 0109).
+    LEFT JOIN courts wc ON wc.id = g.was_court_id
     LEFT JOIN player_levels hl ON hl.user_id = g.host_id AND hl.sport = b.sport`;
 
 function toGame(r: GameRow): OpenGame {
@@ -367,7 +389,7 @@ export async function openGame(
 export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT p.id, p.user_id, u.name, pl.level, p.status, p.paid_at, p.no_show, p.expires_at, p.invited_by
+      `SELECT p.id, p.user_id, u.name, pl.level, p.status, p.paid_at, p.no_show, p.expires_at, p.invited_by, p.move_id
          FROM open_game_players p
          JOIN users u ON u.id = p.user_id
          JOIN open_games g ON g.id = p.game_id
@@ -378,7 +400,7 @@ export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
     )
     .all(gameId)) as {
     id: number; user_id: number; name: string; level: Level | null; status: PlayerStatus; paid_at: string | null; no_show: number;
-    expires_at: string | null; invited_by: number | null;
+    expires_at: string | null; invited_by: number | null; move_id: number | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
@@ -390,10 +412,20 @@ export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
     noShow: r.no_show === 1,
     expiresAt: r.expires_at,
     invited: r.invited_by !== null,
+    toConfirm: r.status === "accepted" && r.move_id !== null,
   }));
 }
 
 export type PlayerAction = "accept" | "decline" | "remove" | "no_show";
+
+/** Joining and accepting wait while the players are asked about a new time, so nobody is moved without being asked. */
+const MOVING = "The host is moving this game to another time. Try again once its players have answered.";
+
+/** The change of time a game's players are being asked about, if any. */
+export async function pendingMove(gameId: number): Promise<number | null> {
+  const row = (await getDb().prepare("SELECT id FROM game_moves WHERE game_id = ? AND status = 'pending'").get(gameId)) as { id: number } | undefined;
+  return row?.id ?? null;
+}
 
 /** A game's row, locked until the transaction ends, with its places counted. */
 async function lockPlaces(gameId: number): Promise<{ spots: number; taken: number; requested: number; status: GameStatus; autoAccept: boolean; waitlist: boolean } | undefined> {
@@ -430,6 +462,8 @@ function untilAtMost(game: OpenGame, minutes: number): string {
 async function fillPlaces(game: OpenGame): Promise<void> {
   const places = await lockPlaces(game.id);
   if (!places || places.status !== "open" || isPastSlot(game.date, game.startHour, game.timeZone)) return;
+  // Passed on once the players have answered (lib/game-moves.ts, endMove).
+  if ((await pendingMove(game.id)) !== null) return;
   let room = places.spots - places.taken - (places.autoAccept ? 0 : places.requested);
   if (room <= 0) return;
   const db = getDb();
@@ -477,6 +511,7 @@ export async function decide(hostId: number, playerId: number, action: PlayerAct
     if (action === "accept") {
       if (p.status !== "requested" && p.status !== "waitlisted") return "They are not waiting for an answer.";
       if (places.taken >= places.spots) return "The game is full.";
+      if ((await pendingMove(game.id)) !== null) return MOVING;
       await set("accepted");
       await tellPlayer(p.user_id, game, "accepted");
     } else if (action === "decline") {
@@ -487,6 +522,7 @@ export async function decide(hostId: number, playerId: number, action: PlayerAct
     } else {
       if (!ACTIVE.includes(p.status)) return "They are not in the game.";
       await set("removed");
+      await answeredByLeaving(playerId);
       // A withdrawn invitation goes quietly; anybody who asked or was in hears.
       if (p.status === "accepted") await shareOwedBack(playerId);
       if (p.status !== "invited") await tellPlayer(p.user_id, game, "removed");
@@ -495,7 +531,15 @@ export async function decide(hostId: number, playerId: number, action: PlayerAct
     return null;
   });
   if (refused) return { ok: false, error: refused };
+  if (action === "remove") await (await import("./game-moves")).settleMove(game.id);
   return { ok: true, game: (await gameById(game.id))! };
+}
+
+/** Places waiting while a change of time was asked about, passed on now that it has ended. */
+export async function resumeGame(gameId: number): Promise<void> {
+  const game = await gameById(gameId);
+  if (!game || game.status !== "open") return;
+  await withTransaction(() => fillPlaces(game));
 }
 
 /** No more requests. Whoever is in stays in. */
@@ -521,6 +565,7 @@ export async function cancelGame(hostId: number, gameId: number): Promise<GameRe
     const db = getDb();
     await db.prepare("SELECT id FROM open_games WHERE id = ? FOR UPDATE").get(gameId);
     await db.prepare("UPDATE open_games SET status = 'cancelled' WHERE id = ?").run(gameId);
+    await (await import("./game-moves")).endMove(gameId, "withdrawn", "The game was called off.", { quiet: true });
     const players = (await db
       .prepare(`SELECT id, user_id, status FROM open_game_players WHERE game_id = ? AND status IN (${ACTIVE_SQL})`)
       .all(gameId)) as { id: number; user_id: number; status: PlayerStatus }[];
@@ -593,6 +638,7 @@ export async function askToJoin(user: { id: number; phone: string }, gameId: num
   const outcome = await withTransaction(async (): Promise<{ error: string } | { status: PlayerStatus; fromOffer: boolean }> => {
     const places = await lockPlaces(gameId);
     if (!places || places.status !== "open") return { error: NOT_TAKING };
+    if ((await pendingMove(gameId)) !== null) return { error: MOVING };
     const existing = (await db
       .prepare(
         `SELECT id, status, invited_by, (expires_at IS NOT NULL AND expires_at < datetime('now')) AS lapsed
@@ -675,6 +721,7 @@ export async function leaveGame(userId: number, gameId: number): Promise<GameRes
       | undefined;
     if (!row || !ACTIVE.includes(row.status)) return "You are not in that game.";
     await db.prepare("UPDATE open_game_players SET status = 'left', decided_at = datetime('now'), expires_at = NULL WHERE id = ?").run(row.id);
+    await answeredByLeaving(row.id);
     if (row.status === "accepted") {
       await shareOwedBack(row.id);
       await tellHost(game, "left");
@@ -683,7 +730,23 @@ export async function leaveGame(userId: number, gameId: number): Promise<GameRes
     return null;
   });
   if (refused) return { ok: false, error: refused, status: 404 };
+  // The last answer a proposed new time was waiting for moves the game (lib/game-moves.ts).
+  await (await import("./game-moves")).settleMove(gameId);
   return { ok: true, game: (await gameById(gameId))! };
+}
+
+/**
+ * Somebody asked about a change of time leaving the game instead: kept as
+ * their answer, and they are no longer waited for.
+ */
+async function answeredByLeaving(playerId: number): Promise<void> {
+  const db = getDb();
+  const row = (await db.prepare("SELECT move_id FROM open_game_players WHERE id = ?").get(playerId)) as { move_id: number | null } | undefined;
+  if (!row?.move_id) return;
+  await db
+    .prepare("INSERT INTO game_move_answers (move_id, player_id, answer) VALUES (?, ?, 'left') ON CONFLICT (move_id, player_id) DO NOTHING")
+    .run(row.move_id, playerId);
+  await db.prepare("UPDATE open_game_players SET move_id = NULL WHERE id = ?").run(playerId);
 }
 
 // ------------------------------------------------------------ invitations and links
@@ -854,7 +917,38 @@ export async function gameForViewer(gameId: number, viewerId: number | null, lin
   game.yours = yours;
   game.mine = mine;
   if (yours) game.players = await gamePlayers(gameId);
+  if (yours || mine?.status === "accepted") game.move = await moveOf(gameId);
   return game;
+}
+
+/** The change of time a game's players are being asked about: pending, or the venue's still to be confirmed by some. */
+export async function moveOf(gameId: number): Promise<GameMove | null> {
+  const r = (await getDb()
+    .prepare(
+      `SELECT m.id, m.kind, m.status, m.from_date, m.from_start_min, m.from_end_min, fc.name AS from_court,
+              m.to_date, m.to_start_min, m.to_end_min, tc.name AS to_court, m.reason, m.expires_at,
+              (SELECT COUNT(*)::int FROM open_game_players p WHERE p.move_id = m.id AND p.status = 'accepted') AS waiting
+         FROM game_moves m LEFT JOIN courts fc ON fc.id = m.from_court_id LEFT JOIN courts tc ON tc.id = m.to_court_id
+        WHERE m.game_id = ? AND (m.status = 'pending'
+              OR EXISTS (SELECT 1 FROM open_game_players p WHERE p.move_id = m.id AND p.status = 'accepted'))
+        ORDER BY m.id DESC LIMIT 1`
+    )
+    .get(gameId)) as
+    | { id: number; kind: GameMove["kind"]; status: GameMove["status"]; from_date: string; from_start_min: number; from_end_min: number;
+        from_court: string | null; to_date: string; to_start_min: number; to_end_min: number; to_court: string | null;
+        reason: string | null; expires_at: string | Date | null; waiting: number }
+    | undefined;
+  if (!r) return null;
+  return {
+    id: r.id,
+    kind: r.kind,
+    status: r.status,
+    from: { date: r.from_date, startMin: r.from_start_min, endMin: r.from_end_min, courtName: r.from_court ?? "" },
+    to: { date: r.to_date, startMin: r.to_start_min, endMin: r.to_end_min, courtName: r.to_court ?? "" },
+    reason: r.reason,
+    expiresAt: r.expires_at === null ? null : new Date(r.expires_at).toISOString(),
+    waitingFor: r.waiting,
+  };
 }
 
 /**
@@ -957,9 +1051,11 @@ export async function findGames(filter: {
 
 async function myPlace(userId: number, gameId: number): Promise<OpenGame["mine"]> {
   const row = (await getDb()
-    .prepare("SELECT id, status, paid_at, expires_at FROM open_game_players WHERE game_id = ? AND user_id = ?")
-    .get(gameId, userId)) as { id: number; status: PlayerStatus; paid_at: string | null; expires_at: string | null } | undefined;
-  return row ? { playerId: row.id, status: row.status, paid: row.paid_at !== null, expiresAt: row.expires_at } : null;
+    .prepare("SELECT id, status, paid_at, expires_at, move_id FROM open_game_players WHERE game_id = ? AND user_id = ?")
+    .get(gameId, userId)) as { id: number; status: PlayerStatus; paid_at: string | null; expires_at: string | null; move_id: number | null } | undefined;
+  return row
+    ? { playerId: row.id, status: row.status, paid: row.paid_at !== null, expiresAt: row.expires_at, toConfirm: row.status === "accepted" && row.move_id !== null }
+    : null;
 }
 
 /** A player's own games: those they host, with who asked, and those they are in, asked, invited to or waiting for. */
@@ -969,7 +1065,10 @@ export async function myGames(userId: number): Promise<{ hosting: OpenGame[]; pl
   const hosting = ((await db
     .prepare(`${GAME_SELECT} WHERE g.host_id = ? AND b.date >= ? ORDER BY b.date, b.start_min`)
     .all(userId, since)) as GameRow[]).map(toGame);
-  for (const g of hosting) g.players = await gamePlayers(g.id);
+  for (const g of hosting) {
+    g.players = await gamePlayers(g.id);
+    g.move = await moveOf(g.id);
+  }
   const playing = ((await db
     .prepare(
       `${GAME_SELECT} WHERE b.date >= ? AND g.id IN (
@@ -977,7 +1076,10 @@ export async function myGames(userId: number): Promise<{ hosting: OpenGame[]; pl
        ORDER BY b.date, b.start_min`
     )
     .all(since, userId)) as GameRow[]).map(toGame);
-  for (const g of playing) g.mine = await myPlace(userId, g.id);
+  for (const g of playing) {
+    g.mine = await myPlace(userId, g.id);
+    if (g.mine?.status === "accepted") g.move = await moveOf(g.id);
+  }
   return { hosting, playing };
 }
 
@@ -1081,6 +1183,7 @@ export async function bookingCancelled(bookingId: number): Promise<void> {
     .prepare("UPDATE open_games SET status = 'cancelled' WHERE booking_id = ? AND status <> 'cancelled' RETURNING id")
     .get(bookingId)) as { id: number } | undefined;
   if (!game) return;
+  await (await import("./game-moves")).endMove(game.id, "withdrawn", "The booking was cancelled.", { quiet: true });
   const players = (await db
     .prepare(`SELECT id, user_id, status FROM open_game_players WHERE game_id = ? AND status IN (${ACTIVE_SQL})`)
     .all(game.id)) as { id: number; user_id: number; status: PlayerStatus }[];
@@ -1110,11 +1213,32 @@ export async function forgetPlayer(userId: number): Promise<void> {
     await withTransaction(async () => {
       if (game) await lockPlaces(game.id);
       await getDb().prepare("UPDATE open_game_players SET status = 'left', expires_at = NULL WHERE id = ?").run(r.id);
+      await answeredByLeaving(r.id);
       await shareOwedBack(r.id);
       if (game && r.status === "accepted") await tellHost(game, "left");
       if (game && (r.status === "accepted" || r.status === "offered") && !isPastSlot(game.date, game.startHour, game.timeZone)) await fillPlaces(game);
     });
+    if (game) await (await import("./game-moves")).settleMove(game.id);
   }
+}
+
+/**
+ * A game's booking moved while nobody was in it yet (or its players agreed):
+ * whoever asked, was invited, is waiting or holds a place hears the new time,
+ * and an invitation or held place lasts no later than the new start.
+ */
+export async function gameTimeChanged(gameId: number): Promise<void> {
+  const game = await gameById(gameId);
+  if (!game || game.status === "cancelled") return;
+  const db = getDb();
+  const start = slotStartsAt(game.date, game.startHour, game.timeZone).toISOString().slice(0, 19).replace("T", " ");
+  await db
+    .prepare("UPDATE open_game_players SET expires_at = ? WHERE game_id = ? AND status IN ('invited', 'offered') AND expires_at > ?")
+    .run(start, gameId, start);
+  const people = (await db
+    .prepare("SELECT id, user_id FROM open_game_players WHERE game_id = ? AND status IN ('invited', 'requested', 'waitlisted', 'offered')")
+    .all(gameId)) as { id: number; user_id: number }[];
+  for (const p of people) await tellPlayer(p.user_id, game, "moved", { dedupeKey: `game-moved:${p.id}:${game.date}:${game.startHour}` });
 }
 
 // ------------------------------------------------------------ telling people
@@ -1128,7 +1252,7 @@ async function emailUser(userId: number, venueId: number, subject: string, body:
 async function tellPlayer(
   userId: number,
   g: OpenGame,
-  what: "accepted" | "declined" | "removed" | "cancelled" | "calledOff" | "offered" | "invited",
+  what: "accepted" | "declined" | "removed" | "cancelled" | "calledOff" | "offered" | "invited" | "moved",
   opts: { by?: string; dedupeKey?: string } = {}
 ): Promise<void> {
   const game = `${g.courtName} at ${g.venueName}, ${when(g)}`;
@@ -1149,6 +1273,10 @@ async function tellPlayer(
     offered: [
       `A place is free for you: ${g.venueName}, ${when(g)}`,
       `A place has come up in ${g.hostName}'s game (${game}), and it is held for you for ${OFFER_MINUTES / 60} hours. Take it or let it go under My games; after that it goes to the next in line.`,
+    ],
+    moved: [
+      `A game has a new time: ${g.venueName}, ${when(g)}`,
+      `${g.hostName}'s game is now ${game}. If that no longer suits you, withdraw under My games.`,
     ],
     invited: [
       `${opts.by ?? g.hostName} invited you to a game: ${g.venueName}, ${when(g)}`,

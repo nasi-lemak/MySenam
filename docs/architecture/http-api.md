@@ -1,6 +1,6 @@
 # HTTP routes (reference)
 
-A reference to every one of the application's own HTTP routes: each is a `route.ts` under `src/app/api/`, and `tests/docs.test.ts` checks that every route listed here exists and that every route is listed. The description of each is the doc comment on its handler; the code is the final word on fields. The public, key-authenticated API for venues' own systems is in [external API](../integrations/external-api.md).
+A reference to every one of the application's own HTTP routes: each is a `route.ts` under `src/app/api/`, and `tests/docs.test.ts` checks that every route listed here exists, that every route is listed, and that each method listed is one the route answers and each it answers is listed. The description of each is the doc comment on its handler; the code is the final word on fields. The public, key-authenticated API for venues' own systems is in [external API](../integrations/external-api.md).
 
 **Times.** A time of day is minutes from the business day's midnight
 (`1087` is 18:07; past `1440` is after midnight) or `"HH:MM"`. A booking's
@@ -9,6 +9,78 @@ of the board's column starts in hours (`[18, 19]`), is still read
 (`readTime` in `src/lib/api.ts`). Where a route took `startHour`/`endHour` or
 `fromHour`/`untilHour`, it takes `start`/`end` or `fromMin`/`untilMin` and
 still reads the older names.
+
+## How every route behaves
+
+These hold for every route below unless its row says otherwise.
+
+- **Who is asking.** A customer is signed in by the `ms_session` cookie
+  (`/api/auth/*`, Google at `/api/auth/google`); staff by `ms_admin`
+  (`/api/admin/auth/*`). A booking made without an account is reached with
+  its code and the phone number it was made with, never the code alone. A
+  coach and a tournament official have a private link of their own instead of
+  an account (`/api/coach/:token/*`, `/api/officials/:token`); a venue's own
+  systems use an API key ([external API](../integrations/external-api.md)).
+- **What staff may do.** Every admin route checks the session (`401` without
+  one), then the role: the front desk is refused what only a manager does
+  (`403`, code `MANAGER_ONLY`; the list is `MANAGER_ONLY` in
+  `src/lib/roles.ts`), and anything about a venue its staff do not run is
+  refused (`403`); branch staff see their venue, business managers their
+  branches, platform owners everything
+  ([tenancy](tenancy.md)). Where the install requires two-factor sign-in, an
+  account without it is refused everything but setting it up (`403`, code
+  `TWO_FACTOR_REQUIRED`).
+- **Requests from another site.** A request that changes something and
+  carries a session cookie must come from the app's own pages: one whose
+  `Origin` (or `Sec-Fetch-Site`) says another site is refused (`403`) before
+  it reaches the route ([security](security.md#requests-from-another-site)).
+- **Answers** are JSON. A refusal is `{ error, code?, vars? }`: `error` in
+  English for logs and staff, `code` a stable name the customer pages
+  translate (the `err.*` phrases in `src/lib/i18n.ts`), `vars` what the
+  message quotes.
+
+  | Status | Means |
+  | ------ | ----- |
+  | `400` | The request is malformed: a field missing or of the wrong kind |
+  | `401` | Sign in first |
+  | `403` | Signed in, but not allowed (role, venue, another site, phone not checked) |
+  | `404` | Not found, or not yours to see: a private game, another customer's booking |
+  | `409` | Refused by a rule of the business: the time is taken, past the cutoff, the game is full |
+  | `429` | Too many requests; `Retry-After` says when to try again ([security](security.md#rate-limiting)) |
+  | `503` | Busy (`code: "BUSY"`, `Retry-After: 2`): nothing was kept, so sending it again is safe |
+- **Money.** No route marks anything paid because it was called: payment
+  routes answer with the gateway's page to send the payer to, and only the
+  gateway's signed report or the redirect's check marks it paid
+  ([payments and credit](../features/payments-and-credit.md)).
+
+## The main workflows, by route
+
+Where to start for each, in the order a client calls them. The rows below
+have the fields.
+
+- **Booking a court:** `GET /api/availability` (starts and prices) →
+  `GET /api/quote` → `POST /api/bookings` (answers `booking`, `holdUntil` if
+  it must be paid online to be kept) → `POST /api/payments` (the page to pay
+  on) → `GET /api/bookings?code&phone`. Changing it:
+  `GET`/`POST /api/bookings/reschedule`; cancelling:
+  `POST /api/bookings/cancel`. Staff: `/api/admin/bookings*`.
+- **Payments and refunds:** `POST /api/payments` and the provider's report to
+  `/api/payments/:provider/callback`; refunds owed and made are on the
+  booking (`refunds`), and staff's under `/api/admin/online-payments`.
+- **Open games and matchmaking:** `GET /api/games` and
+  `GET /api/games/recommended` (suggested, with reasons) →
+  `POST /api/games/:id` (`join`, `leave`, `pay`, `invite`, `keepPlace`) →
+  the host's `POST /api/games/:id/players/:playerId`,
+  `GET /api/games/:id/candidates` and `GET`/`POST /api/games/:id/move`.
+- **Tournaments:** staff `POST /api/admin/tournaments` →
+  `POST /api/admin/tournaments/:id` (`draw`) → results at
+  `/api/admin/tournaments/:id/matches/:matchId`; players
+  `POST /api/tournaments/:id` (`enter`, `report`, `confirm`, `dispute`);
+  officials `/api/officials/:token`.
+- **Running a venue:** `/api/admin/venues`, `/api/admin/courts`,
+  `/api/admin/peak-rules`, `/api/admin/booking-policies`,
+  `/api/admin/venues/:id/payment-settings`, and `/api/admin/go-live` to ask
+  to go live.
 
 ## API
 
@@ -46,10 +118,13 @@ Account endpoints (session cookie):
 | POST   | `/api/my/password`        | `{current, next}` → change it; others signed out |
 | GET    | `/api/my/bookings`        | The signed-in user's bookings, and refunds owed or made on them (`refunds`) |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
+| POST   | `/api/my/wallet`          | `{venueId, amount}` → the page to pay on; the credit lands once it is paid |
 | POST   | `/api/my/vouchers`        | `{code}` → a gift voucher, as credit            |
 | POST   | `/api/vouchers`           | Buy a gift voucher online → `{url}` to pay      |
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
 | GET    | `/api/my/membership`      | The signed-in customer's memberships            |
+| POST   | `/api/my/membership`      | `{planId, autoRenew?}` → the page to pay the venue on; the membership is made once it is paid, and with `autoRenew` again each period |
+| DELETE | `/api/my/membership`      | `?renewal=<id>` → stop renewing; the membership runs to its end |
 | GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
 | GET/POST | `/api/venues/:id/terms` | The venue's booking rules, and for an account whether it put them away and its strikes / `{version}`: don't show again |
 | GET    | `/api/my/data`            | Everything held against this account, as a file |
@@ -75,7 +150,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/bookings/move`    | `?code=` → courts this booking could move to         |
 | POST   | `/api/admin/bookings/move`    | `{code, courtId}` → move it, keeping code and payment |
 | GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
-| POST   | `/api/admin/bookings/reschedule` | `{code, date, start, courtId?, override?}` → change it; customer told; `override` (managers) outside the rules, recorded |
+| POST   | `/api/admin/bookings/reschedule` | `{code, date, start, courtId?, override?, preview?, reason?}` → change it; customer told; `override` (managers) outside the rules, recorded. `preview: true` → what it would do, changing nothing. A booking whose open game has players moves only with a manager's `reason`, which its players are told (403 for the front desk, 400 without one) ([moving a game](../features/matchmaking.md#moving-a-game-to-another-time)) |
 | GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
 | GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
@@ -154,7 +229,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players |
 | GET | `/api/games/recommended` | Signed in: open games suggested for you, best first, each with its score and reasons; `?sport=&offset=&limit=` ([matchmaking](../features/matchmaking.md#suggested-games-and-players)) |
 | GET | `/api/games/:id` | One game as you may see it; a private one only to its host, its players and invitees, or with `?link=` |
-| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`), "unlink" and, on a weekly game, "inviteRegulars" |
+| POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`), "unlink" and, on a weekly game, "inviteRegulars"; "keepPlace" for a player keeping their place at the new time it is moving to (or confirming the venue's change) |
+| GET | `/api/games/:id/move` | The host: `?date` → the start times the game's booking could move to that day |
+| POST | `/api/games/:id/move` | The host: `{ date, start, courtId?, preview? }` → `preview` shows what a move would do; otherwise moved at once while nobody is in the game, or proposed to its players (`outcome: "proposal"`), the new time held while they answer; `{ action: "withdraw" }` withdraws a proposal ([moving a game](../features/matchmaking.md#moving-a-game-to-another-time)) |
 | GET | `/api/games/series` | The signed-in host's weekly games, each with its dates' games |
 | POST | `/api/games/series` | `{ bookingCode, title?, …game settings }` — make one of your weekly bookings a weekly game, a game on each upcoming date |
 | POST | `/api/games/series/:id` | `{ action: "end", callOffUpcoming? }` — the host ends a weekly game; the court bookings stay theirs |

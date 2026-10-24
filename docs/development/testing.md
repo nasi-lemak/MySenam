@@ -221,6 +221,7 @@ page offers, so the scenarios run on a fresh database or a seeded one.
 | Matchmaking E | A weekly booking made a weekly game; last week's player invited, not enrolled |
 | Matchmaking F | A private game invisible to others; only opted-in players suggested; a blocked player turned down; another host refused the roster |
 | Matchmaking G | The share shown, paid at the venue (no online payment configured), nothing charged on joining, the court kept when the game is called off |
+| Matchmaking H | A host moves a game with two players: the new time previewed with who is in it, proposed and held; one keeps their place, the other leaves, and only then does the game move |
 
 Last run: 14 of 14 against the production build on PGlite, and 14 of 14
 against a staging deployment on Postgres 16 with seeded data. Not driven from
@@ -337,7 +338,8 @@ checks that:
   [configuration](configuration.md), and every one listed there is read by the
   code;
 - every route listed in [HTTP routes](../architecture/http-api.md) has a
-  `route.ts`;
+  `route.ts`, every `route.ts` is listed, and the methods listed for each are
+  exactly the ones it exports;
 - in [feature status](../product/feature-status.md): every capability is
   named once with a known status and every column filled; everything built
   names its code, and every code path exists (root files included); every

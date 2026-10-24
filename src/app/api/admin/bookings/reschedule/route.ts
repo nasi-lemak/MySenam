@@ -3,7 +3,8 @@ import { formatLength, formatMinute, isMinute, parseClock } from "@/lib/interval
 import { breachMessage } from "@/lib/booking-rules";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
-import { getCourt, getVenueIdForBookingCode, policyForCourt, rescheduleBooking, rescheduleOptions } from "@/lib/store";
+import { getCourt, getVenueIdForBookingCode, policyForCourt, rescheduleOptions } from "@/lib/store";
+import { previewMove, staffMove } from "@/lib/game-moves";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
 
@@ -25,10 +26,13 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ code, date, start, courtId?, override? }` → the booking at its new time
- * (`start` in minutes of the day or HH:MM; `startHour` the older form); the
- * customer is told. `override`: a manager going past the court's booking
- * rules, recorded in the activity log.
+ * `{ code, date, start, courtId?, override?, preview?, reason? }` → the
+ * booking at its new time (`start` in minutes of the day or HH:MM;
+ * `startHour` the older form); the customer is told. `override`: a manager
+ * going past the court's booking rules, recorded in the activity log.
+ * `preview`: what it would do, changing nothing (lib/game-moves.ts). A
+ * booking whose open game has players moves only as the venue's change: a
+ * manager's, with a `reason` the players are given, recorded in the log.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -39,7 +43,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, date, startHour, courtId, override } = body ?? {};
+  const { code, date, startHour, courtId, override, preview, reason } = body ?? {};
   const start =
     body.start !== undefined ? (typeof body.start === "string" ? parseClock(body.start) : body.start) : typeof startHour === "number" ? Math.round(startHour * 60) : null;
   if (typeof code !== "string" || typeof date !== "string" || !isMinute(start))
@@ -58,19 +62,23 @@ export async function POST(req: NextRequest) {
     const deniedTarget = denyVenue(admin, target.venueId);
     if (deniedTarget) return deniedTarget;
   }
-  const result = await rescheduleBooking(
-    code,
-    { date, start, ...(typeof courtId === "number" ? { courtId } : {}), override: override === true },
-    "staff"
-  );
-  if (!result.ok) return NextResponse.json(result, { status: 409 });
+  const to = { date, start, ...(typeof courtId === "number" ? { courtId } : {}), override: override === true };
+  if (preview === true) {
+    const seen = await previewMove(code, to, "staff");
+    if (!seen.ok) return NextResponse.json(seen, { status: 409 });
+    return NextResponse.json({ preview: seen.preview });
+  }
+  const moved = await staffMove(admin, code, to, typeof reason === "string" ? reason : null);
+  if (!moved.ok) return NextResponse.json(moved, { status: moved.status ?? 409 });
+  if (moved.outcome === "proposal") return NextResponse.json({ error: "Unexpected." }, { status: 500 });
+  const result = moved.result;
   await logAction(admin, {
     venueId,
     action: "booking.rescheduled",
     bookingCode: result.booking.code,
     detail: `${result.from.date} ${formatMinute(result.from.startMin)} → ${result.booking.date} ${formatMinute(result.booking.startMin)}${
       result.priceChange !== 0 ? `, price ${result.priceChange > 0 ? "+" : ""}${money(result.priceChange)}` : ""
-    }`,
+    }${moved.outcome === "venue" ? `; open game with players moved by the venue: ${String(reason).trim().slice(0, 300)}` : ""}`,
   });
   if (result.overrides && result.overrides.length > 0) {
     const rules = await policyForCourt(result.booking.courtId);

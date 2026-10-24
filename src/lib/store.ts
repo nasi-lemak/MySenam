@@ -961,7 +961,7 @@ export async function getAvailability(
         continue;
       }
       const inCell = occupants.filter((o) => overlaps(o.occupied, cell));
-      const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer"), cell);
+      const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move"), cell);
       const out = peakPlaces(inCell.filter((o) => o.kind === "block" || o.kind === "outage"), cell);
       const load = peakPlaces(inCell, cell);
       const session = inCell.find((o) => o.kind === "class" && overlaps(o.span, cell));
@@ -2019,6 +2019,13 @@ async function cancelCutoffForBooking(bookingId: number): Promise<number> {
   return row?.hours ?? 0;
 }
 
+/** The last moment a booking's customer may still change it: its start, less the venue's cancellation cutoff. */
+export async function changeDeadline(bookingId: number): Promise<Date | null> {
+  const row = (await getDb().prepare("SELECT starts_at FROM bookings WHERE id = ?").get(bookingId)) as { starts_at: string | Date | null } | undefined;
+  if (!row?.starts_at) return null;
+  return new Date(new Date(row.starts_at).getTime() - (await cancelCutoffForBooking(bookingId)) * 3_600_000);
+}
+
 function cutoffMessage(hours: number): string {
   return hours === 0
     ? "This booking has already started and can no longer be cancelled."
@@ -2083,7 +2090,7 @@ export type AdminSlotStatus = "free" | "booked" | "blocked" | "past";
 
 /** One thing on a court's day, as staff see it: exact times, and why. */
 export interface ScheduleEntry {
-  kind: "booking" | "offer" | "class" | "block" | "outage" | "buffer";
+  kind: "booking" | "offer" | "move" | "class" | "block" | "outage" | "buffer";
   /** Minutes of the day. */
   start: number;
   end: number;
@@ -2191,7 +2198,9 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
             ? (classNames.get(o.classId!) ?? "Class")
             : o.kind === "offer"
               ? "Offered to the waiting list"
-              : (reasonOf(o) ?? "");
+              : o.kind === "move"
+                ? "Held for a game's proposed new time"
+                : (reasonOf(o) ?? "");
       entries.push({
         kind: o.kind,
         start: clip(o.span.start),
@@ -2213,7 +2222,7 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
     for (let minute = openMin; minute < closeMin; minute += grid) {
       const cell = { start: minute, end: Math.min(minute + grid, closeMin) };
       const inCell = occupants.filter((o) => overlaps(o.occupied, cell));
-      const count = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "class"), cell);
+      const count = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move" || o.kind === "class"), cell);
       const blocks = inCell.filter((o) => o.kind === "block" || o.kind === "outage");
       const out = peakPlaces(blocks, cell);
       const block = blocks[0];
@@ -2511,8 +2520,53 @@ export type RescheduleResult =
       unchargedDifference: number;
       /** The court's rules staff went past, to be recorded. */
       overrides?: PolicyBreach[];
+      /** Where it went (or, previewed or held, would go). */
+      to: { date: string; startMin: number; endMin: number; courtId: number; courtName: string };
+      /** Previewed only: nothing was changed. */
+      preview?: true;
+      /** Held only, for a game's proposal: the booking has not moved. */
+      held?: true;
     }
   | Refusal;
+
+/** An open game on a booking, as moving the booking needs it (lib/game-moves.ts). */
+async function gameUnder(bookingId: number): Promise<{ id: number; status: string; players: number; pendingMove: number | null } | null> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT g.id, g.status,
+              (SELECT COUNT(*)::int FROM open_game_players p WHERE p.game_id = g.id AND p.status = 'accepted') AS players,
+              (SELECT m.id FROM game_moves m WHERE m.game_id = g.id AND m.status = 'pending') AS pending_move
+         FROM open_games g WHERE g.booking_id = ?`
+    )
+    .get(bookingId)) as { id: number; status: string; players: number; pending_move: number | null } | undefined;
+  return row ? { id: row.id, status: row.status, players: row.players, pendingMove: row.pending_move } : null;
+}
+
+/** Shares players of a booking's open game have paid online and still count towards it. */
+async function gameSharesPaid(bookingId: number): Promise<number> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(op.amount - op.refund_due), 0)::float AS paid
+         FROM online_payments op JOIN open_game_players p ON p.id = op.game_player_id JOIN open_games g ON g.id = p.game_id
+        WHERE g.booking_id = ? AND op.purpose = 'share' AND op.status = 'paid'`
+    )
+    .get(bookingId)) as { paid: number };
+  return Number(row.paid);
+}
+
+/** The booking changed while it was being moved: it is refused rather than moved from a time it no longer has. */
+class BookingChanged extends Error {}
+/** A preview: everything done, then undone. */
+class PreviewOnly extends Error {}
+
+/** The parts of `span` that `taken` does not cover. */
+function outside(span: Span, taken: Span): Span[] {
+  if (!overlaps(span, taken)) return [span];
+  const parts: Span[] = [];
+  if (span.start < taken.start) parts.push({ start: span.start, end: taken.start });
+  if (taken.end < span.end) parts.push({ start: taken.end, end: span.end });
+  return parts;
+}
 
 /** Move a booking's claims to another court and time, inside the caller's transaction. Throws `23P01` when it is held. */
 async function reclaimBooking(booking: Booking, court: Court, date: string, span: Span, zone: string, policy: BookingPolicy): Promise<void> {
@@ -2567,6 +2621,18 @@ async function rescheduleBookingOnce(
     courtId?: number;
     /** Staff allowed to (a manager) going past the new court's booking policy; recorded by the caller. */
     override?: boolean;
+    /** Work out what it would do, and undo it: nothing changes. */
+    preview?: boolean;
+    /**
+     * The caller is moving the booking's open game with it, players and all
+     * (lib/game-moves.ts): a manager's change, or a proposal the players
+     * answered. Without it, a booking whose game has players is refused.
+     */
+    game?: boolean;
+    /** Hold the new time for a game's proposal instead of moving: a claim of its own, until `expiresAt`. */
+    hold?: { moveId: number; expiresAt: Date };
+    /** Moving onto the time this proposal held. */
+    fromHold?: number;
   },
   by: "staff" | "customer"
 ): Promise<RescheduleResult> {
@@ -2581,10 +2647,21 @@ async function rescheduleBookingOnce(
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.classId !== null) return refuse("RESCHEDULE_CLASS");
   if (booking.checkedInAt) return refuse("RESCHEDULE_CHECKED_IN");
-  if (await db.prepare("SELECT 1 AS n FROM open_games WHERE booking_id = ?").get(booking.id))
-    return refuse("RESCHEDULE_GAME");
-  // Friends have paid their share for this time: moving it is for the venue, who can square it with them.
-  if (by === "customer" && booking.sharesPaid - (booking.depositPaid ?? 0) > 0.005) return refuse("RESCHEDULE_SHARED");
+  // An open game: a called-off one changes nothing; one with nobody in it
+  // moves with its booking; one with players moves only as an explicit change
+  // they are asked about (lib/game-moves.ts), never once it has begun.
+  const game = await gameUnder(booking.id);
+  const live = game !== null && game.status !== "cancelled";
+  if (live && game.pendingMove !== null && game.pendingMove !== to.hold?.moveId && game.pendingMove !== to.fromHold) return refuse("RESCHEDULE_PROPOSED");
+  if (live && game.players > 0) {
+    const { zone: z } = await courtVenueHours(booking.courtId);
+    if (minutesUntil(booking.date, booking.startMin, z) <= 0) return refuse("RESCHEDULE_GAME_STARTED");
+    if (!to.game) return refuse("RESCHEDULE_GAME");
+  }
+  // Friends have paid their share for this time: moving it is for the venue,
+  // who can square it with them. A game's players are asked themselves.
+  const friendsPaid = booking.sharesPaid - (booking.depositPaid ?? 0) - (live ? await gameSharesPaid(booking.id) : 0);
+  if (by === "customer" && friendsPaid > 0.005) return refuse("RESCHEDULE_SHARED");
   // A coach's time is not the court's: moving it is a conversation with the venue.
   if (booking.coachId) return refuse("RESCHEDULE_COACH");
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
@@ -2679,27 +2756,68 @@ async function rescheduleBookingOnce(
     // A payment page open for the old price would settle it short.
     if (!paid && delta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
     const priceChange = paid ? 0 : Math.max(-booking.totalPrice, delta);
-    try {
-      await withTransaction(async () => {
-        // The claims are what decide: a booking, class, block or waiting-list offer there refuses it.
-        await reclaimBooking(booking, court, to.date, span, zone, day.policy);
-        if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
-        await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
-      });
-    } catch (err) {
-      if (isConflict(err)) continue;
-      throw err;
-    }
-    // The time it left may now be free for somebody waiting on it.
-    await offerSlotPlace(fromCourt.id, booking.date);
-    return {
-      ok: true,
-      booking: (await getBookingById(booking.id))!,
-      from: { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id },
+    const from = { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id };
+    const where = { date: to.date, startMin: span.start, endMin: span.end, courtId: court.id, courtName: court.name };
+    const result = {
+      ok: true as const,
+      from,
+      to: where,
       priceChange,
       unchargedDifference: paid ? delta : 0,
       ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
+    try {
+      await withTransaction(async () => {
+        // Nothing changed since it was read: the game first, then the booking,
+        // in the order every change to a game takes them (lib/games.ts).
+        const g = live ? ((await db.prepare("SELECT status FROM open_games WHERE id = ? FOR UPDATE").get(game.id)) as { status: string }) : null;
+        const now = (await db.prepare("SELECT status, date, start_min, end_min, court_id FROM bookings WHERE id = ? FOR UPDATE").get(booking.id)) as {
+          status: string; date: string; start_min: number; end_min: number; court_id: number;
+        };
+        if (now.status !== booking.status || now.date !== booking.date || now.start_min !== booking.startMin || now.end_min !== booking.endMin || now.court_id !== booking.courtId)
+          throw new BookingChanged();
+        if (g && g.status !== "cancelled" && !to.game) {
+          const again = await gameUnder(booking.id);
+          if (again && (again.players > 0 || (again.pendingMove !== null && again.pendingMove !== to.hold?.moveId))) throw new BookingChanged();
+        }
+        if (to.hold) {
+          // The booking keeps its own time; the new time is held beside it. Where
+          // the two overlap on the same court, the booking already holds that part.
+          const ownSpan = { start: booking.startMin - fromPolicy.bufferBefore, end: booking.endMin + fromPolicy.bufferAfter };
+          const newSpan = { start: span.start - day.policy.bufferBefore, end: span.end + day.policy.bufferAfter };
+          const parts = court.id === fromCourt.id && to.date === booking.date ? outside(newSpan, ownSpan) : [newSpan];
+          for (const part of parts)
+            await claim({ court, source: { kind: "move", moveId: to.hold.moveId }, date: to.date, span: part, zone, places: players, expiresAt: to.hold.expiresAt });
+        } else {
+          if (to.fromHold !== undefined) await unclaim({ kind: "move", moveId: to.fromHold });
+          // The claims are what decide: a booking, class, block, waiting-list offer or held move there refuses it.
+          await reclaimBooking(booking, court, to.date, span, zone, day.policy);
+          if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
+          await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
+          // A called-off game keeps where and when it was, not where its booking went.
+          await db
+            .prepare(
+              `UPDATE open_games SET was_date = ?, was_start_min = ?, was_end_min = ?, was_court_id = ?
+                WHERE booking_id = ? AND status = 'cancelled' AND was_date IS NULL`
+            )
+            .run(booking.date, booking.startMin, booking.endMin, fromCourt.id, booking.id);
+        }
+        if (to.preview) throw new PreviewOnly();
+      });
+    } catch (err) {
+      if (err instanceof PreviewOnly) return { ...result, booking, preview: true };
+      if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
+      if (isConflict(err)) continue;
+      throw err;
+    }
+    if (to.hold) return { ...result, booking, held: true };
+    // The time it left may now be free for somebody waiting on it.
+    await offerSlotPlace(fromCourt.id, booking.date);
+    // A game with nobody in it yet went with its booking: whoever asked, was
+    // invited or is waiting hears the new time. (A game with players moves
+    // through lib/game-moves.ts, which tells them itself.)
+    if (live && !to.game) await (await import("./games")).gameTimeChanged(game.id);
+    return { ...result, booking: (await getBookingById(booking.id))! };
   }
   return firstRefusal ?? refuse("RESCHEDULE_TAKEN");
 }

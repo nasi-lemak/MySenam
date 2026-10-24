@@ -562,11 +562,18 @@ export function BookingsTab() {
           staff
           lastDate={addDays(todayISO(), MAX_VENUE_AHEAD_DAYS)}
           optionsUrl={changeOptionsUrl}
-          submit={(o, day) =>
+          preview={(o, day) =>
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, preview: true }),
+            })
+          }
+          submit={(o, day, reason) =>
+            fetch("/api/admin/bookings/reschedule", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...(reason ? { reason } : {}) }),
             })
           }
           onDone={(booking) => {

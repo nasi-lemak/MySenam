@@ -30,8 +30,9 @@ export interface PlanTiers {
 export const MAX_TIERS = 8;
 
 /**
- * A starting point the owner can adopt and change: the tiers the pricing
- * analysis settled on (docs/business/pricing.md), in ringgit.
+ * A starting point the owner can adopt and change, in ringgit: tiers that
+ * cover the cost model in docs/business/pricing.md at every size. Not an
+ * approved price; what venues pay is the owner's decision.
  */
 export const SUGGESTED_TIERS: PlanTiers = {
   tiers: [

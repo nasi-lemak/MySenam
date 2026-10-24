@@ -1,4 +1,5 @@
 import { expireHolds } from "./games";
+import { expireMoves } from "./game-moves";
 import { extendSeriesIfDue } from "./game-series";
 import { sendMatchNotices } from "./matchmaking";
 import crypto from "crypto";
@@ -188,6 +189,8 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   try {
     // Open games: invitations and held places that ran out; each freed place to the next in line.
     await expireHolds();
+    // Proposed new times not every player answered: the game stays, the time held is let go.
+    await expireMoves();
   } catch (err) {
     console.error("[mysenam] passing on open-game places failed:", err);
     await raiseAlert("scheduler:game-places-failed", "Scheduled work failed: open-game invitations and held places", err instanceof Error ? err.stack ?? err.message : String(err));

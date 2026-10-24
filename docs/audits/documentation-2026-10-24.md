@@ -126,9 +126,10 @@ Documentation gaps, not recorded as product limitations:
   across feature documents.
 - [HTTP routes](../architecture/http-api.md) is a partial reference by its
   own description.
-- [Booking time model](../architecture/interval-booking-review.md) is named
-  as a review although it is the maintained description; not renamed here,
-  to keep its many links.
+- [Booking time model](../architecture/booking-time-model.md) is named
+  as a review (`interval-booking-review.md` on this date; the link now
+  follows its later rename) although it is the maintained description; not
+  renamed here, to keep its many links.
 
 ## How it was checked
 

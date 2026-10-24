@@ -29,6 +29,9 @@ inventory.
 - **Platform owners** run the install: approve venues, invoice them, and see
   backups, errors and alerts.
 
+Every role as the code has it, and the main journeys through the app, are in
+[users and journeys](users-and-journeys.md).
+
 ## What it does, in brief
 
 | Area | Highlights | Authoritative document |

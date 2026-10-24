@@ -2,7 +2,7 @@
 
 - **Status:** current; supersedes
   [ADR 0009](0009-half-hour-diary-sold-by-sport.md). Built in migrations
-  0089–0091. How it works is [booking time model](../interval-booking-review.md);
+  0089–0091. How it works is [booking time model](../booking-time-model.md);
   what customers and staff see is [booking](../../features/booking.md).
 - **Context:** court time was stored as fixed half-hour rows so that a unique
   key could refuse double bookings. The grain limited what could be sold: no

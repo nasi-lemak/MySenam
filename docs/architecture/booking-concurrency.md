@@ -34,7 +34,7 @@ themselves are in [booking](../features/booking.md).
   thing queue on the lock instead of each inserting, waiting on the other's
   uncommitted row and deadlocking; bookings for different things do not wait
   at all. The locks are released when the transaction ends.
-- **Claims on court time** ([booking time model](interval-booking-review.md#claims)).
+- **Claims on court time** ([booking time model](booking-time-model.md#claims)).
   Everything that occupies a court is a row in `claims`. An exclusion
   constraint refuses two active claims whose time (buffers included)
   overlaps on the same space, and a trigger that locks the court refuses a

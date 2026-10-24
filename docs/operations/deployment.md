@@ -53,7 +53,7 @@ migration has changed the schema. This matters most for the upgrade to
 interval bookings (migrations 0089–0091): 0090 checks that the new claims hold
 exactly what the half-hour diary held and stops, changing nothing, if not;
 0091 then drops the diary for good
-([booking time model](../architecture/interval-booking-review.md#migration-from-the-half-hour-diary)).
+([booking time model](../architecture/booking-time-model.md#migration-from-the-half-hour-diary)).
 Restore the backup into a scratch database first to know it works
 ([backups](backups.md)).
 
@@ -119,6 +119,10 @@ these once with a real account, in its sandbox where it has one:
       `OPERATOR_ADDRESS`, `OPERATOR_REG_NO`) set, so `/terms` names the
       operator and `/privacy` says who to write to; a lawyer has read both,
       and the translations.
+- [ ] **Somebody owns incidents**: an incident lead named, the owners' alert
+      email and uptime monitor working, and the
+      [incident-response](incident-response.md) breach rules confirmed by a
+      lawyer.
 - [ ] **A real venue, end to end**: book, pay online, get the messages,
       check in at the desk, cancel one late, see it in the reports and the
       accounting export.

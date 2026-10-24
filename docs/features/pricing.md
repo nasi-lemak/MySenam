@@ -7,7 +7,7 @@ Status: [feature status](../product/feature-status.md#pricing) and [memberships,
 
 A booking costs the minutes booked, each part at the rate in force then
 (`priceBooking` in `src/lib/pricing.ts`; how it is computed is in the
-[booking time model](../architecture/interval-booking-review.md#prices-from-minutes)).
+[booking time model](../architecture/booking-time-model.md#prices-from-minutes)).
 At RM20 an hour off-peak and RM30 at peak from 6 PM, 5:30 to 6:30 PM costs
 RM10 + RM15 = RM25, and 75 minutes off-peak costs RM25. Sums are worked in
 sen or cents as whole numbers and rounded once, half up, per booking.

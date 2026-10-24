@@ -6,7 +6,8 @@ import { bookCourt, freeSlot, gone, scenario, signUp, url, type Actor, type Scen
  * A finding a game that suits you and why, B a host's approval, C a full game,
  * its waiting list and a replacement, D invitations and links (withdrawn
  * ones stop working), E a weekly game, F privacy and permissions, G what
- * players pay and to whom.
+ * players pay and to whom, H moving a game with players in it, only once
+ * each has answered.
  *
  * Not here, because a deployed app's clock cannot be moved from a browser:
  * an invitation or a held place running out by itself. Those are tested in
@@ -298,6 +299,55 @@ describe("matchmaking", () => {
       await host.page.getByText("Game called off. Everybody in it has been told.").waitFor();
       const mine = (await host.api("GET", "/api/my/bookings")).body.bookings as { code: string; status: string }[];
       expect(mine.find((b) => b.code === booking.code)?.status).toBe("confirmed");
+    });
+  });
+
+  scenario("H: the host moves a game; it moves once every player has kept their place or left", async (s) => {
+    const { host, gameId } = await hostWithGame(s, "Host", { autoAccept: true });
+    const stays = await signUp(await s.actor("Stays"), { profile: { adult: true } });
+    const goes = await signUp(await s.actor("Goes"), { profile: { adult: true } });
+    for (const p of [stays, goes]) {
+      const joined = await p.api("POST", `/api/games/${gameId}`, { action: "join" });
+      if (joined.status !== 200) throw new Error(`join: ${JSON.stringify(joined.body)}`);
+    }
+    const before = ((await host.api("GET", "/api/my/games")).body.hosting as { id: number; date: string; startHour: number }[]).find((g) => g.id === gameId)!;
+
+    await s.step(host, "picks a new time, sees who is in the game, and proposes it", async () => {
+      await games(host);
+      await host.page.getByTestId(`move-game-${gameId}`).click();
+      await host.page.getByText("Change to when?").waitFor();
+      await host.page.locator("button", { hasText: /\d{1,2}:\d{2} [AP]M–/ }).first().click();
+      const preview = host.page.getByTestId("move-preview");
+      await preview.getByText(/In the game: .*Stays.*Goes|In the game: .*Goes.*Stays/).waitFor();
+      await preview.getByText(/Nothing moves until every player has kept their place or left/).waitFor();
+      await preview.getByRole("button", { name: "Confirm" }).click();
+      await host.page.getByText("New time proposed: waiting for the players' answers.").waitFor();
+      await host.page.getByTestId(`move-waiting-${gameId}`).waitFor();
+    });
+    const proposed = ((await host.api("GET", "/api/my/games")).body.hosting as { id: number; move: { to: { date: string; startMin: number } } }[]).find((g) => g.id === gameId)!.move.to;
+
+    await s.step(stays, "is asked, and keeps their place at the new time", async () => {
+      await games(stays);
+      const asked = stays.page.getByTestId(`move-asked-${gameId}`);
+      await asked.getByText(/wants to move this game/).waitFor();
+      await asked.getByRole("button", { name: "Keep my place" }).click();
+      await gone(stays.page.getByTestId(`move-asked-${gameId}`));
+    });
+    await s.step(host, "still sees the game where it was, waiting for one answer", async () => {
+      const now = ((await host.api("GET", "/api/my/games")).body.hosting as { id: number; date: string; startHour: number }[]).find((g) => g.id === gameId)!;
+      expect([now.date, now.startHour]).toEqual([before.date, before.startHour]);
+    });
+    await s.step(goes, "would rather not, and leaves the game", async () => {
+      await games(goes);
+      await goes.page.getByTestId(`move-asked-${gameId}`).getByRole("button", { name: "Leave the game" }).click();
+      await gone(goes.page.getByTestId(`playing-${gameId}`));
+    });
+    await s.step(host, "sees the game at its new time, with the player who stayed", async () => {
+      await games(host);
+      await gone(host.page.getByTestId(`move-waiting-${gameId}`));
+      const now = ((await host.api("GET", "/api/my/games")).body.hosting as { id: number; date: string; startHour: number; joined: number }[]).find((g) => g.id === gameId)!;
+      expect([now.date, Math.round(now.startHour * 60)]).toEqual([proposed.date, proposed.startMin]);
+      expect(now.joined).toBe(1);
     });
   });
 });

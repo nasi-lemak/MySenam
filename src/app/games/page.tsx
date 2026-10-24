@@ -17,6 +17,7 @@ import { shortDate } from "@/lib/region";
 import type { Intensity } from "@/lib/player-profiles";
 import { Suggested } from "./Suggested";
 import { HostTools, SafetyButtons } from "./HostTools";
+import { HostMove, PlayerMove } from "./MoveGame";
 
 const LEVELS: Level[] = ["beginner", "intermediate", "advanced", "competitive"];
 const levelLabel = (t: T, level: Level) => t(`games.level.${level}`);
@@ -163,7 +164,7 @@ export default function GamesPage() {
       )}
 
       {signedIn && mine && (mine.hosting.length > 0 || mine.playing.length > 0) && (
-        <MyGames t={t} mine={mine} act={act} say={(msg, err) => (err ? setError(err) : setNotice(msg))} />
+        <MyGames t={t} mine={mine} act={act} refresh={load} say={(msg, err) => (err ? setError(err) : setNotice(msg))} />
       )}
 
       {series.length > 0 && (
@@ -367,11 +368,13 @@ function MyGames({
   t,
   mine,
   act,
+  refresh,
   say,
 }: {
   t: T;
   mine: { hosting: OpenGame[]; playing: OpenGame[]; noShows: number; maxNoShows: number };
   act: (url: string, body: object, done?: string) => Promise<void>;
+  refresh: () => Promise<void>;
   say: (msg: string | null, error?: string) => void;
 }) {
   const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
@@ -419,6 +422,7 @@ function MyGames({
                             ? `${t("games.joined")}, ${t("games.paid").toLowerCase()}`
                             : t("games.joined")}
                       {p.noShow && ` · ${t("games.noShow")}`}
+                      {p.toConfirm && ` · ${t("move.toConfirm")}`}
                     </span>
                     {(p.status === "requested" || (p.status === "waitlisted" && g.joined + g.held < g.spots)) && (
                       <>
@@ -444,6 +448,17 @@ function MyGames({
                   </li>
                 ))}
             </ul>
+          )}
+          {!started(g) && g.status !== "cancelled" && (
+            <HostMove
+              t={t}
+              g={g}
+              act={act}
+              done={(message) => {
+                say(message);
+                void refresh();
+              }}
+            />
           )}
           {!started(g) && <HostTools t={t} g={g} act={act} />}
         </div>
@@ -485,7 +500,7 @@ function MyGames({
                 {g.mine.status === "offered" ? t("games.takePlace") : t("games.acceptInvite")}
               </button>
             )}
-            {!started(g) && (
+            {!started(g) && !g.mine?.toConfirm && (
               <button onClick={() => void act(`/api/games/${g.id}`, { action: "leave" })} className={small}>
                 {g.mine?.status === "invited"
                   ? t("games.declineInvite")
@@ -497,6 +512,7 @@ function MyGames({
               </button>
             )}
           </span>
+          {!started(g) && <PlayerMove t={t} g={g} act={act} />}
         </div>
       ))}
     </section>

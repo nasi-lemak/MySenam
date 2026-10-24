@@ -51,13 +51,6 @@ nonces is open for review (P3).
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly
 series skips weeks inside the cancellation cutoff silently rather than
 applying the late-cancel policy to them (P3, unconfirmed whether intended).
-And a booking that has ever had an open game, even one called off or with
-nobody in it, cannot be moved to another time by anybody, staff included
-(`RESCHEDULE_GAME` in `src/lib/store.ts`), while the message a customer sees
-says the game has players in it and to ask the venue; staff can only move it
-to another court. Whether the rule should cover only games with players, and
-what the message should say, is undecided; no test covers the refusal (P3;
-[matchmaking](../features/matchmaking.md#hosting-and-joining)).
 
 Also, in [tournaments](../features/tournaments.md):
 
@@ -94,7 +87,7 @@ Also, in [tournaments](../features/tournaments.md):
   winner (P3).
 
 
-Known limits of the [booking time model](../architecture/interval-booking-review.md)
+Known limits of the [booking time model](../architecture/booking-time-model.md)
 (the owner's decisions and the defaults chosen for open questions are listed
 there):
 
@@ -345,6 +338,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | --- | ----------- | -------- |
 | Browser tests cover a few journeys only: eleven end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and fourteen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones | P2 |
 | [Booking concurrency](../architecture/booking-concurrency.md) cites a cancellation race on an unpaid booking only | A double refund of a paid booking under concurrent cancels is prevented by the claim but not tested | P2 |
-| Untested paths named in feature status: the refusal to reschedule a booking that has had an open game, refund on tournament withdrawal before the draw, a league fee paid after leaving, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
+| Untested paths named in feature status: refund on tournament withdrawal before the draw, a league fee paid after leaving, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1 before public launch |
-| No incident-response procedure: [monitoring](../operations/monitoring.md) says how an operator is alerted and [backups](../operations/backups.md) how to restore, but nothing says who decides, who is told (venues, customers, anybody else) or what is recorded after a security or data incident. Whether any notice is required by law is for the operator's adviser, not these documents | An operator facing an incident has no procedure to follow | P2 |
+| The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1 before public launch: a lawyer confirms it |

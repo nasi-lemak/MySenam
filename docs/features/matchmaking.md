@@ -5,7 +5,8 @@ them has booked), suggested games and players, invitations and private games,
 waiting lists in a game, weekly games, community groups, emails of suggested
 games, and blocking and reporting players.
 Status: [feature status](../product/feature-status.md#open-games-and-matchmaking).
-Design: [ADR 0016](../architecture/decisions/0016-matchmaking-on-open-games.md).
+Design: [ADR 0016](../architecture/decisions/0016-matchmaking-on-open-games.md),
+and for moving a game, [ADR 0018](../architecture/decisions/0018-moving-open-games-by-consent.md).
 
 ## Scope and roles
 
@@ -54,9 +55,9 @@ and only that (`src/lib/games.ts`).
   Three in 90 days, and that player cannot join games until they age out.
 - **The host's tools**: accept, decline, remove a player (who is emailed and
   owed back), invite players, share a link, close the game to new requests,
-  call it off while keeping the court, and mark no-shows. A booking that has
-  had a game, even one since called off, cannot be moved to another time by
-  anyone (`RESCHEDULE_GAME`); staff can move it to another court.
+  call it off while keeping the court, and mark no-shows. Moving the game to
+  another time is [below](#moving-a-game-to-another-time); staff can also
+  move its booking to another court.
 - Everyone is emailed through the message queue when it matters: the host
   when somebody asks, joins or leaves; the player when accepted, declined,
   removed, invited, offered a freed place, or the game is off. There are no
@@ -66,6 +67,52 @@ and only that (`src/lib/games.ts`).
   the groups they organised; the
   personal data export includes games, levels, the playing profile, blocks,
   reports they made and groups.
+
+## Moving a game to another time
+
+A game is its host's booking, so moving the game is moving the booking, by
+the same rules on what is free, how long it may be, what it costs and who may
+go past the court's rules ([booking](booking.md#changing-the-date-or-time)).
+Where it goes depends on who is in it (`src/lib/game-moves.ts`):
+
+| The game | Moving its booking |
+| -------- | ------------------ |
+| Called off | Moves as any booking does. The game's record keeps where and when it was (`open_games.was_*`), not where the booking went |
+| Nobody in it yet | Moves with its booking, by its host from *Change the time* under *My games* (the customer's rules) or by staff. Whoever asked, was invited, is waiting or holds a place is emailed the new time; an invitation or held place lasts no later than the new start |
+| Players in it | Never moved behind their backs: proposed by its host, or changed by a venue manager with a reason (below). Changing it as a plain booking, from *My booking* or the staff screen without the game's own flow, is refused (`RESCHEDULE_GAME`) |
+| Begun or over | Its time stays as it was played (`RESCHEDULE_GAME_STARTED`); a finished booking cannot be moved at all |
+
+**Before anything changes**, the host (and staff) see what a move would do:
+the old and new time and court, what the court time's price changes by,
+who is in the game, how many who asked, were invited or are waiting would
+hear, how many players have another game or booking of theirs then (how
+many, never who or what), the shares paid online that would be owed back to
+a player who leaves, and what happens next. Nothing is held or changed by
+looking.
+
+**A host's proposal.** With players in the game, the host proposes the new
+time. It is held on the court for the game (a claim of its own, as a
+waiting-list offer is held), while the booking keeps its own time; where the
+two overlap on the same court, the booking's own time covers that part. Each
+player is emailed and answers under *My games*: *Keep my place*, or *Leave
+the game*, which owes back any share they paid online, as leaving always
+does. When the last player has answered, the booking moves onto the time
+held, in one transaction, and everybody is told. Silence is not a yes: a
+proposal not every player has answered runs out, the hold goes, and the game
+stays where it was. It holds for a day at most, never past the new start or
+the point after which the host could no longer change the booking (the
+venue's cancellation cutoff); one that cannot give the players half an hour
+to answer is refused, and the host asks the venue. While it waits nobody can
+join or be accepted (their places are passed on once it ends), the booking
+cannot be moved again, and the host can withdraw it. Each answer is kept
+(`game_move_answers`), as is the proposal and how it ended (`game_moves`).
+
+**The venue's change.** A venue manager can move a game with players at
+once, when the venue has to, giving a reason (front desk staff cannot). The
+players are emailed the reason and asked to confirm under *My games* that
+they are still coming, or to leave (any share paid online is owed back);
+until they do, the host sees who has not confirmed. The change and its
+reason are in the staff activity log.
 
 ## Where somebody stands in a game
 
@@ -240,6 +287,7 @@ These are proposals in the [roadmap](../roadmap/roadmap.md), not commitments.
 | Part | Code | Tests |
 | ---- | ---- | ----- |
 | Open games, joining, waiting lists, invitations, private links | `src/lib/games.ts`, `src/app/games/HostTools.tsx` | `tests/games.test.ts`, `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
+| Moving a game to another time | `src/lib/game-moves.ts`, `src/app/games/MoveGame.tsx`, `src/components/ChangeTime.tsx` | `tests/game-moves.test.ts` |
 | Suggested games and players | `src/lib/matchmaking.ts`, `src/app/games/Suggested.tsx` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Playing profiles | `src/lib/player-profiles.ts` | `tests/matchmaking.test.ts` |
 | Blocking and reporting | `src/lib/player-safety.ts` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
@@ -252,9 +300,9 @@ Which parts are verified, and how, is in
 
 ## Open decisions and known issues
 
-- A booking that has ever had a game, even one called off, cannot be moved
-  to another time by anybody, while the message a customer sees tells them
-  to ask the venue; whether that is intended is
-  [awaiting a decision](../roadmap/known-limitations.md#booking-and-availability-b).
+- Moving a game is decided by its owner: a called-off game does not block
+  its booking, a game with players moves only as a proposal they answer or
+  as the venue's change with a reason (decided 24 October 2026). How long a
+  proposal holds the new time (a day at most) is fixed, not set by the venue.
 - Earned levels, reminders and messages between players, persistent teams
   and group news are proposals in the [roadmap](../roadmap/roadmap.md).

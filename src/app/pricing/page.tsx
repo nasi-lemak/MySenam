@@ -37,7 +37,9 @@ export default async function PricingPage() {
     <div className="mx-auto max-w-4xl space-y-8 py-2">
       <header className="max-w-2xl">
         <h1 className="text-2xl font-bold">{t("pricing.title")}</h1>
-        <p className="mt-2 text-slate-600">{t(plan.tiers.length > 0 ? "pricing.intro" : "pricing.introFlat")}</p>
+        <p className="mt-2 text-slate-600">
+          {t(plan.tiers.length > 0 ? "pricing.intro" : flat > 0 ? "pricing.introFlat" : "pricing.introFree")}
+        </p>
       </header>
 
       {plan.tiers.length > 0 ? (

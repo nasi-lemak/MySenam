@@ -167,6 +167,23 @@ describe("the HTTP route reference", () => {
     const routes = walk("src/app/api", "/route.ts").map((f) => path.posix.dirname(f).replace(/^src\/app/, "").replace(/\[[^\]]+\]/g, ":"));
     expect(routes.filter((r) => !listed.has(r)).sort()).toEqual([]);
   });
+
+  it("lists each method a route answers, and only those", () => {
+    const listed = new Map<string, Set<string>>();
+    for (const m of read("docs/architecture/http-api.md").matchAll(/^\|\s*([A-Z/]+)\s*\|\s*`(\/api\/[^`?]*)/gm)) {
+      const route = m[2].replace(/\/$/, "").replace(/:[^/]+/g, ":");
+      for (const method of m[1].split("/")) listed.set(route, (listed.get(route) ?? new Set()).add(method));
+    }
+    const wrong: string[] = [];
+    for (const f of walk("src/app/api", "/route.ts")) {
+      const route = path.posix.dirname(f).replace(/^src\/app/, "").replace(/\[[^\]]+\]/g, ":");
+      const answers = new Set([...read(f).matchAll(/export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|PATCH|DELETE)\b/g)].map((m) => m[1]));
+      const documented = listed.get(route) ?? new Set();
+      for (const method of answers) if (!documented.has(method)) wrong.push(`${method} ${route} is not listed`);
+      for (const method of documented) if (!answers.has(method)) wrong.push(`${method} ${route} is listed but not answered`);
+    }
+    expect(wrong.sort()).toEqual([]);
+  });
 });
 
 describe("the feature-status matrix", () => {

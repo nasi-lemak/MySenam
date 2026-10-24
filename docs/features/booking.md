@@ -1,6 +1,6 @@
 # Booking and availability
 
-Authoritative for how courts and shared facilities are booked: booking rules (starts, lengths, buffers, notice), capacity, linked courts, opening hours, blocks and outages, waitlists, moving, cancelling and who may book. How time is stored and protected underneath is the [booking time model](../architecture/interval-booking-review.md).
+Authoritative for how courts and shared facilities are booked: booking rules (starts, lengths, buffers, notice), capacity, linked courts, opening hours, blocks and outages, waitlists, moving, cancelling and who may book. How time is stored and protected underneath is the [booking time model](../architecture/booking-time-model.md).
 Status: [feature status](../product/feature-status.md#booking-and-availability).
 
 ## Activities
@@ -40,7 +40,7 @@ the room. The
 database refuses an overlapping claim on a space, and a claim that would put
 a facility over its capacity at any moment, partly blocked places and
 waiting-list offers included, whatever path wrote it
-([booking time model](../architecture/interval-booking-review.md#claims);
+([booking time model](../architecture/booking-time-model.md#claims);
 guarantees in [booking concurrency](../architecture/booking-concurrency.md)).
 A refused claim is "just taken" to the customer.
 
@@ -90,7 +90,7 @@ courts read as idle for those hours, and the floor's utilisation reads low
 Any minute can be stored; what a customer may pick on a court is its
 **booking rules** (*Courts & rates → Booking rules*, managers only;
 `POST /api/admin/booking-policies`; the settings and their defaults are in
-the [booking time model](../architecture/interval-booking-review.md#booking-policies)):
+the [booking time model](../architecture/booking-time-model.md#booking-policies)):
 
 - **When bookings start**: every so many minutes from a first start past the
   hour (on the hour; every 15 minutes; every 90 from 08:00), or only at
@@ -434,11 +434,16 @@ the time goes while the customer rebooks.
   time's rate, up or down, by the same pricing as a new booking. Paid, it keeps what was paid: a customer cannot move
   it somewhere dearer (that would be peak hours at an off-peak price), and
   staff who do have chosen not to charge the difference.
-- Refused for a class place (it moves with its class), a booking that has
-  ever had an [open game](matchmaking.md#hosting-and-joining) (even one
-  called off; staff can still move it to another court), a lesson with a
+- Refused for a class place (it moves with its class), a lesson with a
   coach, a checked-in booking, or kit still out; and, for a customer, a
-  booking friends have already paid shares of (the venue can move it).
+  booking friends have already paid shares of in a split (the venue can move
+  it). A booking under an open game with players in it moves only through
+  the game, as its host's proposal the players answer or a manager's change
+  with a reason ([moving a game](matchmaking.md#moving-a-game-to-another-time));
+  a called-off game does not stop its booking moving.
+- The booking is re-read and locked as it moves: one moved by somebody else
+  in the meantime is refused (`RESCHEDULE_CHANGED`) rather than moved from a
+  time it no longer has.
 - The customer is told. Changed by the venue, it is urgent news with an
   acknowledge link (`mysenam_booking_rescheduled` on WhatsApp, in the venue's
   *Needs attention* panel until they see it). Changed by the customer, it is an
