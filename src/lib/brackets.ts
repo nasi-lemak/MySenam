@@ -177,6 +177,16 @@ export function parseTally(score: string): ParsedTally | null {
  * level score is a draw where draws are allowed, and otherwise needs how it
  * was decided, in brackets.
  */
+/**
+ * A score as the other side would write it: "21-15, 18-21" is "15-21, 21-18",
+ * "3-2" is "2-3", and "2-2 (penalties 4-3)" is "2-2 (penalties 3-4)". Words
+ * are left alone. Players write their own score first; it is kept with the
+ * first-named side's first.
+ */
+export function flipScore(score: string): string {
+  return score.replace(/(\d+)\s*-\s*(\d+)/g, (_, a: string, b: string) => `${b}-${a}`);
+}
+
 export function scoreRefusal(
   score: string,
   winnerIsA: boolean | null,

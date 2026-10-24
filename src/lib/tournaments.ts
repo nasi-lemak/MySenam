@@ -108,6 +108,8 @@ export interface Tournament {
   entriesCloseOn: string | null;
   ageRange: { min: number | null; max: number | null } | null;
   membersOnly: boolean;
+  /** Who enters results: staff (and officials), or the players, one side reporting and the other confirming. */
+  resultsBy: "staff" | "players";
 }
 
 export interface Entry {
@@ -150,6 +152,8 @@ export interface Match {
   nextSlot: "a" | "b" | null;
   /** "done" with no winner is a draw (where the rules allow one). */
   status: "scheduled" | "done" | "walkover" | "bye" | "retired";
+  /** Who entered the result: "staff", "players" (reported and confirmed), "official: <name>". */
+  resultBy?: string | null;
 }
 
 /** A competitor's line in a heat or final, ranked within it. */
@@ -247,6 +251,7 @@ interface TRow {
   age_min: number | null;
   age_max: number | null;
   members_only: number;
+  results_by: "staff" | "players" | null;
 }
 
 function toTournament(r: TRow): Tournament {
@@ -286,6 +291,7 @@ function toTournament(r: TRow): Tournament {
     entriesCloseOn: r.entries_close_on ?? null,
     ageRange: r.age_min !== null || r.age_max !== null ? { min: r.age_min ?? null, max: r.age_max ?? null } : null,
     membersOnly: Boolean(r.members_only),
+    resultsBy: r.results_by === "players" ? "players" : "staff",
   };
 }
 
@@ -499,6 +505,7 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
     next_match_id: number | null;
     next_slot: "a" | "b" | null;
     status: Match["status"];
+    result_by: string | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
@@ -518,6 +525,7 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
     next: r.next_match_id,
     nextSlot: r.next_slot,
     status: r.status,
+    ...(r.result_by ? { resultBy: r.result_by } : {}),
   }));
 }
 
@@ -564,6 +572,8 @@ export interface TournamentInput {
   ageMax?: number | null;
   /** Only the venue's members (an active membership) may enter. */
   membersOnly?: boolean;
+  /** "players": one side reports each result and the other confirms it (lib/match-reports.ts). */
+  resultsBy?: "staff" | "players";
 }
 
 /** The time zone of the venue running a tournament. */
@@ -806,8 +816,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
       .prepare(
         `INSERT INTO tournaments (venue_id, name, sport, format, team_size, category, level, entry_fee, max_entries, group_size, advance,
                                   starts_on, ends_on, start_min, end_min, match_minutes, description, created_by, rules,
-                                  entry_kind, roster_min, roster_max, template, competition_id, entries_close_on, age_min, age_max, members_only)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                  entry_kind, roster_min, roster_max, template, competition_id, entries_close_on, age_min, age_max, members_only, results_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         hold.venueId,
@@ -837,7 +847,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
         input.entriesCloseOn ?? null,
         input.ageMin ?? null,
         input.ageMax ?? null,
-        input.membersOnly ? 1 : 0
+        input.membersOnly ? 1 : 0,
+        input.resultsBy === "players" && input.format !== "performance" ? "players" : "staff"
       );
     id = info.lastInsertRowid as number;
     for (const c of hold.courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
@@ -2342,9 +2353,13 @@ async function decide(
   };
   await db
     .prepare(
-      `UPDATE tournament_matches SET winner = ?, score = ?, status = ?, updated_at = datetime('now')${status === "bye" ? ", court_id = NULL, date = NULL, start_min = NULL" : ""} WHERE id = ?`
+      `UPDATE tournament_matches SET winner = ?, score = ?, status = ?, result_by = NULL, updated_at = datetime('now')${status === "bye" ? ", court_id = NULL, date = NULL, start_min = NULL" : ""} WHERE id = ?`
     )
     .run(winner, score, status, matchId);
+  // A result entered settles any report waiting on the match (lib/match-reports.ts).
+  await db
+    .prepare("UPDATE tournament_reports SET status = 'superseded', answered_at = datetime('now') WHERE match_id = ? AND status IN ('pending', 'disputed')")
+    .run(matchId);
   if (m.next_match_id !== null && goesOn)
     await db.prepare(`UPDATE tournament_matches SET entry_${m.next_slot} = ? WHERE id = ?`).run(winner, m.next_match_id);
 }

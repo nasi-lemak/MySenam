@@ -13,6 +13,7 @@ import type { CorrectionPreview, IssueReview, Match, ResultInput, Tournament, To
 import { RANK_KEYS, type CompetitionRules, type OutReason, type RankKey } from "@/lib/tournament-rules";
 import type { CompetitionTemplate, VenueTemplate } from "@/lib/competition-templates";
 import type { Competition } from "@/lib/competitions";
+import type { MatchReport, Official } from "@/lib/match-reports";
 import { currencySymbol, money } from "@/lib/region";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -208,6 +209,7 @@ function Create({
     ageMin: "",
     ageMax: "",
     membersOnly: false,
+    resultsBy: "staff",
   });
   const partOf = competitions.find((c) => String(c.id) === f.competitionId) ?? null;
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
@@ -474,6 +476,15 @@ function Create({
           <input type="checkbox" checked={f.membersOnly} onChange={(e) => setF({ ...f, membersOnly: e.target.checked })} />
           Members only
         </label>
+        {f.format !== "performance" && (
+          <label className={label}>
+            Results entered by
+            <select value={f.resultsBy} onChange={(e) => setF({ ...f, resultsBy: e.target.value })} className={input}>
+              <option value="staff">Staff (and officials you give a link)</option>
+              <option value="players">The players: one side reports, the other confirms</option>
+            </select>
+          </label>
+        )}
       </div>
       {(f.ageMin || f.ageMax) && (
         <p className="text-xs text-slate-500">Entrants declare their date of birth (and a partner&apos;s); a team&apos;s captain declares the roster within the ages. Nobody checks a document here: check at the venue if it matters.</p>
@@ -585,6 +596,99 @@ function CreateCompetition({ venue, post }: { venue: ManagedVenue; post: (url: s
         <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Set it up and hold the courts</button>
       </form>
     </details>
+  );
+}
+
+/**
+ * Results from the people on court: what players reported and are waiting on
+ * or dispute (staff settle it by entering the result below), and officials'
+ * links to enter results, each shown once when made.
+ */
+function ResultsByPeople({ t }: { t: TournamentDetail }) {
+  const [state, setState] = useState<{ reports: MatchReport[]; officials: Official[] }>({ reports: [], officials: [] });
+  const [link, setLink] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const base = `/api/admin/tournaments/${t.id}`;
+  const load = useCallback(async () => {
+    const res = await fetch(base, { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      setState({ reports: data.reports ?? [], officials: data.officials ?? [] });
+    }
+  }, [base]);
+  useEffect(() => {
+    void load();
+  }, [load, t]);
+  const names = new Map(t.entries.map((e) => [e.id, e.name]));
+  const said = (r: MatchReport) =>
+    r.walkover ? `a walkover to ${names.get(r.winner ?? 0)}` : r.winner === null ? `a draw, ${r.score}` : `${names.get(r.winner)} won ${r.score}`;
+  const live = state.officials.filter((o) => !o.revokedAt);
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <h3 className="font-semibold">Results from the players and officials</h3>
+      {error && <p className="mt-1 text-red-700">{error}</p>}
+      {t.resultsBy === "players" && (
+        <div className="mt-2">
+          {state.reports.length === 0 ? (
+            <p className="text-slate-500">Players report their own matches and the other side confirms. Nothing is waiting.</p>
+          ) : (
+            <ul className="space-y-1">
+              {state.reports.map((r) => (
+                <li key={r.id} className={r.status === "disputed" ? "text-amber-900" : "text-slate-700"}>
+                  {r.status === "disputed" ? "Disputed" : "Waiting for confirmation"}: {names.get(r.entryId)} reported {said(r)}
+                  {r.disputeNote && ` — the other side says: "${r.disputeNote}"`}. {r.status === "disputed" && "Enter the result yourselves below."}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <div className="mt-3">
+        <p className="text-slate-600">
+          Officials (referees) enter results through a link of their own, no account needed; each result is recorded with their name.
+        </p>
+        <ul className="mt-1 space-y-1">
+          {live.map((o) => (
+            <li key={o.id} className="flex items-center gap-2">
+              {o.name}
+              <button
+                onClick={async () => {
+                  setError(null);
+                  const res = await fetch(`${base}/officials/${o.id}`, { method: "DELETE" });
+                  if (!res.ok) setError((await res.json()).error ?? "That did not work.");
+                  await load();
+                }}
+                className="text-xs text-red-700 underline"
+              >
+                Withdraw the link
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setError(null);
+            const res = await fetch(`${base}/officials`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+            const data = await res.json();
+            if (!res.ok) return setError(data.error ?? "That did not work.");
+            setLink(data.link);
+            setName("");
+            await load();
+          }}
+          className="mt-2 flex flex-wrap items-center gap-2"
+        >
+          <input required minLength={2} placeholder="Official's name" value={name} onChange={(e) => setName(e.target.value)} className={input} />
+          <button className="rounded-md border border-slate-300 px-3 py-1 text-sm">Give an official a link</button>
+        </form>
+        {link && (
+          <p className="mt-2 break-all rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+            Send this link to the official now; it is shown only this once: <span className="font-mono text-xs">{link}</span>
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -883,6 +987,8 @@ function Manage({
           )}
         </div>
       </div>
+
+      {t.format !== "performance" && t.status !== "cancelled" && t.status !== "finished" && <ResultsByPeople t={t} />}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
         <h3 className="font-semibold">Rules for anyone who leaves</h3>

@@ -522,3 +522,60 @@ describe("staff", () => {
     expect(await leagueDetail(9999999)).toBeNull();
   });
 });
+
+describe("a league scored by the competition rules", () => {
+  /** A season of three under way: one box, three matches, with each player's account. */
+  async function running(template: string) {
+    const l = await league({ template });
+    const people = await joined(l.id, 3);
+    const s = await startSeason(l.id, { startsOn: today }, today);
+    if (!s.ok) throw new Error(s.error);
+    const users = new Map(people.map((p) => [p.playerId, p.user]));
+    return { l, matches: s.value.matches, users };
+  }
+
+  it("starts from the sport's template, or the one chosen; a performance template is refused", async () => {
+    expect((await league()).template).toBe("racket_best_of_3");
+    expect((await league({ template: "volleyball_points" })).rules.scoring).toMatchObject({ bestOf: 5, setPoints: { winClear: 3 } });
+    expect(await createLeague({ venueId, name: "Swim Ladder", sport: "badminton", teamSize: 1, level: null, fee: 0, startsOn: addDays(today, 1), template: "swimming_heats" }, ownerId)).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("checks scores by its rules and ranks the box by them: points by set score", async () => {
+    const { l, matches, users } = await running("volleyball_points");
+    const [first, second, third] = matches;
+    // Best of five: six sets are too many, and a score has to agree with the winner.
+    expect(await reportResult(users.get(first.a)!.id, first.id, { winner: first.a, score: "25-10, 25-12, 10-25, 12-25, 25-20, 25-20" })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/more sets than a best of 5/),
+    });
+    expect(await reportResult(users.get(first.a)!.id, first.id, { winner: first.a, score: "10-25, 12-25, 20-25" })).toMatchObject({ ok: false });
+    // a beats b 3-0 (3 points to 0); the next two go to five sets (2 and 1).
+    for (const [m, score] of [
+      [first, "25-10, 25-12, 25-20"],
+      [second, "25-20, 20-25, 25-23, 23-25, 15-12"],
+      [third, "25-20, 20-25, 25-23, 23-25, 15-12"],
+    ] as const) {
+      expect(await reportResult(users.get(m.a)!.id, m.id, { winner: m.a, score })).toMatchObject({ ok: true });
+      expect(await confirmResult(users.get(m.b)!.id, m.id)).toMatchObject({ ok: true });
+    }
+    const table = (await leagueDetail(l.id))!.boxes[0].table;
+    const points = new Map(table.map((s) => [s.entryId, s.points]));
+    const expected = new Map<number, number>();
+    const add = (id: number, n: number) => expected.set(id, (expected.get(id) ?? 0) + n);
+    for (const [id, n] of [[first.a, 3], [first.b, 0], [second.a, 2], [second.b, 1], [third.a, 2], [third.b, 1]] as const) add(id, n);
+    expect(points).toEqual(expected);
+    expect(table[0].points).toBe(Math.max(...expected.values()));
+  });
+
+  it("takes a goals score from either side's view, and refuses a level one", async () => {
+    const { l, matches, users } = await running("goals_league");
+    const [m] = matches;
+    expect(await reportResult(users.get(m.b)!.id, m.id, { winner: m.b, score: "2-2" })).toMatchObject({ ok: false });
+    // Side b writes their own goals first: kept with the first-named side's first.
+    expect(await reportResult(users.get(m.b)!.id, m.id, { winner: m.b, score: "3-1" })).toMatchObject({ ok: true, value: { score: "1-3" } });
+    expect(flipScore("2-2 (penalties 4-3)")).toBe("2-2 (penalties 3-4)");
+    expect((await leagueDetail(l.id))!.rules.scoring.kind).toBe("tally");
+  });
+});

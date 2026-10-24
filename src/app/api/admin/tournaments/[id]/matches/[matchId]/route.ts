@@ -3,6 +3,7 @@ import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
 import { applyCorrection, previewResult, recordPerformances, recordResult, tournamentDetail, type PerformanceInput, type ResultInput, type TournamentDetail } from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
+import { noteResultBy } from "@/lib/match-reports";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const result = await recordResult(match.id, input);
   if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: 409 });
+  await noteResultBy(match.id, "staff");
   const d = result.value;
   const now = d.matches.find((m) => m.id === match.id)!;
   const name = (id: number | null) => d.entries.find((e) => e.id === id)?.name ?? "nobody";

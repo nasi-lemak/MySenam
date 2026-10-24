@@ -1,7 +1,8 @@
 # ADR 0013: One competition engine, configured by sport templates
 
 - **Status:** current. Built in migrations 0100
-  (`0100_competition_framework.sql`) and 0104 (`0104_competition_divisions.sql`). Extends
+  (`0100_competition_framework.sql`), 0104 (`0104_competition_divisions.sql`)
+  and 0105 (`0105_results_by_players_and_officials.sql`). Extends
   [ADR 0012](0012-competition-rules-and-corrections.md). What organisers and
   players see is [programmes](../../features/programmes.md#tournaments).
 - **Context:** tournaments were knockouts or groups then a knockout, scored
@@ -53,9 +54,16 @@
     divisions per player.
   - **Table points may depend on the set score** (`setPoints`), the rule
     kind volleyball's 3-2-1-0 needed.
+  - **Results from the people on court go through the same door as
+    staff's** (migration 0105): a player's report becomes a result only when
+    the other side confirms it, and an official's link enters results as
+    staff would; both through `recordResult`, so every check, progression
+    and correction is the one staff results have.
+  - **Box leagues use the same rules** for scores and tables, from a
+    template, rather than rules of their own.
 - **Consequences:** a new sport is a template, not code, wherever its
-  competition fits these formats and scoring. Players entering and
-  confirming results, officials, more formats and box leagues on the same
-  engine are not built yet ([roadmap](../../roadmap/roadmap.md)). Ranking by
+  competition fits these formats and scoring. More formats (a third-place
+  match, consolation draws) are not built yet
+  ([roadmap](../../roadmap/roadmap.md)). Ranking by
   set or point ratios and a bouldering count of tops and zones still need a
   rule kind of their own when wanted.

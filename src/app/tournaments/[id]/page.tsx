@@ -11,6 +11,9 @@ import type { T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 
 import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
+import type { MatchReport } from "@/lib/match-reports";
+import { MatchResultForm } from "@/components/MatchResultForm";
+import { resultSentence, scoreExample } from "@/lib/result-text";
 
 /**
  * One tournament, for anybody: what it is, who has entered, and once the
@@ -20,7 +23,7 @@ import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
 export default function TournamentPage() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
-  const [data, setData] = useState<{ tournament: TournamentDetail; mine: Entry | null; signedIn: boolean } | null>(null);
+  const [data, setData] = useState<{ tournament: TournamentDetail; mine: Entry | null; signedIn: boolean; reports?: MatchReport[] } | null>(null);
   const [missing, setMissing] = useState(false);
   const [partner, setPartner] = useState("");
   const [partnerGender, setPartnerGender] = useState<"woman" | "man" | "">("");
@@ -200,6 +203,9 @@ export default function TournamentPage() {
                           ? `${m.score ?? ""} (${t("tour.drawn")})`
                           : m.score}
                   </span>
+                  {x.resultsBy === "players" && data.mine && m.status === "scheduled" && m.a !== null && m.b !== null && (m.a === data.mine.id || m.b === data.mine.id) && (
+                    <MyResult t={t} x={x} m={m} mine={data.mine.id} names={names} report={(data.reports ?? []).find((r) => r.matchId === m.id) ?? null} act={act} />
+                  )}
                 </li>
               ))}
           </ul>
@@ -222,6 +228,72 @@ export default function TournamentPage() {
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * The player's own match, where players enter results: report it; or, the
+ * other side having reported it, confirm it or say it is wrong.
+ */
+function MyResult({
+  t,
+  x,
+  m,
+  mine,
+  names,
+  report,
+  act,
+}: {
+  t: T;
+  x: TournamentDetail;
+  m: Match;
+  mine: number;
+  names: Map<number, string>;
+  report: MatchReport | null;
+  act: (body: object) => Promise<void>;
+}) {
+  const [disputing, setDisputing] = useState(false);
+  const [note, setNote] = useState("");
+  const button = "rounded-md px-2.5 py-1 text-xs font-semibold";
+  if (report?.status === "disputed") return <p className="w-full text-xs text-amber-800">{t("result.disputed")}</p>;
+  if (report && report.entryId === mine) return <p className="w-full text-xs text-slate-500">{t("result.waiting", { result: resultSentence(t, report, names) })}</p>;
+  if (report)
+    return (
+      <div className="w-full text-xs">
+        <span className="text-slate-700">{t("result.theyReported", { result: resultSentence(t, report, names) })}</span>{" "}
+        <button onClick={() => void act({ action: "confirm", matchId: m.id })} className={`${button} bg-teal-600 text-white`}>
+          {t("result.confirm")}
+        </button>{" "}
+        {disputing ? (
+          <span className="inline-flex gap-1">
+            <input aria-label={t("result.disputeNote")} placeholder={t("result.disputeNote")} value={note} onChange={(e) => setNote(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1" />
+            <button onClick={() => void act({ action: "dispute", matchId: m.id, note })} className={`${button} border border-amber-400 text-amber-900`}>
+              {t("result.dispute")}
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setDisputing(true)} className={`${button} border border-slate-300 text-slate-700`}>
+            {t("result.dispute")}
+          </button>
+        )}
+      </div>
+    );
+  return (
+    <div className="w-full">
+      <span className="text-xs font-medium text-slate-600">{t("result.report")}</span>
+      <MatchResultForm
+        t={t}
+        // The player's own side first: they write their own score first.
+        sides={
+          m.a === mine
+            ? { a: { id: m.a!, name: names.get(m.a!) ?? "" }, b: { id: m.b!, name: names.get(m.b!) ?? "" } }
+            : { a: { id: m.b!, name: names.get(m.b!) ?? "" }, b: { id: m.a!, name: names.get(m.a!) ?? "" } }
+        }
+        drawAllowed={x.rules.scoring.kind === "tally" && x.rules.scoring.draws && m.stage === "group"}
+        scoreHint={scoreExample(x)}
+        onSubmit={(r) => act({ action: "report", matchId: m.id, ...r })}
+      />
     </div>
   );
 }

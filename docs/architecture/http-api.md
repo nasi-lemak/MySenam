@@ -163,8 +163,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/search` | `?sport=&date=&from=&to=&minutes=&area=`, or `&near=lat,lng&km=` in place of an area; `q=` in place of `sport` finds the activity by any of its names (404 when none) → free courts, one result per venue and start time. `from` and `to` are the earliest and latest start (HH:MM, or hours); `minutes` the length (or `duration` in hours), found on courts whose booking rules take it |
 | POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
 | GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
-| GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry |
-| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark?, birthDate?, partnerBirthDate?, rosterEligible? }` (dates of birth where the tournament has an age range), `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }` |
+| GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry and the results waiting on your matches (`reports`) |
+| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark?, birthDate?, partnerBirthDate?, rosterEligible? }` (dates of birth where the tournament has an age range), `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`; where players enter results, `{ action: "report", matchId, winner, score?, walkover? }` (own score first; `winner: null` for a draw), `{ action: "confirm", matchId }` or `{ action: "dispute", matchId, note }` |
+| GET | `/api/officials/:token` | An official's link: the tournament and its matches; 404 once withdrawn or the tournament is over |
+| POST | `/api/officials/:token` | `{ matchId, winner, score?, walkover?, retired? }` — a result, entered as staff would, under the official's name |
 | POST | `/api/venue-applications` | A venue asking to join. Only a marketplace takes them |
 | POST | `/api/venues/:id/enquiry` | `{ name, phone, email?, kind, wantedOn?, people?, message }`: a private hire enquiry from the venue's page, passed to its staff |
 | GET | `/api/venues/:id/qr` | The venue's booking link as a QR code (SVG), to print or share |
@@ -280,8 +282,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/holidays` | `?venueId&date`: back to an ordinary day |
 | GET | `/api/admin/integrations` | `?venueId=` → the venue's API keys (never the keys themselves), webhook addresses and recent deliveries |
 | POST | `/api/admin/integrations` | `{ venueId, action }`: `key` with `name`, `scope` (the key is in the answer, this once); `revoke` with `id`; `webhook` with `url` (its signing secret in the answer, this once); `remove`, `ping` or `resume` with `id`; `google` with `on` |
-| GET | `/api/admin/leagues` | `?venueId=` — a venue's leagues, for its staff |
-| POST | `/api/admin/leagues` | A new league, its first season forming |
+| GET | `/api/admin/leagues` | `?venueId=` — a venue's leagues, for its staff, with the head-to-head templates a new one can be scored by |
+| POST | `/api/admin/leagues` | A new league, its first season forming; `template?` and `rules?` set how its matches are scored and boxes ranked (the sport's template by default) |
 | GET | `/api/admin/leagues/:id` | The league as staff see it, `?season=` for an earlier one |
 | POST | `/api/admin/leagues/:id` | `{ action: "start", startsOn?, endsOn? }` makes the boxes now, and starts it today unless told otherwise; `{ action: "end" }` finishes the season being played; `{ action: "plan", startsOn }` moves the coming season; `{ action: "close" }` stops the league |
 | POST | `/api/admin/leagues/:id/matches/:matchId` | `{ winner, score?, walkover? }` decides it; `{ void: true }` strikes it; `{ clear: true }` puts it back to be played |
@@ -343,7 +345,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/competitions` | A new competition, holding its courts for its days and hours: `name`, `sport`, `startsOn`, `endsOn`, `startMin`, `endMin`, `matchMinutes`, `courtIds`, `maxDivisionsPerPlayer?` (managers) |
 | GET | `/api/admin/competitions/:id` | A competition and its divisions |
 | DELETE | `/api/admin/competitions/:id` | Call it off with every division; its courts go back on sale (managers) |
-| GET | `/api/admin/tournaments/:id` | One tournament with its entries and draw |
+| GET | `/api/admin/tournaments/:id` | One tournament with its entries and draw, the results players reported and are waiting on or dispute (`reports`), and its officials |
+| GET | `/api/admin/tournaments/:id/officials` | The officials who may enter its results through a link |
+| POST | `/api/admin/tournaments/:id/officials` | `{ name }` — a link for an official to enter results, returned this once |
+| DELETE | `/api/admin/tournaments/:id/officials/:officialId` | Withdraw an official's link |
 | POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }`, `{ action: "rules", rules }` before the draw, `{ action: "final", chosen }` (who takes a performance final's last places when level), or `{ action: "save_template", name }` |
 | POST | `/api/admin/tournaments/:id/entries/:entryId` | `{ paid?, seed?, withdraw?, reason?, note?, preview? }` — staff on one entry; `reason` withdrawn, retired or disqualified (a manager's); `preview: true` says what it would change |
 | POST | `/api/admin/tournaments/:id/matches/:matchId` | `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result (`winner: null` a draw, where the rules allow one); `preview: true` says what it would change; `correction: { mode: "replace" \| "standings_only", reason, token }` after the knockout has begun (a manager's); `{ performances: [{ entryId, attempts?, status?, note? }] }` for a heat or a final |

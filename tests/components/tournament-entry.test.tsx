@@ -86,3 +86,56 @@ describe("a division's public page", () => {
     expect(posts.at(-1)).toMatchObject({ action: "enter", partnerName: "Mei Ling", birthDate: "2012-03-14", partnerBirthDate: "2013-07-01" });
   });
 });
+
+describe("players entering their own results", () => {
+  const drawn = {
+    ...division,
+    competition: null,
+    ageRange: null,
+    membersOnly: false,
+    entriesCloseOn: null,
+    teamSize: 1,
+    entryKind: "player",
+    status: "drawn",
+    resultsBy: "players",
+    entries: [
+      { id: 1, name: "Aina", status: "entered", seed: null, paid: false, out: null, entryMark: null },
+      { id: 2, name: "Bala", status: "entered", seed: null, paid: false, out: null, entryMark: null },
+    ],
+    matches: [{ id: 40, stage: "group", groupNo: 1, round: 1, position: 1, a: 1, b: 2, courtId: 7, courtName: "Court 1", date: "2026-12-05", minute: 540, hour: 9, score: null, winner: null, next: null, nextSlot: null, status: "scheduled" }],
+  };
+  const answer = (reports: unknown[]) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: { method?: string; body?: string }) => {
+        if (init?.method === "POST") posts.push(JSON.parse(init.body ?? "{}"));
+        return { ok: true, json: async () => ({ tournament: drawn, mine: { id: 1, name: "Aina", status: "entered" }, signedIn: true, reports }) };
+      })
+    );
+
+  it("report their match: who won and the score", async () => {
+    answer([]);
+    render(<TournamentPage />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Who won"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("Score"), { target: { value: "21-15, 21-18" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send the result" }));
+    await act(async () => {});
+    expect(posts.at(-1)).toEqual({ action: "report", matchId: 40, winner: 1, score: "21-15, 21-18", walkover: false });
+  });
+
+  it("confirm what the other side reported, or say it is wrong", async () => {
+    answer([{ id: 7, matchId: 40, entryId: 2, winner: 2, score: "15-21, 18-21", walkover: false, status: "pending", createdAt: "2026-12-05 10:00:00" }]);
+    render(<TournamentPage />);
+    await act(async () => {});
+    expect(screen.getByText(/The other side reported Bala won 15-21, 18-21/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "That's right" }));
+    await act(async () => {});
+    expect(posts.at(-1)).toEqual({ action: "confirm", matchId: 40 });
+    fireEvent.click(screen.getByRole("button", { name: "That's wrong" }));
+    fireEvent.change(screen.getByLabelText("What is wrong with it?"), { target: { value: "I won the first game" } });
+    fireEvent.click(screen.getByRole("button", { name: "That's wrong" }));
+    await act(async () => {});
+    expect(posts.at(-1)).toEqual({ action: "dispute", matchId: 40, note: "I won the first game" });
+  });
+});

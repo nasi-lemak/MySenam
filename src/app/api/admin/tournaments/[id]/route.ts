@@ -3,13 +3,19 @@ import { logAction } from "@/lib/activity";
 import { cancelTournament, closeEntries, makeDraw, makeFinal, setRules, tournamentDetail } from "@/lib/tournaments";
 import { saveVenueTemplate } from "@/lib/competition-templates";
 import { staffTournament } from "@/lib/tournament-access";
+import { listOfficials, openReports } from "@/lib/match-reports";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const found = await staffTournament(req, (await params).id);
   if (found instanceof NextResponse) return found;
-  return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
+  return NextResponse.json({
+    tournament: await tournamentDetail(found.id, { forStaff: true }),
+    // Results players reported and are waiting on, or dispute; and the officials' links.
+    reports: await openReports(found.id),
+    officials: await listOfficials(found.id),
+  });
 }
 
 /**

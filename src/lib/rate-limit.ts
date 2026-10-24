@@ -36,6 +36,8 @@ export const POLICIES = {
   phoneCode: { limit: 10, windowMs: 10 * MINUTE },
   /** Booking codes are short, so lookup/cancel are guessable without this. */
   bookingLookup: { limit: 20, windowMs: 10 * MINUTE },
+  /** An official's results link: a referee enters a match every few minutes; the secret is too long to guess. */
+  official: { limit: 120, windowMs: 10 * MINUTE },
   /** Stops a script filling a venue's day with junk bookings. */
   booking: { limit: 20, windowMs: 60 * MINUTE },
   /** Private hire enquiries from venue pages: a person sends one or two. */

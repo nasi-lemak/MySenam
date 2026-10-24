@@ -6,6 +6,7 @@ import { mayShowVenue } from "@/lib/listing";
 import { startEntryPayment } from "@/lib/payments";
 import { rateLimit } from "@/lib/rate-limit";
 import { enter, myEntry, tournamentById, tournamentDetail, withdraw } from "@/lib/tournaments";
+import { answerReport, openReports, reportResult } from "@/lib/match-reports";
 
 export const dynamic = "force-dynamic";
 
@@ -15,21 +16,24 @@ async function visible(req: NextRequest, id: number) {
   return (await mayShowVenue(t.venueId, req)).show ? t : null;
 }
 
-/** The draw, the groups, the bracket and the times; and, signed in, your entry. */
+/** The draw, the groups, the bracket and the times; and, signed in, your entry and the results waiting on your matches. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const t = await visible(req, Number((await params).id));
   if (!t) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const user = await getSessionUser(req);
-  return NextResponse.json({
-    tournament: await tournamentDetail(t.id),
-    mine: user ? await myEntry(user.id, t.id) : null,
-    signedIn: user !== null,
-  });
+  const detail = (await tournamentDetail(t.id))!;
+  const mine = user ? await myEntry(user.id, t.id) : null;
+  // Reports on the player's own matches only: who reported, and what.
+  const myMatches = new Set(mine ? detail.matches.filter((m) => m.a === mine.id || m.b === mine.id).map((m) => m.id) : []);
+  const reports = mine && t.resultsBy === "players" ? (await openReports(t.id)).filter((r) => myMatches.has(r.matchId)).map((r) => ({ ...r, disputeNote: undefined })) : [];
+  return NextResponse.json({ tournament: detail, mine, signedIn: user !== null, reports });
 }
 
 /**
  * `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark? }` (a team's name and roster of
  * names; a performance event's entry time or mark), `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`.
+ * Where players enter results: `{ action: "report", matchId, winner, score?, walkover? }` (`winner: null` for a draw),
+ * `{ action: "confirm", matchId }` or `{ action: "dispute", matchId, note }` by the other side.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req);
@@ -41,6 +45,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (body.action === "report") {
+    const done = await reportResult(user.id, Number(body.matchId), {
+      winner: body.winner === null ? null : Number(body.winner),
+      score: typeof body.score === "string" ? body.score : undefined,
+      walkover: body.walkover === true,
+    });
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 409 });
+    return NextResponse.json({ report: done.value });
+  }
+  if (body.action === "confirm" || body.action === "dispute") {
+    const done = await answerReport(user.id, Number(body.matchId), body.action === "confirm" ? { confirm: true } : { dispute: String(body.note ?? "") });
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 409 });
+    return NextResponse.json({ ok: true });
   }
   if (body.action === "pay") {
     const limited = await rateLimit(req, "payment");

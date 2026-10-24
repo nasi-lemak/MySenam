@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { jsonBody } from "@/lib/league-access";
 import { createLeague, listLeagues } from "@/lib/leagues";
+import { TEMPLATES } from "@/lib/competition-templates";
 import type { Level } from "@/lib/games";
 import type { Who } from "@/lib/who";
 import type { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** `?venueId=` — a venue's leagues, for its staff. */
+/** `?venueId=` — a venue's leagues, for its staff, with the head-to-head templates a new one can be scored by. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "Which venue?" }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  return NextResponse.json({ leagues: await listLeagues([venueId]) });
+  return NextResponse.json({ leagues: await listLeagues([venueId]), templates: TEMPLATES.filter((t) => !t.rules.performance) });
 }
 
 /** A new league, its first season forming. */
@@ -43,6 +44,8 @@ export async function POST(req: NextRequest) {
       fee: Number(b.fee ?? 0),
       startsOn: String(b.startsOn ?? ""),
       description: typeof b.description === "string" ? b.description : undefined,
+      template: typeof b.template === "string" && b.template ? b.template : null,
+      rules: b.rules ?? undefined,
     },
     admin.id
   );

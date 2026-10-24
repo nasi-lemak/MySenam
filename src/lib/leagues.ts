@@ -2,7 +2,9 @@ import { isActivity } from "./activities";
 import { getDb } from "./db";
 import { receiptFee } from "./documents";
 import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
-import { parseScore, standings, type Standing } from "./brackets";
+import { flipScore, scoreRefusal, standings, type Standing } from "./brackets";
+import { templateByKey, templateFor } from "./competition-templates";
+import { parseRules, readRules, type CompetitionRules } from "./tournament-rules";
 import { LEVELS, type Level } from "./games";
 import { isWho, whoRefusal, type Who } from "./who";
 import { accessRefusal } from "./access";
@@ -31,6 +33,12 @@ import { money } from "./region";
  *
  * Seasons start and end by themselves on their dates; staff can do either
  * sooner. The fee is per season, paid online to the venue or at its counter.
+ *
+ * Scores are checked, and boxes ranked, by the same competition rules as a
+ * tournament (lib/tournament-rules.ts): sets best of three or five, a tally,
+ * table points (or points by set score), the ranking order — from the
+ * sport's template unless the league chose another (ADR 0013). A league
+ * match always has a winner: a level tally is refused.
  */
 
 /** A reported result stands if the other side says nothing for this long. */
@@ -72,6 +80,9 @@ export interface League {
   /** The season forming or being played, if any. */
   current: Season | null;
   payOnline: boolean;
+  /** How its matches are scored and its boxes ranked; the template they came from. */
+  rules: CompetitionRules;
+  template: string | null;
 }
 
 export interface LeaguePlayer {
@@ -158,6 +169,8 @@ interface LRow {
   status: LeagueStatus;
   player_count: number;
   pay_online: boolean;
+  rules: string | null;
+  template: string | null;
 }
 
 interface SRow {
@@ -198,6 +211,8 @@ async function toLeague(r: LRow): Promise<League> {
     players: r.player_count,
     current: await currentSeason(r.id),
     payOnline: Boolean(r.pay_online),
+    rules: readRules(r.rules),
+    template: r.template,
   };
 }
 
@@ -275,7 +290,8 @@ export async function leagueDetail(id: number, opts: { season?: number; forStaff
     boxNo,
     table: boxTable(
       places.filter((p) => p.boxNo === boxNo),
-      matches.filter((m) => m.boxNo === boxNo)
+      matches.filter((m) => m.boxNo === boxNo),
+      league.rules.scoring
     ),
   }));
 
@@ -334,11 +350,12 @@ async function matchesOf(seasonId: number): Promise<LeagueMatch[]> {
 /** Only results that are settled count: confirmed, or a walkover. */
 const counts = (m: LeagueMatch) => m.status === "confirmed" || m.status === "walkover";
 
-/** A box's table: by the same rules as a tournament group, and anybody who withdrew at the foot. */
-function boxTable(places: Place[], matches: LeagueMatch[]): Standing[] {
+/** A box's table: by the league's rules, as a tournament group's, and anybody who withdrew at the foot. */
+function boxTable(places: Place[], matches: LeagueMatch[], scoring: CompetitionRules["scoring"]): Standing[] {
   const table = standings(
     places.map((p) => p.playerId),
-    matches.map((m) => ({ a: m.a, b: m.b, winner: counts(m) ? m.winner : null, score: m.status === "confirmed" ? m.score : null }))
+    matches.map((m) => ({ a: m.a, b: m.b, winner: counts(m) ? m.winner : null, score: m.status === "confirmed" ? m.score : null })),
+    scoring
   );
   const gone = new Set(places.filter((p) => p.withdrawn).map((p) => p.playerId));
   return [...table.filter((s) => !gone.has(s.entryId)), ...table.filter((s) => gone.has(s.entryId))];
@@ -362,6 +379,10 @@ export interface LeagueInput {
   /** When the first season starts. */
   startsOn: string;
   description?: string;
+  /** The competition template to score and rank by (lib/competition-templates.ts); the sport's own unless given. */
+  template?: string | null;
+  /** Its rules, laid over the template's (lib/tournament-rules.ts). */
+  rules?: unknown;
 }
 
 export async function createLeague(input: LeagueInput, adminId: number): Promise<Result> {
@@ -383,13 +404,21 @@ export async function createLeague(input: LeagueInput, adminId: number): Promise
     return { ok: false, error: "The first season has to start after today, so players can join." };
   if (!(await db.prepare("SELECT 1 FROM court_activities ca JOIN courts c ON c.id = ca.court_id WHERE c.venue_id = ? AND ca.sport = ?").get(input.venueId, input.sport)))
     return { ok: false, error: "This venue has no courts for that sport." };
+  // Scored and ranked as a head-to-head competition: the sport's template unless another is chosen.
+  const own = templateFor(input.sport);
+  const template = input.template ? templateByKey(input.template) : own.rules.performance ? templateByKey("custom") : own;
+  if (!template) return { ok: false, error: "Unknown template." };
+  if (template.rules.performance) return { ok: false, error: "A league's matches are head to head: choose a template scored in sets or a tally." };
+  const parsed = parseRules(input.rules ?? null, template.rules);
+  if (!parsed.ok) return parsed;
+  if (parsed.rules.performance) return { ok: false, error: "A league's matches are head to head." };
 
   let id = 0;
   await db.transaction(async () => {
     const info = await db
       .prepare(
-        `INSERT INTO leagues (venue_id, name, sport, team_size, who, level, box_size, moves, season_days, fee, description, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO leagues (venue_id, name, sport, team_size, who, level, box_size, moves, season_days, fee, description, created_by, rules, template)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.venueId,
@@ -403,7 +432,9 @@ export async function createLeague(input: LeagueInput, adminId: number): Promise
         seasonDays,
         Math.round(input.fee * 100) / 100,
         input.description?.trim().slice(0, 2000) || null,
-        adminId
+        adminId,
+        JSON.stringify(parsed.rules),
+        template.key
       );
     id = info.lastInsertRowid as number;
     await db
@@ -817,19 +848,13 @@ function sideOf(m: MatchRow, userId: number): { me: number; them: number; theirU
   return null;
 }
 
-function checkScore(winner: number, a: number, b: number, score: string): string | null {
+/** Why a score cannot stand for this winner, by the league's rules (first-named side's score first), or null. */
+function checkScore(winner: number, a: number, b: number, score: string, scoring: CompetitionRules["scoring"]): string | null {
   if (winner !== a && winner !== b) return "The winner has to be one of the two.";
-  const parsed = parseScore(score);
-  if (!parsed) return 'Write the score as sets, like "21-15, 18-21, 21-10".';
-  const [w, l] = winner === a ? [parsed.setsA, parsed.setsB] : [parsed.setsB, parsed.setsA];
-  return w > l ? null : "That score says the other side won.";
+  return scoreRefusal(score, winner === a, scoring);
 }
 
-/** "21-15, 18-21" as the other side would write it: "15-21, 21-18". Unreadable scores are left alone. */
-export function flipScore(score: string): string {
-  const parsed = parseScore(score);
-  return parsed ? parsed.sets.map(([a, b]) => `${b}-${a}`).join(", ") : score;
-}
+export { flipScore };
 
 /** A player says how their match went. They can put it right until the other side answers. */
 export async function reportResult(userId: number, matchId: number, input: { winner: number; score: string }): Promise<Result<LeagueMatch>> {
@@ -843,7 +868,8 @@ export async function reportResult(userId: number, matchId: number, input: { win
   // A player writes their own games first; it is kept with the first-named side's first.
   const typed = input.score.trim();
   const score = side.me === m.player_a ? typed : flipScore(typed);
-  const wrong = checkScore(input.winner, m.player_a, m.player_b, score);
+  const rules = (await leagueById(m.league_id))!.rules;
+  const wrong = checkScore(input.winner, m.player_a, m.player_b, score, rules.scoring);
   if (wrong) return { ok: false, error: wrong };
   await getDb()
     .prepare(
@@ -917,7 +943,7 @@ export async function decideResult(
   } else {
     const score = input.score?.trim() || null;
     if (score) {
-      const wrong = checkScore(input.winner, m.player_a, m.player_b, score);
+      const wrong = checkScore(input.winner, m.player_a, m.player_b, score, (await leagueById(m.league_id))!.rules.scoring);
       if (wrong) return { ok: false, error: wrong };
     } else if (!input.walkover) return { ok: false, error: "Give the score, or mark it a walkover." };
     else if (input.winner !== m.player_a && input.winner !== m.player_b) return { ok: false, error: "The winner has to be one of the two." };

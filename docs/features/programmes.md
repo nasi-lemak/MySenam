@@ -215,6 +215,25 @@ lane.
 
 ### Results
 
+**Who enters them** is the tournament's choice when it is set up: its staff
+(and officials), or **the players** (`src/lib/match-reports.ts`):
+
+- **Players** report their own match from the tournament's page: who won (or
+  a draw, where the rules allow one) and the score, their own points first,
+  or a walkover. The other side confirms it — only then is it the result,
+  recorded through the same checks as staff's — or says it is wrong, with a
+  note: the venue's staff are emailed, see it under *Results from the players
+  and officials*, and enter the result themselves. A result staff or an
+  official enter at any time settles a report waiting on the match. Each
+  result says who entered it (staff, the players, or the official by name).
+- **Officials** — a referee, a table official — are given a link of their
+  own for one tournament from *Give an official a link*, shown once; no
+  account is needed. Whoever holds it enters results as staff would (not
+  taking anybody out of the event), each recorded with the official's name
+  on the match and in the activity log. Staff withdraw a link at any time;
+  it stops working too when the tournament ends. Only the SHA-256 of the
+  link's secret is kept.
+
 - **Matches:** staff enter the score in the sport's form and who won; a
   score that says the other side won, or has more sets than the match is the
   best of, is refused. A tally sport's group match may be **drawn** where its
@@ -401,12 +420,18 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
   (nine players in boxes of four make 5 and 4, not 3, 3 and 3), so one more
   or one fewer player does not reshuffle the ladder. Everybody plays
   everybody in their box once.
+- **Scoring**: a league is scored and ranked by the competition rules
+  (`src/lib/tournament-rules.ts`), from its sport's template unless another
+  is chosen when it is set up: games best of three or five, tennis sets, a
+  tally of goals, table points per result or by set score (volleyball's
+  3-2-1-0), and the ranking order. A league match always has a winner, so a
+  level tally is refused. Leagues set up before this read as the defaults
+  they were ranked by.
 - **Results**: either player reports the score, their own games first, and
   who won; the other confirms it, or says it is wrong and why — staff are
   emailed and decide it. A report nobody answers stands after three days.
   Staff can also enter any result, give a walkover, strike a match, or put it
-  back to be played. Tables use the tournament rules: wins, then sets, then
-  points, then who beat whom.
+  back to be played. Tables use the league's rules, as a tournament group's.
 - **Seasons start and end by themselves.** A season starts on its date if
   three or more have joined, and ends three days after its last day, for late
   results; staff can do either sooner, or move the start. At the end,

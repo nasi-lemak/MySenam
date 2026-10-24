@@ -77,8 +77,14 @@ Also, in tournaments ([programmes](../features/programmes.md#tournaments)):
 - In a performance event, competitors level for the final's last place wait
   for the organiser's choice; a heat correction that would change who swam a
   final with results is refused, and a re-swim is arranged by hand (P3).
-- Box leagues are a separate engine, not yet on the competition rules
-  ([roadmap](roadmap.md)) (P3).
+- A player's report in a tournament waits for the other side with no time
+  limit (unlike a league's three days): staff enter the result if nobody
+  answers. An official's link is a bearer link: whoever holds it can enter
+  that tournament's results until staff withdraw it or the tournament ends
+  (P3).
+- Box leagues share the competition rules for scores and tables, but are
+  still their own engine for seasons and boxes; a league match always has a
+  winner (P3).
 
 
 Known limits of the [booking time model](../architecture/interval-booking-review.md)

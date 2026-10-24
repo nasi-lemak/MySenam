@@ -16,6 +16,13 @@ which names the one authoritative document for each subject.
 - Competitions are configured by data: a new sport is a template and rules
   (`src/lib/competition-templates.ts`, `src/lib/tournament-rules.ts`), never
   an engine or a branch on the sport ([ADR 0013](docs/architecture/decisions/0013-competition-framework.md)).
+  Box leagues and results entered by players or officials use the same rules
+  and `recordResult`, not checks of their own.
+- Personal data leaves the install's country only by a declared and approved
+  path: off-site backups need `OFFSITE_DATA_LOCATION`, and abroad
+  `OFFSITE_TRANSFER_APPROVED` and encryption
+  ([privacy](docs/architecture/privacy.md#backups-held-abroad)). Never send it
+  abroad by default, and never treat a legal question as settled in code.
 - Tax treatments the app suggests are provisional starting points, never
   presented as verified; a venue's adviser's review is recorded, not assumed.
 

@@ -7,6 +7,7 @@ import type { ManagedVenue } from "./shared";
 import { addDays } from "@/lib/time";
 import { type Sport } from "@/lib/types";
 import type { League, LeagueDetail, LeagueMatch } from "@/lib/leagues";
+import type { CompetitionTemplate } from "@/lib/competition-templates";
 import { money, currencySymbol } from "@/lib/region";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -20,6 +21,7 @@ const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
 export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [list, setList] = useState<League[]>([]);
+  const [templates, setTemplates] = useState<CompetitionTemplate[]>([]);
   const [open, setOpen] = useState<LeagueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const venue = venues.find((v) => v.id === venueId);
@@ -27,7 +29,11 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
   const load = useCallback(async () => {
     if (!venueId) return;
     const res = await fetch(`/api/admin/leagues?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setList((await res.json()).leagues);
+    if (res.ok) {
+      const data = await res.json();
+      setList(data.leagues);
+      setTemplates(data.templates ?? []);
+    }
   }, [venueId]);
   useEffect(() => {
     void load();
@@ -102,15 +108,17 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
               </ul>
             )}
           </section>
-          <Create venue={venue} post={post} />
+          <Create venue={venue} post={post} templates={templates} />
         </>
       )}
     </div>
   );
 }
 
-function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean> }) {
+function Create({ venue, post, templates }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean>; templates: CompetitionTemplate[] }) {
   const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
+  /** A sport's own template, as a new league starts from (the server picks the same when none is sent). */
+  const ownTemplate = (sport: string) => templates.find((x) => x.sports.includes(sport))?.key ?? "";
   const [f, setF] = useState({
     name: "",
     sport: (sports[0] ?? "badminton") as Sport,
@@ -123,7 +131,10 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
     fee: "30",
     startsOn: addDays(todayLocal(), 14),
     description: "",
+    // "": the sport's own template.
+    template: "",
   });
+  const chosen = templates.find((x) => x.key === (f.template || ownTemplate(f.sport)));
   const label = "flex flex-col text-xs font-medium text-slate-500";
 
   return (
@@ -207,11 +218,24 @@ function Create({ venue, post }: { venue: ManagedVenue; post: (url: string, body
           Fee a season ({currencySymbol()})
           <input type="number" min={0} step={0.01} value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} className={`w-24 ${input}`} />
         </label>
+        {templates.length > 0 && (
+          <label className={label}>
+            Scored and ranked as
+            <select value={f.template || ownTemplate(f.sport)} onChange={(e) => setF({ ...f, template: e.target.value })} className={`w-72 ${input}`}>
+              {templates.map((x) => (
+                <option key={x.key} value={x.key}>
+                  {x.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className={label}>
           First season starts
           <input type="date" required value={f.startsOn} onChange={(e) => setF({ ...f, startsOn: e.target.value })} className={input} />
         </label>
       </div>
+      {chosen && <p className="text-xs text-slate-500">{chosen.note} A league match always has a winner. Templates are club practice, not a governing body&apos;s regulations.</p>}
       <label className={label}>
         About it (optional)
         <textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={input} />
