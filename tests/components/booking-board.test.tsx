@@ -274,3 +274,35 @@ describe("in Bahasa Malaysia", () => {
     expect(screen.getByRole("button", { name: /Tempah · RM15/ })).toBeTruthy();
   });
 });
+
+describe("when the booking cannot be finished because so many are booking at once", () => {
+  it("says so, books nothing, and leaves the same time ready to try again", async () => {
+    const BUSY = "So many people are booking right now that this could not be finished. Nothing was booked or charged: please try again.";
+    const posts: unknown[] = [];
+    const fallback = fetchMock.getMockImplementation() as (url: string) => Promise<unknown>;
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (String(url).includes("/api/bookings") && init?.method === "POST") {
+        posts.push(JSON.parse(init.body!));
+        return { ok: false, status: 503, json: async () => ({ error: BUSY, code: "BUSY" }) };
+      }
+      return fallback(url);
+    });
+    await act(async () => void board());
+    await tap(0);
+    await priced();
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Busy Booker" } }));
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Phone/), { target: { value: "0123456789" } }));
+    const book = () => screen.getByRole("button", { name: /Book · RM15/ });
+    await act(async () => void fireEvent.submit(book().closest("form")!));
+    expect(posts).toHaveLength(1);
+
+    // Told plainly, and not shown a confirmation.
+    expect(screen.getByRole("alert").textContent).toBe(BUSY);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The same time is still chosen, and the button works again: a second try is a second request.
+    expect((book() as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => void fireEvent.submit(book().closest("form")!));
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual(posts[0]);
+  });
+});

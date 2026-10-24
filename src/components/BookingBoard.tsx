@@ -167,6 +167,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Why the last booking did not go through. Kept apart from a load error,
+  // since the grid reloads after a refusal and must not wipe the reason.
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  // Something else picked: the reason the last try failed no longer applies.
+  useEffect(() => setBookingError(null), [selection?.courtId, selection?.start, selection?.length, date]);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [waitlistSlot, setWaitlistSlot] = useState<{
     court: Court;
@@ -401,6 +406,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           {error}
         </div>
       )}
+      {bookingError && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {bookingError}
+        </div>
+      )}
 
       {closure && !loading && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -618,12 +628,13 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           )}
           lastMinute={lastMinute}
           onBooked={(c) => {
+            setBookingError(null);
             setConfirmation(c);
             setSelection(null);
             loadAvailability();
           }}
           onError={(msg) => {
-            setError(msg);
+            setBookingError(msg);
             loadAvailability();
           }}
         />
