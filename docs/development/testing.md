@@ -392,5 +392,12 @@ Billing and licensing → Budgets and alerts**, edit the Actions budget to raise
 its amount or clear *Stop usage when budget limit is reached* (with a payment
 method on the account); or wait for the included minutes to reset at the
 start of the next billing cycle. Then re-run the latest CI run from the
-Actions tab. Until a run passes, CI is not evidence of anything; the suites
-are run by hand (above) and reported with each change.
+Actions tab. The owner has deferred paid CI for cost (October 2026); until a
+run passes, CI is not evidence of anything. The suites are run by hand
+(above), and each release's results are recorded below.
+
+### Release records
+
+What was run on the commit a release is cut from, by hand, on one machine.
+A check not listed was not run; a real-service check is listed only if it ran
+against the real service.
