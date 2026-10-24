@@ -61,7 +61,9 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0012 Competition rules and corrections](architecture/decisions/0012-competition-rules-and-corrections.md) ·
 [0013 Competition framework](architecture/decisions/0013-competition-framework.md) ·
 [0014 Off-site backups encrypted and located](architecture/decisions/0014-off-site-backups-encrypted-and-located.md) ·
-[0015 Backblaze B2 preferred; signed backup sets](architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md)
+[0015 Backblaze B2 preferred; signed backup sets](architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md) ·
+[0016 Matchmaking on open games](architecture/decisions/0016-matchmaking-on-open-games.md) ·
+[0017 Staging and verification modes](architecture/decisions/0017-staging-and-verification-modes.md)
 
 ## Integrations
 
@@ -80,8 +82,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | ------- | ---------------------- |
 | Running it locally, everyday commands | [Getting started](development/getting-started.md) |
 | Every environment variable | [Configuration](development/configuration.md) |
-| Tests, what they prove, CI, documentation checks | [Testing](development/testing.md) |
-| Production, proxies, upgrading, the launch checklist | [Deployment](operations/deployment.md); kit in [`deploy/digitalocean`](../deploy/digitalocean/README.md) |
+| Tests, what they prove, the verification runner, staging, real-service checks, acceptance scenarios, CI, documentation checks | [Testing](development/testing.md) |
+| Production, proxies, upgrading, staging before a release, the launch checklist | [Deployment](operations/deployment.md); kit in [`deploy/digitalocean`](../deploy/digitalocean/README.md) |
 | Backups, off-site copies, restoring (disaster recovery) | [Backups](operations/backups.md) |
 | Alerts, errors, health checks | [Monitoring](operations/monitoring.md) |
 | Installs from before Postgres or before the rename from MudahTempah | [Legacy installs](archive/migrations/legacy-installs.md) |

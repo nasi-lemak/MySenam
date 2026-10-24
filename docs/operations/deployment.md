@@ -57,6 +57,16 @@ exactly what the half-hour diary held and stops, changing nothing, if not;
 Restore the backup into a scratch database first to know it works
 ([backups](backups.md)).
 
+## Staging before a release
+
+Try a release on staging first: `npm run stage -- run` builds the image from
+the commit, runs it on its own Postgres with synthetic data, runs the smoke,
+browser and acceptance suites against it, keeps the evidence and removes
+everything; `scripts/stage-remote.mjs` does the same on a DigitalOcean
+droplet once a spend is agreed ([testing](../development/testing.md#staging-and-real-services)).
+Never copy a production database into staging, and never keep a database
+with real customers in it as a test fixture.
+
 ## Before going live: what only a live account can prove
 
 The tests run every gateway and API against recorded answers, not the real
@@ -134,6 +144,7 @@ the result is recorded there with the date.
 | Tax on money kept from hire deposits | A qualified accountant or tax adviser for each country (and each venue registered for SST or GST) | The adviser reviews each reason's treatment under *Tax*; changes are made; the manager records the review with the adviser's name. Until then every amount kept is marked provisional in the journal | `tests/hire.test.ts` |
 | Legal review | A lawyer in each country | The open points in [privacy](../architecture/privacy.md#backups-held-abroad) answered before `OFFSITE_TRANSFER_APPROVED` is set (Backblaze's terms as the transfer contract, the TIA, roles, breach notice); the terms, privacy notice and venue agreement reviewed; whether a venue's refund period meets consumer law; what guardian consent the law asks for | Nothing: the app refuses the transfer until it is declared, and records consent as declared |
 | Continuous integration | GitHub Actions able to start runners on the repository (the account's billing or spending limit) | A CI and a Docs run on the commit being launched start, run every step and pass | Every run since 16 October 2026 ended before a runner was assigned ([known limitations](../roadmap/known-limitations.md)); the suites have been run by hand only |
+| Staging on DigitalOcean (optional) | A DigitalOcean team used for nothing else, a custom-scoped token (droplets, tags, registry read), a read-only registry credential, and an agreed spend per run | `scripts/stage-remote.mjs up --approve-usd …` serves the image on `sslip.io`, its tests pass, `down` leaves nothing billable | `tests/stage-remote.test.ts` (stand-in API) |
 | Performance under production-like conditions | A managed database across a real network, a production-size pool, two or more app instances | The [benchmark](../development/testing.md#results) re-run there, with the targets in the roadmap | One machine, database beside the app |
 | Monitoring and alerts | An error-tracking DSN (`SENTRY_DSN`) and an owner email that receives alerts | A deliberate error reaches the tracker; a failed backup or off-site copy, and a `refund_failed` integrity problem, email the owners; `/api/health` is polled by an uptime monitor | `tests/alerts.test.ts`, `tests/integrity.test.ts` |
 

@@ -6,9 +6,18 @@ which names the one authoritative document for each subject.
 
 ## Working on the code
 
-- Run `npm run typecheck`, `npm run lint` and `npm test` before committing; see
+- Run `npm run typecheck`, `npm run lint` and `npm test` before committing
+  (`npm run verify -- fast` does all three on what changed); see
   [testing](docs/development/testing.md) for running the suite against Postgres
-  as CI does.
+  as CI does, staging, and the acceptance scenarios.
+- Staging and acceptance runs use synthetic data only: never copy a production
+  database into them, keep a database with real customers as a fixture, or
+  point a seed at one. Remove only resources labelled with your own deployment
+  id; spend on a cloud provider only within an approved, capped amount.
+- Real-service checks use test-mode or sandbox credentials from the
+  environment's secret store, never live keys and never pasted into chat; a
+  service is live-verified only when its own check passes against the real
+  service. A scenario for something not built is not written as passing.
 - Schema changes are new files in `db/migrations/`; never edit or delete an
   applied migration ([database](docs/architecture/database.md)).
 - Never print secrets or connection strings, and never ask for a key in chat:
@@ -18,6 +27,12 @@ which names the one authoritative document for each subject.
   an engine or a branch on the sport ([ADR 0013](docs/architecture/decisions/0013-competition-framework.md)).
   Box leagues and results entered by players or officials use the same rules
   and `recordResult`, not checks of their own.
+- Matchmaking is built on open games ([ADR 0016](docs/architecture/decisions/0016-matchmaking-on-open-games.md)):
+  one row per person per game, every change that takes or frees a place under
+  the game's row lock, suggestions by published rules with their reasons shown,
+  no learned ranking. Being found or invited by strangers is opt-in and for
+  declared adults only; minors are invited only through a group both sides
+  agreed to. Joining books no court and moves no money: shares go to the venue.
 - Personal data leaves the install's country only by a declared and approved
   path: off-site backups need `OFFSITE_DATA_LOCATION`, and abroad
   `OFFSITE_TRANSFER_APPROVED` and encryption

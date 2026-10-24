@@ -63,6 +63,8 @@ npm test                                                     # on PGlite
 TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres npm test   # on Postgres
 npm run docs:check                                           # documentation links and references
 npm run build
+npm run verify -- full                                       # all of it, with a report
+npm run stage -- run                                         # on a staging copy with Docker
 ```
 
 Tests never call live payment, messaging or e-invoicing services; see

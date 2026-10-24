@@ -77,6 +77,8 @@ npm run verify -- fast tests/games.test.ts
 npm run verify -- full                 # typecheck, lint, docs, PGlite, Postgres, build, browser tests
 npm run verify -- pg                   # the suite on Postgres only
 npm run verify -- e2e                  # browser tests; builds only when the source digest changed
+npm run verify -- uat                  # the visual acceptance scenarios (below)
+npm run verify -- uat "C:"             # one scenario, by its title
 ```
 
 Postgres comes from `TEST_DATABASE_URL`, `--pg <url>`, or else a throwaway
@@ -118,8 +120,11 @@ npm run stage -- gc --images 3         # remove expired deployments; keep the ne
   applied, and that the data survives an app restart; `e2e` and `uat` run the
   browser suites against the deployment (`E2E_URL`).
 
-Measured on this container: start 8.8 s, seed 29.7 s,
-smoke 5 of 5, e2e 11 of 11 against the image on Postgres 16, teardown with
+Measured on this container (the latest run): the image built in 124 s (a
+source already built is reused at once), started in 10.2 s, seeded in 25 s
+(24 players with profiles and levels, the demo fortnight, 6 open games, one
+of them private, and 5 requests), then smoke 5 of 5, e2e 11 of 11 and the
+acceptance scenarios 14 of 14 against it on Postgres 16, and teardown with
 nothing left.
 
 **Remote, on demand, on DigitalOcean** (`scripts/stage-remote.mjs`): one
@@ -181,6 +186,47 @@ node scripts/verify-integrations.mjs email --send
 `tests/verify-integrations.test.ts` runs it against stand-ins. A provider is
 live-verified only when its own run passes with real sandbox credentials; see
 [feature status](../product/feature-status.md) for which have.
+
+## Visual acceptance scenarios
+
+```bash
+npm run build && npm run uat                       # all of them, against the production build
+npm run uat -- tests/uat/matchmaking.uat.ts        # one file
+npm run uat -- -t "D:"                             # one scenario, by its title
+UAT_SLOWMO=300 UAT_HEADED=1 xvfb-run npm run uat   # watch it, where there is a display
+npm run stage -- run --suite uat                   # against a staging deployment
+```
+
+`tests/uat/` drives several people at once, each in a browser context of
+their own (their own cookies and address, so sessions and rate limits behave
+as for different people), through the real pages. Setup that is not what a
+scenario is about (an account, a tournament's draw) goes through the app's
+API from that person's browser; what it is about goes through the pages.
+Every step is logged with who did it and how long it took and ends with a
+screenshot; every person's browser records a video and a Playwright trace
+(`npx playwright-core show-trace <trace.zip>`). Evidence goes to
+`UAT_ARTIFACTS`, or `artifacts/uat/<time>/<scenario>/`, with a
+`summary.json` for the run. Courts and hours are taken from what the venue
+page offers, so the scenarios run on a fresh database or a seeded one.
+
+| Scenario | What happens |
+| -------- | ------------ |
+| Booking 1–4 | Booked from the venue page and found under the account; two people racing for one court and hour, one getting it; a cancellation freeing the court; a manager seeing none of another venue's bookings and refused its report |
+| Tournament 1–2 | Players enter on the page; one reports a result, the other confirms it to a winner; a disputed result settled by staff; a stranger refused reporting |
+| Community | A group started, asked to join, let in, and invited to a private game in one go; the member says yes |
+| Matchmaking A | A player's preferences set on the page; the game suggested with its reasons; asked to join from the suggestion |
+| Matchmaking B | A request accepted by the host; the player in |
+| Matchmaking C | A full game's waiting list; a place freed, held for the next, taken |
+| Matchmaking D | An invitation accepted; another withdrawn and then unusable; a link to a private game opened, withdrawn, and then leading nowhere |
+| Matchmaking E | A weekly booking made a weekly game; last week's player invited, not enrolled |
+| Matchmaking F | A private game invisible to others; only opted-in players suggested; a blocked player turned down; another host refused the roster |
+| Matchmaking G | The share shown, paid at the venue (no online payment configured), nothing charged on joining, the court kept when the game is called off |
+
+Last run: 14 of 14 against the production build on PGlite, and 14 of 14
+against a staging deployment on Postgres 16 with seeded data. Not driven from
+a browser: an invitation or held place running out by itself, which needs the
+clock moved (`tests/matchmaking.test.ts` covers it); and paying a share
+online, which needs a gateway (the gateway legs are the real-service checks).
 
 ## Marketplace benchmark
 
@@ -291,7 +337,7 @@ checks that:
 - in [feature status](../product/feature-status.md): every capability is
   named once with a known status and every column filled; everything built
   names its code, and every code path exists (root files included); every
-  `IMPLEMENTED_AND_TESTED` row names test files (`.test` or `.e2e`, not
+  `IMPLEMENTED_AND_TESTED` row names test files (`.test`, `.e2e` or `.uat`, not
   helpers or benchmarks), and untested or unbuilt rows name none; the summary
   counts match the rows;
 - every defect cited in parentheses, such as (M12), anywhere in the

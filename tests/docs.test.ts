@@ -223,7 +223,7 @@ describe("the feature-status matrix", () => {
     const bad: string[] = [];
     for (const r of rows.filter((r) => cell(r, 2) === "IMPLEMENTED_AND_TESTED"))
       for (const m of cell(r, 5).matchAll(/`(tests\/[^`]+)`/g))
-        if (!/\.(test|e2e)\.tsx?$/.test(m[1])) bad.push(`${cell(r, 1)}: ${m[1]}`);
+        if (!/\.(test|e2e|uat)\.tsx?$/.test(m[1])) bad.push(`${cell(r, 1)}: ${m[1]}`);
     expect(bad).toEqual([]);
   });
 
