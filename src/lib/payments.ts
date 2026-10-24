@@ -994,7 +994,18 @@ export async function overdueRefunds(venueIds: number[] | null, now = new Date()
 }
 
 /** Where a customer's money paid online for a booking stands, once any of it is owed back. */
+/**
+ * Where a refund stands. owed: nothing done yet, within the date the
+ * venue gives; overdue: past it; requested: asked of the payment provider,
+ * no answer yet; processing: accepted by the provider, not yet settled;
+ * failed: the provider said its last attempt failed, so it is owed again;
+ * completed: nothing left owed. The date a venue gives is its own policy:
+ * it does not shorten what consumer law or the payment provider require.
+ */
+export type RefundState = "owed" | "overdue" | "requested" | "processing" | "failed" | "completed";
+
 export interface RefundStatus {
+  state: RefundState;
   paymentId: number;
   /** The bookings it paid for: a refund is shown with each. */
   bookingIds: number[];
@@ -1022,7 +1033,10 @@ export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatu
               v.refund_within_days, v.online_refunds,
               (SELECT MAX(r.created_at) FROM online_refunds r
                 WHERE r.payment_id = p.id AND r.failed_at IS NULL AND COALESCE(r.provider_ref, '') NOT LIKE 'claim:%') AS refunded_at,
-              (SELECT STRING_AGG(pb2.booking_id::text, ',') FROM online_payment_bookings pb2 WHERE pb2.payment_id = p.id) AS booking_ids
+              (SELECT STRING_AGG(pb2.booking_id::text, ',') FROM online_payment_bookings pb2 WHERE pb2.payment_id = p.id) AS booking_ids,
+              (SELECT CASE WHEN r.failed_at IS NOT NULL THEN 'failed' WHEN COALESCE(r.provider_ref, '') LIKE 'claim:%' THEN 'requested'
+                           WHEN r.pending = 1 THEN 'processing' ELSE 'done' END
+                 FROM online_refunds r WHERE r.payment_id = p.id ORDER BY r.id DESC LIMIT 1) AS last_attempt
          FROM online_payments p JOIN venues v ON v.id = p.venue_id
         WHERE p.status = 'paid' AND p.refund_due > 0
           AND p.id IN (SELECT pb.payment_id FROM online_payment_bookings pb WHERE pb.booking_id IN (${bookingIds.map(() => "?").join(", ")}))
@@ -1038,17 +1052,32 @@ export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatu
     online_refunds: OnlineRefunds;
     refunded_at: string | null;
     booking_ids: string | null;
+    last_attempt: "failed" | "requested" | "processing" | "done" | null;
   }[];
   return rows.map((r) => {
     const owed = Math.max(0, roundMoney(r.refund_due - r.refunded));
+    const clock = owed > 0 ? refundClock(r.refund_seen_at, r.refund_within_days) : null;
+    const state: RefundState =
+      r.last_attempt === "processing"
+        ? "processing"
+        : owed <= 0
+          ? "completed"
+          : r.last_attempt === "requested"
+            ? "requested"
+            : r.last_attempt === "failed"
+              ? "failed"
+              : clock?.overdue
+                ? "overdue"
+                : "owed";
     return {
+      state,
       paymentId: r.id,
       bookingIds: (r.booking_ids ?? "").split(",").filter(Boolean).map(Number),
       paid: r.amount,
       owed,
       refunded: r.refunded,
       how: r.online_refunds,
-      clock: owed > 0 ? refundClock(r.refund_seen_at, r.refund_within_days) : null,
+      clock,
       refundedAt: owed > 0 ? null : r.refunded_at,
     };
   });

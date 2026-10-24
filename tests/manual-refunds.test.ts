@@ -135,20 +135,40 @@ describe("a customer whose refund the venue makes by hand", () => {
     expect(refunds).toEqual([{ how: "staff", amount: 20, dueBy: addDays(todayISO("UTC"), 3) }]);
 
     const looked = await (await lookup(new NextRequest(`http://localhost/api/bookings?code=${booking.code}&phone=${booking.phone}`))).json();
-    expect(looked.refunds).toEqual([expect.objectContaining({ paymentId, owed: 20, how: "staff", refundedAt: null, clock: expect.objectContaining({ overdue: false }) })]);
+    expect(looked.refunds).toEqual([expect.objectContaining({ state: "owed", paymentId, owed: 20, how: "staff", refundedAt: null, clock: expect.objectContaining({ overdue: false }) })]);
     const t = translator("en");
     expect(refundStatusLine(t, looked.refunds[0])).toEqual({ text: expect.stringMatching(/will refund the S\$20 you paid online by \d{4}-\d{2}-\d{2}/), late: false });
 
     // Past the date: the customer is told to contact the venue.
     await owedFor(paymentId, 5);
     const late = (await refundStatusFor([booking.id]))[0];
-    expect(late.clock).toMatchObject({ overdue: true, days: 5 });
+    expect(late).toMatchObject({ state: "overdue", clock: { overdue: true, days: 5 } });
     expect(refundStatusLine(t, late)).toEqual({ text: expect.stringMatching(/has not marked it refunded yet\. Please contact the venue/), late: true });
 
     expect(await markRefunded(paymentId, venueId, null, "DBS transfer 8812")).toMatchObject({ ok: true });
     const done = (await refundStatusFor([booking.id]))[0];
-    expect(done).toMatchObject({ owed: 0, refunded: 20, clock: null, refundedAt: expect.any(String) });
+    expect(done).toMatchObject({ state: "completed", owed: 0, refunded: 20, clock: null, refundedAt: expect.any(String) });
     expect(refundStatusLine(t, done).text).toMatch(/^S\$20 refunded on \d{4}-\d{2}-\d{2}\.$/);
+  });
+
+  it("is shown each state a refund through the provider passes: asked, being processed, failed (owed again), and completed", async () => {
+    const { booking, paymentId } = await cancelledAfterPaying();
+    const t = translator("en");
+    const state = async () => (await refundStatusFor([booking.id]))[0];
+    // Claimed before the provider is asked, with no answer yet.
+    await getDb().prepare("INSERT INTO online_refunds (payment_id, amount, provider_ref, pending) VALUES (?, 20, ?, 0)").run(paymentId, `claim:${paymentId}:1`);
+    expect((await state()).state).toBe("requested");
+    expect(refundStatusLine(t, await state()).text).toMatch(/asked of the payment provider/);
+    // Accepted by the provider, still settling.
+    await getDb().prepare("UPDATE online_refunds SET provider_ref = 're_pending_1', pending = 1 WHERE payment_id = ?").run(paymentId);
+    expect((await state()).state).toBe("processing");
+    expect(refundStatusLine(t, await state()).text).toMatch(/being processed/);
+    // The provider says it failed: owed again, and the customer is told.
+    await getDb().prepare("UPDATE online_refunds SET pending = 0, failed_at = datetime('now') WHERE payment_id = ?").run(paymentId);
+    expect((await state()).state).toBe("failed");
+    expect(refundStatusLine(t, await state())).toEqual({ text: expect.stringMatching(/could not refund S\$20/), late: true });
+    expect(await markRefunded(paymentId, venueId, null, "Bank transfer after failure")).toMatchObject({ ok: true });
+    expect((await state()).state).toBe("completed");
   });
 });
 

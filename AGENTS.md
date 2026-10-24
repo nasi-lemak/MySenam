@@ -23,6 +23,14 @@ which names the one authoritative document for each subject.
   `OFFSITE_TRANSFER_APPROVED` and encryption
   ([privacy](docs/architecture/privacy.md#backups-held-abroad)). Never send it
   abroad by default, and never treat a legal question as settled in code.
+  Backblaze B2 is the preferred off-site provider and S3 stays supported,
+  through the one S3-compatible adapter ([ADR 0015](docs/architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md)).
+  Private keys for decrypting backups stay off the server and out of Git,
+  logs and ordinary production environment variables. Never give the upload
+  key delete or retention powers.
+- Ages, guardians' agreement and self-declared categories are the entrant's
+  word: record them as declared, never as verified, and collect no identity
+  documents.
 - Tax treatments the app suggests are provisional starting points, never
   presented as verified; a venue's adviser's review is recorded, not assumed.
 

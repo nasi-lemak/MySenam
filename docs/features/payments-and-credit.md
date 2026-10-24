@@ -236,11 +236,24 @@ Where staff refund by hand (Billplz, or a venue that chose *Staff refund it*):
 
 - **The venue says how long it takes**, 1 to 30 days (7 unless changed),
   under *Cancellations, refunds and no-shows*. A refund is owed from when it
-  is first seen owed (`refund_seen_at`), and due that many days later.
+  is first seen owed (`refund_seen_at`), and due that many days later. That
+  date is the venue's own policy. It is a promise to the customer, not a
+  limit on what they are owed: it never shortens a period consumer law or
+  the payment provider's rules require, and a refund past it is still owed.
+  Whether a venue's period is compatible with those obligations is for the
+  operator to check, not settled here.
 - **The customer is told the date** when they cancel ("by 27 October"), and
   can follow the refund afterwards by looking the booking up or in their
-  account: owed and by when, past the date (with a prompt to contact the
-  venue), or refunded and when (`refundStatusFor`). They are told the venue
+  account (`refundStatusFor`), in one of these states:
+  - *owed*, and by when;
+  - *overdue*, past the date, with a prompt to contact the venue;
+  - *requested*: asked of the payment provider, no answer yet;
+  - *processing*: accepted by the provider, not yet settled;
+  - *failed*: the provider's attempt failed, so it is owed again and the
+    venue is told;
+  - *completed*: refunded, and when.
+
+  Refunds through the gateway pass through the same states. They are told the venue
   may contact them for bank details: an FPX refund is a transfer to the
   customer's bank account, and MySenam does not collect account numbers.
 - **Staff see each one's age** under *Refunds owed* — owed so many days, due
