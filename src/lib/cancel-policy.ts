@@ -18,7 +18,9 @@ import { addDays, todayISO } from "./time";
  * `onlineRefunds` is what happens to money paid online when a customer
  * cancels (lib/payments.ts `refundCancelled`): staff refund it, as before; it
  * goes straight back through the gateway where that has a refund API; or it
- * becomes stored credit on the customer's account.
+ * becomes stored credit on the customer's account. Where staff refund it,
+ * `refundWithinDays` is what the customer is told it takes; one owed longer
+ * is overdue (lib/payments.ts `refundsOwed`).
  */
 export type OnlineRefunds = "staff" | "gateway" | "credit";
 const ONLINE_REFUNDS: OnlineRefunds[] = ["staff", "gateway", "credit"];
@@ -29,19 +31,22 @@ export interface CancelPolicy {
   strikeLimit: number | null;
   strikeDays: number;
   onlineRefunds: OnlineRefunds;
+  /** Days staff take to refund by hand, as customers are told. */
+  refundWithinDays: number;
 }
 
 export async function cancelPolicy(venueId: number): Promise<CancelPolicy> {
   const row = (await getDb()
-    .prepare("SELECT late_cancel_keep, strike_limit, strike_days, online_refunds FROM venues WHERE id = ?")
+    .prepare("SELECT late_cancel_keep, strike_limit, strike_days, online_refunds, refund_within_days FROM venues WHERE id = ?")
     .get(venueId)) as
-    | { late_cancel_keep: number | null; strike_limit: number | null; strike_days: number; online_refunds: OnlineRefunds }
+    | { late_cancel_keep: number | null; strike_limit: number | null; strike_days: number; online_refunds: OnlineRefunds; refund_within_days: number }
     | undefined;
   return {
     lateKeep: row?.late_cancel_keep ?? null,
     strikeLimit: row?.strike_limit ?? null,
     strikeDays: row?.strike_days ?? 90,
     onlineRefunds: row?.online_refunds ?? "staff",
+    refundWithinDays: row?.refund_within_days ?? 7,
   };
 }
 
@@ -57,7 +62,7 @@ export async function cancelPolicyFor(venueId: number, sport: string): Promise<C
 
 export async function setCancelPolicy(
   venueId: number,
-  input: { lateKeep?: unknown; strikeLimit?: unknown; strikeDays?: unknown; onlineRefunds?: unknown }
+  input: { lateKeep?: unknown; strikeLimit?: unknown; strikeDays?: unknown; onlineRefunds?: unknown; refundWithinDays?: unknown }
 ): Promise<{ ok: true; policy: CancelPolicy } | { ok: false; error: string }> {
   const keep = input.lateKeep ?? null;
   if (keep !== null && (!Number.isInteger(keep) || (keep as number) < 0 || (keep as number) > 100))
@@ -69,9 +74,12 @@ export async function setCancelPolicy(
   if (!Number.isInteger(days) || (days as number) < 7 || (days as number) > 365) return { ok: false, error: "Count strikes over 7 to 365 days." };
   const refunds = input.onlineRefunds ?? "staff";
   if (!ONLINE_REFUNDS.includes(refunds as OnlineRefunds)) return { ok: false, error: "Choose how money paid online goes back." };
+  const within = input.refundWithinDays ?? (await cancelPolicy(venueId)).refundWithinDays;
+  if (!Number.isInteger(within) || (within as number) < 1 || (within as number) > 30)
+    return { ok: false, error: "Say how many days refunds by hand take: 1 to 30." };
   await getDb()
-    .prepare("UPDATE venues SET late_cancel_keep = ?, strike_limit = ?, strike_days = ?, online_refunds = ? WHERE id = ?")
-    .run(keep, limit, days, refunds, venueId);
+    .prepare("UPDATE venues SET late_cancel_keep = ?, strike_limit = ?, strike_days = ?, online_refunds = ?, refund_within_days = ? WHERE id = ?")
+    .run(keep, limit, days, refunds, within, venueId);
   return { ok: true, policy: await cancelPolicy(venueId) };
 }
 

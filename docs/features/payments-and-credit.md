@@ -230,6 +230,39 @@ Not verified against Stripe itself
 Billplz has no refund API: its refunds are made in its dashboard and marked
 done by hand.
 
+### Refunds made by hand
+
+Where staff refund by hand (Billplz, or a venue that chose *Staff refund it*):
+
+- **The venue says how long it takes**, 1 to 30 days (7 unless changed),
+  under *Cancellations, refunds and no-shows*. A refund is owed from when it
+  is first seen owed (`refund_seen_at`), and due that many days later.
+- **The customer is told the date** when they cancel ("by 27 October"), and
+  can follow the refund afterwards by looking the booking up or in their
+  account: owed and by when, past the date (with a prompt to contact the
+  venue), or refunded and when (`refundStatusFor`). They are told the venue
+  may contact them for bank details: an FPX refund is a transfer to the
+  customer's bank account, and MySenam does not collect account numbers.
+- **Staff see each one's age** under *Refunds owed* — owed so many days, due
+  by a date, or *Overdue* in red — and a manager marks each done with the
+  reference of the transfer or the gateway's refund, kept with the refund
+  (`online_refunds.note`) and in the activity log with who did it. What is
+  owed is re-read and settled in one transaction, so a second click or two
+  people at once record it once.
+- **Overdue refunds reach the dashboard**: the *Needs attention* panel lists
+  each venue's overdue count, amount and oldest age; the daily reminder to
+  the venue's staff says how many are past the date.
+- **The work is counted**: *Refund workload* shows, month by month, how many
+  refunds staff made by hand, for how much, how many days they took on
+  average and how many were late, against those made automatically; the
+  platform's owner can read it for every venue together
+  (`GET /api/admin/online-payments?workload=all`). That is the evidence for
+  keeping a gateway without a refund API, or moving to one with
+  ([launch providers](../integrations/launch-providers.md#hitpay-for-small-malaysian-venues)).
+
+Tested in `tests/manual-refunds.test.ts` on PGlite and Postgres, against a
+stand-in gateway.
+
 ## Stored credit
 
 Customers buy credit at a venue counter and spend it on bookings and classes by

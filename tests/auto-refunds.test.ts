@@ -132,7 +132,7 @@ describe("when a customer cancels", () => {
     await cancelBooking(made.booking.code, made.booking.phone);
     fakeStripe(() => Response.json({ error: { message: "The provided key does not have the required permissions" } }, { status: 403 }));
     const before = (await refundsOwed(venueId)).length;
-    expect(await refundCancelled([made.booking.id])).toEqual([{ how: "staff", amount: 20 }]);
+    expect(await refundCancelled([made.booking.id])).toEqual([{ how: "staff", amount: 20, dueBy: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }]);
     expect(await refundsOwed(venueId)).toHaveLength(before);
   });
 
@@ -158,7 +158,7 @@ describe("when a customer cancels", () => {
   it("stays with staff as credit when there is no account to put it on", async () => {
     const made = await paid();
     await cancelBooking(made.booking.code, made.booking.phone);
-    expect(await refundCancelled([made.booking.id])).toEqual([{ how: "staff", amount: 20 }]);
+    expect(await refundCancelled([made.booking.id])).toEqual([{ how: "staff", amount: 20, dueBy: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }]);
   });
 
   it("covers every session of a series cancelled together", async () => {

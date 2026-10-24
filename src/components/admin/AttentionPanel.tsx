@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { UrgentNotice } from "@/lib/urgent";
+import type { OverdueRefunds } from "@/lib/payments";
+import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
 
 const REACH: Record<UrgentNotice["reach"], { label: string; style: string }> = {
@@ -31,7 +33,7 @@ function channelLine(n: UrgentNotice) {
  * one somebody might turn up for.
  */
 export function AttentionPanel() {
-  const [data, setData] = useState<{ open: UrgentNotice[]; recent: UrgentNotice[] } | null>(null);
+  const [data, setData] = useState<{ open: UrgentNotice[]; recent: UrgentNotice[]; refundsOverdue?: OverdueRefunds[] } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,13 +53,23 @@ export function AttentionPanel() {
     };
   }, [load]);
 
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0)) return null;
+  const overdue = data?.refundsOverdue ?? [];
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0)) return null;
 
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label="Needs attention">
+      {overdue.length > 0 && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800">
+          <strong>Refunds overdue.</strong>{" "}
+          {overdue
+            .map((v) => `${v.venueName}: ${v.count} (${money(v.amount)}), the oldest owed ${v.oldestDays} day${v.oldestDays === 1 ? "" : "s"}`)
+            .join("; ")}
+          . Customers were told a date that has passed: refund them under Online payments → Refunds owed.
+        </div>
+      )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? `Needs attention (${data.open.length})` : "Nothing needs attention"}
+          {data.open.length > 0 ? `Needs attention (${data.open.length})` : overdue.length > 0 ? "Needs attention" : "Nothing needs attention"}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

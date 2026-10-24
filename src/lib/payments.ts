@@ -331,6 +331,31 @@ export interface OnlinePayment {
   purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
   /** The membership a paid membership fee made. */
   membership?: { code: string; venueId: number; venueName: string; startsOn: string; expiresOn: string };
+  /** On a refund owed (`refundsOwed`): since when, the date the customer was told, and whether that has passed. */
+  owed?: RefundClock;
+}
+
+/** How long a refund has been owed, against the days the venue tells customers it takes. */
+export interface RefundClock {
+  since: string;
+  /** The last day of the venue's promise (`refund_within_days`), YYYY-MM-DD. */
+  dueBy: string;
+  days: number;
+  overdue: boolean;
+}
+
+const DAY_MS = 86_400_000;
+
+/** `since` is a stored UTC `YYYY-MM-DD HH:MM:SS`; null for one not yet noted, which is owed from now. */
+export function refundClock(since: string | null, withinDays: number, now = new Date()): RefundClock {
+  const start = since ? new Date(`${since.replace(" ", "T")}Z`) : now;
+  const due = new Date(start.getTime() + withinDays * DAY_MS);
+  return {
+    since: start.toISOString().slice(0, 19).replace("T", " "),
+    dueBy: due.toISOString().slice(0, 10),
+    days: Math.max(0, Math.floor((now.getTime() - start.getTime()) / DAY_MS)),
+    overdue: now.getTime() > due.getTime(),
+  };
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
@@ -927,11 +952,175 @@ export async function listOnlinePayments(venueId: number, limit = 50): Promise<O
 export async function refundsOwed(venueId: number): Promise<OnlinePayment[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT * FROM online_payments
-        WHERE venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded ORDER BY id`
+      `SELECT p.*, v.refund_within_days FROM online_payments p JOIN venues v ON v.id = p.venue_id
+        WHERE p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack') AND p.refund_due > p.refunded ORDER BY p.id`
     )
-    .all(venueId)) as PaymentRow[];
-  return Promise.all(rows.map(toPayment));
+    .all(venueId)) as (PaymentRow & { refund_seen_at: string | null; refund_within_days: number })[];
+  return Promise.all(rows.map(async (r) => ({ ...(await toPayment(r)), owed: refundClock(r.refund_seen_at, r.refund_within_days) })));
+}
+
+/** A venue's refunds past the date its customers were told. */
+export interface OverdueRefunds {
+  venueId: number;
+  venueName: string;
+  count: number;
+  amount: number;
+  oldestDays: number;
+}
+
+/** Refunds owed longer than each venue says they take, for the venues given (null: every venue). */
+export async function overdueRefunds(venueIds: number[] | null, now = new Date()): Promise<OverdueRefunds[]> {
+  if (venueIds && venueIds.length === 0) return [];
+  const only = venueIds ? ` AND p.venue_id IN (${venueIds.map(() => "?").join(",")})` : "";
+  const rows = (await getDb()
+    .prepare(
+      `SELECT p.venue_id, v.name AS venue_name, v.refund_within_days, p.refund_seen_at, (p.refund_due - p.refunded)::float AS owed
+         FROM online_payments p JOIN venues v ON v.id = p.venue_id
+        WHERE p.refund_due > p.refunded AND p.status = 'paid' AND p.purpose NOT IN ('invoice', 'pack') AND p.refund_seen_at IS NOT NULL${only}
+        ORDER BY p.venue_id, p.id`
+    )
+    .all(...(venueIds ?? []))) as { venue_id: number; venue_name: string; refund_within_days: number; refund_seen_at: string; owed: number }[];
+  const byVenue = new Map<number, OverdueRefunds>();
+  for (const r of rows) {
+    const clock = refundClock(r.refund_seen_at, r.refund_within_days, now);
+    if (!clock.overdue) continue;
+    const v = byVenue.get(r.venue_id) ?? { venueId: r.venue_id, venueName: r.venue_name, count: 0, amount: 0, oldestDays: 0 };
+    v.count++;
+    v.amount = roundMoney(v.amount + r.owed);
+    v.oldestDays = Math.max(v.oldestDays, clock.days);
+    byVenue.set(r.venue_id, v);
+  }
+  return [...byVenue.values()];
+}
+
+/** Where a customer's money paid online for a booking stands, once any of it is owed back. */
+export interface RefundStatus {
+  paymentId: number;
+  /** The bookings it paid for: a refund is shown with each. */
+  bookingIds: number[];
+  paid: number;
+  owed: number;
+  refunded: number;
+  /** Straight back through the gateway, as credit, or by the venue's staff by hand. */
+  how: OnlineRefunds;
+  /** While anything is owed. */
+  clock: RefundClock | null;
+  /** When the last of it went back. */
+  refundedAt: string | null;
+}
+
+/**
+ * What a customer is told about refunds on these bookings: owed (and by
+ * when, as the venue promises) or made (and when). Only payments with
+ * something owed back; nothing about how staff made it beyond the date.
+ */
+export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatus[]> {
+  if (bookingIds.length === 0) return [];
+  const rows = (await getDb()
+    .prepare(
+      `SELECT p.id, p.amount::float AS amount, p.refund_due::float AS refund_due, p.refunded::float AS refunded, p.refund_seen_at,
+              v.refund_within_days, v.online_refunds,
+              (SELECT MAX(r.created_at) FROM online_refunds r
+                WHERE r.payment_id = p.id AND r.failed_at IS NULL AND COALESCE(r.provider_ref, '') NOT LIKE 'claim:%') AS refunded_at,
+              (SELECT STRING_AGG(pb2.booking_id::text, ',') FROM online_payment_bookings pb2 WHERE pb2.payment_id = p.id) AS booking_ids
+         FROM online_payments p JOIN venues v ON v.id = p.venue_id
+        WHERE p.status = 'paid' AND p.refund_due > 0
+          AND p.id IN (SELECT pb.payment_id FROM online_payment_bookings pb WHERE pb.booking_id IN (${bookingIds.map(() => "?").join(", ")}))
+        ORDER BY p.id`
+    )
+    .all(...bookingIds)) as {
+    id: number;
+    amount: number;
+    refund_due: number;
+    refunded: number;
+    refund_seen_at: string | null;
+    refund_within_days: number;
+    online_refunds: OnlineRefunds;
+    refunded_at: string | null;
+    booking_ids: string | null;
+  }[];
+  return rows.map((r) => {
+    const owed = Math.max(0, roundMoney(r.refund_due - r.refunded));
+    return {
+      paymentId: r.id,
+      bookingIds: (r.booking_ids ?? "").split(",").filter(Boolean).map(Number),
+      paid: r.amount,
+      owed,
+      refunded: r.refunded,
+      how: r.online_refunds,
+      clock: owed > 0 ? refundClock(r.refund_seen_at, r.refund_within_days) : null,
+      refundedAt: owed > 0 ? null : r.refunded_at,
+    };
+  });
+}
+
+/** One month of refunds made: how many by hand, how long they took, how many late. */
+export interface RefundMonth {
+  month: string;
+  byHand: number;
+  byHandAmount: number;
+  /** Through the gateway's API, or as credit. */
+  automatic: number;
+  /** Days from owed to refunded, by hand, on average. */
+  averageDays: number | null;
+  /** By hand, later than the venue tells customers. */
+  late: number;
+}
+
+export interface RefundWorkload {
+  months: RefundMonth[];
+  /** Owed now, and how many of those are past the date customers were told. */
+  owed: number;
+  overdue: number;
+  oldestDays: number | null;
+}
+
+/**
+ * The work refunds by hand make, month by month (a venue's, or with
+ * `venueId` null every venue's, for the platform's owner): what decides
+ * whether a gateway without a refund API is still worth its lower fees.
+ */
+export async function refundWorkload(venueId: number | null, months = 6, now = new Date()): Promise<RefundWorkload> {
+  const db = getDb();
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1)).toISOString().slice(0, 10);
+  const where = venueId === null ? "" : "AND p.venue_id = ?";
+  const args = venueId === null ? [] : [venueId];
+  const made = (await db
+    .prepare(
+      `SELECT SUBSTR(r.created_at, 1, 7) AS month,
+              COUNT(*) FILTER (WHERE r.provider_ref IS NULL)::int AS by_hand,
+              COALESCE(SUM(r.amount) FILTER (WHERE r.provider_ref IS NULL), 0)::float AS by_hand_amount,
+              COUNT(*) FILTER (WHERE r.provider_ref IS NOT NULL)::int AS automatic,
+              AVG(EXTRACT(EPOCH FROM (r.created_at::timestamp - COALESCE(p.refund_seen_at, r.created_at)::timestamp)) / 86400.0)
+                FILTER (WHERE r.provider_ref IS NULL)::float AS average_days,
+              COUNT(*) FILTER (WHERE r.provider_ref IS NULL
+                AND r.created_at::timestamp > COALESCE(p.refund_seen_at, r.created_at)::timestamp + make_interval(days => v.refund_within_days))::int AS late
+         FROM online_refunds r JOIN online_payments p ON p.id = r.payment_id JOIN venues v ON v.id = p.venue_id
+        WHERE r.created_at >= ? AND r.failed_at IS NULL AND COALESCE(r.provider_ref, '') NOT LIKE 'claim:%'
+          AND p.purpose NOT IN ('invoice', 'pack') ${where}
+        GROUP BY 1 ORDER BY 1`
+    )
+    .all(from, ...args)) as { month: string; by_hand: number; by_hand_amount: number; automatic: number; average_days: number | null; late: number }[];
+  const owing = (await db
+    .prepare(
+      `SELECT p.refund_seen_at, v.refund_within_days FROM online_payments p JOIN venues v ON v.id = p.venue_id
+        WHERE p.refund_due > p.refunded AND p.status = 'paid' AND p.purpose NOT IN ('invoice', 'pack') ${where}`
+    )
+    .all(...args)) as { refund_seen_at: string | null; refund_within_days: number }[];
+  const clocks = owing.map((o) => refundClock(o.refund_seen_at, o.refund_within_days, now));
+  return {
+    months: made.map((m) => ({
+      month: m.month,
+      byHand: m.by_hand,
+      byHandAmount: roundMoney(m.by_hand_amount),
+      automatic: m.automatic,
+      averageDays: m.average_days === null ? null : Math.round(m.average_days * 10) / 10,
+      late: m.late,
+    })),
+    owed: clocks.length,
+    overdue: clocks.filter((c) => c.overdue).length,
+    oldestDays: clocks.length ? Math.max(...clocks.map((c) => c.days)) : null,
+  };
 }
 
 /**
@@ -1016,16 +1205,18 @@ async function recordRefund(
   pending: boolean,
   adminId: number | null,
   /** Whatever else the refund is, in the same transaction: credit it became. */
-  also?: () => Promise<void>
+  also?: () => Promise<void>,
+  /** What staff wrote down making it by hand: a transfer reference. */
+  note: string | null = null
 ): Promise<boolean> {
   const db = getDb();
   return db.transaction(async () => {
     const added = await db
       .prepare(
-        `INSERT INTO online_refunds (payment_id, amount, provider_ref, pending, admin_id) VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO online_refunds (payment_id, amount, provider_ref, pending, admin_id, note) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (provider_ref) DO NOTHING`
       )
-      .run(row.id, amount, ref, pending ? 1 : 0, adminId);
+      .run(row.id, amount, ref, pending ? 1 : 0, adminId, note);
     if (added.changes === 0) return false;
     const done = await db
       .prepare("UPDATE online_payments SET refunded = refunded + ? WHERE id = ? AND refunded + ? <= refund_due")
@@ -1206,6 +1397,8 @@ export async function reconcileRefunds(): Promise<{ refunded: number; told: numb
   const waiting = (await db
     .prepare(
       `SELECT p.venue_id, COUNT(*)::int AS n, SUM(p.refund_due - p.refunded)::float AS amount, MIN(p.refund_seen_at) AS oldest,
+              COUNT(*) FILTER (WHERE p.refund_seen_at::timestamp + make_interval(days => (SELECT v.refund_within_days FROM venues v WHERE v.id = p.venue_id))
+                               < datetime('now')::timestamp)::int AS overdue,
               COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND r.failed_at IS NOT NULL))::int AS failed
          FROM online_payments p
         WHERE ${owed} AND p.refund_seen_at < datetime('now', '-1 day')
@@ -1213,7 +1406,7 @@ export async function reconcileRefunds(): Promise<{ refunded: number; told: numb
                    AND EXISTS (SELECT 1 FROM venues v WHERE v.id = p.venue_id AND v.online_refunds = 'gateway'))
         GROUP BY p.venue_id`
     )
-    .all()) as { venue_id: number; n: number; amount: number; oldest: string; failed: number }[];
+    .all()) as { venue_id: number; n: number; amount: number; oldest: string; failed: number; overdue: number }[];
   let told = 0;
   for (const w of waiting) {
     const claimed = await db
@@ -1224,6 +1417,7 @@ export async function reconcileRefunds(): Promise<{ refunded: number; told: numb
       w.venue_id,
       `${w.n} refund${w.n === 1 ? "" : "s"} waiting for you`,
       `${w.n} online payment${w.n === 1 ? " is" : "s are"} owed back to customers, ${money(roundMoney(w.amount).toFixed(2))} in all, the oldest since ${w.oldest.slice(0, 10)}.` +
+        (w.overdue > 0 ? ` ${w.overdue} ${w.overdue === 1 ? "is" : "are"} past the date customers were told.` : "") +
         (w.failed > 0 ? ` ${w.failed} of them the gateway accepted and then could not make.` : "") +
         " Refund them from Online payments → Refunds owed: with one click where the gateway allows, or in its own dashboard and then mark each refunded."
     );
@@ -1237,12 +1431,19 @@ export async function settleOwedRefunds(): Promise<number> {
   return (await reconcileRefunds()).refunded;
 }
 
-/** Staff have made the refund in the gateway's own dashboard (`venueId` null: the platform owner, for one paid to the platform). */
-export async function markRefunded(paymentId: number, venueId: number | null, adminId: number | null = null): Promise<RefundDone> {
+/**
+ * Staff have made the refund themselves — in the gateway's dashboard, by bank
+ * transfer — (`venueId` null: the platform owner, for one paid to the
+ * platform), with what they wrote down to find it again (`note`). What is
+ * owed is re-read and settled in one transaction, so a second click, or two
+ * people at once, records it once.
+ */
+export async function markRefunded(paymentId: number, venueId: number | null, adminId: number | null = null, note: string | null = null): Promise<RefundDone> {
   const row = await owedRow(paymentId, venueId);
   if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
+  const written = note?.trim().slice(0, 200) || null;
   try {
-    await recordRefund(row, roundMoney(row.refund_due - row.refunded), null, false, adminId);
+    await recordRefund(row, roundMoney(row.refund_due - row.refunded), null, false, adminId, undefined, written);
   } catch {
     return { ok: false, error: "Nothing is owed back on that payment." };
   }
@@ -1312,6 +1513,8 @@ export interface CancelRefund {
   amount: number;
   /** Through the gateway, and it has not finished yet. */
   pending?: boolean;
+  /** By staff: the date the venue says it will be refunded by. */
+  dueBy?: string;
 }
 
 /**
@@ -1338,7 +1541,8 @@ export async function refundCancelled(
   const done: CancelRefund[] = [];
   for (const row of rows) {
     const amount = roundMoney(row.refund_due - row.refunded);
-    const policy = (await cancelPolicy(row.venue_id!)).onlineRefunds;
+    const venuePolicy = await cancelPolicy(row.venue_id!);
+    const policy = venuePolicy.onlineRefunds;
     const onlineRefunds = opts.byVenue && policy === "credit" ? "gateway" : policy;
     if (onlineRefunds === "gateway") {
       const sent = await refundOnline(row.id, row.venue_id!).catch(() => null);
@@ -1355,7 +1559,7 @@ export async function refundCancelled(
       done.push({ how: "credit", amount });
       continue;
     }
-    done.push({ how: "staff", amount });
+    done.push({ how: "staff", amount, dueBy: refundClock(null, venuePolicy.refundWithinDays).dueBy });
   }
   return done;
 }

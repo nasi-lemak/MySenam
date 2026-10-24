@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
+import { overdueRefunds } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
-/** Urgent news not yet known to have reached the customer, and what closed this week. */
+/** Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  return NextResponse.json({ open: await openNotices(admin.venueIds), recent: await recentlyClosed(admin.venueIds) });
+  return NextResponse.json({
+    open: await openNotices(admin.venueIds),
+    recent: await recentlyClosed(admin.venueIds),
+    refundsOverdue: await overdueRefunds(admin.venueIds),
+  });
 }
 
 /** `{ id, action: "told" }` — staff told the customer another way. */

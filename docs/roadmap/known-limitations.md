@@ -161,6 +161,14 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 
 None open.
 
+Also: a refund made by hand (every Billplz refund) depends on the venue's
+staff. MySenam tracks it — the date customers are told, overdue refunds on
+the dashboard and in a daily reminder, and the workload month by month
+([payments](../features/payments-and-credit.md#refunds-made-by-hand)) — but
+cannot make it, and does not collect the customer's bank account, which an
+FPX refund needs, so staff may have to ask for it. Refunds paid by DuitNow QR
+would stay manual even with HitPay.
+
 Also: refunding to credit has no unique index of its own; it is refunded
 once because it runs inside the transaction that claims the cancellation
 (`refundBooking` in `src/lib/store.ts`; `tests/refund-recovery.test.ts`).

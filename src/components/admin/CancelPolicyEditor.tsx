@@ -118,7 +118,21 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
           <option value="credit">Give it back as credit here</option>
         </select>
       </label>
+      <label className="mt-2 flex flex-wrap items-center gap-2">
+        Refunds staff make by hand take up to
+        <input
+          type="number"
+          min={1}
+          max={30}
+          aria-label="Refund days"
+          value={policy.refundWithinDays}
+          onChange={(e) => setPolicy({ ...policy, refundWithinDays: Number(e.target.value) })}
+          className={input}
+        />
+        days
+      </label>
       <p className="ml-0 text-xs text-slate-500">
+        Customers are told this date when they cancel and can follow their refund; one owed longer shows as overdue.
         Billplz has no way to refund automatically, so its payments stay with staff. Credit needs the booking made from
         an account; a booking made without one stays with staff too.
       </p>

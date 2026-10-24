@@ -1,16 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { disputesFor, listOnlinePayments, markRefunded, refundOnline, refundsInFlight, refundsOwed, settleRefundClaims } from "@/lib/payments";
+import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
+import {
+  disputesFor,
+  listOnlinePayments,
+  markRefunded,
+  refundOnline,
+  refundsInFlight,
+  refundsOwed,
+  refundWorkload,
+  settleRefundClaims,
+} from "@/lib/payments";
+import { cancelPolicy } from "@/lib/cancel-policy";
 import { schedulerEnabled } from "@/lib/scheduler";
 import { money } from "@/lib/region";
 import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
-/** `?venueId=` → the venue's recent online payments, and what it owes back. */
+/**
+ * `?venueId=` → the venue's recent online payments, what it owes back, and
+ * the work its refunds by hand have made. `?workload=all` → that work across
+ * every venue, for the platform's owner.
+ */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (req.nextUrl.searchParams.get("workload") === "all") {
+    if (!isOwner(admin)) return NextResponse.json({ error: "Only the platform's owner sees every venue's refunds." }, { status: 403 });
+    return NextResponse.json({ workload: await refundWorkload(null) });
+  }
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
   if (!Number.isInteger(venueId) || venueId <= 0)
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
@@ -24,11 +42,14 @@ export async function GET(req: NextRequest) {
     // Asked of the gateway and not yet answered, or still going through: neither owed nor done.
     refundsInFlight: await refundsInFlight(venueId),
     disputes: await disputesFor(venueId),
+    workload: await refundWorkload(venueId),
+    refundWithinDays: (await cancelPolicy(venueId)).refundWithinDays,
   });
 }
 
 /**
- * `{ venueId, paymentId }` → staff have refunded it in the gateway.
+ * `{ venueId, paymentId, note? }` → staff have refunded it themselves (in the
+ * gateway's dashboard, by transfer), with the reference they wrote down.
  * `{ venueId, paymentId, through: "gateway" }` → refund it now, through the
  * gateway's API with the venue's account.
  */
@@ -41,7 +62,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { venueId, paymentId, through } = (body ?? {}) as Record<string, unknown>;
+  const { venueId, paymentId, through, note } = (body ?? {}) as Record<string, unknown>;
   if (!Number.isInteger(venueId) || !Number.isInteger(paymentId))
     return NextResponse.json({ error: "venueId and paymentId are required." }, { status: 400 });
   const denied = denyVenue(admin, venueId as number);
@@ -50,13 +71,13 @@ export async function POST(req: NextRequest) {
   const byApi = through === "gateway";
   const result = byApi
     ? await refundOnline(paymentId as number, venueId as number, admin.id)
-    : await markRefunded(paymentId as number, venueId as number, admin.id);
+    : await markRefunded(paymentId as number, venueId as number, admin.id, typeof note === "string" ? note : null);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await logAction(admin, {
     venueId: venueId as number,
     action: "payment.refunded",
     detail: `Online payment ${paymentId}${owed ? `, ${money(owed.refundOwed)} to ${owed.payerName ?? "the payer"}` : ""}${
-      byApi ? `, through ${result.payment.providerName}` : ", in the gateway"
+      byApi ? `, through ${result.payment.providerName}` : `, by hand${typeof note === "string" && note.trim() ? ` (${note.trim().slice(0, 200)})` : ""}`
     }`,
   });
   return NextResponse.json({ payment: result.payment, pending: result.pending });

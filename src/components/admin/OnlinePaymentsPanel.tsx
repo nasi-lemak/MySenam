@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { OnlinePayment, PaymentDispute, PaymentSettings, RefundInFlight } from "@/lib/payments";
+import type { OnlinePayment, PaymentDispute, PaymentSettings, RefundInFlight, RefundWorkload } from "@/lib/payments";
 import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
@@ -33,6 +33,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [owed, setOwed] = useState<OnlinePayment[]>([]);
   const [inFlight, setInFlight] = useState<RefundInFlight[]>([]);
   const [disputes, setDisputes] = useState<PaymentDispute[]>([]);
+  const [workload, setWorkload] = useState<RefundWorkload | null>(null);
+  const [withinDays, setWithinDays] = useState(7);
   const [form, setForm] = useState({
     provider: "",
     credentials: {} as Record<string, string>,
@@ -66,6 +68,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       setOwed(paymentsData.refundsOwed);
       setInFlight(paymentsData.refundsInFlight ?? []);
       setDisputes(paymentsData.disputes ?? []);
+      setWorkload(paymentsData.workload ?? null);
+      setWithinDays(paymentsData.refundWithinDays ?? 7);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load payment settings");
     }
@@ -311,7 +315,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
           <h3 className="text-sm font-bold text-amber-900">Refunds owed</h3>
           <p className="mt-0.5 text-xs text-amber-800">
             Paid online, then cancelled, or paid for something gone by the time the money came in. Where the gateway can,
-            refund in one click; otherwise refund in the gateway&apos;s own dashboard, then mark it done.
+            refund in one click; otherwise refund in the gateway&apos;s own dashboard or by bank transfer, then mark it done
+            with the reference. Customers are told {withinDays} days (cancellation policy) and can see the date.
           </p>
           <ul className="mt-2 space-y-1.5 text-sm">
             {owed.map((p) => (
@@ -324,6 +329,20 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                     <span className="text-xs">{PURPOSES[p.purpose] ?? p.purpose}</span>
                   )}{" "}
                   · {p.providerName} <span className="font-mono text-xs">{p.billId}</span>
+                  {p.owed && (
+                    <>
+                      {" "}·{" "}
+                      {p.owed.overdue ? (
+                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">
+                          Overdue: owed {p.owed.days} days, due by {p.owed.dueBy}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-800">
+                          owed {p.owed.days} day{p.owed.days === 1 ? "" : "s"}, due by {p.owed.dueBy}
+                        </span>
+                      )}
+                    </>
+                  )}
                 </span>
                 <span className="flex gap-1.5">
                   {p.refundsByApi && (
@@ -345,9 +364,11 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                   )}
                   <button
                     disabled={busy}
-                    onClick={() =>
-                      call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id }, "Marked refunded.")
-                    }
+                    onClick={() => {
+                      const note = prompt(`Refunded ${money(p.refundOwed)} to ${p.payerName ?? "the payer"}. Reference (bank transfer or gateway), to find it again:`, "");
+                      if (note === null) return;
+                      call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id, note }, "Marked refunded.");
+                    }}
                     className="rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
                   >
                     {p.refundsByApi ? "Refunded in " + p.providerName : "Refunded"}
@@ -356,6 +377,44 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {workload && (workload.months.length > 0 || workload.owed > 0) && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <h3 className="font-semibold">Refund workload</h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Refunds staff made by hand, against those the gateway or credit made by itself: the cost of a gateway with no
+            refund API. Owed now: {workload.owed}
+            {workload.overdue > 0 ? `, ${workload.overdue} overdue` : ""}
+            {workload.oldestDays !== null ? `, the oldest ${workload.oldestDays} days` : ""}.
+          </p>
+          {workload.months.length > 0 && (
+            <table className="mt-2 w-full text-left text-xs">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="py-1">Month</th>
+                  <th className="py-1 text-right">By hand</th>
+                  <th className="py-1 text-right">Amount</th>
+                  <th className="py-1 text-right">Average days</th>
+                  <th className="py-1 text-right">Late</th>
+                  <th className="py-1 text-right">Automatic</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workload.months.map((m) => (
+                  <tr key={m.month} className="border-t border-slate-100">
+                    <td className="py-1">{m.month}</td>
+                    <td className="py-1 text-right">{m.byHand}</td>
+                    <td className="py-1 text-right">{money(m.byHandAmount)}</td>
+                    <td className="py-1 text-right">{m.averageDays ?? "—"}</td>
+                    <td className="py-1 text-right">{m.late}</td>
+                    <td className="py-1 text-right">{m.automatic}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 

@@ -21,7 +21,8 @@ import { MyVenues } from "@/components/MyVenues";
 import { GuestInvites } from "@/components/GuestInvites";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
-import { refundLines } from "@/lib/refund-text";
+import { refundLines, refundStatusLine } from "@/lib/refund-text";
+import type { RefundStatus } from "@/lib/payments";
 import type { T } from "@/lib/i18n";
 import { money } from "@/lib/region";
 
@@ -32,6 +33,7 @@ export default function AccountPage() {
   const [phone, setPhone] = useState<PhoneStatus | null>(null);
   const [gender, setGender] = useState<string | null>(null);
   const [bookings, setBookings] = useState<UserBookingRow[] | null>(null);
+  const [refunds, setRefunds] = useState<RefundStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export default function AccountPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("acct.loadFailed"));
       setBookings(data.bookings);
+      setRefunds(data.refunds ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("acct.loadFailed"));
     } finally {
@@ -222,6 +225,26 @@ export default function AccountPage() {
       <MyWaitlist phone={user.phone} />
 
       <section>
+        {refunds.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-lg font-bold">{t("refund.title")}</h2>
+            <ul className="mt-3 space-y-2">
+              {refunds.map((r) => {
+                const line = refundStatusLine(t, r);
+                const codes = (bookings ?? []).filter((b) => r.bookingIds.includes(b.id)).map((b) => b.code);
+                return (
+                  <li
+                    key={r.paymentId}
+                    className={`rounded-lg border px-3 py-2 text-sm ${line.late ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-700"}`}
+                  >
+                    {codes.length > 0 && <span className="mr-2 font-mono text-xs text-slate-500">{t("refund.forBooking", { code: codes.join(", ") })}</span>}
+                    {line.text}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <h2 className="text-lg font-bold">{t("acct.upcoming")}</h2>
         {upcoming.length === 0 ? (
           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">

@@ -34,7 +34,7 @@ import { windowFor } from "@/lib/house-rules";
 import { MAX_SERIES_WEEKS, Sport } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
-import { takesPaymentOnline } from "@/lib/payments";
+import { refundStatusFor, takesPaymentOnline } from "@/lib/payments";
 import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
@@ -475,5 +475,7 @@ export async function GET(req: NextRequest) {
     receiptUrl: booking.paymentStatus === "paid" && booking.totalPrice > 0 ? receiptPath(booking.code) : null,
     // Once played: where to rate the visit.
     reviewUrl: (await reviewable(booking.code)).ok ? reviewPath(booking.code) : null,
+    // Paid online and owed back, or refunded: by when, as the venue promised.
+    refunds: await refundStatusFor([booking.id]),
   });
 }

@@ -11,8 +11,9 @@ import PayOnline from "@/components/PayOnline";
 import { SplitCost } from "@/components/SplitCost";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
-import { refundLines } from "@/lib/refund-text";
+import { refundLines, refundStatusLine } from "@/lib/refund-text";
 import { money, intlTag, region } from "@/lib/region";
+import type { RefundStatus } from "@/lib/payments";
 
 interface Result {
   booking: Booking;
@@ -26,6 +27,8 @@ interface Result {
   reviewUrl?: string | null;
   /** The share the venue takes online to hold it, while it is held and nothing is paid. */
   depositPercent?: number | null;
+  /** Paid online and owed back, or refunded. */
+  refunds?: RefundStatus[];
 }
 
 export default function MyBookingPage() {
@@ -223,6 +226,18 @@ export default function MyBookingPage() {
                 {line}
               </p>
             ))}
+          {!refunded.length &&
+            (result.refunds ?? []).map((r) => {
+              const line = refundStatusLine(t, r);
+              return (
+                <p
+                  key={r.paymentId}
+                  className={`mt-3 rounded-lg border px-3 py-2 text-sm ${line.late ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+                >
+                  {line.text}
+                </p>
+              );
+            })}
           {b.releasedUnpaid && (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("hold.released")}</p>
           )}

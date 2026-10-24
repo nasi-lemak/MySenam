@@ -28,7 +28,7 @@ still reads the older names.
 | POST   | `/api/access`         | `{code, phone}` → the door code for an unmanned resource |
 | GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
 | POST   | `/api/bookings`       | `{courtId \| venueId+sport, sport?, date, start, end \| minutes, players?, name, phone, email?, weeks?, skipConflicts?, override?}`; `sport` picks the activity on a court offering several (else its main one; `SPORT_NOT_HERE` if it offers none such); `players` is places on a shared facility; `SIGN_OFF_NEEDED` or `CERTIFICATION_NEEDED` where the activity asks for one (online, on the signed-in account; booked by the venue's own staff, by number), `SIGN_OFF_EACH` for several places on one, `CLASSES_ONLY` for a room run as classes; `override` (managers) books outside the court's rules, recorded |
-| GET    | `/api/bookings`       | `?code=&phone=` → booking details                   |
+| GET    | `/api/bookings`       | `?code=&phone=` → booking details, with any refund owed or made on it (`refunds`) |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
 | POST   | `/api/bookings/cancel-series` | `{seriesCode, phone}` → cancel all future sessions |
 
@@ -44,7 +44,7 @@ Account endpoints (session cookie):
 | POST   | `/api/auth/reset`         | `{token, password}` → new password + signed in  |
 | GET    | `/api/my/password`        | `{hasPassword}` (Google accounts may have none) |
 | POST   | `/api/my/password`        | `{current, next}` → change it; others signed out |
-| GET    | `/api/my/bookings`        | The signed-in user's bookings                   |
+| GET    | `/api/my/bookings`        | The signed-in user's bookings, and refunds owed or made on them (`refunds`) |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
 | POST   | `/api/my/vouchers`        | `{code}` → a gift voucher, as credit            |
 | POST   | `/api/vouchers`           | Buy a gift voucher online → `{url}` to pay      |
@@ -242,7 +242,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/addons` | `{ venueId, name, kind: "rental" \| "sale", price, stock?, sport? }` |
 | PATCH | `/api/admin/addons/:id` | Change it, or retire it with `active: false` and bring it back with `true` |
 | DELETE | `/api/admin/addons/:id` | Retired, not deleted: bookings that had it still say what they had |
-| GET | `/api/admin/attention` | Urgent news not yet known to have reached the customer, and what closed this week |
+| GET | `/api/admin/attention` | Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told (`refundsOverdue`) |
 | POST | `/api/admin/attention` | `{ id, action: "told" }` — staff told the customer another way |
 | GET | `/api/admin/auth/two-factor` | This account's two-factor sign-in: on or off, and whether the install requires it |
 | POST | `/api/admin/auth/two-factor` | `{ action: "start" }` → a new secret and its QR code to scan; `{ action: "confirm", code }` → turns it on, with recovery codes shown once; `{ action: "renew", code }` → new recovery codes; `{ action: "disable", code }` → off, where the install allows |
@@ -301,8 +301,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/admin/notices` | `?venueId=` → a venue's notices; `?venueId=site` → the site-wide one (platform owner) |
 | POST | `/api/admin/notices` | `{ venueId \| "site", text, link?, startsOn, endsOn }` |
 | DELETE | `/api/admin/notices/:id` | Taken down: by the venue's staff, or the platform owner |
-| GET | `/api/admin/online-payments` | `?venueId=` → the venue's recent online payments, and what it owes back |
-| POST | `/api/admin/online-payments` | `{ venueId, paymentId }` → staff have refunded it in the gateway. `{ venueId, paymentId, through: "gateway" }` → refund it now, through the gateway's API with the venue's account |
+| GET | `/api/admin/online-payments` | `?venueId=` → the venue's recent online payments, what it owes back (each with how long it has been owed and whether it is overdue), and its refund workload. `?workload=all` → the workload across every venue (the platform's owner) |
+| POST | `/api/admin/online-payments` | `{ venueId, paymentId, note? }` → staff have refunded it themselves, with the reference they wrote down. `{ venueId, paymentId, through: "gateway" }` → refund it now, through the gateway's API with the venue's account |
 | GET | `/api/admin/outages` | `?venueId=` — its courts' outages, now and to come |
 | POST | `/api/admin/outages` | `{ courtId, startsOn, endsOn: string \| null, reason?, cancelAffected? }` — take a court out. 409 with `affected` when something is booked in the stretch and `cancelAffected` was not given |
 | DELETE | `/api/admin/outages` | `?id=` — back in service from today |
