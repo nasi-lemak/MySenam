@@ -65,6 +65,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Subject | Authoritative document |
 | ------- | ---------------------- |
 | Billplz and Stripe set-up | [Payment gateways](integrations/payment-gateways.md) |
+| Which payment, email, phone-check and storage providers to launch with, and why | [Launch providers](integrations/launch-providers.md) |
 | Email, WhatsApp and SMS: what is sent when, delivery, costs, marketing email | [Messaging](integrations/messaging.md) |
 | WhatsApp set-up and every template, word for word | [WhatsApp templates](integrations/whatsapp-templates.md) |
 | LHDN MyInvois e-invoicing | [MyInvois](integrations/myinvois.md) |

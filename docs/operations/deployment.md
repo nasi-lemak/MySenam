@@ -106,7 +106,8 @@ these once with a real account, in its sandbox where it has one:
 ### Launch integration checklist
 
 What each launch service needs before it can be verified, how to verify it,
-and what the local tests already cover (against stand-ins only). None of
+and what the local tests already cover (against stand-ins only). Which
+providers to choose is [launch providers](../integrations/launch-providers.md). None of
 these is verified yet; each stays `INTEGRATION_VERIFICATION_REQUIRED` in
 [feature status](../product/feature-status.md) until its check passes, and
 the result is recorded there with the date.
@@ -120,6 +121,7 @@ the result is recorded there with the date.
 | Transactional email | An SMTP account and a sending domain with SPF, DKIM and DMARC (the email provider; the domain's DNS owner) | A booking confirmation with its invite, a password reset and an application confirmation arrive in an inbox, not spam; a reset whose link has run out is not sent; a bounce is looked at in the provider's dashboard (not read back by the app) | `tests/outbox.test.ts`, `tests/platform-messages.test.ts` |
 | Phone verification | WhatsApp: a Meta Business account, a verified number and approved templates (Meta, days to weeks). SMS: a Twilio or HTTP gateway account and, in Malaysia, sender registration | A code arrives and is accepted; the daily cap holds; the delivery webhook marks a message delivered | `tests/phone-methods.test.ts` |
 | Object storage and restore | A private bucket (R2, B2 or S3) with a lifecycle rule; an upload-only key for the server and a read-and-list key kept off it | The nightly copy lands with its manifest; `fetch-backup` and `restore --drill` pass on an isolated server; `secret.key` or `MYSENAM_SECRET` restored from where it is kept opens the payment keys; photos bucket uploads and serves a photo | `tests/offsite.test.ts`, `tests/backup-scripts.test.ts`, `tests/photos.test.ts` |
+| Tax on money kept from hire deposits | A qualified accountant or tax adviser for each country (and each venue registered for SST or GST) | The adviser reviews each reason's treatment under *Tax*; changes are made; the manager records the review with the adviser's name. Until then every amount kept is marked provisional in the journal | `tests/hire.test.ts` |
 | Monitoring and alerts | An error-tracking DSN (`SENTRY_DSN`) and an owner email that receives alerts | A deliberate error reaches the tracker; a failed backup or off-site copy, and a `refund_failed` integrity problem, email the owners; `/api/health` is polled by an uptime monitor | `tests/alerts.test.ts`, `tests/integrity.test.ts` |
 
 Missing today: every credential above. None is in this repository or its
