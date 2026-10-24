@@ -49,6 +49,7 @@ export async function PATCH(
     weekHours?: unknown;
     staffedFrom?: number | null;
     staffedTo?: number | null;
+    partlyUnstaffed?: "code" | "counter";
     emergencyPhone?: string | null;
     emergencyInfo?: string | null;
   } = {};
@@ -95,6 +96,13 @@ export async function PATCH(
         { status: 400 }
       );
     changes[field] = value as number;
+  }
+
+  // A booking staffed for only part of its time: the door code, or somebody stays on the desk.
+  if (input.partlyUnstaffed !== undefined) {
+    if (input.partlyUnstaffed !== "code" && input.partlyUnstaffed !== "counter")
+      return NextResponse.json({ error: "partlyUnstaffed must be code or counter." }, { status: 400 });
+    changes.partlyUnstaffed = input.partlyUnstaffed;
   }
 
   for (const field of ["emergencyPhone", "emergencyInfo"] as const) {

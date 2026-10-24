@@ -100,9 +100,9 @@ have the fields.
 | POST   | `/api/access`         | `{code, phone}` → the door code for an unmanned resource |
 | GET    | `/api/checkin/qr`     | `?token=` → that booking's QR code as an SVG        |
 | POST   | `/api/bookings`       | `{courtId \| venueId+sport, sport?, date, start, end \| minutes, players?, name, phone, email?, weeks?, skipConflicts?, override?}`; `sport` picks the activity on a court offering several (else its main one; `SPORT_NOT_HERE` if it offers none such); `players` is places on a shared facility; `SIGN_OFF_NEEDED` or `CERTIFICATION_NEEDED` where the activity asks for one (online, on the signed-in account; booked by the venue's own staff, by number), `SIGN_OFF_EACH` for several places on one, `CLASSES_ONLY` for a room run as classes; `override` (managers) books outside the court's rules, recorded |
-| GET    | `/api/bookings`       | `?code=&phone=` → booking details, with any refund owed or made on it (`refunds`) |
+| GET    | `/api/bookings`       | `?code=&phone=` → booking details, with any refund owed or made on it (`refunds`); on an unmanned resource, `door`: `{by: "code" \| "counter", partly}` by the booking's whole time |
 | POST   | `/api/bookings/cancel`| `{code, phone}` → cancel (before start time only)   |
-| POST   | `/api/bookings/cancel-series` | `{seriesCode, phone}` → cancel all future sessions |
+| POST   | `/api/bookings/cancel-series` | `{seriesCode, phone, preview: true}` → `weeks`: each upcoming week and what cancelling it would do (`free`, `late` with the share kept, or `stays` and why); `{seriesCode, phone, codes, acceptLate}` → cancel those weeks, late ones only if listed in `acceptLate` (`SERIES_CHANGED` if a week's terms moved since); without `codes`, only the weeks free to cancel, the rest returned as `left` |
 
 Account endpoints (session cookie):
 
@@ -125,7 +125,7 @@ Account endpoints (session cookie):
 | GET    | `/api/my/membership`      | The signed-in customer's memberships            |
 | POST   | `/api/my/membership`      | `{planId, autoRenew?}` → the page to pay the venue on; the membership is made once it is paid, and with `autoRenew` again each period |
 | DELETE | `/api/my/membership`      | `?renewal=<id>` → stop renewing; the membership runs to its end |
-| GET    | `/api/my/waitlist`        | Classes you are queuing for, and any live offer |
+| GET    | `/api/my/waitlist`        | Places you are queuing for, and any live offer: those this account joined, or on its proved number |
 | GET/POST | `/api/venues/:id/terms` | The venue's booking rules, and for an account whether it put them away and its strikes / `{version}`: don't show again |
 | GET    | `/api/my/data`            | Everything held against this account, as a file |
 | POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account        |
@@ -198,7 +198,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
 | PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?, noun?, activities?}`; `activities` is `[{sport, offPeakRate?, peakRate?}]` besides its main one (refused while one taken off has bookings to come); `flatRate`, `quantityPrices` (`[{from, percent}]`) and `classesOnly` say how a booking is priced and sold |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
-| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openMin?, closeMin?, staffedFrom?, staffedTo?, emergencyPhone?, emergencyInfo?}` |
+| PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openMin?, closeMin?, staffedFrom?, staffedTo?, partlyUnstaffed?, emergencyPhone?, emergencyInfo?}`; `partlyUnstaffed` is `code` or `counter`: a booking staffed for only part of its time gets the door code, or somebody stays on the desk |
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
 | POST   | `/api/admin/venues/:id/closures` | `{date, reason?}` → close that whole day          |
 | DELETE | `/api/admin/venues/:id/closures?date=` | Re-open a closed day                        |
@@ -213,6 +213,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
 | POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
+| POST   | `/api/admin/admins/:id/two-factor-reset` | `{reason, code}`: reset a member of staff's two-factor sign-in after they lost both authenticator and recovery codes; by an owner or that business's manager (an owner only by another owner), with the caller's own current `code`; signs them out, recorded, emailed to them and the owners |
 
 ## More routes, by area
 

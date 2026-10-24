@@ -541,6 +541,21 @@ describe("how a tournament treats somebody who leaves (its rules)", () => {
     expect(semiLines(still)).toEqual(semiLines(filled));
   });
 
+  it("owes back a fee paid online to somebody who withdraws before the draw, where the rules say so", async () => {
+    const t = await tournament();
+    expect((await setRules(t.id, { refundBeforeDraw: true })).ok).toBe(true);
+    const [only] = await entries(t.id, 1);
+    await getDb()
+      .prepare(
+        `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, status, payer_name, purpose, tournament_entry_id)
+         VALUES ('stripe', 'cs_refunded', 'https://x', ?, 20, 'paid', 'Refunded', 'entry', ?)`
+      )
+      .run(venueId, only.entryId);
+    expect((await withdraw(only.entryId)).ok).toBe(true);
+    const due = (await getDb().prepare("SELECT refund_due::float AS d FROM online_payments WHERE bill_id = 'cs_refunded'").get()) as { d: number };
+    expect(due.d).toBe(20);
+  });
+
   it("keeps a fee paid online before the draw where the rules say no refund", async () => {
     const t = await tournament();
     expect((await setRules(t.id, { refundBeforeDraw: false })).ok).toBe(true);

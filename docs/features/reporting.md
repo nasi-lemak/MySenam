@@ -22,8 +22,19 @@ booking was taken, because that is how an operator thinks about a month.
   venue look idle.
 - **Hours sold by time of day** is the one chart that changes a decision:
   it shows where peak really is, which is a question about the peak rate.
+- **Courts are measured by their floor.** Each piece of floor that can be sold
+  on its own (a court, or each court under a pitch) is counted once: an hour of
+  it is in use when any booking covers it, sold as the court or as the pitch
+  over it, and it is taken out where a block or outage on either covers it. A
+  hall sold as one futsal pitch every evening therefore reads full, not a
+  third idle, and the pitch is not a third court's worth of hours to sell.
+  Beside it the report gives what the courts took per hour of floor that could
+  have been sold, and each court's line shows its own hours sold and, where a
+  court sharing its floor was booked, the hours it was **in use** (not free to
+  sell) besides ([B11](../roadmap/known-limitations.md#fixed-since-the-audit);
+  `tests/reports-floor.test.ts`).
 - **Utilisation is reported twice**, for exclusive courts and for shared floors
-  and pools, never blended. A forty-place gym offers more place-hours in a
+  and pools (places sold against places offered), never blended. A forty-place gym offers more place-hours in a
   fortnight than every court in the building put together, so one combined
   figure lets the gym decide the headline and teaches an owner nothing about
   either. The demo data is what made that obvious: courts read 13% while the

@@ -146,7 +146,9 @@ running booking software and running a payments business.
   the rest was paid at the counter, with credit or with a pass, what was paid
   that way keeps a receipt of its own, dated when it was paid, and the
   booking shows as unpaid for the deposit's part. If the rest was paid online,
-  the booking stays paid and staff are told what went back.
+  the same: that payment keeps its receipt under its own key, so cancelling
+  the booking later still owes it back, and the booking shows as unpaid for
+  the deposit's part.
   Repeats of the same outcome do nothing. **Won**: only the record changes. Billplz (FPX) has no card
   chargebacks to report.
 - **Chargebacks on what a venue paid the platform** — a monthly invoice or a
@@ -154,9 +156,13 @@ running booking software and running a payments business.
   (`STRIPE_WEBHOOK_SECRET`). The dispute is recognised by that secret, written
   to `payment_disputes` once, and the platform owners are emailed when it
   opens and when it is decided; the venue's staff are not, and it is not
-  listed among the venue's disputes. A lost one changes nothing on its own:
-  the invoice stays paid and the pack stays credited until an owner decides
-  otherwise.
+  listed among the venue's disputes. Lost in full, what it paid for is owed
+  again, so the books do not show as settled what was not: the invoice is due
+  again in 14 days (an owner voids it under Billing to let it go), and a pack
+  is due again with its messages taken back, those already sent leaving the
+  venue's WhatsApp balance below nothing until it is paid, so paying again
+  does not give them twice. Lost in part, the owners are told and settle it by
+  hand.
 - **Refunds when a customer cancels** — a venue can skip the queue for what a
   customer cancels themselves (by code, from their account, or a whole series),
   under *Cancellations, refunds and no-shows* (`refundCancelled` in

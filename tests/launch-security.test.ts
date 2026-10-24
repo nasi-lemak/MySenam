@@ -13,7 +13,7 @@ import {
 import { hashPassword } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { crossSiteRefusal, type RequestFacts } from "../src/lib/same-origin";
-import { securityHeaders } from "../src/lib/security-headers";
+import { contentSecurityPolicy, newNonce, securityHeaders } from "../src/lib/security-headers";
 
 /**
  * What the market research called trust blockers before any venue sees the
@@ -69,13 +69,13 @@ describe("the published default owner password", () => {
 });
 
 describe("security headers", () => {
-  const byName = (dev: boolean) => new Map(securityHeaders(dev).map((h) => [h.key, h.value]));
+  const h = new Map(securityHeaders().map((x) => [x.key, x.value]));
 
-  it("forbid framing, foreign scripts and plugins, and ask for HTTPS", () => {
-    const h = byName(false);
-    const csp = h.get("Content-Security-Policy")!;
+  it("forbid framing, scripts without this response's nonce, and plugins, and ask for HTTPS", () => {
+    const csp = contentSecurityPolicy("abc123==", false);
     expect(csp).toContain("frame-ancestors 'none'");
-    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+    // Only scripts carrying the nonce, and what they load; 'unsafe-inline' is ignored by any browser that reads nonces.
+    expect(csp).toContain("script-src 'self' 'nonce-abc123==' 'strict-dynamic'");
     expect(csp).not.toContain("unsafe-eval");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("form-action 'self'");
@@ -85,8 +85,14 @@ describe("security headers", () => {
     expect(h.get("Permissions-Policy")).toContain("geolocation=(self)");
   });
 
+  it("makes a fresh, unguessable nonce for each response", () => {
+    const seen = new Set(Array.from({ length: 50 }, () => newNonce()));
+    expect(seen.size).toBe(50);
+    for (const n of seen) expect(atob(n)).toHaveLength(16);
+  });
+
   it("let React's development tools evaluate code, only in development", () => {
-    expect(byName(true).get("Content-Security-Policy")).toContain("'unsafe-eval'");
+    expect(contentSecurityPolicy("x", true)).toContain("'unsafe-eval'");
   });
 });
 

@@ -22,7 +22,7 @@ import { joinTerms } from "./membership-plans";
 import { accessSettings, accountPhone } from "./access";
 import { toWhatsAppNumber } from "./transports";
 import { baseUrl } from "./outbox";
-import { formatHour } from "./time";
+import { addDays, formatHour, todayISO } from "./time";
 import { Booking, MAX_TOP_UP } from "./types";
 import { settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
@@ -2258,8 +2258,8 @@ async function noteDispute(
  * invoice or a WhatsApp pack, paid through the platform's own gateway
  * account. Written down once, and the platform owners told by email when it
  * opens and when it is decided, since only they can answer it, in that
- * account's dashboard. A lost one changes nothing here by itself: the owners
- * decide whether the invoice is owed again or the pack is taken back.
+ * account's dashboard. Lost, what it paid for is owed again
+ * (`platformDisputeLost`), and the owners decide whether to pursue it.
  */
 export async function recordPlatformDispute(provider: string, billId: string, event: DisputeEvent): Promise<boolean> {
   const db = getDb();
@@ -2287,14 +2287,50 @@ export async function recordPlatformDispute(provider: string, billId: string, ev
         "Nothing changes here on its own: if the bank decides for the venue, decide whether the invoice is owed again or the pack taken back.",
       ].join("\n\n")
     );
+  const reopened = decided === "lost" ? await platformDisputeLost(payment, amount) : null;
   if (decided && !opened)
     await tellOwners(
       `Dispute ${decided}: ${money(amount)} from ${who}`,
       decided === "won"
         ? `The bank decided for ${siteName()}: the ${money(amount)} ${who} paid for ${what} stays.`
-        : `The bank decided for ${who}: ${money(amount)} paid for ${what} has gone back to them. It still shows as paid here; decide whether it is owed again.`
+        : `The bank decided for ${who}: ${money(amount)} paid for ${what} has gone back to them. ${reopened ?? "It still shows as paid here; decide whether it is owed again."}`
     );
   return true;
+}
+
+/**
+ * The money a venue paid the platform went back through its bank: what it
+ * paid for is owed again, so the books do not show as settled what was not.
+ * An invoice is due again, in 14 days (the owners can void it if they let it
+ * go); a WhatsApp pack is due again and its messages are taken back, those
+ * already sent leaving the balance below nothing, so paying for it again does
+ * not give them twice. Only the whole of it: a part disputed is the owners'
+ * to settle by hand. Says what it did, for the owners' email.
+ */
+async function platformDisputeLost(payment: PaymentRow, amount: number): Promise<string | null> {
+  if (amount < Number(payment.amount) - 0.005) return null;
+  const db = getDb();
+  return withTransaction(async () => {
+    await db.prepare("UPDATE online_payments SET refunded = amount, refund_due = amount WHERE id = ?").run(payment.id);
+    if (payment.purpose === "invoice" && payment.invoice_id !== null) {
+      const due = addDays(todayISO(), 14);
+      const done = await db
+        .prepare("UPDATE venue_invoices SET status = 'due', paid_at = NULL, paid_via = NULL, due_on = ? WHERE id = ? AND status = 'paid'")
+        .run(due, payment.invoice_id);
+      return done.changes === 1 ? `The invoice is owed again, due on ${due}; void it under Billing if you decide to let it go.` : null;
+    }
+    if (payment.purpose === "pack" && payment.pack_id != null) {
+      const pack = (await db
+        .prepare("UPDATE whatsapp_packs SET status = 'due', paid_at = NULL, paid_via = NULL WHERE id = ? AND status = 'paid' RETURNING venue_id, messages")
+        .get(payment.pack_id)) as { venue_id: number; messages: number } | undefined;
+      if (!pack) return null;
+      await db
+        .prepare("INSERT INTO whatsapp_credit (venue_id, delta, reason, pack_id) VALUES (?, ?, 'chargeback', ?)")
+        .run(pack.venue_id, -pack.messages, payment.pack_id);
+      return `The pack is owed again and its ${pack.messages} messages were taken back; any already sent leave the venue's balance below nothing until it is paid.`;
+    }
+    return null;
+  });
 }
 
 /**
@@ -2389,14 +2425,24 @@ async function disputeLost(payment: PaymentRow, disputed: number): Promise<void>
     // A link made before each booking's part was recorded: nothing to unpay it by.
     if (b.payment_status === "paid" && part <= 0) continue;
     if (b.payment_status === "paid") {
-      // Called off since: what was owed back was settled then. Paid the rest
-      // online: that payment's own refund rules hang on the booking being
-      // paid online, so it stands and the venue is told what went back.
-      if (b.status === "cancelled" || b.paid_via === "online") continue;
-      // Paid the rest at the counter, with credit or with a pass: what was
-      // paid that way stands, on a receipt of its own dated when it was paid;
-      // the booking is unpaid for the part that went back.
-      const kept = await keepBookingReceipt(b.id, `booking-paid:${b.id}:${payment.id}`, b.paid_at);
+      // Called off since: what was owed back was settled then.
+      if (b.status === "cancelled") continue;
+      // Paid the rest online: that payment stands, on a receipt of its own
+      // under its own key (so a later cancellation still owes it back,
+      // lib/store.ts noteOnlineRefundDue); at the counter, with credit or with
+      // a pass: the same, dated when it was paid. Either way the booking is
+      // unpaid for the part that went back, which is owed again.
+      const rest =
+        b.paid_via === "online"
+          ? ((await db
+              .prepare(
+                `SELECT p.id FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
+                  WHERE pb.booking_id = ? AND p.id <> ? AND p.status = 'paid' AND p.deposit = 0 ORDER BY p.id DESC LIMIT 1`
+              )
+              .get(b.id, payment.id)) as { id: number } | undefined)
+          : undefined;
+      if (b.paid_via === "online" && !rest) continue;
+      const kept = await keepBookingReceipt(b.id, `booking-paid:${b.id}:${rest?.id ?? payment.id}`, b.paid_at);
       await db
         .prepare(
           `UPDATE bookings SET payment_status = 'unpaid', paid_via = NULL, paid_at = NULL,

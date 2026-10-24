@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { phoneChecksOn } from "./phone-check";
-import { activeMembership } from "./store";
+import { activeMembership, memberNumberTrusted } from "./store";
 import { todayISO } from "./time";
 import type { Refusal } from "./types";
 import { longEnough } from "./phone";
@@ -109,7 +109,8 @@ export async function eligible(venueId: number, userId: number, mode?: VenueAcce
   if (await onAccessList(venueId, userId)) return true;
   if (access === "members") {
     const phone = await accountPhone(userId);
-    return phone !== null && (await activeMembership(venueId, phone)) !== null;
+    // The account's own number, proved or linked to the membership: a number anybody can type is not membership.
+    return phone !== null && (await activeMembership(venueId, phone)) !== null && (await memberNumberTrusted(phone, { userId, by: "customer" }));
   }
   return false;
 }

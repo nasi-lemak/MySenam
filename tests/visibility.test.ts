@@ -133,9 +133,13 @@ describe("booking", () => {
       expiresOn: addDays(todayISO(), 30),
       price: 150,
       adminId: ownerId,
+      // Linked to the account at the counter: a membership on the number alone is not this account's.
+      userId: paid.id,
     });
     expect(sold.ok).toBe(true);
     expect(await accessRefusal(members, paid.id)).toBeNull();
+    // Another account that typed the same number in is not a member.
+    expect(await accessRefusal(members, (await customer("0170000011")).id)).toMatchObject({ code: "MEMBERS_ONLY" });
 
     const listed = await customer("0170000012");
     await addAccess(members, [{ phone: "0170000012", kind: "member", label: "M-0042" }], ownerId);

@@ -35,6 +35,12 @@ export interface Venue {
    */
   staffedFrom: number | null;
   staffedTo: number | null;
+  /**
+   * A booking that is staffed for only part of its time: `code` gives it the
+   * door code like an unstaffed one; `counter` means somebody stays on the
+   * desk until it ends, so there is no code.
+   */
+  partlyUnstaffed?: "code" | "counter";
   /** Shown to anyone letting themselves in. */
   emergencyPhone: string | null;
   emergencyInfo: string | null;
@@ -67,6 +73,42 @@ export function isUnstaffedHour(
     ? hour < from || hour >= to
     : // A window that wraps past midnight, such as 22:00–06:00.
       hour < from && hour >= to;
+}
+
+/**
+ * Whether the counter is staffed for a booking's whole time (minutes from the
+ * start of its day, past 1440 for one that runs after midnight), for none of
+ * it, or for part of it. Staffed hours are whole hours, so checking each hour
+ * the booking touches is exact.
+ */
+export function staffingDuring(
+  venue: Pick<Venue, "staffedFrom" | "staffedTo">,
+  startMin: number,
+  endMin: number
+): "staffed" | "unstaffed" | "partly" {
+  let staffed = false;
+  let unstaffed = false;
+  for (let hour = Math.floor(startMin / 60); hour * 60 < endMin; hour++) {
+    // Hours past midnight stay past 24 (25 is 1 AM), as staffed windows are written.
+    if (isUnstaffedHour(venue, hour)) unstaffed = true;
+    else staffed = true;
+  }
+  return staffed && unstaffed ? "partly" : unstaffed ? "unstaffed" : "staffed";
+}
+
+/**
+ * How a customer gets in for a booking on an unmanned resource: the door code
+ * (`partly` when the counter is open for some of it), or the counter.
+ */
+export function doorFor(
+  venue: Pick<Venue, "staffedFrom" | "staffedTo" | "partlyUnstaffed">,
+  startMin: number,
+  endMin: number
+): { by: "code" | "counter"; partly: boolean } {
+  const staffing = staffingDuring(venue, startMin, endMin);
+  if (staffing === "staffed") return { by: "counter", partly: false };
+  if (staffing === "unstaffed") return { by: "code", partly: false };
+  return { by: venue.partlyUnstaffed === "counter" ? "counter" : "code", partly: true };
 }
 
 /** A whole day a venue is shut. */

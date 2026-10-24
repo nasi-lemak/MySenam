@@ -124,7 +124,9 @@ describe("booking across a link", () => {
     const real = (await getDb()
       .prepare("SELECT COALESCE(SUM(k.end_min - k.start_min), 0)::float / 60 AS h FROM bookings k WHERE k.date = ? AND k.status = 'confirmed' AND k.court_id IN (?, ?, ?, ?)")
       .get(date, pitch, a, b, c)) as { h: number };
-    expect(report!.utilisation.courts.soldHours).toBe(real.h);
+    // Sold on its own court, once; the floor measure (tests/reports-floor.test.ts) counts the floor each covers.
+    const exclusive = report!.byCourt.filter((line) => line.courtId !== shared);
+    expect(exclusive.reduce((sum, line) => sum + line.hours, 0)).toBe(real.h);
   });
 });
 

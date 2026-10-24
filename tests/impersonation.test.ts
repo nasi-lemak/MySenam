@@ -109,22 +109,18 @@ describe("registering with somebody else's phone number", () => {
   });
 
   /**
-   * Not a leak, and deliberately left alone — but worth pinning so that
-   * changing it is a decision rather than an accident.
-   *
-   * A membership is held against a phone number on purpose: the docs say a
-   * member who books as a guest, without signing in, still gets their price.
-   * That means anyone who types a member's number gets the member rate, signed
-   * in or not, and this test only shows the same thing through the account
-   * page. The cost is the difference between two rates, the benefit is that a
-   * member never has to remember a login — a trade the venue made, not a hole
-   * in the software. Pass codes are different, which is why those moved.
+   * Pinned so that changing it is a decision rather than an accident. Until
+   * October 2026 a membership was claimed by typing its number, a trade the
+   * venue made for members who never sign in. The owner decided that a typed
+   * number is not identity: online, a membership counts only for the account
+   * it is linked to or the account whose number it is, proved with a code
+   * (docs/architecture/privacy.md). At the counter staff still take the number.
    */
-  it("does get the member rate, because a membership is held against the number", async () => {
+  it("does not get the member rate on a number it only typed", async () => {
     const mod = await import("../src/app/api/availability/route");
     const path = `/api/availability?venueId=${venueId}&date=${addDays(todayISO(), 2)}&sport=badminton`;
     const body = await (await mod.GET(req(path, attackerCookie))).json();
-    expect(body.memberRates).toBe(true);
+    expect(body.memberRates).toBe(false);
   });
 });
 

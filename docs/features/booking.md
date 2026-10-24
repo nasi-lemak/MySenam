@@ -456,8 +456,20 @@ Each venue carries a `cancel_cutoff_hours` (default 2, max 72). Customer-facing
 cancellation — by code, from an account, or for a whole series — is refused
 inside that window with a message naming the cutoff, while
 `/api/admin/bookings/cancel` always succeeds so the front desk can make
-exceptions. Cancelling a series drops only the sessions still outside the
-window.
+exceptions.
+
+**Cancelling a weekly series** shows each upcoming week and what cancelling it
+would do before anything is done: inside the free window, all of it back;
+past it, where the venue allows late cancels, the venue's share kept and the
+rest back (or a late cancel counted where nothing was paid); past it where the
+venue does not, or with kit still out on hire, the week stays booked, with
+what is still owed. The customer picks the weeks, and each goes on its own
+terms, all in one transaction. A late week is cancelled only when the
+customer accepted the late terms they were shown; if a week's terms changed
+since (it crossed the cutoff, or the venue changed its policy), nothing is
+cancelled and they are asked to look again (`SERIES_CHANGED`). Asked without a
+choice (an older client), only the weeks free to cancel go, and the weeks left
+are returned by name (`tests/series-cancel.test.ts`).
 
 After a slot has passed, staff can flag it a no-show from the Bookings tab. The
 flag is reversible, never applies to a cancelled booking, and the day list shows

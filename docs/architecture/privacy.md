@@ -35,12 +35,19 @@ the person is standing there to say it. A pass with no account on it simply
 does not appear on anybody's page, and the page says so rather than implying
 nothing was sold.
 
-Memberships are different on purpose. A membership is held against the phone
-number so that a member who books as a guest, without signing in, still gets
-their price — which also means anybody who types that number gets the member
-rate. That is a discount the venue chose to make easy to claim, not a hole; it
-costs the difference between two rates, and it is pinned by a test so that
-changing it is a decision rather than an accident.
+Memberships follow the same rule online. A membership is still sold against a
+phone number, and at the counter (or through the venue's API key) staff take
+the number on their word, since they see or know the person. Online, its rate,
+its longer booking window and entry to a members-only venue or tournament go
+only to the account it is linked to (`memberships.user_id`, set when it is
+bought online or when staff sell it to an account), or to the account whose
+own number it is, proved with a code. A guest, or an account that only typed
+the number in, books at the public price. Until October 2026 typing the number
+was enough, a trade made so members need never sign in; the owner decided a
+typed number is not identity, and the old rule's test now pins the new one
+(`tests/impersonation.test.ts`, `tests/member-identity.test.ts`). The same goes
+for an account's waiting-list places: those it joined, or on its proved
+number, not every place queued on a number it typed.
 
 ## Asking a venue in person
 

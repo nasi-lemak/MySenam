@@ -16,6 +16,7 @@
     "fetch-backup": "node scripts/fetch-backup.mjs",
     "verify-offsite": "node scripts/verify-offsite.mjs",
     "import-sqlite": "node scripts/import-sqlite.mjs",
+    "reset-two-factor": "node scripts/reset-two-factor.mjs",
     "coverage": "vitest run --coverage",
     "docs:check": "vitest run tests/docs.test.ts",
     "e2e": "vitest run --config vitest.e2e.config.mts",

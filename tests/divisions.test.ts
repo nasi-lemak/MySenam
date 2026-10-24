@@ -231,8 +231,14 @@ describe("who may enter", () => {
     expect(d.membersOnly).toBe(true);
     const p = await player();
     expect(await enter(p, d.id)).toMatchObject({ ok: false, code: "ENTRY_MEMBERS_ONLY" });
-    await sellMembership({ venueId, holderName: p.name, holderPhone: p.phone, startsOn: todayISO(), expiresOn: addDays(todayISO(), 60), price: 50, adminId: ownerId });
+    // Sold to the account (staff give its email at the counter): in.
+    await sellMembership({ venueId, holderName: p.name, holderPhone: p.phone, startsOn: todayISO(), expiresOn: addDays(todayISO(), 60), price: 50, adminId: ownerId, userId: p.id });
     expect(await enter(p, d.id)).toMatchObject({ ok: true });
+    // Another account that typed the same number in is not a member (docs/architecture/privacy.md).
+    n++;
+    const typed = await registerUser({ name: "Typed It", email: `d${n}@div.my`, phone: p.phone, password: "a long enough password" });
+    if (!typed.ok) throw new Error(typed.error);
+    expect(await enter(typed.user, d.id)).toMatchObject({ ok: false, code: "ENTRY_MEMBERS_ONLY" });
   });
 
   it("a competition can cap how many of its divisions one player enters", async () => {

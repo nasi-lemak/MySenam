@@ -30,6 +30,7 @@ import {
   searchAvailability,
 } from "../src/lib/store";
 import { getDb } from "../src/lib/db";
+import { setCourtParts } from "../src/lib/court-links";
 import { addDays, todayISO } from "../src/lib/time";
 import { WAITLIST_OFFER_MINUTES } from "../src/lib/types";
 
@@ -458,6 +459,31 @@ describe("a place offered to somebody waiting", () => {
   it("still in its time, keeps the court from anybody else", async () => {
     const { court, date, hour } = await offered(7, 13);
     expect((await createBooking({ courtId: court.id, date, hours: [hour], name: "Too soon", phone: "0179990005" })).ok).toBe(false);
+  });
+
+  it("on a court under a pitch, keeps the pitch from being sold over it, and leaves the court beside it free", async () => {
+    const venue = (await listVenues())[0];
+    const make = async (name: string, sport: string) => {
+      const made = await createCourt({ venueId: venue.id, name: `${name} ${++seq}`, sport: sport as never, offPeakRate: 15, peakRate: 15 });
+      if (!made.ok) throw new Error(made.error);
+      return made.court.id;
+    };
+    const pitch = await make("Linked pitch", "futsal");
+    const a = await make("Linked A", "badminton");
+    const b = await make("Linked B", "badminton");
+    expect(await setCourtParts(pitch, [a, b])).toMatchObject({ ok: true });
+    const date = futureDate(8);
+    const holder = await createBooking({ courtId: a, date, hours: [15], name: "Holder", phone: "0172880001" });
+    if (!holder.ok) throw new Error(holder.error);
+    expect((await joinSlotWaitlist({ courtId: a, date, startHour: 15, endHour: 16, name: "Waiter", phone: "0172880002" })).ok).toBe(true);
+    await adminCancelBooking(holder.booking.code);
+    expect((await listWaitlistFor("0172880002"))[0].status).toBe("offered");
+
+    // The offer holds court A's floor, so the pitch over it cannot be sold then; B, beside it, can.
+    expect((await createBooking({ courtId: pitch, date, hours: [15], name: "Pitch", phone: "0172880003" })).ok).toBe(false);
+    const grid = await getAvailability(venue.id, date);
+    expect(grid.find((d) => d.court.id === pitch)!.slots.find((x) => x.hour === 15)!.available).toBe(false);
+    expect((await createBooking({ courtId: b, date, hours: [15], name: "Beside", phone: "0172880004" })).ok).toBe(true);
   });
 
   it("on a shared floor partly blocked, leaves no place to sell past what the grid shows", async () => {

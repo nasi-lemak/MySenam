@@ -202,10 +202,17 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 {percent(report.utilisation.courts.percent)}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                courts —{" "}
+                of the courts&apos; floor —{" "}
                 {report.utilisation.courts.soldHours.toLocaleString(intlTag("en"))} of{" "}
-                {report.utilisation.courts.sellableHours.toLocaleString(intlTag("en"))} hours
+                {report.utilisation.courts.sellableHours.toLocaleString(intlTag("en"))} hours, a pitch and the courts
+                under it counted once
               </div>
+              {report.utilisation.courts.sellableHours > 0 && (
+                <div className="mt-1 text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">{ringgit(report.utilisation.revenuePerHour)}</span> taken per
+                  hour of floor
+                </div>
+              )}
               {report.utilisation.shared.sellableHours > 0 && (
                 <div className="mt-1 text-xs text-slate-500">
                   <span className="font-semibold text-slate-700">
@@ -425,6 +432,14 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                   <div className="w-14 shrink-0 text-right font-semibold tabular-nums">
                     {percent(c.utilisation)}
                   </div>
+                  {c.inUseHours > c.hours && c.sellableHours > 0 && (
+                    <div
+                      className="w-24 shrink-0 text-right text-xs text-slate-500 tabular-nums"
+                      title="Not free to sell: booked itself, or as part of a court sharing its floor"
+                    >
+                      in use {percent(Math.min(1, c.inUseHours / c.sellableHours))}
+                    </div>
+                  )}
                   <div className="w-24 shrink-0 text-right text-slate-500 tabular-nums">
                     {ringgit(c.expected)}
                   </div>

@@ -66,19 +66,12 @@ the court would be unopenable by the one person entitled to be inside. Staff
 type in what they set; MySenam stamps when it changed and nags after
 `ACCESS_CODE_STALE_DAYS`.
 
-**MySenam does not open the door.** It relays a code that staff have programmed
-into the lock, and the lock stays the source of truth. Generating or rotating a
-code here would be worse than useless: the lock would not know about it, and
-the court would be unopenable by the one person entitled to be inside. Staff
-type in what they set; MySenam stamps when it changed and nags after
-`ACCESS_CODE_STALE_DAYS`.
-
 Who gets the code, and when:
 
 | Condition | Why |
 | --------- | --- |
 | The resource is unmanned and has a code | Otherwise there is nothing to give, and the customer is told someone will let them in |
-| The booked hour is **unstaffed** | During staffed hours the counter does this, and a code handed out then is a code in circulation for no reason |
+| Some of the booking is **unstaffed**, judged by its whole time, past midnight too | During staffed hours the counter does this, and a code handed out then is a code in circulation for no reason. A booking staffed for only part of its time (it starts before the counter shuts and runs on after) gets the code, so nobody is shut in or out at the end, unless the venue says somebody stays on the desk until such bookings end (`partly_unstaffed`: `code`, the default, or `counter`) |
 | The customer has been **inducted** at that venue | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person. An induction is not an activity [sign-off](activities.md#sign-offs), which clears somebody to book one activity at any hour |
 | The booking is not cancelled | — |
 | **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
@@ -86,7 +79,10 @@ Who gets the code, and when:
 | Before the slot ends | — |
 
 Each refusal carries its own `reason`, so the customer is told what to do about
-it rather than getting a flat no.
+it rather than getting a flat no. The booking's own page says beforehand which
+it will be: the door code, the code because the desk shuts during the booking,
+or the counter for all of it (`tests/access.test.ts`, "a booking across the
+staffed boundary").
 
 **Inductions** are the part that turns unstaffed hours from reckless into
 insurable, so they are recorded by a named operator and can never be

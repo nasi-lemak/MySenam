@@ -291,6 +291,23 @@ export function VenuesTab({
                               Remove
                             </button>
                           )}
+                          {a.id !== admin.id && (
+                            <button
+                              onClick={() => {
+                                // Only when they have lost both their authenticator and recovery codes (lib/two-factor-reset.ts).
+                                const reason = window.prompt(
+                                  `Reset two-factor sign-in for ${a.email}? They will be signed out and told by email, as will the platform owners.\n\nHow did you confirm it is really them (seen in person, called on a number on file)?`
+                                );
+                                if (!reason) return;
+                                const code = window.prompt("Your own two-factor code, to show it is you:");
+                                if (!code) return;
+                                send(`/api/admin/admins/${a.id}/two-factor-reset`, "POST", { reason, code }, "Two-factor sign-in reset.", loadAdmins);
+                              }}
+                              className="ml-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                            >
+                              Reset two-factor
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -525,6 +542,7 @@ function VenueRow({
     weekHours: (venue.weekHours ?? null) as WeekHours | null,
     staffedFrom: venue.staffedFrom,
     staffedTo: venue.staffedTo,
+    partlyUnstaffed: venue.partlyUnstaffed ?? "code",
     emergencyPhone: venue.emergencyPhone ?? "",
     emergencyInfo: venue.emergencyInfo ?? "",
   });
@@ -539,6 +557,7 @@ function VenueRow({
     JSON.stringify(fields.weekHours) !== JSON.stringify(venue.weekHours ?? null) ||
     fields.staffedFrom !== venue.staffedFrom ||
     fields.staffedTo !== venue.staffedTo ||
+    fields.partlyUnstaffed !== (venue.partlyUnstaffed ?? "code") ||
     fields.emergencyPhone !== (venue.emergencyPhone ?? "") ||
     fields.emergencyInfo !== (venue.emergencyInfo ?? "");
 
@@ -727,6 +746,20 @@ function VenueRow({
                 : `Unstaffed outside ${formatHour(fields.staffedFrom!)}–${formatHour(fields.staffedTo!)}.`}
           </span>
         </div>
+
+        {!alwaysStaffed && !neverStaffed && (
+          <label className="mt-3 flex flex-col text-xs font-medium text-slate-500">
+            A booking that runs past the staffed hours (or starts before them)
+            <select
+              value={fields.partlyUnstaffed}
+              onChange={(e) => setFields({ ...fields, partlyUnstaffed: e.target.value as "code" | "counter" })}
+              className={`mt-1 w-full max-w-md ${inputClass}`}
+            >
+              <option value="code">Gets the door code, so nobody is shut in or out at the end</option>
+              <option value="counter">Has somebody on the desk until it ends: no code</option>
+            </select>
+          </label>
+        )}
 
         {!alwaysStaffed && (
           <div className="mt-3 flex flex-wrap items-end gap-2">

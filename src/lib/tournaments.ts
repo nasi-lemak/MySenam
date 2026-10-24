@@ -24,7 +24,7 @@ import { templateByKey, templateFor, type EntryKind } from "./competition-templa
 import { accessRefusal, accountPhone } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer } from "./outbox";
-import { activeMembership, blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
+import { activeMembership, memberNumberTrusted, blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
@@ -1065,7 +1065,8 @@ export async function enter(
   if (t.entriesCloseOn && todayISO((await venueHours(t.venueId)).zone) > t.entriesCloseOn) return { ok: false, error: `Entries closed on ${t.entriesCloseOn}.` };
   if (t.membersOnly) {
     const phone = await accountPhone(user.id);
-    if (!phone || !(await activeMembership(t.venueId, phone))) return { ok: false, error: "This is for the venue's members: join, then enter.", code: "ENTRY_MEMBERS_ONLY" };
+    // The account's own number, proved or linked to the membership (lib/store.ts, memberNumberTrusted).
+    if (!phone || !(await activeMembership(t.venueId, phone)) || !(await memberNumberTrusted(phone, { userId: user.id, by: "customer" }))) return { ok: false, error: "This is for the venue's members: join, then enter.", code: "ENTRY_MEMBERS_ONLY" };
   }
   let birthDate: string | null = null;
   let partnerBirthDate: string | null = null;

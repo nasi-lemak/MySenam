@@ -51,6 +51,13 @@ export interface CourtLine {
   /** Place-hours that could have been sold, after closures and blocks. */
   sellableHours: number;
   utilisation: number;
+  /**
+   * Hours it could not be sold because it, or a court sharing its floor, was
+   * booked: a badminton court under a futsal pitch is in use while the pitch
+   * is, though none of its own hours were sold. Equal to `hours` for a court
+   * that shares nothing; place-hours on a shared facility.
+   */
+  inUseHours: number;
   expected: number;
 }
 
@@ -88,8 +95,19 @@ export interface VenueReport {
    * and an owner learns nothing about either.
    */
   utilisation: {
+    /**
+     * The floor, measured once (B11). Each piece of floor that can be sold on
+     * its own (a court's own space, or each court under a pitch) is a unit;
+     * an hour of a unit is in use when any booking covers it, whether it was
+     * sold as the court or as the pitch over it. A pitch and its courts are
+     * therefore not counted as separate sellable hours, and a hall sold as one
+     * pitch every evening reads as full.
+     */
     courts: { soldHours: number; sellableHours: number; percent: number };
+    /** Places sold against places offered, on facilities that take several bookings at once. */
     shared: { soldHours: number; sellableHours: number; percent: number };
+    /** Takings expected from the courts above, per hour of floor that could have been sold. */
+    revenuePerHour: number;
   };
   bySport: SportLine[];
   byCourt: CourtLine[];
@@ -107,6 +125,18 @@ export interface VenueReport {
 
 /** How many days the expiry window for "expiring soon" covers. */
 export const EXPIRING_SOON_DAYS = 30;
+
+/** Minutes covered by any of these spans, overlaps counted once. */
+function unionMinutes(spans: { start: number; end: number }[]): number {
+  let minutes = 0;
+  let reach = -Infinity;
+  for (const s of [...spans].sort((a, b) => a.start - b.start)) {
+    if (s.end <= reach) continue;
+    minutes += s.end - Math.max(s.start, reach);
+    reach = s.end;
+  }
+  return minutes;
+}
 
 function monthsIn(from: string, to: string): string[] {
   const months: string[] = [];
@@ -306,6 +336,49 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const sellableFor = (court: { id: number; capacity: number }) =>
     Math.max(0, openHoursInPeriod * court.capacity - (blockedByCourt.get(court.id) ?? 0));
 
+  // --- the floor, measured once (B11) ----------------------------------------
+  // Which spaces each court covers; a unit is a space whose own court covers
+  // nothing else, so a pitch's own space (only ever taken with its courts')
+  // is not counted as more floor.
+  const coverRows = (await db
+    .prepare(`
+      SELECT cs.court_id, cs.space_id, s.court_id AS owner
+        FROM court_spaces cs JOIN spaces s ON s.id = cs.space_id
+       WHERE s.venue_id = ?
+    `)
+    .all(venueId)) as { court_id: number; space_id: number; owner: number }[];
+  const spacesOf = new Map<number, number[]>();
+  for (const r of coverRows) spacesOf.set(r.court_id, [...(spacesOf.get(r.court_id) ?? []), r.space_id]);
+  const units = new Set(
+    coverRows.filter((r) => r.court_id === r.owner && (spacesOf.get(r.owner)?.length ?? 0) === 1).map((r) => r.space_id)
+  );
+  const unitMinutesOut = new Map<number, number>();
+  for (const b of (await db
+    .prepare(`
+      SELECT DISTINCT c.space_id, k.id, k.date, k.start_min, k.end_min
+        FROM blocks k JOIN claims c ON c.block_id = k.id
+       WHERE k.venue_id = ? AND k.date >= ? AND k.date <= ? AND c.space_id IS NOT NULL
+    `)
+    .all(venueId, from, to)) as { space_id: number; date: string; start_min: number; end_min: number }[]) {
+    const open = openOn.get(b.date);
+    if (!open || !units.has(b.space_id)) continue;
+    const minutes = Math.max(0, Math.min(b.end_min, open.end) - Math.max(b.start_min, open.start));
+    unitMinutesOut.set(b.space_id, (unitMinutesOut.get(b.space_id) ?? 0) + minutes);
+  }
+  for (const o of (await db
+    .prepare(`
+      SELECT DISTINCT c.space_id, o.id, o.starts_on, o.ends_on
+        FROM court_outages o JOIN claims c ON c.outage_id = o.id
+       WHERE c.venue_id = ? AND c.space_id IS NOT NULL AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?)
+    `)
+    .all(venueId, to, from)) as { space_id: number; starts_on: string; ends_on: string | null }[]) {
+    if (!units.has(o.space_id)) continue;
+    for (const [d, open] of openOn) {
+      if (d < o.starts_on || (o.ends_on !== null && d > o.ends_on)) continue;
+      unitMinutesOut.set(o.space_id, (unitMinutesOut.get(o.space_id) ?? 0) + (open.end - open.start));
+    }
+  }
+
   // --- per court -----------------------------------------------------------
   const soldByCourt = new Map<number, { hours: number; expected: number }>();
   for (const b of sold) {
@@ -328,6 +401,25 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     soldByCourt.set(row.courtId, entry);
   }
 
+  // A court is in use whenever a booking covers any of its spaces: the union
+  // of those bookings' times, day by day, so two courts under a pitch booked
+  // at once count the pitch's hour once.
+  const soldOn = new Map<string, { start: number; end: number }[]>();
+  for (const b of sold) {
+    for (const space of spacesOf.get(b.court_id) ?? []) {
+      const key = `${space}:${b.date}`;
+      soldOn.set(key, [...(soldOn.get(key) ?? []), { start: b.start_min, end: b.end_min }]);
+    }
+  }
+  const inUseFor = (courtId: number): number => {
+    const spaces = spacesOf.get(courtId);
+    if (!spaces) return soldByCourt.get(courtId)?.hours ?? 0;
+    let minutes = 0;
+    for (const d of new Set(sold.map((b) => b.date)))
+      minutes += unionMinutes(spaces.flatMap((space) => soldOn.get(`${space}:${d}`) ?? []));
+    return minutes / 60;
+  };
+
   const byCourt: CourtLine[] = courts.map((court) => {
     const sold = soldByCourt.get(court.id) ?? { hours: 0, expected: 0 };
     const sellableHours = sellableFor(court);
@@ -338,9 +430,19 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       hours: sold.hours,
       sellableHours,
       utilisation: sellableHours === 0 ? 0 : sold.hours / sellableHours,
+      inUseHours: inUseFor(court.id),
       expected: sold.expected,
     };
   });
+
+  let floorSold = 0;
+  let floorSellable = 0;
+  for (const unit of units) {
+    floorSellable += openHoursInPeriod * 60 - (unitMinutesOut.get(unit) ?? 0);
+    for (const [key, spans] of soldOn) if (key.startsWith(`${unit}:`)) floorSold += unionMinutes(spans);
+  }
+  floorSold /= 60;
+  floorSellable = Math.max(0, floorSellable / 60);
 
   // --- per sport -----------------------------------------------------------
   const bySport: SportLine[] = (
@@ -443,6 +545,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     return { soldHours: sold, sellableHours: sellable, percent: sellable === 0 ? 0 : sold / sellable };
   };
   const exclusive = courts.filter((c) => c.capacity === 1).map((c) => c.id);
+  const floorTakings = byCourt.filter((c) => exclusive.includes(c.courtId)).reduce((n, c) => n + Number(c.expected), 0);
 
   return {
     venueId,
@@ -466,8 +569,9 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     collectedBy,
     counterSales: { sales: Number(counter.n), total: Math.round(Number(counter.total) * 100) / 100 },
     utilisation: {
-      courts: split(byCourt.filter((c) => exclusive.includes(c.courtId))),
+      courts: { soldHours: floorSold, sellableHours: floorSellable, percent: floorSellable === 0 ? 0 : floorSold / floorSellable },
       shared: split(byCourt.filter((c) => !exclusive.includes(c.courtId))),
+      revenuePerHour: floorSellable === 0 ? 0 : Math.round((floorTakings / floorSellable) * 100) / 100,
     },
     bySport,
     byCourt,

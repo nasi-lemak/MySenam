@@ -247,6 +247,41 @@ describe("a chargeback", () => {
     }
   });
 
+  it("lost on a deposit after the rest was paid online: the rest stands and is still owed back if called off; the deposit is owed again", async () => {
+    fakeStripe();
+    expect((await setHoldPolicy(venueId, { on: true, depositPercent: 30 })).ok).toBe(true);
+    try {
+      const made = await createBooking({ courtId, date: addDays(todayISO(), 7), hours: [9], name: "Online Payer", phone: "91238005" });
+      if (!made.ok) throw new Error(made.error);
+      const deposit = await startBookingPayment({ codes: [made.booking.code], phone: made.booking.phone, deposit: true });
+      if (!deposit.ok) throw new Error("deposit");
+      const depositBill = deposit.url.split("/").pop()!;
+      await settleBill({ billId: depositBill, paid: true, paidAt: null });
+      const rest = await startBookingPayment({ codes: [made.booking.code], phone: made.booking.phone });
+      if (!rest.ok) throw new Error("rest");
+      const restBill = rest.url.split("/").pop()!;
+      await settleBill({ billId: restBill, paid: true, paidAt: null });
+      expect((await findBooking(made.booking.code, made.booking.phone))!.paymentStatus).toBe("paid");
+
+      await send("charge.dispute.closed", { id: "dp_14", payment_intent: `pi_for_${depositBill}`, amount: 600, reason: "fraudulent", status: "lost" });
+      // Before, the booking still read as paid in full; now the deposit's part is owed again.
+      expect((await findBooking(made.booking.code, made.booking.phone))!.paymentStatus).toBe("unpaid");
+      const due = (await getDb().prepare("SELECT (total_price - shares_paid)::float AS due FROM bookings WHERE id = ?").get(made.booking.id)) as {
+        due: number;
+      };
+      expect(due.due).toBe(6);
+      // What was paid online for the rest keeps its receipt, under that payment's own key.
+      expect(await documentFor(`booking-paid:${made.booking.id}:${await paymentId(restBill)}`)).toMatchObject({ total: 14 });
+
+      // Called off: the rest paid online is still owed back, in full.
+      expect((await cancelBooking(made.booking.code, made.booking.phone)).ok).toBe(true);
+      const owed = (await getDb().prepare("SELECT refund_due::float AS due FROM online_payments WHERE bill_id = ?").get(restBill)) as { due: number };
+      expect(owed.due).toBe(14);
+    } finally {
+      await setHoldPolicy(venueId, { on: false });
+    }
+  });
+
   it("lost on a deposit for a booking since called off: nothing more is owed", async () => {
     fakeStripe();
     expect((await setHoldPolicy(venueId, { on: true, depositPercent: 30 })).ok).toBe(true);
@@ -332,7 +367,7 @@ describe("the set-up a venue follows", () => {
 describe("a chargeback on what a venue paid the platform", () => {
   const PLATFORM_SECRET = "whsec_platformsecret1234567890";
 
-  it("is written down and put to the platform owners, not the venue, and changes nothing by itself", async () => {
+  it("is written down and put to the platform owners, not the venue; lost, the invoice is owed again", async () => {
     vi.stubEnv("MYSENAM_PAYMENT_PROVIDER", "stripe");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_platformkey123456");
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", PLATFORM_SECRET);
@@ -366,9 +401,35 @@ describe("a chargeback on what a venue paid the platform", () => {
       await send("charge.dispute.closed", { ...dispute, status: "lost" }, PLATFORM_SECRET);
       await send("charge.dispute.closed", { ...dispute, status: "lost" }, PLATFORM_SECRET);
       expect(emails.map((e) => e.subject)).toEqual([expect.stringContaining("Dispute lost")]);
+      expect(emails[0].text).toContain("owed again");
       const row = (await db.prepare("SELECT outcome FROM payment_disputes WHERE provider_dispute_id = 'dp_platform'").get()) as { outcome: string };
       expect(row.outcome).toBe("lost");
-      expect(((await db.prepare("SELECT status FROM venue_invoices WHERE id = ?").get(invoice.id)) as { status: string }).status).toBe("paid");
+      // The money went back, so the invoice is not paid: owed again, with a fresh fortnight, not overdue at once.
+      expect(await db.prepare("SELECT status, paid_at, due_on FROM venue_invoices WHERE id = ?").get(invoice.id)).toEqual({
+        status: "due",
+        paid_at: null,
+        due_on: addDays(todayISO(), 14),
+      });
+
+      // A WhatsApp pack lost the same way: owed again, and its messages taken back, those already sent below nothing.
+      const pack = (await db
+        .prepare("INSERT INTO whatsapp_packs (venue_id, messages, amount, status, paid_at, paid_via) VALUES (?, 100, 30, 'paid', datetime('now'), 'online') RETURNING id")
+        .get(venueId)) as { id: number };
+      await db.prepare("INSERT INTO whatsapp_credit (venue_id, delta, reason, pack_id) VALUES (?, 100, 'pack', ?)").run(venueId, pack.id);
+      await db.prepare("INSERT INTO whatsapp_credit (venue_id, delta, reason) VALUES (?, -40, 'sent')").run(venueId);
+      const balance = async () => Number(((await db.prepare("SELECT COALESCE(SUM(delta), 0) AS n FROM whatsapp_credit WHERE venue_id = ?").get(venueId)) as { n: number }).n);
+      const before = await balance();
+      await db
+        .prepare(
+          `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, purpose, pack_id, status)
+           VALUES ('stripe', 'cs_test_packpaid', 'https://checkout.stripe.com/c/pay/y', ?, 30, 'Mgr', 'pack', ?, 'paid')`
+        )
+        .run(venueId, pack.id);
+      const packDispute = { id: "dp_pack", payment_intent: "pi_for_cs_test_packpaid", amount: 3000, reason: "general" };
+      await send("charge.dispute.created", { ...packDispute, status: "needs_response" }, PLATFORM_SECRET);
+      await send("charge.dispute.closed", { ...packDispute, status: "lost" }, PLATFORM_SECRET);
+      expect(((await db.prepare("SELECT status FROM whatsapp_packs WHERE id = ?").get(pack.id)) as { status: string }).status).toBe("due");
+      expect((await balance()) - before).toBe(-100);
 
       // Signed by nobody we know: still refused.
       expect((await send("charge.dispute.created", { ...dispute, id: "dp_forged", status: "needs_response" }, "whsec_somebodyelse12345678")).status).toBe(400);

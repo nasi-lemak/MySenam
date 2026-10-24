@@ -81,7 +81,9 @@ export async function aheadFor(venueId: number, userId: number | null): Promise<
   const rules = await houseRules(venueId);
   if (userId === null || (await anyMemberAhead(venueId, rules)) === publicAhead(rules)) return publicAhead(rules);
   const user = (await getDb().prepare("SELECT phone FROM users WHERE id = ?").get(userId)) as { phone: string } | undefined;
-  return windowFor(venueId, [user?.phone], rules);
+  const { memberNumberTrusted } = await import("./store");
+  if (!user || !(await memberNumberTrusted(user.phone, { userId, by: "customer" }))) return publicAhead(rules);
+  return windowFor(venueId, [user.phone], rules);
 }
 
 /** The live membership here this number, or the account's, holds. */
@@ -184,6 +186,8 @@ export async function houseRuleRefusal(input: {
   userId?: number | null;
   dates: string[];
   excluding?: number;
+  /** Booked online: a member's longer window only for a number the account has proved or is linked to (lib/store.ts). */
+  online?: boolean;
 }): Promise<Refusal | null> {
   const rules = await houseRules(input.venueId);
   if (input.dates.length === 0) return null;
@@ -199,9 +203,13 @@ export async function houseRuleRefusal(input: {
     // Past everybody's window: only a member, and only inside theirs (their tier's, where it has one).
     if (membersAhead === publicAhead(rules) || input.dates.some((d) => d > addDays(today, membersAhead)))
       return refuse("LIMIT_AHEAD", membersAhead);
-    if (!(await isMemberHere(input.venueId, [input.phone, account])))
+    const { memberNumberTrusted } = await import("./store");
+    const phones: (string | undefined)[] = [];
+    for (const p of [input.phone, account])
+      if (p && (!input.online || (await memberNumberTrusted(p, { userId: input.userId, by: "customer" })))) phones.push(p);
+    if (!(await isMemberHere(input.venueId, phones)))
       return refuse("LIMIT_AHEAD_MEMBERS", publicAhead(rules), { m: membersAhead });
-    const theirs = await windowFor(input.venueId, [input.phone, account], rules);
+    const theirs = await windowFor(input.venueId, phones, rules);
     if (input.dates.some((d) => d > addDays(today, theirs))) return refuse("LIMIT_AHEAD", theirs);
   }
   if (rules.upcoming === null && rules.perWeek === null && rules.perDay === null) return null;

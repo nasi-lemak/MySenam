@@ -4,19 +4,25 @@ Authoritative for rate limits, phone-number limits and other abuse controls. Sig
 
 ## Response headers
 
-Every response carries (`src/lib/security-headers.ts`, set in `next.config.ts`):
+Every response carries (`src/lib/security-headers.ts`; the policy from `src/middleware.ts`, the rest from `next.config.ts`):
 
 | Header | Value and why |
 | ------ | ------------- |
-| `Content-Security-Policy` | Scripts, styles and requests from this site only; images from here or any HTTPS address (photo buckets, OpenStreetMap tiles); no plugins; forms post only here; `frame-ancestors 'none'` so no other site can frame a booking or payment screen |
+| `Content-Security-Policy` | Scripts only those carrying this response's nonce, and what they load (`'strict-dynamic'`); styles and requests from this site only; images from here or any HTTPS address (photo buckets, OpenStreetMap tiles); no plugins; forms post only here; `frame-ancestors 'none'` so no other site can frame a booking or payment screen |
 | `X-Frame-Options` | `DENY`, for browsers that do not read `frame-ancestors` |
 | `Strict-Transport-Security` | A year, not preloaded, and not for sub-domains (a storefront may be a venue's own domain, whose other sites are not ours to bind); ignored over plain HTTP |
 | `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` | `nosniff`; `strict-origin-when-cross-origin`; only geolocation, for *near me* |
 
-The policy allows inline scripts, because Next.js writes its page data inline
-and a nonce per request would make every page render on request. It stops a
-script loaded from elsewhere, not one injected inline; moving to nonces is a
-decision for review, not made here.
+The middleware makes a fresh nonce for every request and names it in the
+policy, on the request (so Next.js puts it on its own scripts) and on the
+response. Every page already renders on request, as the root layout reads the
+language cookie, so this costs nothing in caching. A script injected into a
+page has no nonce, and the browser will not run it; `'unsafe-inline'` and
+`https:` remain only for browsers too old for nonces, which newer ones ignore
+when a nonce is present. Inline styles are still allowed. The production build
+is checked in a browser: each page names a different nonce, its scripts carry
+it, and booking a court works with nothing blocked (`tests/e2e/launch.e2e.ts`,
+`tests/launch-security.test.ts`).
 
 ## Requests from another site
 

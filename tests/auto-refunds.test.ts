@@ -172,7 +172,7 @@ describe("when a customer cancels", () => {
         body: JSON.stringify({ seriesCode: made.seriesCode, phone: made.booking.phone }),
       })
     );
-    expect(await res.json()).toEqual({ cancelled: 3, refunds: [{ how: "credit", amount: 60 }] });
+    expect(await res.json()).toMatchObject({ cancelled: 3, refunds: [{ how: "credit", amount: 60 }], left: [] });
     expect(await getWalletBalance(customer.id, venueId)).toBe(balance + 60);
   });
 });

@@ -74,6 +74,19 @@ describe("every page", () => {
     }
   });
 
+  it("names a fresh nonce on each page, and puts it on the page's own scripts", async () => {
+    const nonceOf = (res: Response) => /'nonce-([^']+)'/.exec(res.headers.get("content-security-policy") ?? "")?.[1];
+    const first = await fetch(`${url}/`);
+    const second = await fetch(`${url}/`);
+    const nonce = nonceOf(first);
+    expect(nonce).toBeTruthy();
+    expect(nonceOf(second)).not.toBe(nonce);
+    const html = await first.text();
+    const scripts = [...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]).filter((tag) => !tag.includes("application/ld+json"));
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const tag of scripts) expect(tag).toContain(`nonce="${nonce}"`);
+  });
+
   it("loads in the browser without the policy blocking any of its own scripts", async () => {
     const { page, blocked } = await watchedPage();
     await page.goto(`${url}/`);

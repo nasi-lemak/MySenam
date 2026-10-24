@@ -27,7 +27,7 @@ import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
-import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, MAX_PLAYERS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, isUnstaffedHour, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, MAX_PLAYERS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -153,6 +153,7 @@ interface VenueRow {
   time_zone?: string | null;
   staffed_from: number | null;
   staffed_to: number | null;
+  partly_unstaffed?: "code" | "counter";
   emergency_phone: string | null;
   emergency_info: string | null;
   published_at: string | null;
@@ -181,6 +182,7 @@ function toVenue(r: VenueRow): Venue {
     timeZone: venueZoneOf(r),
     staffedFrom: r.staffed_from,
     staffedTo: r.staffed_to,
+    partlyUnstaffed: r.partly_unstaffed ?? "code",
     emergencyPhone: r.emergency_phone,
     emergencyInfo: r.emergency_info,
     publishedAt: r.published_at,
@@ -1386,7 +1388,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
            v.address AS v_address, v.phone AS v_phone,
            v.cancel_cutoff_hours AS v_cutoff,
            v.open_min AS v_open, v.close_min AS v_close, v.week_hours AS v_week_hours, v.time_zone AS v_time_zone,
-           v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to,
+           v.staffed_from AS v_staffed_from, v.staffed_to AS v_staffed_to, v.partly_unstaffed AS v_partly_unstaffed,
            v.emergency_phone AS v_emergency_phone, v.emergency_info AS v_emergency_info,
            v.published_at AS v_published_at, v.lat AS v_lat, v.lng AS v_lng, v.amenities AS v_amenities,
            v.access AS v_access, v.book_ahead_days AS v_ahead
@@ -1426,6 +1428,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     v_time_zone: string | null;
     v_staffed_from: number | null;
     v_staffed_to: number | null;
+    v_partly_unstaffed?: "code" | "counter";
     v_emergency_phone: string | null;
     v_emergency_info: string | null;
     v_published_at: string | null;
@@ -1477,6 +1480,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       timeZone: zone,
       staffedFrom: row.v_staffed_from,
       staffedTo: row.v_staffed_to,
+      partlyUnstaffed: row.v_partly_unstaffed ?? "code",
       emergencyPhone: row.v_emergency_phone,
       emergencyInfo: row.v_emergency_info,
       publishedAt: row.v_published_at,
@@ -1585,9 +1589,39 @@ export function computePrice(
 
 export type { MemberPricing };
 
-export async function memberPricing(venueId: number, phone: string, date?: string): Promise<MemberPricing> {
+/**
+ * Whether a membership found by this number counts for a booking made this
+ * way. The venue's staff and its own system take the number on their word:
+ * they see, or know, the person. Online a number is something anybody can
+ * type, so it counts only for the account the membership is linked to, or
+ * for the account whose own number it is, proved with a code
+ * (lib/phone-check.ts). Without `who` (the system re-pricing what it already
+ * holds) it counts.
+ */
+export async function memberNumberTrusted(phone: string, who?: { userId?: number | null; by?: SignOffChannel }): Promise<boolean> {
+  if (!who || (who.by ?? "customer") !== "customer") return true;
+  if (!who.userId) return false;
+  const row = await getDb()
+    .prepare(
+      `SELECT 1 AS ok FROM users WHERE id = ? AND verified_phone IS NOT NULL AND phone_key(verified_phone) = phone_key(?)
+       UNION ALL
+       SELECT 1 FROM memberships WHERE user_id = ? AND phone_key(holder_phone) = phone_key(?)
+       LIMIT 1`
+    )
+    .get(who.userId, phone, who.userId, phone);
+  return row !== undefined;
+}
+
+export async function memberPricing(
+  venueId: number,
+  phone: string,
+  date?: string,
+  /** Who is booking, where a number typed online must be the account's own (above). */
+  who?: { userId?: number | null; by?: SignOffChannel }
+): Promise<MemberPricing> {
   const m = await activeMembership(venueId, phone, date);
   if (!m) return false;
+  if (!(await memberNumberTrusted(phone, who))) return false;
   return m.ratePercent ?? true;
 }
 
@@ -1624,6 +1658,9 @@ export async function quoteFor(input: {
   players?: number;
   /** The activity, on a court that offers several; its main one if not said. */
   sport?: Sport;
+  /** Who is asking, online: a member's price only for the account's own proved or linked number. */
+  userId?: number | null;
+  by?: SignOffChannel;
 } & WhenInput): Promise<{ ok: true; span: Span; quote: Quote; allowed: true } | { ok: true; span: Span; quote: Quote; allowed: false; refusal: Refusal } | Refusal> {
   const found = await getCourt(input.courtId);
   if (!found) return refuse("COURT_NOT_FOUND");
@@ -1635,7 +1672,7 @@ export async function quoteFor(input: {
   if (!asked.ok) return asked;
   const span = asked.span;
   const players = Math.min(Math.max(1, input.players ?? 1), placesPerBooking(court));
-  const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date) : false;
+  const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date, input.by ? { userId: input.userId, by: input.by } : undefined) : false;
   const quote = quoteBooking(court, day.policy, input.date, span, member, await peakRules(court.venueId), Date.now(), players);
   const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
   if (day.closed) return { ok: true, span, quote, allowed: false, refusal: refuse("VENUE_CLOSED") };
@@ -1821,7 +1858,8 @@ export async function createBookingSeries(
   // Member rates are decided per session, against the date that session falls
   // on: a membership that lapses part-way through a weekly series discounts
   // the weeks it covers and no more.
-  const memberOn = (weekDate: string) => memberPricing(court.venueId, phone, weekDate);
+  // Online (`by: "customer"`, as the booking route says) a member's number counts only when it is the account's own, proved or linked.
+  const memberOn = (weekDate: string) => memberPricing(court.venueId, phone, weekDate, input.by ? { userId, by: input.by } : undefined);
   const rules = await peakRules(court.venueId);
   // A last-minute price is for time nobody wanted, not for a number that
   // cancelled at this venue on this day and is booking again at the lower price.
@@ -1934,43 +1972,158 @@ export async function createBookingSeries(
   }
 }
 
-/** Cancel all future confirmed bookings in a series (verified by phone). */
-export async function cancelSeries(
+/** What cancelling one week of a series would do, shown before it is done. */
+export interface SeriesWeek {
+  code: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  /**
+   * `free`: inside the free-cancellation window; `late`: past it, where the
+   * venue lets late cancels go for a share; `stays`: past it where the venue
+   * does not, or with kit still out on it.
+   */
+  outcome: "free" | "late" | "stays";
+  /** What the venue keeps of what was paid, as a percentage, on a late cancel. */
+  keptPercent: number | null;
+  /** Paid for it so far (or its deposit), less shares players paid. */
+  paid: number;
+  /** Goes back on cancelling. */
+  refund: number;
+  /** Kept by the venue on cancelling. */
+  kept: number;
+  /** Still to pay where it stays booked. */
+  owed: number;
+  /** A late cancel of a week never paid counts towards the venue's strikes. */
+  strike: boolean;
+  /** Why it stays: the cutoff, or kit on hire. */
+  reason?: "cutoff" | "kit";
+}
+
+/** How a late cancel of this booking goes, if the venue allows one; null where it is free or not allowed. */
+async function lateTerms(booking: Booking): Promise<{ late: boolean; share: number; keptPercent: number | null; allowed: boolean }> {
+  const cutoff = await cancelCutoffForBooking(booking.id);
+  const zone = await courtZone(booking.courtId);
+  if (isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone)) return { late: false, share: 1, keptPercent: null, allowed: true };
+  const court = await getCourt(booking.courtId);
+  const { lateKeep } = court ? await cancelPolicyFor(court.venueId, booking.sport) : { lateKeep: null };
+  if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone)) return { late: true, share: 0, keptPercent: null, allowed: false };
+  return { late: true, share: (100 - lateKeep) / 100, keptPercent: lateKeep, allowed: true };
+}
+
+async function seriesRows(seriesCode: string, phone: string): Promise<BookingRow[]> {
+  return (await getDb()
+    .prepare(
+      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND phone_key = phone_key(?) AND status = 'confirmed' ORDER BY date, start_min"
+    )
+    .all(seriesCode.trim(), phone.trim())) as BookingRow[];
+}
+
+/**
+ * Each upcoming week of a series and what cancelling it would do: weeks
+ * inside the free window go back in full; weeks past it go for the venue's
+ * late-cancel share where it allows one, and otherwise stay booked (and
+ * owed). Weeks already started are not listed.
+ */
+export async function seriesCancelPlan(
   seriesCode: string,
   phone: string
-): Promise<{ ok: true; cancelled: number; bookingIds: number[] } | (Refusal & { cancelled: number })> {
-  const db = getDb();
-  const rows = await db
-    .prepare(
-      "SELECT * FROM bookings WHERE UPPER(series_code) = UPPER(?) AND phone_key = phone_key(?) AND status = 'confirmed'"
-    )
-    .all(seriesCode.trim(), phone.trim()) as BookingRow[];
-  if (rows.length === 0)
-    return { ...refuse("SERIES_NOT_FOUND"), cancelled: 0 };
-
-  const cutoff = await cancelCutoffForBooking(rows[0].id);
+): Promise<{ ok: true; weeks: SeriesWeek[] } | Refusal> {
+  const rows = await seriesRows(seriesCode, phone);
+  if (rows.length === 0) return refuse("SERIES_NOT_FOUND");
   const zone = await courtZone(rows[0].court_id);
-  const future = rows.filter((r) => isWithinCancelWindow(r.date, hoursOf(r.start_min), cutoff, zone));
-  if (future.length === 0)
-    return { ...refuse("SERIES_NONE_LEFT", { n: cutoff }), cancelled: 0 };
+  const weeks: SeriesWeek[] = [];
+  for (const row of rows) {
+    if (isPastSlot(row.date, hoursOf(row.start_min), zone)) continue;
+    const booking = toBooking(row);
+    const terms = await lateTerms(booking);
+    const paid =
+      booking.paymentStatus === "paid" ? roundMoney(booking.totalPrice - (booking.sharesPaid ?? 0)) : roundMoney(booking.depositPaid ?? 0);
+    const kit = await hasOpenHire(booking.id);
+    const outcome = kit || !terms.allowed ? "stays" : terms.late ? "late" : "free";
+    const kept = outcome === "stays" ? 0 : roundMoney(paid * (1 - terms.share));
+    weeks.push({
+      code: booking.code,
+      date: booking.date,
+      startHour: booking.startHour,
+      endHour: booking.endHour,
+      outcome,
+      keptPercent: outcome === "late" ? terms.keptPercent : null,
+      paid,
+      refund: outcome === "stays" ? 0 : roundMoney(paid - kept),
+      kept,
+      owed: outcome === "stays" && booking.paymentStatus !== "paid" ? roundMoney(booking.totalPrice - (booking.sharesPaid ?? 0) - paid) : 0,
+      strike: outcome === "late" && paid === 0,
+      ...(outcome === "stays" ? { reason: kit ? ("kit" as const) : ("cutoff" as const) } : {}),
+    });
+  }
+  return { ok: true, weeks };
+}
 
+/**
+ * Cancel weeks of a series (verified by phone), each on its own terms, all
+ * in one transaction. With `choice`, exactly the weeks named, those past the
+ * free window only where the customer accepted the late terms they were
+ * shown; a week whose terms changed since (it crossed the cutoff) refuses the
+ * lot, so nothing is cancelled on terms nobody saw. Without it, only the
+ * weeks free to cancel; the rest are returned with why they were left.
+ */
+export async function cancelSeries(
+  seriesCode: string,
+  phone: string,
+  choice?: { codes: string[]; acceptLate?: string[] }
+): Promise<
+  | { ok: true; cancelled: number; bookingIds: number[]; weeks: SeriesWeek[]; left: SeriesWeek[] }
+  | (Refusal & { cancelled: number })
+> {
+  const plan = await seriesCancelPlan(seriesCode, phone);
+  if (!plan.ok) return { ...plan, cancelled: 0 };
+  const byCode = new Map(plan.weeks.map((w) => [w.code.toUpperCase(), w]));
+  let chosen: SeriesWeek[];
+  if (choice) {
+    const accepted = new Set((choice.acceptLate ?? []).map((c) => c.toUpperCase()));
+    chosen = [];
+    for (const code of new Set(choice.codes.map((c) => c.toUpperCase()))) {
+      const week = byCode.get(code);
+      if (!week || week.outcome === "stays" || (week.outcome === "late" && !accepted.has(code)))
+        return { ...refuse("SERIES_CHANGED"), cancelled: 0 };
+      chosen.push(week);
+    }
+  } else chosen = plan.weeks.filter((w) => w.outcome === "free");
+  const all = await seriesRows(seriesCode, phone);
+  if (chosen.length === 0) return { ...refuse("SERIES_NONE_LEFT", { n: all.length > 0 ? await cancelCutoffForBooking(all[0].id) : 0 }), cancelled: 0 };
+
+  const db = getDb();
+  const rows = new Map(all.map((r) => [r.code.toUpperCase(), r]));
   // Claimed one by one, so a second request at the same moment cancels (and refunds) nothing twice.
   const claimed: BookingRow[] = [];
   // Each refunded in the same transaction that cancels it (M15): a crash part-way
   // leaves a week either booked or cancelled and refunded, never one without the other.
   await db.transaction(async () => {
     claimed.length = 0;
-    for (const row of future) {
+    for (const week of chosen) {
+      const row = rows.get(week.code.toUpperCase());
+      if (!row) continue;
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
       if (done.changes !== 1) continue;
       await releaseBooking(row.id);
-      await refundBooking(row.id);
+      const share = week.outcome === "late" ? (100 - (week.keptPercent ?? 0)) / 100 : 1;
+      if (week.outcome === "late")
+        await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(week.keptPercent, row.id);
+      await refundBooking(row.id, share);
       claimed.push(row);
     }
   })();
   // Each freed week goes to whoever has waited longest for it.
   for (const row of claimed) await offerSlotPlace(row.court_id, row.date);
-  return { ok: true, cancelled: claimed.length, bookingIds: claimed.map((r) => r.id) };
+  const done = new Set(claimed.map((r) => r.code.toUpperCase()));
+  return {
+    ok: true,
+    cancelled: claimed.length,
+    bookingIds: claimed.map((r) => r.id),
+    weeks: chosen.filter((w) => done.has(w.code.toUpperCase())),
+    left: plan.weeks.filter((w) => !done.has(w.code.toUpperCase())),
+  };
 }
 
 export async function getBookingById(id: number): Promise<Booking | null> {
@@ -2712,7 +2865,9 @@ async function rescheduleBookingOnce(
   if (sameTime && to.courtId === undefined) return refuse("RESCHEDULE_SAME");
 
   const days = await courtDays(candidates, to.date);
-  const member = (date: string) => memberPricing(fromCourt.venueId, booking.phone, date);
+  // Moved by the customer, re-priced on the same terms as booking online: a member's rate for their own proved or linked number.
+  const member = (date: string) =>
+    memberPricing(fromCourt.venueId, booking.phone, date, by === "customer" ? { userId: (row as { user_id?: number | null }).user_id ?? null, by } : undefined);
   const rules = await peakRules(fromCourt.venueId);
   const players = booking.players ?? 1;
   // What the old time cost when booked: a last-minute price stays with the time
@@ -3186,6 +3341,8 @@ export async function updateVenue(
     /** null for both means always staffed; equal values mean never staffed. */
     staffedFrom?: number | null;
     staffedTo?: number | null;
+    /** A booking staffed for only part of its time: the door code, or somebody stays on the desk. */
+    partlyUnstaffed?: "code" | "counter";
     emergencyPhone?: string | null;
     emergencyInfo?: string | null;
   }
@@ -3241,7 +3398,7 @@ export async function updateVenue(
   await db.prepare(
     `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
                        open_min = ?, close_min = ?, week_hours = ?, staffed_from = ?, staffed_to = ?,
-                       emergency_phone = ?, emergency_info = ? WHERE id = ?`
+                       partly_unstaffed = ?, emergency_phone = ?, emergency_info = ? WHERE id = ?`
   ).run(
     changes.name?.trim() ?? current.name,
     changes.area?.trim() ?? current.area,
@@ -3253,6 +3410,7 @@ export async function updateVenue(
     week.week ? JSON.stringify(week.week) : null,
     staffedFrom,
     staffedTo,
+    changes.partlyUnstaffed ?? current.partlyUnstaffed ?? "code",
     changes.emergencyPhone !== undefined
       ? nullIfBlank(changes.emergencyPhone)
       : current.emergencyPhone,
@@ -3761,12 +3919,18 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
   if (!venue) return null;
 
   // During staffed hours the counter does this, and a code handed out then is
-  // a code in circulation for no reason.
-  if (!isUnstaffedHour(venue, booking.startHour))
+  // a code in circulation for no reason. The booking's whole time decides,
+  // not its start: one that runs on after the counter shuts gets the code
+  // (so nobody is shut out, or in, at the end) unless the venue keeps
+  // somebody on the desk until such bookings end.
+  const door = doorFor(venue, Math.round(booking.startHour * 60), Math.round(booking.endHour * 60));
+  if (door.by === "counter")
     return {
       ok: false,
       reason: "staffed-now",
-      message: `Someone is on the desk at that hour. Ask at the counter and they will let you in.`,
+      message: door.partly
+        ? `Someone stays on the desk until your booking ends. Ask at the counter and they will let you in.`
+        : `Someone is on the desk at that hour. Ask at the counter and they will let you in.`,
     };
 
   // Nobody is here to show a stranger where the emergency button is, so that
@@ -6517,12 +6681,26 @@ export async function listClassWaitlist(classId: number): Promise<WaitlistEntry[
 
 /** What this person is queuing for, with any live offer's token. */
 export async function listWaitlistFor(phone: string): Promise<WaitlistEntry[]> {
+  return listWaitlist("phone_key(phone) = phone_key(?)", [phone.trim()]);
+}
+
+/**
+ * An account's own places in waiting lists: those it joined, and those on the
+ * number it has proved. A number the account only typed in is not enough to
+ * see who else queued on it.
+ */
+export async function listWaitlistForAccount(userId: number): Promise<WaitlistEntry[]> {
+  return listWaitlist(
+    `(user_id = ? OR EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND u.verified_phone IS NOT NULL AND phone_key(u.verified_phone) = phone_key(waitlist.phone)))`,
+    [userId, userId]
+  );
+}
+
+async function listWaitlist(where: string, params: unknown[]): Promise<WaitlistEntry[]> {
   await expireStaleOffers();
   const rows = await getDb()
-    .prepare(
-      "SELECT * FROM waitlist WHERE phone_key(phone) = phone_key(?) AND status IN ('waiting','offered') ORDER BY id DESC"
-    )
-    .all(phone.trim()) as WaitlistRow[];
+    .prepare(`SELECT * FROM waitlist WHERE ${where} AND status IN ('waiting','offered') ORDER BY id DESC`)
+    .all(...params) as WaitlistRow[];
   const entries: WaitlistEntry[] = [];
   for (const row of rows) {
     const entry = toWaitlistEntry(row, row.status === "offered");

@@ -2,7 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { seriesWeeks } from "@/lib/house-rules";
 import { listConcessions } from "@/lib/concessions";
-import { activeMembership, getAvailability, getVenue, getVenueClosure } from "@/lib/store";
+import { activeMembership, getAvailability, getVenue, getVenueClosure, memberNumberTrusted } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
 import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
 import { shows, storefrontForRequest } from "@/lib/storefront";
@@ -49,7 +49,9 @@ export async function GET(req: NextRequest) {
   // Guests see the public rate and still get the member rate at booking if
   // their phone number matches, which the confirmation then shows.
   const user = await getSessionUser(req);
-  const membership = user ? await activeMembership(venueId, user.phone, date) : null;
+  // Member prices for the account's own number, proved or linked to the membership: what booking would charge.
+  const held = user ? await activeMembership(venueId, user.phone, date) : null;
+  const membership = held && user && (await memberNumberTrusted(user.phone, { userId: user.id, by: "customer" })) ? held : null;
 
   return NextResponse.json({
     date,

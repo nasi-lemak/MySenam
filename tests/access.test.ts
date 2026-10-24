@@ -19,7 +19,7 @@ import {
   updateVenue,
 } from "../src/lib/store";
 import { todayISO } from "../src/lib/time";
-import { ACCESS_CODE_STALE_DAYS, isUnstaffedHour } from "../src/lib/types";
+import { ACCESS_CODE_STALE_DAYS, doorFor, isUnstaffedHour, staffingDuring } from "../src/lib/types";
 
 const VENUE = async () => (await listVenues())[0];
 
@@ -322,6 +322,78 @@ describe("staffed hours", () => {
     if (!half.ok) expect(half.error).toContain("both ends");
     expect((await updateVenue((await VENUE()).id, { staffedFrom: 9, staffedTo: 18 })).ok).toBe(true);
     expect((await updateVenue((await VENUE()).id, { staffedFrom: null, staffedTo: null })).ok).toBe(true);
+  });
+});
+
+describe("a booking across the staffed boundary", () => {
+  it("is judged by its whole time, not its start, after midnight too", () => {
+    const day = { staffedFrom: 9, staffedTo: 18 };
+    expect(staffingDuring(day, 10 * 60, 12 * 60)).toBe("staffed");
+    expect(staffingDuring(day, 17 * 60, 19 * 60)).toBe("partly");
+    expect(staffingDuring(day, 17 * 60 + 30, 18 * 60)).toBe("staffed");
+    expect(staffingDuring(day, 18 * 60, 20 * 60)).toBe("unstaffed");
+    expect(staffingDuring(day, 8 * 60 + 30, 9 * 60 + 30)).toBe("partly");
+    // A desk open until 2 AM (26), and a booking from 11:30 PM to 1:30 AM.
+    expect(staffingDuring({ staffedFrom: 8, staffedTo: 26 }, 23 * 60 + 30, 25 * 60 + 30)).toBe("staffed");
+    expect(staffingDuring({ staffedFrom: 8, staffedTo: 25 }, 23 * 60 + 30, 25 * 60 + 30)).toBe("partly");
+    // A desk staffed overnight, 10 PM to 6 AM.
+    expect(staffingDuring({ staffedFrom: 22, staffedTo: 6 }, 23 * 60, 25 * 60)).toBe("staffed");
+    expect(staffingDuring({ staffedFrom: 22, staffedTo: 6 }, 21 * 60, 23 * 60)).toBe("partly");
+    expect(doorFor({ ...day, partlyUnstaffed: "code" }, 17 * 60, 19 * 60)).toEqual({ by: "code", partly: true });
+    expect(doorFor({ ...day, partlyUnstaffed: "counter" }, 17 * 60, 19 * 60)).toEqual({ by: "counter", partly: true });
+    expect(doorFor(day, 10 * 60, 11 * 60)).toEqual({ by: "counter", partly: false });
+  });
+
+  async function bookTwoHoursNow(courtId: number, phone: string) {
+    vi.useRealTimers();
+    const date = todayISO();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${date}T11:30:00+08:00`));
+    const booking = await createBooking({ courtId, date, hours: [12, 13], name: "Player", phone });
+    vi.setSystemTime(new Date(`${date}T12:15:00+08:00`));
+    if (!booking.ok) throw new Error(booking.error);
+    return booking.booking;
+  }
+
+  it("gives the code to a booking that runs on after the desk shuts, so nobody is shut out at the end", async () => {
+    const open = await unmannedCourt("5151");
+    const booking = await bookTwoHoursNow(open.id, "0169400001");
+    await induct("0169400001");
+    await setPaymentStatus(booking.code, true);
+    // Staffed until 1 PM; the booking runs 12 to 2. Before, its start alone said "ask at the counter".
+    expect((await updateVenue((await VENUE()).id, { staffedFrom: 8, staffedTo: 13, partlyUnstaffed: "code" })).ok).toBe(true);
+    const got = (await accessCodeFor(booking.code, "0169400001"))!;
+    expect(got.ok).toBe(true);
+    if (got.ok) expect(got.accessCode).toBe("5151");
+  });
+
+  it("sends it to the counter where the venue keeps somebody there until such bookings end", async () => {
+    const open = await unmannedCourt();
+    const booking = await bookTwoHoursNow(open.id, "0169400002");
+    await induct("0169400002");
+    await setPaymentStatus(booking.code, true);
+    expect((await updateVenue((await VENUE()).id, { staffedFrom: 8, staffedTo: 13, partlyUnstaffed: "counter" })).ok).toBe(true);
+    expect((await VENUE()).partlyUnstaffed).toBe("counter");
+    const denied = (await accessCodeFor(booking.code, "0169400002"))!;
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.reason).toBe("staffed-now");
+      expect(denied.message).toContain("until your booking ends");
+    }
+    await updateVenue((await VENUE()).id, { partlyUnstaffed: "code" });
+  });
+
+  it("still asks a partly staffed booking for an induction and payment", async () => {
+    const open = await unmannedCourt();
+    const booking = await bookTwoHoursNow(open.id, "0169400003");
+    await updateVenue((await VENUE()).id, { staffedFrom: 13, staffedTo: 20, partlyUnstaffed: "code" });
+    const first = (await accessCodeFor(booking.code, "0169400003"))!;
+    expect(first.ok).toBe(false);
+    if (!first.ok) expect(first.reason).toBe("no-induction");
+    await induct("0169400003");
+    const second = (await accessCodeFor(booking.code, "0169400003"))!;
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.reason).toBe("unpaid");
   });
 });
 

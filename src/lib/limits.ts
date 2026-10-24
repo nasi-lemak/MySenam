@@ -91,7 +91,7 @@ export async function customerMayBook(input: {
     const notHere = await accessRefusal(input.venueId, input.userId ?? null);
     if (notHere) return notHere;
     if (input.dates) {
-      const tooMany = await houseRuleRefusal({ venueId: input.venueId, phone: input.phone, userId: input.userId, dates: input.dates });
+      const tooMany = await houseRuleRefusal({ venueId: input.venueId, phone: input.phone, userId: input.userId, dates: input.dates, online: true });
       if (tooMany) return tooMany;
     }
   }

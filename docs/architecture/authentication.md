@@ -48,9 +48,20 @@ of the admin dashboard by scanning a QR code.
   Only their hashes are kept, and the app's secret is sealed like payment keys.
 - **Compulsory** with `MYSENAM_STAFF_2FA` (`owners`, `managers` or `all`): an
   account without it can sign in only to set it up, and cannot turn it off.
-- Turning it on or off goes in the staff activity log. An owner who loses
-  both phone and recovery codes needs another owner, or the database, to
-  clear `totp_enabled_at` on their row.
+- Turning it on or off goes in the staff activity log.
+- **Lost both phone and recovery codes:** somebody with authority over the
+  account resets it from *Venues & staff* (a platform owner; a business
+  manager for their own business's staff; only another owner for an owner).
+  They must have two-factor on themselves and enter their own current code,
+  and they write down how they knew it was really that person. The reset
+  clears the account's two-factor, signs it out everywhere, voids any sign-in
+  half done, is recorded (`two_factor_resets`, and the staff activity log), and
+  is emailed to the account and to every platform owner, so a reset somebody
+  was talked into is seen at once. Nobody resets their own. The last owner,
+  with nobody above them, is reset on the server:
+  `npm run reset-two-factor -- <email> --reason "…"`, which is recorded and
+  emailed the same way (`src/lib/two-factor-reset.ts`,
+  `tests/two-factor-reset.test.ts`).
 
 ## Session cookies
 

@@ -20,6 +20,8 @@ interface Result {
   court: Court;
   venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null; lastDate?: string };
   payOnline?: boolean;
+  /** On an unmanned resource: the door code or the counter, for the booking's whole time. */
+  door?: { by: "code" | "counter"; partly: boolean } | null;
   addons?: { name: string; quantity: number; unitPrice: number }[];
   /** Once paid: its receipt, or tax invoice. */
   receiptUrl?: string | null;
@@ -336,7 +338,11 @@ export default function MyBookingPage() {
                   )}
                 </p>
               )}
-              {result.court.unmanned ? (
+              {result.court.unmanned && result.door?.by === "counter" ? (
+                <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="door-counter">
+                  {t(result.door.partly ? "door.counterStays" : "door.counter")}
+                </p>
+              ) : result.court.unmanned ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
                   <p className="text-sm font-semibold text-amber-900">
                     {t("door.nobodyOn", { court: result.court.name })}
@@ -344,6 +350,11 @@ export default function MyBookingPage() {
                   <p className="mt-0.5 text-xs text-amber-800">
                     {t("door.hint")}
                   </p>
+                  {result.door?.partly && (
+                    <p className="mt-1 text-xs text-amber-800" data-testid="door-partly">
+                      {t("door.partly")}
+                    </p>
+                  )}
                   {door ? (
                     <div className="mt-3 rounded-lg bg-white px-4 py-3 text-center">
                       <div className="font-mono text-3xl font-bold tracking-[0.3em] text-teal-700">

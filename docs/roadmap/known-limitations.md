@@ -64,7 +64,6 @@ before the feature is used with real customers.
 | E-invoicing: `MYINVOIS_CLIENT_ID` | The MyInvois sandbox check with the venue's own TIN and certificate | Only for venues that must e-invoice, and for the platform if it must |
 | Google sign-in: `GOOGLE_CLIENT_ID` | The redirect URI registered | Register it before switching on |
 | Photos in a bucket: `PHOTOS_S3_BUCKET` | A photo uploaded and served from the real bucket | Needed before running more than one instance |
-| Unstaffed hours with door codes: a venue sets staffed hours | A booking that starts inside the staffed hours and runs past them gets no door code ([booking time model](#booking-and-availability-b)) | Tell such venues to end their staffed hours on a booking boundary, or decide to fix it (P3) |
 | More than one app instance | Not measured; shared rate limits, one secret and a photo bucket are needed ([production readiness](#production-readiness)) | Re-run the benchmark on the production set-up before scaling out |
 | A tournament under a governing body's rules | Sport templates are club practice ([tournaments](#booking-and-availability-b)) | The organiser checks and sets the rules before the draw |
 
@@ -78,13 +77,9 @@ recommendation, not a decision. A decision is recorded by changing the row to
 
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
-| Without WhatsApp or SMS, phone numbers are taken as given ([production readiness](#production-readiness)) | The member rate goes to whoever types a member's number; reviews are one per number; sign-offs online work only when staff link them to an account | Accept for pilot venues whose staff know their members; switch on WhatsApp phone checks once Meta approves the templates |
+| Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs and company accounts work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
 | Messages in English only: game, tournament and league emails, company-account invoices and the terms; the staff dashboard; Tamil and built-in activity names in Malay and Chinese not reviewed by a native speaker ([languages](#languages)) | Booking messages and the customer pages are in the customer's language; the rest are not | Decide which languages the launch promises. At least have a native speaker review the Malay customer pages and messages first |
-| Cancelling a weekly series skips weeks inside the cancellation cutoff without saying so ([booking and availability](#booking-and-availability-b)) | The customer is asked to confirm cancelling *all* upcoming sessions; the weeks inside the cutoff stay booked and owed, and their list shows them still booked without saying why | Decide whether those weeks are cancelled under the late-cancel policy or kept, and whether the customer is told which |
-| A staff member who loses both their phone and their recovery codes is locked out until the database is edited ([operations and security](#operations-and-security-s)) | No owner reset of two-factor | Accept; the owner keeps their own recovery codes offline |
-| The content security policy allows inline scripts ([operations and security](#operations-and-security-s)) | Cross-site requests and framing are still refused | Accept for launch; revisit with the next security review |
-| Chargebacks the code does not undo: a deposit charged back after the rest was paid online leaves the booking paid; a lost dispute on what a venue paid the platform is reported, not reversed ([money](#money-m)) | Staff collect by hand; the owners decide | Accept; both are rare and visible |
 | Defaults marked *for review*: adjacent buffers add up; at most eight places per booking unless the venue sets more; a first lesson needing a sign-off is booked at the counter ([booking time model](#booking-and-availability-b), [activities](#activities)) | As described | Accept as the launch defaults |
 
 ### Accepted
@@ -128,27 +123,25 @@ Also: an email the mail server accepted is recorded as sent; that is not
 proof it reached the inbox (spam folders, a full mailbox, a bounce later).
 Bounces are not read back from any provider ([messaging](../integrations/messaging.md)) (P2; a [decision for the owner](#decisions-the-owner-has-to-make)).
 
-Also: a staff member who loses both their phone and their recovery codes is
-locked out until somebody edits the database; there is no owner reset of two-factor
-(`disableTwoFactor` needs the account's own code) (P3; a [decision for the owner](#decisions-the-owner-has-to-make)).
+Also: a venue's own access list (a members-only or private venue's numbers,
+`venue_access_list`) is matched on an account's number. Where the install
+checks numbers (WhatsApp or SMS), an account must prove its number before it
+books, so that is a proved number; where it does not, it is the number as
+typed, and an account registered with a listed number could see or book a
+private venue. Unlike memberships, list entries have no account to link to.
+Depends on an external service: the next action is to switch phone checks on
+([launch checklist](../operations/deployment.md#launch-integration-checklist)) (P2).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
-The content security policy allows inline scripts; moving to per-request
-nonces is open for review (P3; a [decision for the owner](#decisions-the-owner-has-to-make)).
+The content security policy still allows inline *styles* (a style cannot run
+code); scripts need the response's nonce (resolved below).
 
 ### Booking and availability (B)
 
 | ID | Defect | Evidence | Test to write first | Priority |
 | -- | ------ | -------- | ------------------- | -------- |
-| B11 | Utilisation counts a pitch and the courts under it as separate sellable hours, so a hall sold as one pitch every evening shows its courts idle then and its utilisation low; time sold is counted once | `src/lib/reports.ts` sums open hours × capacity per court; `tests/court-links.test.ts` ("counts time sold once") | A pitch booked for an evening shows the floor as used, not half idle | P3 |
-
-Also, **awaiting a decision** (the code may be intended): cancelling a weekly
-series skips weeks inside the cancellation cutoff silently rather than
-applying the late-cancel policy to them, though the customer confirmed
-cancelling all upcoming sessions (`cancelSeries` in `src/lib/store.ts`) (P2:
-a customer can be charged for a week they believe cancelled; a
-[decision for the owner](#decisions-the-owner-has-to-make)).
+| — | None open | | | |
 
 Also, in [tournaments](../features/tournaments.md):
 
@@ -211,13 +204,12 @@ there):
   them run again. Measured at 2 retries in 1,920 bookings; a booking that
   is still in conflict after ten tries is refused as busy (`BUSY`, 503 with
   `Retry-After`), never half done ([booking concurrency](../architecture/booking-concurrency.md)) (P3).
-- **Unstaffed hours are whole hours** (`staffed_from`/`staffed_to`), and
-  whether a booking is unstaffed is decided by its start alone
-  (`isUnstaffedHour`): a booking from 21:30 to 23:00 at a venue staffed
-  until 22:00 counts as staffed, so it gets no door code and its last hour
-  depends on the counter letting them stay. Confirmed in the code; still
-  open (P3; matters only at a venue with
-  [unstaffed hours](#blockers-only-where-a-feature-is-switched-on)).
+- **Staffed hours are whole hours** (`staffed_from`/`staffed_to`): a desk that
+  shuts at 9:30 PM is entered as 9 PM or 10 PM. Whether a booking is staffed
+  is judged by its whole time, and one staffed for only part of it gets the
+  door code or the counter as the venue sets (resolved below); only the
+  half-hour granularity remains (P3, deliberate simplicity: a lock code is
+  set for the hour, and no venue has asked for finer).
 - **Daylight saving is not supported**, deliberately: a wall-clock time that
   never happens or happens twice has no defined meaning for a booking.
   Malaysia and Singapore have none. Such a zone cannot be configured by
@@ -231,8 +223,12 @@ there):
   their dates, so at a venue open past midnight their last night's late
   hours stay bookable. Outages made since take those hours too
   (`claimOutage`; `tests/outages.test.ts`, "takes the late hours of its last
-  night too"). Only installs with outages from before migration 0090 are
-  affected (P3).
+  night too"). Only data written before migration 0090 is affected, so no
+  install created since can have it, and no production install exists yet.
+  Not repaired in place: a migration extending those claims could collide
+  with bookings since sold in the late hours. Next action, if an install from
+  before 0090 is ever upgraded: end and recreate its running outages, which
+  claims them the new way (P3, legacy data only).
 - **Adjacent buffers add up**: two bookings each with a 10-minute buffer on
   the side they meet are 20 minutes apart, not 10 (by design, for review; a
   [decision for the owner](#decisions-the-owner-has-to-make)).
@@ -332,11 +328,9 @@ review is a launch requirement, not a software check
 real deductions, at a venue that
 [deducts from deposits](#blockers-only-where-a-feature-is-switched-on)).
 
-Also: a deposit charged back after the rest was paid online leaves the
-booking paid, and staff collect the difference by hand; a lost dispute on
-what a venue paid the platform (an invoice, a WhatsApp pack) is reported to
-the owners but not undone, by design until decided otherwise (P3; a
-[decision for the owner](#decisions-the-owner-has-to-make)).
+Also: a dispute on what a venue paid the platform that is lost only *in
+part* is reported to the owners and settled by hand; lost in full, the invoice
+or pack is owed again (resolved below) (P3).
 
 ### Fixed since the audit
 
@@ -380,11 +374,32 @@ IDs are not reused. Each fix came with the test recommended above.
 | B15 | The admin route passes who enters a tournament's results; before, one set up for the players' results from the dashboard was saved as staff's. Found and fixed in the same change | `tests/fixtures.test.ts` |
 | B16 | Joining an open game, and a host accepting a player, counted the places and then wrote, with nothing between: on Postgres six people joining a one-place game at once were all let in. Every change that takes or frees a place now runs in one transaction that locks the game's row first. Found and fixed in the same change | `tests/matchmaking.test.ts` ("lets exactly one of many people joining at once") |
 | B14 | A booking takes advisory locks on its spaces, shared courts and coach, in one order, before claiming, so racing bookings queue rather than deadlock | `tests/contention.test.ts`, `tests/concurrency.test.ts` |
+| B11 | Utilisation measures the courts' floor once: each piece sellable on its own is a unit, in use whenever any booking covers it (as the court or the pitch over it) and out where a block or outage covers it; the pitch's own space is not more floor. Each court also shows its hours in use; takings per hour of floor are given beside ([reporting](../features/reporting.md)) | `tests/reports-floor.test.ts`, `tests/court-links.test.ts` |
 | M12 | A fee paid online for something already paid (a tournament entry, a WhatsApp pack, a platform invoice) is recorded as owed back, with no second receipt or revenue, and refunded once through the gateway or marked refunded | `tests/tournaments.test.ts`, `tests/billing.test.ts`, `tests/whatsapp-usage.test.ts` |
 | M13 | Money kept from a hire deposit is a receipted counter sale per reason linked to the hire, taxed by its reason's nature and the venue's tax settings, under its own heading in the takings, the journal and exports ([venue operations](../features/venue-operations.md#money-kept-from-a-deposit)) | `tests/hire.test.ts` |
 | M14 | Credit reports give what customers hold and what customers below nothing owe, apart and never netted; the two together equal the ledger | `tests/wallet.test.ts` |
 | M15 | A cancellation and its refunds are one transaction; a refund sent to the gateway is owed first, and one unanswered or overdue is raised by the integrity check and listed for staff | `tests/refund-recovery.test.ts` |
 | S11 | Emails to applicants, password reset links, alerts to the platform's owners and a venue's staff, and WhatsApp credit alerts go through the outbox: retried with backoff, listed for the platform's owners, given up unsent once a reset link has run out, and a reset link is not kept after it goes | `tests/platform-messages.test.ts`, `tests/applications.test.ts`, `tests/password-reset.test.ts` |
+| S12 | An account's *My waiting lists* listed every place queued on the account's phone number, proved or only typed in, so registering with somebody's number showed where and when they were queuing. Now the places the account joined, or on its proved number. Found and fixed in the same change | `tests/member-identity.test.ts` ("a number on an account's own lists") |
+| S13 | A members-only venue or tournament let in any account whose typed number matched a member's. Now only the account the membership is linked to, or whose number it is, proved. Found and fixed in the same change | `tests/member-identity.test.ts` |
+
+### Resolved limitations without a number
+
+Limitations recorded as prose rather than as numbered defects, and how each
+was resolved. Kept so the register shows what changed, not only what is left.
+
+| Limitation | Resolved by | Evidence |
+| ---------- | ----------- | -------- |
+| A booking that started while the desk was staffed and ran on after it shut got no door code, judged by its start alone | Staffing is judged over the booking's whole time, after midnight too; a booking staffed for part of it gets the code, or the counter where the venue keeps somebody on the desk until such bookings end (`partly_unstaffed`, migration 0110); the booking's page says which beforehand ([venue operations](../features/venue-operations.md)) | `tests/access.test.ts` ("a booking across the staffed boundary") |
+| Cancelling a weekly series asked to confirm cancelling *all* upcoming sessions, then silently kept the weeks inside the cutoff | Each week's terms are previewed (free, late at the venue's share, or staying and why, with what is owed); the customer picks the weeks; late ones go only on terms accepted; a week whose terms changed refuses the lot (`SERIES_CHANGED`) ([booking](../features/booking.md#cancellation-and-no-shows)) | `tests/series-cancel.test.ts` |
+| Two cancellations of a paid booking at once were listed as untested | Already tested; the register was out of date | `tests/refund-recovery.test.ts` |
+| A waiting-list offer on a court under a pitch was listed as untested | Test added: the offer keeps the pitch from being sold over it and leaves the court beside it free | `tests/waitlist.test.ts` ("on a court under a pitch…") |
+| A member of staff who lost both phone and recovery codes was locked out until the database was edited | An audited reset by a superior (an owner, or the business's manager; an owner only by another owner) with their own two-factor code and a reason; signs out, recorded, emailed to the account and every owner; the last owner from the server's console (`npm run reset-two-factor`) ([authentication](../architecture/authentication.md#two-factor-sign-in)) | `tests/two-factor-reset.test.ts` |
+| The content security policy allowed inline scripts, so an injected script would run | A fresh nonce per response with `'strict-dynamic'`; Next.js puts it on its own scripts ([security](../architecture/security.md#response-headers)) | `tests/launch-security.test.ts`; `tests/e2e/launch.e2e.ts` (production build: a different nonce per page, on every script; a court booked with nothing blocked) |
+| A member's rate and longer booking window went to whoever typed the member's number online (a decision of the time, reversed by the owner in October 2026) | Online, only for the account the membership is linked to or whose number it is, proved; at the counter, the number on staff's word ([privacy](../architecture/privacy.md#a-phone-number-is-not-identity)) | `tests/member-identity.test.ts`, `tests/impersonation.test.ts` |
+| A deposit charged back after the rest was paid online left the booking showing paid in full | The booking owes the deposit's part again; the rest keeps its receipt under its own payment's key, so a later cancellation still owes it back ([payments](../features/payments-and-credit.md)) | `tests/stripe-disputes.test.ts` ("lost on a deposit after the rest was paid online…") |
+| A lost dispute on a platform invoice or WhatsApp pack left it showing paid | Lost in full: the invoice is due again in 14 days (voidable by an owner); the pack is due again and its messages taken back, below nothing for any already sent | `tests/stripe-disputes.test.ts` ("…lost, the invoice is owed again") |
+| A refund on withdrawing from a tournament before the draw, and a league fee paid after leaving, were untested | Tests added: owed back in full where the rules say so; a fee paid after leaving is owed back with no receipt and the place not marked paid | `tests/tournaments.test.ts`, `tests/leagues.test.ts` |
 
 ## Production readiness
 
@@ -401,8 +416,8 @@ is under [what the launch depends on](#what-the-launch-depends-on).
 | Refund races and crashes | A cancellation and its refunds are one transaction (M15); Stripe refunds are claimed before Stripe is asked (M9) and finished by the scheduler after a crash; a second payment for something paid is owed back, not kept (M12) | Two cancellations of a paid booking at once, and a class called off while a place in it is cancelled, refund once (`tests/refund-recovery.test.ts`). A crash before the request, after Stripe accepted it but before it was recorded, while recording, and during reconciliation each end in one refund; no transaction is open while Stripe is asked (`tests/refund-crash.test.ts`). Against a stand-in for Stripe only |
 | Negative stored credit | Possible on purpose after a chargeback | Reported apart, as owed by customers, never netted against credit held (M14); no database guard |
 | Money outside the books | None known | Money kept from hire deposits is receipted (M13); everything else that takes money is receipted |
-| Linked courts in reports | Time sold counted once; sellable time counted per court (B11) | Utilisation reads low for halls sold as one floor |
-| Identity | Accounts are identities; phone numbers are not, unless proved | A number is proved only where WhatsApp or SMS is configured, and those are tested against fakes; without them numbers are taken as given. A member's number typed by anyone gets the member rate (by design); reviews are one per number; sign-offs online need the account's own or proved number ([authentication](../architecture/authentication.md), [privacy](../architecture/privacy.md)) |
+| Linked courts in reports | The floor counted once (B11, fixed) | `tests/reports-floor.test.ts`: a hall sold as one pitch reads full; a block on the pitch comes off both courts' floor once |
+| Identity | Accounts are identities; phone numbers are not, unless proved | A number is proved only where WhatsApp or SMS is configured, and those are tested against fakes. Online, membership benefits, sign-offs and an account's waiting-list places need the account's proved number or a link to the account (S12, S13); at the counter staff take the number on their word ([authentication](../architecture/authentication.md), [privacy](../architecture/privacy.md)) |
 | Integrations | None checked against the live service | Every payment, message, e-invoice, sign-in and storage integration is tested against fakes ([below](#integrations-awaiting-live-verification-or-a-partner)); rows that take money or send messages name their leg in feature status |
 | Backup and restore | Restored and compared on both engines, locally; off-site restore not verified against a real bucket | The scripts test backs up a venue's settings, a customer's credit, a paid booking and a photo, changes them all, restores, and compares every row of the main tables, each balance and each photo's hash (`tests/backup-scripts.test.ts`). Each snapshot is a set with a manifest of hashes; a set is fetched back from a stand-in S3 service, checked, and restored in a drill aside without touching the live data; a damaged part is caught. A `pg_dump` copy made by the app is listed, not loaded, before it is kept (the drill loads it). RPO up to 24 hours; RTO measured locally at about 2 minutes' restore for the benchmark database. Remains: the off-site drill against the real provider with a read key, on an isolated server ([backups](../operations/backups.md#restoring-from-the-off-site-copy)) |
 | Continuous integration | Not running; not executed for any change since 16 October 2026 | Every CI and Docs job since 16 October 2026 has been refused before a runner was given to it: "The job was not started because an Actions budget is preventing further use" (the repository is private, on a personal account); the runs of 24 October 2026 still ended within three seconds, with no step run. The account owner raises or removes the Actions budget, or waits for the monthly minutes to reset ([testing](../development/testing.md#continuous-integration)). Until then every check here is run by hand |
@@ -468,6 +483,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
 | Browser tests cover a few journeys only: eleven end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and fifteen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones. [Users and journeys](../product/users-and-journeys.md#what-the-journeys-show) names the journeys to add first | P2 |
-| Untested paths named in feature status: refund on tournament withdrawal before the draw, a league fee paid after leaving, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
+| Untested paths named in feature status: the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |

@@ -31,7 +31,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isValidDateString, todayISO } from "@/lib/time";
 import { formatLength, formatMinute } from "@/lib/interval";
 import { windowFor } from "@/lib/house-rules";
-import { MAX_SERIES_WEEKS, Sport } from "@/lib/types";
+import { doorFor, MAX_SERIES_WEEKS, Sport } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
 import { refundStatusFor, takesPaymentOnline } from "@/lib/payments";
@@ -465,6 +465,8 @@ export async function GET(req: NextRequest) {
       lastDate: addDays(todayISO(venue.timeZone), await windowFor(venue.id, [booking.phone])),
     },
     payOnline: await takesPaymentOnline(venue.id),
+    // On an unmanned resource: whether the door code or the counter lets them in, by the booking's whole time.
+    door: court.unmanned ? doorFor(venue, Math.round(booking.startHour * 60), Math.round(booking.endHour * 60)) : null,
     // A deposit to hold it, while it is held and none is paid yet.
     depositPercent:
       booking.holdUntil && (booking.depositPaid ?? 0) === 0 && !(await struckOut(venue.id, booking.phone)).out

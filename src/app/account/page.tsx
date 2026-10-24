@@ -20,6 +20,7 @@ import { BookAgain } from "@/components/BookAgain";
 import { MyVenues } from "@/components/MyVenues";
 import { GuestInvites } from "@/components/GuestInvites";
 import { useT } from "@/components/Language";
+import { SeriesCancel } from "@/components/SeriesCancel";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
 import type { RefundStatus } from "@/lib/payments";
@@ -70,24 +71,13 @@ export default function AccountPage() {
     window.location.href = "/";
   }
 
-  async function cancelSeries(seriesCode: string, phone: string) {
-    if (!window.confirm(t("acct.cancelSeriesConfirm", { code: seriesCode }))) return;
+  /** The series whose weeks are being chosen to cancel (components/SeriesCancel.tsx). */
+  const [seriesOpen, setSeriesOpen] = useState<string | null>(null);
+  function cancelSeries(seriesCode: string) {
     setError(null);
-    try {
-      const res = await fetch("/api/bookings/cancel-series", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seriesCode, phone }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
-      const lines = refundLines(t, data.refunds);
-      setNotice(lines.length > 0 ? lines.join(" ") : null);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("mine.cancelFailed"));
-    }
+    setSeriesOpen(seriesCode);
   }
+
 
   async function cancel(b: UserBookingRow) {
     const keep = b.venueLateCancelKeep;
@@ -246,6 +236,26 @@ export default function AccountPage() {
           </div>
         )}
         <h2 className="text-lg font-bold">{t("acct.upcoming")}</h2>
+        {seriesOpen && (
+          <div className="mt-3">
+            <SeriesCancel
+              key={seriesOpen}
+              t={t}
+              seriesCode={seriesOpen}
+              phone={user.phone}
+              onClose={() => setSeriesOpen(null)}
+              onDone={(data) => {
+                setSeriesOpen(null);
+                const lines = [
+                  ...refundLines(t, data.refunds as Parameters<typeof refundLines>[1]),
+                  ...(data.left ?? []).map((w) => t("series.leftOne", { date: w.date })),
+                ];
+                setNotice(lines.length > 0 ? lines.join(" ") : null);
+                load();
+              }}
+            />
+          </div>
+        )}
         {upcoming.length === 0 ? (
           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
             {t("acct.noneUpcoming")}{" "}
@@ -262,7 +272,7 @@ export default function AccountPage() {
                 booking={b}
                 onCancel={() => cancel(b)}
                 onCancelSeries={
-                  b.seriesCode ? () => cancelSeries(b.seriesCode!, user.phone) : undefined
+                  b.seriesCode ? () => cancelSeries(b.seriesCode!) : undefined
                 }
               />
             ))}

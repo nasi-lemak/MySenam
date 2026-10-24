@@ -320,6 +320,26 @@ describe("the fee", () => {
     expect((await myLeague(a.user.id, l.id))?.place?.paid).toBe(true);
     expect(await startLeaguePayment(a.user, l.id)).toMatchObject({ ok: false, status: 409 });
   });
+
+  it("paid online after the player left: owed back in full, with no receipt and the place not marked paid", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: "league-bill-left", url: "https://www.billplz-sandbox.com/bills/league-bill-left" })));
+    const l = await league();
+    const [a] = await joined(l.id, 3);
+    await started(l.id);
+    expect(await startLeaguePayment(a.user, l.id)).toMatchObject({ ok: true });
+    // They leave while the payment page is still open, then pay it.
+    await leave(a.playerId);
+    await settleBill({ billId: "league-bill-left", paid: true, paidAt: null });
+    const payment = (await getDb().prepare("SELECT id, amount::float AS amount, refund_due::float AS due FROM online_payments WHERE bill_id = 'league-bill-left'").get()) as {
+      id: number;
+      amount: number;
+      due: number;
+    };
+    expect(payment.due).toBe(payment.amount);
+    expect(await getDb().prepare("SELECT 1 FROM receipts WHERE source = ?").get(`payment:${payment.id}`)).toBeUndefined();
+    const place = (await getDb().prepare("SELECT paid_at FROM league_places WHERE player_id = ?").get(a.playerId)) as { paid_at: string | null };
+    expect(place.paid_at).toBeNull();
+  });
 });
 
 describe("a player closing their account", () => {
