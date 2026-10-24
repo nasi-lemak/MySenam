@@ -29,8 +29,11 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   (`refund_failed`, owed again). Those need somebody to look in the
   gateway's dashboard or pay it back, then mark it
   ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
-  A failed off-site copy of a backup raises `offsite`, and a failed nightly
-  backup `backup` ([backups](backups.md)).
+  A failed or paused off-site copy of a backup raises `offsite`, and a failed
+  nightly backup `backup`. Backups older than the recovery-point target, or
+  none copied off-site yet, raise `backup-stale`. A backup part nearing the
+  single-upload limit raises `offsite-near-limit`
+  ([backups](backups.md#backup-health)).
 
 Each kind is told once, then again only after six hours if it is still
 happening, with how many times it has. It goes by email to every platform

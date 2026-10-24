@@ -137,28 +137,116 @@ both allow transfers abroad on conditions.
 
 ### Backups held abroad
 
-An off-site backup in another country is a transfer of personal data out of
-the country, even encrypted, unless a lawyer advises otherwise. The app sends
-none until the bucket's country is declared, and none abroad until the
-transfer is approved and the copies are encrypted
-([backups](../operations/backups.md#where-the-data-may-go)). Before setting
-`OFFSITE_TRANSFER_APPROVED`, the operator should have, and record:
+Backblaze B2, the preferred off-site provider
+([ADR 0015](decisions/0015-backblaze-b2-preferred-signed-backup-sets.md)),
+has no region in Asia. Every copy, from either install, goes to the US
+(recommended), Canada or the Netherlands. **Neither country forbids that.**
+Both allow a transfer abroad when a lawful basis is in place, and neither makes
+consent the general rule. This section is the operator's working analysis
+from the regulators' guidance, **not legal advice and not legal approval**.
+The open points at the end are for a lawyer.
 
-- **Malaysia (PDPA s129, as amended in 2024, in force 1 April 2025):** a
-  transfer impact assessment for the destination (the Commissioner's
-  cross-border transfer guideline of April 2025 asks for one, reviewed every
-  three years), or a due-diligence basis such as contract clauses (the ASEAN
-  Model Contractual Clauses are named) with the provider.
-- **Singapore (PDPA s26 and the 2021 Regulations):** legally enforceable
-  obligations on the provider giving comparable protection — a contract that
-  names the countries, or a recognised certification — after due diligence.
-- **Both:** a data processing agreement with the provider (protection,
-  deletion at the end of retention, breach notice to the operator, its own
-  subprocessors, notice of law-enforcement requests, the regions named); the
-  privacy notice and venue agreements naming the country; encryption with the
-  key held by the operator, not the provider; least-privilege keys
-  ([backups](../operations/backups.md#keys-and-object-lock)); and a breach plan
-  that meets Malaysia's and Singapore's notification deadlines.
+The app's part is narrow:
+
+- it refuses to send until the destination is declared, and checks the
+  declaration against the endpoint;
+- it refuses a destination abroad until `OFFSITE_TRANSFER_APPROVED` names it
+  and encryption is on
+  ([backups](../operations/backups.md#where-the-data-may-go)).
+
+Setting that variable is the operator's statement that the steps below are
+done and recorded.
+
+**Encryption is a safeguard, not the basis.** Copies are encrypted on the
+server with a key Backblaze never holds, so Backblaze stores ciphertext.
+That reduces the risk a transfer impact assessment weighs, and supports the
+security obligation. Neither regulator says encrypted data stops being
+personal data, or that its storage abroad stops being a transfer. Treat it as
+a transfer.
+
+**Singapore (PDPA s26; PDP Regulations 2021, regs 9–12):** before
+transferring, take appropriate steps to ensure the recipient is bound by
+legally enforceable obligations giving protection at least comparable to the
+PDPA. The lawful mechanism to use is a contract, which must:
+
+- give comparable protection;
+- name the countries the data may go to;
+- for a data intermediary such as a storage provider, cover protection,
+  retention and breach notice to the operator (PDPC Key Concepts guidelines,
+  chapter 19).
+
+The PDPC encourages the ASEAN Model Contractual Clauses. The guide on cloud
+services adds two points:
+
+- the organisation stays responsible wherever the provider is;
+- certified data centres (ISO 27001) with a SOC 2 report can count as
+  appropriate steps where the provider chooses locations. Here the operator
+  chooses the region.
+
+Backblaze holds no Global or APEC CBPR or PRP certification that could be
+found, so the certification route is not available. Consent (reg 10(2)) is an
+alternative, but the PDPC prefers the others, and it cannot be made a
+condition of service; it is not the route here.
+
+**Malaysia (PDPA s129, as amended by Act A1727; Cross Border Personal Data
+Transfer Guideline, April 2025):**
+
+- **The two routes.** The Minister's whitelist is gone. A transfer is
+  allowed where the destination has a law substantially similar to the PDPA,
+  or ensures an adequate level of protection, as assessed in a transfer
+  impact assessment (TIA, valid up to three years), or under an exception in
+  s129(3).
+- **The route here is s129(3)(f).** That exception asks for "all reasonable
+  precautions and all due diligence", shown by contract clauses (the ASEAN
+  Model Contractual Clauses or the EU Standard Contractual Clauses are
+  named), backed by a TIA of the US.
+- **Records.** For each transfer, keep the recipient, the country, the kinds
+  of data, the purpose and the evidence (TIA, contract, certifications).
+- **Source.** The official guideline text could not be reached when this
+  was written; these points come from law-firm summaries of it, and should
+  be checked against the text.
+
+**What the operator does and records, for both countries:**
+
+1. **Due diligence on Backblaze**, filed:
+   - its [DPA](https://www.backblaze.com/company/dpa.html), incorporated in
+     its Terms, and the EU SCCs Module 2 inside it;
+   - its sub-processor list (US data centres also hold every account's
+     account data);
+   - its law-enforcement policy (valid US process only, customer notified
+     unless barred);
+   - its SOC 2 Type 2 report (the data centres, not Backblaze, hold ISO 27001);
+   - breach notice "without undue delay".
+2. **A contract that binds Backblaze** to comparable protection and names
+   the country. Whether the click-through DPA, written for GDPR customers,
+   does that for Malaysian and Singaporean data, or an addendum with the
+   ASEAN clauses is needed, is the first question for the lawyer.
+3. **A TIA of the US** (Malaysia; also a sound record for Singapore). It
+   covers:
+   - US data-subject rights and US government access;
+   - the safeguards in place: encryption with the operator's key, Object Lock,
+     least-privilege keys, signed sets;
+   - the residual risk;
+   - a review date, at most three years on.
+4. **The privacy notice and venue agreements** name the country of
+   off-site backups, how long they are kept (about 15 days), and that they
+   are encrypted.
+5. **A transfer register entry**: what goes (database and photos archive),
+   to whom (Backblaze, the region), why (disaster recovery), the mechanism and
+   the evidence, and when it is next reviewed.
+6. **A breach plan** that meets Malaysia's and Singapore's notification
+   deadlines, covering a breach at the provider.
+
+**Who is responsible.** Venues are the controllers (organisations) for their
+bookings, with MySenam processing for them. The operator is responsible in its
+own right for customers' accounts (above). The off-site transfer is the
+operator's decision and its processor contract, made on venues' behalf:
+
+- venue agreements should say backups are held abroad, and under what
+  safeguards;
+- venues need not each contract with Backblaze;
+- venues stay answerable to their customers and should be told where their
+  data goes.
 
 A bucket in the install's own country (Amazon S3 in Malaysia or Singapore)
 avoids the transfer question for that country's data, but not the processor
@@ -166,14 +254,26 @@ agreement, security or retention duties. Backups age out with the bucket's
 lifecycle rule (about 15 days), so data erased or anonymised here is gone from
 them within that window; the privacy notice should say so.
 
-**Needs legal confirmation before launch:** each party's role for venue data
-and for account data, and what that means for registration, a data
-protection officer and breach notices; whether a US or EU bucket meets
-Malaysia's test, or the due-diligence route should be used; whether
-encrypted copies whose key the operator holds count as a transfer; the exact
-Malaysian breach-notice deadlines and thresholds in the Commissioner's
-guideline; and whether the provider's standard agreement meets Malaysia's
-contract route and Singapore's s26.
+**For a lawyer to confirm before `OFFSITE_TRANSFER_APPROVED` is set:**
+
+1. Whether Backblaze's GDPR-oriented DPA, accepted by click-through, is a
+   legally enforceable contract meeting Singapore's reg 11 (which needs named
+   countries) and Malaysia's s129(3)(f), or whether an ASEAN-clause addendum
+   is needed.
+2. Whether encryption with the key held only by the operator changes either
+   analysis.
+3. For Malaysia: whether the s129(2) route or s129(3)(f) is the right one,
+   whether a TIA is required or advisable, and how US government access is
+   weighed, checked against the official guideline text.
+4. The commencement date of Act A1727 and the guideline's paragraph numbers.
+5. Whether account data Backblaze keeps in the US (the operator's contact and
+   billing details) is a separate transfer.
+6. Whether a provider SOC 2 report without its own ISO 27001 is enough for
+   the PDPC's appropriate steps.
+7. Backblaze's actual CBPR/PRP status, in the official directories.
+8. Each party's role for venue data and account data, and what that means for
+   registration, a data protection officer and breach notices; the exact
+   Malaysian breach-notice deadlines and thresholds.
 
 How much data an install accumulates, and why bookings stay in plain Postgres
 rather than TimescaleDB, is in

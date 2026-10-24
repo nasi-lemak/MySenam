@@ -35,15 +35,18 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_BACKUP_DIR` | `backups/` in the data folder | Where snapshots are written |
 | `MYSENAM_BACKUP_KEEP` | `14` | How many snapshots to keep before the oldest are retired |
 | `MYSENAM_BACKUP_HOUR` | `3` | The hour, in the install country's time, of the nightly backup |
+| `MYSENAM_BACKUP_RPO_HOURS` | `26` | The recovery-point target: owners are alerted when the newest copy that would survive losing the server is older ([backups](../operations/backups.md#backup-health)) |
 | `MYSENAM_SCHEDULER` | on in production | `off` to leave nightly backups, message sending and the rest of the scheduled work to your own cron. Not needed for several instances, which share the work by a lease |
 | `MYSENAM_RATE_LIMITS` | `memory` | `shared` to keep rate-limit counters in Postgres, for more than one instance |
 | `MYINVOIS_CLIENT_ID`, `MYINVOIS_CLIENT_SECRET` | unset | The platform's own MyInvois ERP client, to act as venues' intermediary for LHDN e-invoicing (Malaysia) |
-| `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
+| `OFFSITE_S3_*` | — | Where to copy each backup off the machine (Backblaze B2 preferred, Amazon S3 supported); see *Off-site copies*. `OFFSITE_S3_REGION` is read from a B2 or S3 endpoint when not set |
 | `OFFSITE_S3_READ_ACCESS_KEY_ID` / `OFFSITE_S3_READ_SECRET_ACCESS_KEY` | — | The read key, on the machine you restore from only ([backups](../operations/backups.md#keys-and-object-lock)) |
-| `OFFSITE_DATA_LOCATION` | — | Country the bucket keeps data in; nothing is copied off-site until it is set ([backups](../operations/backups.md#where-the-data-may-go)) |
+| `OFFSITE_DATA_LOCATION` | — | Country the bucket keeps data in; nothing is copied off-site until it is set, or while it disagrees with the country a B2 or S3 endpoint names ([backups](../operations/backups.md#where-the-data-may-go)) |
 | `OFFSITE_TRANSFER_APPROVED` | — | That country again, once a transfer abroad is approved and recorded |
 | `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` | — | Encrypt each off-site copy before upload ([backups](../operations/backups.md#encryption)) |
 | `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` | — | Decrypt them, on the restore machine only |
+| `OFFSITE_SIGNING_KEY_FILE` | — | An Ed25519 private key the server signs each set's manifest with ([backups](../operations/backups.md#signed-manifests)) |
+| `OFFSITE_SIGNING_PUBLIC_KEY_FILE` | — | Its public key, on the restore machine: sets not signed by it are refused |
 | `PHOTOS_S3_*` | — | A bucket of its own for venue photos (`ENDPOINT`, `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION`); without one, photos go in the data folder. See *Venue photos* |
 | `PHOTOS_PUBLIC_URL` | — | The photo bucket's public address, so browsers fetch photos from it rather than through this server |
 | `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |

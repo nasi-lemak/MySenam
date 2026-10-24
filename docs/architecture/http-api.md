@@ -131,7 +131,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/demo`             | Fill an empty install with a demo fortnight — **owner only** |
 | GET    | `/api/admin/retention`        | The retention policy, what is due, and when it last ran — **owner only** |
 | POST   | `/api/admin/retention`        | Apply the retention policy now — **owner only**      |
-| GET    | `/api/admin/backup`           | Snapshots, and how stale the newest is — **owner only** |
+| GET    | `/api/admin/backup`           | Snapshots, off-site status and backup health — **owner only** |
 | POST   | `/api/admin/backup`           | Take one now — **owner only**                        |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
 | POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |

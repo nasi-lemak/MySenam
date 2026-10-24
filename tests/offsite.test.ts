@@ -10,6 +10,7 @@ process.env.MYSENAM_DB = ":memory:";
 import {
   amzDate,
   copyOffsite,
+  endpointLocation,
   fetchOffsiteSet,
   listOffsite,
   MAX_SINGLE_PUT,
@@ -22,6 +23,7 @@ import {
   uploadBackup,
 } from "../src/lib/offsite";
 import { createBackup, verifyBackupSet } from "../src/lib/backup";
+import { keyIdOf, signatureValid, signBytes } from "../src/lib/backup-crypto";
 import { getDb } from "../src/lib/db";
 import type { OffsiteConfig } from "../src/lib/offsite";
 
@@ -102,6 +104,69 @@ describe("where a copy goes", () => {
     } finally {
       keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
     }
+  });
+
+  it("reads the provider, region and country from a B2, S3 or R2 endpoint, and signs for that region by default", () => {
+    expect(endpointLocation("https://s3.us-west-004.backblazeb2.com")).toEqual({ provider: "Backblaze B2", region: "us-west-004", country: "US" });
+    expect(endpointLocation("https://s3.us-east-005.backblazeb2.com/")).toEqual({ provider: "Backblaze B2", region: "us-east-005", country: "US" });
+    expect(endpointLocation("https://s3.eu-central-003.backblazeb2.com")).toMatchObject({ country: "NL" });
+    expect(endpointLocation("https://s3.ap-southeast-5.amazonaws.com")).toEqual({ provider: "Amazon S3", region: "ap-southeast-5", country: "MY" });
+    expect(endpointLocation("https://s3.ap-southeast-1.amazonaws.com")).toMatchObject({ country: "SG" });
+    // R2 does not say where it keeps data in its address.
+    expect(endpointLocation("https://acct.r2.cloudflarestorage.com")).toEqual({ provider: "Cloudflare R2", region: "auto", country: null });
+    expect(endpointLocation("https://s3.example.com")).toBeNull();
+    // A B2 region not known to this code: the provider is named, the country is not guessed.
+    expect(endpointLocation("https://s3.ap-south-009.backblazeb2.com")).toEqual({ provider: "Backblaze B2", region: "ap-south-009", country: null });
+
+    const saved = { ...process.env };
+    try {
+      process.env.OFFSITE_S3_ENDPOINT = "https://s3.us-west-004.backblazeb2.com";
+      process.env.OFFSITE_S3_BUCKET = "b";
+      process.env.OFFSITE_S3_ACCESS_KEY_ID = "i";
+      process.env.OFFSITE_S3_SECRET_ACCESS_KEY = "s";
+      delete process.env.OFFSITE_S3_REGION;
+      expect(offsiteConfig()?.region).toBe("us-west-004");
+      process.env.OFFSITE_S3_REGION = "us-west-004";
+      expect(offsiteConfig()?.region).toBe("us-west-004");
+    } finally {
+      for (const k of Object.keys(process.env)) if (k.startsWith("OFFSITE_") && !(k in saved)) delete process.env[k];
+    }
+  });
+
+  it("pauses when the endpoint's country is not the one declared: a typed country is checked against the address", async () => {
+    try {
+      process.env.OFFSITE_S3_ENDPOINT = "https://s3.us-west-004.backblazeb2.com";
+      process.env.OFFSITE_S3_BUCKET = "b";
+      process.env.OFFSITE_S3_ACCESS_KEY_ID = "i";
+      process.env.OFFSITE_S3_SECRET_ACCESS_KEY = "s";
+      process.env.OFFSITE_DATA_LOCATION = "MY";
+      expect(offsiteTransferCheck()).toMatch(/Backblaze B2 us-west-004, in US, but OFFSITE_DATA_LOCATION says MY/);
+      expect(await offsiteStatus()).toMatchObject({ paused: expect.stringMatching(/in US/), endpointSays: { provider: "Backblaze B2", country: "US" } });
+      process.env.OFFSITE_DATA_LOCATION = "US";
+      expect(offsiteTransferCheck()).toMatch(/OFFSITE_TRANSFER_APPROVED=US/);
+    } finally {
+      for (const k of Object.keys(process.env)) if (k.startsWith("OFFSITE_")) delete process.env[k];
+    }
+  });
+});
+
+describe("manifest signatures", () => {
+  it("are Ed25519 over the manifest's bytes, checked against the public key alone", () => {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+    const pub = publicKey.export({ type: "spki", format: "pem" }).toString();
+    const priv = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const bytes = Buffer.from('{"database":{"file":"x.db"}}');
+    const signed = signBytes(bytes, priv);
+    expect(signed).toMatchObject({ alg: "ed25519", keyId: keyIdOf(pub) });
+    expect(signatureValid(bytes, signed, pub)).toBe(true);
+    expect(signatureValid(Buffer.from('{"database":{"file":"y.db"}}'), signed, pub)).toBe(false);
+    const other = crypto.generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
+    expect(signatureValid(bytes, signed, other)).toBe(false);
+    expect(signatureValid(bytes, { ...signed, signature: "AAAA" }, pub)).toBe(false);
+    expect(signatureValid(bytes, "nonsense", pub)).toBe(false);
+    // Only an Ed25519 key signs: an RSA key given by mistake is refused, not used.
+    const rsa = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    expect(() => signBytes(bytes, rsa)).toThrow(/Ed25519/i);
   });
 });
 
@@ -298,9 +363,12 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
   const REGION = "us-west-004";
   const keys: Record<string, { secret: string; capabilities: string[]; prefix: string }> = {
     "004writeonly": { secret: "write-secret", capabilities: ["writeFiles"], prefix: "venue-a/" },
-    "004readlist": { secret: "read-secret", capabilities: ["listFiles", "readFiles"], prefix: "venue-a/" },
+    "004readlist": { secret: "read-secret", capabilities: ["listFiles", "readFiles", "readFileRetentions"], prefix: "venue-a/" },
   };
   const versions = new Map<string, Buffer[]>();
+  /** When each version was uploaded, by the bucket's clock; shifted to stand for an upload made hours later. */
+  const stamps = new Map<string, string[]>();
+  let clockAheadHours = 0;
   /** Off, the bucket answers a versions listing as R2 does: not implemented. */
   let listsVersions = true;
   const log: { method: string; key: string; path: string }[] = [];
@@ -348,6 +416,18 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
         if (expected !== auth) return deny(res, 403, "SignatureDoesNotMatch", "Bad signature");
         const key = keys[id];
         const objectKey = decodeURIComponent(url.pathname.replace(/^\/backups\//, ""));
+        if (req.method === "PUT" && url.searchParams.has("retention")) {
+          // Changing a file's retention needs writeFileRetentions; shortening it under governance, bypassGovernance too.
+          return deny(res, 403, "AccessDenied", "not entitled");
+        }
+        if (req.method === "HEAD") {
+          if (!key.capabilities.includes("readFiles")) return res.writeHead(403).end();
+          if (!versions.has(objectKey)) return res.writeHead(404).end();
+          const lock = key.capabilities.includes("readFileRetentions")
+            ? { "x-amz-object-lock-mode": "GOVERNANCE", "x-amz-object-lock-retain-until-date": new Date(Date.now() + 14 * 86_400_000).toISOString() }
+            : {};
+          return res.writeHead(200, lock).end();
+        }
         if (req.method === "PUT") {
           if (!key.capabilities.includes("writeFiles")) return deny(res, 403, "AccessDenied", "not entitled");
           if (!objectKey.startsWith(key.prefix)) return deny(res, 403, "AccessDenied", "not entitled to that file name prefix");
@@ -356,6 +436,7 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
           if (crypto.createHash("md5").update(body).digest("base64") !== req.headers["content-md5"]) return deny(res, 400, "BadDigest", "MD5 mismatch");
           if (crypto.createHash("sha256").update(body).digest("hex") !== req.headers["x-amz-content-sha256"]) return deny(res, 400, "XAmzContentSHA256Mismatch", "SHA mismatch");
           versions.set(objectKey, [...(versions.get(objectKey) ?? []), body]);
+          stamps.set(objectKey, [...(stamps.get(objectKey) ?? []), new Date(Date.now() + clockAheadHours * 3_600_000).toISOString()]);
           return res.writeHead(200).end();
         }
         if (req.method === "DELETE") return deny(res, 403, "AccessDenied", "file is locked");
@@ -367,7 +448,7 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
           // Each name's newest version first, as S3 lists them.
           const listed = [...versions]
             .filter(([k]) => k.startsWith(prefix))
-            .flatMap(([k, v]) => v.map((body, i) => `<Version><Key>${k}</Key><VersionId>v${i}</VersionId><IsLatest>${i === v.length - 1}</IsLatest><Size>${body.length}</Size><LastModified>2026-10-24T03:00:0${i}Z</LastModified></Version>`).reverse());
+            .flatMap(([k, v]) => v.map((body, i) => `<Version><Key>${k}</Key><VersionId>v${i}</VersionId><IsLatest>${i === v.length - 1}</IsLatest><Size>${body.length}</Size><LastModified>${stamps.get(k)?.[i] ?? ""}</LastModified></Version>`).reverse());
           return res.writeHead(200, { "content-type": "application/xml" }).end(`<ListVersionsResult><IsTruncated>false</IsTruncated>${listed.join("")}</ListVersionsResult>`);
         }
         if (url.searchParams.get("list-type") === "2") {
@@ -400,8 +481,10 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
     for (const k of Object.keys(process.env)) if (k.startsWith("OFFSITE_")) delete process.env[k];
     log.length = 0;
     listsVersions = true;
+    clockAheadHours = 0;
     // Backups taken in the same second share a name: each test starts with an empty bucket.
     versions.clear();
+    stamps.clear();
   });
 
   function asServer() {
@@ -538,6 +621,134 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
     listsVersions = false;
     await expect(fetchOffsiteSet(offsiteReadConfig()!, taken.file.name, path.join(work, "changed-unversioned"))).rejects.toThrow(/does not check out/);
   });
+
+  it("signs the manifest with the server's Ed25519 key; the restore machine refuses a set without the signature or signed by another key", async () => {
+    const signing = crypto.generateKeyPairSync("ed25519");
+    const signingKey = path.join(work, "signing-private.pem");
+    const signingPublic = path.join(work, "signing-public.pem");
+    fs.writeFileSync(signingKey, signing.privateKey.export({ type: "pkcs8", format: "pem" }));
+    fs.writeFileSync(signingPublic, signing.publicKey.export({ type: "spki", format: "pem" }));
+
+    asServer();
+    process.env.OFFSITE_SIGNING_KEY_FILE = signingKey;
+    const taken = await backupSet();
+    expect((await copyOffsite(taken.file, taken.photos.file, taken.manifest))?.ok).toBe(true);
+    const names = log.map((r) => r.path.split("/").pop());
+    expect(names.slice(-2)).toEqual([`${path.basename(taken.manifest)}.sig`, path.basename(taken.manifest)]);
+    expect((await offsiteStatus()).lastCopied).toMatchObject({ signed: true });
+
+    asRestorer();
+    process.env.OFFSITE_SIGNING_PUBLIC_KEY_FILE = signingPublic;
+    const fetched = await fetchOffsiteSet(offsiteReadConfig()!, taken.file.name, path.join(work, "signed"));
+    expect(fetched).toMatchObject({ signature: "verified", uploadedLate: false, firstUploadedAt: expect.any(String) });
+
+    // Without the public key the set still restores, said to be unchecked.
+    delete process.env.OFFSITE_SIGNING_PUBLIC_KEY_FILE;
+    expect(await fetchOffsiteSet(offsiteReadConfig()!, taken.file.name, path.join(work, "unchecked"))).toMatchObject({ signature: "unchecked" });
+
+    // A thief with the upload key alone can upload a set, but cannot sign it: without the server's
+    // private key, its set has no signature, or one that does not check out.
+    const sigKey = `venue-a/${path.basename(taken.manifest)}.sig`;
+    const sig = versions.get(sigKey)!;
+    versions.delete(sigKey);
+    process.env.OFFSITE_SIGNING_PUBLIC_KEY_FILE = signingPublic;
+    await expect(fetchOffsiteSet(offsiteReadConfig()!, taken.file.name, path.join(work, "unsigned"))).rejects.toThrow(/no signature/);
+    const forged = signBytes(Buffer.from("something else"), crypto.generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString());
+    versions.set(sigKey, [Buffer.from(JSON.stringify(forged))]);
+    await expect(fetchOffsiteSet(offsiteReadConfig()!, taken.file.name, path.join(work, "forged"))).rejects.toThrow(/not signed by the server's key/);
+    versions.set(sigKey, sig);
+  });
+
+  it("flags a set first uploaded long after it was made, as one sent by somebody holding the key later would be", async () => {
+    asServer();
+    const taken = await backupSet();
+    clockAheadHours = 30;
+    expect((await copyOffsite(taken.file, taken.photos.file, taken.manifest))?.ok).toBe(true);
+    asRestorer();
+    const fetched = await fetchOffsiteSet(offsiteReadConfig()!, taken.file.name, path.join(work, "late"));
+    expect(fetched.uploadedLate).toBe(true);
+    expect(Date.parse(fetched.firstUploadedAt!)).toBeGreaterThan(Date.now() + 29 * 3_600_000);
+  });
+
+  it("is checked end to end by scripts/verify-offsite.mjs, with synthetic data, both keys and every refusal", async () => {
+    const signing = crypto.generateKeyPairSync("ed25519");
+    const signingKey = path.join(work, "verify-signing.pem");
+    const signingPublic = path.join(work, "verify-signing-public.pem");
+    fs.writeFileSync(signingKey, signing.privateKey.export({ type: "pkcs8", format: "pem" }));
+    fs.writeFileSync(signingPublic, signing.publicKey.export({ type: "spki", format: "pem" }));
+    const report = path.join(work, "verify.json");
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      // Whatever the machine points at, the script backs up a database of its own.
+      DATABASE_URL: "postgres://nobody@127.0.0.1:1/not-used",
+      OFFSITE_S3_ENDPOINT: endpoint,
+      OFFSITE_S3_BUCKET: "backups",
+      OFFSITE_S3_REGION: REGION,
+      OFFSITE_S3_PREFIX: "venue-a/",
+      OFFSITE_S3_ACCESS_KEY_ID: "004writeonly",
+      OFFSITE_S3_SECRET_ACCESS_KEY: "write-secret",
+      OFFSITE_S3_READ_ACCESS_KEY_ID: "004readlist",
+      OFFSITE_S3_READ_SECRET_ACCESS_KEY: "read-secret",
+      OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE: publicKeyFile,
+      OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE: privateKeyFile,
+      OFFSITE_SIGNING_KEY_FILE: signingKey,
+      OFFSITE_SIGNING_PUBLIC_KEY_FILE: signingPublic,
+      OFFSITE_DATA_LOCATION: "US",
+      OFFSITE_TRANSFER_APPROVED: "US",
+    };
+    const { spawn } = await import("child_process");
+    const run = (extra: string[]) =>
+      new Promise<{ code: number | null; out: string }>((resolve) => {
+        const child = spawn(process.execPath, ["scripts/verify-offsite.mjs", ...extra], { env, cwd: process.cwd() });
+        let out = "";
+        child.stdout.on("data", (c) => (out += c));
+        child.stderr.on("data", (c) => (out += c));
+        child.on("close", (code) => resolve({ code, out }));
+      });
+
+    // Without --go: says where, sends nothing.
+    const dry = await run([]);
+    expect(dry.code).toBe(0);
+    expect(dry.out).toMatch(/Nothing sent/);
+    expect(versions.size).toBe(0);
+
+    const go = await run(["--go", "--size-mb", "1", "--report", report]);
+    expect(go.out).not.toMatch(/write-secret|read-secret/);
+    expect(go.code, go.out).toBe(0);
+    const results = JSON.parse(fs.readFileSync(report, "utf8")).results as { check: string; outcome: string; detail: string }[];
+    const outcome = (check: string) => results.find((r) => r.check === check)?.outcome;
+    for (const check of [
+      "transfer allowed",
+      "upload with the upload key",
+      "upload key cannot read",
+      "upload key cannot list",
+      "upload key cannot list versions",
+      "upload key cannot delete (hide) a file",
+      "upload key cannot delete a version",
+      "upload key cannot change retention or bypass governance",
+      "read key cannot delete a version",
+      "Object Lock on the upload",
+      "a rewrite is kept as a new version; the first upload is restored",
+      "manifest check",
+      "isolated restore drill",
+      "1 MB up and back",
+    ])
+      expect(outcome(check), check).toBe("pass");
+    expect(results.find((r) => r.check === "fetch with the read key")?.detail).toMatch(/signature verified/);
+    expect(outcome("lifecycle rules")).toBe("manual");
+
+    // A bucket that lets the upload key read: reported as a failure, and the exit says so.
+    keys["004writeonly"].capabilities.push("readFiles");
+    try {
+      const loose = await run(["--go"]);
+      expect(loose.code).toBe(1);
+      expect(loose.out).toMatch(/FAIL\s+upload key cannot read/);
+    } finally {
+      keys["004writeonly"].capabilities.pop();
+    }
+  }, 120_000);
 
   it("is refused outside the key's prefix, and a file too big for one upload is refused before anything is sent", async () => {
     asServer();

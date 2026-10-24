@@ -861,6 +861,15 @@ function VenueStanding({
  * answer that is not "ssh in and look", and so somebody can take one by hand
  * before doing something they are not sure about.
  */
+const HEALTH: Record<"ok" | "local_only" | "stale" | "paused" | "failing" | "none", string> = {
+  ok: "Backups: active",
+  local_only: "Backups: on this server only",
+  stale: "Backups: behind the recovery-point target",
+  paused: "Off-site copies: paused",
+  failing: "Off-site copies: failing",
+  none: "Backups: none yet",
+};
+
 function BackupsPanel() {
   const [state, setState] = useState<{
     backups: { name: string; bytes: number; takenAt: string; complete: boolean }[];
@@ -871,9 +880,17 @@ function BackupsPanel() {
       configured: boolean;
       destination: string | null;
       location?: string | null;
+      endpointSays?: { provider: string; region: string | null; country: string | null } | null;
       paused?: string | null;
-      lastCopied: { name: string; at: string; manifest?: boolean; encrypted?: boolean } | null;
+      lastCopied: { name: string; at: string; manifest?: boolean; encrypted?: boolean; signed?: boolean } | null;
       lastError: { at: string; error: string } | null;
+    };
+    health?: {
+      state: "ok" | "local_only" | "stale" | "paused" | "failing" | "none";
+      rpoHours: number;
+      recoverableHours: number | null;
+      offsite: "off" | "active" | "paused" | "failing";
+      problems: string[];
     };
     schedule: { hour: number } | null;
   } | null>(null);
@@ -963,6 +980,26 @@ function BackupsPanel() {
           </button>
         </div>
 
+        {state?.health && (
+          <div
+            data-testid="backup-health"
+            className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+              state.health.state === "ok" ? "bg-emerald-50 text-emerald-800" : state.health.state === "local_only" ? "bg-amber-50 text-amber-900" : "bg-red-50 text-red-700"
+            }`}
+          >
+            <strong>{HEALTH[state.health.state]}</strong>
+            {state.health.recoverableHours !== null &&
+              ` · the newest copy that would survive losing this server is ${Math.floor(state.health.recoverableHours)} hours old (target: under ${state.health.rpoHours})`}
+            {state.health.problems.length > 0 && (
+              <ul className="mt-1 list-disc pl-5">
+                {state.health.problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {state !== null && (
           <>
             <p className="mt-2 text-xs text-slate-500">
@@ -987,18 +1024,21 @@ function BackupsPanel() {
                 <>
                   <strong>No off-site copies.</strong> Every backup is on the same disk as the
                   database. Set the <span className="font-mono">OFFSITE_S3_*</span> settings to send
-                  each one to Cloudflare R2, Backblaze B2 or Amazon S3.
+                  each one to Backblaze B2 (preferred), Amazon S3 or Cloudflare R2.
                 </>
               ) : (
                 <>
                   Off-site to <span className="font-mono text-xs">{state.offsite.destination}</span>
                   {state.offsite.location ? ` (data kept in ${state.offsite.location})` : ""}
+                  {state.offsite.endpointSays &&
+                    ` · the address names ${state.offsite.endpointSays.provider}${state.offsite.endpointSays.region && state.offsite.endpointSays.region !== "auto" ? ` ${state.offsite.endpointSays.region}` : ""}${state.offsite.endpointSays.country ? ` (${state.offsite.endpointSays.country})` : ", country not stated"}`}
                   {state.offsite.lastCopied ? (
                     <>
                       {" "}— last copy <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
                       at {state.offsite.lastCopied.at.slice(0, 10)} {localTime(state.offsite.lastCopied.at)}
                       {state.offsite.lastCopied.manifest ? ", whole with its manifest" : ", without a manifest"}
                       {state.offsite.lastCopied.encrypted ? ", encrypted before it left" : ", not encrypted by MySenam"}
+                      {state.offsite.lastCopied.signed ? ", manifest signed" : ""}
                     </>
                   ) : (
                     " — nothing copied yet"

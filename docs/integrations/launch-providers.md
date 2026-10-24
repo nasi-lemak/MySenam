@@ -246,10 +246,11 @@ AWS price list files of 15 October 2026;
 [R2 bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/),
 [R2 data location](https://developers.cloudflare.com/r2/reference/data-location/),
 [R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
-*Unverified until tried against a real bucket:* whether a B2 key with
-`writeFiles` alone may PutObject, the region B2 expects in the signature,
-default retention on an existing B2 bucket (Backblaze's pages disagree), and
-whether S3 needs `Content-MD5` under a default retention alone.
+*Unverified until tried against a real bucket* (`npm run verify-offsite`):
+whether a B2 key with `writeFiles` alone may PutObject into a bucket with a
+default retention; the region B2 expects in the signature; default retention
+on an existing B2 bucket (Backblaze's pages disagree); and whether S3 needs
+`Content-MD5` under a default retention alone.
 
 **The app works with all three without changes** — single signed PUTs with
 `Content-MD5`, an upload key that is never asked to read, list or delete, a
@@ -257,19 +258,51 @@ separate read key, client-side encryption, and a restore that takes each
 name's first version where versions can be listed — tested against stand-ins,
 not real buckets ([backups](../operations/backups.md#off-site-copies)).
 
-**Recommendation: Amazon S3 Standard in Malaysia (`ap-southeast-5`) for
-the Malaysian install, Singapore (`ap-southeast-1`) for the Singaporean**,
-with versioning and Object Lock (14 days, governance), the lifecycle rule,
-an upload-only key, the read key off the server, and encryption on. At the
-sizes MySenam will have for a long time (well under 100 GB) it costs a few
-dollars a month, and the data stays in the country, which removes the
-transfer-abroad question rather than answering it. **B2 is the cheaper
-alternative, by about a third at 100 GB and two thirds at 1 TB, and meets
-the security requirements with Object Lock**; choose it if cost matters more
-than residency, once the transfer safeguards in
-[privacy](../architecture/privacy.md#backups-held-abroad) are in place — the
-app will not send to it until then. **Not R2 for backups:** no upload-only
-key.
+**Recommendation: Backblaze B2, US West region, for both installs**
+(decided 2026-10-24, [ADR 0015](../architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md),
+superseding the earlier recommendation of S3 in the install's own country).
+Set it up with Object Lock (14 days, governance), the lifecycle rule, an
+upload-only key, the read key off the server, encryption and manifest signing
+on, and the transfer safeguards in
+[privacy](../architecture/privacy.md#backups-held-abroad) in place; the app
+will not send to it until `OFFSITE_TRANSFER_APPROVED=US` is set. B2 is
+cheaper than S3 by about a third at 100 GB and two thirds at 1 TB, and meets
+the security requirements with Object Lock.
+
+Choosing the B2 region:
+
+| | US West | US East | EU Central | CA East |
+| - | ------- | ------- | ---------- | ------- |
+| Where | Sacramento and Phoenix areas | Reston, Virginia | Amsterdam | Toronto |
+| Round trip from Singapore (estimate, not measured) | 170–210 ms | 220–260 ms | 150–190 ms | not estimated |
+| Jurisdiction | US | US | Netherlands (EU) | Canada |
+
+- **US West is recommended** of the two US regions: it is the shorter path
+  from Malaysia and Singapore, and so the faster restore. A nightly upload
+  of a few hundred MB is not sensitive to latency either way.
+- **Durability and availability are not published per region.** Backblaze
+  states 11 nines of durability as a design target and a 99.9% uptime SLA.
+- **EU Central is the alternative** if the operator prefers EU
+  jurisdiction; it is the shortest path of the four.
+- **The region is fixed when the B2 account is created** and cannot be
+  changed; moving means a new account and copying the data across.
+- **Record the region you get.** The cluster number is assigned by
+  Backblaze, so record the endpoint the Buckets page shows (for example
+  `s3.us-west-004.backblazeb2.com`) as `OFFSITE_S3_ENDPOINT`. The app reads
+  the region and country from it and pauses copies if they disagree with
+  `OFFSITE_DATA_LOCATION`.
+- **Measure before relying on it.** Ping the endpoint, and run
+  `npm run verify-offsite -- --go --size-mb 200` with synthetic data.
+
+Sources: [B2 data regions](https://www.backblaze.com/docs/cloud-storage-data-regions),
+[sub-processors](https://www.backblaze.com/company/policy/subprocessors),
+[S3 endpoints](https://www.backblaze.com/docs/cloud-storage-call-the-s3-compatible-api),
+[SLA](https://www.backblaze.com/company/policy/sla).
+
+**Amazon S3 stays fully supported.** It is the choice when data must stay
+in the country: Malaysia (`ap-southeast-5`) or Singapore (`ap-southeast-1`),
+with versioning, Object Lock and the same keys. Existing S3 configurations
+need no change. **Not R2 for backups:** it has no upload-only key.
 
 ## Launch stack, and what is still to decide
 
@@ -281,7 +314,7 @@ key.
 | Email | Amazon SES, Singapore, SMTP | Resend |
 | Phone checks | WhatsApp authentication templates | SMS in Singapore through a registered sender |
 | Photos | Cloudflare R2 | Amazon S3 |
-| Off-site backups | Amazon S3 Standard in the install's country, Object Lock, upload-only key, encrypted | Backblaze B2, once a transfer abroad is approved |
+| Off-site backups | Backblaze B2, US West, Object Lock, upload-only key, encrypted and signed, once the transfer safeguards are in place | Amazon S3 Standard in the install's country |
 
 Decided: Billplz's manual refunds are accepted for a small Malaysian launch,
 provisionally, with the refund workload watched on the dashboard; HitPay is

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { backupDir, createBackup, hoursSinceLastBackup, listBackups } from "@/lib/backup";
+import { backupHealth } from "@/lib/backup-health";
 import { databaseLabel } from "@/lib/db";
 import { copyOffsite, offsiteStatus } from "@/lib/offsite";
 import { backupHour, schedulerEnabled } from "@/lib/scheduler";
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
       database: databaseLabel(),
       hoursSinceLast: hoursSinceLastBackup(),
       offsite: await offsiteStatus(),
+      health: await backupHealth(),
       schedule: schedulerEnabled() ? { hour: backupHour() } : null,
     },
     { headers: { "Cache-Control": "no-store" } }

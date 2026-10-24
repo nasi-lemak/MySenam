@@ -3,7 +3,7 @@
  * Bring a backup set back down from off-site storage and check it, before
  * anything is restored from it.
  *
- *   node scripts/fetch-backup.mjs --list
+ *   node scripts/fetch-backup.mjs --list [--before 2026-10-20T00:00]
  *   node scripts/fetch-backup.mjs mysenam-2026-10-16-030000.dump --to /srv/restore
  *
  * The bucket is the one in OFFSITE_S3_* (docs/operations/backups.md), read
@@ -15,8 +15,11 @@
  * then every part is hashed against the manifest. Exits non-zero if anything is missing or
  * differs. Where the bucket keeps versions, each part is fetched as first
  * uploaded, and a name written again since (by anybody holding the upload
- * key) is reported. Next: `node scripts/restore.mjs <file> --drill` restores
- * it somewhere harmless and counts what came back.
+ * key) is reported. With OFFSITE_SIGNING_PUBLIC_KEY_FILE, a manifest not
+ * signed by the server's key is refused. After a compromise, `--before` lists
+ * only sets first uploaded before it, to choose a recovery point the
+ * attacker could not have made. Next: `node scripts/restore.mjs <file> --drill`
+ * restores it somewhere harmless and counts what came back.
  */
 import path from "node:path";
 import { verifyBackupSet } from "../src/lib/backup.ts";
@@ -40,13 +43,21 @@ if (args.includes("--list") || args.length === 0) {
     process.exit(1);
   }
   const names = new Set(objects.map((o) => o.name));
-  const sets = objects.filter((o) => /^mysenam-[\d-]+\.(dump|tar\.gz)(\.enc)?$/.test(o.name));
+  const b = args.indexOf("--before");
+  const before = b === -1 ? null : Date.parse(args[b + 1] ?? "");
+  if (before !== null && Number.isNaN(before)) {
+    console.error("--before takes a date and time, like 2026-10-20T00:00 (UTC unless it says otherwise).");
+    process.exit(1);
+  }
+  const sets = objects
+    .filter((o) => /^mysenam-[\d-]+\.(dump|tar\.gz)(\.enc)?$/.test(o.name))
+    .filter((o) => before === null || (o.lastModified && Date.parse(o.lastModified) < before));
   if (sets.length === 0) console.log(`Nothing under ${config.prefix} in ${config.bucket}.`);
   for (const o of sets) {
     const snapshot = o.name.replace(/\.enc$/, "");
     const manifest = snapshot.replace(/\.(dump|tar\.gz)$/, ".manifest.json");
     console.log(
-      `${snapshot}  ${(o.bytes / 1024 / 1024).toFixed(1)} MB  ${o.lastModified}  ${names.has(manifest) ? "whole (manifest)" : "no manifest: older, or not fully sent"}${o.name.endsWith(".enc") ? ", encrypted" : ""}${
+      `${snapshot}  ${(o.bytes / 1024 / 1024).toFixed(1)} MB  first uploaded ${o.lastModified}  ${names.has(manifest) ? "whole (manifest)" : "no manifest: older, or not fully sent"}${o.name.endsWith(".enc") ? ", encrypted" : ""}${
         objects.some((p) => p.rewritten && (p.name === o.name || p.name === manifest)) ? ", WRITTEN AGAIN after upload: see docs/operations/backups.md" : ""
       }`
     );
@@ -54,7 +65,7 @@ if (args.includes("--list") || args.length === 0) {
   process.exit(0);
 }
 
-const name = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--to");
+const name = args.find((a, k) => !a.startsWith("--") && !["--to", "--before"].includes(args[k - 1]));
 const i = args.indexOf("--to");
 const to = i === -1 ? path.join(process.cwd(), "restore") : args[i + 1];
 if (!name) {
@@ -65,6 +76,10 @@ if (!name) {
 try {
   const fetched = await fetchOffsiteSet(config, path.basename(name), to);
   for (const f of fetched.files) console.log(`fetched ${f}`);
+  if (fetched.signature === "verified") console.log("Signed by the server's key.");
+  else console.log("Not checked against the server's signing key (OFFSITE_SIGNING_PUBLIC_KEY_FILE is not set).");
+  if (fetched.uploadedLate)
+    console.log(`First uploaded at ${fetched.firstUploadedAt}, long after the set says it was made: it may not be the server's own. Prefer an earlier set.`);
   if (!fetched.versioned) console.log("The bucket's versions could not be listed: these are the current copies, which the upload key could have replaced.");
   if (fetched.rewritten.length > 0)
     console.log(

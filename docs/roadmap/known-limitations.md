@@ -289,7 +289,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | SMS (Twilio or HTTP gateway) for phone codes | Needs a live send | Only where phone checks use SMS |
 | LHDN MyInvois | Needs sandbox (preprod) verification | Only for venues that must e-invoice |
 | Google sign-in | Needs a registered redirect URI | No: password sign-in works |
-| S3-compatible off-site backups and photo storage | Needs a real bucket. Tested against stand-ins for S3 and B2 only: B2's acceptance of a `writeFiles`-only key for uploads, its signing region, Object Lock default retention and versions listing are unverified | Off-site backups: yes, for production |
+| S3-compatible off-site backups and photo storage | Needs a real bucket. Tested against stand-ins for S3 and B2 only: B2's acceptance of a `writeFiles`-only key for uploads, its signing region, Object Lock default retention and versions listing are unverified until `npm run verify-offsite -- --go` passes against a real B2 (preferred) or S3 bucket | Off-site backups: yes, for production |
 | Reserve with Google | Feeds only; needs Actions Center partner approval and a booking server that is **not built** | No |
 | Smart locks (TTLock, Igloohome) | Not built; blocked on vendor credentials | No |
 | Stripe Connect payouts, Singapore InvoiceNow, web push, LINE, Zalo | Not built; each needs a partner or contract | No |
@@ -304,11 +304,20 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
   and no proof two numbers are two people, it pays people to refer themselves.
 - **No multipart uploads off-site.** Each backup part goes in one PUT, which
   every provider caps at about 5 GB; a larger part (usually a photos archive)
-  is refused and the copy reported failed. Keep photos in their own bucket
-  (`PHOTOS_S3_*`) rather than on the server's disk.
+  is refused and the copy reported failed. The owners are warned when a part
+  passes 80% of that. Keep photos in their own bucket (`PHOTOS_S3_*`) rather
+  than on the server's disk.
 - **Off-site copies need a declared location.** Nothing is copied until
-  `OFFSITE_DATA_LOCATION` is set, and nothing abroad until the transfer is
-  approved and encrypted ([backups](../operations/backups.md#where-the-data-may-go)).
+  `OFFSITE_DATA_LOCATION` is set, while it disagrees with the country a B2 or
+  S3 endpoint names, and nothing abroad until the transfer is approved and
+  encrypted ([backups](../operations/backups.md#where-the-data-may-go)). For
+  other providers the declaration is not checked. With Backblaze B2 (no Asian
+  region) every copy is a transfer abroad, and the legal points in
+  [privacy](../architecture/privacy.md#backups-held-abroad) are open.
+- **A signed backup set proves the server made it, not that the server was
+  sound.** After a server compromise, sets made since may carry altered
+  data under a valid signature; a recovery point from before it is chosen by
+  upload time ([backups](../operations/backups.md#threat-model-what-each-protection-proves)).
 - **One country per install.** Malaysia and Singapore are separate installs
   ([regions](../product/regions-and-tax.md)).
 - **Storefront domains are not data separation.** A business needing its own

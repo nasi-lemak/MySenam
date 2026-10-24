@@ -1,6 +1,9 @@
 # ADR 0014: Off-site backups are encrypted, located, and restored from their first upload
 
-- **Status:** current. What operators set up is
+- **Status:** current, except that its recommendation of Amazon S3 in the
+  install's own country is superseded by
+  [ADR 0015](0015-backblaze-b2-preferred-signed-backup-sets.md) (Backblaze B2
+  preferred, S3 supported). What operators set up is
   [backups](../../operations/backups.md#off-site-copies); the provider choice
   is in [launch providers](../../integrations/launch-providers.md#off-site-backups).
 - **Context:** off-site copies went to any S3-compatible bucket with a key

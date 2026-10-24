@@ -5,6 +5,7 @@ import { grantLoyaltyIfDue } from "./loyalty";
 import { checkIntegrityIfDue } from "./integrity";
 import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
+import { backupHealth } from "./backup-health";
 import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
 import { issueDueAccountInvoices } from "./accounts";
@@ -238,7 +239,35 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await raiseAlert("scheduler:scheduled-backup-failed", "Scheduled work failed: scheduled backup", err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
+  try {
+    // Once an hour, and after each backup: is there a copy recent enough to recover from?
+    if (result.backup !== null || now.getUTCMinutes() === 0) await checkBackupHealth(now);
+  } catch (err) {
+    console.error("[mysenam] checking backups failed:", err);
+  }
+
   return result;
+}
+
+/**
+ * Tell the owners when the newest copy that would survive losing the server
+ * is older than the recovery-point target, or when off-site sets are nearing
+ * the largest single upload. A failed or paused copy is told as it happens
+ * (the "offsite" alert above); this catches what that cannot, such as copies
+ * that stopped because the server's clock or schedule did.
+ */
+export async function checkBackupHealth(now = new Date()): Promise<void> {
+  const health = await backupHealth(now.getTime());
+  if (health.recoverableHours !== null && health.recoverableHours > health.rpoHours) {
+    const detail = health.problems.join("\n");
+    console.error(`[mysenam] backups are behind: ${detail}`);
+    await raiseAlert("backup-stale", "Backups are older than the recovery-point target", detail);
+  } else if (health.recoverableHours === null && health.offsite !== "off" && health.lastLocalAt) {
+    const detail = health.problems.join("\n");
+    console.error(`[mysenam] nothing copied off-site: ${detail}`);
+    await raiseAlert("backup-stale", "Nothing has been copied off-site yet", detail);
+  }
+  if (health.nearSizeLimit) await raiseAlert("offsite-near-limit", "Off-site backup sets are nearing the largest single upload", health.problems.join("\n"));
 }
 
 export function schedulerEnabled(): boolean {

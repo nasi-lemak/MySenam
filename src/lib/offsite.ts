@@ -6,7 +6,7 @@ import https from "https";
 import os from "os";
 import { getDb } from "./db.ts";
 import type { BackupFile } from "./backup";
-import { decryptFile, encryptFile, readKeyFile } from "./backup-crypto.ts";
+import { decryptFile, encryptFile, readKeyFile, signBytes, signatureValid } from "./backup-crypto.ts";
 import { region } from "./region.ts";
 
 /**
@@ -35,11 +35,57 @@ export interface OffsiteConfig {
   prefix: string;
 }
 
+/** Where an endpoint's data is kept, where the endpoint itself says: the provider, its region, and that region's country. */
+export interface EndpointLocation {
+  provider: "Backblaze B2" | "Amazon S3" | "Cloudflare R2";
+  region: string | null;
+  /** ISO country of the region; null where the provider does not tie the endpoint to one (R2). */
+  country: string | null;
+}
+
+/** B2 regions by the prefix of their name (`us-west-004`), and where each is. */
+const B2_REGIONS: Record<string, string> = { "us-west": "US", "us-east": "US", "eu-central": "NL", "ca-east": "CA" };
+/** The AWS regions MySenam is likely to use, and their countries; others read as unknown. */
+const AWS_REGIONS: Record<string, string> = {
+  "ap-southeast-1": "SG",
+  "ap-southeast-5": "MY",
+  "ap-southeast-2": "AU",
+  "ap-northeast-1": "JP",
+  "ap-south-1": "IN",
+  "eu-west-1": "IE",
+  "eu-west-2": "GB",
+  "eu-central-1": "DE",
+};
+
+/**
+ * The provider, region and country an endpoint names. A Backblaze B2 account
+ * lives in one region, named in its S3 endpoint (`s3.us-west-004.backblazeb2.com`);
+ * an Amazon S3 regional endpoint names its region. Null for an endpoint that
+ * says nothing (a custom S3-compatible service). This is what the
+ * endpoint says, so it is checked against `OFFSITE_DATA_LOCATION` rather than
+ * the typed country being trusted alone.
+ */
+export function endpointLocation(endpoint: string): EndpointLocation | null {
+  let host: string;
+  try {
+    host = new URL(endpoint).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const b2 = /^s3\.([a-z]+-[a-z]+)-(\d{3})\.backblazeb2\.com$/.exec(host);
+  if (b2) return { provider: "Backblaze B2", region: `${b2[1]}-${b2[2]}`, country: B2_REGIONS[b2[1]] ?? null };
+  const aws = /(?:^|\.)s3[.-]([a-z]{2}-[a-z]+-\d)\.amazonaws\.com$/.exec(host);
+  if (aws) return { provider: "Amazon S3", region: aws[1], country: AWS_REGIONS[aws[1]] ?? (aws[1].startsWith("us-") ? "US" : null) };
+  if (host.endsWith(".r2.cloudflarestorage.com")) return { provider: "Cloudflare R2", region: "auto", country: null };
+  return null;
+}
+
 /**
  * Where copies go and the key the server uploads with. Works with any
- * S3-compatible service: Amazon S3 (`https://s3.<region>.amazonaws.com`),
- * Backblaze B2 (`https://s3.<region>.backblazeb2.com`, region as in the
- * endpoint, e.g. `us-west-004`), Cloudflare R2 (region `auto`). The key
+ * S3-compatible service: Backblaze B2, the preferred provider
+ * (`https://s3.<region>.backblazeb2.com`, e.g. `us-west-004`), Amazon S3
+ * (`https://s3.<region>.amazonaws.com`), Cloudflare R2 (region `auto`). The
+ * signing region defaults to the one the endpoint names. The key
  * should be one that may only upload (B2: `writeFiles` on this bucket and
  * prefix; S3: `s3:PutObject` alone): the server never reads, lists or
  * deletes off-site. Such a key can still upload a new version over an
@@ -56,12 +102,16 @@ export function offsiteConfig(): OffsiteConfig | null {
   return {
     endpoint: endpoint.replace(/\/+$/, ""),
     bucket,
-    // R2 accepts "auto"; S3 and B2 want the bucket's real region.
-    region: process.env.OFFSITE_S3_REGION || "auto",
+    region: signingRegion(endpoint),
     accessKeyId,
     secretAccessKey,
     prefix: process.env.OFFSITE_S3_PREFIX ?? "mysenam/",
   };
+}
+
+/** S3 and B2 want the bucket's real region, which their endpoints name; R2 accepts "auto". `OFFSITE_S3_REGION` wins where set. */
+function signingRegion(endpoint: string): string {
+  return process.env.OFFSITE_S3_REGION || endpointLocation(endpoint)?.region || "auto";
 }
 
 /**
@@ -87,7 +137,7 @@ function offsiteConfigWithout(): OffsiteConfig | null {
   return {
     endpoint: endpoint.replace(/\/+$/, ""),
     bucket,
-    region: process.env.OFFSITE_S3_REGION || "auto",
+    region: signingRegion(endpoint),
     accessKeyId: "",
     secretAccessKey: "",
     prefix: process.env.OFFSITE_S3_PREFIX ?? "mysenam/",
@@ -119,6 +169,10 @@ export function offsiteTransferCheck(): string | null {
   const home = region();
   if (!location)
     return "Off-site copies are paused until OFFSITE_DATA_LOCATION says which country the bucket keeps data in (for example MY, SG or US).";
+  // A typed country is checked against the region the endpoint itself names.
+  const named = process.env.OFFSITE_S3_ENDPOINT ? endpointLocation(process.env.OFFSITE_S3_ENDPOINT) : null;
+  if (named?.country && named.country !== location)
+    return `Off-site copies are paused: the endpoint is ${named.provider} ${named.region}, in ${named.country}, but OFFSITE_DATA_LOCATION says ${location}. Correct whichever is wrong.`;
   if (location === home.country) return null;
   if (process.env.OFFSITE_TRANSFER_APPROVED?.trim().toUpperCase() !== location)
     return `The bucket keeps data in ${location}, outside ${home.name}: nothing is sent abroad until the transfer is approved and recorded as OFFSITE_TRANSFER_APPROVED=${location}.`;
@@ -311,10 +365,12 @@ export interface OffsiteStatus {
   destination: string | null;
   /** The country the bucket keeps data in, as declared (`OFFSITE_DATA_LOCATION`). */
   location: string | null;
+  /** What the endpoint itself names: provider, region and country, where it says (`endpointLocation`). */
+  endpointSays: EndpointLocation | null;
   /** Why copies are not being sent, where they may not go (`offsiteTransferCheck`). */
   paused: string | null;
   /** `manifest`: the set's manifest went too, so the copy can be checked whole when it is fetched back. */
-  lastCopied: { name: string; at: string; key: string; manifest?: boolean; encrypted?: boolean } | null;
+  lastCopied: { name: string; at: string; key: string; manifest?: boolean; encrypted?: boolean; signed?: boolean; largestBytes?: number } | null;
   lastError: { at: string; error: string } | null;
 }
 
@@ -351,6 +407,7 @@ export async function offsiteStatus(): Promise<OffsiteStatus> {
     configured: config !== null,
     destination: config ? `${config.endpoint}/${config.bucket}/${config.prefix}` : null,
     location: process.env.OFFSITE_DATA_LOCATION?.trim().toUpperCase() || null,
+    endpointSays: config ? endpointLocation(config.endpoint) : null,
     paused: config ? offsiteTransferCheck() : null,
     lastCopied,
     lastError,
@@ -379,6 +436,7 @@ export async function copyOffsite(
   // manifest (hashes and counts, no personal data) stays readable, marked so a restore knows to decrypt.
   const publicKey = readKeyFile(process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE);
   const scratch = publicKey ? fs.mkdtempSync(path.join(os.tmpdir(), "mysenam-offsite-")) : null;
+  let signScratch: string | null = null;
   try {
     const prepare = async (file: Pick<BackupFile, "name" | "path">): Promise<Pick<BackupFile, "name" | "path">> => {
       if (!publicKey || !scratch) return file;
@@ -392,11 +450,22 @@ export async function copyOffsite(
       fs.writeFileSync(marked, JSON.stringify({ ...JSON.parse(fs.readFileSync(manifestFile.path, "utf8")), offsite: { encrypted: "rsa-oaep-sha256+aes-256-gcm" } }, null, 2));
       manifestFile = { name: manifestFile.name, path: marked };
     }
+    // The manifest signed, where a signing key is given: a detached signature, sent just before the manifest.
+    const signingKey = readKeyFile(process.env.OFFSITE_SIGNING_KEY_FILE);
+    let signatureFile: Pick<BackupFile, "name" | "path"> | null = null;
+    if (manifestFile && signingKey) {
+      const dir = scratch ?? fs.mkdtempSync(path.join(os.tmpdir(), "mysenam-offsite-"));
+      signScratch = scratch ? null : dir;
+      signatureFile = { name: `${manifestFile.name}.sig`, path: path.join(dir, `${manifestFile.name}.sig`) };
+      fs.writeFileSync(signatureFile.path, JSON.stringify(signBytes(fs.readFileSync(manifestFile.path), signingKey)));
+    }
     const parts: { label: string; file: Pick<BackupFile, "name" | "path"> }[] = [
       ...(photos ? [{ label: "photos", file: await prepare({ name: path.basename(photos), path: photos }) }] : []),
       { label: "database", file: await prepare(backup) },
+      ...(signatureFile ? [{ label: "signature", file: signatureFile }] : []),
       ...(manifestFile ? [{ label: "manifest", file: manifestFile }] : []),
     ];
+    const largest = Math.max(...parts.map((p) => fs.statSync(p.file.path).size));
     let result: UploadResult = { ok: false, error: "nothing sent" };
     for (const part of parts) {
       const sent = await uploadBackup(part.file, config);
@@ -404,18 +473,28 @@ export async function copyOffsite(
       if (!sent.ok) break;
     }
     if (result.ok) result = { ok: true, key: config.prefix + parts.find((p) => p.label === "database")!.file.name, bytes: parts.reduce((n, p) => n + fs.statSync(p.file.path).size, 0) };
-    return await rememberCopy(backup, result, Boolean(manifest), Boolean(publicKey));
+    return await rememberCopy(backup, result, Boolean(manifest), Boolean(publicKey), { signed: Boolean(signatureFile), largestBytes: largest });
   } finally {
     if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
+    if (signScratch) fs.rmSync(signScratch, { recursive: true, force: true });
   }
 }
 
-async function rememberCopy(backup: Pick<BackupFile, "name" | "path">, result: UploadResult, manifest: boolean, encrypted: boolean): Promise<UploadResult> {
+/** A part this much of the single-upload limit is close to it: the Backups panel and an alert say so before it is refused. */
+export const NEAR_LIMIT = 0.8;
+
+async function rememberCopy(
+  backup: Pick<BackupFile, "name" | "path">,
+  result: UploadResult,
+  manifest: boolean,
+  encrypted: boolean,
+  more: { signed?: boolean; largestBytes?: number } = {}
+): Promise<UploadResult> {
   const now = new Date().toISOString();
   const previous = await stored();
   await remember(
     result.ok
-      ? { lastCopied: { name: backup.name, at: now, key: result.key, manifest, encrypted }, lastError: null }
+      ? { lastCopied: { name: backup.name, at: now, key: result.key, manifest, encrypted, ...more }, lastError: null }
       : { lastCopied: previous.lastCopied, lastError: { at: now, error: result.error } }
   );
   return result;
@@ -597,7 +676,16 @@ export interface FetchedSet {
   versioned: boolean;
   /** Names written more than once, or hidden, since the server uploaded them: the first upload was used. */
   rewritten: string[];
+  /** "verified": the manifest carries the signature of the server's key; "unchecked": no public key given to check it with. */
+  signature: "verified" | "unchecked";
+  /** When the manifest was first uploaded, where versions can be listed. */
+  firstUploadedAt: string | null;
+  /** First uploaded much later than the manifest says the set was made: perhaps not the server's own. */
+  uploadedLate: boolean;
 }
+
+/** A set is copied off-site straight after it is made; one first uploaded later than this after its own time is suspect. */
+const LATE_UPLOAD_HOURS = 6;
 
 /**
  * Bring one backup set down from the bucket into a folder: its manifest
@@ -628,11 +716,29 @@ export async function fetchOffsiteSet(config: OffsiteConfig, snapshot: string, d
   const manifestFile = path.join(dir, manifestName);
   await fetchOne(manifestName, manifestFile);
   files.push(manifestFile);
+  // Signed by the server's key, where the restore machine holds its public half: a set somebody else uploaded is refused.
+  const signingPublic = readKeyFile(process.env.OFFSITE_SIGNING_PUBLIC_KEY_FILE);
+  if (signingPublic) {
+    const sigFile = path.join(dir, `${manifestName}.sig`);
+    try {
+      await fetchOne(`${manifestName}.sig`, sigFile);
+    } catch {
+      throw new Error("This set's manifest has no signature, and OFFSITE_SIGNING_PUBLIC_KEY_FILE asks for one: it may not be a set the server made.");
+    }
+    const signed = JSON.parse(fs.readFileSync(sigFile, "utf8")) as unknown;
+    fs.rmSync(sigFile, { force: true });
+    if (!signatureValid(fs.readFileSync(manifestFile), signed, signingPublic))
+      throw new Error("This set's manifest is not signed by the server's key (OFFSITE_SIGNING_PUBLIC_KEY_FILE): it may not be a set the server made. Choose an earlier set.");
+  }
   const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as {
+    createdAt?: string;
     database: { file: string };
     photos: { file: string } | null;
     offsite?: { encrypted?: string };
   };
+  const firstUploadedAt = firsts?.get(manifestName)?.first?.lastModified || null;
+  const madeAt = manifest.createdAt ? Date.parse(manifest.createdAt) : NaN;
+  const uploadedLate = firstUploadedAt !== null && !Number.isNaN(madeAt) && Date.parse(firstUploadedAt) - madeAt > LATE_UPLOAD_HOURS * 3_600_000;
   if (manifest.database.file !== snapshot) throw new Error(`The manifest in the bucket is for ${manifest.database.file}, not ${snapshot}.`);
   const privateKey = manifest.offsite?.encrypted ? readKeyFile(process.env.OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE) : null;
   if (manifest.offsite?.encrypted && !privateKey)
@@ -648,5 +754,13 @@ export async function fetchOffsiteSet(config: OffsiteConfig, snapshot: string, d
     } else await fetchOne(part, dest);
     files.push(dest);
   }
-  return { snapshot: path.join(dir, snapshot), files, versioned: firsts !== null, rewritten };
+  return {
+    snapshot: path.join(dir, snapshot),
+    files,
+    versioned: firsts !== null,
+    rewritten,
+    signature: signingPublic ? "verified" : "unchecked",
+    firstUploadedAt,
+    uploadedLate,
+  };
 }
