@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -131,6 +131,30 @@ describe("a password reset link", () => {
     // Staff cannot put it back in the queue, to the same address or another.
     expect(await retryMessage(id)).toMatchObject({ ok: false });
     expect(await retryMessage(id, "someone.else@example.com")).toMatchObject({ ok: false });
+  });
+
+  it("does not keep its link even when the server dies straight after recording it sent", async () => {
+    down = true;
+    const { id } = await resetFor();
+    down = false;
+    await dueNow();
+    // Any statement after the one saying it went fails, as if the process stopped there.
+    const real = db().prepare.bind(db());
+    let recorded = false;
+    const spy = vi.spyOn(db(), "prepare").mockImplementation((sql: string) => {
+      if (recorded && /UPDATE messages/.test(sql)) throw new Error("server stopped");
+      if (/status = 'sent'/.test(sql)) recorded = true;
+      return real(sql);
+    });
+    try {
+      await drainOutbox().catch(() => undefined);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(sent.find((m) => m.id === id)).toBeDefined();
+    const kept = await row(id);
+    expect(kept.status).toBe("sent");
+    expect(kept.body).not.toMatch(/token=/);
   });
 
   it("is never shown in the owners' list, only that it went", async () => {

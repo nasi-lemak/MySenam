@@ -366,11 +366,16 @@ const ACCOUNT_LINK_HIDDEN = "(Not shown or kept: it carries a link into somebody
 /**
  * Once an email carrying a link into somebody's account has gone, or been
  * given up, its text is not kept: the link (a password reset, an address to
- * confirm) would otherwise sit in the database and its backups.
+ * confirm) would otherwise sit in the database and its backups. Part of the
+ * same statement that says it went, so no moment (or crash) leaves a sent
+ * message still holding its link; its one parameter is ACCOUNT_LINK_HIDDEN.
  */
+const FORGET_ACCOUNT_LINK =
+  "body = CASE WHEN kind = 'account_email' THEN ? ELSE body END, params = CASE WHEN kind = 'account_email' THEN NULL ELSE params END";
+
 async function forgetAccountLink(message: OutboxMessage): Promise<void> {
   if (message.kind !== "account_email") return;
-  await getDb().prepare("UPDATE messages SET body = ?, params = NULL WHERE id = ?").run(ACCOUNT_LINK_HIDDEN, message.id);
+  await getDb().prepare(`UPDATE messages SET ${FORGET_ACCOUNT_LINK} WHERE id = ?`).run(ACCOUNT_LINK_HIDDEN, message.id);
 }
 
 export async function messagesForBooking(bookingId: number): Promise<OutboxMessage[]> {
@@ -527,9 +532,8 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       .get(message.id)) as unknown;
     if (expired) {
       await db
-        .prepare("UPDATE messages SET status = 'abandoned', last_error = ? WHERE id = ?")
-        .run("Not sent: it ran out before it could go (the link in it no longer works).", message.id);
-      await forgetAccountLink(message);
+        .prepare(`UPDATE messages SET status = 'abandoned', last_error = ?, ${FORGET_ACCOUNT_LINK} WHERE id = ?`)
+        .run("Not sent: it ran out before it could go (the link in it no longer works).", ACCOUNT_LINK_HIDDEN, message.id);
       result.abandoned++;
       continue;
     }
@@ -547,18 +551,16 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
     try {
       const out = await post.send(message);
       await db.prepare(
-        "UPDATE messages SET status = 'sent', attempts = ?, sent_at = datetime('now'), last_error = NULL, provider_id = ? WHERE id = ?"
-      ).run(attempts, (out && out.providerId) || null, message.id);
-      await forgetAccountLink(message);
+        `UPDATE messages SET status = 'sent', attempts = ?, sent_at = datetime('now'), last_error = NULL, provider_id = ?, ${FORGET_ACCOUNT_LINK} WHERE id = ?`
+      ).run(attempts, (out && out.providerId) || null, ACCOUNT_LINK_HIDDEN, message.id);
       result.sent++;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       if (paid) await refundCredit(message.venueId!, message.id);
       if (attempts >= MAX_ATTEMPTS) {
         await db.prepare(
-          "UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ? WHERE id = ?"
-        ).run(attempts, reason, message.id);
-        await forgetAccountLink(message);
+          `UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ?, ${FORGET_ACCOUNT_LINK} WHERE id = ?`
+        ).run(attempts, reason, ACCOUNT_LINK_HIDDEN, message.id);
         result.abandoned++;
       } else {
         await db.prepare(
