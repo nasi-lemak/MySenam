@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { VenueTax } from "@/lib/tax";
+import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
 
 /**
  * A venue's own sales tax: SST or GST, if it is registered. Prices stay what
@@ -13,13 +14,15 @@ export function TaxEditor({ venueId }: { venueId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [deductions, setDeductions] = useState<DeductionTreatment[]>([]);
 
   useEffect(() => {
     setTax(null);
     void fetch(`/api/admin/venue-tax?venueId=${venueId}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((d: { tax?: VenueTax; usual?: { name: string; venueRate: number } }) => {
+      .then((d: { tax?: VenueTax; usual?: { name: string; venueRate: number }; deductions?: DeductionTreatment[] }) => {
         if (!d.tax || !d.usual) return;
+        setDeductions(d.deductions ?? []);
         setTax(d.tax);
         setForm({
           name: d.tax.name,
@@ -52,6 +55,20 @@ export function TaxEditor({ venueId }: { venueId: number }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** One reason's treatment: taxed, not taxed, or back to the country's usual. */
+  async function treat(reason: DeductionReason, value: boolean | null) {
+    setError(null);
+    setNotice(null);
+    const res = await fetch("/api/admin/venue-tax", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, deductions: { [reason]: value } }),
+    });
+    const data = await res.json();
+    if (!res.ok) setError(data.error ?? "Could not save");
+    else setDeductions(data.deductions);
   }
 
   if (!tax) return null;
@@ -106,6 +123,39 @@ export function TaxEditor({ venueId }: { venueId: number }) {
         <p className="mt-2 text-xs text-emerald-700">
           Charging {tax.name} at {tax.rate}%, no. {tax.regNo}.
         </p>
+      )}
+      {deductions.length > 0 && (
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <h4 className="text-xs font-semibold text-slate-700">Money kept from a hire deposit</h4>
+          <p className="mt-1 text-xs text-slate-500">
+            Staff say why they keep money back; this says which reasons carry your {tax.name}. It starts from the usual
+            treatment here: a charge for something you supply is taxed, money that makes good damage or a loss, or a
+            penalty, is not. Whether a particular amount is taxable is for your accountant to confirm, especially the ones
+            marked to check.
+          </p>
+          <table className="mt-2 text-xs">
+            <tbody>
+              {deductions.map((d) => (
+                <tr key={d.reason}>
+                  <td className="py-0.5 pr-3 text-slate-700">{d.label}</td>
+                  <td className="py-0.5">
+                    <select
+                      aria-label={`Tax on: ${d.label}`}
+                      value={d.usual ? "usual" : d.taxed ? "taxed" : "untaxed"}
+                      onChange={(e) => void treat(d.reason, e.target.value === "usual" ? null : e.target.value === "taxed")}
+                      className={input}
+                    >
+                      <option value="usual">Usual ({d.usual ? (d.taxed ? "taxed" : "not taxed") : "as here"})</option>
+                      <option value="taxed">Taxed</option>
+                      <option value="untaxed">Not taxed</option>
+                    </select>
+                  </td>
+                  <td className="py-0.5 pl-2 text-amber-700">{d.review ? "check with your accountant" : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-xs text-emerald-700">{notice}</p>}

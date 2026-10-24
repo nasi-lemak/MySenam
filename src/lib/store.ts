@@ -3886,12 +3886,13 @@ export async function returnHire(
   code: string,
   input: {
     condition: HireCondition;
+    /** What is kept back, and why, reason by reason (lib/deposit-deductions.ts). */
+    deductions?: { reason: unknown; amount: unknown }[];
+    /** The older way: one amount, its reason taken from the condition (damaged, lost; otherwise "other"). */
     withheld?: number;
     note?: string;
     /** How the deposit was held, so what is kept is in the takings under the same method; cash unless said. */
     via?: CounterMethod;
-    /** Kept as a charge for a service (taxed), rather than as compensation for damage or loss (not). */
-    taxable?: boolean;
   }
 ): Promise<HireResult> {
   const db = getDb();
@@ -3905,9 +3906,19 @@ export async function returnHire(
   if (!HIRE_CONDITIONS.includes(input.condition))
     return { ok: false, error: "Unknown condition." };
 
-  const withheld = input.withheld ?? 0;
-  if (!isAmount(withheld))
-    return { ok: false, error: `An amount withheld must be ${money(0)} or more, to the ${region().currency.minor}.` };
+  const { isDeductionReason } = await import("./deposit-deductions");
+  const fromCondition = input.condition === "damaged" ? "damage" : input.condition === "lost" ? "loss" : "other";
+  const asked = input.deductions ?? (input.withheld ? [{ reason: fromCondition, amount: input.withheld }] : []);
+  if (!Array.isArray(asked)) return { ok: false, error: "Deductions are a list of reasons and amounts." };
+  const deductions: { reason: import("./deposit-deductions").DeductionReason; amount: number }[] = [];
+  for (const d of asked) {
+    if (!isDeductionReason(d?.reason)) return { ok: false, error: "Say why each amount is kept back." };
+    if (typeof d.amount !== "number" || !isAmount(d.amount) || d.amount <= 0)
+      return { ok: false, error: `An amount kept back must be more than ${money(0)}, to the ${region().currency.minor}.` };
+    if (deductions.some((x) => x.reason === d.reason)) return { ok: false, error: "Each reason once: add its amounts together." };
+    deductions.push({ reason: d.reason, amount: d.amount });
+  }
+  const withheld = roundMoney(deductions.reduce((sum, d) => sum + d.amount, 0));
   if (withheld > hire.deposit)
     return {
       ok: false,
@@ -3933,20 +3944,21 @@ export async function returnHire(
       RETURNING id
     `).get(withheld, input.condition, note === "" ? null : note, booking.id) as { id: number } | undefined;
     if (!done) return false;
-    // What is kept is earned: rung up and receipted with the return (M13).
-    if (withheld > 0) {
-      const { sellKeptDeposit } = await import("./counter-sales");
+    // What is kept is income: rung up and receipted with the return (M13),
+    // reason by reason, each with the tax its nature carries at this venue.
+    const { sellKeptDeposit } = await import("./counter-sales");
+    const { DEDUCTION_INFO } = await import("./deposit-deductions");
+    for (const d of deductions)
       await sellKeptDeposit({
         venueId: court?.venueId ?? 0,
         hireRecordId: done.id,
-        description: `Kept from the deposit on ${court?.name ?? "hired kit"} (${booking.code}): ${note}`,
-        amount: withheld,
+        reason: d.reason,
+        description: `${DEDUCTION_INFO[d.reason].label}: ${court?.name ?? "hired kit"} (${booking.code}). ${note}`,
+        amount: d.amount,
         via,
-        taxable: input.taxable === true,
         customerName: booking.name,
         customerPhone: booking.phone,
       });
-    }
     // The kit is back, so whoever brought it has left the desk.
     await db.prepare(
       "UPDATE check_ins SET checked_out_at = datetime('now') WHERE booking_id = ? AND checked_out_at IS NULL"

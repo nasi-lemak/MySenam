@@ -33,6 +33,9 @@ export type Category =
   | "Gift vouchers"
   | "Counter sales"
   | "Hire deposits kept"
+  | "Hire: damage and loss"
+  | "Hire: extra charges"
+  | "Hire: penalties"
   | "Other";
 
 /** Money held for customers, not takings, until spent. */
@@ -99,8 +102,13 @@ async function categoryOf(source: string): Promise<Category> {
     case "place":
       return "League fees";
     case "sale": {
-      const sale = (await db.prepare("SELECT hire_record_id FROM counter_sales WHERE id = ?").get(id)) as { hire_record_id: number | null } | undefined;
-      return sale?.hire_record_id ? "Hire deposits kept" : "Counter sales";
+      const sale = (await db.prepare("SELECT hire_record_id, hire_reason FROM counter_sales WHERE id = ?").get(id)) as
+        | { hire_record_id: number | null; hire_reason: string | null }
+        | undefined;
+      if (!sale?.hire_record_id) return "Counter sales";
+      // Kept from a hire deposit: under its reason's heading (damage, extra charges, penalties); kept before reasons, as it was.
+      const { DEDUCTION_INFO, isDeductionReason } = await import("./deposit-deductions");
+      return isDeductionReason(sale.hire_reason) ? DEDUCTION_INFO[sale.hire_reason].category : "Hire deposits kept";
     }
     case "payment": {
       const p = (await db.prepare("SELECT purpose FROM online_payments WHERE id = ?").get(id)) as { purpose: string } | undefined;

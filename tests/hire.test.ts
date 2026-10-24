@@ -272,7 +272,7 @@ describe("kit that is still out", () => {
 describe("money kept back from a deposit", () => {
   const db = async () => (await import("../src/lib/db")).getDb();
 
-  it("is a receipted sale in the takings and the books, untaxed as compensation unless the venue says it is a charge", async () => {
+  it("is a receipted sale per reason, taxed by its nature at the venue, under its own heading in the books", async () => {
     const { setVenueTax } = await import("../src/lib/tax");
     const { salesJournal } = await import("../src/lib/accounting");
     const venue = await VENUE();
@@ -288,37 +288,128 @@ describe("money kept back from a deposit", () => {
       // server one of them is run again after a short, real wait: a frozen
       // clock would hold it there.
       vi.useRealTimers();
-      const [a, b] = await Promise.all([
-        returnHire(damaged.code, { condition: "damaged", withheld: 30, note: "Cracked paddle blade", via: "card" }),
-        returnHire(damaged.code, { condition: "damaged", withheld: 30, note: "Cracked paddle blade", via: "card" }),
-      ]);
+      const damage = { condition: "damaged" as const, deductions: [{ reason: "damage", amount: 30 }], note: "Cracked paddle blade", via: "card" as const };
+      const [a, b] = await Promise.all([returnHire(damaged.code, damage), returnHire(damaged.code, damage)]);
       expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
-      expect((await returnHire(charged.code, { condition: "ok", withheld: 10, note: "Late back by an hour", taxable: true })).ok).toBe(true);
+      // Back an hour late, and muddy: more hire, and cleaning.
+      expect(
+        (await returnHire(charged.code, {
+          condition: "ok",
+          deductions: [
+            { reason: "late_return", amount: 10 },
+            { reason: "cleaning", amount: 5 },
+          ],
+          note: "Back an hour late, covered in mud",
+        })).ok
+      ).toBe(true);
 
       const sales = (await (await db())
         .prepare(
-          `SELECT s.total::float AS total, s.paid_via, r.tax_amount::float AS tax, r.total::float AS receipt
+          `SELECT s.hire_reason AS reason, s.total::float AS total, s.paid_via, r.tax_amount::float AS tax, r.note
              FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id
              JOIN receipts r ON r.source = 'sale:' || s.id WHERE b.code IN (?, ?) ORDER BY s.id`
         )
-        .all(damaged.code, charged.code)) as { total: number; paid_via: string; tax: number; receipt: number }[];
+        .all(damaged.code, charged.code)) as { reason: string; total: number; paid_via: string; tax: number; note: string | null }[];
       expect(sales).toEqual([
-        { total: 30, paid_via: "card", tax: 0, receipt: 30 },
-        { total: 10, paid_via: "cash", tax: expect.closeTo(0.74, 2), receipt: 10 },
+        // Compensation: no tax, and the receipt says it is not a charge for a service.
+        { reason: "damage", total: 30, paid_via: "card", tax: 0, note: expect.stringContaining("compensation for damage") },
+        // Charges for something the venue supplies: its tax, inside the amount.
+        { reason: "late_return", total: 10, paid_via: "cash", tax: expect.closeTo(0.74, 2), note: null },
+        { reason: "cleaning", total: 5, paid_via: "cash", tax: expect.closeTo(0.37, 2), note: null },
       ]);
       // Deposit held, kept and given back add up.
-      const hire = await hireFor(damaged.id);
-      expect(hire).toMatchObject({ deposit: 80, withheld: 30 });
+      expect(await hireFor(damaged.id)).toMatchObject({ deposit: 80, withheld: 30 });
+      expect(await hireFor(charged.id)).toMatchObject({ deposit: 80, withheld: 15 });
 
       const today = todayISO();
-      const kept = (await salesJournal(venue.id, today, today)).filter(
-        (r) => r.category === "Hire deposits kept" && (r.description.includes(damaged.code) || r.description.includes(charged.code))
-      );
-      expect(kept.map((r) => r.gross).sort()).toEqual([10, 30]);
-      expect(kept.every((r) => r.revenue)).toBe(true);
+      const journal = (await salesJournal(venue.id, today, today)).filter((r) => r.description.includes(damaged.code) || r.description.includes(charged.code));
+      expect(journal.map((r) => [r.category, r.gross]).sort()).toEqual([
+        ["Hire: damage and loss", 30],
+        ["Hire: extra charges", 10],
+        ["Hire: extra charges", 5],
+      ]);
+      expect(journal.every((r) => r.revenue)).toBe(true);
     } finally {
       await setVenueTax(venue.id, { registered: false });
     }
+  });
+
+  it("follows the venue's own choice of which reasons carry its tax, and marks the usual untaxed ones for review", async () => {
+    const { setVenueTax } = await import("../src/lib/tax");
+    const { deductionTreatments, setDeductionTreatments } = await import("../src/lib/deposit-deductions");
+    const venue = await VENUE();
+    const usual = await deductionTreatments(venue.id);
+    expect(usual.find((t) => t.reason === "damage")).toMatchObject({ taxed: false, usual: true, review: true });
+    expect(usual.find((t) => t.reason === "cleaning")).toMatchObject({ taxed: true, usual: true, review: false });
+    expect(usual.find((t) => t.reason === "penalty")).toMatchObject({ taxed: false, review: true });
+
+    // The venue's accountant says cleaning is not taxed here, and this "other" is.
+    expect((await setDeductionTreatments(venue.id, { cleaning: false, other: true })).ok).toBe(true);
+    expect((await setDeductionTreatments(venue.id, { nonsense: true })).ok).toBe(false);
+    expect((await setVenueTax(venue.id, { registered: true, name: "SST", rate: 8, regNo: "W10-1808-31000001" })).ok).toBe(true);
+    try {
+      const court = await fleet(50);
+      const booking = await bookRunningNow(court.id, "0150000094", 15);
+      expect((await takeHire(booking.code)).ok).toBe(true);
+      expect(
+        (await returnHire(booking.code, {
+          condition: "ok",
+          deductions: [
+            { reason: "cleaning", amount: 5 },
+            { reason: "other", amount: 4 },
+          ],
+          note: "Cleaning, and the lost locker key",
+        })).ok
+      ).toBe(true);
+      const taxes = (await (await db())
+        .prepare(
+          `SELECT s.hire_reason AS reason, r.tax_amount::float AS tax FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id
+             JOIN bookings b ON b.id = h.booking_id JOIN receipts r ON r.source = 'sale:' || s.id WHERE b.code = ? ORDER BY s.id`
+        )
+        .all(booking.code)) as { reason: string; tax: number }[];
+      expect(taxes).toEqual([
+        { reason: "cleaning", tax: 0 },
+        { reason: "other", tax: expect.closeTo(0.3, 2) },
+      ]);
+      // Back to the country's usual.
+      const reset = await setDeductionTreatments(venue.id, { cleaning: null, other: null });
+      expect(reset.ok && reset.treatments.every((t) => t.usual)).toBe(true);
+    } finally {
+      await setVenueTax(venue.id, { registered: false });
+    }
+  });
+
+  it("refuses what does not add up or says no reason; the older single amount takes its reason from the condition", async () => {
+    const court = await fleet(40);
+    const booking = await bookRunningNow(court.id, "0150000095", 16);
+    expect((await takeHire(booking.code)).ok).toBe(true);
+    const note = "Scratched";
+    expect(await returnHire(booking.code, { condition: "damaged", deductions: [{ reason: "wear", amount: 5 }], note })).toMatchObject({ ok: false });
+    expect(
+      await returnHire(booking.code, {
+        condition: "damaged",
+        deductions: [
+          { reason: "damage", amount: 5 },
+          { reason: "damage", amount: 5 },
+        ],
+        note,
+      })
+    ).toMatchObject({ ok: false });
+    expect(
+      await returnHire(booking.code, {
+        condition: "damaged",
+        deductions: [
+          { reason: "damage", amount: 30 },
+          { reason: "cleaning", amount: 20 },
+        ],
+        note,
+      })
+    ).toMatchObject({ ok: false, error: expect.stringContaining("cannot be kept back") });
+    expect((await returnHire(booking.code, { condition: "damaged", withheld: 12, note })).ok).toBe(true);
+    const reason = (await (await db())
+      .prepare("SELECT s.hire_reason FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id WHERE b.code = ?")
+      .get(booking.code)) as { hire_reason: string };
+    expect(reason.hire_reason).toBe("damage");
   });
 
   it("is not a sale when nothing is kept", async () => {

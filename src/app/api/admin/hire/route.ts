@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getVenue, getVenueIdForBookingCode, listOpenHires, returnHire, takeHire } from "@/lib/store";
+import { deductionTreatments } from "@/lib/deposit-deductions";
 import { COUNTER_METHODS, type CounterMethod, HIRE_CONDITIONS, HireCondition } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** What is still out at a venue. */
+/** What is still out at a venue, and how each reason for keeping money back is treated there. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
   if (!await getVenue(venueId)) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
 
-  return NextResponse.json({ hires: await listOpenHires(venueId) });
+  return NextResponse.json({ hires: await listOpenHires(venueId), deductions: await deductionTreatments(venueId) });
 }
 
 /** Hand kit over (`action: "take"`) or take it back in (`action: "return"`). */
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, action, deposit, condition, withheld, note, via, taxable } = (body ?? {}) as Record<
+  const { code, action, deposit, condition, deductions, withheld, note, via } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest) {
 
   if (typeof condition !== "string" || !HIRE_CONDITIONS.includes(condition as HireCondition))
     return NextResponse.json({ error: "condition is required." }, { status: 400 });
+  if (deductions !== undefined && !Array.isArray(deductions))
+    return NextResponse.json({ error: "deductions must be a list of { reason, amount }." }, { status: 400 });
   if (withheld !== undefined && typeof withheld !== "number")
     return NextResponse.json({ error: "withheld must be a number." }, { status: 400 });
   if (note !== undefined && typeof note !== "string")
@@ -64,11 +67,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "via is cash, qr, transfer or card." }, { status: 400 });
   const result = await returnHire(code, {
     condition: condition as HireCondition,
+    deductions: deductions as { reason: unknown; amount: unknown }[] | undefined,
     withheld: withheld as number | undefined,
     note: note as string | undefined,
-    // How the deposit was held, and whether what is kept is a taxed charge or untaxed compensation.
+    // How the deposit was held, so what is kept is in the takings under the same method.
     via: via as CounterMethod | undefined,
-    taxable: taxable === true,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ hire: result.hire, booking: result.booking });

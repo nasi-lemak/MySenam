@@ -10,6 +10,7 @@ import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX
 import type { CounterMethod } from "@/lib/types";
 import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
+import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
 import { localTime, todayLocal } from "./shared";
 import { money, currencySymbol } from "@/lib/region";
 
@@ -58,9 +59,11 @@ export function BookingsTab() {
   } | null>(null);
   const [deposit, setDeposit] = useState("0");
   const [condition, setCondition] = useState<HireCondition>("ok");
-  const [withheld, setWithheld] = useState("0");
+  // What is kept back, and why: a line per reason (lib/deposit-deductions.ts).
+  const [deductions, setDeductions] = useState<{ reason: DeductionReason; amount: string }[]>([]);
+  const [treatments, setTreatments] = useState<DeductionTreatment[]>([]);
+  const withheld = deductions.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const [heldVia, setHeldVia] = useState<"cash" | "qr" | "transfer" | "card">("cash");
-  const [keptTaxed, setKeptTaxed] = useState(false);
   const [note, setNote] = useState("");
   const [revenue, setRevenue] = useState(0);
   const [collected, setCollected] = useState(0);
@@ -151,8 +154,13 @@ export function BookingsTab() {
     });
     setDeposit(String(b.courtDeposit));
     setCondition("ok");
-    setWithheld("0");
+    setDeductions([]);
     setNote("");
+    if (mode === "return")
+      fetch(`/api/admin/hire?venueId=${b.venueId}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => setTreatments(Array.isArray(d.deductions) ? d.deductions : []))
+        .catch(() => setTreatments([]));
   }
 
   /** Hand the kit over, or take it back and settle the deposit. */
@@ -171,10 +179,9 @@ export function BookingsTab() {
                 code: kit.code,
                 action: "return",
                 condition,
-                withheld: Number(withheld),
+                deductions: deductions.map((d) => ({ reason: d.reason, amount: Number(d.amount) })),
                 note,
                 via: heldVia,
-                taxable: keptTaxed,
               }
         ),
       });
@@ -636,26 +643,64 @@ export function BookingsTab() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600">Kept back ({currencySymbol()})</label>
-              <input
-                type="number"
-            step={0.01}
-                min={0}
-                max={kit.deposit}
-                value={withheld}
-                onChange={(e) => setWithheld(e.target.value)}
-                className="mt-1 w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
-              />
-            </div>
-            {Number(withheld) > 0 && (
-              <>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600">Deposit was paid by</label>
+            <div className="w-full space-y-1">
+              <div className="text-xs font-medium text-slate-600">Kept back, and why</div>
+              {deductions.map((d, i) => {
+                const how = treatments.find((t) => t.reason === d.reason);
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label="Reason"
+                      value={d.reason}
+                      onChange={(e) => setDeductions(deductions.map((x, j) => (j === i ? { ...x, reason: e.target.value as DeductionReason } : x)))}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+                    >
+                      {treatments.map((t) => (
+                        <option key={t.reason} value={t.reason} disabled={t.reason !== d.reason && deductions.some((x) => x.reason === t.reason)}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      aria-label={`Amount (${currencySymbol()})`}
+                      type="number"
+                      step={0.01}
+                      min={0}
+                      max={kit.deposit}
+                      value={d.amount}
+                      onChange={(e) => setDeductions(deductions.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
+                      className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+                    />
+                    {how && (
+                      <span className="text-xs text-slate-500">
+                        {how.taxed ? "With the venue's tax, if registered" : "No tax"}
+                        {how.review ? " (the usual treatment: confirm with your accountant)" : ""}
+                      </span>
+                    )}
+                    <button onClick={() => setDeductions(deductions.filter((_, j) => j !== i))} className="text-xs text-slate-500 underline">
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+              {deductions.length < treatments.length && (
+                <button
+                  onClick={() => {
+                    const free = treatments.find((t) => !deductions.some((d) => d.reason === t.reason));
+                    if (free) setDeductions([...deductions, { reason: free.reason, amount: "" }]);
+                  }}
+                  className="text-xs font-semibold text-teal-700 underline"
+                >
+                  {deductions.length === 0 ? "Keep some back" : "Another reason"}
+                </button>
+              )}
+              {withheld > 0 && (
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  {money(withheld)} kept, {money(Math.max(kit.deposit - withheld, 0))} handed back. The deposit was paid by
                   <select
                     value={heldVia}
                     onChange={(e) => setHeldVia(e.target.value as typeof heldVia)}
-                    className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
                   >
                     <option value="cash">Cash</option>
                     <option value="qr">QR</option>
@@ -663,15 +708,11 @@ export function BookingsTab() {
                     <option value="card">Card</option>
                   </select>
                 </div>
-                <label className="flex items-center gap-1.5 text-xs text-slate-600" title="Compensation for damage or loss is not taxed; a charge for a service is.">
-                  <input type="checkbox" checked={keptTaxed} onChange={(e) => setKeptTaxed(e.target.checked)} />
-                  A charge (taxed), not compensation
-                </label>
-              </>
-            )}
+              )}
+            </div>
             <div className="min-w-[16rem] flex-1">
               <label className="block text-xs font-medium text-slate-600">
-                What happened{condition === "ok" && withheld === "0" ? " (optional)" : ""}
+                What happened{condition === "ok" && withheld === 0 ? " (optional)" : ""}
               </label>
               <input
                 value={note}

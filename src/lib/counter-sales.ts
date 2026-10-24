@@ -1,3 +1,4 @@
+import { deductionTreatments, isDeductionReason, type DeductionNature, type DeductionReason } from "./deposit-deductions";
 import { addonById, MAX_QUANTITY } from "./addons";
 import { getDb } from "./db";
 import { creditReceipt, documentFor, issueReceipt, paidVia } from "./documents";
@@ -147,23 +148,39 @@ export async function sellAtCounter(input: SellInput): Promise<Outcome> {
  * service; the venue decides, case by case. Run inside the return's
  * transaction.
  */
+/**
+ * Money kept from a hire deposit for one reason, rung up as a counter sale
+ * linked to the hire (M13): in the day's takings, receipted to the customer
+ * with the tax its reason carries at this venue (lib/deposit-deductions.ts),
+ * and in the journal under that reason's heading. The receipt says what the
+ * money was for, and when it is not a charge for a service, says so. In the
+ * caller's transaction (returning the kit). Returns the sale's id.
+ */
 export async function sellKeptDeposit(input: {
   venueId: number;
   hireRecordId: number;
+  reason: DeductionReason;
   description: string;
   amount: number;
   via: CounterMethod;
-  taxable: boolean;
   customerName: string | null;
   customerPhone: string | null;
 }): Promise<number> {
+  const treatment = (await deductionTreatments(input.venueId)).find((t) => t.reason === input.reason)!;
   const lines: SaleLine[] = [{ addonId: null, name: input.description.slice(0, 120), quantity: 1, unitPrice: roundMoney(input.amount) }];
   const row = (await getDb()
     .prepare(
-      `INSERT INTO counter_sales (venue_id, admin_id, customer_name, customer_phone, lines, total, paid_via, hire_record_id)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO counter_sales (venue_id, admin_id, customer_name, customer_phone, lines, total, paid_via, hire_record_id, hire_reason)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(input.venueId, input.customerName, input.customerPhone, JSON.stringify(lines), roundMoney(input.amount), input.via, input.hireRecordId)) as { id: number };
+    .get(input.venueId, input.customerName, input.customerPhone, JSON.stringify(lines), roundMoney(input.amount), input.via, input.hireRecordId, input.reason)) as {
+    id: number;
+  };
+  const NOTE: Partial<Record<DeductionNature, string>> = {
+    compensation: "Kept from the hire deposit as compensation for damage, not as a charge for a service.",
+    replacement: "Kept from the hire deposit towards replacing equipment not returned, not as a charge for a service.",
+    penalty: "Kept from the hire deposit as a penalty under the hire terms.",
+  };
   await issueReceipt({
     source: `sale:${row.id}`,
     venueId: input.venueId,
@@ -171,9 +188,19 @@ export async function sellKeptDeposit(input: {
     phone: input.customerPhone,
     lines: [{ description: lines[0].name, amount: lines[0].unitPrice }],
     paidVia: paidVia(input.via),
-    taxable: input.taxable,
+    taxable: treatment.taxed,
+    note: treatment.taxed ? undefined : NOTE[treatment.nature],
   });
   return row.id;
+}
+
+/** What was kept from a hire deposit, reason by reason. */
+export async function keptFromHire(hireRecordId: number): Promise<{ reason: DeductionReason | null; amount: number }[]> {
+  return (
+    (await getDb()
+      .prepare("SELECT hire_reason, total::float AS amount FROM counter_sales WHERE hire_record_id = ? AND voided_at IS NULL ORDER BY id")
+      .all(hireRecordId)) as { hire_reason: string | null; amount: number }[]
+  ).map((r) => ({ reason: isDeductionReason(r.hire_reason) ? r.hire_reason : null, amount: r.amount }));
 }
 
 export async function getCounterSale(id: number): Promise<CounterSale | null> {
