@@ -8,7 +8,7 @@
  *   node scripts/verify.mjs ci              # what CI runs: full
  *   node scripts/verify.mjs pg              # the suite on Postgres only
  *   node scripts/verify.mjs e2e             # the browser tests, building first only if the source changed
- *   node scripts/verify.mjs uat [scenario]  # the visual acceptance scenarios (tests/uat)
+ *   node scripts/verify.mjs uat [file|title]  # the visual acceptance scenarios (tests/uat): all, one file, or one by title
  *
  * Postgres: TEST_DATABASE_URL if set; otherwise, with `--pg docker` (the
  * default for full and pg when Docker answers), a throwaway postgres:16
@@ -159,8 +159,14 @@ async function build() {
   return ok;
 }
 const e2e = () => run("browser tests (e2e)", npx("vitest"), ["run", "--config", "vitest.e2e.config.mts"]);
+// A file ("matchmaking", "tests/uat/booking.uat.ts") or one scenario by its title ("C:", "Booking 2").
 const uat = (scenario) =>
-  run("acceptance scenarios (uat)", npx("vitest"), ["run", "--config", "vitest.uat.config.mts", ...(scenario ? [scenario] : [])]);
+  run("acceptance scenarios (uat)", npx("vitest"), [
+    "run",
+    "--config",
+    "vitest.uat.config.mts",
+    ...(!scenario ? [] : /^[a-z/._-]+$/.test(scenario) ? [scenario] : ["-t", scenario]),
+  ]);
 
 let ok = true;
 const all = (...results) => results.every(Boolean);

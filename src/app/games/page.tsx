@@ -252,7 +252,7 @@ export default function GamesPage() {
       ) : (
         <ul className="space-y-3">
           {games.map((g) => (
-            <li key={g.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <li key={g.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" data-testid={`game-${g.id}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-semibold">
@@ -385,7 +385,7 @@ function MyGames({
         <p className="text-sm text-amber-800">{t("games.noShowWarning", { n: mine.noShows, max: mine.maxNoShows })}</p>
       )}
       {mine.hosting.map((g) => (
-        <div key={g.id} className="rounded-lg bg-white p-3 text-sm shadow-sm">
+        <div key={g.id} className="rounded-lg bg-white p-3 text-sm shadow-sm" data-testid={`hosted-${g.id}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-medium">
               {t("games.hosting")}: {g.venueName}, {when(g)} · {t("games.joinedOf", { joined: g.joined, spots: g.spots })}
@@ -449,7 +449,7 @@ function MyGames({
         </div>
       ))}
       {mine.playing.map((g) => (
-        <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 text-sm shadow-sm">
+        <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 text-sm shadow-sm" data-testid={`playing-${g.id}`}>
           <span>
             {t("games.playing")}: {g.venueName}, {g.courtName}, {when(g)} · {t("games.hostedBy", { name: g.hostName })} ·{" "}
             {g.mine?.status === "requested"
