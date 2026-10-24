@@ -32,9 +32,11 @@ table in `src/lib/region.ts`:
   layout, so a client component formats money and phone numbers as the
   server does.
 - **Time**: both countries are UTC+8 all year. Each venue keeps its own zone
-  (below), so a country with several zones (Indonesia) works; one with
-  daylight saving does not yet, and a test refuses any such zone in the
-  region table ([known limitations](../roadmap/known-limitations.md)).
+  (below), so a country with several zones (Indonesia) works. Where a zone
+  changes its clocks, bookings touching the change are refused
+  ([booking time model](../architecture/booking-time-model.md#time)); no
+  country in the table has such a zone, and a test says so, because adding
+  one is a decision of its own ([known limitations](../roadmap/known-limitations.md)).
 - **Phone numbers** have one key however they are written (`src/lib/phone.ts`
   and the database's `phone_key()`, migration 0035): `+60 12-345 6789` and
   `012-345 6789` are one number, `+65 9123 4567` and `9123 4567` another, and
@@ -60,8 +62,8 @@ table in `src/lib/region.ts`:
   bookings are wall-clock times there (18:00 on the 4th), and its zone turns
   them into moments: when a slot has passed, the booking window, the
   cancellation cutoff, check-in, reminders and calendar invites. Zones are
-  IANA names; none in the region table has daylight saving, which is not
-  handled.
+  IANA names; none in the region table has daylight saving (handled as in
+  the [booking time model](../architecture/booking-time-model.md#time)).
   - **Worked out from the map pin**, not the address: the pin is a point
     already checked to be in the country, while an address is free text.
     The lookup (`@photostructure/tz-lookup`, server only) is kept to the

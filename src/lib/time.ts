@@ -51,11 +51,10 @@ export function isTimeZone(zone: unknown): zone is string {
 const steady = new Map<string, boolean>();
 
 /**
- * Does this zone keep one offset from UTC all year, this year and next? A
- * booking is a wall-clock time turned into a moment by its zone; where the
- * clocks change, some wall-clock times never happen and others happen twice,
- * and nothing yet says what a booking at one of them means (known
- * limitations). So only zones without daylight saving are accepted.
+ * Does this zone keep one offset from UTC all year, this year and next? One
+ * that does needs none of the care below (clockProblem), so it is asked first.
+ * No country MySenam is sold in changes its clocks; adding one that does is a
+ * decision of its own (known limitations), not something this allows.
  */
 export function keepsOneOffset(zone: string): boolean {
   const known = steady.get(zone);
@@ -100,6 +99,40 @@ export function zoneOffsetMinutes(at: Date, zone: string): number {
     offsets.set(key, offset);
   }
   return offset ?? exactOffsetMinutes(at, zone);
+}
+
+/**
+ * Where the clocks change, a wall-clock minute of a business day may never
+ * happen (the clocks went forward over it: "skipped") or happen twice (they
+ * went back over it: "repeated"). Worked out from the runtime's own zone
+ * database (Intl), never from rules written here: a candidate moment for each
+ * offset in force either side of the change, kept if the zone reads it as
+ * that wall-clock minute.
+ */
+export function clockProblem(date: string, minute: number, zone: string): "skipped" | "repeated" | null {
+  if (keepsOneOffset(zone)) return null;
+  const [y, m, d] = date.split("-").map(Number);
+  const wall = Date.UTC(y, m - 1, d, 0, minute);
+  const either = new Set([zoneOffsetMinutes(new Date(wall - DAY_MS), zone), zoneOffsetMinutes(new Date(wall + DAY_MS), zone)]);
+  const moments = [...either].filter((offset) => zoneOffsetMinutes(new Date(wall - offset * 60_000), zone) === offset);
+  return moments.length === 0 ? "skipped" : moments.length > 1 ? "repeated" : null;
+}
+
+/**
+ * Does minutes `start`–`end` of a business day touch a change of the clocks:
+ * begin or end at a minute skipped or repeated, or run across the change?
+ * Such a booking would last more or less than it says, at a time that may
+ * mean two moments; it is not sold (lib/booking-rules.ts, "CLOCK").
+ */
+export function crossesClockChange(date: string, start: number, end: number, zone: string): boolean {
+  if (keepsOneOffset(zone)) return false;
+  if (clockProblem(date, start, zone) !== null || clockProblem(date, end, zone) !== null) return true;
+  const offsetAt = (minute: number) => {
+    const [y, m, d] = date.split("-").map(Number);
+    const wall = Date.UTC(y, m - 1, d, 0, minute);
+    return zoneOffsetMinutes(new Date(wall - zoneOffsetMinutes(new Date(wall), zone) * 60_000), zone);
+  };
+  return offsetAt(start) !== offsetAt(end);
 }
 
 /** Today's date (YYYY-MM-DD) in a zone: the install's unless a venue's is given. */

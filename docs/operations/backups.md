@@ -129,14 +129,16 @@ data locations, is in [launch providers](../integrations/launch-providers.md#off
 Each part goes up in one PUT, streamed from disk, signed over its SHA-256 and
 carrying its MD5 as `Content-MD5` (which buckets with Object Lock require), so
 the storage service itself rejects a copy that arrived damaged. One PUT
-carries about 5 GB on every provider; a larger part is refused before anything
-is sent. Multipart uploads are not implemented, because no part comes near the
-limit: the 829 MB benchmark database dumps to 25 MB. The part that can grow is
-the photos archive, and only without a photo bucket. The size of the largest
-part is recorded with each copy, and the owners are warned at 80% of the limit,
-well before a copy is refused; the answer then is a photo bucket. An
-interrupted upload leaves nothing under that name, since a single PUT is all
-or nothing.
+carries about 5 GB on every provider, so a larger part (in practice only a
+photos archive kept without a photo bucket: the 829 MB benchmark database
+dumps to 25 MB) goes up **in parts** of 100 MiB: started, each part checked
+the same way, then completed; the object appears only when it is completed
+(`uploadBackup` in `src/lib/offsite.ts`). One upload in parts carries about
+976 GB; the owners are warned at 80% of that. The upload key still only
+writes (S3's `s3:PutObject` and B2's `writeFiles` cover uploads in parts): it
+never aborts one, so an upload the server stopped part-way stays unfinished in
+the bucket until a lifecycle rule drops it (below). An interrupted upload
+leaves nothing under that name either way.
 
 The Backups panel shows:
 
@@ -217,10 +219,12 @@ fake set that checks out on its own. What keeps earlier copies is
 - **B2:** turn on Object Lock for the bucket (it can be enabled on an
   existing bucket, and never turned off) with a default retention of
   **14 days, governance mode**, and a lifecycle rule
-  `daysFromUploadingToHiding: 14, daysFromHidingToDeleting: 1`.
+  `daysFromUploadingToHiding: 14, daysFromHidingToDeleting: 1,
+  daysFromStartingToCancelingUnfinishedLargeFiles: 2`.
 - **S3:** turn on versioning and Object Lock with a default retention of
   14 days (governance), and a lifecycle rule expiring current versions
-  after 14 days and noncurrent versions 1 day after they become noncurrent.
+  after 14 days, noncurrent versions 1 day after they become noncurrent, and
+  incomplete multipart uploads after 2 days (`AbortIncompleteMultipartUpload`).
 - **R2:** a bucket lock rule of 14 days on the prefix (R2 has no versions:
   a locked object cannot be overwritten at all).
 

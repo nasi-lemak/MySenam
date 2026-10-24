@@ -44,6 +44,7 @@ import {
   todayISO,
   localDateOf,
   dayOfWeek,
+  crossesClockChange,
 } from "./time";
 import {
   DAY_MINUTES,
@@ -609,6 +610,8 @@ export interface CourtDay {
   /** Shut all day: a closure, or a weekday it never opens. */
   closed: boolean;
   zone: string;
+  /** The business day these are the hours of. */
+  date: string;
 }
 
 async function courtDays(courts: Court[], date: string): Promise<Map<number, CourtDay>> {
@@ -636,6 +639,7 @@ async function courtDays(courts: Court[], date: string): Promise<Map<number, Cou
       closeMin: h.closeMin,
       closed: h.closed || venueClosedWeekday || shut.some((c) => c.venue_id === court.venueId),
       zone: venueZoneOf(v ?? {}),
+      date,
     });
   }
   return out;
@@ -793,6 +797,12 @@ export async function createGroupBooking(input: {
   email?: string;
   userId?: number;
   players?: number;
+  /**
+   * How many places on each shared resource, where they differ: kinds of kit
+   * in one booking (two single kayaks and a double, each kind a fleet of its
+   * own). A resource not named takes `players`.
+   */
+  placesByCourt?: Record<number, number>;
   /** The activity on every court; each court's main one if not said. */
   sport?: Sport;
   staff?: StaffOverride;
@@ -818,7 +828,8 @@ export async function createGroupBooking(input: {
       await lockCourts(courts.map((c) => c!));
       const made: Booking[] = [];
       for (const court of courts) {
-        const result = await createBookingSeries({ ...input, courtId: court!.id, weeks: 1 });
+        const players = input.placesByCourt?.[court!.id] ?? input.players;
+        const result = await createBookingSeries({ ...input, courtId: court!.id, weeks: 1, ...(players !== undefined ? { players } : {}) });
         if (!result.ok) throw new Refused({ ...result, error: `${court!.name}: ${result.error}` });
         made.push(...result.bookings);
       }
@@ -892,6 +903,8 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
     const candidates = lengths ?? lengthsBetween(policy);
     for (const length of candidates) {
       if (start + length > day.closeMin) break;
+      // Where the clocks change, no booking touching the change (lib/time.ts); longer ones would too.
+      if (crossesClockChange(day.date, start, start + length, day.zone)) break;
       if (!fits(occupants, court.capacity, { start, end: start + length }, buffers, ignore)) {
         // Fixed lengths need not fit in order, but anything longer than one that does not fit will not either.
         break;
@@ -1748,6 +1761,7 @@ function breachRefusal(policy: BookingPolicy, span: Span, breach: PolicyBreach):
   if (breach === "LENGTH" && !policy.lengths && length > policy.maxLength) return refuse("MAX_HOURS", { max: hoursOf(policy.maxLength) });
   if (breach === "LENGTH" && !policy.lengths && length < policy.minLength) return refuse("MIN_HOURS", { min: hoursOf(policy.minLength) });
   if (breach === "HOURS") return refuse("HOURS_OUTSIDE_OPENING");
+  if (breach === "CLOCK") return refuse("CLOCK_CHANGE");
   // Checked apart from the court's rules, by who is booking (createBookingSeries).
   if (breach === "SIGN_OFF") throw new Error("A sign-off is not one of the court's time rules.");
   const code = ({ START: "POLICY_START", LENGTH: "POLICY_LENGTH", NOTICE: "POLICY_NOTICE" } as const)[breach];
@@ -1827,6 +1841,8 @@ export async function createBookingSeries(
   if (day.closed && !input.classId) return refuse("VENUE_CLOSED");
   // The court's rules: customers keep to them; staff allowed to may go past them, and it is recorded.
   const breaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
+  // A change of the clocks is no rule a manager can waive: the booking would mean two moments, or none.
+  if (breaches.includes("CLOCK")) return breachRefusal(policy, span, "CLOCK");
   if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0]);
   if (minutesUntil(date, span.start, zone) <= 0) return refuse("SLOT_PAST");
   // A studio run as classes is booked through its classes; the venue's staff may still hire the room out.
@@ -2884,8 +2900,8 @@ async function rescheduleBookingOnce(
     // does not sell bookings that long does not take this one either.
     // Managers may go past them, and it is recorded.
     const breaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone));
-    if (breaches.length > 0 && !(by === "staff" && to.override === true)) {
-      firstRefusal ??= breachRefusal(day.policy, span, breaches[0]);
+    if (breaches.length > 0 && (breaches.includes("CLOCK") || !(by === "staff" && to.override === true))) {
+      firstRefusal ??= breachRefusal(day.policy, span, breaches.includes("CLOCK") ? "CLOCK" : breaches[0]);
       continue;
     }
     // A sign-off the activity asks for there must still hold on the new date, and be the customer's own.

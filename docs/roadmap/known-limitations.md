@@ -85,8 +85,8 @@ recommendation, not a decision. A decision is recorded by changing the row to
 ### Accepted
 
 Decided, with the reason recorded where they are described:
-[deliberately unsupported](#deliberately-unsupported) (including no daylight
-saving, one country per install, and no multipart uploads off-site); no
+[deliberately unsupported](#deliberately-unsupported) (including one country
+per install); no
 CSRF token, by design ([security](../architecture/security.md#requests-from-another-site));
 Billplz refunds by hand for a small Malaysian launch
 ([launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide));
@@ -200,15 +200,12 @@ there):
   door code or the counter as the venue sets (resolved below); only the
   half-hour granularity remains (P3, deliberate simplicity: a lock code is
   set for the hour, and no venue has asked for finer).
-- **Daylight saving is not supported**, deliberately: a wall-clock time that
-  never happens or happens twice has no defined meaning for a booking.
-  Malaysia and Singapore have none. Such a zone cannot be configured by
-  accident: staff can only pick one of the country's zones and one that
-  keeps a single offset (`keepsOneOffset`), a zone stored any other way is
-  ignored for the country's, and `tests/time-zones.test.ts` fails if one is
-  added to the region table. The clock functions already work for any
-  fixed-offset zone; the path to supporting daylight saving is in the
-  [roadmap](roadmap.md) (P3 until a country with it is planned).
+- **Where the clocks change, the hour of the change is not sold**: a
+  booking touching it is refused, a manager's too, and its starts are not
+  offered ([booking time model](../architecture/booking-time-model.md#time)).
+  No country MySenam is sold in changes its clocks, and
+  `tests/time-zones.test.ts` fails if one is added to the region table:
+  adding such a country is a decision of its own (P3, by design).
 - **Outages migrated from the half-hour diary** cover whole calendar days of
   their dates, so at a venue open past midnight their last night's late
   hours stay bookable. Outages made since take those hours too
@@ -251,8 +248,9 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 - **One booking takes at most eight places** unless the venue sets the most
   per booking, even on a fleet of twenty (by design, for review; a
   [decision for the owner](#decisions-the-owner-has-to-make)).
-- **Kinds of kit within one fleet** (single and double kayaks in one booking
-  list) are not built: each kind is a resource of its own (P3).
+- **Kinds of kit** are resources of their own, listed side by side rather
+  than under one heading; one booking takes some of several (P3, deferred in
+  the [roadmap](roadmap.md)).
 - **A catalogue change** made on one instance reaches the others within a
   minute (the cache), and the browser on its next page (P3).
 - **Country names exist for countries the app is not yet sold in** (sepak
@@ -398,6 +396,9 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A player's tournament report waited for the other side with no time limit | The other side is emailed; unanswered for 24 hours it stands through the same checks, or goes to staff as disputed if it no longer can ([tournaments](../features/tournaments.md#results)) | `tests/match-reports.test.ts` ("a report nobody answers") |
 | Game, tournament and league emails were in English whatever the player's language | Written in the language the account last used the site in (`users.locale`, migration 0112), greeting and all ([messaging](../integrations/messaging.md)) | `tests/outbox.test.ts` ("a programme email in the player's language"), `tests/tournaments.test.ts` ("emails in each entrant's language") |
 | A host's proposal to a time overlapping the game's own, on a court sharing its floor (a pitch over its court), was refused as taken | The new time is held space by space: in full on floor the booking does not hold, and outside the booking's own time on floor it does ([matchmaking](../features/matchmaking.md#moving-a-game-to-another-time)) | `tests/game-moves.test.ts` ("a proposal onto a court sharing the game's floor") |
+| Kinds of kit (single and double kayaks) could not be booked together: each kind was a booking of its own | One booking takes some of several kinds at once, a number of each, all or nothing, from the booking form ([booking](../features/booking.md#several-courts-in-one-booking)) | `tests/hire-pricing.test.ts` ("are booked together…"), `tests/components/booking-board.test.tsx` ("kinds of kit") |
+| Daylight saving was not supported: a booking at a wall-clock time skipped or repeated had no defined meaning | Skipped and repeated minutes are found from the runtime's zone database; a booking touching a change is refused (`CLOCK_CHANGE`) and not offered; either side, an hour on the clock is an hour held ([booking time model](../architecture/booking-time-model.md#time)) | `tests/clock-changes.test.ts` (London, New York, Sydney, 2026) |
+| No multipart uploads off-site: a backup part over about 5 GB (a photos archive) was refused | Parts over one PUT go up in 100 MiB parts, each signed and MD5-checked, by the same upload-only key; unfinished ones are dropped by a lifecycle rule ([backups](../operations/backups.md)) | `tests/offsite.test.ts` ("sends a file larger than one upload in parts…", "stops at a part that arrives damaged…"); against the B2 stand-in, not a real bucket |
 
 ## Production readiness
 
@@ -451,11 +452,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
   a free hour for regulars instead.
 - **Referral credit** ("give RM10, get RM10"): with bookings by phone number
   and no proof two numbers are two people, it pays people to refer themselves.
-- **No multipart uploads off-site.** Each backup part goes in one PUT, which
-  every provider caps at about 5 GB; a larger part (usually a photos archive)
-  is refused and the copy reported failed. The owners are warned when a part
-  passes 80% of that. Keep photos in their own bucket (`PHOTOS_S3_*`) rather
-  than on the server's disk.
 - **Off-site copies need a declared location.** Nothing is copied until
   `OFFSITE_DATA_LOCATION` is set, while it disagrees with the country a B2 or
   S3 endpoint names, and nothing abroad until the transfer is approved and

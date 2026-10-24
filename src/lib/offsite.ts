@@ -146,10 +146,23 @@ function offsiteConfigWithout(): OffsiteConfig | null {
 
 /**
  * What one PUT may carry: 5 GiB on S3, 5 GB on B2, 4.995 GiB on R2 — so a
- * little under the smallest. A larger file would need a multipart upload,
- * which this does not do.
+ * little under the smallest. A larger file goes up in parts (a multipart
+ * upload, which S3, B2 and R2 all take through the same S3 API).
  */
 export const MAX_SINGLE_PUT = Math.floor(4.99 * 1024 ** 3);
+
+/**
+ * Each part of a multipart upload: 100 MiB, inside every provider's limits
+ * (at least 5 MiB but the last, at most 5 GiB) and B2's recommended size, so
+ * a failed part costs little to send again.
+ */
+export const PART_BYTES = 100 * 1024 ** 2;
+
+/** The most parts one upload may have, on every provider. */
+export const MAX_PARTS = 10_000;
+
+/** The largest file one upload carries, in parts: about 976 GiB. */
+export const MAX_UPLOAD = PART_BYTES * MAX_PARTS;
 
 /**
  * Whether copies may be sent where the bucket is. Nothing is sent until
@@ -262,13 +275,13 @@ export function signV4(input: {
  * The file's SHA-256 (signed, for SigV4) and MD5 (sent as Content-MD5, which
  * a bucket with Object Lock requires on S3 and which every S3-compatible
  * service checks), read in pieces: a database can be bigger than the memory
- * there is.
+ * there is. A part of it, where `start` and `end` (inclusive) are given.
  */
-function fileHashes(file: string): Promise<{ sha256: string; md5: string }> {
+function fileHashes(file: string, range?: { start: number; end: number }): Promise<{ sha256: string; md5: string }> {
   return new Promise((resolve, reject) => {
     const sha = crypto.createHash("sha256");
     const md5 = crypto.createHash("md5");
-    fs.createReadStream(file)
+    fs.createReadStream(file, range)
       .on("data", (chunk) => {
         sha.update(chunk);
         md5.update(chunk);
@@ -283,78 +296,143 @@ export function objectUrl(config: OffsiteConfig, name: string): URL {
   return new URL(`${config.endpoint}/${encodeSegment(config.bucket)}/${canonicalPath(config.prefix + name)}`);
 }
 
-export type UploadResult = { ok: true; key: string; bytes: number } | { ok: false; error: string };
+export type UploadResult = { ok: true; key: string; bytes: number; parts?: number } | { ok: false; error: string };
+
+type Reply = { status: number; etag: string | null; body: string };
 
 /**
- * Send one file with a single signed PUT — the only request the upload key
- * is ever used for: nothing is read back, listed or deleted, so a key that
- * may only upload is enough. The body is streamed from disk; its SHA-256 is
- * signed and its MD5 sent as Content-MD5, so the storage service itself
- * refuses a copy that arrived damaged.
+ * One signed request to the bucket, its body a buffer or a stretch of a file
+ * streamed from disk, its SHA-256 signed (and its MD5 sent, where given).
  */
-export async function uploadBackup(
-  backup: Pick<BackupFile, "name" | "path">,
+function signedRequest(
   config: OffsiteConfig,
-  now = new Date()
-): Promise<UploadResult> {
-  let bytes: number;
-  let payloadHash: string;
-  let md5: string;
-  try {
-    bytes = fs.statSync(backup.path).size;
-    if (bytes > MAX_SINGLE_PUT)
-      return { ok: false, error: `${backup.name} is ${(bytes / 1024 ** 3).toFixed(1)} GiB: more than one upload can carry (about 5 GB). Keep photos in a photo bucket instead.` };
-    ({ sha256: payloadHash, md5 } = await fileHashes(backup.path));
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Cannot read the backup" };
-  }
-
-  const url = objectUrl(config, backup.name);
+  input: { method: string; url: URL; sha256: string; md5?: string; body: Buffer | { file: string; start: number; end: number }; now: Date }
+): Promise<Reply> {
+  const length = Buffer.isBuffer(input.body) ? input.body.length : input.body.end - input.body.start + 1;
   const headers: Record<string, string> = {
-    host: url.host,
-    "content-length": String(bytes),
-    "content-md5": md5,
-    "content-type": "application/octet-stream",
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate(now),
+    host: input.url.host,
+    "content-length": String(length),
+    ...(input.md5 ? { "content-md5": input.md5 } : {}),
+    "content-type": Buffer.isBuffer(input.body) ? "application/xml" : "application/octet-stream",
+    "x-amz-content-sha256": input.sha256,
+    "x-amz-date": amzDate(input.now),
   };
   headers.authorization = signV4({
-    method: "PUT",
-    url,
+    method: input.method,
+    url: input.url,
     headers,
-    payloadHash,
+    payloadHash: input.sha256,
     region: config.region,
     service: "s3",
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
-    now,
+    now: input.now,
   });
-
-  const key = config.prefix + backup.name;
-  return new Promise((resolve) => {
-    const send = url.protocol === "http:" ? http.request : https.request;
-    const req = send(url, { method: "PUT", headers, timeout: 10 * 60_000 }, (res) => {
+  return new Promise((resolve, reject) => {
+    const send = input.url.protocol === "http:" ? http.request : https.request;
+    const req = send(input.url, { method: input.method, headers, timeout: 10 * 60_000 }, (res) => {
       let reply = "";
       res.on("data", (chunk) => (reply += chunk));
-      res.on("end", () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300)
-          resolve({ ok: true, key, bytes });
-        else {
-          const code = reply.match(/<Code>([^<]+)<\/Code>/)?.[1];
-          const message = reply.match(/<Message>([^<]+)<\/Message>/)?.[1];
-          resolve({
-            ok: false,
-            error: `Storage refused the upload (${res.statusCode}${code ? ` ${code}` : ""})${message ? `: ${message}` : ""}`,
-          });
-        }
-      });
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, etag: (res.headers.etag as string | undefined) ?? null, body: reply }));
     });
     req.on("timeout", () => req.destroy(new Error("The upload timed out.")));
-    req.on("error", (err) => resolve({ ok: false, error: err.message }));
-    fs.createReadStream(backup.path)
-      .on("error", (err) => req.destroy(err))
-      .pipe(req);
+    req.on("error", reject);
+    if (Buffer.isBuffer(input.body)) req.end(input.body);
+    else
+      fs.createReadStream(input.body.file, { start: input.body.start, end: input.body.end })
+        .on("error", (err) => req.destroy(err))
+        .pipe(req);
   });
+}
+
+/** What the storage service said, from its status and its XML error. */
+function refusedBy(reply: Reply): string {
+  const code = reply.body.match(/<Code>([^<]+)<\/Code>/)?.[1];
+  const message = reply.body.match(/<Message>([^<]+)<\/Message>/)?.[1];
+  return `Storage refused the upload (${reply.status}${code ? ` ${code}` : ""})${message ? `: ${message}` : ""}`;
+}
+
+/** A 2xx with no error inside it: S3 can answer a multipart upload's completion 200 and still have failed. */
+const accepted = (reply: Reply) => reply.status >= 200 && reply.status < 300 && !/<Error>/.test(reply.body);
+
+/**
+ * Send one file: with a single signed PUT up to about 5 GB, in parts above
+ * that (a multipart upload: start, each part, complete). Either way the upload
+ * key only writes: nothing is read back, listed, deleted or aborted, so a key
+ * that may only upload is enough; an upload left unfinished (the server
+ * stopped part-way) is dropped by the bucket's lifecycle rule
+ * ([backups](../../docs/operations/backups.md)). Each body is streamed from
+ * disk with its SHA-256 signed and its MD5 sent, so the storage service itself
+ * refuses a file or part that arrived damaged.
+ */
+export async function uploadBackup(
+  backup: Pick<BackupFile, "name" | "path">,
+  config: OffsiteConfig,
+  now = new Date(),
+  sizes: { single?: number; part?: number } = {}
+): Promise<UploadResult> {
+  const single = sizes.single ?? MAX_SINGLE_PUT;
+  const partBytes = sizes.part ?? PART_BYTES;
+  let bytes: number;
+  try {
+    bytes = fs.statSync(backup.path).size;
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Cannot read the backup" };
+  }
+  if (bytes > partBytes * MAX_PARTS)
+    return { ok: false, error: `${backup.name} is ${(bytes / 1024 ** 3).toFixed(1)} GiB: more than one upload can carry, even in parts. Keep photos in a photo bucket instead.` };
+  const url = objectUrl(config, backup.name);
+  const key = config.prefix + backup.name;
+  // A long upload signs each request with the time it is sent.
+  const started = Date.now();
+  const at = () => new Date(now.getTime() + (Date.now() - started));
+  try {
+    if (bytes <= single) {
+      const { sha256, md5 } = await fileHashes(backup.path);
+      const reply = await signedRequest(config, { method: "PUT", url, sha256, md5, body: { file: backup.path, start: 0, end: bytes - 1 }, now: at() });
+      return accepted(reply) ? { ok: true, key, bytes } : { ok: false, error: refusedBy(reply) };
+    }
+
+    const empty = Buffer.alloc(0);
+    const begun = await signedRequest(config, { method: "POST", url: withQuery(url, { uploads: "" }), sha256: hex(empty), body: empty, now: at() });
+    const uploadId = begun.body.match(/<UploadId>([^<]+)<\/UploadId>/)?.[1];
+    if (!accepted(begun) || !uploadId) return { ok: false, error: refusedBy(begun) };
+    const etags: string[] = [];
+    for (let start = 0, number = 1; start < bytes; start += partBytes, number++) {
+      const range = { start, end: Math.min(start + partBytes, bytes) - 1 };
+      const { sha256, md5 } = await fileHashes(backup.path, range);
+      const part = await signedRequest(config, {
+        method: "PUT",
+        url: withQuery(url, { partNumber: String(number), uploadId }),
+        sha256,
+        md5,
+        body: { file: backup.path, ...range },
+        now: at(),
+      });
+      if (!accepted(part) || !part.etag) return { ok: false, error: `Part ${number}: ${refusedBy(part)}` };
+      etags.push(part.etag);
+    }
+    const list = Buffer.from(
+      `<CompleteMultipartUpload>${etags.map((etag, i) => `<Part><PartNumber>${i + 1}</PartNumber><ETag>${etag}</ETag></Part>`).join("")}</CompleteMultipartUpload>`
+    );
+    const done = await signedRequest(config, {
+      method: "POST",
+      url: withQuery(url, { uploadId }),
+      sha256: hex(list),
+      md5: crypto.createHash("md5").update(list).digest("base64"),
+      body: list,
+      now: at(),
+    });
+    return accepted(done) ? { ok: true, key, bytes, parts: etags.length } : { ok: false, error: refusedBy(done) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The upload failed" };
+  }
+}
+
+function withQuery(url: URL, params: Record<string, string>): URL {
+  const out = new URL(url);
+  for (const [k, v] of Object.entries(params)) out.searchParams.set(k, v);
+  return out;
 }
 
 // ------------------------------------------------------------- remembering

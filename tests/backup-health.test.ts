@@ -11,7 +11,7 @@ process.env.MYSENAM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "backup-hea
 import { backupHealth, rpoHours } from "../src/lib/backup-health";
 import { createBackup } from "../src/lib/backup";
 import { getDb } from "../src/lib/db";
-import { MAX_SINGLE_PUT } from "../src/lib/offsite";
+import { MAX_UPLOAD } from "../src/lib/offsite";
 import { checkBackupHealth } from "../src/lib/scheduler";
 
 /**
@@ -94,11 +94,11 @@ describe("backup health", () => {
     expect(await backupHealth()).toMatchObject({ state: "paused", offsite: "paused", problems: expect.arrayContaining([expect.stringMatching(/in US, but OFFSITE_DATA_LOCATION says MY/)]) });
   });
 
-  it("warns when the largest part nears the single-upload limit", async () => {
+  it("warns when the largest part nears what one upload can carry, even in parts", async () => {
     offsiteAtHome();
-    await lastCopy({ lastCopied: { name: "x.dump", at: hoursAgo(1), key: "x", largestBytes: Math.ceil(MAX_SINGLE_PUT * 0.85) }, lastError: null });
+    await lastCopy({ lastCopied: { name: "x.dump", at: hoursAgo(1), key: "x", largestBytes: Math.ceil(MAX_UPLOAD * 0.85) }, lastError: null });
     const health = await backupHealth();
-    expect(health).toMatchObject({ state: "ok", nearSizeLimit: true, problems: [expect.stringMatching(/one upload takes about 5 GB/)] });
+    expect(health).toMatchObject({ state: "ok", nearSizeLimit: true, problems: [expect.stringMatching(/one upload, in parts, takes about 976 GB/)] });
     await checkBackupHealth();
     expect(await alert("offsite-near-limit")).toBeDefined();
     await lastCopy({ lastCopied: { name: "x.dump", at: hoursAgo(1), key: "x", largestBytes: 1024 }, lastError: null });

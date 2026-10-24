@@ -260,7 +260,7 @@ template, found and booked as it is sold), `tests/activities.test.ts`
 | Golf simulator | Specialist | Bays (lanes) | Full | — |
 | Fencing | Specialist | Pistes (lanes); lessons and club nights as classes | Full | — |
 | Gym | Fitness | Floor with places: timed sessions, memberships, passes, inductions | Basic | Entry on a membership without booking a session (walk-in access counted at check-in) |
-| Kayak, canoe, stand-up paddleboarding | Water | Fleet hire, per item; kinds of boat or board as resources of their own | Basic | Tide and launch windows; choosing a kind within one fleet |
+| Kayak, canoe, stand-up paddleboarding | Water | Fleet hire, per item; kinds of boat or board as resources of their own, booked together with a number of each | Basic | Tide and launch windows |
 | Cycling | Fitness | Bike hire (sizes as resources of their own); spin as classes | Basic | Track or velodrome sessions run in heats |
 | Climbing | Specialist | Wall with places, per climber, belay sign-off by default | Basic | Open-ended day passes |
 | Bouldering | Specialist | Wall with places, per climber | Basic | Open-ended day passes |

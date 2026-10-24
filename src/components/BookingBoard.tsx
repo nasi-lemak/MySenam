@@ -301,11 +301,16 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
   }, [availability, selection, t]);
 
-  /** Other whole courts free for the same start and length, to book with it as one. */
+  /**
+   * Others free for the same start and length, to book with it as one: other
+   * whole courts beside a whole court, or other shared resources beside a
+   * shared one (another kind of kit, each a fleet of its own).
+   */
   const alsoFree = useMemo(() => {
     if (!selection || !availability || selection.courtId === ANY_COURT) return [];
+    const shared = (availability.find((a) => a.court.id === selection.courtId)?.court.capacity ?? 1) > 1;
     return availability
-      .filter((a) => a.court.id !== selection.courtId && a.court.capacity === 1)
+      .filter((a) => a.court.id !== selection.courtId && (a.court.capacity > 1) === shared)
       .filter((a) => lengthsUpTo(a.policy, selection.length).includes(selection.length))
       .filter((a) => (a.starts.find((s) => s.minute === selection.start)?.maxLength ?? 0) >= selection.length)
       .map((a) => a.court);
@@ -708,8 +713,14 @@ function BookingForm({
   const [weeks, setWeeks] = useState(1);
   // Other courts booked with this one, at the same time.
   const [more, setMore] = useState<number[]>([]);
-  useEffect(() => setMore([]), [court.id, start, length, date]);
+  // How many from each other shared resource chosen (another kind of kit).
+  const [moreCount, setMoreCount] = useState<Record<number, number>>({});
+  useEffect(() => {
+    setMore([]);
+    setMoreCount({});
+  }, [court.id, start, length, date]);
   const moreChosen = alsoFree.filter((c) => more.includes(c.id));
+  const countOf = (c: Court) => moreCount[c.id] ?? 1;
   // A manager booking outside the court's rules: any start, any length; what holds the court still decides.
   const [override, setOverride] = useState(false);
   // A concession price: that share off the court time, shown at the counter.
@@ -724,7 +735,7 @@ function BookingForm({
 
   // The price, as the server will charge it: worked out there, shown before booking.
   const [quote, setQuote] = useState<Quote | null>(null);
-  const moreKey = more.join(",");
+  const moreKey = moreChosen.map((c) => (c.capacity > 1 ? `${c.id}:${countOf(c)}` : String(c.id))).join(",");
   useEffect(() => {
     let live = true;
     setQuote(null);
@@ -849,7 +860,7 @@ function BookingForm({
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
-          ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((c) => c.id) } : {}),
+          ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((c) => (c.capacity > 1 ? { courtId: c.id, places: countOf(c) } : c.id)) } : {}),
           ...(concession ? { concessionId: concession.id } : {}),
           ...(counted ? { players } : {}),
         }),
@@ -1025,7 +1036,7 @@ function BookingForm({
       )}
       {alsoFree.length > 0 && weeks === 1 && !hasExtras && (
         <details className="mt-2 text-xs text-slate-600" open={more.length > 0}>
-          <summary className="cursor-pointer font-medium text-teal-700">{t("form.alsoBook")}</summary>
+          <summary className="cursor-pointer font-medium text-teal-700">{t(shared ? "form.alsoBookKinds" : "form.alsoBook")}</summary>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
             {alsoFree.map((c) => {
               const price = quote?.others.find((o) => o.courtId === c.id)?.total;
@@ -1040,6 +1051,18 @@ function BookingForm({
                     onChange={(e) => setMore(e.target.checked ? [...more, c.id] : more.filter((id) => id !== c.id))}
                   />
                   {c.name}
+                  {c.capacity > 1 && more.includes(c.id) && (
+                    <input
+                      type="number"
+                      min={1}
+                      max={placesPerBooking(c)}
+                      value={countOf(c)}
+                      aria-label={t("form.howMany", { name: c.name })}
+                      data-testid={`more-count-${c.id}`}
+                      onChange={(e) => setMoreCount({ ...moreCount, [c.id]: Math.max(1, Math.min(placesPerBooking(c), Number(e.target.value) || 1)) })}
+                      className="w-12 rounded border border-slate-300 px-1 py-0.5"
+                    />
+                  )}
                   {price !== undefined && ` · ${price === 0 ? t("price.free") : money(price)}`}
                 </label>
               );

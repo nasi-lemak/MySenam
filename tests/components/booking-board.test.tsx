@@ -233,6 +233,41 @@ describe("a shared facility", () => {
   });
 });
 
+describe("kinds of kit", () => {
+  it("adds another kind at the same time, with how many of it, priced and sent as such; not a whole court", async () => {
+    const SINGLES = { ...COURT, id: 11, name: "Single kayaks", sport: "kayak" as const, capacity: 6 };
+    const DOUBLES = { ...COURT, id: 12, name: "Double kayaks", sport: "kayak" as const, capacity: 3 };
+    const shared = (court: { capacity: number }) => row({ court, slots: slots(HOURS, true, { capacity: court.capacity, booked: 0 }) });
+    availability = [shared(SINGLES), shared(DOUBLES), row()];
+    const posts: Record<string, unknown>[] = [];
+    const fallback = fetchMock.getMockImplementation() as (url: string) => Promise<unknown>;
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (String(url).includes("/api/bookings") && init?.method === "POST") {
+        posts.push(JSON.parse(init.body!));
+        return { ok: false, status: 409, json: async () => ({ error: "Stop here." }) };
+      }
+      return fallback(url);
+    });
+    await act(async () => void board());
+    // The first row is "any court"; the singles' first hour follows it.
+    await tap(HOURS.length);
+    await priced();
+    expect(screen.getByText("Add other kinds at the same time")).toBeTruthy();
+    // The doubles are offered beside the singles; the whole court is not.
+    expect(screen.queryByLabelText(/Badminton Court 1/)).toBeNull();
+    await act(async () => void fireEvent.click(screen.getByLabelText(/Double kayaks/)));
+    const count = screen.getByTestId("more-count-12") as HTMLInputElement;
+    expect(count.max).toBe("3");
+    await act(async () => void fireEvent.change(count, { target: { value: "2" } }));
+    await priced();
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes("also=12:2"))).toBe(true);
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Paddler" } }));
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Phone/), { target: { value: "0123456789" } }));
+    await act(async () => void fireEvent.submit(screen.getByRole("button", { name: /^Book/ }).closest("form")!));
+    expect(posts[0]).toMatchObject({ courtId: 11, moreCourts: [{ courtId: 12, places: 2 }] });
+  });
+});
+
 describe("the day the venue is shut", () => {
   it("says so instead of showing an empty grid", async () => {
     availability = [row({ slots: slots(HOURS, false), starts: [] })];

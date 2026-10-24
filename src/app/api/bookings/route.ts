@@ -99,9 +99,15 @@ export async function POST(req: NextRequest) {
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
   // Other courts booked with this one, at the same time, as one (lib/store.ts `createGroupBooking`).
-  if (moreCourts !== undefined && moreCourts !== null && (!Array.isArray(moreCourts) || !moreCourts.every((c) => Number.isInteger(c) && c > 0)))
-    return NextResponse.json({ error: "moreCourts must be a list of court ids." }, { status: 400 });
-  const group = Array.isArray(moreCourts) && moreCourts.length > 0 ? [courtId as number, ...(moreCourts as number[])] : null;
+  // Each a court id, or { courtId, places } for a number of places on a shared resource (a kind of kit of its own).
+  const isPlaces = (c: unknown): c is { courtId: number; places: number } =>
+    typeof c === "object" && c !== null && Number.isInteger((c as { courtId: unknown }).courtId) && Number.isInteger((c as { places: unknown }).places) &&
+    (c as { courtId: number }).courtId > 0 && (c as { places: number }).places > 0;
+  if (moreCourts !== undefined && moreCourts !== null && (!Array.isArray(moreCourts) || !moreCourts.every((c) => (Number.isInteger(c) && c > 0) || isPlaces(c))))
+    return NextResponse.json({ error: "moreCourts must be a list of court ids, or of { courtId, places }." }, { status: 400 });
+  const moreList = (Array.isArray(moreCourts) ? moreCourts : []) as (number | { courtId: number; places: number })[];
+  const group = moreList.length > 0 ? [courtId as number, ...moreList.map((c) => (typeof c === "number" ? c : c.courtId))] : null;
+  const placesByCourt = Object.fromEntries(moreList.filter((c): c is { courtId: number; places: number } => typeof c !== "number").map((c) => [c.courtId, c.places]));
   if (group && (anyCourt || ((weeks as number) ?? 1) > 1 || (coachId !== undefined && coachId !== null) || chosen.length > 0))
     return refusal({ ok: false, error: "A booking of several courts is for one date, without extras or a coach.", code: "GROUP_ONE_COURT_ONLY" });
 
@@ -232,7 +238,7 @@ export async function POST(req: NextRequest) {
         sport: sport as Sport,
       })
     : group
-      ? await createGroupBooking({ ...common, courtIds: group })
+      ? await createGroupBooking({ ...common, courtIds: group, placesByCourt })
       : await createBookingSeries({ ...common, courtId: courtId as number });
 
   if (!result.ok) return refusal(result);

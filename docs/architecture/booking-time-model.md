@@ -34,6 +34,19 @@ time, not of storing it.
   whole minute.
 - Opening hours, peak windows and court hours are minutes too
   (`venues.open_min`/`close_min`, `week_hours`, `peak_*_min`).
+- **Where the clocks change.** A zone's offset is read from the runtime's
+  zone database (Intl), moment by moment, never from rules written here. On
+  the day a zone changes its clocks, a wall-clock minute the clocks go
+  forward over never happens (*skipped*) and one they go back over happens
+  twice (*repeated*) (`clockProblem` in `src/lib/time.ts`). A booking that
+  starts or ends at such a minute, or runs across the change, would last more
+  or less than it says and could mean two moments, so it is not sold: its
+  starts are not offered, and asked for anyway it is refused
+  (`CLOCK_CHANGE`), a manager's override included. Either side of the change
+  everything is as any other day, an hour on the clock an hour held. No
+  country MySenam is sold in changes its clocks
+  (`tests/clock-changes.test.ts` checks London, New York and Sydney on their
+  2026 changes).
 
 ## Spaces: courts and the courts they share a floor with
 
@@ -275,6 +288,7 @@ or a single place in the code if the owner wants it otherwise:
 | Outages | Every minute of each business day, late hours included; migrated ones whole calendar days |
 | Opening hours | To the minute; a venue still opens for at least an hour |
 | Unstaffed hours | Still whole hours ([known limitations](../roadmap/known-limitations.md)) |
+| A booking touching a change of the clocks | Refused, the skipped and the repeated hour alike, even for managers; not offered (rather than taking the first of a repeated hour, which would hold more time than the clock says) |
 
 ## How it is tested
 

@@ -58,16 +58,27 @@ export async function GET(req: NextRequest) {
   if (!priced.ok) return refusal(priced, 400);
 
   // Other courts at the same venue, for the same time.
+  // Each `id`, or `id:places` for that many places on a shared resource (a kind of kit of its own).
   const also = (q.get("also") ?? "")
     .split(",")
-    .map(Number)
-    .filter((id) => Number.isInteger(id) && id > 0 && id !== courtId)
+    .map((item) => item.split(":").map(Number))
+    .filter(([id, n]) => Number.isInteger(id) && id > 0 && id !== courtId && (n === undefined || (Number.isInteger(n) && n > 0)))
     .slice(0, MAX_GROUP_COURTS);
   const others: { courtId: number; total: number; allowed: boolean }[] = [];
-  for (const id of also) {
+  for (const [id, places] of also) {
     const other = await getCourt(id);
     if (!other || other.venueId !== court.venueId) continue;
-    const quote = await quoteFor({ courtId: id, date, start: priced.span.start, end: priced.span.end, phone: user?.phone ?? null, userId: user?.id ?? null, by: "customer", players, ...(activity ? { sport: activity } : {}) });
+    const quote = await quoteFor({
+      courtId: id,
+      date,
+      start: priced.span.start,
+      end: priced.span.end,
+      phone: user?.phone ?? null,
+      userId: user?.id ?? null,
+      by: "customer",
+      players: places ?? players,
+      ...(activity ? { sport: activity } : {}),
+    });
     if (quote.ok) others.push({ courtId: id, total: quote.quote.total, allowed: quote.allowed });
   }
 

@@ -1,12 +1,17 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
+
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ host: "localhost:3000" }),
+  cookies: async () => ({ get: () => undefined }),
+}));
 
 import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
 import { priceBooking, readQuantityPrices } from "../src/lib/pricing";
 import { createResources } from "../src/lib/resources";
-import { createBooking, createVenue, getAvailability, getCourt, updateCourt } from "../src/lib/store";
+import { createBooking, createGroupBooking, createVenue, getAvailability, getCourt, updateCourt } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { GET as quoteGet } from "../src/app/api/quote/route";
 
@@ -106,5 +111,41 @@ describe("kinds of kit", () => {
     expect(offered).toEqual(expect.arrayContaining([["Single kayaks", 25, 8], ["Double kayaks", 40, 4]]));
     expect(await book(double.id, 5)).toMatchObject({ ok: false });
     expect(await book(single.id, 5)).toMatchObject({ ok: true, booking: { totalPrice: 125 } });
+  });
+
+  it("are booked together in one go, a number of each, all or nothing", async () => {
+    const single = await fleet("Singles", 25, 6);
+    const double = await fleet("Doubles", 40, 3);
+    const together = (places: Record<number, number>) =>
+      createGroupBooking({ by: "customer", courtIds: [single.id, double.id], placesByCourt: places, date: day(4), start: at(10), end: at(11), name: "Family", phone: phone() });
+    const made = await together({ [single.id]: 2, [double.id]: 1 });
+    if (!made.ok) throw new Error(made.error);
+    expect(made.bookings.map((b) => [b.courtId, b.players, b.totalPrice])).toEqual(
+      expect.arrayContaining([
+        [single.id, 2, 50],
+        [double.id, 1, 40],
+      ])
+    );
+    expect(new Set(made.bookings.map((b) => b.groupCode)).size).toBe(1);
+    // Two doubles left: asking for three keeps none of it, singles included.
+    const before = await getAvailability(venueId, day(4), "kayak");
+    expect(await together({ [single.id]: 1, [double.id]: 3 })).toMatchObject({ ok: false, error: expect.stringContaining("Doubles") });
+    expect(await getAvailability(venueId, day(4), "kayak")).toEqual(before);
+  });
+
+  it("are booked together from the booking page, with how many of each", async () => {
+    const single = await fleet("Route singles", 25, 6);
+    const double = await fleet("Route doubles", 40, 3);
+    const { POST } = await import("../src/app/api/bookings/route");
+    const res = await POST(
+      new NextRequest("http://localhost/api/bookings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ courtId: single.id, date: day(6), start: "10:00", end: "11:00", name: "Trip", phone: phone(), players: 3, moreCourts: [{ courtId: double.id, places: 2 }] }),
+      })
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { bookings: { courtId: number; players: number }[] };
+    expect(body.bookings.map((b) => [b.courtId, b.players])).toEqual(expect.arrayContaining([[single.id, 3], [double.id, 2]]));
   });
 });

@@ -212,6 +212,12 @@ one of those hours (and that take a booking that long), with what each costs.
 - Each court counts against the venue's house rules, as each week of a weekly
   booking does. 2 to 6 courts, at one venue, on one date, without extras or a
   coach (book those on one court).
+- **Kinds of kit** work the same way: beside a shared resource (single
+  kayaks), the form offers the venue's other shared resources free at that
+  time (*Add other kinds at the same time*: double kayaks, boards), each with
+  how many, up to what one booking may take. Each kind is its own booking at
+  its own price; all or none are kept. Whole courts and shared resources are
+  not mixed in one.
 
 ## Operating hours and closed days
 

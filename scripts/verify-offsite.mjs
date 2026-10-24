@@ -165,7 +165,18 @@ try {
   const drill = await restoreDrill(fetched.snapshot);
   note(drill.ok ? "pass" : "fail", "isolated restore drill", drill.ok ? `${drill.ms} ms, ${Object.keys(drill.counts).length} tables counted` : drill.problems.join("; "));
 
-  // 6. How long a larger set takes, if asked.
+  // 6. In parts, as a file over one upload's 5 GB goes: made small here (5 MiB parts, the least the providers take).
+  const parted = path.join(work, `parts-${Date.now()}.bin`);
+  fs.writeFileSync(parted, crypto.randomBytes(11 * 1024 * 1024));
+  const inParts = await off.uploadBackup({ name: path.basename(parted), path: parted }, upload, new Date(), { single: 5 * 1024 * 1024, part: 5 * 1024 * 1024 });
+  if (!inParts.ok) note("fail", "upload in parts with the upload key", inParts.error);
+  else {
+    await off.downloadObject(read, path.basename(parted), `${parted}.back`);
+    const same = fs.readFileSync(parted).equals(fs.readFileSync(`${parted}.back`));
+    note(same ? "pass" : "fail", "upload in parts with the upload key", `${inParts.parts} parts${same ? ", read back the same" : ", READ BACK DIFFERENT"}`);
+  }
+
+  // 7. How long a larger set takes, if asked.
   const mb = Number(flag("--size-mb") ?? 0);
   if (mb > 0) {
     const big = path.join(work, `throughput-${Date.now()}.bin`);
@@ -191,7 +202,7 @@ try {
   note("fail", "run", err instanceof Error ? err.message : String(err));
 }
 
-note("manual", "lifecycle rules", "in the provider's console: no rule may delete versions before the retention ends; hidden or old versions kept at least as long as Object Lock holds them");
+note("manual", "lifecycle rules", "in the provider's console: no rule may delete versions before the retention ends; hidden or old versions kept at least as long as Object Lock holds them; unfinished uploads in parts dropped after a day or two (B2: daysFromStartingToCancelingUnfinishedLargeFiles; S3: AbortIncompleteMultipartUpload), since the upload key never aborts them");
 note("manual", "keys", "confirm in the console that the upload key has only writeFiles (B2) or s3:PutObject (S3) on this bucket and prefix, and that no key on the server can bypass governance");
 
 const report = flag("--report");

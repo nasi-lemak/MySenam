@@ -13,7 +13,8 @@ import {
   endpointLocation,
   fetchOffsiteSet,
   listOffsite,
-  MAX_SINGLE_PUT,
+  MAX_PARTS,
+  MAX_UPLOAD,
   objectUrl,
   offsiteConfig,
   offsiteReadConfig,
@@ -371,6 +372,10 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
   let clockAheadHours = 0;
   /** Off, the bucket answers a versions listing as R2 does: not implemented. */
   let listsVersions = true;
+  /** Multipart uploads under way: their name and parts so far. */
+  const uploads = new Map<string, { key: string; parts: Map<number, Buffer> }>();
+  /** A part number the bucket will find damaged (its MD5 not matching). */
+  let damagePart = 0;
   const log: { method: string; key: string; path: string }[] = [];
   let server: http.Server;
   let endpoint = "";
@@ -428,6 +433,26 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
             : {};
           return res.writeHead(200, lock).end();
         }
+        if (req.method === "POST" && (url.searchParams.has("uploads") || url.searchParams.has("uploadId"))) {
+          // A multipart upload, started or completed: B2's writeFiles covers both.
+          if (!key.capabilities.includes("writeFiles")) return deny(res, 403, "AccessDenied", "not entitled");
+          if (!objectKey.startsWith(key.prefix)) return deny(res, 403, "AccessDenied", "not entitled to that file name prefix");
+          if (crypto.createHash("sha256").update(body).digest("hex") !== req.headers["x-amz-content-sha256"]) return deny(res, 400, "XAmzContentSHA256Mismatch", "SHA mismatch");
+          if (url.searchParams.has("uploads")) {
+            const id = `up${uploads.size + 1}`;
+            uploads.set(id, { key: objectKey, parts: new Map() });
+            return res.writeHead(200, { "content-type": "application/xml" }).end(`<InitiateMultipartUploadResult><UploadId>${id}</UploadId></InitiateMultipartUploadResult>`);
+          }
+          const upload = uploads.get(url.searchParams.get("uploadId")!);
+          if (!upload || upload.key !== objectKey) return deny(res, 404, "NoSuchUpload", "no such upload");
+          const listed = [...body.toString().matchAll(/<PartNumber>(\d+)<\/PartNumber><ETag>([^<]+)<\/ETag>/g)].map((x) => [Number(x[1]), x[2]] as const);
+          for (const [n, etag] of listed)
+            if (!upload.parts.has(n) || etag !== `"${crypto.createHash("md5").update(upload.parts.get(n)!).digest("hex")}"`) return deny(res, 400, "InvalidPart", `part ${n}`);
+          versions.set(objectKey, [...(versions.get(objectKey) ?? []), Buffer.concat(listed.map(([n]) => upload.parts.get(n)!))]);
+          stamps.set(objectKey, [...(stamps.get(objectKey) ?? []), new Date(Date.now() + clockAheadHours * 3_600_000).toISOString()]);
+          uploads.delete(url.searchParams.get("uploadId")!);
+          return res.writeHead(200, { "content-type": "application/xml" }).end("<CompleteMultipartUploadResult/>");
+        }
         if (req.method === "PUT") {
           if (!key.capabilities.includes("writeFiles")) return deny(res, 403, "AccessDenied", "not entitled");
           if (!objectKey.startsWith(key.prefix)) return deny(res, 403, "AccessDenied", "not entitled to that file name prefix");
@@ -435,6 +460,15 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
           if (!req.headers["content-md5"]) return deny(res, 400, "InvalidRequest", "Content-MD5 is required for an object lock bucket");
           if (crypto.createHash("md5").update(body).digest("base64") !== req.headers["content-md5"]) return deny(res, 400, "BadDigest", "MD5 mismatch");
           if (crypto.createHash("sha256").update(body).digest("hex") !== req.headers["x-amz-content-sha256"]) return deny(res, 400, "XAmzContentSHA256Mismatch", "SHA mismatch");
+          if (url.searchParams.has("uploadId")) {
+            // One part of a multipart upload, checked as any upload is.
+            const upload = uploads.get(url.searchParams.get("uploadId")!);
+            const n = Number(url.searchParams.get("partNumber"));
+            if (!upload || upload.key !== objectKey) return deny(res, 404, "NoSuchUpload", "no such upload");
+            if (n === damagePart) return deny(res, 400, "BadDigest", "MD5 mismatch");
+            upload.parts.set(n, body);
+            return res.writeHead(200, { etag: `"${crypto.createHash("md5").update(body).digest("hex")}"` }).end();
+          }
           versions.set(objectKey, [...(versions.get(objectKey) ?? []), body]);
           stamps.set(objectKey, [...(stamps.get(objectKey) ?? []), new Date(Date.now() + clockAheadHours * 3_600_000).toISOString()]);
           return res.writeHead(200).end();
@@ -482,6 +516,8 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
     log.length = 0;
     listsVersions = true;
     clockAheadHours = 0;
+    damagePart = 0;
+    uploads.clear();
     // Backups taken in the same second share a name: each test starts with an empty bucket.
     versions.clear();
     stamps.clear();
@@ -750,19 +786,59 @@ describe("a Backblaze B2 bucket (stand-in): upload-only key, separate read key, 
     }
   }, 120_000);
 
-  it("is refused outside the key's prefix, and a file too big for one upload is refused before anything is sent", async () => {
+  it("is refused outside the key's prefix, and a file too big even in parts is refused before anything is sent", async () => {
     asServer();
     process.env.OFFSITE_S3_PREFIX = "venue-b/";
     const taken = await backupSet();
     const refused = await copyOffsite(taken.file, taken.photos.file, taken.manifest);
     expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/403 AccessDenied/) });
     expect((await offsiteStatus()).lastError?.error).toMatch(/AccessDenied/);
-    // A sparse file just over the limit: refused by size, not read.
+    // Parts of a byte, so 10,000 of them carry 10,000 bytes: a sparse file one byte over is refused by size, not read.
     const huge = path.join(work, "huge.tar.gz");
     fs.writeFileSync(huge, "");
-    fs.truncateSync(huge, MAX_SINGLE_PUT + 1);
+    fs.truncateSync(huge, MAX_PARTS + 1);
     log.length = 0;
-    expect(await uploadBackup({ name: "huge.tar.gz", path: huge }, offsiteConfig()!)).toMatchObject({ ok: false, error: expect.stringMatching(/about 5 GB/) });
+    expect(await uploadBackup({ name: "huge.tar.gz", path: huge }, offsiteConfig()!, new Date(), { single: 1, part: 1 })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/even in parts/),
+    });
     expect(log).toHaveLength(0);
+    expect(MAX_UPLOAD / 1024 ** 3).toBeGreaterThan(900);
+  });
+
+  it("sends a file larger than one upload in parts, each checked, with the upload-only key; nothing read, listed, deleted or aborted", async () => {
+    asServer();
+    const big = path.join(work, "photos-big.tar.gz");
+    fs.writeFileSync(big, crypto.randomBytes(12_000));
+    // Below one upload's size it is one PUT, as always.
+    expect(await uploadBackup({ name: "small.tar.gz", path: big }, offsiteConfig()!)).toMatchObject({ ok: true, bytes: 12_000 });
+    expect(log.map((r) => r.method)).toEqual(["PUT"]);
+    log.length = 0;
+    // Over it (made small here): started, three parts, completed.
+    const sent = await uploadBackup({ name: "photos-big.tar.gz", path: big }, offsiteConfig()!, new Date(), { single: 5_000, part: 5_000 });
+    expect(sent).toMatchObject({ ok: true, key: "venue-a/photos-big.tar.gz", bytes: 12_000, parts: 3 });
+    expect(log.map((r) => r.method)).toEqual(["POST", "PUT", "PUT", "PUT", "POST"]);
+    expect(log.every((r) => r.key === "004writeonly")).toBe(true);
+    expect(versions.get("venue-a/photos-big.tar.gz")!.at(-1)!.equals(fs.readFileSync(big))).toBe(true);
+    // Read back with the read key, it is the file.
+    asRestorer();
+    const read = offsiteReadConfig()!;
+    const url = new URL(`${endpoint}/backups/venue-a/photos-big.tar.gz`);
+    const now = new Date();
+    const headers: Record<string, string> = { host: url.host, "x-amz-content-sha256": crypto.createHash("sha256").update("").digest("hex"), "x-amz-date": amzDate(now) };
+    headers.authorization = signV4({ method: "GET", url, headers, payloadHash: headers["x-amz-content-sha256"], region: REGION, service: "s3", accessKeyId: read.accessKeyId, secretAccessKey: read.secretAccessKey, now });
+    expect(Buffer.from(await (await fetch(url, { headers })).arrayBuffer()).equals(fs.readFileSync(big))).toBe(true);
+  });
+
+  it("stops at a part that arrives damaged, says which, and stores nothing", async () => {
+    asServer();
+    const big = path.join(work, "damaged.tar.gz");
+    fs.writeFileSync(big, crypto.randomBytes(12_000));
+    damagePart = 2;
+    const sent = await uploadBackup({ name: "damaged.tar.gz", path: big }, offsiteConfig()!, new Date(), { single: 5_000, part: 5_000 });
+    expect(sent).toMatchObject({ ok: false, error: expect.stringMatching(/^Part 2: Storage refused the upload \(400 BadDigest\)/) });
+    expect(versions.has("venue-a/damaged.tar.gz")).toBe(false);
+    // Left for the bucket's lifecycle rule: the upload key never aborts or deletes.
+    expect(log.map((r) => r.method)).toEqual(["POST", "PUT", "PUT"]);
   });
 });

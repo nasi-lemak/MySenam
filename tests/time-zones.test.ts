@@ -127,13 +127,12 @@ describe("booking at a venue on another clock", () => {
 });
 
 describe("the zones a venue may be in", () => {
-  // Bookings are wall-clock times turned into moments by the zone. Where the
-  // clocks go forward an hour, some wall-clock times never happen and others
-  // happen twice; nothing yet decides what a booking at one of them means
-  // (known limitations). Until something does, no country's zones have it.
+  // Bookings touching a change of the clocks are refused (tests/clock-changes.test.ts),
+  // but no country MySenam is sold in changes its clocks, and adding one that
+  // does is a decision of its own (known limitations), not a side effect.
   it("keep one offset all year, in every country", () => {
     for (const r of allRegions())
-      for (const zone of r.timeZones) expect(keepsOneOffset(zone), `${r.country} ${zone} changes its clocks: see known limitations before adding it`).toBe(true);
+      for (const zone of r.timeZones) expect(keepsOneOffset(zone), `${r.country} ${zone} changes its clocks: adding such a country is a decision (known limitations)`).toBe(true);
     // The check itself tells a zone with daylight saving apart.
     expect(keepsOneOffset("Europe/London")).toBe(false);
     expect(keepsOneOffset("Australia/Sydney")).toBe(false);

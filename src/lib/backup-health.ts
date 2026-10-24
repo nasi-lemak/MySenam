@@ -1,5 +1,5 @@
 import { hoursSinceLastBackup, listBackups } from "./backup";
-import { MAX_SINGLE_PUT, NEAR_LIMIT, offsiteStatus, type OffsiteStatus } from "./offsite";
+import { MAX_UPLOAD, NEAR_LIMIT, offsiteStatus, type OffsiteStatus } from "./offsite";
 
 /**
  * Whether the install could be recovered, and from how long ago: one answer
@@ -55,7 +55,7 @@ export async function backupHealth(now = Date.now()): Promise<BackupHealth> {
   const lastOffsiteAt = status.lastCopied?.at ?? null;
   const hoursSinceOffsite = hoursSince(lastOffsiteAt, now);
   const recoverableHours = offsite === "off" ? hoursSinceLocal : hoursSinceOffsite;
-  const nearSizeLimit = (status.lastCopied?.largestBytes ?? 0) > MAX_SINGLE_PUT * NEAR_LIMIT;
+  const nearSizeLimit = (status.lastCopied?.largestBytes ?? 0) > MAX_UPLOAD * NEAR_LIMIT;
 
   const problems: string[] = [];
   if (!newest) problems.push("There is no backup on this server yet.");
@@ -66,7 +66,7 @@ export async function backupHealth(now = Date.now()): Promise<BackupHealth> {
     problems.push(`The newest ${offsite === "off" ? "backup" : "off-site copy"} is ${Math.floor(recoverableHours)} hours old, past the ${rpo}-hour recovery-point target.`);
   if (nearSizeLimit)
     problems.push(
-      `The largest part of the last off-site set is ${(status.lastCopied!.largestBytes! / 1024 ** 3).toFixed(1)} GB; one upload takes about 5 GB. Plan for larger uploads before it is reached.`
+      `The largest part of the last off-site set is ${(status.lastCopied!.largestBytes! / 1024 ** 3).toFixed(1)} GB; one upload, in parts, takes about ${Math.floor(MAX_UPLOAD / 1024 ** 3)} GB. Move photos to their own bucket before it is reached.`
     );
 
   const stale = recoverableHours === null ? offsite !== "off" : recoverableHours > rpo;
