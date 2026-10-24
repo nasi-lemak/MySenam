@@ -1,5 +1,5 @@
 import { describe } from "vitest";
-import { bookCourt, courtFor, dayAhead, gone, scenario, signUp, url } from "./harness";
+import { bookCourt, freeSlot, gone, scenario, signUp, url } from "./harness";
 
 /** Social play: a community group formed through the pages, and invited to a game as one. */
 
@@ -30,8 +30,8 @@ describe("community", () => {
       await organiser.page.getByText("2 members").first().waitFor();
     });
 
-    const { courtIds } = await courtFor();
-    const booking = await bookCourt(organiser, courtIds[0], dayAhead(8), 20);
+    const when = await freeSlot();
+    const booking = await bookCourt(organiser, when.courtId, when.date, when.hour);
     const game = (await organiser.api("POST", "/api/games", { bookingCode: booking.code, spots: 3, level: null, share: 4, autoAccept: false, visibility: "private" })).body.game as { id: number };
     await s.step(organiser, "invites the group to a private game in one go", async () => {
       await organiser.page.goto(`${url}/games`);

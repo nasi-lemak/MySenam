@@ -1,5 +1,5 @@
 import { describe, expect } from "vitest";
-import { bookCourt, courtFor, dayAhead, gone, scenario, signUp, url, type Actor, type Scenario } from "./harness";
+import { bookCourt, freeSlot, gone, scenario, signUp, url, type Actor, type Scenario } from "./harness";
 
 /**
  * Matchmaking, through the games page, with several people at once:
@@ -13,21 +13,13 @@ import { bookCourt, courtFor, dayAhead, gone, scenario, signUp, url, type Actor,
  * tests/matchmaking.test.ts on both databases.
  */
 
-let n = 0;
-/** A date and hour nobody else in this file uses. */
-function slot(): { date: string; hour: number } {
-  n++;
-  return { date: dayAhead(3 + (n % 9)), hour: 13 + Math.floor(n / 9) };
-}
-
 const LEVEL = { sport: "badminton", level: "intermediate" };
 
 /** A host with a court booked, and a game opened on it through the API. */
 async function hostWithGame(s: Scenario, name: string, game: Record<string, unknown>) {
   const host = await signUp(await s.actor(name), { profile: { adult: true }, level: LEVEL });
-  const { courtIds } = await courtFor();
-  const when = slot();
-  const booking = await bookCourt(host, courtIds[n % courtIds.length], when.date, when.hour);
+  const when = await freeSlot();
+  const booking = await bookCourt(host, when.courtId, when.date, when.hour);
   const opened = await host.api("POST", "/api/games", { bookingCode: booking.code, spots: 2, level: null, share: 5, autoAccept: false, ...game });
   if (opened.status !== 201) throw new Error(`open game: ${JSON.stringify(opened.body)}`);
   return { host, gameId: (opened.body.game as { id: number }).id, booking };
@@ -42,9 +34,10 @@ async function games(a: Actor) {
 describe("matchmaking", () => {
   scenario("A: a player finds a game that suits them, and sees why", async (s) => {
     const host = await signUp(await s.actor("Host"), { profile: { adult: true }, level: LEVEL });
-    const { courtIds } = await courtFor();
-    const when = slot();
-    const booking = await bookCourt(host, courtIds[0], when.date, when.hour);
+    // An afternoon, on a day the player will say suits them, so the game ranks first among any others.
+    const when = await freeSlot({ hours: [13, 14, 15, 16] });
+    const weekday = new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "UTC" }).format(new Date(`${when.date}T00:00:00Z`));
+    const booking = await bookCourt(host, when.courtId, when.date, when.hour);
 
     await s.step(host, "opens their booking to players: intermediate, casual, two places", async () => {
       await games(host);
@@ -63,6 +56,7 @@ describe("matchmaking", () => {
       await player.page.getByLabel("18 or over").check();
       await player.page.getByLabel("Kind of game").selectOption("casual");
       await player.page.getByRole("button", { name: "Afternoon" }).click();
+      await player.page.getByRole("button", { name: weekday, exact: true }).click();
       await player.page.getByRole("button", { name: "Save" }).click();
       await player.page.getByText("Saved.").waitFor();
     });
@@ -195,13 +189,18 @@ describe("matchmaking", () => {
   scenario("E: a weekly game on a weekly booking, with last week's players invited", async (s) => {
     const host = await signUp(await s.actor("Host"), { profile: { adult: true } });
     const regular = await signUp(await s.actor("Regular"), { profile: { adult: true } });
-    const { courtIds } = await courtFor();
-    const booking = await bookCourt(host, courtIds[courtIds.length - 1], dayAhead(2), 22, 2);
+    // Two weeks running free at the same hour: tried slot by slot until one is.
+    let booking: { code: string } | null = null;
+    for (let i = 0; i < 15 && !booking; i++) {
+      const when = await freeSlot({ fromDay: 2, toDay: 6 });
+      booking = await bookCourt(host, when.courtId, when.date, when.hour, 2).catch(() => null);
+    }
+    if (!booking) throw new Error("No weekly slot free two weeks running.");
 
     await s.step(host, "makes the weekly booking a weekly game", async () => {
       await games(host);
       const form = host.page.locator("form").filter({ has: host.page.getByRole("button", { name: "Find players" }) });
-      await form.locator("select").filter({ has: host.page.locator(`option[value="${booking.code}"]`) }).selectOption(booking.code);
+      await form.locator("select").filter({ has: host.page.locator(`option[value="${booking!.code}"]`) }).selectOption(booking!.code);
       await form.getByLabel("Let anybody join without asking me").check();
       await form.getByLabel("Every week (this booking repeats weekly)").check();
       await form.getByRole("button", { name: "Find players" }).click();
@@ -229,9 +228,8 @@ describe("matchmaking", () => {
   scenario("F: private games, opted-out players, blocks and other hosts' rosters", async (s) => {
     const priv = await hostWithGame(s, "Host", { visibility: "private", level: "intermediate", spots: 3 });
     const pub = await (async () => {
-      const when = slot();
-      const { courtIds } = await courtFor();
-      const b = await bookCourt(priv.host, courtIds[0], when.date, when.hour);
+      const when = await freeSlot();
+      const b = await bookCourt(priv.host, when.courtId, when.date, when.hour);
       return (await priv.host.api("POST", "/api/games", { bookingCode: b.code, spots: 3, level: "intermediate", share: 5, autoAccept: false })).body.game as { id: number };
     })();
     const stranger = await signUp(await s.actor("Stranger"), { profile: { adult: true }, level: LEVEL });

@@ -44,6 +44,25 @@ async function badmintonCourt(): Promise<{ venueId: number; courtId: number }> {
   return { venueId: venue.id, courtId: venue.courts.find((c) => c.sport === "badminton")!.id };
 }
 
+/**
+ * A badminton court and an hour free from tomorrow on, as the venue page
+ * offers them: a fresh database has them all free, a seeded staging one not.
+ */
+async function freeBadmintonHour(): Promise<{ venueId: number; courtId: number; date: string; hour: number }> {
+  const { venueId } = await badmintonCourt();
+  for (let d = 0; d < 7; d++) {
+    const date = new Date(new Date(`${tomorrow()}T00:00:00Z`).getTime() + d * 86_400_000).toISOString().slice(0, 10);
+    const { availability } = (await (await fetch(`${url}/api/availability?venueId=${venueId}&date=${date}&sport=badminton`)).json()) as {
+      availability: { court: { id: number }; starts: { minute: number; maxLength: number }[] }[];
+    };
+    for (const c of availability) {
+      const start = c.starts.find((st) => st.minute % 60 === 0 && st.minute >= 600 && st.maxLength >= 60);
+      if (start) return { venueId, courtId: c.court.id, date, hour: start.minute / 60 };
+    }
+  }
+  throw new Error("No free badminton hour in the next week.");
+}
+
 describe("every page", () => {
   it("is sent with the security headers", async () => {
     for (const path of ["/", "/admin", "/api/health"]) {
@@ -66,9 +85,9 @@ describe("every page", () => {
 
 describe("a customer", () => {
   it("books a court from the venue page and is given a booking code", async () => {
-    const { venueId, courtId } = await badmintonCourt();
+    const { venueId, courtId, date, hour } = await freeBadmintonHour();
     const { page, blocked } = await watchedPage();
-    await page.goto(`${url}/venue/${venueId}?date=${tomorrow()}&sport=badminton&court=${courtId}&hour=10&duration=1`);
+    await page.goto(`${url}/venue/${venueId}?date=${date}&sport=badminton&court=${courtId}&hour=${hour}&duration=1`);
     await page.getByLabel("Name").fill("Aina End-to-End");
     await page.getByLabel("Phone").fill("0123456700");
     await page.getByRole("button", { name: /^Book · RM/ }).click();

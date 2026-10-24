@@ -206,3 +206,40 @@ export async function gone(locator: import("playwright-core").Locator, timeout =
     await new Promise((r) => setTimeout(r, 100));
   }
 }
+
+const claimed = new Set<string>();
+
+/**
+ * A court, day and hour free right now, from the availability the venue page
+ * itself shows: what a person would see and pick. Scenarios run against a
+ * fresh database or a seeded staging one, so none may assume an hour is free.
+ */
+export async function freeSlot(opts: { sport?: string; fromDay?: number; toDay?: number; hours?: number[]; venueId?: number; notVenueId?: number } = {}): Promise<{
+  venueId: number;
+  courtId: number;
+  date: string;
+  hour: number;
+}> {
+  const sport = opts.sport ?? "badminton";
+  const hours = opts.hours ?? [13, 14, 15, 16, 17, 18, 19, 20, 21];
+  const { venues } = (await (await fetch(`${url}/api/venues?sport=${sport}`)).json()) as { venues: { id: number; courts: { id: number; sport: string }[] }[] };
+  const candidates = venues.filter((v) => v.courts.some((c) => c.sport === sport) && (opts.venueId === undefined || v.id === opts.venueId) && v.id !== opts.notVenueId);
+  for (let d = opts.fromDay ?? 3; d <= (opts.toDay ?? 13); d++) {
+    const date = dayAhead(d);
+    for (const v of candidates) {
+      const res = await fetch(`${url}/api/availability?venueId=${v.id}&date=${date}&sport=${sport}`);
+      if (!res.ok) continue;
+      const { availability, closure } = (await res.json()) as { availability: { court: { id: number }; starts: { minute: number; maxLength: number }[] }[]; closure: unknown };
+      if (closure) continue;
+      for (const c of availability)
+        for (const st of c.starts) {
+          const hour = st.minute / 60;
+          const key = `${c.court.id}:${date}:${hour}`;
+          if (!Number.isInteger(hour) || !hours.includes(hour) || st.maxLength < 60 || claimed.has(key)) continue;
+          claimed.add(key);
+          return { venueId: v.id, courtId: c.court.id, date, hour };
+        }
+    }
+  }
+  throw new Error(`No free ${sport} court found between days ${opts.fromDay ?? 3} and ${opts.toDay ?? 13}.`);
+}
