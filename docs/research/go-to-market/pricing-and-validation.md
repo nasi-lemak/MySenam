@@ -1,5 +1,10 @@
 # Pricing models, SaaS benchmarks, validation methods and failure modes for a low-priced vertical SaaS for Malaysian sports venues (MySenam)
 
+> **Research record, 18 October 2026.** Moved from `research_notes/MySenam go to market research/pricing_and_validation.md` on
+> 24 October 2026; its findings, sources, labels and dates are unchanged. Not
+> maintained: prices and figures are as retrieved then. What was adopted from
+> this research, and what was not, is in the [overview](index.md).
+
 Retrieval date for every URL below: 2026-10-18.
 Labels: **VERIFIED** = read on the primary page (official pricing page, regulator document, company case study, or the report itself) during this session. **REPORTED** = taken from a search-engine summary, a secondary write-up, a reseller, or a competitor's marketing page; not checked against the primary source. **UNKNOWN** = looked for and not found.
 Prices are as shown on the page on the retrieval date. Most exclude tax (Malaysian SST is 8% where shown).

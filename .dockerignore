@@ -5,8 +5,8 @@ node_modules
 coverage
 artifacts
 data
-reports
-research_notes
+docs/research
+docs/audits
 *.db
 *.pem
 .env*

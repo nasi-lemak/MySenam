@@ -1,6 +1,7 @@
 # Finding venues
 
 Authoritative for how customers find courts: the front page, search, courts near me, facilities and photos, reviews, notices, search engines and installing as an app.
+Status: [feature status](../product/feature-status.md#marketplace-and-discovery).
 
 ## Finding a court from the front page
 

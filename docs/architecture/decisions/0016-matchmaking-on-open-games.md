@@ -1,7 +1,7 @@
 # ADR 0016: Matchmaking is built on open games, deterministic and opt-in
 
 - **Status:** current, decided 2026-10-24. What players and hosts see is
-  [programmes](../../features/programmes.md#open-games-recruiting-players).
+  [open games and matchmaking](../../features/matchmaking.md).
 - **Context:** open games already let a host advertise places on their own
   booking, with shares paid to the venue. Players asked for more: games
   suggested to them, hosts finding players, invitations, private games,

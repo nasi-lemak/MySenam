@@ -4,7 +4,7 @@
   (`0100_competition_framework.sql`), 0104 (`0104_competition_divisions.sql`)
   and 0105 (`0105_results_by_players_and_officials.sql`). Extends
   [ADR 0012](0012-competition-rules-and-corrections.md). What organisers and
-  players see is [programmes](../../features/programmes.md#tournaments).
+  players see is [tournaments and leagues](../../features/tournaments.md).
 - **Context:** tournaments were knockouts or groups then a knockout, scored
   in sets, for singles or doubles. Venues sell futsal, basketball and
   volleyball (teams, goals or points, draws), table tennis (best of five),

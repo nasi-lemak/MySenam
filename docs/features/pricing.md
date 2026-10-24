@@ -1,6 +1,7 @@
 # Pricing, discounts, memberships and passes
 
 Authoritative for how a price is worked out: prices to the minute, peak bands, holidays, last-minute prices, per-player courts, concessions, promo codes, memberships and multi-visit passes.
+Status: [feature status](../product/feature-status.md#pricing) and [memberships, passes and credit](../product/feature-status.md#memberships-passes-and-credit).
 
 ## Prices to the minute
 

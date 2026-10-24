@@ -3,7 +3,7 @@
 Authoritative list of what is known to be wrong, missing or unverified, kept
 apart from what works ([feature status](../product/feature-status.md)) and
 from ideas ([roadmap](roadmap.md)). First recorded by the
-[documentation audit](../documentation-audit.md) of October 2026. The numbered
+[documentation audit](../audits/documentation-2026-10-22.md) of October 2026. The numbered
 defects it found (S1–S8, B1–B8, M1–M11) have since been fixed, each with a
 test, and are listed under [fixed since the audit](#fixed-since-the-audit). The
 feature inventory audit later that month found B9–B14, M12–M15 and S9–S10;
@@ -51,8 +51,15 @@ nonces is open for review (P3).
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly
 series skips weeks inside the cancellation cutoff silently rather than
 applying the late-cancel policy to them (P3, unconfirmed whether intended).
+And a booking that has ever had an open game, even one called off or with
+nobody in it, cannot be moved to another time by anybody, staff included
+(`RESCHEDULE_GAME` in `src/lib/store.ts`), while the message a customer sees
+says the game has players in it and to ask the venue; staff can only move it
+to another court. Whether the rule should cover only games with players, and
+what the message should say, is undecided; no test covers the refusal (P3;
+[matchmaking](../features/matchmaking.md#hosting-and-joining)).
 
-Also, in tournaments ([programmes](../features/programmes.md#tournaments)):
+Also, in [tournaments](../features/tournaments.md):
 
 - A knockout filled again after a group result is put right, a withdrawal,
   or a correction is shown on the draw, but the players moved in or out are
@@ -338,5 +345,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | --- | ----------- | -------- |
 | Browser tests cover a few journeys only: eleven end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and fourteen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones | P2 |
 | [Booking concurrency](../architecture/booking-concurrency.md) cites a cancellation race on an unpaid booking only | A double refund of a paid booking under concurrent cancels is prevented by the claim but not tested | P2 |
-| Untested paths named in feature status: refund on tournament withdrawal before the draw, a league fee paid after leaving, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
+| Untested paths named in feature status: the refusal to reschedule a booking that has had an open game, refund on tournament withdrawal before the draw, a league fee paid after leaving, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1 before public launch |
+| No incident-response procedure: [monitoring](../operations/monitoring.md) says how an operator is alerted and [backups](../operations/backups.md) how to restore, but nothing says who decides, who is told (venues, customers, anybody else) or what is recorded after a security or data incident. Whether any notice is required by law is for the operator's adviser, not these documents | An operator facing an incident has no procedure to follow | P2 |

@@ -1009,7 +1009,7 @@ export async function closeDueEntries(): Promise<number> {
  * Below this declared age an entry needs a parent or guardian's agreement.
  * An operator policy, not a legal determination: what consent the law asks
  * for, and whether a venue needs more (a signed form), is for the operator
- * and the organiser to settle (docs/features/programmes.md).
+ * and the organiser to settle (docs/features/tournaments.md).
  */
 export const GUARDIAN_AGE = 18;
 

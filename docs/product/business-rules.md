@@ -184,7 +184,7 @@ change, update this page, and update [feature status](feature-status.md).
   (by default they stand for a withdrawal or retirement, and are void for a
   disqualification); they are never simply put last. Before the draw a fee
   paid online is owed back unless the rules say not; after it, nothing is
-  ([programmes](../features/programmes.md#tournaments)).
+  ([tournaments](../features/tournaments.md)).
 - **API keys** can be *availability only*: the venue and its free times, no
   customer's name or number.
 - **A flood of guest bookings** (past 30 unpaid bookings without an account at

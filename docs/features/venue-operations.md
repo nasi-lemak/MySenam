@@ -1,6 +1,7 @@
 # Running a venue day to day
 
 Authoritative for the desk's tools: check-in and crowd levels, unstaffed hours and door codes, equipment hire, notes on customers, waivers and private hire enquiries.
+Status: [feature status](../product/feature-status.md#venue-operations).
 
 ## Check-in and live crowd levels
 

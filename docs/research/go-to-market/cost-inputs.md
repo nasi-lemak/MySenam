@@ -1,5 +1,10 @@
 # MySenam cost and tax inputs for unit economics (Malaysia, retrieved 2026-10-18)
 
+> **Research record, 18 October 2026.** Moved from `research_notes/MySenam go to market research/cost_inputs.md` on
+> 24 October 2026; its findings, sources, labels and dates are unchanged. Not
+> maintained: prices and figures are as retrieved then. What was adopted from
+> this research, and what was not, is in the [overview](index.md).
+
 Every URL below was retrieved on **2026-10-18**. Labels:
 - **VERIFIED**: read on the official or primary page (the provider's own pricing page, a regulator, or the central bank).
 - **REPORTED**: from a third party (law or accounting firm, BSP or reseller blog, aggregator, job board), or from an official page seen only as a search snippet.

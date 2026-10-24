@@ -1,6 +1,7 @@
 # Reports and exports
 
 Authoritative for what venues can see about their business: period reports, customer reports, spreadsheet exports, the sales journal and the staff activity log.
+Status: [feature status](../product/feature-status.md#reporting).
 
 ## Reporting
 

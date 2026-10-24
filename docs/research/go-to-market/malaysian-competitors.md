@@ -1,5 +1,10 @@
 # Malaysian Sports-Court Booking Competitors (Courtsite, AFA, Courtease, and others)
 
+> **Research record, 18 October 2026.** Moved from `research_notes/MySenam go to market research/malaysian_competitors.md` on
+> 24 October 2026; its findings, sources, labels and dates are unchanged. Not
+> maintained: prices and figures are as retrieved then. What was adopted from
+> this research, and what was not, is in the [overview](index.md).
+
 Retrieval date for every URL below: 2026-10-18 (pages fetched today, unless marked "search snippet only", meaning only a search-engine summary was seen, not the page itself).
 Labels: **VERIFIED** = read on the company's own site, terms or app-store listing. **REPORTED** = third-party press or aggregator. **UNKNOWN** = not found. No price or number below is estimated. Anything not on a source is listed as UNKNOWN.
 

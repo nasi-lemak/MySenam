@@ -52,11 +52,15 @@ which names the one authoritative document for each subject.
 ## Keeping the documentation true
 
 A task is not finished until its documentation is. These rules apply to every
-change:
+change; [documentation](docs/development/documentation.md) explains them, and
+says which folder holds what. Before a substantial change, read the area's
+feature document, decision records and known limitations.
 
 1. **Documentation changes go with behaviour changes.** Adding, changing or
    removing behaviour updates its authoritative document
-   ([index](docs/index.md)) in the same change.
+   ([index](docs/index.md)) in the same change: the feature document for a
+   business rule, a decision record for an architectural decision, the
+   operations documents for deployment or recovery.
 2. **Keep [feature status](docs/product/feature-status.md) accurate.** Add,
    change or remove its row when a capability is added, changed or removed,
    and change a status when implementation or verification changes. Written
@@ -70,10 +74,12 @@ change:
 5. **Describe what is true now,** not the history of fixes. History belongs in
    a [decision record](docs/architecture/decisions/) or a
    [migration note](docs/archive/migrations/legacy-installs.md).
-6. **Keep plans apart from what works.** Planned, blocked and deferred work
-   lives in the [roadmap](docs/roadmap/roadmap.md) and is never described as
-   operational. When planned work is built, changed or deferred, update its
-   roadmap row in the same change.
+6. **Keep plans apart from what works.** Planned (accepted), proposed (an
+   idea), blocked and deferred work lives in the
+   [roadmap](docs/roadmap/roadmap.md) and is never described as operational.
+   When planned work is built, changed or deferred, update its roadmap row in
+   the same change. Research and audit recommendations are not requirements
+   until decided and written where they apply.
 7. **Say how something was verified.** A test against a fake gateway is not a
    live check; payments, WhatsApp, email, SMS, MyInvois, Google sign-in,
    off-site storage and smart locks stay `INTEGRATION_VERIFICATION_REQUIRED`
@@ -93,6 +99,15 @@ change:
 10. **Check references.** `npm run docs:check` must pass: links, file paths,
     npm scripts, environment variables, routes and the feature-status matrix
     ([documentation checks](docs/development/testing.md#documentation-checks)).
+    A document added, moved or removed updates [the index](docs/index.md) and
+    every link to it.
 11. **Stay in scope.** Don't rewrite unrelated documents; keep what is useful.
+    Look for an existing home before creating a file; a minor change needs no
+    new document.
 12. **Documentation is an acceptance criterion.** Implementation, its document,
     its feature-status row and its tests change together.
+13. **Keep history.** Dated audits and research in `docs/audits/` and
+    `docs/research/` keep their findings as written and are never deleted;
+    their open items are tracked in [audits](docs/audits/index.md), the roadmap
+    or known limitations. Superseded material goes to `docs/archive/`, linked
+    to its replacement.

@@ -1,5 +1,10 @@
 # MySenam customer segments: Malaysia (and brief SEA notes)
 
+> **Research record, 18 October 2026.** Moved from `research_notes/MySenam go to market research/segments.md` on
+> 24 October 2026; its findings, sources, labels and dates are unchanged. Not
+> maintained: prices and figures are as retrieved then. What was adopted from
+> this research, and what was not, is in the [overview](index.md).
+
 Retrieval date for all URLs: 2026-10-18.
 
 How the labels are used:

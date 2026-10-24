@@ -1,6 +1,7 @@
 # Booking and availability
 
 Authoritative for how courts and shared facilities are booked: booking rules (starts, lengths, buffers, notice), capacity, linked courts, opening hours, blocks and outages, waitlists, moving, cancelling and who may book. How time is stored and protected underneath is the [booking time model](../architecture/interval-booking-review.md).
+Status: [feature status](../product/feature-status.md#booking-and-availability).
 
 ## Activities
 
@@ -433,8 +434,11 @@ the time goes while the customer rebooks.
   time's rate, up or down, by the same pricing as a new booking. Paid, it keeps what was paid: a customer cannot move
   it somewhere dearer (that would be peak hours at an off-peak price), and
   staff who do have chosen not to charge the difference.
-- Refused for a class place (it moves with its class), an open game with
-  players in it, a checked-in booking, or kit still out.
+- Refused for a class place (it moves with its class), a booking that has
+  ever had an [open game](matchmaking.md#hosting-and-joining) (even one
+  called off; staff can still move it to another court), a lesson with a
+  coach, a checked-in booking, or kit still out; and, for a customer, a
+  booking friends have already paid shares of (the venue can move it).
 - The customer is told. Changed by the venue, it is urgent news with an
   acknowledge link (`mysenam_booking_rescheduled` on WhatsApp, in the venue's
   *Needs attention* panel until they see it). Changed by the customer, it is an

@@ -24,6 +24,14 @@ function walk(dir: string, ext: string, out: string[] = []): string[] {
 
 const DOCS = ["README.md", "AGENTS.md", "deploy/digitalocean/README.md", ...walk("docs", ".md")];
 
+/**
+ * Dated audits and research describe the repository as it was when they were
+ * written, so their paths and scripts may since have moved; only their links
+ * are checked. Their index pages are maintained and checked in full.
+ */
+const HISTORICAL = /^docs\/(audits|research)\/(?!(.*\/)?index\.md$)/;
+const CURRENT = DOCS.filter((d) => !HISTORICAL.test(d));
+
 /** The text outside fenced code blocks. */
 function prose(text: string): string {
   let fence = false;
@@ -82,7 +90,7 @@ describe("documentation links", () => {
 describe("documentation references to the repository", () => {
   it("names only files and folders that exist", () => {
     const missing: string[] = [];
-    for (const doc of DOCS) {
+    for (const doc of CURRENT) {
       for (const m of prose(read(doc)).matchAll(/`((?:src|tests|db|scripts|deploy|docs|\.github)\/[^`\s]*)`/g)) {
         const p = m[1].replace(/[.,:;)]+$/, "");
         if (/[*<>…{}]/.test(p)) continue;
@@ -96,7 +104,7 @@ describe("documentation references to the repository", () => {
   it("names only npm scripts that exist", () => {
     const scripts = Object.keys(JSON.parse(read("package.json")).scripts);
     const missing: string[] = [];
-    for (const doc of DOCS)
+    for (const doc of CURRENT)
       for (const m of read(doc).matchAll(/npm run ([a-z][\w:-]*)/g))
         if (!scripts.includes(m[1])) missing.push(`${doc}: npm run ${m[1]}`);
     expect(missing).toEqual([]);

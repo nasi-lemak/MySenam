@@ -329,6 +329,10 @@ checks that:
 - every repository path written in backticks in those files exists (paths
   under `src/`, `tests/`, `db/`, `scripts/`, `deploy/`, `docs/`);
 - every `npm run <script>` named in them is a script in `package.json`;
+- dated audits and research (under `docs/audits/` and `docs/research/`,
+  except their `index.md` pages) have their links checked but not their
+  paths or scripts, since they describe the repository as it was when written
+  ([documentation](documentation.md#history-is-kept-not-rewritten));
 - every environment variable the code reads is in
   [configuration](configuration.md), and every one listed there is read by the
   code;

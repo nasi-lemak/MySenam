@@ -1,5 +1,10 @@
 # International and SEA sports-facility booking / club-management platforms: benchmark for MySenam
 
+> **Research record, 18 October 2026.** Moved from `research_notes/MySenam go to market research/global_competitors.md` on
+> 24 October 2026; its findings, sources, labels and dates are unchanged. Not
+> maintained: prices and figures are as retrieved then. What was adopted from
+> this research, and what was not, is in the [overview](index.md).
+
 Retrieval date for every URL below: **2026-10-18** (unless a page states its own "updated" date, which is quoted).
 Labels: **VERIFIED** = read on the vendor's own page or help centre on 2026-10-18. **REPORTED** = third-party press, aggregator or competitor page, or a search-result snippet I could not open in full. **UNKNOWN** = not found; do not fill in.
 

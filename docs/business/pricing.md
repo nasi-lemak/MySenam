@@ -1,6 +1,6 @@
 # Venue pricing and cost assumptions
 
-What a marketplace venue pays, and the cost assumptions behind the suggested tiers. These are assumptions, not measurements. Market research is in [`reports/`](../../reports/) and [`research_notes/`](../../research_notes/).
+What a marketplace venue pays, and the cost assumptions behind the suggested tiers. These are assumptions, not measurements. The market research behind them is the [go-to-market research](../research/go-to-market/index.md) of 18 October 2026.
 
 ## Plans by size
 
@@ -58,3 +58,15 @@ own running costs (~RM600 a month), and about 330 would pay for a developer
 and a support person (~RM8,047). The biggest unknown is how many bookings
 come from first-time customers who choose SMS; the daily cap on codes
 (`MYSENAM_PHONE_CODES_PER_DAY`) bounds it.
+
+## Open decisions
+
+Not settled in code or in these documents; each is the owner's to decide.
+
+- **What venues are charged at launch.** `MYSENAM_VENUE_FEE` defaults to 0
+  and one free month (`MYSENAM_FREE_MONTHS`); the suggested tiers above are a
+  starting point. The research proposed different pilot prices (RM9.90 plus
+  RM3 per active court, tested against RM19.90 plus RM5) as hypotheses to
+  test, not validated prices ([research](../research/go-to-market/index.md#what-became-of-the-recommendations)).
+- **Whether to run the research's 30-day validation plan** before more
+  building, and with which segment.

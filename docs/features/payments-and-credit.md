@@ -1,6 +1,7 @@
 # Payments, stored credit and sales
 
 Authoritative for how money is taken and held: paying online, paying to hold, stored credit and its ownership, gift vouchers, split costs, extras, counter sales and company accounts. Gateway set-up is in [payment gateways](../integrations/payment-gateways.md).
+Status: [feature status](../product/feature-status.md#payments-and-money) and [memberships, passes and credit](../product/feature-status.md#memberships-passes-and-credit).
 
 ## Payments
 

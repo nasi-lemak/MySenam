@@ -7,6 +7,7 @@ named country by country and found in search, and **how far each activity is
 supported**. How a booking of any of them is checked and stored is
 [booking](booking.md); why activities are data rather than code is
 [ADR 0011](../architecture/decisions/0011-activities-as-data.md).
+Status: [feature status](../product/feature-status.md#booking-and-availability) (the activity rows).
 
 ## The catalogue
 
