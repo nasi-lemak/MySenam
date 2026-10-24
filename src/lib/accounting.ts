@@ -53,6 +53,27 @@ export interface JournalRow {
   tax: number;
   taxRate: number | null;
   paidVia: string;
+  /**
+   * For money kept from a hire deposit: on what footing its tax was decided —
+   * the country's provisional default, the venue's own unreviewed choice, or
+   * a configuration an adviser reviewed (lib/deposit-deductions.ts).
+   */
+  taxBasis: "provisional" | "venue" | "reviewed" | null;
+}
+
+const BASIS_LABEL = { provisional: "Provisional default, not reviewed", venue: "Venue's choice, not reviewed", reviewed: "Reviewed by the venue's adviser" };
+
+/** A hire deduction's tax basis, from the sale it was (or the sale a credit note reverses). */
+async function basisOf(source: string): Promise<JournalRow["taxBasis"]> {
+  const [kind, rest] = source.split(":");
+  const id = Number.parseInt(rest ?? "", 10);
+  if (kind === "credit") {
+    const original = (await getDb().prepare("SELECT source FROM receipts WHERE id = ?").get(id)) as { source: string } | undefined;
+    return original ? await basisOf(original.source) : null;
+  }
+  if (kind !== "sale") return null;
+  const sale = (await getDb().prepare("SELECT tax_basis FROM counter_sales WHERE id = ?").get(id)) as { tax_basis: JournalRow["taxBasis"] } | undefined;
+  return sale?.tax_basis ?? null;
 }
 
 const PURPOSE: Record<string, Category> = {
@@ -196,6 +217,7 @@ export async function salesJournal(venueId: number, from: string, to: string): P
       tax: rate ? taxIncluded(b.gross, rate) : 0,
       taxRate: rate,
       paidVia: label(b.paid_via),
+      taxBasis: null,
     };
   });
   for (const d of documents) {
@@ -219,6 +241,7 @@ export async function salesJournal(venueId: number, from: string, to: string): P
       tax: roundMoney(sign * d.tax_amount),
       taxRate: d.tax_rate === null ? null : Number(d.tax_rate),
       paidVia: d.paid_via ?? (d.kind === "credit_note" ? "—" : "Not recorded"),
+      taxBasis: category.startsWith("Hire") ? await basisOf(d.source) : null,
     });
   }
   return rows.sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number));
@@ -230,7 +253,7 @@ export async function journalCsv(venueId: number, from: string, to: string): Pro
   const rows = await salesJournal(venueId, from, to);
   const cur = currencySymbol();
   return toCsv(
-    ["Date", "Number", "Type", "Customer", "Description", "Category", "Takings", `Net (${cur})`, `${taxName()} (${cur})`, `${taxName()} rate (%)`, `Gross (${cur})`, "Paid by"],
+    ["Date", "Number", "Type", "Customer", "Description", "Category", "Takings", `Net (${cur})`, `${taxName()} (${cur})`, `${taxName()} rate (%)`, `Gross (${cur})`, "Paid by", "Tax basis"],
     rows.map((r) => [
       r.date,
       r.number,
@@ -244,6 +267,7 @@ export async function journalCsv(venueId: number, from: string, to: string): Pro
       r.taxRate ?? "",
       money(r.gross),
       r.paidVia,
+      r.taxBasis ? BASIS_LABEL[r.taxBasis] : "",
     ])
   );
 }

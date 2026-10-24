@@ -379,6 +379,53 @@ describe("money kept back from a deposit", () => {
     }
   });
 
+  it("is provisional until the venue records an adviser's review; a change needs reviewing again; each sale and the journal say on what footing it was taxed", async () => {
+    const { approveDeductionTreatments, deductionHistory, deductionReview, deductionTreatments, setDeductionTreatments } = await import("../src/lib/deposit-deductions");
+    const { journalCsv } = await import("../src/lib/accounting");
+    const venue = await VENUE();
+    const { ensureBootstrapAdmin, listAdmins } = await import("../src/lib/admin-auth");
+    await ensureBootstrapAdmin();
+    const manager = { id: (await listAdmins())[0].id, name: "Manager" };
+    expect(await deductionReview(venue.id)).toBeNull();
+    expect((await deductionTreatments(venue.id)).every((t) => t.basis === "provisional")).toBe(true);
+
+    const keep = async (phone: string, hour: number) => {
+      const court = await fleet(40);
+      const booking = await bookRunningNow(court.id, phone, hour);
+      expect((await takeHire(booking.code)).ok).toBe(true);
+      expect((await returnHire(booking.code, { condition: "damaged", deductions: [{ reason: "damage", amount: 10 }], note: "Cracked hull" })).ok).toBe(true);
+      return ((await (await db())
+        .prepare("SELECT s.tax_basis FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id WHERE b.code = ?")
+        .get(booking.code)) as { tax_basis: string }).tax_basis;
+    };
+    expect(await keep("0150000201", 16)).toBe("provisional");
+
+    // Reviewed: needs a named adviser; then every reason is on a reviewed footing.
+    expect(await approveDeductionTreatments(venue.id, "x", manager)).toMatchObject({ ok: false });
+    const approved = await approveDeductionTreatments(venue.id, "Lim Mei Ling, LML Tax Advisory", manager);
+    if (!approved.ok) throw new Error(approved.error);
+    expect((await deductionTreatments(venue.id)).every((t) => t.basis === "reviewed" && !t.review)).toBe(true);
+    expect(await keep("0150000202", 17)).toBe("reviewed");
+
+    // A change lapses the review, and is kept in the record with who made it.
+    expect((await setDeductionTreatments(venue.id, { penalty: true }, manager)).ok).toBe(true);
+    expect(await deductionReview(venue.id)).toBeNull();
+    expect((await deductionTreatments(venue.id)).find((t) => t.reason === "penalty")!.basis).toBe("venue");
+    expect((await deductionTreatments(venue.id)).find((t) => t.reason === "damage")!.basis).toBe("provisional");
+    const history = await deductionHistory(venue.id);
+    expect(history.slice(0, 2)).toEqual([
+      expect.objectContaining({ kind: "changed", changed: { penalty: true }, adminName: "Manager" }),
+      expect.objectContaining({ kind: "approved", reviewer: "Lim Mei Ling, LML Tax Advisory" }),
+    ]);
+    await setDeductionTreatments(venue.id, { penalty: null }, manager);
+
+    // The journal says which footing each amount kept was taxed on.
+    const csv = await journalCsv(venue.id, todayISO(), todayISO());
+    expect(csv.split(/\r?\n/)[0]).toMatch(/"Tax basis"$/);
+    expect(csv).toContain("Provisional default, not reviewed");
+    expect(csv).toContain("Reviewed by the venue's adviser");
+  });
+
   it("refuses what does not add up or says no reason; the older single amount takes its reason from the condition", async () => {
     const court = await fleet(40);
     const booking = await bookRunningNow(court.id, "0150000095", 16);

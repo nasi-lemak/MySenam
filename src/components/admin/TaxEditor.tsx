@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { VenueTax } from "@/lib/tax";
-import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
+import type { DeductionReason, DeductionReview, DeductionTreatment } from "@/lib/deposit-deductions";
+
+type History = { kind: "changed" | "approved"; changed: Record<string, boolean | null> | null; reviewer: string | null; adminName: string | null; createdAt: string }[];
 
 /**
  * A venue's own sales tax: SST or GST, if it is registered. Prices stay what
@@ -15,14 +17,19 @@ export function TaxEditor({ venueId }: { venueId: number }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deductions, setDeductions] = useState<DeductionTreatment[]>([]);
+  const [review, setReview] = useState<DeductionReview | null>(null);
+  const [history, setHistory] = useState<History>([]);
+  const [reviewer, setReviewer] = useState("");
 
   useEffect(() => {
     setTax(null);
     void fetch(`/api/admin/venue-tax?venueId=${venueId}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((d: { tax?: VenueTax; usual?: { name: string; venueRate: number }; deductions?: DeductionTreatment[] }) => {
+      .then((d: { tax?: VenueTax; usual?: { name: string; venueRate: number }; deductions?: DeductionTreatment[]; deductionReview?: DeductionReview | null; deductionHistory?: History }) => {
         if (!d.tax || !d.usual) return;
         setDeductions(d.deductions ?? []);
+        setReview(d.deductionReview ?? null);
+        setHistory(d.deductionHistory ?? []);
         setTax(d.tax);
         setForm({
           name: d.tax.name,
@@ -68,7 +75,29 @@ export function TaxEditor({ venueId }: { venueId: number }) {
     });
     const data = await res.json();
     if (!res.ok) setError(data.error ?? "Could not save");
-    else setDeductions(data.deductions);
+    else {
+      setDeductions(data.deductions);
+      setReview(data.deductionReview ?? null);
+      setHistory(data.deductionHistory ?? []);
+    }
+  }
+
+  /** Record that the treatments as they stand were reviewed by the adviser named. */
+  async function approve() {
+    setError(null);
+    setNotice(null);
+    const res = await fetch("/api/admin/venue-tax", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, approveDeductions: { reviewer } }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setError(data.error ?? "Could not save");
+    setDeductions(data.deductions);
+    setReview(data.deductionReview);
+    setHistory(data.deductionHistory ?? []);
+    setReviewer("");
+    setNotice("Recorded as reviewed. A change to any reason needs reviewing again.");
   }
 
   if (!tax) return null;
@@ -128,11 +157,22 @@ export function TaxEditor({ venueId }: { venueId: number }) {
         <div className="mt-4 border-t border-slate-100 pt-3">
           <h4 className="text-xs font-semibold text-slate-700">Money kept from a hire deposit</h4>
           <p className="mt-1 text-xs text-slate-500">
-            Staff say why they keep money back; this says which reasons carry your {tax.name}. It starts from the usual
-            treatment here: a charge for something you supply is taxed, money that makes good damage or a loss, or a
-            penalty, is not. Whether a particular amount is taxable is for your accountant to confirm, especially the ones
-            marked to check.
+            Staff say why they keep money back; this says which reasons carry your {tax.name}. It starts from a provisional
+            default for this country: a charge for something you supply is taxed, money that makes good damage or a loss, or a
+            penalty, is not. That default has not been reviewed by a tax adviser and is not tax advice. Have your accountant
+            review the treatment of each reason, change any they disagree with, and record their review below before relying
+            on it.
           </p>
+          {review ? (
+            <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+              Reviewed by {review.reviewer} on {review.approvedAt.slice(0, 10)}
+              {review.approvedBy ? `, recorded by ${review.approvedBy}` : ""}.
+            </p>
+          ) : (
+            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+              Provisional: not reviewed by a tax adviser. Receipts, the journal and exports mark amounts kept on this footing.
+            </p>
+          )}
           <table className="mt-2 text-xs">
             <tbody>
               {deductions.map((d) => (
@@ -150,11 +190,42 @@ export function TaxEditor({ venueId }: { venueId: number }) {
                       <option value="untaxed">Not taxed</option>
                     </select>
                   </td>
-                  <td className="py-0.5 pl-2 text-amber-700">{d.review ? "check with your accountant" : ""}</td>
+                  <td className="py-0.5 pl-2 text-amber-700">{d.basis === "reviewed" ? "" : d.basis === "provisional" ? "provisional default" : "your choice, not reviewed"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {!review && (
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="text-xs text-slate-600">
+                Reviewed by (adviser and firm)
+                <input value={reviewer} onChange={(e) => setReviewer(e.target.value)} placeholder="Lim Mei Ling, LML Tax Advisory" className={`mt-0.5 block w-64 ${input}`} />
+              </label>
+              <button
+                disabled={reviewer.trim().length < 3}
+                onClick={() => void approve()}
+                className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                Record the review of these treatments
+              </button>
+            </div>
+          )}
+          {history.length > 0 && (
+            <details className="mt-2 text-xs text-slate-500">
+              <summary className="cursor-pointer">Changes and reviews</summary>
+              <ul className="mt-1 space-y-0.5">
+                {history.map((h, i) => (
+                  <li key={i}>
+                    {h.createdAt.slice(0, 16)} ·{" "}
+                    {h.kind === "approved"
+                      ? `reviewed by ${h.reviewer}`
+                      : `changed: ${Object.entries(h.changed ?? {}).map(([r, v]) => `${r} → ${v === null ? "usual" : v ? "taxed" : "not taxed"}`).join(", ")}`}
+                    {h.adminName ? ` (${h.adminName})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
       {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}

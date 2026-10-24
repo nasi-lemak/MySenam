@@ -674,7 +674,11 @@ export function BookingsTab() {
                     {how && (
                       <span className="text-xs text-slate-500">
                         {how.taxed ? "With the venue's tax, if registered" : "No tax"}
-                        {how.review ? " (the usual treatment: confirm with your accountant)" : ""}
+                        {how.basis === "reviewed"
+                          ? " (reviewed)"
+                          : how.basis === "provisional"
+                            ? " (provisional default, not reviewed by an adviser)"
+                            : " (the venue's choice, not yet reviewed)"}
                       </span>
                     )}
                     <button onClick={() => setDeductions(deductions.filter((_, j) => j !== i))} className="text-xs text-slate-500 underline">

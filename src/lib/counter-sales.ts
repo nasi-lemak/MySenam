@@ -170,10 +170,10 @@ export async function sellKeptDeposit(input: {
   const lines: SaleLine[] = [{ addonId: null, name: input.description.slice(0, 120), quantity: 1, unitPrice: roundMoney(input.amount) }];
   const row = (await getDb()
     .prepare(
-      `INSERT INTO counter_sales (venue_id, admin_id, customer_name, customer_phone, lines, total, paid_via, hire_record_id, hire_reason)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO counter_sales (venue_id, admin_id, customer_name, customer_phone, lines, total, paid_via, hire_record_id, hire_reason, tax_basis)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(input.venueId, input.customerName, input.customerPhone, JSON.stringify(lines), roundMoney(input.amount), input.via, input.hireRecordId, input.reason)) as {
+    .get(input.venueId, input.customerName, input.customerPhone, JSON.stringify(lines), roundMoney(input.amount), input.via, input.hireRecordId, input.reason, treatment.basis)) as {
     id: number;
   };
   const NOTE: Partial<Record<DeductionNature, string>> = {
