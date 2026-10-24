@@ -95,8 +95,9 @@ Billplz refunds by hand for a small Malaysian launch
 ([launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide));
 negative stored credit after a chargeback, reported apart (M14);
 the launch promises customers English, Malay, simplified Chinese and Tamil
-(the owner, 24 October 2026; the staff dashboard stays English,
-[languages](#languages));
+(the owner, 24 October 2026), and the staff dashboard English, Malay and
+Chinese, not Tamil (the owner, 24 October 2026; Malay and Chinese
+[planned](roadmap.md));
 off-site backups may be held abroad (the owner, 24 October 2026), once the
 transfer steps in [privacy](../architecture/privacy.md#backups-held-abroad)
 are done.
@@ -145,7 +146,7 @@ changes; 6 to 8 name what they wait for. As of 24 October 2026: no defect
 | [Native review](#languages) of Tamil, of activity names in Malay and Chinese, and of programme emails and company-account invoices in Malay, Chinese and Tamil; the four languages are promised | 6 | Customers reading those languages | A native speaker of each reviews ([launch blocker](#blockers-for-any-launch)) |
 | [Defaults for review](#decisions-the-owner-has-to-make): adjacent buffers add up, eight places a booking, a first lesson needing a sign-off at the counter | 7 | Venues with buffers, fleets, sign-offs | The owner accepts or changes each |
 | [The terms](#languages) in English | 7 | Customers reading other languages | Translated after the lawyer's review |
-| [Staff dashboard](#languages) in English | 2 | Staff | [Roadmap](roadmap.md) (proposed) |
+| [Staff dashboard](#languages) in English | 2 | Staff | Malay and Chinese, [planned](roadmap.md) (the owner's decision) |
 | [Browser tests](#gaps-in-verification-and-documentation) cover some journeys only | 4 | Everyone, as regressions found late | The journeys named in [users and journeys](../product/users-and-journeys.md#what-the-journeys-show) |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
 | [Ways some activities are sold](#activities): bowling by the game, gym entry without a session, day passes, launch windows, range officers, heats | 8 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
@@ -340,14 +341,15 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
 - **Not reviewed by a native speaker:** the Malay, Chinese and Tamil wording
   of game, tournament, league and group emails and of company-account
   invoices (machine-assisted) (P2).
-- **The staff dashboard** is English only ([roadmap](roadmap.md)) (P2).
+- **The staff dashboard** is English only; Malay and Chinese are
+  [planned](roadmap.md), Tamil is not (the owner, 24 October 2026) (P2).
 - **Not reviewed by a native speaker:** the Tamil dictionary, and the
   built-in activity names in Malay and Chinese (machine-assisted) (P2).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
-[launch blocker](#blockers-for-any-launch). The staff dashboard is not part
-of that promise.
+[launch blocker](#blockers-for-any-launch). The staff dashboard is to be in
+English, Malay and Chinese, not Tamil (the owner, the same day).
 
 ### Money (M)
 
