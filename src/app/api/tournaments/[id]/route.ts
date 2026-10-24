@@ -60,6 +60,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       teamName: typeof body.teamName === "string" ? body.teamName : undefined,
       roster: Array.isArray(body.roster) ? body.roster : undefined,
       entryMark: typeof body.entryMark === "string" ? body.entryMark : undefined,
+      birthDate: typeof body.birthDate === "string" ? body.birthDate : undefined,
+      partnerBirthDate: typeof body.partnerBirthDate === "string" ? body.partnerBirthDate : undefined,
+      rosterEligible: body.rosterEligible === true,
     });
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.code ? 403 : 409 });
     return NextResponse.json({ mine: result.value }, { status: 201 });

@@ -2250,14 +2250,16 @@ export interface BlockDetails {
   places?: number | null;
   repeatCode?: string | null;
   tournamentId?: number | null;
+  /** A competition's hold, shared by its divisions (lib/competitions.ts). */
+  competitionId?: number | null;
 }
 
 /** Write one block and claim its time. Throws `23P01` when something holds it. */
 async function writeBlock(court: Court, date: string, span: Span, zone: string, details: BlockDetails): Promise<number> {
   const row = (await getDb()
     .prepare(
-      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id, competition_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
     .get(
       court.venueId,
@@ -2268,7 +2270,8 @@ async function writeBlock(court: Court, date: string, span: Span, zone: string, 
       details.reason ?? null,
       details.places ?? null,
       details.repeatCode ?? null,
-      details.tournamentId ?? null
+      details.tournamentId ?? null,
+      details.competitionId ?? null
     )) as { id: number };
   await claim({ court, source: { kind: "block", blockId: row.id }, date, span, zone, places: details.places ?? court.capacity });
   return row.id;
@@ -2278,7 +2281,13 @@ async function writeBlock(court: Court, date: string, span: Span, zone: string, 
  * Take block time within `span` off a court: blocks inside it go, and blocks
  * across its edges keep their parts outside it. Returns the minutes freed.
  */
-async function carveBlocks(court: Court, date: string, span: Span, zone: string, only?: (b: { tournament_id: number | null }) => boolean): Promise<number> {
+async function carveBlocks(
+  court: Court,
+  date: string,
+  span: Span,
+  zone: string,
+  only?: (b: { tournament_id: number | null; competition_id: number | null }) => boolean
+): Promise<number> {
   const db = getDb();
   const rows = (await db
     .prepare("SELECT * FROM blocks WHERE court_id = ? AND date = ? AND start_min < ? AND end_min > ?")
@@ -2290,13 +2299,14 @@ async function carveBlocks(court: Court, date: string, span: Span, zone: string,
     places: number | null;
     repeat_code: string | null;
     tournament_id: number | null;
+    competition_id: number | null;
   }[];
   let freed = 0;
   for (const b of rows) {
     if (only && !only(b)) continue;
     await db.prepare("DELETE FROM blocks WHERE id = ?").run(b.id);
     freed += Math.min(b.end_min, span.end) - Math.max(b.start_min, span.start);
-    const keep = { reason: b.reason, places: b.places, repeatCode: b.repeat_code, tournamentId: b.tournament_id };
+    const keep = { reason: b.reason, places: b.places, repeatCode: b.repeat_code, tournamentId: b.tournament_id, competitionId: b.competition_id };
     if (b.start_min < span.start) await writeBlock(court, date, { start: b.start_min, end: span.start }, zone, keep);
     if (b.end_min > span.end) await writeBlock(court, date, { start: span.end, end: b.end_min }, zone, keep);
   }
@@ -2368,7 +2378,8 @@ export async function blockSlots(
     // Blocking blocked time revises it, rather than stacking a second block. A
     // tournament's hold leaves blocks staff made where they are: that time is
     // simply not the tournament's.
-    if (!details.tournamentId) for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.tournament_id === null);
+    if (!details.tournamentId && !details.competitionId)
+      for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.tournament_id === null && b.competition_id === null);
     const occupants = (await occupantsOn([court], date, zone)).get(court.id)!;
     for (const span of spans) {
       // Where the time asked for can take this block: between what holds it, and where enough places are free.
@@ -2422,13 +2433,20 @@ export async function blockSlots(
 
 /**
  * Take block time within `span` off a court, from one tournament's holds only
- * when `tournamentId` is given. Returns the minutes freed.
+ * when `tournamentId` is given, or one competition's when `competitionId` is.
+ * Returns the minutes freed.
  */
-export async function releaseBlockTime(courtId: number, date: string, span: Span, tournamentId?: number): Promise<number> {
+export async function releaseBlockTime(courtId: number, date: string, span: Span, tournamentId?: number, competitionId?: number): Promise<number> {
   const court = await getCourt(courtId);
   if (!court) return 0;
   const { zone } = await courtVenueHours(courtId);
-  return withTransaction(() => carveBlocks(court, date, span, zone, tournamentId === undefined ? undefined : (b) => b.tournament_id === tournamentId));
+  const only =
+    competitionId !== undefined
+      ? (b: { competition_id: number | null }) => b.competition_id === competitionId
+      : tournamentId === undefined
+        ? undefined
+        : (b: { tournament_id: number | null }) => b.tournament_id === tournamentId;
+  return withTransaction(() => carveBlocks(court, date, span, zone, only));
 }
 
 /** Take block time off a court: exact minutes, or columns of the staff schedule. */

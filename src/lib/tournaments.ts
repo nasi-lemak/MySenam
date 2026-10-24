@@ -11,6 +11,7 @@ import {
   roundRobin,
   scheduleMatches,
   scoreRefusal,
+  slotTime,
   shuffle,
   standings,
   type Slot,
@@ -19,10 +20,10 @@ import {
 } from "./brackets";
 import { aggregate, formatMark, parseMark, rankPerformances, seedHeats, type Ranked } from "./performance-math";
 import { templateByKey, templateFor, type EntryKind } from "./competition-templates";
-import { accessRefusal } from "./access";
+import { accessRefusal, accountPhone } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer } from "./outbox";
-import { blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
+import { activeMembership, blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
@@ -101,6 +102,12 @@ export interface Tournament {
   payOnline: boolean;
   /** How it treats somebody who leaves (lib/tournament-rules.ts). */
   rules: CompetitionRules;
+  /** The competition it is a division of, sharing that competition's courts and hours. */
+  competition: { id: number; name: string } | null;
+  /** Who may enter: the last day entries are taken, ages on the first day, members only. */
+  entriesCloseOn: string | null;
+  ageRange: { min: number | null; max: number | null } | null;
+  membersOnly: boolean;
 }
 
 export interface Entry {
@@ -199,7 +206,8 @@ const T_SELECT = `
          (SELECT COUNT(*)::int FROM tournament_entries e WHERE e.tournament_id = t.id AND e.status = 'entered') AS entered,
          (SELECT COUNT(*)::int FROM tournament_entries e WHERE e.tournament_id = t.id AND e.status = 'waitlisted') AS waitlisted,
          ARRAY(SELECT court_id FROM tournament_courts tc WHERE tc.tournament_id = t.id ORDER BY court_id) AS court_ids,
-         EXISTS (SELECT 1 FROM venue_payment_accounts a WHERE a.venue_id = v.id AND a.enabled = 1) AS pay_online
+         EXISTS (SELECT 1 FROM venue_payment_accounts a WHERE a.venue_id = v.id AND a.enabled = 1) AS pay_online,
+         (SELECT c.name FROM competitions c WHERE c.id = t.competition_id) AS competition_name
     FROM tournaments t JOIN venues v ON v.id = t.venue_id`;
 
 interface TRow {
@@ -233,6 +241,12 @@ interface TRow {
   waitlisted: number;
   pay_online: boolean;
   rules: string | null;
+  competition_id: number | null;
+  competition_name: string | null;
+  entries_close_on: string | null;
+  age_min: number | null;
+  age_max: number | null;
+  members_only: number;
 }
 
 function toTournament(r: TRow): Tournament {
@@ -268,6 +282,10 @@ function toTournament(r: TRow): Tournament {
     waitlisted: r.waitlisted,
     payOnline: Boolean(r.pay_online),
     rules: readRules(r.rules),
+    competition: r.competition_id ? { id: r.competition_id, name: r.competition_name ?? "" } : null,
+    entriesCloseOn: r.entries_close_on ?? null,
+    ageRange: r.age_min !== null || r.age_max !== null ? { min: r.age_min ?? null, max: r.age_max ?? null } : null,
+    membersOnly: Boolean(r.members_only),
   };
 }
 
@@ -537,6 +555,15 @@ export interface TournamentInput {
   description?: string;
   /** Scoring, ranking and how it treats somebody who leaves, over the template's (lib/tournament-rules.ts). */
   rules?: unknown;
+  /** A division of this competition (lib/competitions.ts): days, hours, courts and match length are its. */
+  competitionId?: number | null;
+  /** The last day entries are taken, in the venue's time; the scheduler closes them after it. */
+  entriesCloseOn?: string | null;
+  /** Ages on the first day, from the date of birth each entrant declares. */
+  ageMin?: number | null;
+  ageMax?: number | null;
+  /** Only the venue's members (an active membership) may enter. */
+  membersOnly?: boolean;
 }
 
 /** The time zone of the venue running a tournament. */
@@ -553,38 +580,40 @@ function heldSlots(t: { startsOn: string; endsOn: string; startMin: number; endM
   return slots;
 }
 
-export async function createTournament(input: TournamentInput, adminId: number): Promise<Result> {
+/** Days, hours and courts to hold for a tournament or a competition, as asked. */
+export interface HoldRequest {
+  venueId: number;
+  sport: Sport;
+  startsOn: string;
+  endsOn: string;
+  startMin?: number;
+  endMin?: number;
+  startHour?: number;
+  endHour?: number;
+  matchMinutes?: number;
+  courtIds: number[];
+}
+
+/** A hold that has been checked: inside the venue's hours every day, its courts for the sport. */
+export interface CheckedHold {
+  venueId: number;
+  sport: Sport;
+  startsOn: string;
+  endsOn: string;
+  startMin: number;
+  endMin: number;
+  matchMinutes: number;
+  courtIds: number[];
+}
+
+type Refused = { ok: false; error: string; clashes?: number };
+
+/** Whether the days, hours and courts asked for can be held at all (not yet whether they are free). */
+export async function checkHold(input: HoldRequest): Promise<{ ok: true; hold: CheckedHold } | Refused> {
   const db = getDb();
-  const name = input.name.trim();
-  if (name.length < 3 || name.length > 100) return { ok: false, error: "Give it a name." };
-  if (!(await isActivity(input.sport))) return { ok: false, error: "Unknown sport." };
-  if (!["knockout", "groups", "round_robin", "performance"].includes(input.format))
-    return { ok: false, error: "A knockout, groups then a knockout, a round robin, or a performance event." };
-  // The sport's own template, where it suits the format asked for; else the general one.
-  const sportTemplate = templateFor(input.sport);
-  const template = input.template ? templateByKey(input.template) : sportTemplate.formats.includes(input.format) ? sportTemplate : templateByKey(input.format === "performance" ? "best_attempt" : "custom");
-  if (!template) return { ok: false, error: "Unknown template." };
-  const parsedRules = parseRules(input.rules ?? null, template.rules);
-  if (!parsedRules.ok) return parsedRules;
-  const rules = parsedRules.rules;
-  if (input.format === "performance" && !rules.performance) return { ok: false, error: "A performance event needs what is measured: choose a performance template." };
-  if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
-  const entryKind: EntryKind = input.entryKind ?? (input.teamSize === 2 ? "pair" : "player");
-  if (!["player", "pair", "team"].includes(entryKind)) return { ok: false, error: "Players, pairs or teams." };
-  if (input.format === "performance" && entryKind !== "player") return { ok: false, error: "A performance event takes players one by one." };
-  const roster = entryKind === "team" ? input.roster ?? template.roster ?? { min: 2, max: 20 } : null;
-  if (roster && (!Number.isInteger(roster.min) || !Number.isInteger(roster.max) || roster.min < 1 || roster.max > 40 || roster.min > roster.max))
-    return { ok: false, error: "A roster of 1 to 40 names, the fewest no more than the most." };
-  const teamSize = entryKind === "pair" ? 2 : 1;
-  const category = input.category ?? "open";
-  if (!isCategory(category)) return { ok: false, error: "Open, women's, men's or mixed." };
-  if (category === "mixed" && teamSize !== 2) return { ok: false, error: "Mixed is doubles: one woman and one man." };
   if (!isValidDateString(input.startsOn) || !isValidDateString(input.endsOn) || input.endsOn < input.startsOn)
     return { ok: false, error: "Give the first and last day." };
   if (addDays(input.startsOn, 13) < input.endsOn) return { ok: false, error: "Two weeks at most." };
-  if (!Number.isInteger(input.maxEntries) || input.maxEntries < 2 || input.maxEntries > 128)
-    return { ok: false, error: "Between 2 and 128 entries." };
-  if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
   const venue = (await db
     .prepare("SELECT open_min, close_min, week_hours, time_zone, lat, lng FROM venues WHERE id = ?")
     .get(input.venueId)) as
@@ -616,56 +645,174 @@ export async function createTournament(input: TournamentInput, adminId: number):
     )
     .all(input.venueId, input.sport, ...courtIds)) as { id: number }[];
   if (courts.length !== courtIds.length) return { ok: false, error: "Hold only this venue's courts for that sport." };
+  return { ok: true, hold: { venueId: input.venueId, sport: input.sport, startsOn: input.startsOn, endsOn: input.endsOn, startMin, endMin, matchMinutes, courtIds } };
+}
 
-  // A court out of service on any of those days cannot be held for them.
-  // Out of service, or already booked in those hours: say so, rather than
-  // hold over it. Asked again inside the transaction that holds the hours, so
-  // a booking or an outage made meanwhile is seen there.
-  const inTheWay = async (): Promise<{ ok: false; error: string; clashes?: number } | null> => {
-    const out = (await db
-      .prepare(
-        `SELECT c.name FROM court_outages o JOIN courts c ON c.id = o.court_id
-          WHERE o.court_id IN (${courtIds.map(() => "?").join(",")})
-            AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?) LIMIT 1`
-      )
-      .get(...courtIds, input.endsOn, input.startsOn)) as { name: string } | undefined;
-    if (out) return { ok: false, error: `${out.name} is out of service then. Choose other courts or days.` };
-    // Bookings holding these courts' spaces in that time each day, a court sharing their floor's too.
-    const { clashes } = (await db
-      .prepare(
-        `SELECT COUNT(DISTINCT b.id)::int AS clashes FROM claims c JOIN bookings b ON b.id = c.booking_id
-          WHERE c.active
-            AND (c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id IN (${courtIds.map(() => "?").join(",")}))
-                 OR (c.space_id IS NULL AND c.court_id IN (${courtIds.map(() => "?").join(",")})))
-            AND b.date >= ? AND b.date <= ? AND b.start_min < ? AND b.end_min > ?`
-      )
-      .get(...courtIds, ...courtIds, input.startsOn, input.endsOn, endMin, startMin)) as { clashes: number };
-    if (clashes > 0)
-      return {
-        ok: false,
-        error: `${clashes === 1 ? "A booking is" : `${clashes} bookings are`} already in those hours. Move ${clashes === 1 ? "it" : "them"}, or choose other hours or courts.`,
-        clashes,
-      };
-    return null;
+/**
+ * A court out of service on any of those days cannot be held for them. Out
+ * of service, or already booked in those hours: say so, rather than hold over
+ * it. Asked again inside the transaction that holds the hours, so a booking
+ * or an outage made meanwhile is seen there.
+ */
+export async function holdInTheWay(h: CheckedHold): Promise<Refused | null> {
+  const db = getDb();
+  const marks = h.courtIds.map(() => "?").join(",");
+  const out = (await db
+    .prepare(
+      `SELECT c.name FROM court_outages o JOIN courts c ON c.id = o.court_id
+        WHERE o.court_id IN (${marks}) AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?) LIMIT 1`
+    )
+    .get(...h.courtIds, h.endsOn, h.startsOn)) as { name: string } | undefined;
+  if (out) return { ok: false, error: `${out.name} is out of service then. Choose other courts or days.` };
+  // Bookings holding these courts' spaces in that time each day, a court sharing their floor's too.
+  const { clashes } = (await db
+    .prepare(
+      `SELECT COUNT(DISTINCT b.id)::int AS clashes FROM claims c JOIN bookings b ON b.id = c.booking_id
+        WHERE c.active
+          AND (c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id IN (${marks}))
+               OR (c.space_id IS NULL AND c.court_id IN (${marks})))
+          AND b.date >= ? AND b.date <= ? AND b.start_min < ? AND b.end_min > ?`
+    )
+    .get(...h.courtIds, ...h.courtIds, h.startsOn, h.endsOn, h.endMin, h.startMin)) as { clashes: number };
+  if (clashes > 0)
+    return {
+      ok: false,
+      error: `${clashes === 1 ? "A booking is" : `${clashes} bookings are`} already in those hours. Move ${clashes === 1 ? "it" : "them"}, or choose other hours or courts.`,
+      clashes,
+    };
+  return null;
+}
+
+/**
+ * The time, held each day on each court, for a tournament or a competition.
+ * Time staff had already blocked stays theirs, and is simply not time the
+ * draw can use. Run inside the transaction that creates the holder.
+ */
+export async function placeHold(h: CheckedHold, label: string, owner: { tournamentId: number } | { competitionId: number }): Promise<void> {
+  for (let d = h.startsOn; d <= h.endsOn; d = addDays(d, 1))
+    for (const c of h.courtIds) {
+      const held = await blockSlots(c, d, { start: h.startMin, end: h.endMin }, label, undefined, owner);
+      if (!held.ok) throw new Error(held.error);
+    }
+}
+
+/** The competition a division is part of: its hold, which the division's own fields copy. */
+interface CompetitionHold {
+  id: number;
+  name: string;
+  status: string;
+  hold: CheckedHold;
+}
+
+async function competitionHold(id: number): Promise<CompetitionHold | null> {
+  const db = getDb();
+  const row = (await db
+    .prepare("SELECT id, name, status, venue_id, sport, starts_on, ends_on, start_min, end_min, match_minutes FROM competitions WHERE id = ?")
+    .get(id)) as
+    | { id: number; name: string; status: string; venue_id: number; sport: Sport; starts_on: string; ends_on: string; start_min: number; end_min: number; match_minutes: number }
+    | undefined;
+  if (!row) return null;
+  const courts = (await db.prepare("SELECT court_id FROM competition_courts WHERE competition_id = ? ORDER BY court_id").all(id)) as { court_id: number }[];
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    hold: {
+      venueId: row.venue_id,
+      sport: row.sport,
+      startsOn: row.starts_on,
+      endsOn: row.ends_on,
+      startMin: row.start_min,
+      endMin: row.end_min,
+      matchMinutes: row.match_minutes,
+      courtIds: courts.map((c) => c.court_id),
+    },
   };
-  const before = await inTheWay();
-  if (before) return before;
+}
+
+/** Who may enter, from a form: a closing day, an age range, members only. */
+function checkEligibility(input: Pick<TournamentInput, "entriesCloseOn" | "ageMin" | "ageMax" | "membersOnly">, startsOn: string): Refused | null {
+  if (input.entriesCloseOn !== undefined && input.entriesCloseOn !== null) {
+    if (!isValidDateString(input.entriesCloseOn)) return { ok: false, error: "Give the last day entries are taken." };
+    if (input.entriesCloseOn >= startsOn) return { ok: false, error: "Entries must close before the first day." };
+  }
+  const age = (v: unknown) => v === undefined || v === null || (Number.isInteger(v) && (v as number) >= 3 && (v as number) <= 99);
+  if (!age(input.ageMin) || !age(input.ageMax)) return { ok: false, error: "Ages are 3 to 99." };
+  if (input.ageMin && input.ageMax && input.ageMin > input.ageMax) return { ok: false, error: "The youngest age is above the oldest." };
+  return null;
+}
+
+export async function createTournament(input: TournamentInput, adminId: number): Promise<Result> {
+  const db = getDb();
+  const name = input.name.trim();
+  if (name.length < 3 || name.length > 100) return { ok: false, error: "Give it a name." };
+  // A division of a competition: its venue, sport, days, hours and courts are the competition's.
+  const competition = input.competitionId ? await competitionHold(input.competitionId) : null;
+  if (input.competitionId && (!competition || competition.status !== "open")) return { ok: false, error: "That competition is not taking divisions." };
+  if (competition && competition.hold.venueId !== input.venueId) return { ok: false, error: "That competition is at another venue." };
+  // Its held time is shared out at each draw: a division added after one would find it given back.
+  if (competition && (await db.prepare("SELECT 1 FROM tournaments WHERE competition_id = ? AND status IN ('drawn', 'finished')").get(competition.id)))
+    return { ok: false, error: "A division's draw is made: add divisions before any draw." };
+  const sport = competition ? competition.hold.sport : input.sport;
+  if (!(await isActivity(sport))) return { ok: false, error: "Unknown sport." };
+  if (!["knockout", "groups", "round_robin", "performance"].includes(input.format))
+    return { ok: false, error: "A knockout, groups then a knockout, a round robin, or a performance event." };
+  // The sport's own template, where it suits the format asked for; else the general one.
+  const sportTemplate = templateFor(sport);
+  const template = input.template ? templateByKey(input.template) : sportTemplate.formats.includes(input.format) ? sportTemplate : templateByKey(input.format === "performance" ? "best_attempt" : "custom");
+  if (!template) return { ok: false, error: "Unknown template." };
+  const parsedRules = parseRules(input.rules ?? null, template.rules);
+  if (!parsedRules.ok) return parsedRules;
+  const rules = parsedRules.rules;
+  if (input.format === "performance" && !rules.performance) return { ok: false, error: "A performance event needs what is measured: choose a performance template." };
+  if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
+  const entryKind: EntryKind = input.entryKind ?? (input.teamSize === 2 ? "pair" : "player");
+  if (!["player", "pair", "team"].includes(entryKind)) return { ok: false, error: "Players, pairs or teams." };
+  if (input.format === "performance" && entryKind !== "player") return { ok: false, error: "A performance event takes players one by one." };
+  const roster = entryKind === "team" ? input.roster ?? template.roster ?? { min: 2, max: 20 } : null;
+  if (roster && (!Number.isInteger(roster.min) || !Number.isInteger(roster.max) || roster.min < 1 || roster.max > 40 || roster.min > roster.max))
+    return { ok: false, error: "A roster of 1 to 40 names, the fewest no more than the most." };
+  const teamSize = entryKind === "pair" ? 2 : 1;
+  const category = input.category ?? "open";
+  if (!isCategory(category)) return { ok: false, error: "Open, women's, men's or mixed." };
+  if (category === "mixed" && teamSize !== 2) return { ok: false, error: "Mixed is doubles: one woman and one man." };
+  if (!Number.isInteger(input.maxEntries) || input.maxEntries < 2 || input.maxEntries > 128)
+    return { ok: false, error: "Between 2 and 128 entries." };
+  if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
+  let hold: CheckedHold;
+  if (competition) {
+    hold = competition.hold;
+    const today = todayISO((await venueHours(hold.venueId)).zone);
+    if (hold.startsOn <= today) return { ok: false, error: "That competition has started: divisions are added before it." };
+  } else {
+    const checked = await checkHold({ ...input, sport });
+    if (!checked.ok) return checked;
+    hold = checked.hold;
+  }
+  const ineligible = checkEligibility(input, hold.startsOn);
+  if (ineligible) return ineligible;
+  if (!competition) {
+    const before = await holdInTheWay(hold);
+    if (before) return before;
+  }
 
   let id = 0;
   const refused = await db.transaction(async () => {
-    const meanwhile = await inTheWay();
-    if (meanwhile) return meanwhile;
+    if (!competition) {
+      const meanwhile = await holdInTheWay(hold);
+      if (meanwhile) return meanwhile;
+    }
     const info = await db
       .prepare(
         `INSERT INTO tournaments (venue_id, name, sport, format, team_size, category, level, entry_fee, max_entries, group_size, advance,
                                   starts_on, ends_on, start_min, end_min, match_minutes, description, created_by, rules,
-                                  entry_kind, roster_min, roster_max, template)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                  entry_kind, roster_min, roster_max, template, competition_id, entries_close_on, age_min, age_max, members_only)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        input.venueId,
+        hold.venueId,
         name,
-        input.sport,
+        sport,
         input.format,
         teamSize,
         category,
@@ -674,28 +821,28 @@ export async function createTournament(input: TournamentInput, adminId: number):
         input.maxEntries,
         Math.min(Math.max(input.groupSize ?? 4, 3), 6),
         input.advance === 1 ? 1 : 2,
-        input.startsOn,
-        input.endsOn,
-        startMin,
-        endMin,
-        matchMinutes,
+        hold.startsOn,
+        hold.endsOn,
+        hold.startMin,
+        hold.endMin,
+        hold.matchMinutes,
         input.description?.trim().slice(0, 2000) || null,
         adminId,
         JSON.stringify(rules),
         entryKind,
         roster?.min ?? null,
         roster?.max ?? null,
-        template.key
+        template.key,
+        competition?.id ?? null,
+        input.entriesCloseOn ?? null,
+        input.ageMin ?? null,
+        input.ageMax ?? null,
+        input.membersOnly ? 1 : 0
       );
     id = info.lastInsertRowid as number;
-    for (const c of courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
-    // The time, held each day on each court. Time staff had already blocked
-    // stays theirs, and is simply not time the draw can use.
-    for (let d = input.startsOn; d <= input.endsOn; d = addDays(d, 1))
-      for (const c of courtIds) {
-        const held = await blockSlots(c, d, { start: startMin, end: endMin }, `Tournament: ${name}`, undefined, { tournamentId: id });
-        if (!held.ok) throw new Error(held.error);
-      }
+    for (const c of hold.courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
+    // A division plays in its competition's hold; a tournament on its own holds its time itself.
+    if (!competition) await placeHold(hold, `Tournament: ${name}`, { tournamentId: id });
     return null;
   })();
   if (refused) return refused;
@@ -732,19 +879,109 @@ export async function cancelTournament(id: number): Promise<Result> {
   // Whoever is waiting for one of those courts is offered it.
   for (const day of freed) await offerSlotPlace(day.court_id, day.date);
   for (const userId of await entrants(id)) await tellEntrant(userId, t, `${t.name} is called off`, `${t.name} at ${t.venueName} has been called off. Any entry fee you paid online will be refunded by the venue.`);
+  // A division: the competition's time it would have used goes back once nothing else needs it.
+  if (t.competition) await releaseCompetitionTime(t.competition.id);
   return { ok: true, value: (await tournamentById(id))! };
+}
+
+/**
+ * Entries close at the end of their last day, in the venue's time: run by the
+ * scheduler. Returns how many tournaments it closed.
+ */
+export async function closeDueEntries(): Promise<number> {
+  const db = getDb();
+  const due = (await db
+    .prepare("SELECT id, venue_id, entries_close_on FROM tournaments WHERE status = 'open' AND entries_close_on IS NOT NULL AND entries_close_on < ?")
+    // Nowhere is more than a day ahead of UTC, so nothing closing on a later day is missed.
+    .all(addDays(todayISO("UTC"), 1))) as { id: number; venue_id: number; entries_close_on: string }[];
+  let closed = 0;
+  for (const t of due) {
+    if (todayISO((await venueHours(t.venue_id)).zone) <= t.entries_close_on) continue;
+    const done = await db.prepare("UPDATE tournaments SET status = 'closed' WHERE id = ? AND status = 'open'").run(t.id);
+    closed += done.changes;
+  }
+  return closed;
 }
 
 // ------------------------------------------------------------ entries
 
+/** Whole years old on `day`, born on `birthDate` (both YYYY-MM-DD). */
+export function ageOn(birthDate: string, day: string): number {
+  const [by, bm, bd] = birthDate.split("-").map(Number);
+  const [y, m, d] = day.split("-").map(Number);
+  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+}
+
+/** Why a declared date of birth is outside a tournament's ages on its first day, or null. */
+function ageRefusal(birthDate: unknown, t: Pick<Tournament, "ageRange" | "startsOn">, whose: "Your" | "Your partner's"): string | null {
+  if (!t.ageRange) return null;
+  if (typeof birthDate !== "string" || !isValidDateString(birthDate) || birthDate >= t.startsOn) return `${whose} date of birth is needed: this is for ages ${ageText(t.ageRange)}.`;
+  const age = ageOn(birthDate, t.startsOn);
+  if ((t.ageRange.min !== null && age < t.ageRange.min) || (t.ageRange.max !== null && age > t.ageRange.max))
+    return `${whose === "Your" ? "You are" : "Your partner is"} ${age} on ${t.startsOn}: this is for ages ${ageText(t.ageRange)}.`;
+  return null;
+}
+
+export function ageText(range: { min: number | null; max: number | null }): string {
+  return range.min !== null && range.max !== null ? `${range.min} to ${range.max}` : range.min !== null ? `${range.min} and over` : `${range.max} and under`;
+}
+
+/**
+ * Enter a tournament, as a player with an account (naming a partner, or a
+ * team and its roster). Who may enter is the tournament's to say: entries
+ * close after their last day; an age range is checked on the first day
+ * against the dates of birth the entrant declares (for themselves and a
+ * partner; a captain declares their roster within it); members only means an
+ * active membership at the venue; a competition may cap how many of its
+ * divisions one player enters.
+ */
 export async function enter(
   user: { id: number; name: string },
   tournamentId: number,
-  input: { partnerName?: string; partnerGender?: string; teamName?: string; roster?: unknown; entryMark?: string } = {}
+  input: {
+    partnerName?: string;
+    partnerGender?: string;
+    teamName?: string;
+    roster?: unknown;
+    entryMark?: string;
+    birthDate?: string;
+    partnerBirthDate?: string;
+    rosterEligible?: boolean;
+  } = {}
 ): Promise<Result<Entry>> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
   if (!t || t.status !== "open") return { ok: false, error: "Entries are not open." };
+  if (t.entriesCloseOn && todayISO((await venueHours(t.venueId)).zone) > t.entriesCloseOn) return { ok: false, error: `Entries closed on ${t.entriesCloseOn}.` };
+  if (t.membersOnly) {
+    const phone = await accountPhone(user.id);
+    if (!phone || !(await activeMembership(t.venueId, phone))) return { ok: false, error: "This is for the venue's members: join, then enter.", code: "ENTRY_MEMBERS_ONLY" };
+  }
+  let birthDate: string | null = null;
+  let partnerBirthDate: string | null = null;
+  if (t.ageRange) {
+    const mine = ageRefusal(input.birthDate, t, "Your");
+    if (mine) return { ok: false, error: mine, code: "AGE_RANGE" };
+    birthDate = input.birthDate!;
+    if (t.teamSize === 2) {
+      const theirs = ageRefusal(input.partnerBirthDate, t, "Your partner's");
+      if (theirs) return { ok: false, error: theirs, code: "AGE_RANGE" };
+      partnerBirthDate = input.partnerBirthDate!;
+    }
+    if (t.entryKind === "team" && input.rosterEligible !== true) return { ok: false, error: `Confirm that everybody on the roster is aged ${ageText(t.ageRange)} on ${t.startsOn}.`, code: "AGE_RANGE" };
+  }
+  if (t.competition) {
+    const cap = (await db.prepare("SELECT max_divisions_per_player AS cap FROM competitions WHERE id = ?").get(t.competition.id)) as { cap: number | null };
+    if (cap.cap !== null) {
+      const { n } = (await db
+        .prepare(
+          `SELECT COUNT(*)::int AS n FROM tournament_entries e JOIN tournaments d ON d.id = e.tournament_id
+            WHERE d.competition_id = ? AND d.id <> ? AND d.status <> 'cancelled' AND e.user_id = ? AND e.status <> 'withdrawn'`
+        )
+        .get(t.competition.id, t.id, user.id)) as { n: number };
+      if (n >= cap.cap) return { ok: false, error: `One player may enter ${cap.cap} division${cap.cap === 1 ? "" : "s"} of ${t.competition.name}, and you have.`, code: "DIVISION_LIMIT" };
+    }
+  }
   // A women's event takes women; mixed doubles, a woman and a man.
   const partnerGender = isPartnerGender(input.partnerGender) ? input.partnerGender : null;
   const notFor = await categoryRefusal(user.id, t.category, t.teamSize === 2 ? { partnerGender } : null);
@@ -787,7 +1024,8 @@ export async function enter(
   const name = t.entryKind === "team" ? teamName : t.teamSize === 2 ? `${user.name.trim()} / ${partner}` : user.name.trim();
   const info = await db
     .prepare(
-      "INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status, team_name, roster, entry_mark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      `INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status, team_name, roster, entry_mark, birth_date, partner_birth_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       tournamentId,
@@ -798,7 +1036,9 @@ export async function enter(
       status,
       t.entryKind === "team" ? teamName : null,
       roster ? JSON.stringify(roster) : null,
-      entryMark
+      entryMark,
+      birthDate,
+      partnerBirthDate
     );
   await tellEntrant(
     user.id,
@@ -1123,13 +1363,54 @@ function knockout(size: number, firstPairs: [number | null, number | null][], fe
  * Make the draw: seeds first in seed order, everybody else by lot; the
  * matches; and a court and an hour for each. All or nothing.
  */
+/** A match another division of the same competition has on court: where, when, for how long, and whose accounts play. */
+interface SiblingMatch {
+  id: number;
+  courtId: number;
+  date: string;
+  minute: number;
+  minutes: number;
+  userIds: number[];
+}
+
+async function siblingMatches(competitionId: number, exceptTournamentId: number): Promise<SiblingMatch[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT m.id, m.court_id, m.date, m.start_min, d.match_minutes,
+              (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_a) AS user_a,
+              (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_b) AS user_b,
+              ARRAY(SELECT e.user_id FROM tournament_performances p JOIN tournament_entries e ON e.id = p.entry_id
+                     WHERE p.match_id = m.id AND e.user_id IS NOT NULL) AS lane_users
+         FROM tournament_matches m JOIN tournaments d ON d.id = m.tournament_id
+        WHERE d.competition_id = ? AND d.id <> ? AND d.status <> 'cancelled' AND m.status = 'scheduled' AND m.court_id IS NOT NULL`
+    )
+    .all(competitionId, exceptTournamentId)) as {
+    id: number;
+    court_id: number;
+    date: string;
+    start_min: number;
+    match_minutes: number;
+    user_a: number | null;
+    user_b: number | null;
+    lane_users: number[] | null;
+  }[];
+  return rows.map((r) => ({
+    id: r.id,
+    courtId: r.court_id,
+    date: r.date,
+    minute: r.start_min,
+    minutes: r.match_minutes,
+    userIds: [r.user_a, r.user_b, ...(r.lane_users ?? []).map(Number)].filter((u): u is number => u !== null),
+  }));
+}
+
 export async function makeDraw(tournamentId: number, random: () => number = Math.random): Promise<Result<TournamentDetail>> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
   if (!t || (t.status !== "open" && t.status !== "closed")) return { ok: false, error: "The draw is made already, or it is over." };
   const entries = (await db
-    .prepare("SELECT id, seed, entry_mark FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' ORDER BY seed NULLS LAST, id")
-    .all(tournamentId)) as { id: number; seed: number | null; entry_mark: number | string | null }[];
+    .prepare("SELECT id, seed, entry_mark, user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' ORDER BY seed NULLS LAST, id")
+    .all(tournamentId)) as { id: number; seed: number | null; entry_mark: number | string | null; user_id: number | null }[];
   const minimum = t.format === "groups" ? 3 : 2;
   if (entries.length < minimum) return { ok: false, error: `At least ${minimum} entries are needed.` };
   if (t.format === "round_robin" && entries.length > 16) return { ok: false, error: "A round robin is for 16 entries at most: make groups instead." };
@@ -1211,29 +1492,44 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
     }
   }
   const byes = new Set(matches.filter((m) => m.bye).map((m) => m.key));
+  // A player is also known by their account, so a division does not put them on court while they play in another.
+  const person = new Map(entries.filter((e) => e.user_id !== null).map((e) => [e.id, `u${e.user_id}`]));
+  const sidesOf = (ids: (number | null)[]) => ids.flatMap((id) => (id === null ? [] : [`e${id}`, ...(person.has(id) ? [person.get(id)!] : [])]));
   const toPlay: ToSchedule[] = matches
     .filter((m) => !m.bye)
     .map((m) => ({
       key: m.key,
       sides: m.lanes
-        ? m.lanes.map((l) => `e${l.entryId}`)
+        ? sidesOf(m.lanes.map((l) => l.entryId))
         : m.stage === "final"
           ? ["final"]
-          : [m.a !== null ? `e${m.a}` : `w:${m.key}:a`, m.b !== null ? `e${m.b}` : `w:${m.key}:b`],
+          : [...(m.a !== null ? sidesOf([m.a]) : [`w:${m.key}:a`]), ...(m.b !== null ? sidesOf([m.b]) : [`w:${m.key}:b`])],
       after: m.after.filter((k) => !byes.has(k)),
     }));
   const zone = await tournamentZone(tournamentId);
-  // The match slots wholly inside what is still held (an outage since takes its hold away).
+  // The match slots wholly inside what is still held (an outage since takes its hold away): the
+  // tournament's own hold, or its competition's, less what the competition's other divisions use.
   const holds = (await db
-    .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ? ORDER BY date, start_min")
-    .all(tournamentId)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+    .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ? OR (competition_id IS NOT NULL AND competition_id = ?) ORDER BY date, start_min")
+    .all(tournamentId, t.competition?.id ?? null)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+  const siblings = t.competition ? await siblingMatches(t.competition.id, tournamentId) : [];
   const now = Date.now();
   const slots = heldSlots(t).filter(
     (s) =>
       holds.some((h) => h.court_id === s.courtId && h.date === s.date && h.start_min <= s.minute && s.minute + t.matchMinutes <= h.end_min) &&
+      !siblings.some((o) => o.courtId === s.courtId && o.date === s.date && o.minute < s.minute + t.matchMinutes && s.minute < o.minute + o.minutes) &&
       instantOf(s.date, s.minute, zone).getTime() > now
   );
-  const scheduled = scheduleMatches(toPlay, slots);
+  // Who is already on court in another division, and when.
+  const busy = new Map<string, Set<string>>();
+  for (const s of slots)
+    for (const o of siblings)
+      if (o.userIds.length > 0 && o.date === s.date && o.minute < s.minute + t.matchMinutes && s.minute < o.minute + o.minutes) {
+        const key = slotTime(s);
+        if (!busy.has(key)) busy.set(key, new Set());
+        for (const u of o.userIds) busy.get(key)!.add(`u${u}`);
+      }
+  const scheduled = scheduleMatches(toPlay, slots, busy);
   if (!scheduled.ok)
     return {
       ok: false,
@@ -1889,14 +2185,31 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
     .all(t.id, slot.date, end, t.matchMinutes, slot.startMin, match.id)) as { id: number; court_id: number | null; entry_a: number | null; entry_b: number | null }[];
   const live = others.filter((o) => !ignoring.has(o.id));
   if (live.some((o) => o.court_id === slot.courtId)) return `Another match of this tournament is on ${court.name} then.`;
+  if (t.competition) {
+    const elsewhere = (await siblingMatches(t.competition.id, t.id)).filter((o) => o.date === slot.date && o.minute < end && slot.startMin < o.minute + o.minutes);
+    if (elsewhere.some((o) => o.courtId === slot.courtId)) return `A match of another division is on ${court.name} then.`;
+    const players = (await getDb()
+      .prepare(`SELECT user_id FROM tournament_entries WHERE id IN (${[match.a ?? 0, match.b ?? 0].join(",")}) AND user_id IS NOT NULL`)
+      .all()) as { user_id: number }[];
+    if (elsewhere.some((o) => o.userIds.some((u) => players.some((p) => p.user_id === u)))) return "One of the sides plays in another division then.";
+  }
   const sides = [match.a, match.b].filter((x): x is number => x !== null);
   if (live.some((o) => sides.includes(o.entry_a ?? -1) || sides.includes(o.entry_b ?? -1))) return "One of the sides plays another match then.";
   const covered = async () =>
     !!(await db
-      .prepare("SELECT 1 FROM blocks WHERE tournament_id = ? AND court_id = ? AND date = ? AND start_min <= ? AND end_min >= ?")
-      .get(t.id, slot.courtId, slot.date, slot.startMin, end));
+      .prepare(
+        "SELECT 1 FROM blocks WHERE (tournament_id = ? OR (competition_id IS NOT NULL AND competition_id = ?)) AND court_id = ? AND date = ? AND start_min <= ? AND end_min >= ?"
+      )
+      .get(t.id, t.competition?.id ?? null, slot.courtId, slot.date, slot.startMin, end));
   if (!(await covered())) {
-    const held = await blockSlots(slot.courtId, slot.date, { start: slot.startMin, end }, `Tournament: ${t.name}`, undefined, { tournamentId: t.id });
+    const held = await blockSlots(
+      slot.courtId,
+      slot.date,
+      { start: slot.startMin, end },
+      t.competition ? `Competition: ${t.competition.name}` : `Tournament: ${t.name}`,
+      undefined,
+      t.competition ? { competitionId: t.competition.id } : { tournamentId: t.id }
+    );
     if (!held.ok || !(await covered())) {
       if (held.ok && held.blockIds.length > 0) await db.prepare(`DELETE FROM blocks WHERE id IN (${held.blockIds.map(() => "?").join(",")})`).run(...held.blockIds);
       return `${court.name} is not free for all of ${formatMinute(slot.startMin)}–${formatMinute(end)} on ${slot.date}: a booking or a block is there.`;
@@ -2181,25 +2494,63 @@ async function finishIfDone(tournamentId: number): Promise<void> {
  * hours came free.
  */
 export async function releaseUnneeded(tournamentId: number): Promise<number> {
-  const db = getDb();
   const t = await tournamentById(tournamentId);
+  if (t?.competition) return releaseCompetitionTime(t.competition.id);
   // Before the draw nobody knows which time will be needed.
   if (!t || (t.status !== "drawn" && t.status !== "finished")) return 0;
-  const held = (await db
-    .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ?")
-    .all(tournamentId)) as { court_id: number; date: string; start_min: number; end_min: number }[];
-  const needed = new Map(
-    (
-      (await db
-        .prepare(
-          `SELECT court_id, date, MIN(start_min) AS first, MAX(start_min) AS last FROM tournament_matches
-            WHERE tournament_id = ? AND status = 'scheduled' AND court_id IS NOT NULL
-            GROUP BY court_id, date`
-        )
-        .all(tournamentId)) as { court_id: number; date: string; first: number; last: number }[]
-    ).map((r) => [`${r.court_id}:${r.date}`, { start: r.first, end: r.last + t.matchMinutes }])
+  return releaseHeld(
+    { tournamentId },
+    "SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ?",
+    `SELECT court_id, date, MIN(start_min) AS first, MAX(start_min + ?) AS last_end FROM tournament_matches
+      WHERE tournament_id = ? AND status = 'scheduled' AND court_id IS NOT NULL
+      GROUP BY court_id, date`,
+    [t.matchMinutes, tournamentId],
+    tournamentId,
+    await tournamentZone(tournamentId)
   );
-  const zone = await tournamentZone(tournamentId);
+}
+
+/**
+ * A competition's held time no division will use goes back on sale, once
+ * every division still running has made its draw (before then nobody knows
+ * what will be needed); a competition whose divisions are all called off
+ * gives back all of it.
+ */
+export async function releaseCompetitionTime(competitionId: number): Promise<number> {
+  const db = getDb();
+  const divisions = (await db.prepare("SELECT id, status FROM tournaments WHERE competition_id = ?").all(competitionId)) as { id: number; status: TournamentStatus }[];
+  if (divisions.some((d) => d.status === "open" || d.status === "closed")) return 0;
+  const venue = (await db.prepare("SELECT venue_id FROM competitions WHERE id = ?").get(competitionId)) as { venue_id: number } | undefined;
+  if (!venue) return 0;
+  return releaseHeld(
+    { competitionId },
+    "SELECT court_id, date, start_min, end_min FROM blocks WHERE competition_id = ?",
+    `SELECT m.court_id, m.date, MIN(m.start_min) AS first, MAX(m.start_min + d.match_minutes) AS last_end
+       FROM tournament_matches m JOIN tournaments d ON d.id = m.tournament_id
+      WHERE d.competition_id = ? AND d.status <> 'cancelled' AND m.status = 'scheduled' AND m.court_id IS NOT NULL
+      GROUP BY m.court_id, m.date`,
+    [competitionId],
+    competitionId,
+    (await venueHours(venue.venue_id)).zone
+  );
+}
+
+async function releaseHeld(
+  owner: { tournamentId: number } | { competitionId: number },
+  heldSql: string,
+  neededSql: string,
+  neededArgs: number[],
+  ownerId: number,
+  zone: string
+): Promise<number> {
+  const db = getDb();
+  const held = (await db.prepare(heldSql).all(ownerId)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+  const needed = new Map(
+    ((await db.prepare(neededSql).all(...neededArgs)) as { court_id: number; date: string; first: number; last_end: number }[]).map((r) => [
+      `${r.court_id}:${r.date}`,
+      { start: r.first, end: r.last_end },
+    ])
+  );
   let freed = 0;
   const days = new Map<string, { court_id: number; date: string }>();
   for (const b of held) {
@@ -2212,7 +2563,10 @@ export async function releaseUnneeded(tournamentId: number): Promise<number> {
       : [{ start: from, end: b.end_min }];
     for (const piece of pieces) {
       if (piece.end <= piece.start) continue;
-      const minutes = await releaseBlockTime(b.court_id, b.date, piece, tournamentId);
+      const minutes =
+        "competitionId" in owner
+          ? await releaseBlockTime(b.court_id, b.date, piece, undefined, owner.competitionId)
+          : await releaseBlockTime(b.court_id, b.date, piece, owner.tournamentId);
       if (minutes > 0) {
         freed += minutes;
         days.set(`${b.court_id}:${b.date}`, b);

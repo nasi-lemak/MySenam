@@ -103,6 +103,22 @@ const cup = {
   ],
 };
 
+const championship = {
+  id: 3,
+  venueId: 1,
+  name: "Club Championships",
+  sport: "badminton",
+  startsOn: "2026-12-05",
+  endsOn: "2026-12-06",
+  startMin: 540,
+  endMin: 1080,
+  matchMinutes: 30,
+  courtIds: [7],
+  maxDivisionsPerPlayer: 2,
+  description: null,
+  status: "open",
+};
+
 let fetchMock: ReturnType<typeof vi.fn>;
 let detail: unknown;
 const posts: { url: string; body: Record<string, unknown> }[] = [];
@@ -114,7 +130,8 @@ beforeEach(() => {
       posts.push({ url, body: JSON.parse(init.body ?? "{}") });
       return { ok: true, json: async () => ({ tournament: detail, changes: ["done"] }) };
     }
-    if (url.startsWith("/api/admin/tournaments?")) return { ok: true, json: async () => ({ tournaments: [detail], templates: TEMPLATES, venueTemplates: [] }) };
+    if (url.startsWith("/api/admin/tournaments?"))
+      return { ok: true, json: async () => ({ tournaments: [detail], competitions: [championship], templates: TEMPLATES, venueTemplates: [] }) };
     if (url.includes("/issues/"))
       return { ok: true, json: async () => ({ issue: cup.issues[0], replay: { possible: true, matches: [{ matchId: 70, name: "Final", needsSlot: true }] }, token: "tok-1" }) };
     return { ok: true, json: async () => ({ tournament: detail }) };
@@ -159,5 +176,38 @@ describe("progression a correction left wrong", () => {
     fireEvent.click(stand);
     await act(async () => {});
     expect(posts.at(-1)).toEqual({ url: "/api/admin/tournaments/9/issues/4", body: { action: "stand", reason: "Both finalists agreed it stands", token: "tok-1" } });
+  });
+});
+
+describe("a competition's divisions", () => {
+  it("are set up by choosing the competition: its days and courts are shown, not asked, and who may enter goes with the rest", async () => {
+    detail = { ...cup, issues: [] };
+    const badmintonVenue = { ...(venue as object), courts: [{ id: 7, name: "Court 1", sport: "badminton", activities: [] }] } as never;
+    render(<TournamentsTab venues={[badmintonVenue]} />);
+    await act(async () => {});
+    expect(screen.getByText(/Club Championships/, { selector: "span" })).toBeTruthy();
+    fireEvent.change(screen.getByDisplayValue("On its own, holding its own courts"), { target: { value: "3" } });
+    expect(screen.getByText(/Played in Club Championships's time/)).toBeTruthy();
+    // Only the competition form below still asks for days.
+    expect(screen.getAllByText("First day")).toHaveLength(1);
+    fireEvent.change(screen.getByPlaceholderText("Open Singles, November"), { target: { value: "Girls Under 12" } });
+    fireEvent.change(screen.getByLabelText("Oldest age"), { target: { value: "11" } });
+    fireEvent.click(screen.getByLabelText("Members only"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Set it up and hold the courts" })[0]);
+    await act(async () => {});
+    expect(posts.at(-1)).toMatchObject({ url: "/api/admin/tournaments", body: { name: "Girls Under 12", competitionId: 3, ageMin: null, ageMax: 11, membersOnly: true, entriesCloseOn: null } });
+  });
+
+  it("start from a competition that holds the courts, with a cap on divisions per player", async () => {
+    detail = { ...cup, issues: [] };
+    const badmintonVenue = { ...(venue as object), courts: [{ id: 7, name: "Court 1", sport: "badminton", activities: [] }] } as never;
+    render(<TournamentsTab venues={[badmintonVenue]} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByText("Set up a competition with divisions"));
+    fireEvent.change(screen.getByPlaceholderText("Club Championships 2026"), { target: { value: "Junior Open" } });
+    fireEvent.change(screen.getByLabelText("Divisions per player (optional)"), { target: { value: "2" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Set it up and hold the courts" })[1]);
+    await act(async () => {});
+    expect(posts.at(-1)).toMatchObject({ url: "/api/admin/competitions", body: { name: "Junior Open", sport: "badminton", courtIds: [7], maxDivisionsPerPlayer: 2 } });
   });
 });

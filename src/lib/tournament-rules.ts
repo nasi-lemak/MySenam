@@ -39,6 +39,13 @@ export interface ScoringRules {
   draws: boolean;
   /** Table points for a win, a draw and a loss, where the table is ranked by points. */
   tablePoints: { win: number; draw: number; loss: number };
+  /**
+   * Sets only: table points that depend on the set score instead, as
+   * volleyball awards them — a win without going the distance (3-0, 3-1),
+   * a win in the deciding set (3-2), a loss in it (2-3), a clear loss. Null
+   * uses `tablePoints`. A walkover or a retirement counts as clear.
+   */
+  setPoints: { winClear: number; winDecider: number; loseDecider: number; loseClear: number } | null;
   rankBy: RankKey[];
   /**
    * A match one side stopped part-way (a retirement): won by the other side
@@ -82,6 +89,7 @@ export const DEFAULT_SCORING: ScoringRules = {
   bestOf: 3,
   draws: false,
   tablePoints: { win: 1, draw: 0, loss: 0 },
+  setPoints: null,
   rankBy: ["wins", "set_diff", "point_diff", "head_to_head"],
   retired: "win_only",
 };
@@ -112,9 +120,18 @@ function readScoring(raw: unknown): ScoringRules {
       draw: int(tp.draw, 0, 10, DEFAULT_SCORING.tablePoints.draw),
       loss: int(tp.loss, 0, 10, DEFAULT_SCORING.tablePoints.loss),
     },
+    setPoints: s.kind !== "tally" ? readSetPoints(s.setPoints) : null,
     rankBy: rankBy.length > 0 ? [...new Set(rankBy)] : DEFAULT_SCORING.rankBy,
     retired: s.retired === "as_played" ? "as_played" : "win_only",
   };
+}
+
+function readSetPoints(raw: unknown): ScoringRules["setPoints"] {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  const keys = ["winClear", "winDecider", "loseDecider", "loseClear"] as const;
+  if (keys.some((k) => !Number.isInteger(p[k]) || (p[k] as number) < 0 || (p[k] as number) > 10)) return null;
+  return { winClear: p.winClear as number, winDecider: p.winDecider as number, loseDecider: p.loseDecider as number, loseClear: p.loseClear as number };
 }
 
 function readPerformance(raw: unknown): PerformanceRules | null {
@@ -169,6 +186,9 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
     if (s.retired !== undefined && s.retired !== "win_only" && s.retired !== "as_played") return { ok: false, error: 'A retirement counts "win_only" or "as_played".' };
     if (s.rankBy !== undefined && (!Array.isArray(s.rankBy) || s.rankBy.length === 0 || s.rankBy.some((k) => !RANK_KEYS.includes(k as RankKey))))
       return { ok: false, error: `Rank by some of: ${RANK_KEYS.join(", ")}.` };
+    if (s.setPoints !== undefined && s.setPoints !== null && readSetPoints(s.setPoints) === null)
+      return { ok: false, error: "Points by set score are four whole numbers, 0 to 10: a clear win, a win in the deciding set, a loss in it, a clear loss." };
+    if (s.setPoints && (s.kind ?? base.scoring.kind) === "tally") return { ok: false, error: "Points by set score are for matches scored in sets." };
     scoring = readScoring({ ...base.scoring, ...s, tablePoints: { ...base.scoring.tablePoints, ...((s.tablePoints as object) ?? {}) } });
   }
   let performance = base.performance;

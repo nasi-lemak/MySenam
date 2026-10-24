@@ -3,13 +3,14 @@ import { readMinute } from "@/lib/api";
 import { TEMPLATES, venueTemplates, type EntryKind } from "@/lib/competition-templates";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format } from "@/lib/tournaments";
+import { listCompetitions } from "@/lib/competitions";
 import type { Level } from "@/lib/games";
 import type { Category } from "@/lib/who";
 import type { Sport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** `?venueId=` — a venue's tournaments, for its staff, with the sport templates and the venue's own to start one from. */
+/** `?venueId=` — a venue's tournaments and competitions, for its staff, with the sport templates and the venue's own to start one from. */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -17,13 +18,19 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "Which venue?" }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  return NextResponse.json({ tournaments: await listTournaments([venueId]), templates: TEMPLATES, venueTemplates: await venueTemplates(venueId) });
+  return NextResponse.json({
+    tournaments: await listTournaments([venueId]),
+    competitions: await listCompetitions([venueId]),
+    templates: TEMPLATES,
+    venueTemplates: await venueTemplates(venueId),
+  });
 }
 
 /**
  * A new tournament, holding its courts at once. `template` (a sport template's key) and `rules` (laid over it)
  * set its scoring and how it treats somebody who leaves; `entryKind` "team" with `roster: { min, max }` makes it a
- * team event.
+ * team event. `competitionId` makes it a division of that competition, in its days, hours and courts. Who may
+ * enter: `entriesCloseOn`, `ageMin`, `ageMax`, `membersOnly`.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -66,6 +73,11 @@ export async function POST(req: NextRequest) {
       courtIds: Array.isArray(b.courtIds) ? b.courtIds.map(Number) : [],
       description: typeof b.description === "string" ? b.description : undefined,
       rules: b.rules ?? undefined,
+      competitionId: Number.isInteger(b.competitionId) ? (b.competitionId as number) : null,
+      entriesCloseOn: typeof b.entriesCloseOn === "string" && b.entriesCloseOn ? b.entriesCloseOn : null,
+      ageMin: b.ageMin === null || b.ageMin === undefined || b.ageMin === "" ? null : Number(b.ageMin),
+      ageMax: b.ageMax === null || b.ageMax === undefined || b.ageMax === "" ? null : Number(b.ageMax),
+      membersOnly: b.membersOnly === true,
     },
     admin.id
   );

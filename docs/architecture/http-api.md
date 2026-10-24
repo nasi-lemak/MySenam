@@ -164,7 +164,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
 | GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
 | GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry |
-| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark? }`, `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }` |
+| POST | `/api/tournaments/:id` | `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark?, birthDate?, partnerBirthDate?, rosterEligible? }` (dates of birth where the tournament has an age range), `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }` |
 | POST | `/api/venue-applications` | A venue asking to join. Only a marketplace takes them |
 | POST | `/api/venues/:id/enquiry` | `{ name, phone, email?, kind, wantedOn?, people?, message }`: a private hire enquiry from the venue's page, passed to its staff |
 | GET | `/api/venues/:id/qr` | The venue's booking link as a QR code (SVG), to print or share |
@@ -337,8 +337,12 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/sign-offs` | `{venueId, sport?, phone, name, email?, kind?: "operational" \| "certification", reference?, note?, expiresOn?, wholeBusiness?}`: record one (replacing one for the same number, activity, kind and scope); a certification needs `reference` and `expiresOn`; `wholeBusiness` needs whoever runs the business; `email` links the customer's account; recorded |
 | DELETE | `/api/admin/sign-offs` | `?venueId&id[&reason]`: take one back, who and why kept; recorded |
 | POST | `/api/admin/system` | `{ key }`: dealt with; the next one is news again |
-| GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments, for its staff, with the sport templates and the venue's own |
-| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once; `format` knockout, groups, round_robin or performance; `template` and `rules?` (scoring, ranking, somebody leaving); `entryKind` and `roster` for teams |
+| GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments and competitions, for its staff, with the sport templates and the venue's own |
+| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once; `format` knockout, groups, round_robin or performance; `template` and `rules?` (scoring, ranking, points by set score, somebody leaving); `entryKind` and `roster` for teams; `competitionId?` for a division of a competition (its days, hours and courts); who may enter: `entriesCloseOn?`, `ageMin?`, `ageMax?`, `membersOnly?` |
+| GET | `/api/admin/competitions` | `?venueId=` — a venue's competitions |
+| POST | `/api/admin/competitions` | A new competition, holding its courts for its days and hours: `name`, `sport`, `startsOn`, `endsOn`, `startMin`, `endMin`, `matchMinutes`, `courtIds`, `maxDivisionsPerPlayer?` (managers) |
+| GET | `/api/admin/competitions/:id` | A competition and its divisions |
+| DELETE | `/api/admin/competitions/:id` | Call it off with every division; its courts go back on sale (managers) |
 | GET | `/api/admin/tournaments/:id` | One tournament with its entries and draw |
 | POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }`, `{ action: "rules", rules }` before the draw, `{ action: "final", chosen }` (who takes a performance final's last places when level), or `{ action: "save_template", name }` |
 | POST | `/api/admin/tournaments/:id/entries/:entryId` | `{ paid?, seed?, withdraw?, reason?, note?, preview? }` — staff on one entry; `reason` withdrawn, retired or disqualified (a manager's); `preview: true` says what it would change |

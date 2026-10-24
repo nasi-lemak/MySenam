@@ -1,7 +1,7 @@
 # ADR 0013: One competition engine, configured by sport templates
 
-- **Status:** current. Built in migration 0100
-  (`0100_competition_framework.sql`). Extends
+- **Status:** current. Built in migrations 0100
+  (`0100_competition_framework.sql`) and 0104 (`0104_competition_divisions.sql`). Extends
   [ADR 0012](0012-competition-rules-and-corrections.md). What organisers and
   players see is [programmes](../../features/programmes.md#tournaments).
 - **Context:** tournaments were knockouts or groups then a knockout, scored
@@ -42,11 +42,20 @@
     in played matches opens an issue that holds the finish until a manager
     lets the results stand or replays them at a court and time the
     tournament holds; played results are kept in the record, never deleted.
+  - **Divisions are tournaments under a competition**, not a new kind of
+    draw (migration 0104): the competition holds the courts once; each
+    division keeps its own rules, entries and draw, and is scheduled into the
+    shared time around its siblings, on court and by player. One match
+    length for the whole competition keeps every division on the same slots.
+  - **Who may enter is data on the tournament**: a closing day, an age range
+    on the first day (dates of birth declared at entry, kept with the entry
+    rather than on accounts), members only, and a competition's cap on
+    divisions per player.
+  - **Table points may depend on the set score** (`setPoints`), the rule
+    kind volleyball's 3-2-1-0 needed.
 - **Consequences:** a new sport is a template, not code, wherever its
-  competition fits these formats and scoring. Divisions within one event,
-  eligibility beyond the level shown, players entering and confirming
-  results, officials, and box leagues on the same engine are not built yet
-  ([roadmap](../../roadmap/roadmap.md)). Some sports' federation rules (a
-  volleyball points table that depends on the set score, a bouldering count
-  of tops and zones) cannot be expressed in these rules and need a new rule
-  kind when wanted.
+  competition fits these formats and scoring. Players entering and
+  confirming results, officials, more formats and box leagues on the same
+  engine are not built yet ([roadmap](../../roadmap/roadmap.md)). Ranking by
+  set or point ratios and a bouldering count of tops and zones still need a
+  rule kind of their own when wanted.

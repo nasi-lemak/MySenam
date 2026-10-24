@@ -65,12 +65,15 @@ Also, in tournaments ([programmes](../features/programmes.md#tournaments)):
   already elsewhere in the knockout (P3).
 - Sport templates are common club practice, not federation regulations:
   an event run under a governing body's rules needs its rules checked and
-  set before the draw. Points tables that depend on the score (volleyball's
-  3-2-1-0), counts of tops and zones (bouldering) and forfeit scores cannot
-  be expressed yet ([roadmap](roadmap.md)) (P3).
-- One event per tournament: no divisions sharing courts; the level is shown,
-  not enforced, and there is no age or other eligibility check; a team's
-  roster is names its captain typed, not accounts (P3).
+  set before the draw. Ranking by set or point ratios, counts of tops and
+  zones (bouldering) and forfeit scores cannot be expressed yet
+  ([roadmap](roadmap.md)) (P3).
+- Divisions of a competition all play its match length, are added before
+  any draw, and keep a player apart only by account: a partner named in
+  doubles, or a roster name, is not known to be the same person in two
+  divisions. Ages come from dates of birth entrants declare, not checked
+  against a document; the level is shown, not enforced; a team's roster is
+  names its captain typed, not accounts (P3).
 - In a performance event, competitors level for the final's last place wait
   for the organiser's choice; a heat correction that would change who swam a
   final with results is refused, and a re-swim is arranged by hand (P3).

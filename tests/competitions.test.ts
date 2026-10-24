@@ -144,6 +144,7 @@ describe("sport templates", () => {
       bestOf: 3,
       draws: false,
       tablePoints: { win: 1, draw: 0, loss: 0 },
+      setPoints: null,
       rankBy: ["wins", "set_diff", "point_diff", "head_to_head"],
       retired: "win_only",
     });

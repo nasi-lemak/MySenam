@@ -442,7 +442,8 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
     ),
     levels: await all("SELECT sport, level, updated_at FROM player_levels WHERE user_id = ?", userId),
     tournaments: await all(
-      `SELECT t.name AS tournament, t.starts_on, v.name AS venue, e.name AS entered_as, e.status, e.paid_at
+      `SELECT t.name AS tournament, t.starts_on, v.name AS venue, e.name AS entered_as, e.status, e.paid_at,
+              e.birth_date AS declared_birth_date, e.partner_birth_date AS declared_partner_birth_date
          FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id JOIN venues v ON v.id = t.venue_id
         WHERE e.user_id = ? ORDER BY t.starts_on DESC`,
       userId
@@ -804,7 +805,7 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       .all(userId)) as { id: number }[];
     for (const e of entered) await withdraw(e.id);
     await db
-      .prepare("UPDATE tournament_entries SET name = ?, partner_name = NULL, user_id = NULL WHERE user_id = ?")
+      .prepare("UPDATE tournament_entries SET name = ?, partner_name = NULL, user_id = NULL, birth_date = NULL, partner_birth_date = NULL WHERE user_id = ?")
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);

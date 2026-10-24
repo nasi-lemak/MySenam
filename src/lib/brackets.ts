@@ -238,7 +238,7 @@ export interface TableResult {
 export function standings(
   entryIds: number[],
   results: TableResult[],
-  scoring: Pick<ScoringRules, "kind" | "tablePoints" | "rankBy" | "retired"> = DEFAULT_SCORING
+  scoring: Pick<ScoringRules, "kind" | "tablePoints" | "rankBy" | "retired"> & Partial<Pick<ScoringRules, "setPoints" | "bestOf">> = DEFAULT_SCORING
 ): Standing[] {
   const table = new Map<number, Standing>(
     entryIds.map((id) => [id, { entryId: id, played: 0, won: 0, drawn: 0, lost: 0, setDiff: 0, pointsFor: 0, pointDiff: 0, points: 0 }])
@@ -259,8 +259,17 @@ export function standings(
       const [win, loss] = r.winner === r.a ? [a, b] : [b, a];
       win.won++;
       loss.lost++;
-      win.points += scoring.tablePoints.win;
-      loss.points += scoring.tablePoints.loss;
+      if (scoring.setPoints && scoring.kind === "sets") {
+        // Went to the deciding set: the loser won all but one of the sets needed. A walkover or retirement is clear.
+        const parsed = r.score && !r.retired ? parseScore(r.score) : null;
+        const loserSets = parsed ? Math.min(parsed.setsA, parsed.setsB) : 0;
+        const decider = parsed !== null && loserSets === Math.floor((scoring.bestOf ?? 3) / 2);
+        win.points += decider ? scoring.setPoints.winDecider : scoring.setPoints.winClear;
+        loss.points += decider ? scoring.setPoints.loseDecider : scoring.setPoints.loseClear;
+      } else {
+        win.points += scoring.tablePoints.win;
+        loss.points += scoring.tablePoints.loss;
+      }
     }
     if (!r.score || (r.retired && scoring.retired === "win_only")) continue;
     if (scoring.kind === "tally") {
@@ -320,23 +329,30 @@ export interface ToSchedule {
   after: string[];
 }
 
+/** A slot's time, as `scheduleMatches` keys who is busy: "2026-11-20:0540". */
+export const slotTime = (s: Pick<Slot, "date" | "minute">) => `${s.date}:${String(s.minute).padStart(4, "0")}`;
+
 /**
  * Fit matches into the hours held, earliest first, so that nobody plays two
  * at once and a match starts only after the ones feeding it have finished.
  * One match a slot on a court (the slots of one tournament are all one match
- * long). Returns where each goes, or the number of matches that did not fit.
+ * long). `alreadyBusy` is who plays elsewhere then (another division of the
+ * same competition), by slot time. Returns where each goes, or the number of
+ * matches that did not fit.
  */
 export function scheduleMatches(
   matches: ToSchedule[],
-  slots: Slot[]
+  slots: Slot[],
+  alreadyBusy: Map<string, Set<string>> = new Map()
 ): { ok: true; placed: Map<string, Slot> } | { ok: false; unplaced: number } {
   const ordered = [...slots].sort((a, b) => a.date.localeCompare(b.date) || a.minute - b.minute || a.courtId - b.courtId);
   const taken = new Set<number>();
-  const busy = new Map<string, Set<string>>(); // "date:minute" → sides playing then
+  // "date:minute" → sides playing then
+  const busy = new Map<string, Set<string>>([...alreadyBusy].map(([k, v]) => [k, new Set(v)]));
   const at = new Map<string, number>(); // key → index of its slot
   const placed = new Map<string, Slot>();
   let unplaced = 0;
-  const time = (s: Slot) => `${s.date}:${String(s.minute).padStart(4, "0")}`;
+  const time = slotTime;
 
   for (const match of matches) {
     const earliest = Math.max(-1, ...match.after.map((k) => at.get(k) ?? Infinity));

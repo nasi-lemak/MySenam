@@ -24,7 +24,7 @@ export default function TournamentPage() {
   const [missing, setMissing] = useState(false);
   const [partner, setPartner] = useState("");
   const [partnerGender, setPartnerGender] = useState<"woman" | "man" | "">("");
-  const [team, setTeam] = useState({ name: "", roster: "", mark: "" });
+  const [team, setTeam] = useState<TeamForm>({ name: "", roster: "", mark: "", birth: "", partnerBirth: "", rosterOk: false });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -97,6 +97,8 @@ export default function TournamentPage() {
           {x.level && ` · ${t(`games.level.${x.level}`)}`} · {x.entryFee > 0 ? t("tour.fee", { amount: x.entryFee.toFixed(2) }) : t("tour.free")} ·{" "}
           {t(`tour.status.${x.status}`)}
         </p>
+        {x.competition && <p className="mt-1 text-sm font-medium text-slate-700">{t("tour.division", { name: x.competition.name })}</p>}
+        {eligibilityLine(t, x) && <p className="mt-1 text-sm text-slate-600">{eligibilityLine(t, x)}</p>}
         {x.description && <p className="mt-3 whitespace-pre-line text-sm text-slate-700">{x.description}</p>}
         {champion && <p className="mt-3 text-lg font-bold text-teal-700">🏆 {t("tour.champion", { name: champion })}</p>}
       </div>
@@ -342,6 +344,29 @@ function Bracket({ t, matches, names }: { t: T; matches: Match[]; names: Map<num
   );
 }
 
+/** What the entry form holds besides a partner: a team, an entry mark, and the dates of birth an age range asks for. */
+interface TeamForm {
+  name: string;
+  roster: string;
+  mark: string;
+  birth: string;
+  partnerBirth: string;
+  rosterOk: boolean;
+}
+
+/** Who may enter, as a line: ages on the first day, members only, the last day for entries. */
+function eligibilityLine(t: T, x: TournamentDetail): string {
+  const parts: string[] = [];
+  if (x.ageRange) {
+    const { min, max } = x.ageRange;
+    const ages = min !== null && max !== null ? t("tour.agesBetween", { min, max }) : min !== null ? t("tour.agesOver", { min }) : t("tour.agesUnder", { max: max ?? 0 });
+    parts.push(t("tour.agesOn", { ages, date: x.startsOn }));
+  }
+  if (x.membersOnly) parts.push(t("tour.membersOnly"));
+  if (x.entriesCloseOn) parts.push(t("tour.entriesClose", { date: x.entriesCloseOn }));
+  return parts.join(" · ");
+}
+
 function EnterBox({
   t,
   x,
@@ -363,8 +388,8 @@ function EnterBox({
   setPartner: (p: string) => void;
   partnerGender: "woman" | "man" | "";
   setPartnerGender: (g: "woman" | "man" | "") => void;
-  team: { name: string; roster: string; mark: string };
-  setTeam: (v: { name: string; roster: string; mark: string }) => void;
+  team: TeamForm;
+  setTeam: (v: TeamForm) => void;
   act: (body: object) => Promise<void>;
 }) {
   const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
@@ -410,6 +435,9 @@ function EnterBox({
           partnerGender: pg,
           ...(x.entryKind === "team" ? { teamName: team.name, roster: team.roster.split("\n").map((n) => n.trim()).filter(Boolean) } : {}),
           ...(x.format === "performance" && team.mark.trim() ? { entryMark: team.mark.trim() } : {}),
+          ...(x.ageRange
+            ? { birthDate: team.birth, ...(x.teamSize === 2 ? { partnerBirthDate: team.partnerBirth } : {}), ...(x.entryKind === "team" ? { rosterEligible: team.rosterOk } : {}) }
+            : {}),
         });
       }}
       className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -475,6 +503,36 @@ function EnterBox({
             placeholder={x.rules.performance?.measure === "time" ? "1:02.35" : "7.42"}
             className="mt-1 w-32 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
           />
+        </label>
+      )}
+      {x.ageRange && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("tour.birthDate")}
+          <input
+            type="date"
+            required
+            value={team.birth}
+            onChange={(e) => setTeam({ ...team, birth: e.target.value })}
+            className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          />
+        </label>
+      )}
+      {x.ageRange && x.teamSize === 2 && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("tour.partnerBirthDate")}
+          <input
+            type="date"
+            required
+            value={team.partnerBirth}
+            onChange={(e) => setTeam({ ...team, partnerBirth: e.target.value })}
+            className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          />
+        </label>
+      )}
+      {x.ageRange && x.entryKind === "team" && (
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <input type="checkbox" required checked={team.rosterOk} onChange={(e) => setTeam({ ...team, rosterOk: e.target.checked })} />
+          {t("tour.rosterEligible", { date: x.startsOn })}
         </label>
       )}
       <button className={button}>{t("tour.enter")}</button>

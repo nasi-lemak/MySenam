@@ -39,6 +39,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/coach-payouts$/, methods: "all" },
   { path: /^\/api\/admin\/integrations$/, methods: "all" },
   { path: /^\/api\/admin\/(leagues|tournaments)$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/competitions(\/\d+)?$/, methods: ["POST", "DELETE"] },
   // Calling one off refunds every entry; drawing and seasons shape what people paid for.
   { path: /^\/api\/admin\/(leagues|tournaments)\/\d+$/, methods: ["POST"] },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.

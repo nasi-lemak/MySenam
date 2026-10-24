@@ -12,6 +12,7 @@ import { type Sport } from "@/lib/types";
 import type { CorrectionPreview, IssueReview, Match, ResultInput, Tournament, TournamentDetail } from "@/lib/tournaments";
 import { RANK_KEYS, type CompetitionRules, type OutReason, type RankKey } from "@/lib/tournament-rules";
 import type { CompetitionTemplate, VenueTemplate } from "@/lib/competition-templates";
+import type { Competition } from "@/lib/competitions";
 import { currencySymbol, money } from "@/lib/region";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -24,6 +25,7 @@ const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
 export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [list, setList] = useState<Tournament[]>([]);
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [catalog, setCatalog] = useState<{ templates: CompetitionTemplate[]; venueTemplates: VenueTemplate[] }>({ templates: [], venueTemplates: [] });
   const [open, setOpen] = useState<TournamentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +37,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
     if (res.ok) {
       const data = await res.json();
       setList(data.tournaments);
+      setCompetitions(data.competitions ?? []);
       setCatalog({ templates: data.templates ?? [], venueTemplates: data.venueTemplates ?? [] });
     }
   }, [venueId]);
@@ -73,6 +76,15 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
     return true;
   }
 
+  async function callOff(c: Competition) {
+    if (!confirm(`Call off ${c.name} and every division in it? Entrants are told, fees paid online are owed back, and the courts go back on sale.`)) return;
+    setError(null);
+    const res = await fetch(`/api/admin/competitions/${c.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) setError(data.error ?? "That did not work.");
+    await load();
+  }
+
   if (!venue) return <p className="text-sm text-slate-500">No venue.</p>;
   return (
     <div className="space-y-4">
@@ -100,7 +112,8 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
                 {list.map((t) => (
                   <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span>
-                      <span className="font-medium">{t.name}</span> · {t.startsOn}
+                      <span className="font-medium">{t.name}</span>
+                      {t.competition && <span className="text-slate-500"> ({t.competition.name})</span>} · {t.startsOn}
                       {t.endsOn !== t.startsOn && ` to ${t.endsOn}`} · {t.entered}/{t.maxEntries} entered
                       {t.waitlisted > 0 && `, ${t.waitlisted} waiting`} · <span className="text-slate-500">{t.status}</span>
                     </span>
@@ -112,7 +125,31 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
               </ul>
             )}
           </section>
-          {catalog.templates.length > 0 && <Create venue={venue} post={post} catalog={catalog} />}
+          {competitions.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="font-semibold">Competitions</h2>
+              <p className="mt-0.5 text-xs text-slate-500">One event holding its courts once, with divisions inside it, each drawn on its own and scheduled around the others.</p>
+              <ul className="mt-2 divide-y divide-slate-100 text-sm">
+                {competitions.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <span>
+                      <span className="font-medium">{c.name}</span> · {c.startsOn}
+                      {c.endsOn !== c.startsOn && ` to ${c.endsOn}`}, {formatMinute(c.startMin)}–{formatMinute(c.endMin)} ·{" "}
+                      {list.filter((t) => t.competition?.id === c.id).length} division(s)
+                      {c.maxDivisionsPerPlayer !== null && ` · up to ${c.maxDivisionsPerPlayer} per player`} · <span className="text-slate-500">{c.status}</span>
+                    </span>
+                    {c.status === "open" && (
+                      <button onClick={() => void callOff(c)} className="text-sm text-red-700 underline">
+                        Call off
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {catalog.templates.length > 0 && <Create venue={venue} post={post} catalog={catalog} competitions={competitions.filter((c) => c.status === "open")} />}
+          <CreateCompetition venue={venue} post={post} />
         </>
       )}
     </div>
@@ -130,10 +167,12 @@ function Create({
   venue,
   post,
   catalog,
+  competitions,
 }: {
   venue: ManagedVenue;
   post: (url: string, body: object) => Promise<boolean>;
   catalog: { templates: CompetitionTemplate[]; venueTemplates: VenueTemplate[] };
+  competitions: Competition[];
 }) {
   const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
   const start = addDays(todayLocal(), 14);
@@ -163,7 +202,14 @@ function Create({
     courtIds: [] as number[],
     description: "",
     rules: first.rules as CompetitionRules,
+    // A division of a competition (its days, hours and courts), and who may enter.
+    competitionId: "",
+    entriesCloseOn: "",
+    ageMin: "",
+    ageMax: "",
+    membersOnly: false,
   });
+  const partOf = competitions.find((c) => String(c.id) === f.competitionId) ?? null;
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
   const label = "flex flex-col text-xs font-medium text-slate-500";
   const template = catalog.templates.find((x) => x.key === f.template) ?? first;
@@ -188,6 +234,10 @@ function Create({
         e.preventDefault();
         const ok = await post("/api/admin/tournaments", {
           ...f,
+          competitionId: partOf ? partOf.id : null,
+          entriesCloseOn: f.entriesCloseOn || null,
+          ageMin: f.ageMin === "" ? null : Number(f.ageMin),
+          ageMax: f.ageMax === "" ? null : Number(f.ageMax),
           teamSize: f.entryKind === "pair" ? 2 : 1,
           roster: f.entryKind === "team" ? f.roster : undefined,
           venueId: venue.id,
@@ -203,6 +253,27 @@ function Create({
       className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-white p-4"
     >
       <h2 className="font-semibold">Set up a tournament</h2>
+      {competitions.length > 0 && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Part of
+          <select
+            value={f.competitionId}
+            onChange={(e) => {
+              const c = competitions.find((x) => String(x.id) === e.target.value);
+              if (c) setF({ ...f, competitionId: e.target.value, sport: c.sport as Sport, template: templateFor(c.sport).key, rules: templateFor(c.sport).rules });
+              else setF({ ...f, competitionId: "" });
+            }}
+            className={`w-72 ${input}`}
+          >
+            <option value="">On its own, holding its own courts</option>
+            {competitions.map((c) => (
+              <option key={c.id} value={c.id}>
+                A division of {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <p className="text-sm text-slate-500">
         The courts are held for those hours from now on, so nobody can book them. Players enter at /tournaments; you
         make the draw when entries close.
@@ -340,6 +411,12 @@ function Create({
           </>
         )}
       </div>
+      {partOf ? (
+        <p className="text-sm text-slate-600">
+          Played in {partOf.name}&apos;s time: {partOf.startsOn}
+          {partOf.endsOn !== partOf.startsOn && ` to ${partOf.endsOn}`}, {formatMinute(partOf.startMin)}–{formatMinute(partOf.endMin)}, {partOf.matchMinutes} minutes a match, on its courts.
+        </p>
+      ) : (
       <div className="flex flex-wrap items-end gap-3">
         <label className={label}>
           First day
@@ -379,6 +456,28 @@ function Create({
           </div>
         </fieldset>
       </div>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className={label}>
+          Entries close after (optional)
+          <input type="date" value={f.entriesCloseOn} onChange={(e) => setF({ ...f, entriesCloseOn: e.target.value })} className={input} />
+        </label>
+        <label className={label}>
+          Ages on the first day (optional)
+          <span className="flex items-center gap-1">
+            <input type="number" min={3} max={99} placeholder="from" aria-label="Youngest age" value={f.ageMin} onChange={(e) => setF({ ...f, ageMin: e.target.value })} className={`w-16 ${input}`} />
+            –
+            <input type="number" min={3} max={99} placeholder="to" aria-label="Oldest age" value={f.ageMax} onChange={(e) => setF({ ...f, ageMax: e.target.value })} className={`w-16 ${input}`} />
+          </span>
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600">
+          <input type="checkbox" checked={f.membersOnly} onChange={(e) => setF({ ...f, membersOnly: e.target.checked })} />
+          Members only
+        </label>
+      </div>
+      {(f.ageMin || f.ageMax) && (
+        <p className="text-xs text-slate-500">Entrants declare their date of birth (and a partner&apos;s); a team&apos;s captain declares the roster within the ages. Nobody checks a document here: check at the venue if it matters.</p>
+      )}
       <textarea placeholder="About it, for players (optional): prizes, rules, shuttles" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={`w-full ${input}`} />
       <p className="text-xs text-slate-500">
         {template.note} Templates are common club practice, not a governing body&apos;s regulations: check them against the rules you play
@@ -391,6 +490,101 @@ function Create({
       </details>
       <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Set it up and hold the courts</button>
     </form>
+  );
+}
+
+/** A competition: one event holding its courts once, for divisions added to it as tournaments. */
+function CreateCompetition({ venue, post }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean> }) {
+  const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
+  const start = addDays(todayLocal(), 21);
+  const [f, setF] = useState({
+    name: "",
+    sport: (sports[0] ?? "badminton") as Sport,
+    startsOn: start,
+    endsOn: start,
+    startMin: Math.max(venue.openMin, 9 * 60),
+    endMin: Math.min(venue.closeMin, 18 * 60),
+    matchMinutes: "45",
+    courtIds: [] as number[],
+    maxDivisionsPerPlayer: "",
+  });
+  const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
+  const label = "flex flex-col text-xs font-medium text-slate-500";
+  return (
+    <details className="rounded-xl border border-dashed border-slate-300 bg-white p-4">
+      <summary className="cursor-pointer font-semibold">Set up a competition with divisions</summary>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const ok = await post("/api/admin/competitions", {
+            ...f,
+            venueId: venue.id,
+            matchMinutes: Number(f.matchMinutes),
+            courtIds: f.courtIds.length ? f.courtIds : courts.map((c) => c.id),
+            maxDivisionsPerPlayer: f.maxDivisionsPerPlayer === "" ? null : Number(f.maxDivisionsPerPlayer),
+          });
+          if (ok) setF({ ...f, name: "" });
+        }}
+        className="mt-3 space-y-3"
+      >
+        <p className="text-sm text-slate-500">
+          The courts are held for these days and hours at once. Then add each division (singles, doubles, under 12s) above, choosing this
+          competition under &quot;Part of&quot;: each has its own format, rules, entries and draw, and every division&apos;s matches are this long.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className={label}>
+            Name
+            <input required minLength={3} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`w-64 ${input}`} placeholder="Club Championships 2026" />
+          </label>
+          <label className={label}>
+            Sport
+            <select value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value as Sport, courtIds: [] })} className={input}>
+              {sports.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={label}>
+            First day
+            <input type="date" value={f.startsOn} onChange={(e) => setF({ ...f, startsOn: e.target.value, endsOn: e.target.value > f.endsOn ? e.target.value : f.endsOn })} className={input} />
+          </label>
+          <label className={label}>
+            Last day
+            <input type="date" min={f.startsOn} value={f.endsOn} onChange={(e) => setF({ ...f, endsOn: e.target.value })} className={input} />
+          </label>
+          <label className={label}>
+            From
+            <ClockField label="From" value={f.startMin} onChange={(m) => setF({ ...f, startMin: m })} className={input} />
+          </label>
+          <label className={label}>
+            Until
+            <ClockField label="Until" value={f.endMin} after={f.startMin} onChange={(m) => setF({ ...f, endMin: m })} className={input} />
+          </label>
+          <label className={label}>
+            Each match (minutes)
+            <input type="number" min={5} max={600} value={f.matchMinutes} onChange={(e) => setF({ ...f, matchMinutes: e.target.value })} className={`w-20 ${input}`} />
+          </label>
+          <label className={label}>
+            Divisions per player (optional)
+            <input type="number" min={1} max={20} value={f.maxDivisionsPerPlayer} onChange={(e) => setF({ ...f, maxDivisionsPerPlayer: e.target.value })} className={`w-20 ${input}`} />
+          </label>
+        </div>
+        <fieldset className="text-sm">
+          <legend className="text-xs font-medium text-slate-500">Courts (all, unless you pick)</legend>
+          <div className="flex flex-wrap gap-3 pt-1">
+            {courts.map((c) => (
+              <label key={c.id} className="inline-flex items-center gap-1">
+                <input type="checkbox" checked={f.courtIds.includes(c.id)} onChange={() => setF({ ...f, courtIds: f.courtIds.includes(c.id) ? f.courtIds.filter((x) => x !== c.id) : [...f.courtIds, c.id] })} />
+                {c.name}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Set it up and hold the courts</button>
+      </form>
+    </details>
   );
 }
 
@@ -532,6 +726,36 @@ function ScoringFields({ rules, onChange, disabled = false }: { rules: Competiti
           ))}
         </span>
       </label>
+      {sc.kind === "sets" && (
+        <label className={label}>
+          <span className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              disabled={disabled}
+              checked={sc.setPoints !== null}
+              onChange={(e) => set({ setPoints: e.target.checked ? { winClear: 3, winDecider: 2, loseDecider: 1, loseClear: 0 } : null })}
+            />
+            Table points by set score: clear win / deciding-set win / deciding-set loss / clear loss
+          </span>
+          {sc.setPoints && (
+            <span className="flex gap-1">
+              {(["winClear", "winDecider", "loseDecider", "loseClear"] as const).map((k) => (
+                <input
+                  key={k}
+                  aria-label={`Points: ${k}`}
+                  disabled={disabled}
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={sc.setPoints![k]}
+                  onChange={(e) => set({ setPoints: { ...sc.setPoints!, [k]: Number(e.target.value) } })}
+                  className={`w-14 ${input}`}
+                />
+              ))}
+            </span>
+          )}
+        </label>
+      )}
       <label className={label}>
         Tables ranked by, in order
         <span className="flex flex-wrap gap-1">

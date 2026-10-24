@@ -139,6 +139,7 @@ rules, which start from the sport's template
   | Best of five games | table tennis, squash | As above, best of five |
   | Best of three sets | tennis, padel | Sets of games ("6-4, 3-6, 7-5") |
   | Volleyball sets | volleyball (teams) | Sets; wins, set and point difference |
+  | Volleyball, points by set score | volleyball (teams or pairs) | Best of five; 3 table points for a 3-0 or 3-1 win, 2 for a 3-2 win, 1 for a 2-3 loss, 0 for a clear loss (a walkover or retirement counts as clear); points, wins, set and point difference |
   | Goals, with draws | futsal, football, floorball, water polo, netball (teams) | Goals ("3-2"); group matches may be drawn; 3 points a win, 1 a draw; goal difference, goals scored, who beat whom; a level knockout match needs its winner and how ("2-2 (penalties 4-3)") |
   | Points, no draws | basketball (teams) | Points ("78-71"); 2 a win, 1 a loss; who beat whom, point difference, points scored |
   | Timed heats and a final | swimming | One swim each, eight to a heat, the eight fastest in the final |
@@ -164,6 +165,40 @@ rules, which start from the sport's template
   venue, or at its counter, where staff tick it off. Past the limit they go on
   a waiting list, and move up, and are told, when somebody withdraws. In a
   performance event they can give an entry time or mark to be seeded by.
+- **Who may enter**, each optional, shown on the public page:
+  - **Entries close** after a given day (before the first day), in the
+    venue's time: entering is refused after it, and the scheduler closes the
+    tournament for the draw.
+  - **Ages** on the first day, from and to: the entrant declares a date of
+    birth, and a partner's in doubles; a team's captain declares that the
+    roster is within the ages. Nothing is checked against a document: the
+    venue checks on the day if it matters. A declared date of birth is in the
+    player's data export and erased with their account.
+  - **Members only:** an active membership at the venue.
+  - Points by set score, where wanted, under *Scoring and ranking*: four
+    numbers for a clear win, a deciding-set win, a deciding-set loss and a
+    clear loss, in place of points per win.
+
+### Competitions with divisions
+
+A **competition** is one event — a club championship, a junior open —
+holding its courts for its days and hours once (*Set up a competition with
+divisions*). Each **division** is a tournament set up as *Part of* it: men's
+singles, girls under 12, mixed doubles, each with its own format, rules,
+who may enter, fee, entries and draw (`src/lib/competitions.ts`).
+
+- A division takes the competition's days, hours, courts and match length;
+  it holds nothing of its own.
+- Each division's draw is scheduled into the competition's time around the
+  matches the other divisions already have: never two matches on one court,
+  and a player (by account) in two divisions never on court in both at
+  once. Divisions are added before any draw.
+- The competition can limit how many divisions one player enters.
+- Held time no division will use goes back on sale once every division still
+  running has made its draw, and more as results come in. Calling off one
+  division gives back what it no longer needs once the rest are drawn;
+  calling off the competition calls off every division (entrants told, fees
+  paid online owed back) and gives the courts back.
 
 ### The draw and the schedule
 
