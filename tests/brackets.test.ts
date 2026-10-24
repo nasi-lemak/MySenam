@@ -16,7 +16,7 @@ import {
   parseTally,
   scoreRefusal,
 } from "../src/lib/brackets";
-import { DEFAULT_SCORING, type RankKey } from "../src/lib/tournament-rules";
+import { DEFAULT_SCORING, parseRules, walkoverRefusal, type RankKey } from "../src/lib/tournament-rules";
 
 /** Who meets whom, where byes fall, how groups finish, and fitting matches into court time. */
 
@@ -185,6 +185,65 @@ describe("scoring by the sport's rules", () => {
     const results = [{ a: 1, b: 2, winner: 2, score: "21-15, 3-8", retired: true }];
     expect(standings([1, 2], results).find((s) => s.entryId === 2)).toMatchObject({ won: 1, setDiff: 0, pointDiff: 0 });
     expect(standings([1, 2], results, { ...DEFAULT_SCORING, retired: "as_played" }).find((s) => s.entryId === 2)).toMatchObject({ won: 1, setDiff: 0, pointDiff: -1 });
+  });
+});
+
+describe("ratios and forfeit scores", () => {
+  const order = (table: { entryId: number }[], ids: number[]) => table.map((s) => s.entryId).filter((id) => ids.includes(id));
+  const sets5 = { kind: "sets" as const, bestOf: 5, draws: false, tablePoints: { win: 2, draw: 1, loss: 0 }, retired: "win_only" as const };
+  const goals = { kind: "tally" as const, bestOf: 1, draws: true, tablePoints: { win: 3, draw: 1, loss: 0 }, retired: "win_only" as const };
+
+  it("ranks by set ratio where the difference is level: 5-3 above 6-4", () => {
+    const results = [
+      { a: 1, b: 3, winner: 1, score: "11-5, 11-5, 5-11, 5-11, 11-5" },
+      { a: 1, b: 4, winner: 1, score: "11-5, 11-5, 5-11, 5-11, 11-5" },
+      { a: 2, b: 3, winner: 2, score: "11-5, 11-5, 11-5" },
+      { a: 2, b: 4, winner: 4, score: "11-5, 11-5, 5-11, 5-11, 5-11" },
+    ];
+    const byDiff = standings([1, 2, 3, 4], results, { ...sets5, rankBy: ["set_diff"] });
+    const byRatio = standings([1, 2, 3, 4], results, { ...sets5, rankBy: ["set_ratio"] });
+    expect(byRatio.find((s) => s.entryId === 1)).toMatchObject({ setsWon: 6, setsLost: 4, setDiff: 2 });
+    expect(byRatio.find((s) => s.entryId === 2)).toMatchObject({ setsWon: 5, setsLost: 3, setDiff: 2 });
+    // Level on difference, the entry's id settles it; on ratio, 5/3 beats 6/4.
+    expect(order(byDiff, [1, 2])).toEqual([1, 2]);
+    expect(order(byRatio, [1, 2])).toEqual([2, 1]);
+  });
+
+  it("ranks by point ratio, with nothing conceded above any ratio and nothing at all at the foot", () => {
+    const results = [
+      { a: 1, b: 3, winner: 1, score: "4-2" },
+      { a: 2, b: 4, winner: 2, score: "3-1" },
+      { a: 5, b: 6, winner: 5, score: "1-0" },
+    ];
+    const table = standings([1, 2, 3, 4, 5, 6, 7], results, { ...goals, rankBy: ["point_ratio"] });
+    expect(table.find((s) => s.entryId === 1)).toMatchObject({ pointsFor: 4, pointsAgainst: 2 });
+    expect(order(table, [1, 2, 5, 7])).toEqual([5, 2, 1, 7]);
+    expect(order(standings([1, 2], results, { ...goals, rankBy: ["point_diff"] }), [1, 2])).toEqual([1, 2]);
+  });
+
+  it("counts a walkover at the rules' forfeit score, from the winner's side; with none set, the win only", () => {
+    const results = [{ a: 1, b: 2, winner: 2, score: null, walkover: true }];
+    expect(standings([1, 2], results, { ...goals, rankBy: ["points"], walkover: "3-0" }).find((s) => s.entryId === 2)).toMatchObject({ won: 1, pointsFor: 3, pointDiff: 3, points: 3 });
+    expect(standings([1, 2], results, { ...goals, rankBy: ["points"], walkover: null }).find((s) => s.entryId === 2)).toMatchObject({ won: 1, pointsFor: 0, pointDiff: 0 });
+    const volleyball = { ...sets5, rankBy: ["points" as RankKey], setPoints: { winClear: 3, winDecider: 2, loseDecider: 1, loseClear: 0 }, walkover: "25-0, 25-0, 25-0" };
+    const table = standings([1, 2], results, volleyball);
+    expect(table.find((s) => s.entryId === 2)).toMatchObject({ setsWon: 3, setsLost: 0, pointsFor: 75, points: 3 });
+    expect(table.find((s) => s.entryId === 1)).toMatchObject({ setsWon: 0, setsLost: 3, pointsAgainst: 75, points: 0 });
+  });
+
+  it("refuses a forfeit score that is not a winning result of the match as set up", () => {
+    expect(walkoverRefusal("3-0", "tally", 1)).toBeNull();
+    expect(walkoverRefusal(null, "sets", 5)).toBeNull();
+    expect(walkoverRefusal("0-3", "tally", 1)).toMatch(/first, and ahead/);
+    expect(walkoverRefusal("3-0, 3-0", "tally", 1)).toMatch(/one score/);
+    expect(walkoverRefusal("25-0, 25-0", "sets", 5)).toMatch(/best of 5 is 3 sets/);
+    expect(walkoverRefusal("three nil", "tally", 1)).toMatch(/Write/);
+    expect(parseRules({ scoring: { kind: "tally", walkover: "3-0" } })).toMatchObject({ ok: true, rules: { scoring: { walkover: "3-0" } } });
+    // Changing the match cannot quietly drop a forfeit score set before.
+    const set = parseRules({ scoring: { bestOf: 5, walkover: "25-0, 25-0, 25-0" } });
+    if (!set.ok) throw new Error(set.error);
+    expect(parseRules({ scoring: { bestOf: 3 } }, set.rules)).toMatchObject({ ok: false });
+    expect(parseRules({ scoring: { bestOf: 3, walkover: "25-0, 25-0" } }, set.rules)).toMatchObject({ ok: true });
   });
 });
 

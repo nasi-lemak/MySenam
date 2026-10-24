@@ -149,6 +149,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Tournament reports nobody answered stand.
+    await (await import("./match-reports")).standUnansweredReports();
+  } catch (err) {
+    console.error("[mysenam] standing unanswered reports failed:", err);
+    await raiseAlert("scheduler:unanswered-reports-failed", "Scheduled work failed: standing unanswered tournament reports", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Free hours earned by regulars at venues that give them, once a day.
     await grantLoyaltyIfDue();
   } catch (err) {

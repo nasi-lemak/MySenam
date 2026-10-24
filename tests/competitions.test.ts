@@ -147,7 +147,11 @@ describe("sport templates", () => {
       setPoints: null,
       rankBy: ["wins", "set_diff", "point_diff", "head_to_head"],
       retired: "win_only",
+      // A walkover counts the win only, as it always did.
+      walkover: null,
     });
+    expect(templateByKey("volleyball_points")!.rules.scoring.walkover).toBe("25-0, 25-0, 25-0");
+    expect(templateByKey("goals_league")!.rules.scoring.walkover).toBe("3-0");
     // An organiser's change is laid over the template, and checked.
     const basketball = templateByKey("basketball_points")!.rules;
     const changed = parseRules({ scoring: { tablePoints: { loss: 0 } } }, basketball);

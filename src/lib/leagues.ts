@@ -354,7 +354,7 @@ const counts = (m: LeagueMatch) => m.status === "confirmed" || m.status === "wal
 function boxTable(places: Place[], matches: LeagueMatch[], scoring: CompetitionRules["scoring"]): Standing[] {
   const table = standings(
     places.map((p) => p.playerId),
-    matches.map((m) => ({ a: m.a, b: m.b, winner: counts(m) ? m.winner : null, score: m.status === "confirmed" ? m.score : null })),
+    matches.map((m) => ({ a: m.a, b: m.b, winner: counts(m) ? m.winner : null, score: m.status === "confirmed" ? m.score : null, walkover: m.status === "walkover" })),
     scoring
   );
   const gone = new Set(places.filter((p) => p.withdrawn).map((p) => p.playerId));

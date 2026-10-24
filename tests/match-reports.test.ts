@@ -8,10 +8,10 @@ vi.mock("next/headers", () => ({
 }));
 
 import { NextRequest } from "next/server";
-import { ADMIN_SESSION_COOKIE, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { addOfficial, answerReport, officialByToken, officialResult, openReports, reportResult, revokeOfficial } from "../src/lib/match-reports";
+import { addOfficial, answerReport, officialByToken, officialResult, openReports, REPORT_STANDS_HOURS, reportResult, revokeOfficial, standUnansweredReports } from "../src/lib/match-reports";
 import { listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { createTournament, enter, makeDraw, recordResult, tournamentDetail, type TournamentInput } from "../src/lib/tournaments";
@@ -103,6 +103,57 @@ describe("players entering their own results", () => {
 
     const staffRun = await drawn({ resultsBy: "staff" });
     expect(await reportResult(staffRun.sideA.id, staffRun.match.id, { winner: staffRun.match.a!, score: "21-10, 21-12" })).toMatchObject({ ok: false, error: expect.stringMatching(/venue enters/) });
+  });
+});
+
+describe("a report nobody answers", () => {
+  const db = () => getDb();
+  /** As if the report had waited longer than it may. */
+  const aged = (matchId: number) =>
+    db().prepare(`UPDATE tournament_reports SET created_at = datetime('now', '-${REPORT_STANDS_HOURS + 1} hours') WHERE match_id = ? AND status = 'pending'`).run(matchId);
+
+  it("asks the other side, says silence lets it stand, and stands a day later as the players' result", async () => {
+    const { t, match, sideA, sideB } = await drawn();
+    expect(await reportResult(sideA.id, match.id, { winner: match.a!, score: "21-10, 21-12" })).toMatchObject({ ok: true });
+    const asked = (await db().prepare("SELECT subject, body FROM messages WHERE recipient = ? AND kind = 'programme' ORDER BY id DESC").get(sideB.email)) as {
+      subject: string;
+      body: string;
+    };
+    expect(asked.subject).toBe(`Confirm your result: ${t.name}`);
+    expect(asked.body).toContain(`as 21-10, 21-12`);
+    expect(asked.body).toContain(`it stands in ${REPORT_STANDS_HOURS} hours`);
+
+    // Not yet a day: it waits.
+    expect(await standUnansweredReports()).toBe(0);
+    await aged(match.id);
+    expect(await standUnansweredReports()).toBe(1);
+    expect((await tournamentDetail(t.id))!.matches.find((m) => m.id === match.id)).toMatchObject({ winner: match.a, score: "21-10, 21-12", status: "done", resultBy: "players" });
+    expect(await openReports(t.id)).toEqual([]);
+    // Once only.
+    expect(await standUnansweredReports()).toBe(0);
+  });
+
+  it("is never dropped: one that can no longer be recorded goes to the venue's staff as disputed", async () => {
+    const { t, match, sideA } = await drawn();
+    const desk = await createAdmin({ name: "Desk", email: "desk@rep.my", password: "desk-password", venueId });
+    if (!desk.ok) throw new Error(desk.error);
+    expect(await reportResult(sideA.id, match.id, { winner: match.a!, score: "21-10, 21-12" })).toMatchObject({ ok: true });
+    // Its score no longer fits the result (as if the rules had changed under it).
+    await db().prepare("UPDATE tournament_reports SET score = '10-21, 12-21' WHERE match_id = ? AND status = 'pending'").run(match.id);
+    await aged(match.id);
+    expect(await standUnansweredReports()).toBe(0);
+    expect(await openReports(t.id)).toEqual([expect.objectContaining({ status: "disputed", disputeNote: expect.stringMatching(/^Unanswered, and could not be recorded/) })]);
+    expect((await tournamentDetail(t.id))!.matches.find((m) => m.id === match.id)!.winner).toBeNull();
+    const told = (await db().prepare("SELECT recipient FROM messages WHERE subject = ?").all(`A result needs entering: ${t.name}`)) as { recipient: string }[];
+    expect(told.map((m) => m.recipient)).toContain("desk@rep.my");
+  });
+
+  it("is answered in time like any other: confirmed before the day is out, nothing is left to stand", async () => {
+    const { match, sideA, sideB } = await drawn();
+    expect(await reportResult(sideA.id, match.id, { winner: match.a!, score: "21-10, 21-12" })).toMatchObject({ ok: true });
+    expect(await answerReport(sideB.id, match.id, { confirm: true })).toMatchObject({ ok: true });
+    await aged(match.id);
+    expect(await standUnansweredReports()).toBe(0);
   });
 });
 

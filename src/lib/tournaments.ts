@@ -398,7 +398,7 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
       inGroup
         .filter((m) => !voided.has(m.a!) && !voided.has(m.b!))
         // A retirement counts as a win; its partial score counts only where the rules say "as_played".
-        .map((m) => ({ a: m.a!, b: m.b!, winner: m.winner, score: m.score, draw: m.status === "done" && m.winner === null, retired: m.status === "retired" })),
+        .map((m) => ({ a: m.a!, b: m.b!, winner: m.winner, score: m.score, draw: m.status === "done" && m.winner === null, retired: m.status === "retired", walkover: m.status === "walkover" })),
       t.rules.scoring
     ).map((s) => ({ ...s, out: out.get(s.entryId)?.reason ?? null, resultsVoid: voided.has(s.entryId) }));
     // Void results leave nothing to rank by: listed after everybody whose results count.
@@ -2692,6 +2692,23 @@ async function fillKnockout(tournamentId: number): Promise<void> {
           WHERE tournament_id = ? AND stage = 'knockout'`
       )
       .run(tournamentId);
+    // Filled again after a group result was put right or somebody left: who
+    // is newly in it, and who is no longer, are told (as a replay's players are).
+    const before = new Set(firstRoundMatches.flatMap((m) => [m.a, m.b]).filter((e): e is number => e !== null));
+    const after = new Set(pairs.flat().filter((e): e is number => e !== null));
+    // Somebody who left knows they did: only those still in are told.
+    const stillIn = new Set(detail.entries.filter((e) => !e.out).map((e) => e.id));
+    const accounts = (await db.prepare("SELECT id, user_id FROM tournament_entries WHERE tournament_id = ? AND user_id IS NOT NULL").all(tournamentId)) as {
+      id: number;
+      user_id: number;
+    }[];
+    const userOf = new Map(accounts.filter((a) => stillIn.has(a.id)).map((a) => [a.id, a.user_id]));
+    for (const id of after)
+      if (!before.has(id) && userOf.get(id))
+        await tellEntrant(userOf.get(id)!, t, `You're through: ${t.name}`, `The knockout of ${t.name} has changed after a group result was put right or somebody left, and you now go through to it. Your first match is on the draw.`);
+    for (const id of before)
+      if (!after.has(id) && userOf.get(id))
+        await tellEntrant(userOf.get(id)!, t, `The knockout has changed: ${t.name}`, `The knockout of ${t.name} has changed after a group result was put right or somebody left, and you no longer go through to it. The tables are on the draw.`);
   }
   for (let i = 0; i < firstRoundMatches.length; i++) {
     const [a, b] = pairs[i];
@@ -2868,7 +2885,7 @@ async function entrants(tournamentId: number): Promise<number[]> {
   ).map((r) => r.user_id);
 }
 
-async function tellEntrant(userId: number, t: Tournament, subject: string, body: string): Promise<void> {
+export async function tellEntrant(userId: number, t: Tournament, subject: string, body: string): Promise<void> {
   await emailPlayer({ venueId: t.venueId, userId, subject, body, link: `${baseUrl()}/tournaments/${t.id}` });
 }
 

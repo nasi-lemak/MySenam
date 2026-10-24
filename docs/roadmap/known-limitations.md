@@ -145,9 +145,6 @@ code); scripts need the response's nonce (resolved below).
 
 Also, in [tournaments](../features/tournaments.md):
 
-- A knockout filled again after a group result is put right, a withdrawal,
-  or a correction is shown on the draw, but the players moved in or out are
-  not messaged; only replays are (P3).
 - A correction never rewrites a match already played. Where it means the
   wrong competitor went on, the tournament is held under review until a
   manager lets the results stand or replays them; a replay that changes who
@@ -156,9 +153,8 @@ Also, in [tournaments](../features/tournaments.md):
   already elsewhere in the knockout (P3).
 - Sport templates are common club practice, not federation regulations:
   an event run under a governing body's rules needs its rules checked and
-  set before the draw. Ranking by set or point ratios, counts of tops and
-  zones (bouldering) and forfeit scores cannot be expressed yet
-  ([roadmap](roadmap.md)) (P3).
+  set before the draw. Counts of tops and zones (bouldering) cannot be
+  expressed yet ([roadmap](roadmap.md)) (P3).
 - Divisions of a competition all play its match length, are added before
   any draw, and keep a player apart only by account: a partner named in
   doubles, or a roster name, is not known to be the same person in two
@@ -168,11 +164,9 @@ Also, in [tournaments](../features/tournaments.md):
 - In a performance event, competitors level for the final's last place wait
   for the organiser's choice; a heat correction that would change who swam a
   final with results is refused, and a re-swim is arranged by hand (P3).
-- A player's report in a tournament waits for the other side with no time
-  limit (unlike a league's three days): staff enter the result if nobody
-  answers. An official's link is a bearer link: whoever holds it can enter
-  that tournament's results until staff withdraw it or the tournament ends
-  (P3).
+- An official's link is a bearer link: whoever holds it can enter that
+  tournament's results until staff withdraw it or the tournament ends
+  (P3, by design: officials are often volunteers without an account).
 - Box leagues share the competition rules for scores and tables, but are
   still their own engine for seasons and boxes; a league match always has a
   winner (P3).
@@ -401,6 +395,9 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A deposit charged back after the rest was paid online left the booking showing paid in full | The booking owes the deposit's part again; the rest keeps its receipt under its own payment's key, so a later cancellation still owes it back ([payments](../features/payments-and-credit.md)) | `tests/stripe-disputes.test.ts` ("lost on a deposit after the rest was paid online…") |
 | A lost dispute on a platform invoice or WhatsApp pack left it showing paid | Lost in full: the invoice is due again in 14 days (voidable by an owner); the pack is due again and its messages taken back, below nothing for any already sent | `tests/stripe-disputes.test.ts` ("…lost, the invoice is owed again") |
 | A refund on withdrawing from a tournament before the draw, and a league fee paid after leaving, were untested | Tests added: owed back in full where the rules say so; a fee paid after leaving is owed back with no receipt and the place not marked paid | `tests/tournaments.test.ts`, `tests/leagues.test.ts` |
+| Players moved into or out of a knockout filled again were not messaged | Those newly through and those no longer through are emailed; somebody who left is not ([tournaments](../features/tournaments.md#corrections-after-the-knockout-has-begun)) | `tests/tournaments.test.ts` ("tells who is newly through…", "tells the one who takes their place…") |
+| Ranking by set or point ratios, and a forfeit score, could not be expressed | Rank keys `set_ratio` and `point_ratio`; a walkover's score in the rules, checked against the match as set up, used in the tables of tournaments and box leagues; the volleyball and goals templates carry one ([tournaments](../features/tournaments.md)) | `tests/brackets.test.ts` ("ratios and forfeit scores"), `tests/competitions.test.ts` |
+| A player's tournament report waited for the other side with no time limit | The other side is emailed; unanswered for 24 hours it stands through the same checks, or goes to staff as disputed if it no longer can ([tournaments](../features/tournaments.md#results)) | `tests/match-reports.test.ts` ("a report nobody answers") |
 
 ## Production readiness
 

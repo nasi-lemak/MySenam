@@ -23,8 +23,8 @@ export const OUT_REASONS: OutReason[] = ["withdrawn", "retired", "disqualified"]
 export type OutStage = "before_draw" | "groups" | "knockout";
 
 /** What a table is ranked by, in order; the entry's id settles anything still level. */
-export type RankKey = "points" | "wins" | "set_diff" | "point_diff" | "points_for" | "head_to_head";
-export const RANK_KEYS: RankKey[] = ["points", "wins", "set_diff", "point_diff", "points_for", "head_to_head"];
+export type RankKey = "points" | "wins" | "set_diff" | "set_ratio" | "point_diff" | "point_ratio" | "points_for" | "head_to_head";
+export const RANK_KEYS: RankKey[] = ["points", "wins", "set_diff", "set_ratio", "point_diff", "point_ratio", "points_for", "head_to_head"];
 
 export interface ScoringRules {
   /**
@@ -55,6 +55,12 @@ export interface ScoringRules {
    * played count, as they stood.
    */
   retired: "win_only" | "as_played";
+  /**
+   * The score a walkover (a forfeit) counts as in the table, from the
+   * winner's side: "3-0" for goals, "25-0, 25-0, 25-0" for sets. Null counts
+   * the win and no score, as before forfeits could be scored.
+   */
+  walkover: string | null;
 }
 
 export interface PerformanceRules {
@@ -92,6 +98,7 @@ export const DEFAULT_SCORING: ScoringRules = {
   setPoints: null,
   rankBy: ["wins", "set_diff", "point_diff", "head_to_head"],
   retired: "win_only",
+  walkover: null,
 };
 
 export const DEFAULT_PERFORMANCE: PerformanceRules = { measure: "time", better: "lower", attempts: 1, aggregate: "best", heatSize: 8, finalSize: 8 };
@@ -123,7 +130,26 @@ function readScoring(raw: unknown): ScoringRules {
     setPoints: s.kind !== "tally" ? readSetPoints(s.setPoints) : null,
     rankBy: rankBy.length > 0 ? [...new Set(rankBy)] : DEFAULT_SCORING.rankBy,
     retired: s.retired === "as_played" ? "as_played" : "win_only",
+    walkover: walkoverRefusal(s.walkover, s.kind === "tally" ? "tally" : "sets", [1, 3, 5, 7].includes(s.bestOf as number) ? (s.bestOf as number) : DEFAULT_SCORING.bestOf) === null && typeof s.walkover === "string"
+      ? s.walkover.trim()
+      : null,
   };
+}
+
+/**
+ * Why a walkover's score cannot be used, or null: one number each side with
+ * the winner ahead ("3-0"), or for sets, the majority of a best-of, each set
+ * won by the winner ("25-0, 25-0, 25-0" for a best of five).
+ */
+export function walkoverRefusal(score: unknown, kind: "sets" | "tally", bestOf: number): string | null {
+  if (score === null || score === undefined) return null;
+  if (typeof score !== "string" || score.trim() === "") return "A walkover's score is written like a result, the winner's side first.";
+  const pairs = score.split(",").map((p) => /^\s*(\d{1,3})\s*-\s*(\d{1,3})\s*$/.exec(p));
+  if (pairs.some((m) => m === null)) return 'Write a walkover\'s score like "3-0", or "25-0, 25-0" for sets.';
+  if (pairs.some((m) => Number(m![1]) <= Number(m![2]))) return "The winner's side of a walkover's score is first, and ahead.";
+  if (kind === "tally" && pairs.length !== 1) return 'A walkover in a tally sport is one score, like "3-0".';
+  if (kind === "sets" && pairs.length !== Math.ceil(bestOf / 2)) return `A walkover in a best of ${bestOf} is ${Math.ceil(bestOf / 2)} sets.`;
+  return null;
 }
 
 function readSetPoints(raw: unknown): ScoringRules["setPoints"] {
@@ -189,6 +215,13 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
     if (s.setPoints !== undefined && s.setPoints !== null && readSetPoints(s.setPoints) === null)
       return { ok: false, error: "Points by set score are four whole numbers, 0 to 10: a clear win, a win in the deciding set, a loss in it, a clear loss." };
     if (s.setPoints && (s.kind ?? base.scoring.kind) === "tally") return { ok: false, error: "Points by set score are for matches scored in sets." };
+    // Checked against the match as it will be, so changing the sets or the kind cannot quietly drop a walkover's score.
+    const why = walkoverRefusal(
+      s.walkover !== undefined ? s.walkover : base.scoring.walkover,
+      ((s.kind as string) ?? base.scoring.kind) === "tally" ? "tally" : "sets",
+      (s.bestOf as number) ?? base.scoring.bestOf
+    );
+    if (why) return { ok: false, error: why };
     scoring = readScoring({ ...base.scoring, ...s, tablePoints: { ...base.scoring.tablePoints, ...((s.tablePoints as object) ?? {}) } });
   }
   let performance = base.performance;

@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { flipScore, scoreRefusal } from "./brackets";
 import { tellVenueStaff } from "./owner-alerts";
-import { recordResult, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
+import { recordResult, tellEntrant, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
 import { venueHours } from "./store";
 import { isValidDateString, todayISO } from "./time";
 
@@ -41,6 +41,7 @@ export interface MatchReport {
 
 interface ReportRow {
   id: number;
+  tournament_id: number;
   match_id: number;
   entry_id: number;
   winner: number | null;
@@ -100,6 +101,9 @@ function sideOf(m: MatchSides, userId: number): number | null {
   return null;
 }
 
+/** A player's report the other side says nothing about stands after this long: a tournament keeps moving. */
+export const REPORT_STANDS_HOURS = 24;
+
 /**
  * A player reports their match: who won, and the score (or a walkover), their
  * own points first — kept, as every score is, with the first-named side's
@@ -137,7 +141,53 @@ export async function reportResult(userId: number, matchId: number, input: { win
        VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
     )
     .get(m.tournament_id, matchId, mine, userId, input.winner, input.walkover ? null : score, input.walkover ? 1 : 0)) as ReportRow;
+  // The other side is asked, and told that silence lets it stand.
+  const theirs = (await db.prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(mine === m.entry_a ? m.entry_b : m.entry_a)) as
+    | { user_id: number | null }
+    | undefined;
+  if (theirs?.user_id)
+    await tellEntrant(
+      theirs.user_id,
+      t,
+      `Confirm your result: ${t.name}`,
+      `The other side has reported your match in ${t.name}${input.walkover ? " as a walkover" : score ? ` as ${score}` : ""}. Confirm it, or say it is wrong, from the tournament's page. If you say nothing, it stands in ${REPORT_STANDS_HOURS} hours.`
+    );
   return { ok: true, value: toReport(row) };
+}
+
+/**
+ * Reports nobody answered in REPORT_STANDS_HOURS stand, recorded through the
+ * same checks as any result. One that can no longer be recorded (the match
+ * moved on meanwhile) goes to the venue's staff as disputed, never dropped.
+ */
+export async function standUnansweredReports(): Promise<number> {
+  const db = getDb();
+  const due = (await db
+    .prepare(
+      `SELECT r.* FROM tournament_reports r JOIN tournaments t ON t.id = r.tournament_id
+        WHERE r.status = 'pending' AND t.status = 'drawn' AND r.created_at < datetime('now', '-${REPORT_STANDS_HOURS} hours') ORDER BY r.id`
+    )
+    .all()) as ReportRow[];
+  let stood = 0;
+  for (const open of due) {
+    // Claimed first, so two servers stand it once.
+    const claimed = await db
+      .prepare("UPDATE tournament_reports SET status = 'confirmed', answered_at = datetime('now') WHERE id = ? AND status = 'pending'")
+      .run(open.id);
+    if (claimed.changes !== 1) continue;
+    const done = await recordResult(open.match_id, { winner: open.winner, score: open.score ?? undefined, walkover: open.walkover === 1 });
+    if (!done.ok) {
+      await db
+        .prepare("UPDATE tournament_reports SET status = 'disputed', dispute_note = ? WHERE id = ?")
+        .run(`Unanswered, and could not be recorded: ${done.error}`.slice(0, 500), open.id);
+      const t = await tournamentById(open.tournament_id);
+      if (t) await tellVenueStaff(t.venueId, `A result needs entering: ${t.name}`, `A player's report in ${t.name} went unanswered, and could not be recorded (${done.error}). Enter the result from Tournaments → ${t.name}.`);
+      continue;
+    }
+    await db.prepare("UPDATE tournament_matches SET result_by = 'players' WHERE id = ?").run(open.match_id);
+    stood++;
+  }
+  return stood;
 }
 
 /**

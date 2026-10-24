@@ -220,8 +220,12 @@ export interface Standing {
   drawn: number;
   lost: number;
   setDiff: number;
-  /** Points (or goals) scored, and the difference. */
+  /** Sets won and lost, for a set ratio. */
+  setsWon: number;
+  setsLost: number;
+  /** Points (or goals) scored and conceded, and the difference. */
   pointsFor: number;
+  pointsAgainst: number;
   pointDiff: number;
   /** Table points, by the rules' points for a win, a draw and a loss. */
   points: number;
@@ -236,25 +240,33 @@ export interface TableResult {
   draw?: boolean;
   /** One side stopped part-way. */
   retired?: boolean;
+  /** Given as a walkover (a forfeit): counted at the rules' walkover score, where they set one. */
+  walkover?: boolean;
 }
 
 /**
  * A group's table, ranked by the rules' keys in order (by default most wins,
  * then the better set difference, then points, then whoever won when two
  * level on all that met), the entry's id settling anything still level. A
- * walkover counts as a win with no sets or points either way; a retirement as
+ * walkover counts at the rules' walkover score where they set one, else as a
+ * win with no sets or points either way; a retirement as
  * a win, with its partial score counted only where the rules say "as_played".
  */
 export function standings(
   entryIds: number[],
   results: TableResult[],
-  scoring: Pick<ScoringRules, "kind" | "tablePoints" | "rankBy" | "retired"> & Partial<Pick<ScoringRules, "setPoints" | "bestOf">> = DEFAULT_SCORING
+  scoring: Pick<ScoringRules, "kind" | "tablePoints" | "rankBy" | "retired"> & Partial<Pick<ScoringRules, "setPoints" | "bestOf" | "walkover">> = DEFAULT_SCORING
 ): Standing[] {
   const table = new Map<number, Standing>(
-    entryIds.map((id) => [id, { entryId: id, played: 0, won: 0, drawn: 0, lost: 0, setDiff: 0, pointsFor: 0, pointDiff: 0, points: 0 }])
+    entryIds.map((id) => [id, { entryId: id, played: 0, won: 0, drawn: 0, lost: 0, setDiff: 0, setsWon: 0, setsLost: 0, pointsFor: 0, pointsAgainst: 0, pointDiff: 0, points: 0 }])
   );
-  for (const r of results) {
-    if (r.winner === null && !r.draw) continue;
+  for (const given of results) {
+    if (given.winner === null && !given.draw) continue;
+    // A walkover counts at the rules' forfeit score where they set one, the winner's side first.
+    const r =
+      given.walkover && scoring.walkover && given.winner !== null
+        ? { ...given, score: given.winner === given.a ? scoring.walkover : flipScore(scoring.walkover) }
+        : given;
     const a = table.get(r.a);
     const b = table.get(r.b);
     if (!a || !b) continue;
@@ -287,6 +299,8 @@ export function standings(
       if (!t) continue;
       a.pointsFor += t.a;
       b.pointsFor += t.b;
+      a.pointsAgainst += t.b;
+      b.pointsAgainst += t.a;
       a.pointDiff += t.a - t.b;
       b.pointDiff += t.b - t.a;
     } else {
@@ -294,8 +308,14 @@ export function standings(
       if (!parsed) continue;
       a.setDiff += parsed.setsA - parsed.setsB;
       b.setDiff += parsed.setsB - parsed.setsA;
+      a.setsWon += parsed.setsA;
+      a.setsLost += parsed.setsB;
+      b.setsWon += parsed.setsB;
+      b.setsLost += parsed.setsA;
       a.pointsFor += parsed.pointsA;
       b.pointsFor += parsed.pointsB;
+      a.pointsAgainst += parsed.pointsB;
+      b.pointsAgainst += parsed.pointsA;
       a.pointDiff += parsed.pointsA - parsed.pointsB;
       b.pointDiff += parsed.pointsB - parsed.pointsA;
     }
@@ -306,7 +326,10 @@ export function standings(
     points: (s) => s.points,
     wins: (s) => s.won,
     set_diff: (s) => s.setDiff,
+    // Won over lost (volleyball's set and point quotients); none lost ranks above any ratio.
+    set_ratio: (s) => ratio(s.setsWon, s.setsLost),
     point_diff: (s) => s.pointDiff,
+    point_ratio: (s) => ratio(s.pointsFor, s.pointsAgainst),
     points_for: (s) => s.pointsFor,
   };
   return [...table.values()].sort((x, y) => {
@@ -317,11 +340,17 @@ export function standings(
         if (met === y.entryId) return 1;
         continue;
       }
-      const by = value[key](y) - value[key](x);
-      if (by !== 0) return by;
+      const [vy, vx] = [value[key](y), value[key](x)];
+      if (vy !== vx) return vy > vx ? 1 : -1;
     }
     return x.entryId - y.entryId;
   });
+}
+
+/** Won over lost, with nothing lost above every ratio and nothing at all at the foot. */
+function ratio(won: number, lost: number): number {
+  if (lost === 0) return won === 0 ? 0 : Number.MAX_SAFE_INTEGER;
+  return won / lost;
 }
 
 /** A court's time for one match: from `minute` of the day, one match long. */

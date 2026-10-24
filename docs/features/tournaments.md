@@ -46,8 +46,8 @@ rules, which start from the sport's template
   | Best of five games | table tennis, squash | As above, best of five |
   | Best of three sets | tennis, padel | Sets of games ("6-4, 3-6, 7-5") |
   | Volleyball sets | volleyball (teams) | Sets; wins, set and point difference |
-  | Volleyball, points by set score | volleyball (teams or pairs) | Best of five; 3 table points for a 3-0 or 3-1 win, 2 for a 3-2 win, 1 for a 2-3 loss, 0 for a clear loss (a walkover or retirement counts as clear); points, wins, set and point difference |
-  | Goals, with draws | futsal, football, floorball, water polo, netball (teams) | Goals ("3-2"); group matches may be drawn; 3 points a win, 1 a draw; goal difference, goals scored, who beat whom; a level knockout match needs its winner and how ("2-2 (penalties 4-3)") |
+  | Volleyball, points by set score | volleyball (teams or pairs) | Best of five; 3 table points for a 3-0 or 3-1 win, 2 for a 3-2 win, 1 for a 2-3 loss, 0 for a clear loss (a walkover or retirement counts as clear, a walkover as 25-0 in three sets); points, wins, set and point difference (ratios can be chosen instead) |
+  | Goals, with draws | futsal, football, floorball, water polo, netball (teams) | Goals ("3-2"); group matches may be drawn; 3 points a win, 1 a draw; goal difference, goals scored, who beat whom; a walkover counts as 3-0; a level knockout match needs its winner and how ("2-2 (penalties 4-3)") |
   | Points, no draws | basketball (teams) | Points ("78-71"); 2 a win, 1 a loss; who beat whom, point difference, points scored |
   | Timed heats and a final | swimming | One swim each, eight to a heat, the eight fastest in the final |
   | Timed heats | cycling | One timed run each, no final |
@@ -98,6 +98,14 @@ rules, which start from the sport's template
   - Points by set score, where wanted, under *Scoring and ranking*: four
     numbers for a clear win, a deciding-set win, a deciding-set loss and a
     clear loss, in place of points per win.
+  - The ranking order may use **set or point ratios** (won over lost, as
+    volleyball's quotients) as well as differences: a side that lost
+    nothing ranks above any ratio, one with nothing either way at the foot.
+  - **A walkover's score**, where wanted: the score a forfeited match
+    counts as in the table, winner first ("3-0", or "25-0, 25-0, 25-0" for a
+    best of five). It must be a winning score of the match as set up, so
+    changing the number of sets asks for it again. Without one, a walkover
+    counts the win and nothing in the differences.
 
 ### Competitions with divisions
 
@@ -211,10 +219,14 @@ lane.
 
 - **Players** report their own match from the tournament's page: who won (or
   a draw, where the rules allow one) and the score, their own points first,
-  or a walkover. The other side confirms it — only then is it the result,
-  recorded through the same checks as staff's — or says it is wrong, with a
-  note: the venue's staff are emailed, see it under *Results from the players
-  and officials*, and enter the result themselves. A result staff or an
+  or a walkover. The other side is emailed and confirms it — only then is it
+  the result, recorded through the same checks as staff's — or says it is
+  wrong, with a note: the venue's staff are emailed, see it under *Results
+  from the players and officials*, and enter the result themselves. A report
+  the other side leaves unanswered for 24 hours stands, recorded the same
+  way (the scheduler checks every minute); one that can no longer be recorded by
+  then (the match settled or changed meanwhile) goes to staff as disputed,
+  never dropped. A result staff or an
   official enter at any time settles a report waiting on the match. Each
   result says who entered it (staff, the players, or the official by name).
 - **Officials** — a referee, a table official — are given a link of their
@@ -386,16 +398,16 @@ The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
 - The level is shown, not enforced. Ages, a guardian's agreement and a
   team's roster are what the entrant declares; a doubles partner and a
   roster are names, not accounts.
-- Rules a template cannot express: ranking by set or point ratios, counts of
-  tops and zones (bouldering), a forfeit score.
+- Rules a template cannot express: counts of tops and zones (bouldering).
 - Seeds are set by staff, or by entry mark in a performance event; there is
   no seeding by rating or ranking, and no ranking across tournaments.
 - A fixture is moved one at a time, not a whole round. Check-in is a mark:
   it changes nothing in the draw by itself.
 - Emails go out on entering, coming off the waiting list, the draw, a moved
-  fixture, a replay and a call-off, and to the venue's staff on a disputed
-  report; not on results, the next match, a walkover, a refilled knockout or
-  the finish. They are queued in the [outbox](../integrations/messaging.md),
+  fixture, a replay, a call-off, a knockout filled again (to those moved in
+  or out, not to somebody who left), a report waiting for its answer, and to
+  the venue's staff on a disputed report; not on results, the next match, a
+  walkover or the finish. They are queued in the [outbox](../integrations/messaging.md),
   so one that fails is retried.
 
 ## Box leagues

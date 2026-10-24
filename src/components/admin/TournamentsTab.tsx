@@ -767,7 +767,9 @@ const RANK_LABEL: Record<RankKey, string> = {
   points: "table points",
   wins: "wins",
   set_diff: "set difference",
+  set_ratio: "set ratio (won ÷ lost)",
   point_diff: "point (or goal) difference",
+  point_ratio: "point ratio (scored ÷ conceded)",
   points_for: "points (or goals) scored",
   head_to_head: "who beat whom",
 };
@@ -926,6 +928,16 @@ function ScoringFields({ rules, onChange, disabled = false }: { rules: Competiti
           <option value="win_only">Counts the win only</option>
           <option value="as_played">Counts as played in the differences</option>
         </select>
+      </label>
+      <label className={label}>
+        A walkover counts as (winner first; empty: the win only)
+        <input
+          disabled={disabled}
+          defaultValue={sc.walkover ?? ""}
+          placeholder={sc.kind === "tally" ? "3-0" : Array.from({ length: Math.ceil(sc.bestOf / 2) }, () => "21-0").join(", ")}
+          onBlur={(e) => set({ walkover: e.target.value.trim() === "" ? null : e.target.value.trim() })}
+          className={input}
+        />
       </label>
     </div>
   );

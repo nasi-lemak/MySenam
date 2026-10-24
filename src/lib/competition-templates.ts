@@ -90,8 +90,8 @@ export const TEMPLATES: CompetitionTemplate[] = [
     entryKinds: ["team", "pair"],
     roster: { min: 6, max: 14 },
     matchMinutes: 120,
-    note: "Best of five sets. A win 3-0 or 3-1 earns 3 table points, 3-2 earns 2, a loss 2-3 earns 1, a clear loss 0 (a walkover or retirement counts as clear). Tables by points, then wins, set and point difference. Many leagues rank by set and point ratios instead: check your competition's rules.",
-    rules: withRules(sets(5, { setPoints: { winClear: 3, winDecider: 2, loseDecider: 1, loseClear: 0 }, rankBy: ["points", "wins", "set_diff", "point_diff"] })),
+    note: "Best of five sets. A win 3-0 or 3-1 earns 3 table points, 3-2 earns 2, a loss 2-3 earns 1, a clear loss 0 (a walkover or retirement counts as clear, and a walkover as 25-0 in three sets). Tables by points, then wins, set and point difference; many leagues rank by set and point ratios instead, which can be chosen: check your competition's rules.",
+    rules: withRules(sets(5, { setPoints: { winClear: 3, winDecider: 2, loseDecider: 1, loseClear: 0 }, rankBy: ["points", "wins", "set_diff", "point_diff"], walkover: "25-0, 25-0, 25-0" })),
   },
   {
     key: "goals_league",
@@ -101,8 +101,8 @@ export const TEMPLATES: CompetitionTemplate[] = [
     entryKinds: ["team"],
     roster: { min: 5, max: 14 },
     matchMinutes: 60,
-    note: "Scores as goals, \"3-2\". Group matches may be drawn: 3 points a win, 1 a draw; then goal difference, goals scored, who beat whom. A knockout match level at the end needs its winner and how it was decided (\"penalties 4-3\").",
-    rules: withRules(tally({ draws: true, tablePoints: { win: 3, draw: 1, loss: 0 }, rankBy: ["points", "point_diff", "points_for", "head_to_head"] })),
+    note: "Scores as goals, \"3-2\". Group matches may be drawn: 3 points a win, 1 a draw; then goal difference, goals scored, who beat whom. A walkover counts as 3-0. A knockout match level at the end needs its winner and how it was decided (\"penalties 4-3\").",
+    rules: withRules(tally({ draws: true, tablePoints: { win: 3, draw: 1, loss: 0 }, rankBy: ["points", "point_diff", "points_for", "head_to_head"], walkover: "3-0" })),
   },
   {
     key: "basketball_points",

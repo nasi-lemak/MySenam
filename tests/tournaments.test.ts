@@ -350,6 +350,19 @@ describe("a group result put right after the knockout is filled (B9)", () => {
     expect((await playOut(t.id)).status).toBe("finished");
   });
 
+  it("tells who is newly through, and who no longer is, by email", async () => {
+    const { t, field } = await groupsCup();
+    const before = await playGroups(t.id);
+    const { m, second, third, swap } = swapSecondAndThird(before);
+    const emailOf = (entryId: number) => field.find((f) => f.entryId === entryId)!.user.email;
+    sent.length = 0;
+    expect((await recordResult(m.id, swap)).ok).toBe(true);
+    expect(sent.filter((e) => e.to === emailOf(third)).map((e) => e.subject)).toEqual([`You're through: ${t.name}`]);
+    expect(sent.filter((e) => e.to === emailOf(second)).map((e) => e.subject)).toEqual([`The knockout has changed: ${t.name}`]);
+    // Nobody else's place changed, so nobody else is told.
+    expect(sent).toHaveLength(2);
+  });
+
   it("is refused once a knockout match is played, if it would change who is in it; a score put right still goes in", async () => {
     const { t } = await groupsCup();
     const before = await playGroups(t.id);
@@ -431,6 +444,19 @@ describe("a withdrawal after the draw (B10)", () => {
     expect(semiLines(d)).toEqual(expectedLines(d));
     // Nobody in the knockout had a walkover handed to them: it is all still to play.
     expect(d.matches.filter((x) => x.stage === "knockout").every((x) => x.status === "scheduled")).toBe(true);
+  });
+
+  it("tells the one who takes their place, not the one who left", async () => {
+    const { t, field } = await groupsCup();
+    const filled = await playGroups(t.id);
+    const quitter = semiLines(filled)[0][0]!;
+    sent.length = 0;
+    expect((await withdraw(quitter)).ok).toBe(true);
+    const d = (await tournamentDetail(t.id))!;
+    const newcomer = semiLines(d).flat().find((e) => !semiLines(filled).flat().includes(e))!;
+    const emailOf = (entryId: number) => field.find((f) => f.entryId === entryId)!.user.email;
+    expect(sent.filter((e) => e.to === emailOf(newcomer)).map((e) => e.subject)).toContain(`You're through: ${t.name}`);
+    expect(sent.filter((e) => e.to === emailOf(quitter) && e.subject.startsWith("The knockout has changed"))).toEqual([]);
   });
 
   it("in the knockout before their opponent is known: a walkover as soon as they are", async () => {
