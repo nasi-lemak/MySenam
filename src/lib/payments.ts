@@ -1148,41 +1148,93 @@ export async function settlePendingRefunds(): Promise<number> {
 }
 
 /**
- * Money owed back that nothing has asked the gateway for, at a venue that
- * refunds through its gateway by itself: the app stopped after a
- * cancellation committed and before it asked, or the gateway could not be
- * reached then. Seen once, then asked for ten minutes later at the
- * earliest, once a day at most per payment, so a refusal (a key that cannot
- * refund) is not repeated every minute. Not for a payment under dispute, one
- * whose refund failed (staff decide), or one paid to the platform (its
- * owners decide). The claim taken before asking (`refundOnline`) keeps this
- * from sending a refund twice alongside anything else.
+ * Money owed back on online payments, reconciled for every venue; refunded
+ * through the gateway only where the venue refunds automatically. Two
+ * separate things:
+ *
+ * - Reconciliation (all venues): each obligation is noted when first seen,
+ *   with the venue's refund policy at that moment. Those that need staff —
+ *   at a venue refunding by hand, through a gateway with no refund API,
+ *   failed, or still owed after an automatic attempt — are put to the
+ *   venue's staff in one message a day, and stay listed under Refunds owed
+ *   until staff refund them (one click, or by hand and marked).
+ * - Execution (automatic venues only): an obligation first seen while the
+ *   venue refunded automatically, and still so, is asked of the gateway ten
+ *   minutes after it was first seen (so a refund the cancelling request is
+ *   still making is left to it), at most once a day, under the same
+ *   idempotency key as any other refund of it. An obligation first seen
+ *   while the venue refunded by hand is never refunded automatically, even
+ *   if the venue switches later: its staff were handling it.
+ *
+ * Disputed payments and the platform's own are left to people. A refund
+ * marked as made by hand leaves nothing owed, so nothing is refunded twice.
+ * Returns how many were refunded automatically.
  */
-export async function settleOwedRefunds(): Promise<number> {
+export async function reconcileRefunds(): Promise<{ refunded: number; told: number }> {
   const db = getDb();
   const owed = `p.refund_due > p.refunded AND p.status = 'paid' AND p.venue_id IS NOT NULL
       AND p.purpose NOT IN ('invoice', 'pack')
-      AND NOT EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND (r.provider_ref LIKE 'claim:%' OR r.failed_at IS NOT NULL))
-      AND NOT EXISTS (SELECT 1 FROM payment_disputes d WHERE d.payment_id = p.id AND COALESCE(d.outcome, '') <> 'won')
-      AND EXISTS (SELECT 1 FROM venues v WHERE v.id = p.venue_id AND v.online_refunds = 'gateway')`;
-  // First sight: noted, not acted on, so a refund the request that cancelled is still making is left to it.
-  await db.prepare(`UPDATE online_payments p SET refund_seen_at = datetime('now') WHERE refund_seen_at IS NULL AND ${owed}`).run();
+      AND NOT EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND r.provider_ref LIKE 'claim:%')
+      AND NOT EXISTS (SELECT 1 FROM payment_disputes d WHERE d.payment_id = p.id AND COALESCE(d.outcome, '') <> 'won')`;
+  // First sight, every venue: noted with the policy it was owed under.
+  await db
+    .prepare(
+      `UPDATE online_payments p SET refund_seen_at = datetime('now'),
+              refund_seen_policy = CASE WHEN EXISTS (SELECT 1 FROM venues v WHERE v.id = p.venue_id AND v.online_refunds = 'gateway') THEN 'auto' ELSE 'manual' END
+        WHERE refund_seen_at IS NULL AND ${owed}`
+    )
+    .run();
   const due = (await db
     .prepare(
-      `SELECT p.id, p.venue_id FROM online_payments p
-        WHERE ${owed} AND p.refund_seen_at < datetime('now', '-10 minutes')
+      `SELECT p.id, p.venue_id, p.provider FROM online_payments p
+        WHERE ${owed} AND p.refund_seen_policy = 'auto'
+          AND EXISTS (SELECT 1 FROM venues v WHERE v.id = p.venue_id AND v.online_refunds = 'gateway')
+          AND NOT EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND r.failed_at IS NOT NULL)
+          AND p.refund_seen_at < datetime('now', '-10 minutes')
           AND (p.auto_refund_tried_at IS NULL OR p.auto_refund_tried_at < datetime('now', '-1 day'))
         ORDER BY p.id LIMIT 20`
     )
-    .all()) as { id: number; venue_id: number }[];
-  let sent = 0;
+    .all()) as { id: number; venue_id: number; provider: string }[];
+  let refunded = 0;
   for (const p of due) {
-    if (!gatewayFor(((await db.prepare("SELECT provider FROM online_payments WHERE id = ?").get(p.id)) as { provider: string }).provider)?.refund) continue;
+    if (!gatewayFor(p.provider)?.refund) continue;
     await db.prepare("UPDATE online_payments SET auto_refund_tried_at = datetime('now') WHERE id = ?").run(p.id);
     const done = await refundOnline(p.id, p.venue_id).catch(() => null);
-    if (done?.ok) sent++;
+    if (done?.ok) refunded++;
   }
-  return sent;
+  // What waits for staff, a day after it was first seen: a digest to each venue's staff, at most daily.
+  const waiting = (await db
+    .prepare(
+      `SELECT p.venue_id, COUNT(*)::int AS n, SUM(p.refund_due - p.refunded)::float AS amount, MIN(p.refund_seen_at) AS oldest,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND r.failed_at IS NOT NULL))::int AS failed
+         FROM online_payments p
+        WHERE ${owed} AND p.refund_seen_at < datetime('now', '-1 day')
+          AND NOT (p.refund_seen_policy = 'auto' AND p.auto_refund_tried_at IS NULL
+                   AND EXISTS (SELECT 1 FROM venues v WHERE v.id = p.venue_id AND v.online_refunds = 'gateway'))
+        GROUP BY p.venue_id`
+    )
+    .all()) as { venue_id: number; n: number; amount: number; oldest: string; failed: number }[];
+  let told = 0;
+  for (const w of waiting) {
+    const claimed = await db
+      .prepare("UPDATE venues SET refund_digest_at = datetime('now') WHERE id = ? AND (refund_digest_at IS NULL OR refund_digest_at < datetime('now', '-20 hours'))")
+      .run(w.venue_id);
+    if (claimed.changes === 0) continue;
+    await tellVenueStaff(
+      w.venue_id,
+      `${w.n} refund${w.n === 1 ? "" : "s"} waiting for you`,
+      `${w.n} online payment${w.n === 1 ? " is" : "s are"} owed back to customers, ${money(roundMoney(w.amount).toFixed(2))} in all, the oldest since ${w.oldest.slice(0, 10)}.` +
+        (w.failed > 0 ? ` ${w.failed} of them the gateway accepted and then could not make.` : "") +
+        " Refund them from Online payments → Refunds owed: with one click where the gateway allows, or in its own dashboard and then mark each refunded."
+    );
+    told++;
+  }
+  return { refunded, told };
+}
+
+/** The automatic part of `reconcileRefunds`, as the scheduler and tests have called it: how many were refunded. */
+export async function settleOwedRefunds(): Promise<number> {
+  return (await reconcileRefunds()).refunded;
 }
 
 /** Staff have made the refund in the gateway's own dashboard (`venueId` null: the platform owner, for one paid to the platform). */

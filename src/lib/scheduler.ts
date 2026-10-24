@@ -16,7 +16,7 @@ import { notifyCoaches } from "./coach-schedule";
 import { runWebhooks } from "./webhooks";
 import { passOnExpiredOffers } from "./store";
 import { releaseExpiredHolds } from "./holds";
-import { settleOwedRefunds, settlePendingRefunds, settleRefundClaims } from "./payments";
+import { reconcileRefunds, settlePendingRefunds, settleRefundClaims } from "./payments";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 import { region } from "./region";
 
@@ -86,8 +86,8 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await settleRefundClaims();
     // Accepted and still going through: made, or failed and owed again.
     await settlePendingRefunds();
-    // Owed at a venue that refunds by itself, with nothing asked: asked now.
-    await settleOwedRefunds();
+    // Owed at any venue: reconciled; asked of the gateway where the venue refunds by itself, its staff told where they must act.
+    await reconcileRefunds();
   } catch (err) {
     console.error("[mysenam] settling interrupted refunds failed:", err);
     await raiseAlert("scheduler:settling-refunds-failed", "Scheduled work failed: settling interrupted refunds", err instanceof Error ? err.stack ?? err.message : String(err));

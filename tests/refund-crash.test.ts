@@ -7,7 +7,10 @@ process.env.MYSENAM_COUNTRY = "SG";
 
 import { getDb } from "../src/lib/db";
 import { checkIntegrity } from "../src/lib/integrity";
+import { createAdmin, ensureBootstrapAdmin } from "../src/lib/admin-auth";
 import {
+  markRefunded,
+  reconcileRefunds,
   refundOnline,
   refundsInFlight,
   refundsOwed,
@@ -220,6 +223,58 @@ describe("the app stops before the gateway is asked", () => {
     await db().prepare("UPDATE online_payments SET refund_seen_at = ? WHERE id = ?").run(ago(30), byHand.id);
     expect(await settleOwedRefunds()).toBe(0);
     expect(stripe.posts).toBe(0);
+  });
+});
+
+describe("reconciled for every venue, refunded automatically only where the venue does", () => {
+  it("at a venue whose staff refund by hand: noted, never sent, its staff told once a day; and not sent later if the venue switches to automatic", async () => {
+    await ensureBootstrapAdmin();
+    const desk = await createAdmin({ name: "Refund Desk", email: `refunds${Date.now()}@crash.sg`, password: "desk-password", venueId });
+    if (!desk.ok) throw new Error(desk.error);
+    const { id } = await owed();
+    await reconcileRefunds();
+    expect(await db().prepare("SELECT refund_seen_policy FROM online_payments WHERE id = ?").get(id)).toEqual({ refund_seen_policy: "manual" });
+    // A day on and still owed: the staff hear, once.
+    await db().prepare("UPDATE online_payments SET refund_seen_at = ? WHERE id = ?").run(ago(25 * 60), id);
+    expect((await reconcileRefunds()).told).toBe(1);
+    expect((await reconcileRefunds()).told).toBe(0);
+    const told = (await db()
+      .prepare("SELECT body FROM messages WHERE kind = 'staff_alert' AND recipient = ? AND subject LIKE '%refund%waiting for you'")
+      .all(desk.admin.email)) as { body: string }[];
+    expect(told).toHaveLength(1);
+    expect(told[0].body).toMatch(/Refunds owed/);
+    expect(stripe.posts).toBe(0);
+    // The venue turns automatic refunds on: what its staff were handling is still theirs.
+    await db().prepare("UPDATE venues SET online_refunds = 'gateway' WHERE id = ?").run(venueId);
+    try {
+      expect((await reconcileRefunds()).refunded).toBe(0);
+      expect(stripe.posts).toBe(0);
+      // Something owed from now on is refunded automatically.
+      const fresh = await owed();
+      await reconcileRefunds();
+      await db().prepare("UPDATE online_payments SET refund_seen_at = ? WHERE id = ?").run(ago(11), fresh.id);
+      expect((await reconcileRefunds()).refunded).toBe(1);
+      expect(await refunded(fresh.id)).toEqual({ r: 20, d: 20 });
+      expect(await refunded(id)).toEqual({ r: 0, d: 20 });
+    } finally {
+      await db().prepare("UPDATE venues SET online_refunds = 'staff' WHERE id = ?").run(venueId);
+    }
+  });
+
+  it("a refund staff made by hand and marked is never sent again by the sweep", async () => {
+    await db().prepare("UPDATE venues SET online_refunds = 'gateway' WHERE id = ?").run(venueId);
+    try {
+      const { id } = await owed();
+      await reconcileRefunds();
+      // Refunded in Stripe's dashboard by somebody at the desk, and marked.
+      expect((await markRefunded(id, venueId)).ok).toBe(true);
+      await db().prepare("UPDATE online_payments SET refund_seen_at = ? WHERE id = ?").run(ago(30), id);
+      expect((await reconcileRefunds()).refunded).toBe(0);
+      expect(stripe.posts).toBe(0);
+      expect(await refundRows(id)).toEqual([expect.objectContaining({ provider_ref: null, failed: false })]);
+    } finally {
+      await db().prepare("UPDATE venues SET online_refunds = 'staff' WHERE id = ?").run(venueId);
+    }
   });
 });
 
