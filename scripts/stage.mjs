@@ -74,6 +74,7 @@ const freePort = () =>
  */
 export function resolveImage() {
   const source = sourceState();
+  if (source.digest === "unknown") throw new Error("Not a git checkout: the image could not be tied to its source.");
   const tag = `mysenam:src-${source.digest.slice(0, 16)}`;
   const started = Date.now();
   let built = false;

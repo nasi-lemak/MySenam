@@ -4,7 +4,7 @@
  * the app itself wherever the app has a way in, so what is made is what the
  * app would have made:
  *
- *   node scripts/seed-synthetic.mjs --url http://127.0.0.1:3900 --db postgres://… [--seed 7] [--players 24]
+ *   node scripts/seed-synthetic.mjs --url http://127.0.0.1:3900 --db postgres://… [--seed 7] [--players 24] [--password …]
  *
  * The owner signs in (E2E_OWNER_EMAIL / E2E_OWNER_PASSWORD) and fills the
  * venues with the demo fortnight (lib/demo.ts), which refuses an install that
@@ -65,7 +65,7 @@ async function call(path, init = {}, cookie = "") {
 
 const db = new pg.Client({ connectionString: dbUrl });
 await db.connect();
-const summary = { seed, players: [], password: crypto.randomBytes(12).toString("base64url"), demo: null, games: 0 };
+const summary = { seed, players: [], password: flag("--password", crypto.randomBytes(12).toString("base64url")), demo: null, games: 0 };
 try {
   // The owner fills the venues with a plausible fortnight, unless something real is there.
   const owner = await call("/api/admin/auth/login", { method: "POST", body: JSON.stringify({ email: process.env.E2E_OWNER_EMAIL, password: process.env.E2E_OWNER_PASSWORD }) });

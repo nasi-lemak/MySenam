@@ -15,6 +15,12 @@ export const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const git = (...args) => execFileSync("git", args, { cwd: ROOT, encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
 
 export function sourceState() {
+  // Outside a git checkout (a copy of the files), nothing can be said about the source.
+  try {
+    git("rev-parse", "HEAD");
+  } catch {
+    return { commit: "unknown", short: "unknown", dirty: null, digest: "unknown" };
+  }
   const commit = git("rev-parse", "HEAD").toString().trim();
   const tree = git("rev-parse", "HEAD^{tree}").toString().trim();
   const diff = git("diff", "HEAD", "--binary");
