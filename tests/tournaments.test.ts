@@ -38,6 +38,11 @@ import {
   setEntry,
   tournamentDetail,
   withdraw,
+  takeOut,
+  previewTakeOut,
+  previewResult,
+  applyCorrection,
+  setRules,
   type TournamentInput,
 } from "../src/lib/tournaments";
 
@@ -307,9 +312,9 @@ async function playGroups(id: number) {
 const semiLines = (d: Awaited<ReturnType<typeof tournamentDetail>>) =>
   d!.matches.filter((m) => m.stage === "knockout" && m.round === 1).sort((a, b) => a.position - b.position).map((m) => [m.a, m.b]);
 
-/** Who the groups should send through, by the tables as they stand. */
+/** Who the groups should send through, by the tables as they stand: the first in each still in. */
 const expectedLines = (d: Awaited<ReturnType<typeof tournamentDetail>>) => {
-  const [g1, g2] = d!.groups.map((g) => g.table.map((x) => x.entryId));
+  const [g1, g2] = d!.groups.map((g) => g.table.filter((x) => !x.out).map((x) => x.entryId));
   return [
     [g1[0], g2[1]],
     [g2[0], g1[1]],
@@ -391,7 +396,7 @@ describe("a group result put right after the knockout is filled (B9)", () => {
 });
 
 describe("a withdrawal after the draw (B10)", () => {
-  it("in the groups: their matches left are walkovers, they are placed last, and they do not go through", async () => {
+  it("in the groups: their matches left are walkovers, their results stand where they put them, flagged, and they do not go through", async () => {
     const { t } = await groupsCup();
     let d = (await tournamentDetail(t.id))!;
     // They win their first match, then withdraw.
@@ -405,7 +410,10 @@ describe("a withdrawal after the draw (B10)", () => {
     // The win they had stands as played, but they are last, under everybody still in.
     expect(d.matches.find((x) => x.id === first.id)).toMatchObject({ status: "done", winner: quitter });
     d = await playGroups(t.id);
-    expect(d.groups[0].table.at(-1)!.entryId).toBe(quitter);
+    // Not moved to the bottom: shown where their results put them, marked out, not ranked through.
+    const row = d.groups[0].table.find((x) => x.entryId === quitter)!;
+    expect(row).toMatchObject({ out: "withdrawn", resultsVoid: false, won: 1 });
+    expect(d.entries.find((e) => e.id === quitter)!.out).toEqual({ reason: "withdrawn", stage: "groups" });
     expect(semiLines(d).flat()).not.toContain(quitter);
     expect(semiLines(d)).toEqual(expectedLines(d));
     expect((await playOut(t.id)).status).toBe("finished");
@@ -454,6 +462,193 @@ describe("a withdrawal after the draw (B10)", () => {
     const final = d.matches.find((x) => x.stage === "knockout" && x.round === 2)!;
     expect(final.winner).toBe(g2[2].entryId);
     expect(d.matches.filter((x) => x.stage === "knockout").every((x) => x.status === "bye" || x.status === "walkover")).toBe(true);
+  });
+});
+
+describe("how a tournament treats somebody who leaves (its rules)", () => {
+  /** The group-one match the given entrant won, if any, and the one they lost. */
+  const groupOne = (d: Awaited<ReturnType<typeof tournamentDetail>>) => d!.matches.filter((x) => x.stage === "group" && x.groupNo === 1);
+
+  it("a disqualification voids their group results for everybody, by default; they are listed, unranked, after the rest", async () => {
+    const { t } = await groupsCup();
+    let d = (await tournamentDetail(t.id))!;
+    const first = groupOne(d)[0];
+    const cheat = first.a!;
+    const beaten = first.b!;
+    expect((await recordResult(first.id, { winner: cheat, score: "21-5, 21-5" })).ok).toBe(true);
+    const done = await takeOut(cheat, "disqualified", "Played with an illegal racket");
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(done.value.changes.join(" ")).toMatch(/is out \(disqualified, in the groups\)\. Their group results no longer count/);
+    d = await playGroups(t.id);
+    const table = d.groups[0].table;
+    // Their win over `beaten` is gone: of `beaten`'s two group matches, only the one against somebody else counts.
+    expect(table.find((x) => x.entryId === beaten)!.played).toBe(1);
+    expect(table.at(-1)).toMatchObject({ entryId: cheat, out: "disqualified", resultsVoid: true, won: 0, played: 0 });
+    expect(semiLines(d).flat()).not.toContain(cheat);
+    expect(semiLines(d)).toEqual(expectedLines(d));
+  });
+
+  it("can void a withdrawal's results too, where the tournament says so; not once the draw is made", async () => {
+    const t = await tournament({ format: "groups", groupSize: 3, advance: 2 });
+    expect((await setRules(t.id, { groupResultsOnWithdrawal: "void" })).ok).toBe(true);
+    expect((await setRules(t.id, { groupResultsOnWithdrawal: "sometimes" })).ok).toBe(false);
+    await entries(t.id, 6);
+    expect((await makeDraw(t.id, fixed)).ok).toBe(true);
+    expect((await setRules(t.id, { groupResultsOnWithdrawal: "stand" })).ok).toBe(false);
+    let d = (await tournamentDetail(t.id))!;
+    expect(d.rules.groupResultsOnWithdrawal).toBe("void");
+    const first = groupOne(d)[0];
+    expect((await recordResult(first.id, { winner: first.a!, score: "21-5, 21-5" })).ok).toBe(true);
+    expect((await withdraw(first.a!)).ok).toBe(true);
+    d = (await tournamentDetail(t.id))!;
+    expect(d.groups[0].table.find((x) => x.entryId === first.a)).toMatchObject({ resultsVoid: true, played: 0 });
+  });
+
+  it("a retirement part-way: won by the other side with the score as it stood, counted as a win; out of the event if the organiser says", async () => {
+    const { t } = await groupsCup();
+    let d = (await tournamentDetail(t.id))!;
+    const m = groupOne(d)[0];
+    // Leading when they stopped: the score says the other side was ahead, and that is fine for a retirement.
+    const r = await recordResult(m.id, { winner: m.b!, score: "21-15, 5-2", retired: true, outOfEvent: true });
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    d = (await tournamentDetail(t.id))!;
+    expect(d.matches.find((x) => x.id === m.id)).toMatchObject({ status: "retired", winner: m.b, score: "21-15, 5-2" });
+    expect(d.entries.find((e) => e.id === m.a)!.out).toEqual({ reason: "retired", stage: "groups" });
+    // Their other group match is a walkover; the retirement counts as a win, with no sets either way.
+    expect(groupOne(d).filter((x) => x.id !== m.id && [x.a, x.b].includes(m.a)).every((x) => x.status === "walkover")).toBe(true);
+    const winnerRow = d.groups[0].table.find((x) => x.entryId === m.b)!;
+    expect(winnerRow.won).toBeGreaterThanOrEqual(1);
+    // Without a retirement, a score that says the other side won is still refused.
+    const other = groupOne(d).find((x) => x.status === "scheduled")!;
+    expect((await recordResult(other.id, { winner: other.a!, score: "5-21, 5-21" })).ok).toBe(false);
+  });
+
+  it("says what taking somebody out would change, and changes nothing until asked", async () => {
+    const { t } = await groupsCup();
+    const filled = await playGroups(t.id);
+    const quitter = semiLines(filled)[0][0]!;
+    const preview = await previewTakeOut(quitter, "withdrawn");
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.value.changes.some((c) => /is out \(withdrawn/.test(c))).toBe(true);
+    expect(preview.value.changes.some((c) => /Semi-final 1: now/.test(c))).toBe(true);
+    // Nothing changed.
+    const still = (await tournamentDetail(t.id))!;
+    expect(still.entries.find((e) => e.id === quitter)!.out).toBeNull();
+    expect(semiLines(still)).toEqual(semiLines(filled));
+  });
+
+  it("keeps a fee paid online before the draw where the rules say no refund", async () => {
+    const t = await tournament();
+    expect((await setRules(t.id, { refundBeforeDraw: false })).ok).toBe(true);
+    const [only] = await entries(t.id, 1);
+    await getDb()
+      .prepare(
+        `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, status, payer_name, purpose, tournament_entry_id)
+         VALUES ('stripe', 'cs_norefund', 'https://x', ?, 20, 'paid', 'Kept', 'entry', ?)`
+      )
+      .run(venueId, only.entryId);
+    expect((await withdraw(only.entryId)).ok).toBe(true);
+    const due = (await getDb().prepare("SELECT refund_due::float AS d FROM online_payments WHERE bill_id = 'cs_norefund'").get()) as { d: number };
+    expect(due.d).toBe(0);
+  });
+});
+
+describe("correcting a group result after the knockout has begun", () => {
+  async function underway(playFirstSemi = true) {
+    const { t } = await groupsCup();
+    const before = await playGroups(t.id);
+    const { m, second, third, swap } = swapSecondAndThird(before);
+    const semis = before.matches.filter((x) => x.stage === "knockout" && x.round === 1).sort((a, b) => a.position - b.position);
+    // Group one's runner-up plays in semi-final 2 (the other half from its winner).
+    const affected = semis.find((x) => [x.a, x.b].includes(second))!;
+    const unaffected = semis.find((x) => x.id !== affected.id)!;
+    if (playFirstSemi) expect((await recordResult(unaffected.id, { winner: unaffected.a!, score: "21-10, 21-10" })).ok).toBe(true);
+    return { t, m, second, third, swap, affected, unaffected };
+  }
+
+  it("is previewed fixture by fixture, then made in the knockout where the match it changes is still to play, kept with its reason", async () => {
+    const { t, m, second, third, swap, affected } = await underway();
+    expect(await recordResult(m.id, swap)).toMatchObject({ ok: false, code: "KNOCKOUT_STARTED" });
+    const preview = await previewResult(m.id, swap);
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.value.needsCorrection).toBe(true);
+    expect(preview.value.replace.possible).toBe(true);
+    if (!preview.value.replace.possible) return;
+    expect(preview.value.replace.changes.join(" ")).toMatch(/Semi-final \d: now .* \(was .*\)/);
+    // The preview changed nothing.
+    expect((await tournamentDetail(t.id))!.matches.find((x) => x.id === affected.id)).toMatchObject({ a: affected.a, b: affected.b });
+
+    const owner = (await listAdmins())[0];
+    expect(await applyCorrection(m.id, swap, { mode: "replace", reason: "x", token: preview.value.token }, owner)).toMatchObject({ ok: false });
+    const done = await applyCorrection(m.id, swap, { mode: "replace", reason: "Scorer swapped the names on the sheet", token: preview.value.token }, owner);
+    expect(done.ok, done.ok ? "" : done.error).toBe(true);
+    if (!done.ok) return;
+    const semi = done.value.detail.matches.find((x) => x.id === affected.id)!;
+    expect([semi.a, semi.b]).toContain(third);
+    expect([semi.a, semi.b]).not.toContain(second);
+    // Kept: what changed, what it was, who and why. The public sees that a correction was made, not why.
+    const kept = (await getDb()
+      .prepare("SELECT kind, reason, admin_name, before_state FROM tournament_corrections WHERE tournament_id = ?")
+      .get(t.id)) as { kind: string; reason: string; admin_name: string; before_state: string };
+    expect(kept).toMatchObject({ kind: "replace", reason: "Scorer swapped the names on the sheet", admin_name: owner.name });
+    expect((JSON.parse(kept.before_state) as { id: number; a: number; b: number }[]).find((x) => x.id === affected.id)).toMatchObject({ a: affected.a, b: affected.b });
+    const publicView = (await tournamentDetail(t.id))!;
+    expect(publicView.corrections).toEqual([{ kind: "replace", createdAt: expect.any(String) }]);
+    expect((await tournamentDetail(t.id, { forStaff: true }))!.corrections[0].reason).toBe("Scorer swapped the names on the sheet");
+  });
+
+  it("is blocked from the knockout when the match it changes has been played: corrected in the table only, the knockout stands as played", async () => {
+    const { m, swap, affected } = await underway();
+    expect((await recordResult(affected.id, { winner: affected.a!, score: "21-10, 21-10" })).ok).toBe(true);
+    const preview = await previewResult(m.id, swap);
+    expect(preview.ok && preview.value.replace.possible).toBe(false);
+    if (!preview.ok || preview.value.replace.possible) return;
+    expect(preview.value.replace.blockers.join(" ")).toMatch(/has been decided: it would need replaying/);
+    const owner = (await listAdmins())[0];
+    expect(await applyCorrection(m.id, swap, { mode: "replace", reason: "Appeal upheld", token: preview.value.token }, owner)).toMatchObject({ ok: false, code: "BLOCKED" });
+    const done = await applyCorrection(m.id, swap, { mode: "standings_only", reason: "Appeal upheld after the semi-final", token: preview.value.token }, owner);
+    expect(done.ok, done.ok ? "" : done.error).toBe(true);
+    if (!done.ok) return;
+    expect(done.value.detail.matches.find((x) => x.id === m.id)!.winner).toBe(swap.winner);
+    // The knockout is as it was played.
+    expect(done.value.detail.matches.find((x) => x.id === affected.id)).toMatchObject({ status: "done", a: affected.a, b: affected.b });
+    expect(done.value.detail.corrections.map((c) => c.kind)).toEqual(["standings_only"]);
+  });
+
+  it("is refused against a preview of a tournament that has since changed", async () => {
+    const { t, m, swap, affected } = await underway();
+    const preview = await previewResult(m.id, swap);
+    if (!preview.ok) throw new Error(preview.error);
+    // Meanwhile a knockout result goes in.
+    expect((await recordResult(affected.id, { winner: affected.a!, score: "21-10, 21-10" })).ok).toBe(true);
+    const owner = (await listAdmins())[0];
+    expect(await applyCorrection(m.id, swap, { mode: "standings_only", reason: "Scoring mistake", token: preview.value.token }, owner)).toMatchObject({
+      ok: false,
+      code: "CHANGED",
+    });
+    expect((await tournamentDetail(t.id))!.matches.find((x) => x.id === m.id)!.winner).toBe(m.winner);
+  });
+
+  it("is a manager's: front desk staff are refused", async () => {
+    const { t, m, swap } = await underway();
+    const preview = await previewResult(m.id, swap);
+    if (!preview.ok) throw new Error(preview.error);
+    const desk = await createAdmin({ name: "Desk Cup", email: `desk${Date.now()}@cup.my`, password: "desk-password", venueId, role: "desk" });
+    if (!desk.ok) throw new Error(desk.error);
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
+    const route = await import("../src/app/api/admin/tournaments/[id]/matches/[matchId]/route");
+    const res = await route.POST(
+      new NextRequest(`http://localhost/api/admin/tournaments/${t.id}/matches/${m.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ ...swap, correction: { mode: "standings_only", reason: "Desk tries", token: preview.value.token } }),
+      }),
+      { params: Promise.resolve({ id: String(t.id), matchId: String(m.id) }) }
+    );
+    expect(res.status).toBe(403);
   });
 });
 

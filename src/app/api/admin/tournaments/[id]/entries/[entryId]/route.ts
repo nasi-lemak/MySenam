@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
-import { setEntry, tournamentDetail, withdraw } from "@/lib/tournaments";
+import { previewTakeOut, setEntry, takeOut, tournamentDetail } from "@/lib/tournaments";
+import { OUT_REASONS, type OutReason } from "@/lib/tournament-rules";
 import { staffTournament } from "@/lib/tournament-access";
 
 export const dynamic = "force-dynamic";
 
-/** `{ paid?, seed?, withdraw? }` — staff on one entry. */
+/**
+ * `{ paid?, seed? }` — staff on one entry; or `{ withdraw: true, reason?, note?, preview? }` to take them out
+ * (withdrawn, retired or disqualified): with `preview`, what it would change, and nothing changed.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; entryId: string }> }) {
   const { id, entryId } = await params;
   const found = await staffTournament(req, id);
@@ -21,20 +25,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const result =
-    body.withdraw === true
-      ? await withdraw(entry.id)
-      : await setEntry(entry.id, {
-          paid: typeof body.paid === "boolean" ? body.paid : undefined,
-          seed: body.seed === null ? null : body.seed !== undefined ? Number(body.seed) : undefined,
-        });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
-  const d = (await tournamentDetail(found.id, { forStaff: true }))!;
-  if (body.withdraw === true)
+  if (body.withdraw === true) {
+    const reason: OutReason = OUT_REASONS.includes(body.reason as OutReason) ? (body.reason as OutReason) : "withdrawn";
+    // Disqualifying somebody is a decision about the competition, not the desk's to make.
+    if (reason === "disqualified" && found.admin.role === "desk")
+      return NextResponse.json({ error: "Only a manager can disqualify an entrant." }, { status: 403 });
+    if (body.preview === true) {
+      const preview = await previewTakeOut(entry.id, reason);
+      if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 409 });
+      return NextResponse.json({ changes: preview.value.changes });
+    }
+    const out = await takeOut(entry.id, reason, typeof body.note === "string" ? body.note : undefined);
+    if (!out.ok) return NextResponse.json({ error: out.error }, { status: 409 });
+    const d = (await tournamentDetail(found.id, { forStaff: true }))!;
     await logAction(found.admin, {
       venueId: d.venueId,
-      action: "tournament.withdrawn",
-      detail: `${d.name}: ${result.value.name}${d.status === "open" || d.status === "closed" ? "" : " (after the draw: matches left are walkovers)"}`,
+      action: `tournament.${reason}`,
+      detail: `${d.name}: ${out.value.entry.name} ${reason}. ${out.value.changes.join(" ")}`,
     });
-  return NextResponse.json({ tournament: d });
+    return NextResponse.json({ tournament: d, changes: out.value.changes });
+  }
+  const result = await setEntry(entry.id, {
+    paid: typeof body.paid === "boolean" ? body.paid : undefined,
+    seed: body.seed === null ? null : body.seed !== undefined ? Number(body.seed) : undefined,
+  });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
 }

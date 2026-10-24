@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
-import { cancelTournament, closeEntries, makeDraw, tournamentDetail } from "@/lib/tournaments";
+import { cancelTournament, closeEntries, makeDraw, setRules, tournamentDetail } from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
 }
 
-/** `{ action: "close" | "draw" | "cancel" }` */
+/** `{ action: "close" | "draw" | "cancel" }`, or `{ action: "rules", rules }` before the draw. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const found = await staffTournament(req, (await params).id);
   if (found instanceof NextResponse) return found;
@@ -28,13 +28,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         ? await makeDraw(found.id)
         : body.action === "cancel"
           ? await cancelTournament(found.id)
-          : null;
+          : body.action === "rules"
+            ? await setRules(found.id, body.rules)
+            : null;
   if (!result) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   const t = await tournamentDetail(found.id, { forStaff: true });
   await logAction(found.admin, {
     venueId: t?.venueId ?? null,
-    action: body.action === "close" ? "tournament.closed" : body.action === "draw" ? "tournament.drawn" : "tournament.cancelled",
+    action:
+      body.action === "close" ? "tournament.closed" : body.action === "draw" ? "tournament.drawn" : body.action === "rules" ? "tournament.rules" : "tournament.cancelled",
     detail: t?.name ?? `Tournament ${found.id}`,
   });
   return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });

@@ -100,6 +100,8 @@ export default function TournamentPage() {
         act={act}
       />
 
+      {x.corrections.length > 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("tour.corrected")}</p>}
+
       {x.groups.length > 0 && (
         <section className="grid gap-3 sm:grid-cols-2">
           {x.groups.map((g) => (
@@ -116,9 +118,21 @@ export default function TournamentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {g.table.map((s, i) => (
-                    <tr key={s.entryId} className={i < x.advance ? "font-medium" : "text-slate-600"}>
-                      <td className="py-0.5">{names.get(s.entryId)}</td>
+                  {g.table.map((s) => (
+                    // Who is out is shown where their results put them, never as going through.
+                    <tr
+                      key={s.entryId}
+                      className={s.out ? "text-slate-400" : g.table.filter((r) => !r.out).indexOf(s) < x.advance ? "font-medium" : "text-slate-600"}
+                    >
+                      <td className="py-0.5">
+                        {names.get(s.entryId)}
+                        {s.out && (
+                          <span className="ml-1 text-xs">
+                            ({t(`tour.out.${s.out}`)}
+                            {s.resultsVoid ? `, ${t("tour.resultsVoid")}` : ""})
+                          </span>
+                        )}
+                      </td>
                       <td className="text-center">{s.played}</td>
                       <td className="text-center">{s.won}</td>
                       <td className="text-center">{s.lost}</td>
@@ -152,7 +166,9 @@ export default function TournamentPage() {
                   <span className="flex-1">
                     <Side id={m.a} m={m} names={names} t={t} /> v <Side id={m.b} m={m} names={names} t={t} />
                   </span>
-                  <span className="text-slate-600">{m.status === "walkover" ? t("tour.walkover") : m.score}</span>
+                  <span className="text-slate-600">
+                    {m.status === "walkover" ? t("tour.walkover") : m.status === "retired" ? `${m.score ?? ""} (${t("tour.retired")})` : m.score}
+                  </span>
                 </li>
               ))}
           </ul>
@@ -216,8 +232,10 @@ function Bracket({ t, matches, names }: { t: T; matches: Match[]; names: Map<num
                       <span className="truncate">{side === null ? (m.status === "bye" ? t("tour.bye") : t("tour.tbd")) : names.get(side)}</span>
                     </div>
                   ))}
-                  {(m.score || m.status === "walkover") && (
-                    <div className="px-2 pb-1 text-xs text-slate-500">{m.status === "walkover" ? t("tour.walkover") : m.score}</div>
+                  {(m.score || m.status === "walkover" || m.status === "retired") && (
+                    <div className="px-2 pb-1 text-xs text-slate-500">
+                      {m.status === "walkover" ? t("tour.walkover") : m.status === "retired" ? `${m.score ?? ""} (${t("tour.retired")})` : m.score}
+                    </div>
                   )}
                 </div>
               ))}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseRules } from "@/lib/tournament-rules";
 import { readMinute } from "@/lib/api";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format } from "@/lib/tournaments";
@@ -54,9 +55,16 @@ export async function POST(req: NextRequest) {
       ...(b.matchMinutes !== undefined ? { matchMinutes: Number(b.matchMinutes) } : {}),
       courtIds: Array.isArray(b.courtIds) ? b.courtIds.map(Number) : [],
       description: typeof b.description === "string" ? b.description : undefined,
+      rules: rulesOf(b.rules),
     },
     admin.id
   );
   if (!result.ok) return NextResponse.json({ error: result.error, clashes: result.clashes }, { status: 400 });
   return NextResponse.json({ tournament: result.value }, { status: 201 });
+}
+
+/** Rules as given, or the defaults when they are missing or not understood (the form only offers valid ones). */
+function rulesOf(raw: unknown) {
+  const parsed = parseRules(raw);
+  return parsed.ok ? parsed.rules : undefined;
 }

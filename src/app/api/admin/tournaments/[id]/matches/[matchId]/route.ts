@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
-import { recordResult, tournamentDetail, type TournamentDetail } from "@/lib/tournaments";
+import { applyCorrection, previewResult, recordResult, tournamentDetail, type ResultInput, type TournamentDetail } from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,11 @@ function knockoutLines(d: TournamentDetail): string {
     .join("; ");
 }
 
-/** `{ winner, score?, walkover? }` — a result, written to the activity log with the one it replaced. */
+/**
+ * `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result, written to the activity log with the one it replaced.
+ * With `preview: true`: what it would change, nothing changed. With `correction: { mode, reason, token }`: a group
+ * correction after the knockout has begun, confirmed against its preview (managers only).
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; matchId: string }> }) {
   const { id, matchId } = await params;
   const found = await staffTournament(req, id);
@@ -31,18 +35,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const before = (await tournamentDetail(found.id, { forStaff: true }))!;
-  const was = before.matches.find((m) => m.id === match.id)!;
-  const result = await recordResult(match.id, {
+  const input: ResultInput = {
     winner: Number(body.winner),
     score: typeof body.score === "string" ? body.score : undefined,
     walkover: body.walkover === true,
-  });
+    retired: body.retired === true,
+    outOfEvent: body.outOfEvent === true,
+  };
+  if (body.preview === true) {
+    const preview = await previewResult(match.id, input);
+    if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 409 });
+    return NextResponse.json({ preview: preview.value });
+  }
+  const before = (await tournamentDetail(found.id, { forStaff: true }))!;
+  const was = before.matches.find((m) => m.id === match.id)!;
+  if (body.correction !== undefined) {
+    if (found.admin.role === "desk") return NextResponse.json({ error: "Only a manager can correct a result after the knockout has begun." }, { status: 403 });
+    const c = (body.correction ?? {}) as Record<string, unknown>;
+    if (c.mode !== "replace" && c.mode !== "standings_only") return NextResponse.json({ error: 'correction.mode is "replace" or "standings_only".' }, { status: 400 });
+    const done = await applyCorrection(
+      match.id,
+      input,
+      { mode: c.mode, reason: typeof c.reason === "string" ? c.reason : "", token: typeof c.token === "string" ? c.token : "" },
+      found.admin
+    );
+    if (!done.ok) return NextResponse.json({ error: done.error, code: done.code }, { status: 409 });
+    await logAction(found.admin, {
+      venueId: done.value.detail.venueId,
+      action: c.mode === "replace" ? "tournament.corrected" : "tournament.corrected_standings_only",
+      detail: `${done.value.detail.name}: ${String(c.reason).slice(0, 200)}. ${done.value.changes.join(" ")}`,
+    });
+    return NextResponse.json({ tournament: done.value.detail, changes: done.value.changes });
+  }
+  const result = await recordResult(match.id, input);
   if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: 409 });
   const d = result.value;
   const now = d.matches.find((m) => m.id === match.id)!;
   const name = (id: number | null) => d.entries.find((e) => e.id === id)?.name ?? "nobody";
-  const told = (m: typeof now) => `${name(m.winner)} won${m.score ? ` ${m.score}` : m.status === "walkover" ? " by walkover" : ""}`;
+  const told = (m: typeof now) =>
+    `${name(m.winner)} won${m.score ? ` ${m.score}` : ""}${m.status === "walkover" ? " by walkover" : m.status === "retired" ? " (the other side retired)" : ""}`;
   await logAction(found.admin, {
     venueId: d.venueId,
     action: was.winner === null ? "tournament.result" : "tournament.result_changed",
