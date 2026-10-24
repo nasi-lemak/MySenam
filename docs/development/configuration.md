@@ -74,7 +74,7 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_PG_DUMP`, `MYSENAM_PG_RESTORE` | `pg_dump`, `pg_restore` | Paths to the Postgres client tools used by backups and restores, when they are not on `PATH` |
 | `MYSENAM_DB` | — | `:memory:` runs on an in-memory PGlite (what the test suite uses). Any other value, or the older `MUDAHTEMPAH_DB`, marks a pre-Postgres SQLite install, which refuses to start until imported; see [legacy installs](../archive/migrations/legacy-installs.md) |
 
-Set by the platform rather than by you, and read by the code: `NODE_ENV` (production checks and the scheduler), `NEXT_RUNTIME` (server instrumentation), `HOSTNAME` (names this instance in the scheduler lease). The test suite also reads `TEST_DATABASE_URL`; see [testing](testing.md).
+Set by the platform rather than by you, and read by the code: `NODE_ENV` (production checks and the scheduler), `NEXT_RUNTIME` (server instrumentation), `HOSTNAME` (names this instance in the scheduler lease). The test suite also reads `TEST_DATABASE_URL`; the browser tests, the acceptance scenarios and the staging tools read `E2E_URL`, `E2E_OWNER_EMAIL`, `E2E_OWNER_PASSWORD`, `SEED_DATABASE_URL` and `UAT_*`, and pass on the machine's own `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` when building an image; see [testing](testing.md).
 
 `.env.example` names every variable in this table, commented out and grouped, with a line on each; copy it to `.env.local`. This table is the authoritative list, and `tests/docs.test.ts` checks the two agree.
 
