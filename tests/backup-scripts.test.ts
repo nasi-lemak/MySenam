@@ -163,6 +163,7 @@ describe("the backup and restore scripts", () => {
       OFFSITE_S3_ACCESS_KEY_ID: "id",
       OFFSITE_S3_SECRET_ACCESS_KEY: "secret",
       OFFSITE_S3_PREFIX: "drill/",
+      OFFSITE_DATA_LOCATION: "MY",
     };
     Object.assign(process.env, offsite);
     Object.assign(env, offsite);

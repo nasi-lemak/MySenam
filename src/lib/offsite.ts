@@ -3,8 +3,11 @@ import crypto from "crypto";
 import fs from "fs";
 import http from "http";
 import https from "https";
+import os from "os";
 import { getDb } from "./db.ts";
 import type { BackupFile } from "./backup";
+import { decryptFile, encryptFile, readKeyFile } from "./backup-crypto.ts";
+import { region } from "./region.ts";
 
 /**
  * Copies of the backups somewhere that is not this machine.
@@ -32,6 +35,18 @@ export interface OffsiteConfig {
   prefix: string;
 }
 
+/**
+ * Where copies go and the key the server uploads with. Works with any
+ * S3-compatible service: Amazon S3 (`https://s3.<region>.amazonaws.com`),
+ * Backblaze B2 (`https://s3.<region>.backblazeb2.com`, region as in the
+ * endpoint, e.g. `us-west-004`), Cloudflare R2 (region `auto`). The key
+ * should be one that may only upload (B2: `writeFiles` on this bucket and
+ * prefix; S3: `s3:PutObject` alone): the server never reads, lists or
+ * deletes off-site. Such a key can still upload a new version over an
+ * existing name, so the bucket's Object Lock is what keeps earlier copies
+ * (docs/operations/backups.md), and a restore takes each name's first
+ * version (`fetchOffsiteSet`).
+ */
 export function offsiteConfig(): OffsiteConfig | null {
   const endpoint = process.env.OFFSITE_S3_ENDPOINT;
   const bucket = process.env.OFFSITE_S3_BUCKET;
@@ -47,6 +62,69 @@ export function offsiteConfig(): OffsiteConfig | null {
     secretAccessKey,
     prefix: process.env.OFFSITE_S3_PREFIX ?? "mysenam/",
   };
+}
+
+/**
+ * The key a restore reads with: `OFFSITE_S3_READ_ACCESS_KEY_ID` and
+ * `OFFSITE_S3_READ_SECRET_ACCESS_KEY` where set (B2: `listFiles` and
+ * `readFiles`; S3: `s3:ListBucket` and `s3:GetObject`), kept on the machine
+ * that restores, not the server; otherwise the upload key, which on a
+ * properly restricted key will be refused.
+ */
+export function offsiteReadConfig(): OffsiteConfig | null {
+  const base = offsiteConfig() ?? offsiteConfigWithout();
+  if (!base) return null;
+  const id = process.env.OFFSITE_S3_READ_ACCESS_KEY_ID;
+  const secret = process.env.OFFSITE_S3_READ_SECRET_ACCESS_KEY;
+  return id && secret ? { ...base, accessKeyId: id, secretAccessKey: secret } : offsiteConfig();
+}
+
+/** The bucket's address without an upload key: on a restore machine that holds only the read key. */
+function offsiteConfigWithout(): OffsiteConfig | null {
+  const endpoint = process.env.OFFSITE_S3_ENDPOINT;
+  const bucket = process.env.OFFSITE_S3_BUCKET;
+  if (!endpoint || !bucket || !process.env.OFFSITE_S3_READ_ACCESS_KEY_ID) return null;
+  return {
+    endpoint: endpoint.replace(/\/+$/, ""),
+    bucket,
+    region: process.env.OFFSITE_S3_REGION || "auto",
+    accessKeyId: "",
+    secretAccessKey: "",
+    prefix: process.env.OFFSITE_S3_PREFIX ?? "mysenam/",
+  };
+}
+
+/**
+ * What one PUT may carry: 5 GiB on S3, 5 GB on B2, 4.995 GiB on R2 — so a
+ * little under the smallest. A larger file would need a multipart upload,
+ * which this does not do.
+ */
+export const MAX_SINGLE_PUT = Math.floor(4.99 * 1024 ** 3);
+
+/**
+ * Whether copies may be sent where the bucket is. Nothing is sent until
+ * `OFFSITE_DATA_LOCATION` says which country the bucket keeps data in (the
+ * provider's region, not its head office). A bucket in this install's own
+ * country needs nothing more. A bucket abroad is a transfer of customers'
+ * personal data out of the country (Malaysia PDPA s129, Singapore PDPA
+ * s26), so it also needs `OFFSITE_TRANSFER_APPROVED` set to that same
+ * country — recorded once the safeguards are in place (a data processing
+ * agreement, a transfer assessment, the privacy notice; see
+ * docs/architecture/privacy.md#backups-held-abroad) — and client-side
+ * encryption, so the provider holds only ciphertext. Returns why not, or
+ * null when copies may go.
+ */
+export function offsiteTransferCheck(): string | null {
+  const location = process.env.OFFSITE_DATA_LOCATION?.trim().toUpperCase();
+  const home = region();
+  if (!location)
+    return "Off-site copies are paused until OFFSITE_DATA_LOCATION says which country the bucket keeps data in (for example MY, SG or US).";
+  if (location === home.country) return null;
+  if (process.env.OFFSITE_TRANSFER_APPROVED?.trim().toUpperCase() !== location)
+    return `The bucket keeps data in ${location}, outside ${home.name}: nothing is sent abroad until the transfer is approved and recorded as OFFSITE_TRANSFER_APPROVED=${location}.`;
+  if (!process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE)
+    return `The bucket keeps data in ${location}, outside ${home.name}: copies sent abroad must be encrypted first (OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE).`;
+  return null;
 }
 
 // ------------------------------------------------------------- signing
@@ -126,14 +204,23 @@ export function signV4(input: {
 
 // ------------------------------------------------------------- uploading
 
-/** The file's SHA-256, read in pieces: a database can be bigger than the memory there is. */
-function fileHash(file: string): Promise<string> {
+/**
+ * The file's SHA-256 (signed, for SigV4) and MD5 (sent as Content-MD5, which
+ * a bucket with Object Lock requires on S3 and which every S3-compatible
+ * service checks), read in pieces: a database can be bigger than the memory
+ * there is.
+ */
+function fileHashes(file: string): Promise<{ sha256: string; md5: string }> {
   return new Promise((resolve, reject) => {
-    const hash = crypto.createHash("sha256");
+    const sha = crypto.createHash("sha256");
+    const md5 = crypto.createHash("md5");
     fs.createReadStream(file)
-      .on("data", (chunk) => hash.update(chunk))
+      .on("data", (chunk) => {
+        sha.update(chunk);
+        md5.update(chunk);
+      })
       .on("error", reject)
-      .on("end", () => resolve(hash.digest("hex")));
+      .on("end", () => resolve({ sha256: sha.digest("hex"), md5: md5.digest("base64") }));
   });
 }
 
@@ -145,8 +232,11 @@ export function objectUrl(config: OffsiteConfig, name: string): URL {
 export type UploadResult = { ok: true; key: string; bytes: number } | { ok: false; error: string };
 
 /**
- * Send one snapshot. The body is streamed from disk, and its hash is signed,
- * so the storage service itself refuses a copy that arrived damaged.
+ * Send one file with a single signed PUT — the only request the upload key
+ * is ever used for: nothing is read back, listed or deleted, so a key that
+ * may only upload is enough. The body is streamed from disk; its SHA-256 is
+ * signed and its MD5 sent as Content-MD5, so the storage service itself
+ * refuses a copy that arrived damaged.
  */
 export async function uploadBackup(
   backup: Pick<BackupFile, "name" | "path">,
@@ -155,9 +245,12 @@ export async function uploadBackup(
 ): Promise<UploadResult> {
   let bytes: number;
   let payloadHash: string;
+  let md5: string;
   try {
     bytes = fs.statSync(backup.path).size;
-    payloadHash = await fileHash(backup.path);
+    if (bytes > MAX_SINGLE_PUT)
+      return { ok: false, error: `${backup.name} is ${(bytes / 1024 ** 3).toFixed(1)} GiB: more than one upload can carry (about 5 GB). Keep photos in a photo bucket instead.` };
+    ({ sha256: payloadHash, md5 } = await fileHashes(backup.path));
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Cannot read the backup" };
   }
@@ -166,6 +259,7 @@ export async function uploadBackup(
   const headers: Record<string, string> = {
     host: url.host,
     "content-length": String(bytes),
+    "content-md5": md5,
     "content-type": "application/octet-stream",
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate(now),
@@ -215,8 +309,12 @@ export interface OffsiteStatus {
   configured: boolean;
   /** Where copies go, without the credentials. */
   destination: string | null;
+  /** The country the bucket keeps data in, as declared (`OFFSITE_DATA_LOCATION`). */
+  location: string | null;
+  /** Why copies are not being sent, where they may not go (`offsiteTransferCheck`). */
+  paused: string | null;
   /** `manifest`: the set's manifest went too, so the copy can be checked whole when it is fetched back. */
-  lastCopied: { name: string; at: string; key: string; manifest?: boolean } | null;
+  lastCopied: { name: string; at: string; key: string; manifest?: boolean; encrypted?: boolean } | null;
   lastError: { at: string; error: string } | null;
 }
 
@@ -252,6 +350,8 @@ export async function offsiteStatus(): Promise<OffsiteStatus> {
   return {
     configured: config !== null,
     destination: config ? `${config.endpoint}/${config.bucket}/${config.prefix}` : null,
+    location: process.env.OFFSITE_DATA_LOCATION?.trim().toUpperCase() || null,
+    paused: config ? offsiteTransferCheck() : null,
     lastCopied,
     lastError,
   };
@@ -273,23 +373,49 @@ export async function copyOffsite(
 ): Promise<UploadResult | null> {
   const config = offsiteConfig();
   if (!config) return null;
-  const parts: { label: string; file: Pick<BackupFile, "name" | "path"> }[] = [
-    ...(photos ? [{ label: "photos", file: { name: path.basename(photos), path: photos } }] : []),
-    { label: "database", file: backup },
-    ...(manifest ? [{ label: "manifest", file: { name: path.basename(manifest), path: manifest } }] : []),
-  ];
-  let result: UploadResult = { ok: false, error: "nothing sent" };
-  for (const part of parts) {
-    const sent = await uploadBackup(part.file, config);
-    result = sent.ok || part.label === "database" ? sent : { ok: false, error: `${part.label}: ${sent.error}` };
-    if (!sent.ok) break;
+  const paused = offsiteTransferCheck();
+  if (paused) return await rememberCopy(backup, { ok: false, error: paused }, Boolean(manifest), false);
+  // Encrypted before it leaves, where a public key is given: the database and photos as `<name>.enc`; the
+  // manifest (hashes and counts, no personal data) stays readable, marked so a restore knows to decrypt.
+  const publicKey = readKeyFile(process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE);
+  const scratch = publicKey ? fs.mkdtempSync(path.join(os.tmpdir(), "mysenam-offsite-")) : null;
+  try {
+    const prepare = async (file: Pick<BackupFile, "name" | "path">): Promise<Pick<BackupFile, "name" | "path">> => {
+      if (!publicKey || !scratch) return file;
+      const sealed = path.join(scratch, `${file.name}.enc`);
+      await encryptFile(file.path, sealed, publicKey);
+      return { name: `${file.name}.enc`, path: sealed };
+    };
+    let manifestFile: Pick<BackupFile, "name" | "path"> | null = manifest ? { name: path.basename(manifest), path: manifest } : null;
+    if (manifestFile && scratch) {
+      const marked = path.join(scratch, manifestFile.name);
+      fs.writeFileSync(marked, JSON.stringify({ ...JSON.parse(fs.readFileSync(manifestFile.path, "utf8")), offsite: { encrypted: "rsa-oaep-sha256+aes-256-gcm" } }, null, 2));
+      manifestFile = { name: manifestFile.name, path: marked };
+    }
+    const parts: { label: string; file: Pick<BackupFile, "name" | "path"> }[] = [
+      ...(photos ? [{ label: "photos", file: await prepare({ name: path.basename(photos), path: photos }) }] : []),
+      { label: "database", file: await prepare(backup) },
+      ...(manifestFile ? [{ label: "manifest", file: manifestFile }] : []),
+    ];
+    let result: UploadResult = { ok: false, error: "nothing sent" };
+    for (const part of parts) {
+      const sent = await uploadBackup(part.file, config);
+      result = sent.ok || part.label === "database" ? sent : { ok: false, error: `${part.label}: ${sent.error}` };
+      if (!sent.ok) break;
+    }
+    if (result.ok) result = { ok: true, key: config.prefix + parts.find((p) => p.label === "database")!.file.name, bytes: parts.reduce((n, p) => n + fs.statSync(p.file.path).size, 0) };
+    return await rememberCopy(backup, result, Boolean(manifest), Boolean(publicKey));
+  } finally {
+    if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
   }
-  if (result.ok) result = { ok: true, key: config.prefix + backup.name, bytes: parts.reduce((n, p) => n + fs.statSync(p.file.path).size, 0) };
+}
+
+async function rememberCopy(backup: Pick<BackupFile, "name" | "path">, result: UploadResult, manifest: boolean, encrypted: boolean): Promise<UploadResult> {
   const now = new Date().toISOString();
   const previous = await stored();
   await remember(
     result.ok
-      ? { lastCopied: { name: backup.name, at: now, key: result.key, manifest: Boolean(manifest) }, lastError: null }
+      ? { lastCopied: { name: backup.name, at: now, key: result.key, manifest, encrypted }, lastError: null }
       : { lastCopied: previous.lastCopied, lastError: { at: now, error: result.error } }
   );
   return result;
@@ -339,10 +465,89 @@ export interface OffsiteObject {
   name: string;
   bytes: number;
   lastModified: string;
+  /**
+   * Written more than once, or hidden or deleted since: the server writes
+   * each name once, so a second version is somebody else's. Only known where
+   * the bucket's versions can be listed.
+   */
+  rewritten?: boolean;
 }
 
-/** What is in the bucket under this install's prefix (ListObjectsV2), oldest name first. */
+export interface OffsiteVersion {
+  name: string;
+  versionId: string;
+  bytes: number;
+  lastModified: string;
+  /** A delete marker (S3) or hide marker (B2): a name made to look gone. */
+  marker: boolean;
+}
+
+/**
+ * Every version of everything under the prefix (ListObjectVersions), each
+ * name's newest first, as S3 lists them. Null where the bucket keeps no
+ * versions (R2) or the read key may not list them: a restore then has only
+ * the current copy of each name to go on.
+ */
+export async function listOffsiteVersions(config: OffsiteConfig): Promise<OffsiteVersion[] | null> {
+  const found: OffsiteVersion[] = [];
+  let keyMarker: string | null = null;
+  let versionMarker: string | null = null;
+  do {
+    const url = new URL(`${config.endpoint}/${encodeSegment(config.bucket)}`);
+    url.searchParams.set("versions", "");
+    url.searchParams.set("prefix", config.prefix);
+    if (keyMarker) url.searchParams.set("key-marker", keyMarker);
+    if (versionMarker) url.searchParams.set("version-id-marker", versionMarker);
+    const res = await get(config, url);
+    let reply = "";
+    for await (const chunk of res) reply += chunk;
+    if (!res.statusCode || res.statusCode >= 300) return null;
+    for (const [, kind, block] of reply.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)) {
+      const key = unescapeXml(block.match(/<Key>([^<]+)<\/Key>/)?.[1] ?? "");
+      found.push({
+        name: key.slice(config.prefix.length),
+        versionId: block.match(/<VersionId>([^<]+)<\/VersionId>/)?.[1] ?? "null",
+        bytes: Number(block.match(/<Size>(\d+)<\/Size>/)?.[1] ?? 0),
+        lastModified: block.match(/<LastModified>([^<]+)<\/LastModified>/)?.[1] ?? "",
+        marker: kind === "DeleteMarker",
+      });
+    }
+    const truncated = /<IsTruncated>true<\/IsTruncated>/.test(reply);
+    keyMarker = truncated ? unescapeXml(reply.match(/<NextKeyMarker>([^<]+)<\/NextKeyMarker>/)?.[1] ?? "") || null : null;
+    versionMarker = truncated ? reply.match(/<NextVersionIdMarker>([^<]+)<\/NextVersionIdMarker>/)?.[1] ?? null : null;
+  } while (keyMarker);
+  return found;
+}
+
+const unescapeXml = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+
+/** Each name's first upload, and whether anything came after it. */
+function firstVersions(versions: OffsiteVersion[]): Map<string, { first: OffsiteVersion | null; rewritten: boolean }> {
+  const byName = new Map<string, OffsiteVersion[]>();
+  for (const v of versions) byName.set(v.name, [...(byName.get(v.name) ?? []), v]);
+  return new Map(
+    [...byName].map(([name, all]) => {
+      const uploads = all.filter((v) => !v.marker);
+      // Listed newest first, so the last upload listed is the first made.
+      return [name, { first: uploads.at(-1) ?? null, rewritten: all.length > 1 }];
+    })
+  );
+}
+
+/**
+ * What is in the bucket under this install's prefix, oldest name first: from
+ * the versions where they can be listed — so a name hidden or written over
+ * by somebody with the upload key still shows, flagged — otherwise from
+ * ListObjectsV2.
+ */
 export async function listOffsite(config: OffsiteConfig): Promise<OffsiteObject[]> {
+  const versions = await listOffsiteVersions(config);
+  if (versions) {
+    return [...firstVersions(versions)]
+      .filter(([, v]) => v.first)
+      .map(([name, v]) => ({ name, bytes: v.first!.bytes, lastModified: v.first!.lastModified, rewritten: v.rewritten }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
   const found: OffsiteObject[] = [];
   let token: string | null = null;
   do {
@@ -357,7 +562,7 @@ export async function listOffsite(config: OffsiteConfig): Promise<OffsiteObject[
     for (const [, block] of reply.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
       const key = block.match(/<Key>([^<]+)<\/Key>/)?.[1] ?? "";
       found.push({
-        name: key.slice(config.prefix.length).replace(/&amp;/g, "&"),
+        name: unescapeXml(key).slice(config.prefix.length),
         bytes: Number(block.match(/<Size>(\d+)<\/Size>/)?.[1] ?? 0),
         lastModified: block.match(/<LastModified>([^<]+)<\/LastModified>/)?.[1] ?? "",
       });
@@ -367,9 +572,11 @@ export async function listOffsite(config: OffsiteConfig): Promise<OffsiteObject[
   return found.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-/** Download one object to a file, through a temporary name: a cut-off download leaves nothing that looks whole. */
-export async function downloadObject(config: OffsiteConfig, name: string, dest: string): Promise<void> {
-  const res = await get(config, objectUrl(config, name));
+/** Download one object (a given version of it, if named) to a file, through a temporary name: a cut-off download leaves nothing that looks whole. */
+export async function downloadObject(config: OffsiteConfig, name: string, dest: string, versionId?: string): Promise<void> {
+  const url = objectUrl(config, name);
+  if (versionId && versionId !== "null") url.searchParams.set("versionId", versionId);
+  const res = await get(config, url);
   if (!res.statusCode || res.statusCode >= 300) {
     let reply = "";
     for await (const chunk of res) reply += chunk;
@@ -383,25 +590,63 @@ export async function downloadObject(config: OffsiteConfig, name: string, dest: 
   fs.renameSync(temporary, dest);
 }
 
+export interface FetchedSet {
+  snapshot: string;
+  files: string[];
+  /** Whether the bucket's versions could be listed, so each part is its first upload. */
+  versioned: boolean;
+  /** Names written more than once, or hidden, since the server uploaded them: the first upload was used. */
+  rewritten: string[];
+}
+
 /**
  * Bring one backup set down from the bucket into a folder: its manifest
  * first, then every part the manifest names. Checking that the parts hash to
  * what the manifest says is `verifyBackupSet` (lib/backup.ts), which the
  * restore script runs before anything is restored.
+ *
+ * Where the bucket keeps versions, each name is fetched as first uploaded.
+ * The server writes every name once, so a later version came from somebody
+ * else — perhaps with a stolen upload key, which can write over a name
+ * (and, holding the public key, even write a whole consistent fake set) but
+ * not remove what Object Lock keeps. Such names are reported.
  */
-export async function fetchOffsiteSet(config: OffsiteConfig, snapshot: string, dir: string): Promise<{ snapshot: string; files: string[] }> {
+export async function fetchOffsiteSet(config: OffsiteConfig, snapshot: string, dir: string): Promise<FetchedSet> {
   fs.mkdirSync(dir, { recursive: true });
   const manifestName = snapshot.replace(/\.(dump|tar\.gz)$/, ".manifest.json");
   const files: string[] = [];
+  const listed = await listOffsiteVersions(config);
+  const firsts = listed ? firstVersions(listed) : null;
+  const rewritten: string[] = [];
+  const fetchOne = async (name: string, dest: string) => {
+    if (!firsts) return downloadObject(config, name, dest);
+    const found = firsts.get(name);
+    if (!found?.first) throw new Error(`${name} is not in the bucket${found ? " (only a delete or hide marker is)" : ""}.`);
+    if (found.rewritten) rewritten.push(name);
+    await downloadObject(config, name, dest, found.first.versionId);
+  };
   const manifestFile = path.join(dir, manifestName);
-  await downloadObject(config, manifestName, manifestFile);
+  await fetchOne(manifestName, manifestFile);
   files.push(manifestFile);
-  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as { database: { file: string }; photos: { file: string } | null };
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as {
+    database: { file: string };
+    photos: { file: string } | null;
+    offsite?: { encrypted?: string };
+  };
   if (manifest.database.file !== snapshot) throw new Error(`The manifest in the bucket is for ${manifest.database.file}, not ${snapshot}.`);
+  const privateKey = manifest.offsite?.encrypted ? readKeyFile(process.env.OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE) : null;
+  if (manifest.offsite?.encrypted && !privateKey)
+    throw new Error("This set was encrypted before upload: set OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE to the private key to decrypt it.");
   for (const part of [manifest.database.file, ...(manifest.photos ? [manifest.photos.file] : [])]) {
     const dest = path.join(dir, part);
-    await downloadObject(config, part, dest);
+    if (privateKey) {
+      // Fetched encrypted, then opened; the plain file is what the manifest's hashes are checked against.
+      const sealed = `${dest}.enc`;
+      await fetchOne(`${part}.enc`, sealed);
+      await decryptFile(sealed, dest, privateKey);
+      fs.rmSync(sealed, { force: true });
+    } else await fetchOne(part, dest);
     files.push(dest);
   }
-  return { snapshot: path.join(dir, snapshot), files };
+  return { snapshot: path.join(dir, snapshot), files, versioned: firsts !== null, rewritten };
 }

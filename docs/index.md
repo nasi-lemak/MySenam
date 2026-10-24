@@ -59,7 +59,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0010 Interval booking](architecture/decisions/0010-interval-booking.md) ·
 [0011 Activities as data](architecture/decisions/0011-activities-as-data.md) ·
 [0012 Competition rules and corrections](architecture/decisions/0012-competition-rules-and-corrections.md) ·
-[0013 Competition framework](architecture/decisions/0013-competition-framework.md)
+[0013 Competition framework](architecture/decisions/0013-competition-framework.md) ·
+[0014 Off-site backups encrypted and located](architecture/decisions/0014-off-site-backups-encrypted-and-located.md)
 
 ## Integrations
 

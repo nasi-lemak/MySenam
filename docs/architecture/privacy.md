@@ -115,6 +115,66 @@ also expects a named person to write to: with `OPERATOR_NAME` and
 names them under *Who to write to*; without them it says there is nobody yet.
 Have a lawyer read it before taking a real customer's booking.
 
+## Where personal data is kept
+
+Four places are distinct, and none implies another: the **operating
+company** (`OPERATOR_*`, who runs the install), the **venue's country**
+(`MYSENAM_COUNTRY`: one install per country), the **customer's country**
+(a Singaporean booking a court in Johor is still on the Malaysian install),
+and the **hosting location** (where the database server, the photo bucket
+and the off-site backups are). The app does not decide the hosting location;
+the operator does, and the privacy notice and venue agreements must say it.
+
+**Who is responsible for what is not settled, and needs a lawyer's view.** A
+reasonable starting position, from the regulators' guidance, is that for a
+venue's bookings the venue decides why the data is held and MySenam processes
+it for the venue (Malaysia: controller and processor; Singapore: organisation
+and data intermediary), while for customers' own accounts — one sign-in
+across venues, the platform's own messages — the operator is responsible in
+its own right. A backup provider is the operator's processor either way.
+Neither Malaysia's PDPA nor Singapore's requires data to stay in the country;
+both allow transfers abroad on conditions.
+
+### Backups held abroad
+
+An off-site backup in another country is a transfer of personal data out of
+the country, even encrypted, unless a lawyer advises otherwise. The app sends
+none until the bucket's country is declared, and none abroad until the
+transfer is approved and the copies are encrypted
+([backups](../operations/backups.md#where-the-data-may-go)). Before setting
+`OFFSITE_TRANSFER_APPROVED`, the operator should have, and record:
+
+- **Malaysia (PDPA s129, as amended in 2024, in force 1 April 2025):** a
+  transfer impact assessment for the destination (the Commissioner's
+  cross-border transfer guideline of April 2025 asks for one, reviewed every
+  three years), or a due-diligence basis such as contract clauses (the ASEAN
+  Model Contractual Clauses are named) with the provider.
+- **Singapore (PDPA s26 and the 2021 Regulations):** legally enforceable
+  obligations on the provider giving comparable protection — a contract that
+  names the countries, or a recognised certification — after due diligence.
+- **Both:** a data processing agreement with the provider (protection,
+  deletion at the end of retention, breach notice to the operator, its own
+  subprocessors, notice of law-enforcement requests, the regions named); the
+  privacy notice and venue agreements naming the country; encryption with the
+  key held by the operator, not the provider; least-privilege keys
+  ([backups](../operations/backups.md#keys-and-object-lock)); and a breach plan
+  that meets Malaysia's and Singapore's notification deadlines.
+
+A bucket in the install's own country (Amazon S3 in Malaysia or Singapore)
+avoids the transfer question for that country's data, but not the processor
+agreement, security or retention duties. Backups age out with the bucket's
+lifecycle rule (about 15 days), so data erased or anonymised here is gone from
+them within that window; the privacy notice should say so.
+
+**Needs legal confirmation before launch:** each party's role for venue data
+and for account data, and what that means for registration, a data
+protection officer and breach notices; whether a US or EU bucket meets
+Malaysia's test, or the due-diligence route should be used; whether
+encrypted copies whose key the operator holds count as a transfer; the exact
+Malaysian breach-notice deadlines and thresholds in the Commissioner's
+guideline; and whether the provider's standard agreement meets Malaysia's
+contract route and Singapore's s26.
+
 How much data an install accumulates, and why bookings stay in plain Postgres
 rather than TimescaleDB, is in
 [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.md).

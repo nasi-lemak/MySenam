@@ -86,11 +86,12 @@ describe("a tick", () => {
     process.env.OFFSITE_S3_BUCKET = "backups";
     process.env.OFFSITE_S3_ACCESS_KEY_ID = "id";
     process.env.OFFSITE_S3_SECRET_ACCESS_KEY = "secret";
+    process.env.OFFSITE_DATA_LOCATION = "MY";
   });
 
   afterAll(() => {
     server.close();
-    for (const k of Object.keys(process.env)) if (k.startsWith("OFFSITE_S3_")) delete process.env[k];
+    for (const k of Object.keys(process.env)) if (k.startsWith("OFFSITE_")) delete process.env[k];
   });
 
   it("takes the first backup, verified, and copies it off-site", async () => {

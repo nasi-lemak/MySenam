@@ -80,42 +80,131 @@ data, not one venue's.
 
 Snapshots beside the database survive a bad deploy and a mistyped `DELETE`; they
 do not survive the disk. So each one — the nightly one and every *Back up now* —
-is also uploaded to object storage that speaks the S3 API: Cloudflare R2,
-Backblaze B2, Amazon S3, Wasabi. Its photos archive goes first, then the
+is also uploaded to object storage that speaks the S3 API: Amazon S3,
+Backblaze B2, Cloudflare R2, Wasabi. Its photos archive goes first, then the
 database, then the manifest; if any part is refused the copy is counted as
 failed and the manifest is not sent, so a set in the bucket without its
-manifest is recognisably incomplete.
+manifest is recognisably incomplete. Which provider to choose, with prices and
+data locations, is in [launch providers](../integrations/launch-providers.md#off-site-backups).
 
-| Variable | Example |
-| -------- | ------- |
-| `OFFSITE_S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com`, `https://s3.us-west-004.backblazeb2.com` |
-| `OFFSITE_S3_BUCKET` | `venue-backups` |
-| `OFFSITE_S3_REGION` | `auto` for R2 (the default); the bucket's region for B2 and S3 |
-| `OFFSITE_S3_ACCESS_KEY_ID` / `OFFSITE_S3_SECRET_ACCESS_KEY` | A key for that bucket |
-| `OFFSITE_S3_PREFIX` | `mysenam/` (the default) — one bucket can hold several installs |
+| Variable | Where | Example |
+| -------- | ----- | ------- |
+| `OFFSITE_S3_ENDPOINT` | server, restore machine | `https://s3.ap-southeast-5.amazonaws.com`, `https://s3.us-west-004.backblazeb2.com`, `https://<account-id>.r2.cloudflarestorage.com` |
+| `OFFSITE_S3_BUCKET` | both | `venue-backups` |
+| `OFFSITE_S3_REGION` | both | the bucket's region for S3 and B2 (`ap-southeast-5`, `us-west-004`: the endpoint's middle part); `auto` for R2 (the default) |
+| `OFFSITE_S3_PREFIX` | both | `mysenam/` (the default) — one bucket can hold several installs |
+| `OFFSITE_S3_ACCESS_KEY_ID` / `OFFSITE_S3_SECRET_ACCESS_KEY` | server only | the **upload-only** key |
+| `OFFSITE_S3_READ_ACCESS_KEY_ID` / `OFFSITE_S3_READ_SECRET_ACCESS_KEY` | restore machine only | the **read and list** key |
+| `OFFSITE_DATA_LOCATION` | server | the country the bucket keeps data in: `MY`, `SG`, `US`… (required) |
+| `OFFSITE_TRANSFER_APPROVED` | server | the same country, once a transfer abroad is approved (below) |
+| `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` | server | encrypt before upload (below); required for a bucket abroad |
+| `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` | restore machine only | decrypt after download |
 
-The upload is streamed from disk and signed over the file's SHA-256, so the
-storage service itself rejects a copy that arrived damaged. The Backups panel
-shows the last copy (and whether its manifest went), and in red the last
-failure; a failed copy also raises an `offsite` alert
-([monitoring](monitoring.md)), so an upload that has been failing quietly is
-visible long before the day it is needed.
+Each part goes up in one PUT, streamed from disk, signed over its SHA-256 and
+carrying its MD5 as `Content-MD5` (which buckets with Object Lock require), so
+the storage service itself rejects a copy that arrived damaged. One PUT
+carries about 5 GB on every provider; a larger part is refused before anything
+is sent (multipart uploads are not implemented: keep photos small or in their
+own storage). The Backups panel shows where copies go, the country the data is
+kept in, the last copy (whether its manifest went, whether it was encrypted),
+and in red the last failure or why copies are paused; a failed copy also
+raises an `offsite` alert ([monitoring](monitoring.md)).
 
-**Nothing off-site is ever deleted by the app.** Set a lifecycle rule on the
-bucket to expire old copies (30 days is plenty), and give the app a key that
-may only *write* to the bucket. Then somebody who takes over the server cannot
-reach back and delete the copies that would undo the damage.
+### Where the data may go
 
-**Encryption and secrets.** The app does not encrypt the snapshot itself.
-The backups hold customers' names, phone numbers and email addresses: keep the
-bucket private, turn on the provider's encryption at rest (R2 and S3 do it by
-default; B2 needs server-side encryption switched on for the bucket), and
-reach it only over HTTPS. Venues' payment keys inside are sealed, and the key
+Nothing is sent until `OFFSITE_DATA_LOCATION` names the country of the
+bucket's region (not the provider's head office). A bucket in the install's
+own country (`MYSENAM_COUNTRY`) needs nothing more. A bucket anywhere else is
+a transfer of customers' personal data abroad, so the app also needs
+`OFFSITE_TRANSFER_APPROVED` set to that same country and the encryption below
+switched on; until both are, copies are paused and the panel says why. Set
+`OFFSITE_TRANSFER_APPROVED` only once the safeguards in
+[privacy](../architecture/privacy.md#backups-held-abroad) are in place and
+recorded. Backblaze B2 and Cloudflare R2 have no region in Malaysia or
+Singapore; Amazon S3 has both (`ap-southeast-5`, `ap-southeast-1`).
+
+### Keys and Object Lock
+
+The server's key should only upload, and a separate key that may read and
+list belongs on the machine you restore from, never on the server:
+
+| | Upload key (server) | Read key (restore machine) |
+| --- | --- | --- |
+| Backblaze B2 | application key with `writeFiles` only, restricted to the bucket and to the prefix | `listFiles` and `readFiles`, same bucket and prefix |
+| Amazon S3 | IAM policy allowing `s3:PutObject` on `arn:aws:s3:::<bucket>/<prefix>*` | `s3:ListBucket` (with an `s3:prefix` condition), `s3:ListBucketVersions`, `s3:GetObject`, `s3:GetObjectVersion` |
+| Cloudflare R2 | no write-only token exists: *Object Read & Write* on that bucket, which can also read and overwrite | *Object Read only* |
+
+The app never asks the upload key for anything but PUT: it does not check
+what it uploaded with a HEAD or GET, list the bucket, or delete anything.
+
+**An upload-only key alone does not protect the copies.** It cannot read or
+delete, but it can upload a new version over an existing name (and on B2,
+hide a name), and a lifecycle rule then deletes the replaced version. Holding
+the public key too (it is on the server), a thief could even upload a whole
+fake set that checks out on its own. What keeps earlier copies is
+**Object Lock**:
+
+- **B2:** turn on Object Lock for the bucket (it can be enabled on an
+  existing bucket, and never turned off) with a default retention of
+  **14 days, governance mode**, and a lifecycle rule
+  `daysFromUploadingToHiding: 14, daysFromHidingToDeleting: 1`.
+- **S3:** turn on versioning and Object Lock with a default retention of
+  14 days (governance), and a lifecycle rule expiring current versions
+  after 14 days and noncurrent versions 1 day after they become noncurrent.
+- **R2:** a bucket lock rule of 14 days on the prefix (R2 has no versions:
+  a locked object cannot be overwritten at all).
+
+A locked version cannot be deleted by lifecycle, by the upload key or by
+anybody without the bypass permission, until its retention ends; lifecycle
+removes it after that. Governance mode lets an account owner with the
+bypass permission correct a mistake; compliance mode cannot be shortened
+even by the account owner, so choose it only deliberately. The app's own
+pruning applies to the server's disk, never to the bucket, so the two do not
+conflict. Expect 15–16 nights of copies to be stored at any time, not 14.
+
+**Restoring takes each name's first upload.** The server writes every name
+once, so where the bucket's versions can be listed (B2 and S3 with the read
+key above), `fetch-backup` fetches each part as first uploaded and reports
+any name written again or hidden since: treat that as a stolen upload key
+(rotate it). On R2 (no versions) it has only the current copy, and says so.
+
+### Encryption
+
+Set `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` and each database and photos archive
+is encrypted on the server before it is uploaded, as `<name>.enc`: a fresh
+AES-256-GCM key per file, itself encrypted with an RSA public key
+(RSA-OAEP, SHA-256). The server holds only the public key, so it — or anybody
+who takes it over — can encrypt tonight's backup but cannot read an earlier
+one. The manifest (hashes and counts, no personal data) stays readable,
+marked as encrypted. Create the pair on a machine you trust, not the server:
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out offsite-private.pem
+openssl pkey -in offsite-private.pem -pubout -out offsite-public.pem
+```
+
+Copy `offsite-public.pem` to the server; keep `offsite-private.pem` with the
+restore key and in a second safe place (a password manager). **Without the
+private key no encrypted copy can be read.** A changed or truncated file
+fails GCM's check and is refused rather than restored. File names and sizes
+are still visible to the provider. Turn on the provider's own encryption at
+rest as well (S3 and R2 do it by default; B2 needs it switched on for the
+bucket), and reach it only over HTTPS.
+
+**Secrets.** Venues' payment keys inside the snapshot are sealed, and the key
 that unlocks them (`secret.key` in the data folder, or `MYSENAM_SECRET`) is
-deliberately not in any backup: **keep a copy of it somewhere else safe**
-(a password manager), or after a restore every venue has to reconnect its
-gateway. The restore drill (below) says how many payment keys in a snapshot
-this install's secret can open.
+deliberately not in any backup: **keep a copy of it somewhere else safe**,
+or after a restore every venue has to reconnect its gateway. The restore drill
+(below) says how many payment keys in a snapshot this install's secret can
+open.
+
+### Rotating keys
+
+Create the new key, put it in the environment, restart, and check the next
+copy on the Backups panel before deleting the old key (B2: delete the
+application key; S3: deactivate then delete the access key). A B2 key can be
+given an expiry under 1,000 days. To rotate the encryption pair, set the new
+public key: older copies still need the old private key until they expire.
 
 ## Recovery point and recovery time
 
@@ -185,15 +274,18 @@ same steps are the quarterly drill: they are how you find out the copies
 work before you need them.
 
 1. Set `OFFSITE_S3_ENDPOINT`, `OFFSITE_S3_BUCKET`, `OFFSITE_S3_REGION`,
-   `OFFSITE_S3_PREFIX` and the read key in `OFFSITE_S3_ACCESS_KEY_ID` /
-   `OFFSITE_S3_SECRET_ACCESS_KEY` in the environment (not on the command
-   line), and `MYSENAM_SECRET` or `secret.key` from where you keep it.
+   `OFFSITE_S3_PREFIX`, the read key in `OFFSITE_S3_READ_ACCESS_KEY_ID` /
+   `OFFSITE_S3_READ_SECRET_ACCESS_KEY` and, for encrypted copies,
+   `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` in the environment (not on the
+   command line), and `MYSENAM_SECRET` or `secret.key` from where you keep it.
 2. `npm run fetch-backup -- --list` lists the sets in the bucket, newest last,
-   each marked whole (its manifest is there) or not.
+   each marked whole (its manifest is there) or not, encrypted, and written
+   again after upload if it was.
 3. `npm run fetch-backup -- mysenam-2026-09-26-030000.dump --to /srv/restore`
-   downloads the manifest and then each part it names, and checks every part's
-   SHA-256 against it; it exits non-zero, naming the part, if anything is
-   missing or differs.
+   downloads the manifest and then each part it names (each as first
+   uploaded, where versions can be listed), decrypts them, and checks every
+   part's SHA-256 against the manifest; it exits non-zero, naming the part, if
+   anything is missing, differs or cannot be decrypted.
 4. Point `DATABASE_URL` at an isolated Postgres server (a staging instance, or
    a new empty one) and run
    `npm run restore -- /srv/restore/mysenam-2026-09-26-030000.dump --drill`.
@@ -223,10 +315,21 @@ work before you need them.
   photos archive damaged in the bucket is caught by the fetch, refused by the
   restore and failed by the drill; and a restore while an instance holds the
   scheduler's lease changes nothing.
+- Against a stand-in that behaves as B2 is documented to (`tests/offsite.test.ts`):
+  an upload-only key (`writeFiles`, one prefix) sends the set by PUTs alone,
+  encrypted, with `Content-MD5`, manifest last, and is refused when it tries to
+  read, list or delete; a separate read key and the private key fetch it back,
+  decrypt it and pass `verifyBackupSet`; no private key, the wrong one, and a
+  changed byte are each refused; after a whole fake set is uploaded over the
+  real one with the upload key, the real one is restored and the rewrite
+  reported; a key outside its prefix and a part over the size limit are
+  refused; and copies are paused until the bucket's country is declared, and
+  abroad until the transfer is approved and encryption is on.
 
-**Not verified:** any of this against a real bucket. The stand-in speaks the
-same requests, but signatures, permissions, lifecycle rules and download
-speed are only proven by running the off-site steps above against the real
-provider ([feature status](../product/feature-status.md), launch checklist in
+**Not verified:** any of this against a real bucket. The stand-ins speak the
+same requests, but signatures (B2's signing region), key capabilities (that
+`writeFiles` alone is enough for PutObject), Object Lock with a default
+retention, versions listing, lifecycle rules and download speed are only
+proven by running the off-site steps above against the real provider ([feature status](../product/feature-status.md), launch checklist in
 [deployment](deployment.md#launch-integration-checklist)). Local tests do not
 show that production can be recovered.

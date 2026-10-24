@@ -24,4 +24,9 @@ export async function startNode(): Promise<void> {
     warn(
       "Off-site copies are not set up (OFFSITE_S3_*), so every backup is on the same disk as the database it backs up."
     );
+  else {
+    const { offsiteTransferCheck } = await import("./lib/offsite");
+    const paused = offsiteTransferCheck();
+    if (paused) warn(paused);
+  }
 }

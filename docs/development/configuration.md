@@ -39,6 +39,11 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYSENAM_RATE_LIMITS` | `memory` | `shared` to keep rate-limit counters in Postgres, for more than one instance |
 | `MYINVOIS_CLIENT_ID`, `MYINVOIS_CLIENT_SECRET` | unset | The platform's own MyInvois ERP client, to act as venues' intermediary for LHDN e-invoicing (Malaysia) |
 | `OFFSITE_S3_*` | — | Where to copy each backup off the machine; see *Off-site copies* |
+| `OFFSITE_S3_READ_ACCESS_KEY_ID` / `OFFSITE_S3_READ_SECRET_ACCESS_KEY` | — | The read key, on the machine you restore from only ([backups](../operations/backups.md#keys-and-object-lock)) |
+| `OFFSITE_DATA_LOCATION` | — | Country the bucket keeps data in; nothing is copied off-site until it is set ([backups](../operations/backups.md#where-the-data-may-go)) |
+| `OFFSITE_TRANSFER_APPROVED` | — | That country again, once a transfer abroad is approved and recorded |
+| `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` | — | Encrypt each off-site copy before upload ([backups](../operations/backups.md#encryption)) |
+| `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` | — | Decrypt them, on the restore machine only |
 | `PHOTOS_S3_*` | — | A bucket of its own for venue photos (`ENDPOINT`, `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION`); without one, photos go in the data folder. See *Venue photos* |
 | `PHOTOS_PUBLIC_URL` | — | The photo bucket's public address, so browsers fetch photos from it rather than through this server |
 | `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |

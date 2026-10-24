@@ -870,7 +870,9 @@ function BackupsPanel() {
     offsite: {
       configured: boolean;
       destination: string | null;
-      lastCopied: { name: string; at: string; manifest?: boolean } | null;
+      location?: string | null;
+      paused?: string | null;
+      lastCopied: { name: string; at: string; manifest?: boolean; encrypted?: boolean } | null;
       lastError: { at: string; error: string } | null;
     };
     schedule: { hour: number } | null;
@@ -974,8 +976,9 @@ function BackupsPanel() {
               className={`mt-3 rounded-lg px-3 py-2 text-sm ${
                 !state.offsite.configured
                   ? "bg-amber-50 text-amber-900"
-                  : state.offsite.lastError &&
-                      (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at)
+                  : state.offsite.paused ||
+                      (state.offsite.lastError &&
+                      (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at))
                     ? "bg-red-50 text-red-700"
                     : "bg-slate-50 text-slate-700"
               }`}
@@ -989,16 +992,20 @@ function BackupsPanel() {
               ) : (
                 <>
                   Off-site to <span className="font-mono text-xs">{state.offsite.destination}</span>
+                  {state.offsite.location ? ` (data kept in ${state.offsite.location})` : ""}
                   {state.offsite.lastCopied ? (
                     <>
                       {" "}— last copy <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
                       at {state.offsite.lastCopied.at.slice(0, 10)} {localTime(state.offsite.lastCopied.at)}
                       {state.offsite.lastCopied.manifest ? ", whole with its manifest" : ", without a manifest"}
+                      {state.offsite.lastCopied.encrypted ? ", encrypted before it left" : ", not encrypted by MySenam"}
                     </>
                   ) : (
                     " — nothing copied yet"
                   )}
-                  {state.offsite.lastError &&
+                  {state.offsite.paused && <div className="mt-1 font-semibold">Paused: {state.offsite.paused}</div>}
+                  {!state.offsite.paused &&
+                    state.offsite.lastError &&
                     (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at) && (
                       <div className="mt-1 font-semibold">
                         The last copy failed: {state.offsite.lastError.error}

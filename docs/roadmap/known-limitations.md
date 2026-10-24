@@ -272,7 +272,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | SMS (Twilio or HTTP gateway) for phone codes | Needs a live send | Only where phone checks use SMS |
 | LHDN MyInvois | Needs sandbox (preprod) verification | Only for venues that must e-invoice |
 | Google sign-in | Needs a registered redirect URI | No: password sign-in works |
-| S3-compatible off-site backups and photo storage | Needs a real bucket | Off-site backups: yes, for production |
+| S3-compatible off-site backups and photo storage | Needs a real bucket. Tested against stand-ins for S3 and B2 only: B2's acceptance of a `writeFiles`-only key for uploads, its signing region, Object Lock default retention and versions listing are unverified | Off-site backups: yes, for production |
 | Reserve with Google | Feeds only; needs Actions Center partner approval and a booking server that is **not built** | No |
 | Smart locks (TTLock, Igloohome) | Not built; blocked on vendor credentials | No |
 | Stripe Connect payouts, Singapore InvoiceNow, web push, LINE, Zalo | Not built; each needs a partner or contract | No |
@@ -285,6 +285,13 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
   a free hour for regulars instead.
 - **Referral credit** ("give RM10, get RM10"): with bookings by phone number
   and no proof two numbers are two people, it pays people to refer themselves.
+- **No multipart uploads off-site.** Each backup part goes in one PUT, which
+  every provider caps at about 5 GB; a larger part (usually a photos archive)
+  is refused and the copy reported failed. Keep photos in their own bucket
+  (`PHOTOS_S3_*`) rather than on the server's disk.
+- **Off-site copies need a declared location.** Nothing is copied until
+  `OFFSITE_DATA_LOCATION` is set, and nothing abroad until the transfer is
+  approved and encrypted ([backups](../operations/backups.md#where-the-data-may-go)).
 - **One country per install.** Malaysia and Singapore are separate installs
   ([regions](../product/regions-and-tax.md)).
 - **Storefront domains are not data separation.** A business needing its own

@@ -30,12 +30,13 @@ invoicing venues.
 | - | ------- | --------------- | ---------------- | ------------------ |
 | Countries | Malaysia only | Malaysia | Singapore | Singapore, Malaysia, Philippines (Thailand through Stripe) |
 | Local methods and fees | FPX RM1.25 per payment (RM0.75 on the RM999 a year plan); DuitNow QR and e-wallets 1.5%; Malaysian cards 1.8% (1.5%) | Cards 3% + RM1.00; FPX 3% + RM1.00; GrabPay 3%; DuitNow not offered | Cards 3.4% + S$0.50; PayNow 1.3%; GrabPay 3.3% | MY: cards 1.2% + RM1, FPX 1.8% + RM0.40, DuitNow QR 1.2%. SG: PayNow 0.9% (0.65% + S$0.30 from S$100), cards 2.8% + S$0.50 |
-| Settlement | FPX next business day, cards two business days | Stripe's schedule | Stripe's schedule | *unverified* |
-| Refunds | **No refund API**: FPX refunds are a payout to the customer's bank account (a V5 Payment Order); card refunds through support | API; no refund fee, processing fee not returned | Same | API; no refund fee |
-| Disputes | Through Billplz | RM90 each | S$15 each | *unverified* |
-| Recurring | Card tokens charged by the merchant (Auto-Deduct, applied for separately) | Billing, 0.7% of volume | Billing, 0.7% | Recurring billing offered |
-| Who can sign up | Businesses registered with SSM or ROS with a Malaysian corporate bank account; sole proprietors *unverified* | A business registration number for FPX | A Singapore business | *unverified* |
-| Platform accounts | Not offered | Connect only with Stripe owning fees and loss (each venue its own Standard-style account); Express and Custom not listed for Malaysia | Express and Custom available | Platform API with sub-accounts; who checks the sub-merchants and how they are settled *unverified* |
+| Settlement | FPX next business day, cards two business days | Stripe's schedule | Stripe's schedule | MY: FPX and cards T+1 business day (settled through Stripe), DuitNow T+2; minimum payout RM5. SG: T+1 |
+| Refunds | **No refund API**: FPX refunds are a payout to the customer's bank account (a V5 Payment Order); card refunds through support | API; no refund fee, processing fee not returned | Same | API (`POST /v1/refund`, full or partial) for cards, FPX (30 days), Touch 'n Go, GrabPay, ShopeePay, PayNow; **DuitNow cannot be refunded through HitPay**; processing fee not returned; no idempotency key documented |
+| Disputes | Through Billplz | RM90 each | S$15 each | RM200 each in Malaysia, S$20 in Singapore |
+| Recurring | Card tokens charged by the merchant (Auto-Deduct, applied for separately) | Billing, 0.7% of volume | Billing, 0.7% | Recurring billing and saved methods (MY: cards, Touch 'n Go, GrabPay, ShopeePay); 0.2% add-on |
+| Who can sign up | Businesses registered with SSM or ROS with a Malaysian corporate bank account; sole proprietors *unverified* | A business registration number for FPX | A Singapore business | MY: SSM profile, ID and selfie; sole proprietors accepted, personal bank account allowed. SG: ACRA registration and proof of business |
+| Platform accounts | Not offered | Connect only with Stripe owning fees and loss (each venue its own Standard-style account); Express and Custom not listed for Malaysia | Express and Custom available | Each venue its own HitPay account, verified by HitPay and paid out to its own bank; connected by the venue's API key, or by OAuth (beta, scopes approved by HitPay, webhooks still need the API key) |
+| Testing | Sandbox | Test mode | Test mode | Sandbox is a Singapore account only: **FPX, DuitNow and Touch 'n Go cannot be tested** without real money |
 | Expansion | — | Thailand self-serve; Indonesia in preview; the Philippines and Vietnam not offered | | Philippines |
 
 Sources: [Billplz pricing](https://main.billplz.com/pricing),
@@ -51,7 +52,15 @@ Sources: [Billplz pricing](https://main.billplz.com/pricing),
 [Stripe countries](https://stripe.com/global);
 [HitPay pricing](https://hitpayapp.com/pricing),
 [HitPay Malaysia](https://hitpayapp.com/my/payment-gateway),
-[HitPay platform API](https://docs.hitpayapp.com/apis/guide/platform-apis).
+[HitPay platform API](https://docs.hitpayapp.com/apis/guide/platform-apis),
+[HitPay Malaysia pricing](https://hitpayapp.com/my/pricing),
+[refunds](https://docs.hitpayapp.com/payments/refund),
+[DuitNow](https://docs.hitpayapp.com/payment-methods/duitnow),
+[sandbox](https://docs.hitpayapp.com/apis/guide/sandbox),
+[platforms](https://docs.hitpayapp.com/platforms/overview),
+[OAuth](https://docs.hitpayapp.com/platforms/oauth),
+[webhooks](https://docs.hitpayapp.com/apis/guide/events),
+[Malaysian onboarding](https://docs.hitpayapp.com/onboarding/requirements-my).
 Razorpay Curlec (Malaysia: FPX 1.5%, DuitNow 1.2%, cards 2.4%,
 [pricing](https://curlec.com/pricing/)) and Xendit (sub-accounts, split
 payments and refunds across Southeast Asia,
@@ -76,10 +85,45 @@ payments and refunds across Southeast Asia,
   The current model keeps each venue's money in the venue's account. Holding
   other businesses' money brings licensing and safeguarding questions the
   product does not need to answer now.
-- **Evaluate HitPay as the first new adapter**, before Southeast Asian
-  expansion: cheaper cards in Malaysia, DuitNow, the Philippines, and a
-  platform API. Confirm first how it vets and settles sub-merchants. Xendit
-  is the candidate for Indonesia and Vietnam.
+- **HitPay: not built now; the next adapter when there is a reason.** See
+  below.
+
+### HitPay for small Malaysian venues
+
+What a booking costs the venue in gateway fees (domestic cards; Billplz's
+RM999 a year plan not counted in the per-payment figure):
+
+| Booking | Billplz | Billplz, RM999/yr plan | Stripe Malaysia | HitPay Malaysia |
+| ------- | ------- | ---------------------- | --------------- | --------------- |
+| RM20 by FPX | RM1.25 | RM0.75 | RM1.60 | RM0.76 |
+| RM20 by DuitNow QR | RM0.30 | RM0.30 | not offered | RM0.24 |
+| RM20 by card | RM0.36 | RM0.36 | RM1.60 | RM1.24 |
+| RM50 by FPX | RM1.25 | RM0.75 | RM2.50 | RM1.30 |
+| RM50 by DuitNow QR | RM0.75 | RM0.75 | not offered | RM0.60 |
+| RM50 by card | RM0.90 | RM0.90 | RM2.50 | RM1.60 |
+
+HitPay saves a small venue a few sen on DuitNow and about RM0.50 on a small
+FPX payment against Billplz's free plan; it costs more on cards and on larger
+FPX payments. Its refund API would end manual refunds for FPX and cards, but
+**not for DuitNow QR**, the cheapest method and the one the comparison is
+about; its Malaysian methods cannot be tried in its sandbox; its platform
+OAuth is in beta; it documents no idempotency key; and a dispute costs RM200
+against a RM15–60 booking. In person, the cheapest QR is the venue's own
+bank DuitNow QR at the counter, which MySenam already records as a counter
+payment ([payments](../features/payments-and-credit.md)); HitPay's static
+DuitNow QR exists only in its own app, not its API.
+
+**Recommendation: keep Billplz and the gateway layer as they are, and do not
+build HitPay yet.** It is not a material improvement for Malaysian venues
+today. Build it as a third adapter behind the same gateway interface (no
+second payment system) when one of these becomes true: the manual-refund
+workload recorded on the dashboard ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted))
+proves too heavy and venues take mostly FPX and cards; Singapore venues want
+PayNow cheaper than Stripe's 1.3% (HitPay 0.9%); or MySenam expands to the
+Philippines. Before building, confirm with HitPay how a platform is enabled
+for Malaysian merchants and how webhooks reach a platform without each
+venue's key, and plan a live check with real money, since the sandbox cannot
+do it. Xendit stays the candidate for Indonesia and Vietnam.
 
 ## Transactional email
 
@@ -149,19 +193,83 @@ Sources: [R2 pricing](https://developers.cloudflare.com/r2/pricing/),
 [Wasabi pricing](https://wasabi.com/pricing); AWS prices from its price list
 files of September and October 2026.
 
-**Recommendation.**
+**Venue photos: Cloudflare R2.** Photos are read far more than written, and
+R2 charges nothing for downloads; the first 10 GB are free.
 
-- **Venue photos: Cloudflare R2.** Photos are read far more than written, and
-  R2 charges nothing for downloads; the first 10 GB are free.
-- **Off-site backups: Amazon S3 in Malaysia (ap-southeast-5) or Singapore**,
-  with versioning and object lock on, a lifecycle rule to expire old copies,
-  an upload-only key on the server and a read key kept off it. At a few
-  gigabytes a night this costs well under a dollar a month, keeps customers'
-  data in the region, and gives the upload-only key the backup design
-  relies on. **Not R2 for backups:** it cannot issue an upload-only key.
-  Backblaze B2 is cheaper and can, but has no Asia-Pacific region; storing
-  customers' data in the US or EU is a data-protection question for the
-  operator's adviser, not one answered here.
+### Off-site backups
+
+Fourteen nightly sets kept (`T` below is everything stored: a 1 GB nightly
+set is about 14 GB, plus a night or two of overlap), one restore a month;
+list prices in US dollars a month, before tax:
+
+| Stored | Backblaze B2 | S3 Standard, Malaysia | S3 Standard, Singapore | S3 Glacier Instant Retrieval, Singapore | Cloudflare R2 |
+| ------ | ------------ | --------------------- | ---------------------- | --------------------------------------- | ------------- |
+| 10 GB | $0.00 | $0.23 | $0.25 | $0.36 | $0.00 |
+| 100 GB | $0.63 | $2.25 | $2.50 | $3.45 | $1.35 |
+| 1 TB | $6.88 | $22.50 | $25.00 | $34.30 | $14.85 |
+
+- **B2:** $6.95 a TB, first 10 GB free; uploads, listings and downloads free
+  (downloads up to three times what is stored); no minimum duration; versions
+  billed as storage.
+- **S3:** uploads $0.0045–0.005 per 1,000; downloads free within AWS's 100 GB
+  a month, then $0.108–0.12 a GB (a whole 71 GB restore adds about $8).
+  Archival classes cost *more* for a 14-day rotation: Glacier Instant
+  Retrieval bills 90 days for every copy, Standard-IA 30, so each night is
+  paid for six or two times over. Use Standard.
+- **R2:** free downloads, but no upload-only key and no S3 versions.
+
+| | Backblaze B2 | Amazon S3 | Cloudflare R2 |
+| - | ------------ | --------- | ------------- |
+| Upload-only key | Yes: `writeFiles`, restricted to a bucket and a prefix (can also hide and overwrite names) | Yes: `s3:PutObject` on the prefix (can overwrite) | **No**: read and write at least |
+| Separate read key | `listFiles` + `readFiles` | `s3:ListBucket(Versions)` + `s3:GetObject(Version)` | Object Read only |
+| Keeps copies a stolen key cannot destroy | Object Lock (on an existing bucket too), governance or compliance, 1–3,000 days | Object Lock with versioning | Bucket lock rules (no versions) |
+| Lock vs lifecycle | Lifecycle cannot delete a locked version | Same | Lock takes precedence |
+| Needs `Content-MD5` on upload under a lock | Reported by users; the app always sends it | Yes, documented | Accepted |
+| One upload | 5 GB | 5 GiB | 4.995 GiB |
+| Regions | US East, US West, EU (Amsterdam), Canada: **none in Asia** | Malaysia (`ap-southeast-5`), Singapore (`ap-southeast-1`) | Location hint `apac`, best effort only; no Asian jurisdiction |
+| Encryption at rest | SSE-B2 (switch on) or SSE-C | SSE-S3 by default | Always |
+
+Sources: [B2 key capabilities](https://www.backblaze.com/docs/cloud-storage-application-key-capabilities),
+[B2 keys and the S3 API](https://www.backblaze.com/docs/cloud-storage-s3-compatible-app-keys),
+[B2 Object Lock](https://www.backblaze.com/docs/cloud-storage-object-lock),
+[on an existing bucket](https://www.backblaze.com/docs/cloud-storage-enable-object-lock-or-a-legal-hold-on-an-existing-bucket),
+[B2 lifecycle rules](https://www.backblaze.com/docs/cloud-storage-lifecycle-rules),
+[B2 S3 API](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api),
+[B2 pricing](https://www.backblaze.com/cloud-storage/pricing),
+[B2 regions](https://www.backblaze.com/docs/cloud-storage-data-regions);
+[S3 PutObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html),
+[S3 Object Lock](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html),
+[S3 policy actions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html),
+[storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html),
+AWS price list files of 15 October 2026;
+[R2 tokens](https://developers.cloudflare.com/r2/api/tokens/),
+[R2 bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/),
+[R2 data location](https://developers.cloudflare.com/r2/reference/data-location/),
+[R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
+*Unverified until tried against a real bucket:* whether a B2 key with
+`writeFiles` alone may PutObject, the region B2 expects in the signature,
+default retention on an existing B2 bucket (Backblaze's pages disagree), and
+whether S3 needs `Content-MD5` under a default retention alone.
+
+**The app works with all three without changes** — single signed PUTs with
+`Content-MD5`, an upload key that is never asked to read, list or delete, a
+separate read key, client-side encryption, and a restore that takes each
+name's first version where versions can be listed — tested against stand-ins,
+not real buckets ([backups](../operations/backups.md#off-site-copies)).
+
+**Recommendation: Amazon S3 Standard in Malaysia (`ap-southeast-5`) for
+the Malaysian install, Singapore (`ap-southeast-1`) for the Singaporean**,
+with versioning and Object Lock (14 days, governance), the lifecycle rule,
+an upload-only key, the read key off the server, and encryption on. At the
+sizes MySenam will have for a long time (well under 100 GB) it costs a few
+dollars a month, and the data stays in the country, which removes the
+transfer-abroad question rather than answering it. **B2 is the cheaper
+alternative, by about a third at 100 GB and two thirds at 1 TB, and meets
+the security requirements with Object Lock**; choose it if cost matters more
+than residency, once the transfer safeguards in
+[privacy](../architecture/privacy.md#backups-held-abroad) are in place — the
+app will not send to it until then. **Not R2 for backups:** no upload-only
+key.
 
 ## Launch stack, and what is still to decide
 
@@ -173,17 +281,41 @@ files of September and October 2026.
 | Email | Amazon SES, Singapore, SMTP | Resend |
 | Phone checks | WhatsApp authentication templates | SMS in Singapore through a registered sender |
 | Photos | Cloudflare R2 | Amazon S3 |
-| Off-site backups | Amazon S3 (Malaysia or Singapore), versioned, upload-only key | Backblaze B2 |
+| Off-site backups | Amazon S3 Standard in the install's country, Object Lock, upload-only key, encrypted | Backblaze B2, once a transfer abroad is approved |
 
-Decisions for the operator, before anything is signed up for or paid:
+Decided: Billplz's manual refunds are accepted for a small Malaysian launch,
+provisionally, with the refund workload watched on the dashboard; HitPay is
+deferred (above).
 
-1. Which company operates MySenam in each country. It decides the Billplz
-   and Stripe accounts for invoices, and what WhatsApp costs per country.
-2. Whether Billplz's manual refunds are acceptable for Malaysian venues at
-   launch, or whether Stripe Malaysia should be the default despite its fees.
-3. Whether to build a HitPay adapter before expanding beyond Malaysia and
-   Singapore.
-4. Whether customer data may be stored outside Malaysia and Singapore (B2).
+### Operating company and jurisdictions
+
+MySenam runs one install per country, and everything that depends on who
+operates it is configuration, not code, so no company structure is built in:
+
+| What | Set by | Per |
+| ---- | ------ | --- |
+| Operating company named in the terms and privacy notice | `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | install |
+| Venue country: currency, tax names, phone numbers, time zone, laws cited | `MYSENAM_COUNTRY` | install |
+| Venues' takings | each venue's own gateway account | venue |
+| MySenam's invoices to venues, and its tax registration | `MYSENAM_PAYMENT_PROVIDER` and its keys, `MYSENAM_TAX_RATE`, `MYSENAM_TAX_REG_NO`, `MYINVOIS_*` | install |
+| WhatsApp and messaging | `WHATSAPP_*`, `SMTP_URL`, `MAIL_FROM`, `SMS_*` | install |
+| Where data is kept | the database host, `PHOTOS_S3_*`, `OFFSITE_S3_*` with `OFFSITE_DATA_LOCATION` | install |
+
+Customers' own countries do not change any of these: a booking is governed
+by the install of the venue's country.
+
+Decisions for the operator, before commercial deployment:
+
+1. Which legal entity operates each install, and so signs the Billplz or
+   Stripe account for invoices, the WhatsApp Business account, the provider
+   contracts and the privacy notice; whether one company serves both
+   countries or each has its own.
+2. Whether that entity must register for SST (Malaysia) or GST (Singapore)
+   on what it charges venues, and for MyInvois as an intermediary.
+3. Where each install's database, photos and backups are hosted, and the
+   privacy notice and venue agreement wording that says so.
+4. The roles and safeguards in [privacy](../architecture/privacy.md#where-personal-data-is-kept),
+   including whether any backup may be held abroad.
 5. Each provider's terms, checked by the operator; and the live checks in
    the [launch checklist](../operations/deployment.md#launch-integration-checklist)
    once accounts exist.
