@@ -18,8 +18,9 @@ function knockoutLines(d: TournamentDetail): string {
 
 /**
  * `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result, written to the activity log with the one it replaced.
- * With `preview: true`: what it would change, nothing changed. With `correction: { mode, reason, token }`: a group
- * correction after the knockout has begun, confirmed against its preview (managers only).
+ * With `preview: true`: what it would change, nothing changed. With `correction: { mode, reason, token }`: a
+ * correction after the knockout has begun (a group result, or a knockout result whose next match is played),
+ * confirmed against its preview (managers only).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; matchId: string }> }) {
   const { id, matchId } = await params;

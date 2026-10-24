@@ -24,13 +24,18 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   restore). `GET /api/admin/integrity` asks again now, for the platform
   owner, after putting it right.
   The same check raises **refunds that are stuck**: one asked of the gateway
-  with no answer after an hour, and money owed back on an online payment for
-  over a week. Those need somebody to look in the gateway's dashboard or pay
-  it back, then mark it ([payments](../features/payments-and-credit.md)).
+  with no answer after an hour, money owed back on an online payment for
+  over a week, and a refund the gateway accepted and then reported failed
+  (`refund_failed`, owed again). Those need somebody to look in the
+  gateway's dashboard or pay it back, then mark it
+  ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
+  A failed off-site copy of a backup raises `offsite`, and a failed nightly
+  backup `backup` ([backups](backups.md)).
 
 Each kind is told once, then again only after six hours if it is still
 happening, with how many times it has. It goes by email to every platform
-owner and, with `MYSENAM_ALERT_WEBHOOK` set, to a Slack, Discord or Google
+owner, through the outbox like every other email (retried while the mail
+server is down, [messaging](../integrations/messaging.md#emails-that-belong-to-no-venues-customers)), and, with `MYSENAM_ALERT_WEBHOOK` set, to a Slack, Discord or Google
 Chat channel, which still arrives when email is what broke. The owner's
 dashboard shows *System health* while anything is outstanding, with the
 latest detail and a *Dealt with* button.

@@ -44,6 +44,9 @@ change:
    off-site storage and smart locks stay `INTEGRATION_VERIFICATION_REQUIRED`
    until checked against the real service. A row whose workflow pays or messages
    through one of them names that integration row in its gaps.
+   Suites run by hand are not CI: never record CI as passed unless a CI run
+   on that commit passed. A restore drill on a test machine is not proof that
+   production can be recovered.
 8. **Record limitations.** Known defects, restrictions and integration
    dependencies go in [known limitations](docs/roadmap/known-limitations.md),
    not out of sight. A fixed one moves to *fixed since the audit* with its

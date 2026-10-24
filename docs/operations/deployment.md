@@ -90,8 +90,9 @@ these once with a real account, in its sandbox where it has one:
       e-invoice and a single one, with the venue's own TIN and certificate.
 - [ ] **Google sign-in**: the redirect URI registered matches
       `<MYSENAM_URL>/api/auth/google/callback`.
-- [ ] **Backups**: the nightly backup runs, the off-site copy lands, and a
-      restore into a spare database works (see *Restoring*).
+- [ ] **Backups**: the nightly backup runs, the off-site copy lands whole
+      (its manifest is in the bucket), and the off-site drill passes on an
+      isolated server ([backups](backups.md#restoring-from-the-off-site-copy)).
 - [ ] **The scheduler**: `/api/health` shows its heartbeat a minute old at
       most, so holds, reminders, offers and backups happen on time.
 - [ ] **Terms and privacy**: `OPERATOR_NAME`, `OPERATOR_EMAIL` (and
@@ -101,6 +102,29 @@ these once with a real account, in its sandbox where it has one:
 - [ ] **A real venue, end to end**: book, pay online, get the messages,
       check in at the desk, cancel one late, see it in the reports and the
       accounting export.
+
+### Launch integration checklist
+
+What each launch service needs before it can be verified, how to verify it,
+and what the local tests already cover (against stand-ins only). None of
+these is verified yet; each stays `INTEGRATION_VERIFICATION_REQUIRED` in
+[feature status](../product/feature-status.md) until its check passes, and
+the result is recorded there with the date.
+
+| Service | Needs first (from whom) | Verify by | Covered locally |
+| ------- | ----------------------- | --------- | --------------- |
+| Payment gateway — Billplz (MY) | A Billplz account and sandbox API key and X-Signature key (Billplz; business verification for live) | A sandbox bill paid by FPX and by card marks the booking paid by callback and by redirect; a tampered callback is refused; an expired hold's bill expires | `tests/payments.test.ts` |
+| Payment gateway — Stripe (SG, renewals) | A Stripe account in test mode, a restricted key with Checkout Sessions and Refunds write, a webhook signing secret (Stripe; account activation for live) | A test checkout paid; the webhook signature checked; a renewal charges again | `tests/stripe.test.ts`, `tests/membership-renewal.test.ts` |
+| Payment callbacks and webhooks | A public HTTPS `MYSENAM_URL` the provider can reach | Billplz callback and Stripe webhook deliveries succeed in each provider's dashboard; a replayed delivery records the payment once | `tests/payments.test.ts`, `tests/stripe-disputes.test.ts` |
+| Refunds and reconciliation | The Stripe test account above (Billplz has no refund API: by hand) | A refund from *Refunds owed* goes through; one cancelled with the app stopped mid-request is finished by the scheduler once; a pending refund settles; a refund made on the Stripe test card whose refunds fail is owed again and raised | `tests/stripe-refunds.test.ts`, `tests/refund-crash.test.ts` |
+| Transactional email | An SMTP account and a sending domain with SPF, DKIM and DMARC (the email provider; the domain's DNS owner) | A booking confirmation with its invite, a password reset and an application confirmation arrive in an inbox, not spam; a reset whose link has run out is not sent; a bounce is looked at in the provider's dashboard (not read back by the app) | `tests/outbox.test.ts`, `tests/platform-messages.test.ts` |
+| Phone verification | WhatsApp: a Meta Business account, a verified number and approved templates (Meta, days to weeks). SMS: a Twilio or HTTP gateway account and, in Malaysia, sender registration | A code arrives and is accepted; the daily cap holds; the delivery webhook marks a message delivered | `tests/phone-methods.test.ts` |
+| Object storage and restore | A private bucket (R2, B2 or S3) with a lifecycle rule; an upload-only key for the server and a read-and-list key kept off it | The nightly copy lands with its manifest; `fetch-backup` and `restore --drill` pass on an isolated server; `secret.key` or `MYSENAM_SECRET` restored from where it is kept opens the payment keys; photos bucket uploads and serves a photo | `tests/offsite.test.ts`, `tests/backup-scripts.test.ts`, `tests/photos.test.ts` |
+| Monitoring and alerts | An error-tracking DSN (`SENTRY_DSN`) and an owner email that receives alerts | A deliberate error reaches the tracker; a failed backup or off-site copy, and a `refund_failed` integrity problem, email the owners; `/api/health` is polled by an uptime monitor | `tests/alerts.test.ts`, `tests/integrity.test.ts` |
+
+Missing today: every credential above. None is in this repository or its
+test environment, and none should be: they go in the host's environment
+variables ([configuration](../development/configuration.md)).
 
 Not built here, and needing a partner or a contract first: Reserve with
 Google's live booking server (the feeds are ready), Singapore's InvoiceNow,

@@ -53,9 +53,51 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 
 Programme emails are queued in the outbox, inside the change's own
 transaction where it has one (a withdrawal, a result, a season starting), so
-one whose email fails is retried like any other. Emails to staff and applicants (venue
-applications, password resets, owner alerts) are still sent once, directly,
-not through the outbox ([known limitations](../roadmap/known-limitations.md), S11).
+one whose email fails is retried like any other.
+
+### Emails that belong to no venue's customers
+
+Emails to people applying to list a venue, password reset links, alerts to
+the platform's owners and to a venue's staff, and WhatsApp credit alerts go
+through the same outbox (`emailPlain` in `src/lib/outbox.ts`), so they are
+retried with the same backoff, listed with how they went, and never sent
+twice:
+
+| Message | Kind | Belongs to | Gives up |
+| ------- | ---- | ---------- | -------- |
+| Password reset link (customers and staff) | `account_email` | the platform | when the link runs out (`expires_at`, the reset's own lifetime) |
+| Confirming an application's email address | `account_email` | the platform | when the confirmation link runs out |
+| An application approved, refused, or asked for more | `applicant` | the platform | after the five tries |
+| Alerts to the platform's owners (system alerts such as a failed backup, courts or classes piling up, an application, a reported review, a dispute on the platform's account) | `staff_alert` | the platform | after seven days |
+| Alerts to a venue's staff (a suspension or payment hold, a review hidden, a league or dispute matter, WhatsApp credit low) | `staff_alert` | that venue | after seven days |
+
+- **A link that has run out is not sent.** A reset email still queued when
+  its link stops working is given up ("Not sent: it ran out before it could
+  go"), not retried, and cannot be put back in the queue, to the same
+  address or another.
+- **What it carries is not kept.** Once an `account_email` is sent, given up
+  or capped, its body (with the link) is wiped from the outbox; the owners'
+  list shows that it went, never the link.
+- **Staff alerts are not held to the daily limit** that protects customers
+  from being flooded, since an alert that does not arrive is worse than one
+  too many; the request rate limits on asking for a reset or applying stay
+  as they were.
+- **Who sees them**: the platform's own messages are listed for the
+  platform's owners under *Venues & staff → Messages → Platform emails*,
+  and only they can resend one; a venue's staff alerts are listed with that
+  venue's messages.
+- Applying with no mail server configured still opens the application at
+  once (development and log mode); with one, the confirmation waits in the
+  queue rather than being skipped on a first failure.
+
+Tested with a stand-in mail server that fails and recovers
+(`tests/platform-messages.test.ts`, on PGlite and Postgres).
+
+**Sent is not received.** *Sent* means the mail server accepted the message.
+It may still bounce, be filtered as spam or sit in a full mailbox; bounces
+and complaints are not read back from any provider. Live delivery,
+SPF/DKIM and bounce handling are part of the
+[launch checklist](../operations/deployment.md#launch-integration-checklist).
 
 Closing a day that has bookings or classes on it is refused until staff say
 to cancel them; then each customer is told, as above. Messages are written in

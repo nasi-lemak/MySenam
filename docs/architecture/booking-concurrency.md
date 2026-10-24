@@ -13,7 +13,10 @@ themselves are in [booking](../features/booking.md).
   400), so transactions that collided do not collide again in step
   (`src/lib/db.ts`). One still in conflict after ten tries throws `BusyError`:
   nothing of it is saved, and a route answers `BUSY`, 503 with
-  `Retry-After: 2`, never a 500. On PGlite there is one connection and
+  `Retry-After: 2`, never a 500. The booking board keeps the reason on screen
+  (*busy, try again*), shows no confirmation, and sending it again sends the
+  same booking, so a retry either books it once or is refused as taken
+  (`tests/components/booking-board.test.tsx`). On PGlite there is one connection and
   transactions run one after another, so the PGlite test run cannot show a
   race; the Postgres run can.
 - **Reading only what the booking touches.** A booking's reads are of its

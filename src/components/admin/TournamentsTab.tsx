@@ -432,6 +432,7 @@ function Manage({
         <CorrectionPanel
           fixing={fixing}
           names={names}
+          knockout={t.matches.find((m) => m.id === fixing.matchId)?.stage === "knockout"}
           onCancel={() => setFixing(null)}
           onApply={async (mode, reason) => {
             const done = await call(`${base}/matches/${fixing.matchId}`, { ...fixing.input, correction: { mode, reason, token: fixing.preview.token } });
@@ -544,7 +545,7 @@ function Manage({
           <ul className="mt-1 space-y-1">
             {t.corrections.map((c, i) => (
               <li key={i}>
-                {localTime(c.createdAt)} · {c.kind === "replace" ? "put into the knockout" : "group table only, knockout as played"}: {c.reason}
+                {localTime(c.createdAt)} · {c.kind === "replace" ? "put into the knockout" : c.knockout ? "this match's record only, later rounds as played" : "group table only, knockout as played"}: {c.reason}
                 {c.changes && c.changes.length > 0 && <span className="text-slate-600"> — {c.changes.join(" ")}</span>}
               </li>
             ))}
@@ -555,15 +556,21 @@ function Manage({
   );
 }
 
-/** Reviewing a group correction the knockout has moved past: what each way changes, a reason, then confirm. */
+/**
+ * Reviewing a correction the knockout has moved past — a group result, or a
+ * knockout result whose next match is played: what each way changes, a
+ * reason, then confirm.
+ */
 function CorrectionPanel({
   fixing,
   names,
+  knockout,
   onCancel,
   onApply,
 }: {
   fixing: { matchId: number; input: ResultInput; preview: CorrectionPreview };
   names: Map<number, string>;
+  knockout: boolean;
   onCancel: () => void;
   onApply: (mode: "replace" | "standings_only", reason: string) => Promise<void>;
 }) {
@@ -595,8 +602,10 @@ function CorrectionPanel({
           )}
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <h4 className="font-semibold">Group table only</h4>
-          <p className="mt-1 text-xs text-slate-600">The knockout stays as it is being played.</p>
+          <h4 className="font-semibold">{knockout ? "This match's record only" : "Group table only"}</h4>
+          <p className="mt-1 text-xs text-slate-600">
+            {knockout ? "Who went on is not changed: the later rounds stand as they were played." : "The knockout stays as it is being played."}
+          </p>
           {list(preview.standingsOnly.changes)}
         </div>
       </div>
@@ -614,10 +623,13 @@ function CorrectionPanel({
         </button>
         <button
           disabled={reason.trim().length < 5}
-          onClick={() => window.confirm("Correct the group table only? The knockout stays as played.") && void onApply("standings_only", reason)}
+          onClick={() =>
+            window.confirm(knockout ? "Correct this match's record only? The later rounds stay as played." : "Correct the group table only? The knockout stays as played.") &&
+            void onApply("standings_only", reason)
+          }
           className="rounded-md border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-40"
         >
-          Group table only
+          {knockout ? "Record only" : "Group table only"}
         </button>
         <button onClick={onCancel} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs">
           Leave it

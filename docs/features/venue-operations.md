@@ -153,17 +153,46 @@ put both in the same balance and make a refund look like a top-up. `hire_records
 therefore tracks the state of the hold — taken, returned, how much was kept and
 why — and leaves the ledger alone.
 
-**What is kept is a sale.** Keeping money back on return rings it up, in the
-same change, as a counter sale linked to the hire, with a receipt to the
-customer: it is in the day's takings, the reports, the sales journal (under
-*Hire deposits kept*) and the exports. Staff say how it was taken (the way the
-deposit was paid: cash, card, DuitNow QR, transfer). It is not taxed unless
-staff tick *A charge (taxed), not compensation*. The default treats money kept
-to make good damage or loss as compensation, outside the venue's tax, and a
-ticked charge for a service (cleaning, say) is taxed at the venue's rate; the
-receipt and journal show which. Which applies to a given amount is the
-venue's call with its tax adviser, not something MySenam decides. The deposit, the amount kept and the amount handed back always add up,
-and two returns of the same kit at once keep it once (the second is refused).
+### Money kept from a deposit
+
+**What is kept is a sale, one per reason.** Staff do not decide tax at the
+desk. On return they say *why* money is kept, as one or more lines, each a
+reason and an amount (`src/lib/deposit-deductions.ts`):
+
+| Reason | What kind of money it is | Heading in the books |
+| ------ | ------------------------ | -------------------- |
+| Damage to the equipment | Compensation | Hire: damage and loss |
+| Lost or not returned | Replacement | Hire: damage and loss |
+| Kept past the time booked | More hire (a service) | Hire: extra charges |
+| Cleaning | A service | Hire: extra charges |
+| Administration fee | A fee | Hire: extra charges |
+| Penalty under the hire terms | A penalty | Hire: penalties |
+| Other (said in the note) | Other | Hire deposits kept |
+
+Each line is rung up, in the same change as the return, as a counter sale
+linked to the hire, with a receipt: in the day's takings, the reports, the
+sales journal under its heading, and the exports. Staff say how it was taken
+(the way the deposit was paid). A reason is used at most once per return; the
+lines must be positive and together no more than the deposit held. The
+deposit, the amounts kept and the amount handed back always add up, and two
+returns of the same kit at once keep it once (the second is refused). An
+older client that sends one amount kept gets the reason from the condition:
+damaged is damage, not returned is loss, anything else is other.
+
+**Whether a reason carries the venue's tax** comes from the venue's tax
+settings, not from the person at the desk. It starts from the usual treatment
+in the install's country ([regions and tax](../product/regions-and-tax.md)):
+in Malaysia and Singapore a charge for something the venue supplies (more
+hire, cleaning, a fee) carries the venue's SST or GST if it is registered;
+compensation, replacement, a penalty and *other* do not. A manager can set any
+reason to taxed or not taxed under *Tax*, or back to the usual. The untaxed
+usual ones are marked **check with your accountant**: whether money kept is
+consideration for a supply, and so taxable, is a question of fact under each
+country's rules, and MySenam does not decide it. A receipt for compensation,
+replacement or a penalty says what it is for, so it is not read as a sale of
+a service. Professional review is needed before relying on the defaults:
+which reasons are taxable, whether a penalty clause is enforceable, and how
+the headings map to the venue's own chart of accounts.
 
 Customers see the deposit before they commit: on the grid row, on the booking
 panel and on the confirmation, phrased as what it is rather than as a charge.

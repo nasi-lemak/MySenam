@@ -127,9 +127,16 @@ change, update this page, and update [feature status](feature-status.md).
   often it is asked for. What a venue paid the platform twice is owed back by
   the platform owners.
 - **A cancellation and its refunds are one change**; what goes back through a
-  gateway is owed from that moment and asked for after it.
-- **Money kept from a hire deposit is a sale**, receipted when it is kept;
-  untaxed as compensation unless staff mark it a charge for a service.
+  gateway is owed from that moment and asked for after it, under a key that
+  makes it once however often it is asked; a refund the gateway reports
+  failed is owed again, not resent by itself
+  ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
+- **Money kept from a hire deposit is a sale per reason**, receipted when it
+  is kept. Staff give the reason; the reason's nature and the venue's tax
+  settings decide the tax, starting from the country's usual treatment
+  (charges for a service or a fee taxed; compensation, replacement, penalties
+  and other not), which the venue's accountant confirms
+  ([venue operations](../features/venue-operations.md#money-kept-from-a-deposit)).
 - **Credit below nothing is a debt, not income**: reported apart from credit
   held, customer by customer, never netted.
 - **A receipt stays in the period it was issued.** A booking that stops being
@@ -160,10 +167,17 @@ change, update this page, and update [feature status](feature-status.md).
   refunds every entry) and starting or ending a season are a manager's, and
   each is in the activity log.
 - **A tournament's knockout follows its groups until it starts**: a group
-  result put right refills it while no knockout match has been played; after
-  that, a correction that would change who is in it is refused. A withdrawal
-  after the draw loses every match left by walkover and places the entrant
-  last in their group; results already played stand
+  result put right refills it while no knockout match has been played. After
+  that nothing changes silently: a manager reviews what a correction would
+  change and confirms it with a reason, into the knockout only where every
+  match it changes is still to play with its court, otherwise in the group
+  table (or a knockout match's record) only; a knockout result played stands.
+- **Somebody leaving a tournament** (withdrawn, retired, disqualified — the
+  last a manager's) loses every match left by walkover and never goes
+  through; their group results stand or are void by the tournament's rules
+  (by default they stand for a withdrawal or retirement, and are void for a
+  disqualification); they are never simply put last. Before the draw a fee
+  paid online is owed back unless the rules say not; after it, nothing is
   ([programmes](../features/programmes.md#tournaments)).
 - **API keys** can be *availability only*: the venue and its free times, no
   customer's name or number.

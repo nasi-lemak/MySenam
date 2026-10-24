@@ -94,8 +94,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/inductions`       | `?venueId=` → who may use the venue out of hours     |
 | POST   | `/api/admin/inductions`       | `{venueId, phone, name, note?}` → record an induction |
 | DELETE | `/api/admin/inductions/:id`   | Withdraw someone's out-of-hours access               |
-| GET    | `/api/admin/hire`             | `?venueId=` → kit that is still out                  |
-| POST   | `/api/admin/hire`             | `{code, action:"take", deposit?}` or `{code, action:"return", condition, withheld?, note?}` |
+| GET    | `/api/admin/hire`             | `?venueId=` → kit that is still out, and how each reason for keeping money is taxed (`deductions`) |
+| POST   | `/api/admin/hire`             | `{code, action:"take", deposit?}` or `{code, action:"return", condition, deductions?: [{reason, amount}], note?, via?}` (`withheld` alone still accepted, its reason taken from the condition) |
 | GET    | `/api/admin/wallet`           | `?q=` → find a customer by email or phone            |
 | POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
 | GET    | `/api/admin/memberships`      | `?venueId=` → that venue's members                   |
@@ -296,8 +296,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/membership-plans` | `?venueId=&id=`: stop offering a plan. Memberships bought on it run their course |
 | PATCH | `/api/admin/membership-plans` | `{ venueId, id, ratePercent, aheadDays }`: a plan's benefits, each null for the venue's. Memberships on it get them from now |
 | POST | `/api/admin/memberships/:id/extend` | `{ days, reason? }` → the membership runs that many days longer (managers) |
-| GET | `/api/admin/messages` | What this venue has told its customers, and what is still waiting |
-| POST | `/api/admin/messages` | Put one message back in the queue, optionally at a corrected address |
+| GET | `/api/admin/messages` | What this venue has told its customers, and what is still waiting; `?platform=1` (platform owners only): the platform's own emails, links masked |
+| POST | `/api/admin/messages` | Put one message back in the queue, optionally at a corrected address (a platform email: owners only; a password reset or confirmation never) |
 | GET | `/api/admin/notices` | `?venueId=` → a venue's notices; `?venueId=site` → the site-wide one (platform owner) |
 | POST | `/api/admin/notices` | `{ venueId \| "site", text, link?, startsOn, endsOn }` |
 | DELETE | `/api/admin/notices/:id` | Taken down: by the venue's staff, or the platform owner |
@@ -338,15 +338,15 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/sign-offs` | `?venueId&id[&reason]`: take one back, who and why kept; recorded |
 | POST | `/api/admin/system` | `{ key }`: dealt with; the next one is news again |
 | GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments, for its staff |
-| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once |
+| POST | `/api/admin/tournaments` | A new tournament, holding its courts at once; `rules?` for somebody leaving |
 | GET | `/api/admin/tournaments/:id` | One tournament with its entries and draw |
-| POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }` |
-| POST | `/api/admin/tournaments/:id/entries/:entryId` | `{ paid?, seed?, withdraw? }` — staff on one entry |
-| POST | `/api/admin/tournaments/:id/matches/:matchId` | `{ winner, score?, walkover? }` — a result |
+| POST | `/api/admin/tournaments/:id` | `{ action: "close" \| "draw" \| "cancel" }`, or `{ action: "rules", rules }` before the draw |
+| POST | `/api/admin/tournaments/:id/entries/:entryId` | `{ paid?, seed?, withdraw?, reason?, note?, preview? }` — staff on one entry; `reason` withdrawn, retired or disqualified (a manager's); `preview: true` says what it would change |
+| POST | `/api/admin/tournaments/:id/matches/:matchId` | `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result; `preview: true` says what it would change; `correction: { mode: "replace" \| "standings_only", reason, token }` after the knockout has begun (a manager's) |
 | GET | `/api/admin/venue-applications` | Venues asking to go live, and how many drafts are being set up, for the platform owner alone |
 | POST | `/api/admin/venue-applications` | `{ id, decision: "approve" \| "reject", checks?, reason? }`; approving needs every one of REVIEW_CHECKS in `checks` |
-| GET | `/api/admin/venue-tax` | `?venueId` → the venue's own tax, and the country's usual one to start from |
-| POST | `/api/admin/venue-tax` | `{ venueId, registered, name, rate, regNo }` |
+| GET | `/api/admin/venue-tax` | `?venueId` → the venue's own tax, the country's usual one to start from, and the treatment of each deduction reason |
+| POST | `/api/admin/venue-tax` | `{ venueId, registered, name, rate, regNo }`, or `{ venueId, deductions: { <reason>: true \| false \| null } }` (which reasons for keeping deposit money carry the tax; `null` is the country's usual) |
 | GET | `/api/admin/venue-time-zone` | `?venueId` → the venue's time zone, whether staff chose it, and what its pin says |
 | POST | `/api/admin/venue-time-zone` | `{ venueId, zone }`: one of the country's zones, or null to follow the map pin |
 | GET | `/api/admin/venues/:id/blocked-phones` | Numbers this venue does not take online bookings from |

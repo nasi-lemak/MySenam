@@ -41,9 +41,11 @@ one pitch reads as its courts idle (B11).
   balance went below nothing after a chargeback owe (how many, and how much),
   labelled as not income. The two together are the ledger's total. A
   balance below nothing is a debt to collect, not revenue.
-- **Money kept from a hire deposit** is a sale: in the day's takings, on a
-  receipt, and in the sales journal under *Hire deposits kept*
-  ([venue operations](venue-operations.md#equipment-hire-and-deposits)).
+- **Money kept from a hire deposit** is a sale per reason: in the day's
+  takings, on a receipt, and in the sales journal and exports under its own
+  heading — *Hire: damage and loss*, *Hire: extra charges*, *Hire:
+  penalties*, or *Hire deposits kept* for other reasons
+  ([venue operations](venue-operations.md#money-kept-from-a-deposit)).
 
 Two colours carry the whole tab and mean one thing each: teal is money in hand,
 amber is money still owed. The pair is checked for colour-vision separation and

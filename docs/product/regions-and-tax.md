@@ -126,6 +126,14 @@ details → Tax* (managers only).
   receipts less their credit notes; the bookings spreadsheet has each
   booking's rate and tax.
 - One rate covers the whole booking, add-ons included.
+- **Money kept from a hire deposit** carries the venue's tax according to
+  why it was kept, not a choice at the desk: each country has a usual
+  treatment by the money's nature (in Malaysia and Singapore a charge for a
+  service or a fee is taxed; compensation, a replacement and a penalty are
+  not), which a manager can change per reason. The untaxed defaults are
+  marked for the venue's accountant to confirm; MySenam does not decide
+  whether an amount is consideration for a supply
+  ([venue operations](../features/venue-operations.md#money-kept-from-a-deposit)).
 
 **The platform's own**, on what it invoices venues. Set `MYSENAM_TAX_RATE`
 and `MYSENAM_TAX_REG_NO` once the operator is registered:

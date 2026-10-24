@@ -139,23 +139,43 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   before the one feeding it — or the draw says how many matches did not fit
   and changes nothing. Everybody is emailed their first match.
 - **Results**: staff enter the score as sets ("21-15, 18-21, 21-10") and who
-  won — a score that says the other side won is refused — or a walkover.
-  Winners move on by themselves; the last group match fills the knockout from
-  the tables (wins, then sets, then points, then who beat whom); the final
-  finishes it. A knockout result can be put right until the match it fed has
-  been played.
+  won — a score that says the other side won is refused — or a walkover (a
+  forfeited match), or a **retirement**: the other side stopped part-way,
+  the score is what was played, and it counts as a win with no sets for the
+  table. Staff can also say the retired player is out of the event, which
+  takes them out as below. Winners move on by themselves; the last group
+  match fills the knockout from the tables (wins, then sets, then points,
+  then who beat whom); the final finishes it. A knockout result can be put
+  right until the match it fed has been played.
 - **A group result put right after the knockout is filled** fills it again
   from the tables as they now stand, as long as no knockout match has been
-  played or given as a walkover. Once one has, the knockout stands: a group
-  correction that would change who is in it is refused ("The knockout has
-  started…"), and one that changes nobody's place (a score put right, say)
-  still goes in. The organiser then puts the knockout's own results right,
-  or, if the wrong players are in it, runs the rest by hand. A first-round
-  match given as a bye has had its court let go, so a change that would turn
-  it into a match to play is refused the same way. Every result, every
-  change with the result it replaced, and every refill of the knockout with
-  its lines before and after, is in the staff activity log; a result and
-  everything that follows from it are one change.
+  played, given as a walkover or retired. Once one has, nothing changes
+  silently: a result that would change who is in the knockout, or a knockout
+  result whose next match has been played, is refused and offered to a
+  manager as a **correction**:
+  1. *Review*: MySenam works out, without changing anything, what each way
+     of making it would change, fixture by fixture ("Semi-final 2: now A v C
+     (was A v B)"), and whether it can go into the knockout safely.
+  2. *Choose*: **put into the knockout** — possible only when every
+     knockout match whose players change is still to play and still has its
+     court; anything else (a match already played, a bye whose court was let
+     go) is listed as what blocks it — or **the group table only** (for a
+     knockout match, **its record only**), which corrects the result and
+     leaves the knockout, and who went on, as played.
+  3. *Confirm with a reason* (at least a few words). It is made only against
+     the tournament as it was reviewed: if anything changed since, it is
+     refused and reviewed again.
+
+  Each correction is kept in `tournament_corrections` with its reason, who
+  made it, what it changed and the matches as they were before, and in the
+  staff activity log; the public page says that a correction was made, not
+  why. A knockout result already played is never rewritten by a correction
+  of an earlier round; where that is not good enough (the wrong players
+  played a semi-final), the organiser arranges a replay by hand and records
+  its result. Front desk staff enter results but cannot make a correction.
+  Every result, every change with the result it replaced, and every refill
+  of the knockout with its lines before and after, is in the activity log; a
+  result and everything that follows from it are one change.
 - **Court time goes back as soon as it is not needed.** Until the draw, every
   hour is held, since nobody knows which will be used. Once it is made, each
   court keeps only the hours from its first match still to play that day to
@@ -166,22 +186,43 @@ Venues run them from the dashboard's *Tournaments* tab; players find them at
   day when the final is. Hours already gone stay on the schedule as a record.
   Anybody on the waiting list for that court and day is offered what comes
   free, as with a cancellation.
-- **Withdrawals** before the draw free the place for the waiting list and owe
-  back a fee paid online. After the draw:
-  - each group match they had left is a walkover to the other side; the
-    results they played stand, but they are placed last in their group,
-    below everybody still in, so they never go through;
-  - if the groups are over and no knockout match has been played, the
-    knockout is filled again without them, and the next in their group
-    takes their line;
-  - a knockout match against them is a walkover to the other side, as soon
-    as the other side is known (at once if it is, otherwise when that
-    match's feeder is decided);
-  - a line nobody is left to fill is a bye for whoever is on the other side,
-    and a match with nobody left on either side sends nobody through.
-  Nothing is owed back after the draw. Players withdraw themselves only
-  before the draw; staff can at any time, and it is in the activity log. A
-  withdrawal and everything that follows from it are one change.
+- **Somebody leaving**: staff take an entrant out as **withdrawn**,
+  **retired** (injured part-way) or **disqualified** (a manager only), with
+  a note; players withdraw themselves only before the draw. Before it is
+  done, staff see what it would change, fixture by fixture and table by
+  table, and nothing changes until they confirm. When it happens and why are
+  kept on the entry (`out_reason`, `out_stage`, `out_at`, `out_note`) and in
+  the activity log, and the draw and the public page show it beside their
+  name. Whatever the reason:
+  - before the draw, the place goes to the waiting list;
+  - after it, each group match they had left is a walkover to the other
+    side, and a knockout match against them is a walkover as soon as the
+    other side is known (at once if it is, otherwise when that match's
+    feeder is decided); a line nobody is left to fill is a bye for whoever
+    is on the other side, and a match with nobody left on either side sends
+    nobody through;
+  - they never go through from a group: the place goes to the next eligible
+    entrant in the table. If the groups are over and no knockout match has
+    been played, the knockout is filled again without them; once one has,
+    the knockout stands and changing it is a correction (above);
+  - knockout results they already played stand; a finished tournament's
+    results are not changed by taking somebody out (it is refused).
+
+  **The tournament's rules** decide the rest, set when it is created and
+  changeable until the draw (`src/lib/tournament-rules.ts`):
+
+  | Rule | Choices | Default |
+  | ---- | ------- | ------- |
+  | Group results already played by somebody who withdrew or retired | stand, or void | stand |
+  | Group results already played by somebody disqualified | stand, or void | void |
+  | Fee paid online owed back to somebody who leaves before the draw | yes or no | yes |
+
+  Results that *stand* stay in the table as played: the entrant keeps the
+  place those results give them, flagged as out, rather than being put
+  last, and everybody else's wins against them count. Results that are
+  *void* are taken out of the table for everybody, as if those matches had
+  not been played, and the entrant is listed after the rest, unranked.
+  Nothing is owed back after the draw.
   **Calling it off** gives the courts back (offering them to the waiting
   list), tells every entrant, and owes back every fee paid online.
 - The public page shows entries, then the groups, the bracket and every
@@ -196,6 +237,9 @@ what is planned):
 
 - Only two formats: a knockout, or groups then a knockout. No double
   elimination, Swiss, plain round robin or consolation draw.
+- The rules for somebody leaving are per tournament; there are no sport
+  templates (a scoring system, a forfeit score, tie-breaks) to start from,
+  and the table's tie-breaks are fixed.
 - One event per tournament: one sport, category, level and format. No
   divisions in one tournament; run one tournament per event.
 - Singles or doubles pairs only, and a doubles partner is a name, not an

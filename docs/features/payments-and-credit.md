@@ -102,7 +102,8 @@ running booking software and running a payments business.
   stops before it answers, the claim stays and the scheduler asks again after
   ten minutes under the same idempotency key (`settleRefundClaims`), so Stripe
   makes the refund or hands back the one it already made; staff see a message
-  saying so, and a customer's own cancellation counts it as on its way. **Billplz** has no refund API: refund in its
+  saying so, and a customer's own cancellation counts it as on its way. How
+  each kind of interruption is finished is [below](#refunds-that-are-interrupted). **Billplz** has no refund API: refund in its
   dashboard, then mark it done. Either way the refund goes in the activity log
   with who made it.
 - **Paid twice** — when something already paid is paid for again (a
@@ -172,6 +173,53 @@ and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
 when that is unset, one generated into `secret.key` in the data folder —
 never in the database. A backup restored onto another machine without that key asks
 for the venue's payment keys to be entered again instead of handing them over.
+
+### Refunds that are interrupted
+
+A refund through a gateway passes through steps, each written down before the
+next, so a crash or a lost answer at any point is finished once and never
+twice:
+
+1. **Owed** — the cancellation (or the second payment) commits with the
+   amount owed back on the payment, in the same transaction as everything
+   else it changes.
+2. **Asked** — the amount is claimed (`online_refunds`, a `claim:` row
+   counted as refunded) and the transaction committed before Stripe is called;
+   no database transaction is open while Stripe is asked. The request carries
+   a stable idempotency key made from the payment and the amount owed, and the
+   refund carries that key in its metadata.
+3. **Accepted** — Stripe's refund id replaces the claim. A refund Stripe left
+   *pending* is marked so, and shown as on its way.
+4. **Outcome** — the scheduler asks Stripe about pending refunds at most
+   hourly (`settlePendingRefunds`): one that succeeded is no longer on its
+   way; one that failed is owed again (`failed_at`), raised by the integrity
+   check as `refund_failed` ([monitoring](../operations/monitoring.md)) and
+   listed for staff for 30 days. It is not resent on its own; asked again, it
+   is a new refund under a new key (`…-r1`), since Stripe would otherwise hand
+   back the failed one.
+5. **Reconciled** — the scheduler finishes what a crash left behind:
+   - a claim with no answer for ten minutes is asked again under the same key
+     (`settleRefundClaims`); before asking, it looks among the payment's
+     refunds for one carrying the key, so a refund Stripe made a day ago, when
+     Stripe no longer remembers the idempotency key, is recorded rather than
+     made again;
+   - an amount owed and never asked for, at a venue that refunds straight
+     away, is noticed once and asked for ten minutes later, at most once a
+     day (`settleOwedRefunds`); a venue whose staff refund by hand, a
+     disputed payment, a refund that failed, and the platform's own payments
+     are left to staff;
+   - two runs at once, or a run that dies part-way, still record one refund.
+
+Tested against a stand-in for Stripe that keeps its refunds
+(`tests/refund-crash.test.ts`, on PGlite and Postgres): a crash after the
+claim, a crash before the claim, a lost answer with the key forgotten, the
+database failing as the answer is written down, concurrent and interrupted
+reconciliation, pending then succeeded, pending then failed, and (on
+Postgres) that no connection is idle in a transaction while Stripe is asked.
+Not verified against Stripe itself
+([integrations](../roadmap/known-limitations.md#integrations-awaiting-live-verification-or-a-partner)).
+Billplz has no refund API: its refunds are made in its dashboard and marked
+done by hand.
 
 ## Stored credit
 

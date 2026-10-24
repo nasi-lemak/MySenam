@@ -596,7 +596,7 @@ describe("correcting a group result after the knockout has begun", () => {
     expect(kept).toMatchObject({ kind: "replace", reason: "Scorer swapped the names on the sheet", admin_name: owner.name });
     expect((JSON.parse(kept.before_state) as { id: number; a: number; b: number }[]).find((x) => x.id === affected.id)).toMatchObject({ a: affected.a, b: affected.b });
     const publicView = (await tournamentDetail(t.id))!;
-    expect(publicView.corrections).toEqual([{ kind: "replace", createdAt: expect.any(String) }]);
+    expect(publicView.corrections).toEqual([{ kind: "replace", knockout: false, createdAt: expect.any(String) }]);
     expect((await tournamentDetail(t.id, { forStaff: true }))!.corrections[0].reason).toBe("Scorer swapped the names on the sheet");
   });
 
@@ -616,6 +616,36 @@ describe("correcting a group result after the knockout has begun", () => {
     // The knockout is as it was played.
     expect(done.value.detail.matches.find((x) => x.id === affected.id)).toMatchObject({ status: "done", a: affected.a, b: affected.b });
     expect(done.value.detail.corrections.map((c) => c.kind)).toEqual(["standings_only"]);
+  });
+
+  it("of a knockout match whose next match is played: its record put right, the later rounds as they were played", async () => {
+    const t = await tournament();
+    await entries(t.id, 4);
+    const drawn = await makeDraw(t.id, fixed);
+    if (!drawn.ok) throw new Error(drawn.error);
+    const [semi, other] = drawn.value.matches.filter((x) => x.round === 1).sort((a, b) => a.position - b.position);
+    expect((await recordResult(semi.id, { winner: semi.a!, score: "21-10, 21-12" })).ok).toBe(true);
+    expect((await recordResult(other.id, { winner: other.a!, score: "21-10, 21-12" })).ok).toBe(true);
+    const final = (await tournamentDetail(t.id))!.matches.find((x) => x.round === 2)!;
+    expect((await recordResult(final.id, { winner: semi.a!, score: "21-18, 21-19" })).ok).toBe(true);
+
+    // The semi-final's sheet had the names the wrong way round.
+    const swap = { winner: semi.b!, score: "10-21, 12-21" };
+    expect(await recordResult(semi.id, swap)).toMatchObject({ ok: false, code: "KNOCKOUT_STARTED" });
+    const preview = await previewResult(semi.id, swap);
+    if (!preview.ok) throw new Error(preview.error);
+    expect(preview.value.needsCorrection).toBe(true);
+    expect(preview.value.replace).toMatchObject({ possible: false, blockers: [expect.stringMatching(/stands as played/)] });
+    expect(preview.value.standingsOnly.changes.join(" ")).toMatch(/Semi-final 1/);
+    const owner = (await listAdmins())[0];
+    expect(await applyCorrection(semi.id, swap, { mode: "replace", reason: "Names swapped on the sheet", token: preview.value.token }, owner)).toMatchObject({ ok: false });
+    const done = await applyCorrection(semi.id, swap, { mode: "standings_only", reason: "Names swapped on the sheet", token: preview.value.token }, owner);
+    if (!done.ok) throw new Error(done.error);
+    expect(done.value.detail.matches.find((x) => x.id === semi.id)).toMatchObject({ winner: semi.b, score: "10-21, 12-21" });
+    // Who went on, and the final they played, are not rewritten.
+    expect(done.value.detail.matches.find((x) => x.id === final.id)).toMatchObject({ a: final.a, b: final.b, winner: semi.a, status: "done" });
+    expect(done.value.detail.status).toBe("finished");
+    expect(done.value.detail.corrections).toEqual([expect.objectContaining({ kind: "standings_only", knockout: true, reason: "Names swapped on the sheet" })]);
   });
 
   it("is refused against a preview of a tournament that has since changed", async () => {

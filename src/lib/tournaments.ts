@@ -130,7 +130,8 @@ export interface TournamentDetail extends Tournament {
   /** Each group's table, once the draw is made. */
   groups: { groupNo: number; table: GroupStanding[] }[];
   /** Corrections made after the knockout began; why, and what they changed, only for staff. */
-  corrections: { kind: "replace" | "standings_only"; createdAt: string; reason?: string; changes?: string[] }[];
+  /** `knockout`: the match corrected was a knockout match, so "standings_only" corrected its record only. */
+  corrections: { kind: "replace" | "standings_only"; knockout: boolean; createdAt: string; reason?: string; changes?: string[] }[];
 }
 
 const T_SELECT = `
@@ -288,10 +289,14 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
   });
   const corrections = (
     (await db
-      .prepare("SELECT kind, reason, changes, created_at FROM tournament_corrections WHERE tournament_id = ? ORDER BY id")
-      .all(id)) as { kind: "replace" | "standings_only"; reason: string; changes: string; created_at: string }[]
+      .prepare(
+        `SELECT c.kind, c.reason, c.changes, c.created_at, m.stage FROM tournament_corrections c
+           LEFT JOIN tournament_matches m ON m.id = c.match_id WHERE c.tournament_id = ? ORDER BY c.id`
+      )
+      .all(id)) as { kind: "replace" | "standings_only"; reason: string; changes: string; created_at: string; stage: string | null }[]
   ).map((c) => ({
     kind: c.kind,
+    knockout: c.stage === "knockout",
     createdAt: c.created_at,
     ...(opts.forStaff ? { reason: c.reason, changes: JSON.parse(c.changes) as string[] } : {}),
   }));
@@ -1049,7 +1054,10 @@ class CorrectionBlocked extends Error {
  * an organiser's correction: "replace" puts the group's new qualifiers into
  * the knockout where every match that changes is still to be played (and
  * still has its court), else it is blocked with the reasons; "standings_only"
- * corrects the group and leaves the knockout as it is being played.
+ * corrects the group and leaves the knockout as it is being played. For a
+ * knockout match whose next match has been played, "standings_only" corrects
+ * that match's record only: who goes on is not changed, since the match after
+ * it was played by whoever did.
  */
 type ResultMode = "normal" | "replace" | "standings_only";
 
@@ -1064,7 +1072,8 @@ async function recordResultOnce(matchId: number, input: ResultInput, mode: Resul
   if (m.status === "bye") return { ok: false, error: "That is a bye." };
   if (m.entry_a === null || m.entry_b === null) return { ok: false, error: "Both sides are not known yet." };
   if (input.winner !== m.entry_a && input.winner !== m.entry_b) return { ok: false, error: "The winner has to be one of the two." };
-  if (mode !== "normal" && m.stage !== "group") return { ok: false, error: "Only a group result is corrected this way." };
+  if (mode === "replace" && m.stage !== "group")
+    return { ok: false, error: "The match it fed has been played, so the knockout after it stands as played; a replay is arranged by hand." };
   const score = input.score?.trim() || null;
   if (score) {
     const parsed = parseScore(score);
@@ -1074,13 +1083,21 @@ async function recordResultOnce(matchId: number, input: ResultInput, mode: Resul
     // A retirement stops part-way: the score is what was played, whoever led.
     if (!input.retired && winnerSets <= loserSets) return { ok: false, error: "That score says the other side won." };
   } else if (!input.walkover && !input.retired) return { ok: false, error: "Give the score, or mark it a walkover or a retirement." };
+  let recordOnly = false;
   if (m.next_match_id !== null) {
     const next = (await db.prepare("SELECT status FROM tournament_matches WHERE id = ?").get(m.next_match_id)) as { status: string };
-    if (next.status === "done" || next.status === "walkover" || next.status === "retired") return { ok: false, error: "The next match is played already." };
+    if (next.status === "done" || next.status === "walkover" || next.status === "retired") {
+      if (mode === "normal")
+        throw new KnockoutUnderway(
+          "The next match is played already. A manager can review what correcting this result would change, and correct its record without changing who went on."
+        );
+      recordOnly = true;
+    }
   }
+  if (recordOnly && input.outOfEvent) return { ok: false, error: "A correction of the record only cannot take anybody out of the event; withdraw them instead." };
   const loser = input.winner === m.entry_a ? m.entry_b : m.entry_a;
   const before = m.stage === "group" ? qualifiers((await tournamentDetail(t.id))!, t.advance) : null;
-  await decide(matchId, input.winner, score, input.retired ? "retired" : input.walkover ? "walkover" : "done");
+  await decide(matchId, input.winner, score, input.retired ? "retired" : input.walkover ? "walkover" : "done", !recordOnly);
   if (input.retired && input.outOfEvent) {
     const out = await takeOutOnce(loser, "retired");
     if (!out.ok) return out;
@@ -1233,7 +1250,14 @@ export async function applyCorrection(
 }
 
 /** A match decided, and its winner put into the match they go on to. */
-async function decide(matchId: number, winner: number | null, score: string | null, status: "done" | "walkover" | "bye" | "retired"): Promise<void> {
+async function decide(
+  matchId: number,
+  winner: number | null,
+  score: string | null,
+  status: "done" | "walkover" | "bye" | "retired",
+  /** False for a correction of the record only: the next match was played by whoever did. */
+  goesOn = true
+): Promise<void> {
   const db = getDb();
   const m = (await db.prepare("SELECT next_match_id, next_slot FROM tournament_matches WHERE id = ?").get(matchId)) as {
     next_match_id: number | null;
@@ -1244,7 +1268,7 @@ async function decide(matchId: number, winner: number | null, score: string | nu
       `UPDATE tournament_matches SET winner = ?, score = ?, status = ?, updated_at = datetime('now')${status === "bye" ? ", court_id = NULL, date = NULL, start_min = NULL" : ""} WHERE id = ?`
     )
     .run(winner, score, status, matchId);
-  if (m.next_match_id !== null)
+  if (m.next_match_id !== null && goesOn)
     await db.prepare(`UPDATE tournament_matches SET entry_${m.next_slot} = ? WHERE id = ?`).run(winner, m.next_match_id);
 }
 
