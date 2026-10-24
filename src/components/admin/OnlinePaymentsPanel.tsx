@@ -293,12 +293,13 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
           <h3 className="font-semibold">Refunds on their way</h3>
           <p className="mt-1 text-slate-600">
-            Sent to the gateway and not finished. One with no answer is asked again every few minutes; nothing here can be paid twice.
+            Sent to the gateway and not finished. One with no answer is asked again every few minutes; nothing here can be paid twice. One
+            that failed at the gateway did not reach the customer: it is owed again, under Refunds owed, to refund another way.
           </p>
           <ul className="mt-2 space-y-1">
             {inFlight.map((r) => (
               <li key={`${r.paymentId}-${r.since}`}>
-                {r.payerName ?? "Customer"}: {money(r.amount)} ({r.state === "asked" ? "asked, no answer yet" : "accepted, going through"}) since {localTime(r.since)}
+                {r.payerName ?? "Customer"}: {money(r.amount)} ({r.state === "asked" ? "asked, no answer yet" : r.state === "failed" ? "failed at the gateway, owed again" : "accepted, going through"}) since {localTime(r.since)}
               </li>
             ))}
           </ul>

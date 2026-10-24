@@ -31,7 +31,9 @@ export type IntegrityKind =
   /** A refund sent to the gateway over an hour ago with no answer: asked again every few minutes, still unknown (lib/payments.ts). */
   | "refund_unanswered"
   /** Money owed back on a payment for over a week: nobody has refunded it. */
-  | "refund_overdue";
+  | "refund_overdue"
+  /** A refund the gateway accepted and then failed in the last 30 days: the money is owed again. */
+  | "refund_failed";
 
 export interface IntegrityProblem {
   kind: IntegrityKind;
@@ -170,6 +172,15 @@ export async function checkIntegrity(): Promise<IntegrityProblem[]> {
         WHERE p.refund_due > p.refunded AND COALESCE(p.paid_at, p.created_at) < datetime('now', '-7 days') ORDER BY p.id LIMIT ${EACH}`
     )
     .all()) as { id: number; venue_id: number; bill_id: string; owed: number }[];
+  const failed = (await db
+    .prepare(
+      `SELECT COALESCE(p.venue_id, 0) AS venue_id, p.bill_id, r.amount::float AS amount, r.failed_at FROM online_refunds r
+         JOIN online_payments p ON p.id = r.payment_id
+        WHERE r.failed_at > datetime('now', '-30 days') AND p.refund_due > p.refunded ORDER BY r.id LIMIT ${EACH}`
+    )
+    .all()) as { venue_id: number; bill_id: string; amount: number; failed_at: string }[];
+  for (const r of failed)
+    problems.push({ kind: "refund_failed", venueId: r.venue_id, detail: `A refund of ${r.amount.toFixed(2)} on payment ${r.bill_id} failed at the gateway on ${r.failed_at}; the money is owed again` });
   for (const r of overdue)
     problems.push({ kind: "refund_overdue", venueId: r.venue_id, detail: `${r.owed.toFixed(2)} has been owed back on payment ${r.bill_id} for over a week` });
 

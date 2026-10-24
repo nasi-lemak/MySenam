@@ -36,7 +36,9 @@ const date = addDays(todayISO(), 3);
 function fakeStripe(refund: () => Response = () => Response.json({ id: `re_${++n}`, status: "succeeded" })) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init: { method?: string }) => {
+    vi.fn(async (url: string, init: { method?: string } = {}) => {
+      // The refunds already made against a payment, looked at before making one: none here.
+      if (url.includes("/refunds?payment_intent=")) return Response.json({ object: "list", data: [] });
       if (url.endsWith("/refunds")) {
         refundCalls++;
         return refund();

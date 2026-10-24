@@ -189,6 +189,11 @@ export interface PaymentGateway {
    * has none (Billplz): staff refund in its dashboard and mark it done.
    */
   refund?(account: GatewayAccount, request: RefundRequest): Promise<RefundResult>;
+  /**
+   * Where a refund the gateway accepted now stands: made, still going
+   * through, failed (the money did not go back), or no clear answer.
+   */
+  refundStatus?(account: GatewayAccount, refundId: string): Promise<"succeeded" | "pending" | "failed" | "unknown">;
   /** It can charge again every period by itself (`CheckoutRequest.recurring`). */
   subscriptions?: boolean;
   /** Stop a subscription: why it could not be, or null. */

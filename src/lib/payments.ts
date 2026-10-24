@@ -953,27 +953,36 @@ export interface RefundInFlight {
   payerName: string | null;
   amount: number;
   since: string;
-  state: "asked" | "processing";
+  /** Asked with no answer yet; accepted and going through; or accepted and then failed in the last 30 days (owed again). */
+  state: "asked" | "processing" | "failed";
 }
 
 /** What staff cannot yet count as refunded or owed: a venue's, or (`null`) the platform's own. */
 export async function refundsInFlight(venueId: number | null): Promise<RefundInFlight[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT p.id, p.bill_id, p.payer_name, r.amount::float AS amount, r.created_at, r.provider_ref FROM online_refunds r
+      `SELECT p.id, p.bill_id, p.payer_name, r.amount::float AS amount, r.created_at, r.provider_ref, r.failed_at FROM online_refunds r
          JOIN online_payments p ON p.id = r.payment_id
-        WHERE (r.provider_ref LIKE 'claim:%' OR r.pending = 1)
+        WHERE (r.provider_ref LIKE 'claim:%' OR r.pending = 1 OR r.failed_at > datetime('now', '-30 days'))
           AND ${venueId === null ? "p.purpose IN ('invoice', 'pack')" : "p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack')"}
         ORDER BY r.id`
     )
-    .all(...(venueId === null ? [] : [venueId]))) as { id: number; bill_id: string; payer_name: string | null; amount: number; created_at: string; provider_ref: string }[];
+    .all(...(venueId === null ? [] : [venueId]))) as {
+    id: number;
+    bill_id: string;
+    payer_name: string | null;
+    amount: number;
+    created_at: string;
+    provider_ref: string;
+    failed_at: string | null;
+  }[];
   return rows.map((r) => ({
     paymentId: r.id,
     billId: r.bill_id,
     payerName: r.payer_name,
     amount: r.amount,
-    since: r.created_at,
-    state: r.provider_ref.startsWith("claim:") ? "asked" : "processing",
+    since: r.failed_at ?? r.created_at,
+    state: r.failed_at ? "failed" : r.provider_ref.startsWith("claim:") ? "asked" : "processing",
   }));
 }
 
@@ -1095,6 +1104,87 @@ export async function settleRefundClaims(olderThanMinutes = 10): Promise<number>
   return settled;
 }
 
+/**
+ * Refunds the gateway accepted and is still making: asked how each stands,
+ * at most once an hour. Made, it is done. Failed (a closed card, say), the
+ * money did not go back: it is owed again, the row stays as the record, and
+ * staff see it under *Refunds on their way* and from the integrity check.
+ * Not asked for again by itself, since the same card would refuse it again.
+ */
+export async function settlePendingRefunds(): Promise<number> {
+  const db = getDb();
+  const rows = (await db
+    .prepare(
+      `SELECT r.id, r.payment_id, r.amount::float AS amount, r.provider_ref, p.provider, p.bill_id
+         FROM online_refunds r JOIN online_payments p ON p.id = r.payment_id
+        WHERE r.pending = 1 AND r.failed_at IS NULL AND r.provider_ref NOT LIKE 'claim:%'
+          AND (r.checked_at IS NULL OR r.checked_at < datetime('now', '-60 minutes'))
+        ORDER BY r.id LIMIT 50`
+    )
+    .all()) as { id: number; payment_id: number; amount: number; provider_ref: string; provider: string; bill_id: string }[];
+  let changed = 0;
+  for (const r of rows) {
+    const gateway = gatewayFor(r.provider);
+    const account = gateway?.refundStatus ? await accountForBill(r.provider, r.bill_id) : null;
+    const status = gateway?.refundStatus && account ? await gateway.refundStatus(account, r.provider_ref).catch(() => "unknown" as const) : "unknown";
+    if (status === "succeeded") {
+      await db.prepare("UPDATE online_refunds SET pending = 0, checked_at = datetime('now') WHERE id = ? AND pending = 1").run(r.id);
+      changed++;
+    } else if (status === "failed") {
+      const owedAgain = await db.transaction(async () => {
+        const marked = await db
+          .prepare("UPDATE online_refunds SET pending = 0, failed_at = datetime('now'), checked_at = datetime('now') WHERE id = ? AND failed_at IS NULL")
+          .run(r.id);
+        if (marked.changes === 0) return false;
+        await db.prepare("UPDATE online_payments SET refunded = refunded - ? WHERE id = ?").run(r.amount, r.payment_id);
+        return true;
+      })();
+      if (owedAgain) changed++;
+    } else {
+      await db.prepare("UPDATE online_refunds SET checked_at = datetime('now') WHERE id = ?").run(r.id);
+    }
+  }
+  return changed;
+}
+
+/**
+ * Money owed back that nothing has asked the gateway for, at a venue that
+ * refunds through its gateway by itself: the app stopped after a
+ * cancellation committed and before it asked, or the gateway could not be
+ * reached then. Seen once, then asked for ten minutes later at the
+ * earliest, once a day at most per payment, so a refusal (a key that cannot
+ * refund) is not repeated every minute. Not for a payment under dispute, one
+ * whose refund failed (staff decide), or one paid to the platform (its
+ * owners decide). The claim taken before asking (`refundOnline`) keeps this
+ * from sending a refund twice alongside anything else.
+ */
+export async function settleOwedRefunds(): Promise<number> {
+  const db = getDb();
+  const owed = `p.refund_due > p.refunded AND p.status = 'paid' AND p.venue_id IS NOT NULL
+      AND p.purpose NOT IN ('invoice', 'pack')
+      AND NOT EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND (r.provider_ref LIKE 'claim:%' OR r.failed_at IS NOT NULL))
+      AND NOT EXISTS (SELECT 1 FROM payment_disputes d WHERE d.payment_id = p.id AND COALESCE(d.outcome, '') <> 'won')
+      AND EXISTS (SELECT 1 FROM venues v WHERE v.id = p.venue_id AND v.online_refunds = 'gateway')`;
+  // First sight: noted, not acted on, so a refund the request that cancelled is still making is left to it.
+  await db.prepare(`UPDATE online_payments p SET refund_seen_at = datetime('now') WHERE refund_seen_at IS NULL AND ${owed}`).run();
+  const due = (await db
+    .prepare(
+      `SELECT p.id, p.venue_id FROM online_payments p
+        WHERE ${owed} AND p.refund_seen_at < datetime('now', '-10 minutes')
+          AND (p.auto_refund_tried_at IS NULL OR p.auto_refund_tried_at < datetime('now', '-1 day'))
+        ORDER BY p.id LIMIT 20`
+    )
+    .all()) as { id: number; venue_id: number }[];
+  let sent = 0;
+  for (const p of due) {
+    if (!gatewayFor(((await db.prepare("SELECT provider FROM online_payments WHERE id = ?").get(p.id)) as { provider: string }).provider)?.refund) continue;
+    await db.prepare("UPDATE online_payments SET auto_refund_tried_at = datetime('now') WHERE id = ?").run(p.id);
+    const done = await refundOnline(p.id, p.venue_id).catch(() => null);
+    if (done?.ok) sent++;
+  }
+  return sent;
+}
+
 /** Staff have made the refund in the gateway's own dashboard (`venueId` null: the platform owner, for one paid to the platform). */
 export async function markRefunded(paymentId: number, venueId: number | null, adminId: number | null = null): Promise<RefundDone> {
   const row = await owedRow(paymentId, venueId);
@@ -1124,8 +1214,13 @@ export async function refundOnline(paymentId: number, venueId: number | null, ad
   const amount = roundMoney(row.refund_due - row.refunded);
   const { code, minorUnits } = region().currency;
   // What has been owed in all, so a retry of this refund is the same one
-  // and a later one (another booking off the same payment) is new.
-  const idempotencyKey = `mysenam-refund-${row.id}-${Math.round(row.refund_due * 100)}`;
+  // and a later one (another booking off the same payment) is new; and how
+  // many the gateway accepted and then could not make, since a refund asked
+  // for again after one failed is a new one too.
+  const { failed } = (await getDb()
+    .prepare("SELECT COUNT(*)::int AS failed FROM online_refunds WHERE payment_id = ? AND failed_at IS NOT NULL")
+    .get(row.id)) as { failed: number };
+  const idempotencyKey = `mysenam-refund-${row.id}-${Math.round(row.refund_due * 100)}${failed > 0 ? `-r${failed}` : ""}`;
   const claim = `claim:${idempotencyKey}`;
   const db = getDb();
   // Claimed before the gateway is asked: the amount counts as refunded, so a

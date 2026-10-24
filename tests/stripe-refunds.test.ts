@@ -21,18 +21,36 @@ let courtId: number;
 let n = 0;
 let sent: { url: string; method: string; key: string | null; form: URLSearchParams | null }[] = [];
 
-/** Stripe as far as these tests need it: sessions to pay, and refunds of them. */
+/** Refunds the fake Stripe has made, as it lists them: with the metadata they were made with. */
+let made: { id: string; status: string; metadata: Record<string, string>; payment_intent: string }[] = [];
+
+/** Stripe as far as these tests need it: sessions to pay, refunds of them, and the refunds made so far. */
 function fakeStripe(refund: () => Response = () => Response.json({ id: `re_${++n}`, status: "succeeded" })) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
-      sent.push({
-        url,
-        method: init.method ?? "GET",
-        key: init.headers?.["Idempotency-Key"] ?? null,
-        form: init.body ? new URLSearchParams(init.body) : null,
-      });
-      if (url.endsWith("/refunds")) return refund();
+    vi.fn(async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => {
+      const form = init.body ? new URLSearchParams(init.body) : null;
+      sent.push({ url, method: init.method ?? "GET", key: init.headers?.["Idempotency-Key"] ?? null, form });
+      if (url.includes("/refunds?payment_intent=")) {
+        const pi = new URL(url).searchParams.get("payment_intent");
+        return Response.json({ object: "list", data: made.filter((r) => r.payment_intent === pi) });
+      }
+      if (url.endsWith("/refunds")) {
+        const res = await refund();
+        const body = (await res.clone().json().catch(() => null)) as { id?: string; status?: string } | null;
+        if (res.ok && body?.id && !made.some((r) => r.id === body.id))
+          made.push({
+            id: body.id,
+            status: body.status ?? "succeeded",
+            metadata: { mysenam_key: form?.get("metadata[mysenam_key]") ?? "" },
+            payment_intent: form?.get("payment_intent") ?? "",
+          });
+        return res;
+      }
+      if (url.includes("/refunds/")) {
+        const found = made.find((r) => r.id === decodeURIComponent(url.split("/").pop()!));
+        return found ? Response.json(found) : Response.json({ error: { message: "No such refund" } }, { status: 404 });
+      }
       if (init.method === "POST") {
         const id = `cs_test_refundable${++n}`;
         return Response.json({ id, url: `https://checkout.stripe.com/c/pay/${id}` });
@@ -76,6 +94,7 @@ beforeAll(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   sent = [];
+  made = [];
 });
 
 afterAll(() => {

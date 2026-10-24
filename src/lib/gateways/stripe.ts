@@ -74,6 +74,21 @@ interface Subscription {
 interface Refund {
   id: string;
   status?: "pending" | "requires_action" | "succeeded" | "failed" | "canceled";
+  metadata?: Record<string, string>;
+}
+
+/** The refunds made against a payment so far (Stripe lists at most 100 at a time; a booking payment has a handful). */
+async function refundsOf(account: GatewayAccount, paymentIntent: string): Promise<Refund[]> {
+  const res = await fetch(`${API}/refunds?payment_intent=${encodeURIComponent(paymentIntent)}&limit=100`, {
+    headers: { Authorization: `Bearer ${account.credentials.secretKey}` },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const data = (await res.json().catch(() => null)) as { data?: Refund[]; error?: { message?: string } } | null;
+  if (!res.ok || !Array.isArray(data?.data)) {
+    const why = data?.error?.message;
+    throw new StripeError(`Stripe refused the request (${res.status})${why ? `: ${why}` : ""}`, res.status);
+  }
+  return data.data;
 }
 
 /** Stripe's answer was not a success: its status, for a message that says what to do. */
@@ -226,12 +241,21 @@ export const stripe: PaymentGateway = {
     try {
       const session = await call(account, "GET", `/checkout/sessions/${encodeURIComponent(request.billId)}`);
       if (!session.payment_intent) return { ok: false, error: "Stripe has no payment on that page to refund." };
+      // Made already under this key? Stripe keeps an idempotency key for a
+      // day; a retry after that, or one whose answer was lost, would make a
+      // second refund. The key is on the refund itself, so it is found. If
+      // Stripe cannot say, nothing is sent: it is asked again later.
+      asked = true;
+      const made = (await refundsOf(account, session.payment_intent)).find(
+        (r) => r.metadata?.mysenam_key === request.idempotencyKey && r.status !== "failed" && r.status !== "canceled"
+      );
+      if (made) return { ok: true, refundId: made.id, pending: made.status !== "succeeded" };
       const form = new URLSearchParams({
         payment_intent: session.payment_intent,
         amount: String(Math.round(request.amount * 10 ** request.currency.minorUnits)),
         "metadata[mysenam_bill]": request.billId,
+        "metadata[mysenam_key]": request.idempotencyKey,
       });
-      asked = true;
       const refund = await call<Refund>(account, "POST", "/refunds", form, request.idempotencyKey);
       if (refund.status === "failed" || refund.status === "canceled")
         return { ok: false, error: `Stripe could not make that refund (${refund.status}). Refund it in Stripe instead.` };
@@ -255,6 +279,17 @@ export const stripe: PaymentGateway = {
             : "Stripe could not be reached. Try again.",
         ...(unknown ? { unknown: true } : {}),
       };
+    }
+  },
+
+  async refundStatus(account, refundId) {
+    try {
+      const refund = await call<Refund>(account, "GET", `/refunds/${encodeURIComponent(refundId)}`);
+      if (refund.status === "succeeded") return "succeeded";
+      if (refund.status === "failed" || refund.status === "canceled") return "failed";
+      return "pending";
+    } catch {
+      return "unknown";
     }
   },
 
