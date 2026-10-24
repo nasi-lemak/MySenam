@@ -197,17 +197,26 @@ twice:
    listed for staff for 30 days. It is not resent on its own; asked again, it
    is a new refund under a new key (`…-r1`), since Stripe would otherwise hand
    back the failed one.
-5. **Reconciled** — the scheduler finishes what a crash left behind:
+5. **Reconciled** — for every venue, whatever its refund policy. Each amount
+   owed is noted when first seen, with the venue's policy at that moment.
+   Those that need people — at a venue whose staff refund by hand, through a
+   gateway with no refund API (Billplz), failed, or still owed after an
+   automatic attempt — are put to the venue's staff in one email a day
+   ("2 refunds waiting for you") and stay under *Refunds owed* until staff
+   refund them with one click or by hand and mark them; a refund marked as
+   made by hand leaves nothing owed, so nothing sends it again. The scheduler
+   finishes what a crash left behind:
    - a claim with no answer for ten minutes is asked again under the same key
      (`settleRefundClaims`); before asking, it looks among the payment's
      refunds for one carrying the key, so a refund Stripe made a day ago, when
      Stripe no longer remembers the idempotency key, is recorded rather than
      made again;
-   - an amount owed and never asked for, at a venue that refunds straight
-     away, is noticed once and asked for ten minutes later, at most once a
-     day (`settleOwedRefunds`); a venue whose staff refund by hand, a
-     disputed payment, a refund that failed, and the platform's own payments
-     are left to staff;
+   - an amount owed and never asked for, first seen while the venue refunded
+     straight away and still so, is asked for ten minutes later, at most
+     once a day (`reconcileRefunds`). One first seen while the venue's staff
+     refunded by hand is never refunded automatically, even if the venue
+     switches later: its staff were handling it. Disputed payments, failed
+     refunds and the platform's own payments are left to people;
    - two runs at once, or a run that dies part-way, still record one refund.
 
 Tested against a stand-in for Stripe that keeps its refunds

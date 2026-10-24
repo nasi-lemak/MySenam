@@ -11,7 +11,10 @@ import {
   seedOrder,
   shuffle,
   standings,
+  parseTally,
+  scoreRefusal,
 } from "../src/lib/brackets";
+import { DEFAULT_SCORING, type RankKey } from "../src/lib/tournament-rules";
 
 /** Who meets whom, where byes fall, how groups finish, and fitting matches into court time. */
 
@@ -134,5 +137,51 @@ describe("scheduling", () => {
   it("says how many did not fit", () => {
     const many = Array.from({ length: 6 }, (_, i) => ({ key: `m${i}`, sides: [`a${i}`, `b${i}`], after: [] }));
     expect(scheduleMatches(many, slots)).toEqual({ ok: false, unplaced: 2 });
+  });
+});
+
+describe("scoring by the sport's rules", () => {
+  const goals = { kind: "tally" as const, bestOf: 1, draws: true, tablePoints: { win: 3, draw: 1, loss: 0 }, rankBy: ["points", "point_diff", "points_for", "head_to_head"] as RankKey[], retired: "win_only" as const };
+
+  it("reads a tally, with how a level knockout match was decided", () => {
+    expect(parseTally("3-2")).toEqual({ a: 3, b: 2, decider: null });
+    expect(parseTally("2-2 (penalties 4-3)")).toEqual({ a: 2, b: 2, decider: "penalties 4-3" });
+    expect(parseTally("21-15, 21-10")).toBeNull();
+  });
+
+  it("refuses a score that does not fit the result: the wrong winner, too many sets, more than a majority, a level score with no decider", () => {
+    const sets = { kind: "sets" as const, bestOf: 3, draws: false };
+    expect(scoreRefusal("21-15, 21-10", true, sets)).toBeNull();
+    expect(scoreRefusal("21-15, 21-10", false, sets)).toMatch(/other side won/);
+    expect(scoreRefusal("21-15, 15-21, 21-10, 21-5", true, sets)).toMatch(/more sets/);
+    expect(scoreRefusal("11-5, 11-5, 11-5", true, { ...sets, bestOf: 5 })).toBeNull();
+    expect(scoreRefusal("21-15, 3-8", false, sets, { retired: true })).toBeNull();
+    expect(scoreRefusal("2-2", true, goals)).toMatch(/how it was decided/);
+    expect(scoreRefusal("2-2 (penalties 4-3)", true, goals)).toBeNull();
+    expect(scoreRefusal("2-2", null, goals, { drawAllowed: true })).toBeNull();
+    expect(scoreRefusal("2-1", null, goals, { drawAllowed: true })).toMatch(/has a winner/);
+  });
+
+  it("ranks a goals table by points, then goal difference, counting draws", () => {
+    const table = standings(
+      [1, 2, 3],
+      [
+        { a: 1, b: 2, winner: null, score: "1-1", draw: true },
+        { a: 1, b: 3, winner: 1, score: "3-0" },
+        { a: 2, b: 3, winner: 2, score: "1-0" },
+      ],
+      goals
+    );
+    expect(table.map((s) => [s.entryId, s.points, s.pointDiff, s.drawn])).toEqual([
+      [1, 4, 3, 1],
+      [2, 4, 1, 1],
+      [3, 0, -4, 0],
+    ]);
+  });
+
+  it("counts a retirement's partial score only where the rules say as played", () => {
+    const results = [{ a: 1, b: 2, winner: 2, score: "21-15, 3-8", retired: true }];
+    expect(standings([1, 2], results).find((s) => s.entryId === 2)).toMatchObject({ won: 1, setDiff: 0, pointDiff: 0 });
+    expect(standings([1, 2], results, { ...DEFAULT_SCORING, retired: "as_played" }).find((s) => s.entryId === 2)).toMatchObject({ won: 1, setDiff: 0, pointDiff: -1 });
   });
 });

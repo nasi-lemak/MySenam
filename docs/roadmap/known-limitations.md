@@ -53,15 +53,29 @@ series skips weeks inside the cancellation cutoff silently rather than
 applying the late-cancel policy to them (P3, unconfirmed whether intended).
 
 Also, in tournaments ([programmes](../features/programmes.md#tournaments)):
-a knockout filled again after a group result is put right, a withdrawal, or
-a correction is shown on the draw, but the players moved in or out are not
-messaged (P3). A correction after the knockout has begun changes only
-matches still to play that have their court; a first-round bye (its court
-let go) or a match already played is corrected in the table only, and the
-organiser runs the rest by hand, recording the reason (by design: a result
-played stands). Withdrawal and disqualification rules are per tournament
-and set before the draw; there are no per-sport templates yet
-([roadmap](roadmap.md)) (P3).
+
+- A knockout filled again after a group result is put right, a withdrawal,
+  or a correction is shown on the draw, but the players moved in or out are
+  not messaged; only replays are (P3).
+- A correction never rewrites a match already played. Where it means the
+  wrong competitor went on, the tournament is held under review until a
+  manager lets the results stand or replays them; a replay that changes who
+  goes on again is a correction, and possibly an issue, of its own (by
+  design). Replaying is refused where the right competitor has left or is
+  already elsewhere in the knockout (P3).
+- Sport templates are common club practice, not federation regulations:
+  an event run under a governing body's rules needs its rules checked and
+  set before the draw. Points tables that depend on the score (volleyball's
+  3-2-1-0), counts of tops and zones (bouldering) and forfeit scores cannot
+  be expressed yet ([roadmap](roadmap.md)) (P3).
+- One event per tournament: no divisions sharing courts; the level is shown,
+  not enforced, and there is no age or other eligibility check; a team's
+  roster is names its captain typed, not accounts (P3).
+- In a performance event, competitors level for the final's last place wait
+  for the organiser's choice; a heat correction that would change who swam a
+  final with results is refused, and a re-swim is arranged by hand (P3).
+- Box leagues are a separate engine, not yet on the competition rules
+  ([roadmap](roadmap.md)) (P3).
 
 
 Known limits of the [booking time model](../architecture/interval-booking-review.md)
@@ -153,14 +167,24 @@ once because it runs inside the transaction that claims the cancellation
 
 Also: a refund sent to the gateway is written down as owed first and asked
 for after the cancellation commits, since the gateway cannot take part in the
-transaction. The scheduler finishes what a crash interrupted — an owed refund
-never asked for (at a venue that refunds automatically), a claim with no
+transaction. Refunds are reconciled for every venue; the scheduler finishes
+what a crash interrupted — an owed refund never asked for (only where the
+venue refunded automatically when it was first owed), a claim with no
 answer, a refund the gateway left pending — under the same key, so it is
-made once ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
+made once, and tells a venue's staff daily what waits for them
+([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
 A refund the gateway reports failed is owed again, raised by the integrity
 check and listed for staff; it is not resent on its own. Verified against a
 stand-in for Stripe only; Billplz has no refund API, so its refunds are
 always by hand (P2).
+
+Also: the tax treatment of money kept from hire deposits starts from
+provisional country defaults that no tax adviser has reviewed. A venue
+records its adviser's review in its Tax settings; until it does, every
+amount kept is marked provisional in the journal and exports. Recording the
+review is a launch requirement, not a software check
+([launch checklist](../operations/deployment.md#launch-integration-checklist)) (P1 before
+real deductions).
 
 Also: a deposit charged back after the rest was paid online leaves the
 booking paid, and staff collect the difference by hand; a lost dispute on

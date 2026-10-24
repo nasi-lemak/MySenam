@@ -13,6 +13,11 @@ which names the one authoritative document for each subject.
   applied migration ([database](docs/architecture/database.md)).
 - Never print secrets or connection strings, and never ask for a key in chat:
   use environment variables ([configuration](docs/development/configuration.md)).
+- Competitions are configured by data: a new sport is a template and rules
+  (`src/lib/competition-templates.ts`, `src/lib/tournament-rules.ts`), never
+  an engine or a branch on the sport ([ADR 0013](docs/architecture/decisions/0013-competition-framework.md)).
+- Tax treatments the app suggests are provisional starting points, never
+  presented as verified; a venue's adviser's review is recorded, not assumed.
 
 ## Keeping the documentation true
 

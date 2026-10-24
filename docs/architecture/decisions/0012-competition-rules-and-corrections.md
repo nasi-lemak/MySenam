@@ -1,6 +1,8 @@
 # ADR 0012: Competition rules as data, and corrections that never rewrite play
 
-- **Status:** current. Built in migration 0099. What organisers see is
+- **Status:** current, extended by [ADR 0013](0013-competition-framework.md)
+  (scoring as rules too, and progression issues resolved by letting results
+  stand or replaying). Built in migration 0099. What organisers see is
   [programmes](../../features/programmes.md#tournaments).
 - **Context:** a withdrawal after the draw put the entrant last in their
   group, whatever they had played, which misstates the competition; and once

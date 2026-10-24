@@ -717,12 +717,21 @@ describe("progression a correction left wrong", () => {
     return { t, semi, other, final, owner, issue: done.value.detail.issues[0] };
   }
 
-  it("does not finish while it is open, whatever else is played", async () => {
-    const { t, issue } = await wrongFinal();
+  it("does not finish while it is open, whatever else is put right", async () => {
+    const { t, issue, semi, owner } = await wrongFinal();
     expect(issue.status).toBe("open");
-    const d = (await tournamentDetail(t.id))!;
+    let d = (await tournamentDetail(t.id))!;
     expect(d.status).toBe("drawn");
     expect(d.matches.every((m) => m.status !== "scheduled")).toBe(true);
+    // Another correction to the record (a score put right) runs everything that follows a result: still not finished.
+    const again = { winner: semi.b!, score: "11-21, 12-21" };
+    const preview = await previewResult(semi.id, again);
+    if (!preview.ok) throw new Error(preview.error);
+    const done = await applyCorrection(semi.id, again, { mode: "standings_only", reason: "Score misread on the sheet", token: preview.value.token }, owner);
+    if (!done.ok) throw new Error(done.error);
+    d = (await tournamentDetail(t.id))!;
+    expect(d.status).toBe("drawn");
+    expect(d.issues.filter((i) => i.status === "open")).toHaveLength(1);
   });
 
   it("can be let stand, with a reason, against what was reviewed: the results as played, recorded so, then finished", async () => {

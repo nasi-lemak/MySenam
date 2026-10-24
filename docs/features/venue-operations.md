@@ -180,19 +180,32 @@ older client that sends one amount kept gets the reason from the condition:
 damaged is damage, not returned is loss, anything else is other.
 
 **Whether a reason carries the venue's tax** comes from the venue's tax
-settings, not from the person at the desk. It starts from the usual treatment
+settings, not from the person at the desk. It starts from a provisional default
 in the install's country ([regions and tax](../product/regions-and-tax.md)):
 in Malaysia and Singapore a charge for something the venue supplies (more
 hire, cleaning, a fee) carries the venue's SST or GST if it is registered;
 compensation, replacement, a penalty and *other* do not. A manager can set any
-reason to taxed or not taxed under *Tax*, or back to the usual. The untaxed
-usual ones are marked **check with your accountant**: whether money kept is
-consideration for a supply, and so taxable, is a question of fact under each
-country's rules, and MySenam does not decide it. A receipt for compensation,
+reason to taxed or not taxed under *Tax*, or back to the usual. Whether money
+kept is consideration for a supply, and so taxable, is a question of fact
+under each country's rules, and MySenam does not decide it. A receipt for compensation,
 replacement or a penalty says what it is for, so it is not read as a sale of
-a service. Professional review is needed before relying on the defaults:
-which reasons are taxable, whether a penalty clause is enforceable, and how
-the headings map to the venue's own chart of accounts.
+a service.
+
+**Provisional until reviewed.** The country defaults have not been reviewed
+by a tax adviser and are not tax advice. Until the venue records a review,
+the *Tax* settings say *Provisional*, the return form says each reason's
+treatment is a provisional default, and every amount kept is marked so.
+A manager records the review with the adviser's name and firm, once the
+adviser has checked (and the venue has changed) each reason's treatment;
+the treatment is then *reviewed* until any reason changes, which lapses the
+review. Every change and review, with who made it, is kept in a record that
+is never pruned (`deduction_tax_changes`). Each amount kept carries the
+footing it was taxed on (provisional default, the venue's unreviewed choice,
+or reviewed), shown in the sales journal and its export
+([reporting](reporting.md)). Professional review is also needed of whether a
+penalty clause is enforceable and how the headings map to the venue's own
+chart of accounts. Recording the review is in the
+[launch checklist](../operations/deployment.md#launch-integration-checklist).
 
 Customers see the deposit before they commit: on the grid row, on the booking
 panel and on the confirmation, phrased as what it is rather than as a charge.

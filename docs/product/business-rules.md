@@ -129,13 +129,17 @@ change, update this page, and update [feature status](feature-status.md).
 - **A cancellation and its refunds are one change**; what goes back through a
   gateway is owed from that moment and asked for after it, under a key that
   makes it once however often it is asked; a refund the gateway reports
-  failed is owed again, not resent by itself
+  failed is owed again, not resent by itself. Refunds are reconciled for
+  every venue, but refunded automatically only where the venue's policy was
+  automatic when the money first became owed; a venue's own refund policy
+  is never changed by the reconciliation
   ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
 - **Money kept from a hire deposit is a sale per reason**, receipted when it
   is kept. Staff give the reason; the reason's nature and the venue's tax
-  settings decide the tax, starting from the country's usual treatment
+  settings decide the tax, starting from a provisional country default
   (charges for a service or a fee taxed; compensation, replacement, penalties
-  and other not), which the venue's accountant confirms
+  and other not) that stays marked provisional until the venue records its
+  adviser's review; a later change needs reviewing again
   ([venue operations](../features/venue-operations.md#money-kept-from-a-deposit)).
 - **Credit below nothing is a debt, not income**: reported apart from credit
   held, customer by customer, never netted.
@@ -171,10 +175,12 @@ change, update this page, and update [feature status](feature-status.md).
   that nothing changes silently: a manager reviews what a correction would
   change and confirms it with a reason, into the knockout only where every
   match it changes is still to play with its court, otherwise in the group
-  table (or a knockout match's record) only; a knockout result played stands.
+  table (or a knockout match's record) only; a result played stands. Where
+  that leaves the wrong competitor having gone on, the tournament does not
+  finish until a manager lets the results stand or replays them.
 - **Somebody leaving a tournament** (withdrawn, retired, disqualified — the
-  last a manager's) loses every match left by walkover and never goes
-  through; their group results stand or are void by the tournament's rules
+  last a manager's, with its reason; after the draw, confirmed against a
+  preview) loses every match left by walkover and never goes through; their group results stand or are void by the tournament's rules
   (by default they stand for a withdrawal or retirement, and are void for a
   disqualification); they are never simply put last. Before the draw a fee
   paid online is owed back unless the rules say not; after it, nothing is

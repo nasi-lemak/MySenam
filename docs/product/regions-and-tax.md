@@ -130,8 +130,8 @@ details → Tax* (managers only).
   why it was kept, not a choice at the desk: each country has a usual
   treatment by the money's nature (in Malaysia and Singapore a charge for a
   service or a fee is taxed; compensation, a replacement and a penalty are
-  not), which a manager can change per reason. The untaxed defaults are
-  marked for the venue's accountant to confirm; MySenam does not decide
+  not), which a manager can change per reason. The defaults are provisional
+  until the venue records its adviser's review; MySenam does not decide
   whether an amount is consideration for a supply
   ([venue operations](../features/venue-operations.md#money-kept-from-a-deposit)).
 

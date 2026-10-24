@@ -44,7 +44,9 @@ one pitch reads as its courts idle (B11).
 - **Money kept from a hire deposit** is a sale per reason: in the day's
   takings, on a receipt, and in the sales journal and exports under its own
   heading — *Hire: damage and loss*, *Hire: extra charges*, *Hire:
-  penalties*, or *Hire deposits kept* for other reasons
+  penalties*, or *Hire deposits kept* for other reasons — and, in the
+  export's *Tax basis* column, whether its tax treatment was a provisional
+  default, the venue's unreviewed choice, or reviewed by the venue's adviser
   ([venue operations](venue-operations.md#money-kept-from-a-deposit)).
 
 Two colours carry the whole tab and mean one thing each: teal is money in hand,

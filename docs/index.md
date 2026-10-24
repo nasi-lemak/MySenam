@@ -58,7 +58,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0009 Half-hour diary, sold by sport](architecture/decisions/0009-half-hour-diary-sold-by-sport.md) (superseded) ·
 [0010 Interval booking](architecture/decisions/0010-interval-booking.md) ·
 [0011 Activities as data](architecture/decisions/0011-activities-as-data.md) ·
-[0012 Competition rules and corrections](architecture/decisions/0012-competition-rules-and-corrections.md)
+[0012 Competition rules and corrections](architecture/decisions/0012-competition-rules-and-corrections.md) ·
+[0013 Competition framework](architecture/decisions/0013-competition-framework.md)
 
 ## Integrations
 
