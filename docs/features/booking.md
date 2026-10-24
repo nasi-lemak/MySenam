@@ -620,9 +620,11 @@ venue's fair-use limits for online bookings, each blank for none:
   household; book up to 7 days ahead. Members book up to 21 days ahead.*), and
   its dates stop at the last day the venue takes bookings from whoever is
   looking.
-- **Members first.** A member is a number holding a live membership at the
-  venue (or another branch of its business): the number on the booking or the
-  account's. Inside the members' window everybody else is told how far ahead
+- **Members first.** A member holds a live membership at the venue (or
+  another branch of its business). Booking online, that is an account the
+  membership is linked to, or whose verified number holds it — not a number
+  typed on the booking ([a phone number is not identity](../architecture/privacy.md#a-phone-number-is-not-identity)).
+  Inside the members' window everybody else is told how far ahead
   they may book, and that members may book further. The members' window is
   also the outer edge for staff at the counter, for moving a booking and for
   joining a waitlist.

@@ -36,15 +36,16 @@ beforeAll(async () => {
   const court = await createCourt({ venueId, name: "Court 1", sport: "tennis", offPeakRate: 30, peakRate: 30 });
   if (!court.ok) throw new Error("court");
   courtId = court.court.id;
-  const sold = await sellMembership({
-    venueId, holderName: "Mei Ling", holderPhone: MEMBER, startsOn: todayISO(), expiresOn: ahead(365), price: 500, adminId,
-  });
-  if (!sold.ok) throw new Error(sold.error);
   const a = await registerUser({ name: "Mei Ling", email: "meiling@example.my", phone: MEMBER, password: "a long enough password" });
   const b = await registerUser({ name: "Kumar", email: "kumar@example.my", phone: OTHER, password: "a long enough password" });
   if (!a.ok || !b.ok) throw new Error("users");
   member = a.user;
   stranger = b.user;
+  // The membership is the account's: a member's window is for the account holding it, not a typed number.
+  const sold = await sellMembership({
+    venueId, holderName: "Mei Ling", holderPhone: MEMBER, startsOn: todayISO(), expiresOn: ahead(365), price: 500, adminId, userId: member.id,
+  });
+  if (!sold.ok) throw new Error(sold.error);
 });
 
 describe("a venue's own window", () => {
@@ -76,9 +77,12 @@ describe("members first", () => {
   it("lets a member book further ahead than everybody else", async () => {
     expect(await may(OTHER, 7)).toBeNull();
     expect(await may(OTHER, 10)).toMatchObject({ code: "LIMIT_AHEAD_MEMBERS", vars: { n: 7, m: 21 } });
-    expect(await may(MEMBER, 10)).toBeNull();
-    expect(await may(MEMBER, 21)).toBeNull();
-    expect(await may(MEMBER, 22)).toMatchObject({ code: "LIMIT_AHEAD", vars: { n: 21 } });
+    expect(await may(MEMBER, 10, member.id)).toBeNull();
+    expect(await may(MEMBER, 21, member.id)).toBeNull();
+    expect(await may(MEMBER, 22, member.id)).toMatchObject({ code: "LIMIT_AHEAD", vars: { n: 21 } });
+    // The member's number typed with no account, or from somebody else's, gets everybody's window.
+    expect(await may(MEMBER, 10)).toMatchObject({ code: "LIMIT_AHEAD_MEMBERS" });
+    expect(await may(MEMBER, 10, stranger.id)).toMatchObject({ code: "LIMIT_AHEAD_MEMBERS" });
   });
 
   it("knows a member by their account's number too", async () => {
