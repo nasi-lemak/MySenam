@@ -401,3 +401,36 @@ run passes, CI is not evidence of anything. The suites are run by hand
 What was run on the commit a release is cut from, by hand, on one machine.
 A check not listed was not run; a real-service check is listed only if it ran
 against the real service.
+
+#### 24 October 2026, commit `d7060e0`
+
+Not a launch: the record of the round of work that went through
+[known limitations](../roadmap/known-limitations.md#every-open-limitation-by-kind)
+(90 entries at `b9666dc`, 78 at `d7060e0`, no defect open). Run on one cloud
+container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 96 passed |
+| Suite on PGlite | 196 files; 2235 passed, 1 skipped (a Postgres-only test) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 196 files; 2236 passed |
+| Build (`npm run build`) | Succeeded, after the last change to `src/` and `db/` |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), desktop, phone and tablet | 5 files; 17 passed |
+| CI | Not run (deferred, above) |
+| Real services: payments, messaging, MyInvois, Google sign-in, off-site storage | None checked; each stays `INTEGRATION_VERIFICATION_REQUIRED` |
+| Remote staging, restore of a production backup | Not run |
+
+The one change after `d7060e0` is in a test: `tests/backup.test.ts` set its
+fake clock to dates the real clock had passed, and PGlite's Postgres, reading
+the same clock, re-armed a timer every millisecond (17,232 Node
+`TimeoutOverflowWarning`s in the PGlite run, none on Postgres). Its dates now
+lie ahead of the real clock; that file passed again on both engines (20
+tests each, no warnings), with type-check, lint and the documentation checks.
+
+Gaps: no live integration has passed its check, so no workflow that pays or
+messages is proven against its provider; the load benchmark is from one
+machine; Postgres runs print `pg`'s deprecation warning about overlapping
+`client.query()` calls on one client, which does not fail a test and is not
+yet traced.

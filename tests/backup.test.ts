@@ -26,6 +26,9 @@ import { getDb } from "../src/lib/db";
 import { createBooking, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 
+// Clocks set by these tests stay ahead of the real one. PGlite's Postgres
+// reads the faked clock too: moved back behind a timer it has already set,
+// it re-arms that timer every millisecond until the clock catches up.
 let dir: string;
 
 beforeEach(() => {
@@ -89,15 +92,15 @@ describe("taking a snapshot", () => {
 
   it("names snapshots so they sort oldest to newest", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-26T01:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T01:00:00+08:00"));
     const first = await createBackup({ dir });
-    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T02:00:00+08:00"));
     const second = await createBackup({ dir });
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
 
     expect(first.file.name < second.file.name).toBe(true);
-    expect(second.file.takenAt).toBe("2026-09-26 02:00:00");
+    expect(second.file.takenAt).toBe("2099-09-26 02:00:00");
     // Newest first is what an operator wants to see.
     expect(listBackups(dir)[0].name).toBe(second.file.name);
   });
@@ -106,7 +109,7 @@ describe("taking a snapshot", () => {
 describe("two snapshots in the same second", () => {
   it("both kept, the later listed first", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-26T03:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T03:00:00+08:00"));
     const first = await createBackup({ dir });
     const second = await createBackup({ dir });
     expect(first.ok && second.ok).toBe(true);
@@ -121,7 +124,7 @@ describe("keeping the folder tidy", () => {
   async function snapshotsAt(hours: number[]) {
     vi.useFakeTimers({ toFake: ["Date"] });
     for (const h of hours) {
-      vi.setSystemTime(new Date(`2026-09-26T${String(h).padStart(2, "0")}:00:00+08:00`));
+      vi.setSystemTime(new Date(`2099-09-26T${String(h).padStart(2, "0")}:00:00+08:00`));
       const made = await createBackup({ dir, keep: 99 });
       expect(made.ok).toBe(true);
     }
@@ -136,14 +139,14 @@ describe("keeping the folder tidy", () => {
     const left = listBackups(dir);
     expect(left).toHaveLength(2);
     // The two that survive are the newest two.
-    expect(left.map((b) => b.takenAt)).toEqual(["2026-09-26 05:00:00", "2026-09-26 04:00:00"]);
+    expect(left.map((b) => b.takenAt)).toEqual(["2099-09-26 05:00:00", "2099-09-26 04:00:00"]);
   });
 
   it("prunes as part of taking one, without touching anything else", async () => {
     await snapshotsAt([1, 2, 3]);
     fs.writeFileSync(path.join(dir, "notes.txt"), "not a backup");
 
-    vi.setSystemTime(new Date("2026-09-26T04:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T04:00:00+08:00"));
     const result = await createBackup({ dir, keep: 2 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -168,10 +171,10 @@ describe("how stale the newest one is", () => {
 
   it("measures from the snapshot's own name", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T02:00:00+08:00"));
     expect((await createBackup({ dir })).ok).toBe(true);
 
-    vi.setSystemTime(new Date("2026-09-26T08:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T08:00:00+08:00"));
     expect(hoursSinceLastBackup(dir)).toBeCloseTo(6, 1);
   });
 });
@@ -218,9 +221,9 @@ describe("the photos with each snapshot (S10)", () => {
   it("go when their snapshot is pruned", async () => {
     photosOnDisk({ "venues/1/abc-400.webp": "small" });
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-26T01:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T01:00:00+08:00"));
     const first = await createBackup({ dir: backups(), keep: 99 });
-    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T02:00:00+08:00"));
     const second = await createBackup({ dir: backups(), keep: 99 });
     if (!first.ok || !second.ok) throw new Error("no backup");
     expect(pruneBackups(1, backups())).toEqual([first.file.name]);
@@ -314,9 +317,9 @@ describe("a backup set: the database, its photos and a manifest of both", () => 
   it("goes whole when it is pruned, manifest and all", async () => {
     photosOnDisk({ "venues/1/abc-400.webp": "small" });
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-26T01:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T01:00:00+08:00"));
     const first = await createBackup({ dir: path.join(dir, "backups"), keep: 99 });
-    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    vi.setSystemTime(new Date("2099-09-26T02:00:00+08:00"));
     const second = await createBackup({ dir: path.join(dir, "backups"), keep: 99 });
     if (!first.ok || !second.ok) throw new Error("no backup");
     pruneBackups(1, path.join(dir, "backups"));
