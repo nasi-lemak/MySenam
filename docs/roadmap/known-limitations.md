@@ -5,11 +5,14 @@ apart from what works ([feature status](../product/feature-status.md)) and
 from ideas ([roadmap](roadmap.md)). First recorded by the
 [documentation audit](../audits/documentation-2026-10-22.md) of October 2026. The numbered
 defects it found (S1–S8, B1–B8, M1–M11) have since been fixed, each with a
-test, and are listed under [fixed since the audit](#fixed-since-the-audit). The
-feature inventory audit later that month found B9–B14, M12–M15 and S9–S10;
-all of them but B11 have since been fixed too, and so has S11, the part of
-S9 not about programmes. What stands between the code
-and a production launch is under [production readiness](#production-readiness).
+test. So have those found since (S9–S11, B9, B10, B12–B16, M12–M15), all but
+B11; every fixed one is under [fixed since the audit](#fixed-since-the-audit).
+Reconciled against the code and tests on 24 October 2026.
+
+[What the launch depends on](#what-the-launch-depends-on) sorts what is open
+by whether it affects the first launch, and gives each consequential item an
+action for the owner or a decision to make. The sections after it hold the
+detail.
 
 Priorities:
 
@@ -17,6 +20,98 @@ Priorities:
 - **P1** — required for a reliable production launch.
 - **P2** — important for broader adoption or operational efficiency.
 - **P3** — optional enhancement.
+
+## What the launch depends on
+
+The first launch is taken to be one Malaysian install in marketplace mode
+with a few pilot venues, whose customers pay at the counter or online through
+each venue's own Billplz account, with no fee charged to venues until the owner
+sets a price
+([launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide),
+[pricing](../business/pricing.md#free-trials-and-pilot-offers)). A Singapore
+install is a later launch of its own; for it, Stripe moves into the first
+table. No P0 is open.
+
+### Blockers for any launch
+
+Each must be done, or its risk accepted by the owner and recorded here,
+before the first real customer. The rest of the
+[launch checklist](../operations/deployment.md#before-going-live-what-only-a-live-account-can-prove)
+(secrets, the scheduler's heartbeat, monitoring, a real venue end to end)
+applies too; these are the items where something is missing today.
+
+| Blocker | Why it matters | Owner action |
+| ------- | -------------- | ------------ |
+| Continuous integration has not run on any commit since 16 October 2026 ([production readiness](#production-readiness)) | Every check is run by hand; a regression is found only when somebody runs the suites | Raise or remove the GitHub Actions budget, then see the CI and Docs runs pass on the commit to be launched. Launching from a commit checked by hand instead is a decision to record here |
+| Email has never been sent through a real provider ([integrations](#integrations-awaiting-live-verification-or-a-partner)) | Booking confirmations, password resets and every game, tournament and league message go by email | Open the SMTP account, set SPF, DKIM and DMARC on the sending domain, set `SMTP_URL` and `MAIL_FROM`, and pass the email check |
+| Off-site backups have never been written to a real bucket, and where they may go is not decided ([backup and restore](#production-readiness)) | Without an off-site copy, losing the server loses every booking and balance | Choose the provider and country (Backblaze B2 is abroad, so it waits on a lawyer and `OFFSITE_TRANSFER_APPROVED`; Amazon S3 in Malaysia does not), set `OFFSITE_DATA_LOCATION`, pass `npm run verify-offsite -- --go` and the drill on an isolated server ([backups](../operations/backups.md#verifying-a-real-bucket)) |
+| `/terms` and `/privacy` are unreviewed drafts ([gaps](#gaps-in-verification-and-documentation)) | Legal exposure from the first customer | A Malaysian lawyer reviews both and their translations; set `OPERATOR_NAME` and `OPERATOR_EMAIL` |
+| The breach-notification rules are not confirmed, and nobody is named to lead an incident ([gaps](#gaps-in-verification-and-documentation)) | A breach could be reported late, or to the wrong party | A lawyer confirms the Malaysian rules in [incident response](../operations/incident-response.md#a-suspected-breach-of-personal-data); the owner names the incident lead |
+| The operating company and where the data is hosted are not decided ([launch providers](../integrations/launch-providers.md#operating-company-and-jurisdictions)) | The privacy notice, the provider contracts and the gateway accounts all name them | The owner decides the entity, its tax registration and the hosting country, and has them written into the privacy notice and venue agreement |
+
+### Blockers only where a feature is switched on
+
+None of these stops a launch that leaves the feature off. Each must be done
+before the feature is used with real customers.
+
+| Feature, and what switches it on | What must happen first | Owner action |
+| -------------------------------- | ---------------------- | ------------ |
+| Online payment at a Malaysian venue: the venue connects Billplz | The Billplz check: a sandbox bill paid by FPX and by card, a tampered callback refused, an expired hold's bill expiring. Refunds are by hand (accepted for a small launch, [launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide)) | Pass the check before the first venue takes money online; until then venues take payment at the counter |
+| Stripe: a Singapore install, membership renewals, or the platform's own invoices through Stripe | The Stripe test-mode check: checkout, webhook, refunds, a dispute, a renewal. Refund reconciliation is tested against a stand-in only ([money](#money-m)) | Pass the check before switching any of them on |
+| Charging venues a fee: `MYSENAM_VENUE_FEE`, plan tiers, or a venue's own fee | The price decided. Once a fee or tiers are set, `/pricing` says "no setup fee, no contract": commercial terms nobody has decided ([pricing](../business/pricing.md#open-decisions)). The platform's invoices need a verified gateway | The owner decides the price and those two claims before setting any fee |
+| Phone checks by WhatsApp or SMS: `WHATSAPP_TOKEN`, `SMS_TWILIO_ACCOUNT_SID` or `SMS_HTTP_URL` | A live send; every WhatsApp template approved by Meta word for word; in Malaysia, a registered SMS sender | Pass the phone check. Without phone checks, numbers are taken as given (a decision below) |
+| Money kept from a hire deposit: a venue deducts from one | The venue's tax adviser's review recorded under *Tax*; until then every amount kept is marked provisional ([money](#money-m)) | Each venue's manager records it before the first real deduction; the owner tells pilot venues so |
+| E-invoicing: `MYINVOIS_CLIENT_ID` | The MyInvois sandbox check with the venue's own TIN and certificate | Only for venues that must e-invoice, and for the platform if it must |
+| Google sign-in: `GOOGLE_CLIENT_ID` | The redirect URI registered | Register it before switching on |
+| Photos in a bucket: `PHOTOS_S3_BUCKET` | A photo uploaded and served from the real bucket | Needed before running more than one instance |
+| Unstaffed hours with door codes: a venue sets staffed hours | A booking that starts inside the staffed hours and runs past them gets no door code ([booking time model](#booking-and-availability-b)) | Tell such venues to end their staffed hours on a booking boundary, or decide to fix it (P3) |
+| More than one app instance | Not measured; shared rate limits, one secret and a photo bucket are needed ([production readiness](#production-readiness)) | Re-run the benchmark on the production set-up before scaling out |
+| A tournament under a governing body's rules | Sport templates are club practice ([tournaments](#booking-and-availability-b)) | The organiser checks and sets the rules before the draw |
+
+### Decisions the owner has to make
+
+Consequential limitations with no fix planned for the launch. The code's
+present behaviour stands until the owner decides; each row gives a
+recommendation, not a decision. A decision is recorded by changing the row to
+*accepted* (with the date) or by moving the work into the
+[roadmap](roadmap.md).
+
+| Limitation | What happens today | Recommendation |
+| ---------- | ------------------ | -------------- |
+| Without WhatsApp or SMS, phone numbers are taken as given ([production readiness](#production-readiness)) | The member rate goes to whoever types a member's number; reviews are one per number; sign-offs online work only when staff link them to an account | Accept for pilot venues whose staff know their members; switch on WhatsApp phone checks once Meta approves the templates |
+| Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
+| Messages in English only: game, tournament and league emails, company-account invoices and the terms; the staff dashboard; Tamil and built-in activity names in Malay and Chinese not reviewed by a native speaker ([languages](#languages)) | Booking messages and the customer pages are in the customer's language; the rest are not | Decide which languages the launch promises. At least have a native speaker review the Malay customer pages and messages first |
+| Cancelling a weekly series skips weeks inside the cancellation cutoff without saying so ([booking and availability](#booking-and-availability-b)) | The customer is asked to confirm cancelling *all* upcoming sessions; the weeks inside the cutoff stay booked and owed, and their list shows them still booked without saying why | Decide whether those weeks are cancelled under the late-cancel policy or kept, and whether the customer is told which |
+| A staff member who loses both their phone and their recovery codes is locked out until the database is edited ([operations and security](#operations-and-security-s)) | No owner reset of two-factor | Accept; the owner keeps their own recovery codes offline |
+| The content security policy allows inline scripts ([operations and security](#operations-and-security-s)) | Cross-site requests and framing are still refused | Accept for launch; revisit with the next security review |
+| Chargebacks the code does not undo: a deposit charged back after the rest was paid online leaves the booking paid; a lost dispute on what a venue paid the platform is reported, not reversed ([money](#money-m)) | Staff collect by hand; the owners decide | Accept; both are rare and visible |
+| Defaults marked *for review*: adjacent buffers add up; at most eight places per booking unless the venue sets more; a first lesson needing a sign-off is booked at the counter ([booking time model](#booking-and-availability-b), [activities](#activities)) | As described | Accept as the launch defaults |
+
+### Accepted
+
+Decided, with the reason recorded where they are described:
+[deliberately unsupported](#deliberately-unsupported) (including no daylight
+saving, one country per install, and no multipart uploads off-site); no
+CSRF token, by design ([security](../architecture/security.md#requests-from-another-site));
+Billplz refunds by hand for a small Malaysian launch
+([launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide));
+negative stored credit after a chargeback, reported apart (M14).
+
+### Not affecting the first launch
+
+Everything else on this page is P2 or P3: an improvement, a known edge, or a
+verification to add. Each names where its work is tracked (a test to write,
+or the [roadmap](roadmap.md)), and none changes what the first launch can
+promise. The P2 items among them:
+
+- The marketplace benchmark is run by hand ([booking time model](#booking-and-availability-b)):
+  it is re-run with the launch checklist's performance row, and could run
+  on a schedule once CI does.
+- Ways basic and specialised activities are commonly sold ([activities](#activities)):
+  roadmap rows; operators see the note as they pick one.
+- Browser tests cover a few journeys ([gaps](#gaps-in-verification-and-documentation)):
+  [users and journeys](../product/users-and-journeys.md#what-the-journeys-show)
+  names the two to add first.
 
 ## Suspected defects
 
@@ -31,16 +126,16 @@ it is fixed, and moves to *fixed since the audit* with that test.
 
 Also: an email the mail server accepted is recorded as sent; that is not
 proof it reached the inbox (spam folders, a full mailbox, a bounce later).
-Bounces are not read back from any provider ([messaging](../integrations/messaging.md)) (P2).
+Bounces are not read back from any provider ([messaging](../integrations/messaging.md)) (P2; a [decision for the owner](#decisions-the-owner-has-to-make)).
 
 Also: a staff member who loses both their phone and their recovery codes is
 locked out until somebody edits the database; there is no owner reset of two-factor
-(`disableTwoFactor` needs the account's own code) (P3).
+(`disableTwoFactor` needs the account's own code) (P3; a [decision for the owner](#decisions-the-owner-has-to-make)).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
 The content security policy allows inline scripts; moving to per-request
-nonces is open for review (P3).
+nonces is open for review (P3; a [decision for the owner](#decisions-the-owner-has-to-make)).
 
 ### Booking and availability (B)
 
@@ -50,7 +145,10 @@ nonces is open for review (P3).
 
 Also, **awaiting a decision** (the code may be intended): cancelling a weekly
 series skips weeks inside the cancellation cutoff silently rather than
-applying the late-cancel policy to them (P3, unconfirmed whether intended).
+applying the late-cancel policy to them, though the customer confirmed
+cancelling all upcoming sessions (`cancelSeries` in `src/lib/store.ts`) (P2:
+a customer can be charged for a week they believe cancelled; a
+[decision for the owner](#decisions-the-owner-has-to-make)).
 
 Also, in [tournaments](../features/tournaments.md):
 
@@ -86,6 +184,17 @@ Also, in [tournaments](../features/tournaments.md):
   still their own engine for seasons and boxes; a league match always has a
   winner (P3).
 
+Also, in [open games](../features/matchmaking.md#moving-a-game-to-another-time):
+
+- A host's proposal to a time that overlaps the game's own, on a different
+  court sharing its floor (a pitch over its court), is refused as taken:
+  only the part of the new time outside the booking's own claim on the same
+  court is held (P3).
+- A proposal waits a day at most (or until the new start, or the
+  cancellation cutoff), not a time the venue sets (P3).
+- A venue's change of a game's time, from the staff screen, is tested by
+  route and component tests, not driven in a browser (P3).
+
 
 Known limits of the [booking time model](../architecture/booking-time-model.md)
 (the owner's decisions and the defaults chosen for open questions are listed
@@ -107,7 +216,8 @@ there):
   (`isUnstaffedHour`): a booking from 21:30 to 23:00 at a venue staffed
   until 22:00 counts as staffed, so it gets no door code and its last hour
   depends on the counter letting them stay. Confirmed in the code; still
-  open (P3).
+  open (P3; matters only at a venue with
+  [unstaffed hours](#blockers-only-where-a-feature-is-switched-on)).
 - **Daylight saving is not supported**, deliberately: a wall-clock time that
   never happens or happens twice has no defined meaning for a booking.
   Malaysia and Singapore have none. Such a zone cannot be configured by
@@ -124,7 +234,8 @@ there):
   night too"). Only installs with outages from before migration 0090 are
   affected (P3).
 - **Adjacent buffers add up**: two bookings each with a 10-minute buffer on
-  the side they meet are 20 minutes apart, not 10 (by design, for review).
+  the side they meet are 20 minutes apart, not 10 (by design, for review; a
+  [decision for the owner](#decisions-the-owner-has-to-make)).
 - **The old tables are gone** (migration 0091): rolling back the upgrade is
   restoring the backup taken before it
   ([deployment](../operations/deployment.md#upgrading)).
@@ -149,10 +260,11 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   venue's API key the number is taken on the staff's or the venue's word.
   Bookings with a coach are held to the rule like any other, so a first
   lesson on a wall that needs a sign-off is booked at the counter (P3, for
-  review). A group of places on such an activity is booked at the counter,
+  review; a [decision for the owner](#decisions-the-owner-has-to-make)). A group of places on such an activity is booked at the counter,
   since one sign-off covers one person.
 - **One booking takes at most eight places** unless the venue sets the most
-  per booking, even on a fleet of twenty (by design, for review).
+  per booking, even on a fleet of twenty (by design, for review; a
+  [decision for the owner](#decisions-the-owner-has-to-make)).
 - **Kinds of kit within one fleet** (single and double kayaks in one booking
   list) are not built: each kind is a resource of its own (P3).
 - **A catalogue change** made on one instance reaches the others within a
@@ -165,6 +277,22 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   ([ADR 0011](../architecture/decisions/0011-activities-as-data.md)).
 - **The integrity check** looks from yesterday on and lists up to 50 problems
   of each kind ([monitoring](../operations/monitoring.md)).
+
+### Languages
+
+The customer pages, booking messages and refusals are in English, Malay,
+Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
+
+- **Game, tournament and league emails** are written in English whatever
+  the customer's language (`tellPlayer` in `src/lib/games.ts`, `tellEntrant`
+  in `src/lib/tournaments.ts`); so are company-account invoices and the
+  terms (P2).
+- **The staff dashboard** is English only ([roadmap](roadmap.md)) (P2).
+- **Not reviewed by a native speaker:** the Tamil dictionary, and the
+  built-in activity names in Malay and Chinese (machine-assisted) (P2).
+
+Which languages the launch promises is a
+[decision for the owner](#decisions-the-owner-has-to-make).
 
 ### Money (M)
 
@@ -201,12 +329,14 @@ records its adviser's review in its Tax settings; until it does, every
 amount kept is marked provisional in the journal and exports. Recording the
 review is a launch requirement, not a software check
 ([launch checklist](../operations/deployment.md#launch-integration-checklist)) (P1 before
-real deductions).
+real deductions, at a venue that
+[deducts from deposits](#blockers-only-where-a-feature-is-switched-on)).
 
 Also: a deposit charged back after the rest was paid online leaves the
 booking paid, and staff collect the difference by hand; a lost dispute on
 what a venue paid the platform (an invoice, a WhatsApp pack) is reported to
-the owners but not undone, by design until decided otherwise (P3).
+the owners but not undone, by design until decided otherwise (P3; a
+[decision for the owner](#decisions-the-owner-has-to-make)).
 
 ### Fixed since the audit
 
@@ -241,7 +371,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | M9 | A Stripe refund is claimed before Stripe is asked, so a hand mark or second click cannot send it twice; an interrupted one is asked again under its key | `tests/stripe-refunds.test.ts` |
 | M10 | Disputes on the platform's own Stripe account are recorded and put to the platform owners | `tests/stripe-disputes.test.ts` |
 | M11 | A deposit charged back after the rest was paid at the counter leaves the booking owing the deposit's part | `tests/stripe-disputes.test.ts` |
-| S9 | Tournament, league and open-game emails are queued in the outbox with the change that causes them, so they are retried, capped and listed like any other message. The emails to staff and applicants it also named are S11, still open | `tests/outbox.test.ts` |
+| S9 | Tournament, league and open-game emails are queued in the outbox with the change that causes them, so they are retried, capped and listed like any other message. The emails to staff and applicants it also named became S11, fixed below | `tests/outbox.test.ts` |
 | S10 | Photos kept on the server's disk go into an archive beside each snapshot, checked before it is kept, pruned and copied off-site with it, and put back by the restore | `tests/backup.test.ts`, `tests/backup-scripts.test.ts`, `tests/offsite.test.ts` |
 | B9 | A group result put right fills the knockout again while none of it has been played; once a match in it has, a change to who is in it is refused | `tests/tournaments.test.ts` |
 | B10 | A withdrawal after the draw gives walkovers for the matches left, keeps the results already played where the tournament's rules say they stand (the entrant is flagged and does not go through, not put last), refills a knockout not yet played, and settles later rounds as soon as the opponent is known | `tests/tournaments.test.ts` |
@@ -260,7 +390,8 @@ IDs are not reused. Each fix came with the test recommended above.
 
 Implementation status ([feature status](../product/feature-status.md)) says
 what is built and tested; this is what that does not show. Evidence is from
-the code and tests as of the feature inventory audit.
+the code and tests as of 24 October 2026. What each row means for the launch
+is under [what the launch depends on](#what-the-launch-depends-on).
 
 | Concern | State | Evidence and what remains |
 | ------- | ----- | ------------------------- |
@@ -274,8 +405,8 @@ the code and tests as of the feature inventory audit.
 | Identity | Accounts are identities; phone numbers are not, unless proved | A number is proved only where WhatsApp or SMS is configured, and those are tested against fakes; without them numbers are taken as given. A member's number typed by anyone gets the member rate (by design); reviews are one per number; sign-offs online need the account's own or proved number ([authentication](../architecture/authentication.md), [privacy](../architecture/privacy.md)) |
 | Integrations | None checked against the live service | Every payment, message, e-invoice, sign-in and storage integration is tested against fakes ([below](#integrations-awaiting-live-verification-or-a-partner)); rows that take money or send messages name their leg in feature status |
 | Backup and restore | Restored and compared on both engines, locally; off-site restore not verified against a real bucket | The scripts test backs up a venue's settings, a customer's credit, a paid booking and a photo, changes them all, restores, and compares every row of the main tables, each balance and each photo's hash (`tests/backup-scripts.test.ts`). Each snapshot is a set with a manifest of hashes; a set is fetched back from a stand-in S3 service, checked, and restored in a drill aside without touching the live data; a damaged part is caught. A `pg_dump` copy made by the app is listed, not loaded, before it is kept (the drill loads it). RPO up to 24 hours; RTO measured locally at about 2 minutes' restore for the benchmark database. Remains: the off-site drill against the real provider with a read key, on an isolated server ([backups](../operations/backups.md#restoring-from-the-off-site-copy)) |
-| Continuous integration | Not running; not executed for any change since 16 October 2026 | Every CI and Docs job since 16 October 2026 has been refused before a runner was given to it: "The job was not started because an Actions budget is preventing further use" (the repository is private, on a personal account). The account owner raises or removes the Actions budget, or waits for the monthly minutes to reset ([testing](../development/testing.md#continuous-integration)). Until then every check here is run by hand |
-| Open games and matchmaking | The last place goes to one person; suggestions bounded | Every change that takes or frees a place locks the game's row first (B16, `tests/matchmaking.test.ts` on Postgres). A ranking reads at most 300 candidate games, and a host's suggestions at most 500 opted-in players; neither is measured at marketplace size. Levels and ages are self-declared and never verified; a link to a private game is a bearer link until withdrawn or expired. Emails of invitations, held places and suggested games go through the outbox, so their delivery is the email integration's |
+| Continuous integration | Not running; not executed for any change since 16 October 2026 | Every CI and Docs job since 16 October 2026 has been refused before a runner was given to it: "The job was not started because an Actions budget is preventing further use" (the repository is private, on a personal account); the runs of 24 October 2026 still ended within three seconds, with no step run. The account owner raises or removes the Actions budget, or waits for the monthly minutes to reset ([testing](../development/testing.md#continuous-integration)). Until then every check here is run by hand |
+| Open games and matchmaking | The last place goes to one person; a game moves only with its players' answers; suggestions bounded | Every change that takes or frees a place locks the game's row first (B16, `tests/matchmaking.test.ts` on Postgres). Moving a game with players holds the new time as a claim until each has answered; two moves at once, and a join racing a proposal, leave one outcome (`tests/game-moves.test.ts` on Postgres). A ranking reads at most 300 candidate games, and a host's suggestions at most 500 opted-in players; neither is measured at marketplace size. Levels and ages are self-declared and never verified; a link to a private game is a bearer link until withdrawn or expired. Emails of invitations, held places and suggested games go through the outbox, so their delivery is the email integration's |
 | Staging | On this machine, proven by hand; remote never run | `npm run stage -- run` builds the image, runs it on Postgres 16 with synthetic data, passes smoke, browser and acceptance suites and removes everything ([testing](../development/testing.md#staging-and-real-services)). It needs a Docker daemon. The DigitalOcean variant is tested against a stand-in API only, and no provider credential has been available to run the real-service checks |
 | Operational dependencies | Documented | The scheduler runs inside a long-running `next start` (or the operator's cron with `MYSENAM_SCHEDULER=off`); more than one instance needs `MYSENAM_RATE_LIMITS=shared`, one `MYSENAM_SECRET`, a photo bucket, and accepts a minute's lag on catalogue changes ([architecture](../architecture/overview.md#more-than-one-instance)) |
 
@@ -284,20 +415,20 @@ the code and tests as of the feature inventory audit.
 Implemented and tested against fakes only. Each needs one real check before it
 is relied on ([launch checklist](../operations/deployment.md#before-going-live-what-only-a-live-account-can-prove)).
 
-| Integration | State | Blocks launch |
+| Integration | State | Launch impact |
 | ----------- | ----- | ------------- |
-| Billplz (FPX, cards, callbacks, X-Signature) | Needs sandbox verification | Yes, for online payment in Malaysia |
-| Stripe Checkout, webhooks, refunds, disputes, renewals | Needs test-mode verification | Yes, for online payment in Singapore and renewals |
-| WhatsApp Cloud API (templates must be approved by Meta) | Needs approval and a live send | No: email works without it |
-| Email (SMTP), including SPF/DKIM and calendar invites | Needs a live send | Yes: confirmations go by email |
+| Billplz (FPX, cards, callbacks, X-Signature) | Needs sandbox verification | Where a Malaysian venue takes payment online |
+| Stripe Checkout, webhooks, refunds, disputes, renewals | Needs test-mode verification | A Singapore install; renewals; the platform's invoices through Stripe |
+| WhatsApp Cloud API (templates must be approved by Meta) | Needs approval and a live send | Only where switched on: email works without it |
+| Email (SMTP), including SPF/DKIM and calendar invites | Needs a live send | Any launch: confirmations go by email |
 | SMS (Twilio or HTTP gateway) for phone codes | Needs a live send | Only where phone checks use SMS |
-| LHDN MyInvois | Needs sandbox (preprod) verification | Only for venues that must e-invoice |
-| Google sign-in | Needs a registered redirect URI | No: password sign-in works |
-| S3-compatible off-site backups and photo storage | Needs a real bucket. Tested against stand-ins for S3 and B2 only: B2's acceptance of a `writeFiles`-only key for uploads, its signing region, Object Lock default retention and versions listing are unverified until `npm run verify-offsite -- --go` passes against a real B2 (preferred) or S3 bucket | Off-site backups: yes, for production |
-| DigitalOcean (remote staging only) | Needs a token for a separate team, scoped to droplets, tags and registry read, and an agreed spend; tested against a stand-in API | No: local staging works without it |
-| Reserve with Google | Feeds only; needs Actions Center partner approval and a booking server that is **not built** | No |
-| Smart locks (TTLock, Igloohome) | Not built; blocked on vendor credentials | No |
-| Stripe Connect payouts, Singapore InvoiceNow, web push, LINE, Zalo | Not built; each needs a partner or contract | No |
+| LHDN MyInvois | Needs sandbox (preprod) verification | Only for venues (or a platform) that must e-invoice |
+| Google sign-in | Needs a registered redirect URI | Only where switched on: password sign-in works |
+| S3-compatible off-site backups and photo storage | Needs a real bucket. Tested against stand-ins for S3 and B2 only: B2's acceptance of a `writeFiles`-only key for uploads, its signing region, Object Lock default retention and versions listing are unverified until `npm run verify-offsite -- --go` passes against a real B2 (preferred) or S3 bucket | Off-site backups: any launch. A photos bucket: before more than one instance |
+| DigitalOcean (remote staging only) | Needs a token for a separate team, scoped to droplets, tags and registry read, and an agreed spend; tested against a stand-in API | None: local staging works without it |
+| Reserve with Google | Feeds only; needs Actions Center partner approval and a booking server that is **not built** | None |
+| Smart locks (TTLock, Igloohome) | Not built; blocked on vendor credentials | None |
+| Stripe Connect payouts, Singapore InvoiceNow, web push, LINE, Zalo | Not built; each needs a partner or contract | None |
 
 ## Deliberately unsupported
 
@@ -336,8 +467,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| Browser tests cover a few journeys only: eleven end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and fourteen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones | P2 |
-| [Booking concurrency](../architecture/booking-concurrency.md) cites a cancellation race on an unpaid booking only | A double refund of a paid booking under concurrent cancels is prevented by the claim but not tested | P2 |
+| Browser tests cover a few journeys only: eleven end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and fifteen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)) | Most pages are checked by route and component tests, not a browser; no test sets a phone-sized screen, though staff and customers use phones. [Users and journeys](../product/users-and-journeys.md#what-the-journeys-show) names the journeys to add first | P2 |
 | Untested paths named in feature status: refund on tournament withdrawal before the draw, a league fee paid after leaving, a waiting-list offer keeping a court linked to its own, the two-year prune of the staff activity log, the daily venue shuffle's order | Code exists without a test | P3 |
-| `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1 before public launch |
-| The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1 before public launch: a lawyer confirms it |
+| `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
+| The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |
