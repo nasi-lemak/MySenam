@@ -1241,6 +1241,64 @@ export async function gameTimeChanged(gameId: number): Promise<void> {
   for (const p of people) await tellPlayer(p.user_id, game, "moved", { dedupeKey: `game-moved:${p.id}:${game.date}:${game.startHour}` });
 }
 
+/** How long before its game a player is reminded. */
+export const REMIND_HOURS = 24;
+
+/**
+ * The day before a game: a reminder to each player in it, by email (its host
+ * has the booking's own reminder). Not to somebody who joined within the
+ * last day before it, nor for a game called off. Once per player for each
+ * time the game is at, so a game that moved is reminded of at its new time;
+ * keyed, so a run on two servers sends one.
+ */
+export async function remindPlayers(now = new Date()): Promise<number> {
+  // Wide enough for a venue anywhere on the clock; each game is then held to its own zone.
+  const from = new Date(now.getTime() - 24 * 3_600_000).toISOString().slice(0, 10);
+  const to = new Date(now.getTime() + 48 * 3_600_000).toISOString().slice(0, 10);
+  const db = getDb();
+  const rows = (await db
+    .prepare(
+      `SELECT p.id, p.user_id, p.paid_at, p.created_at, p.decided_at, g.id AS game_id
+         FROM open_game_players p JOIN open_games g ON g.id = p.game_id JOIN bookings b ON b.id = g.booking_id
+        WHERE p.status = 'accepted' AND g.status <> 'cancelled' AND b.status = 'confirmed' AND b.demo = 0
+          AND b.date >= ? AND b.date <= ?
+        ORDER BY g.id, p.id`
+    )
+    .all(from, to)) as { id: number; user_id: number; paid_at: string | null; created_at: string; decided_at: string | null; game_id: number }[];
+  const games = new Map<number, OpenGame | null>();
+  let sent = 0;
+  for (const r of rows) {
+    if (!games.has(r.game_id)) games.set(r.game_id, await gameById(r.game_id));
+    const game = games.get(r.game_id);
+    if (!game) continue;
+    const start = slotStartsAt(game.date, game.startHour, game.timeZone).getTime();
+    if (start <= now.getTime() || start - now.getTime() > REMIND_HOURS * 3_600_000) continue;
+    // In since well before: somebody who joined this afternoon for tonight does not need reminding.
+    const joined = Date.parse(`${(r.decided_at ?? r.created_at).replace(" ", "T")}Z`);
+    if (Number.isFinite(joined) && start - joined < REMIND_HOURS * 3_600_000) continue;
+    const key = `game-reminder:${r.id}:${game.date}:${Math.round(game.startHour * 60)}`;
+    if (await db.prepare("SELECT 1 AS n FROM messages WHERE dedupe_key = ?").get(key)) continue;
+    const share =
+      game.share <= 0
+        ? ""
+        : r.paid_at !== null
+          ? " Your share is paid."
+          : game.payOnline
+            ? ` Your share of ${money(game.share.toFixed(2))} is still to pay: pay it from My games.`
+            : ` Bring your share of ${money(game.share.toFixed(2))} to pay at the venue.`;
+    await emailUser(
+      r.user_id,
+      game.venueId,
+      `Coming up: ${game.venueName}, ${when(game)}`,
+      `A reminder of ${game.hostName}'s game: ${game.courtName} at ${game.venueName}, ${when(game)}.${share} ` +
+        `If you cannot make it, leave the game under My games, so the place goes to somebody else.`,
+      key
+    );
+    sent++;
+  }
+  return sent;
+}
+
 // ------------------------------------------------------------ telling people
 
 const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;

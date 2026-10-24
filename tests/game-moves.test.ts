@@ -335,6 +335,24 @@ describe("a game with players in it", () => {
     expect(log.detail).toContain("Roof leak on court 1");
   });
 
+  it("lets a manager's change take the place of a host's proposal still waiting", async () => {
+    const { host, game, booking, date, players, at } = await gameWith(1);
+    const proposed = await freeLater(booking.code, date, at);
+    expect((await hostMove(host.id, game.id, { date, start: proposed })).ok).toBe(true);
+    const waiting = (await moveRow(game.id))!;
+    const options = (await rescheduleOptions(booking.code, date)).filter((o) => o.courtId === courtId && o.startMin !== proposed && o.startMin >= at + 120);
+    const venueTime = options[options.length - 1].startMin;
+    const manager = await createAdmin({ name: "Mgr", email: `mgr-s${n}@move.my`, password: "manager-password-1", venueId, role: "manager" });
+    if (!manager.ok) throw new Error(manager.error);
+    const done = await staffMove({ id: manager.admin.id, role: "manager" }, booking.code, { date, start: venueTime, courtId }, "Lights out on the court");
+    expect(done).toMatchObject({ ok: true, outcome: "venue" });
+    expect((await getDb().prepare("SELECT status FROM game_moves WHERE id = ?").get(waiting.id)) as { status: string }).toEqual({ status: "withdrawn" });
+    expect(await holds(waiting.id)).toBe(0);
+    expect((await bookingRow(booking.id)).start_min).toBe(venueTime);
+    expect((await gameForViewer(game.id, players[0].id))?.mine).toMatchObject({ toConfirm: true });
+    expect((await gameForViewer(game.id, players[0].id))?.move).toMatchObject({ kind: "venue", reason: "Lights out on the court" });
+  });
+
   it("keeps the time of a game that has begun", async () => {
     const { booking } = await gameWith(1);
     // Started an hour ago, ends in an hour.

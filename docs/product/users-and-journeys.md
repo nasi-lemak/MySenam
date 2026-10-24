@@ -63,9 +63,7 @@ to the first booking; the staff dashboard is in English only
 | Attend: check in at the desk or by QR | Built | [Venue operations](../features/venue-operations.md#check-in-and-live-crowd-levels) |
 | Change the time, cancel, book again, from `/my-booking` | Built; cancelling tested in a browser | [Booking](../features/booking.md#changing-the-date-or-time) |
 
-Gaps: no reminder is sent before a game an open-game player joined
-([roadmap](../roadmap/roadmap.md)); changing a booking's time is not driven in
-a browser.
+Gaps: changing a booking's time is not driven in a browser.
 
 ### A tournament organiser
 
@@ -127,7 +125,7 @@ Gaps: levels are self-declared, not earned from results
 
 - Coaches cannot see or manage the classes they teach, or take attendance:
   classes and coaching are separate.
-- No reminder before an open game, and no messages between players.
+- No messages between players.
 - The staff dashboard is English only.
 
 **Not driven in a browser** (journeys covered by route and unit tests only):

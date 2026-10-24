@@ -398,6 +398,8 @@ export async function staffMove(
     const out = await withTransaction(async () => {
       const db = getDb();
       await db.prepare("SELECT id FROM open_games WHERE id = ? FOR UPDATE").get(game.id);
+      // The venue's change takes the place of a host's proposal still waiting: the players hear the venue's.
+      await endMove(game.id, "withdrawn", "The venue changed the game's time.", { quiet: true });
       const r = await rescheduleBooking(bookingCode, { ...to, game: true }, "staff");
       if (!r.ok) throw new Undo(r);
       const made = (await db

@@ -442,6 +442,8 @@ export async function tickOutbox(): Promise<DrainResult> {
   if (Date.now() - remindersLooked.at >= 60_000) {
     remindersLooked.at = Date.now();
     await notifyReminders();
+    // Players in somebody else's open game: the booking's reminder goes to its host only.
+    await (await import("./games")).remindPlayers();
   }
   return await drainOutbox();
 }

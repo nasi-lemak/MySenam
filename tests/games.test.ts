@@ -27,6 +27,8 @@ import {
   closeGame,
   decide,
   findGames,
+  gameById,
+  remindPlayers,
   leaveGame,
   MAX_NO_SHOWS,
   myGames,
@@ -37,7 +39,7 @@ import {
 import { savePaymentSettings, settleBill, startBookingPayment, startSharePayment } from "../src/lib/payments";
 import { eraseCustomer } from "../src/lib/privacy";
 import { adminCancelBooking, cancelBooking, createBooking, listVenues } from "../src/lib/store";
-import { addDays, todayISO } from "../src/lib/time";
+import { addDays, slotStartsAt, todayISO } from "../src/lib/time";
 
 /** Player matching: open a booking to others, who ask to join and pay their share to the venue. */
 
@@ -356,5 +358,46 @@ describe("the routes", () => {
     const body = await res.json();
     expect(body.signedIn).toBe(true);
     expect(body.games.find((g: { id: number }) => g.id === game.id).mine.status).toBe("requested");
+  });
+});
+
+describe("reminders", () => {
+  it("remind each player the day before, once for each time the game is at; never its host, nor somebody who left", async () => {
+    const { host, game } = await hostGame({ autoAccept: true, share: 4 });
+    const [a, b] = [await player(), await player()];
+    expect((await askToJoin(a, game.id)).ok).toBe(true);
+    expect((await askToJoin(b, game.id)).ok).toBe(true);
+    expect((await leaveGame(b.id, game.id)).ok).toBe(true);
+    const g = (await gameById(game.id))!;
+    const start = slotStartsAt(g.date, g.startHour, g.timeZone).getTime();
+    // Other games in this file may fall in the same window: only this one's people are looked at.
+    const to = (who: User) => sent.filter((m) => m.to === who.email);
+    sent.length = 0;
+    // More than a day before: nothing yet.
+    await remindPlayers(new Date(start - 30 * 3_600_000));
+    expect(to(a)).toHaveLength(0);
+    await remindPlayers(new Date(start - 12 * 3_600_000));
+    expect(to(a)).toHaveLength(1);
+    expect(to(a)[0].subject).toMatch(/^Coming up: /);
+    expect(to(a)[0].text).toMatch(/share of RM\s?4\.00/);
+    expect([...to(host), ...to(b)]).toHaveLength(0);
+    // Once only, however often it runs.
+    await remindPlayers(new Date(start - 11 * 3_600_000));
+    expect(to(a)).toHaveLength(1);
+  });
+
+  it("are not sent to somebody who joined within the day before the game", async () => {
+    const { game } = await hostGame({ autoAccept: true, share: 0 });
+    const late = await player();
+    expect((await askToJoin(late, game.id)).ok).toBe(true);
+    const g = (await gameById(game.id))!;
+    const start = slotStartsAt(g.date, g.startHour, g.timeZone).getTime();
+    // As if they joined two hours before it starts.
+    await getDb()
+      .prepare("UPDATE open_game_players SET created_at = ? WHERE game_id = ? AND user_id = ?")
+      .run(new Date(start - 2 * 3_600_000).toISOString().slice(0, 19).replace("T", " "), game.id, late.id);
+    sent.length = 0;
+    await remindPlayers(new Date(start - 60 * 60_000));
+    expect(sent.filter((m) => m.to === late.email)).toHaveLength(0);
   });
 });

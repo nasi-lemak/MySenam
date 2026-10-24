@@ -60,8 +60,13 @@ and only that (`src/lib/games.ts`).
   move its booking to another court.
 - Everyone is emailed through the message queue when it matters: the host
   when somebody asks, joins or leaves; the player when accepted, declined,
-  removed, invited, offered a freed place, or the game is off. There are no
-  reminders before a game.
+  removed, invited, offered a freed place, or the game is off.
+- **The day before**, each player in a game is emailed a reminder: where and
+  when, whether their share is paid, and to leave the game if they cannot
+  come, so the place goes to somebody else (`remindPlayers`). The host has the
+  booking's own reminder. Nobody who joined within the day before is
+  reminded, nor anybody in a game called off; a game that moves is reminded
+  of again at its new time, once per player.
 - Closing an account takes the player out of games to come (a place freed
   goes to the next in line), calls off games they were hosting, and deletes
   the groups they organised; the
@@ -111,8 +116,9 @@ cannot be moved again, and the host can withdraw it. Each answer is kept
 once, when the venue has to, giving a reason (front desk staff cannot). The
 players are emailed the reason and asked to confirm under *My games* that
 they are still coming, or to leave (any share paid online is owed back);
-until they do, the host sees who has not confirmed. The change and its
-reason are in the staff activity log.
+until they do, the host sees who has not confirmed. A host's proposal still
+waiting is withdrawn by it: the players hear the venue's change instead. The
+change and its reason are in the staff activity log.
 
 ## Where somebody stands in a game
 
@@ -263,7 +269,7 @@ the scheduler works through players in the order they were last looked at,
 
 ## What is not here
 
-There is no messaging between players, no reminder before a game, and no
+There is no messaging between players, and no
 persistent team that enters tournaments: a tournament entry stays a
 tournament entry. Levels are self-declared; none is earned from results.
 These are proposals in the [roadmap](../roadmap/roadmap.md), not commitments.
@@ -304,5 +310,5 @@ Which parts are verified, and how, is in
   its booking, a game with players moves only as a proposal they answer or
   as the venue's change with a reason (decided 24 October 2026). How long a
   proposal holds the new time (a day at most) is fixed, not set by the venue.
-- Earned levels, reminders and messages between players, persistent teams
+- Earned levels, messages between players, persistent teams
   and group news are proposals in the [roadmap](../roadmap/roadmap.md).
