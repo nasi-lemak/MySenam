@@ -14,8 +14,9 @@ import {
   MAX_ATTEMPTS,
 } from "../src/lib/outbox";
 import { emailPlayer, messageById } from "../src/lib/outbox";
-import { registerUser } from "../src/lib/auth";
-import type { OutboxMessage, Transport } from "../src/lib/outbox";
+import { createSession, getSessionUser, registerUser, SESSION_COOKIE } from "../src/lib/auth";
+import { NextRequest } from "next/server";
+import type { OutboxMessage, Transport, Written } from "../src/lib/outbox";
 import {
   notifyBookingCancelled,
   notifyBookingConfirmed,
@@ -263,7 +264,7 @@ describe("a tournament, league or open-game email", () => {
   it("is queued like any other: in the venue's list, retried when the mail fails, sent once when it works", async () => {
     const made = await registerUser({ name: "Queued Player", email: "queued@player.my", phone: "0128880001", password: "a long enough password" });
     if (!made.ok) throw new Error(made.error);
-    await emailPlayer({ venueId, userId: made.user.id, subject: "The draw is made: Cup", body: "You play first at 9.", link: "https://x.my/tournaments/1" });
+    await emailPlayer({ venueId, userId: made.user.id, subject: () => "The draw is made: Cup", body: () => "You play first at 9.", link: "https://x.my/tournaments/1" });
     const queued = (await listMessages(venueId)).find((m) => m.kind === "programme" && m.recipient === "queued@player.my")!;
     expect(queued).toMatchObject({ channel: "email", status: "queued", subject: "The draw is made: Cup" });
     expect(queued.body).toContain("Hi Queued,");
@@ -289,5 +290,49 @@ describe("a tournament, league or open-game email", () => {
     await Promise.all([drainOutbox(100), drainOutbox(100)]);
     expect(delivered.filter((id) => id === queued.id)).toHaveLength(1);
     expect((await messageById(queued.id))?.status).toBe("sent");
+  });
+});
+
+describe("a programme email in the player's language", () => {
+  const drawMade: { subject: Written; body: Written } = { subject: (tr) => tr("mail.tour.draw.s", { t: "Piala" }), body: (tr) => tr("mail.tour.draw.made", { t: "Piala" }) };
+  const latest = async (email: string) =>
+    (await getDb().prepare("SELECT subject, body, locale FROM messages WHERE recipient = ? AND kind = 'programme' ORDER BY id DESC").get(email)) as {
+      subject: string;
+      body: string;
+      locale: string;
+    };
+
+  it("is written in the language the account last used the site in, greeting and all, and in the install's first before it has one", async () => {
+    const made = await registerUser({ name: "Siti Aminah", email: "siti@lang.my", phone: "0128880051", password: "a long enough password" });
+    if (!made.ok) throw new Error(made.error);
+    // No language yet: the install's first.
+    await emailPlayer({ venueId, userId: made.user.id, ...drawMade, link: "https://x.my/t/1" });
+    expect(await latest("siti@lang.my")).toMatchObject({ subject: "The draw is made: Piala", locale: "en" });
+
+    // Signed in and using the site in Malay: the account remembers it, and the next email is in Malay.
+    const { token } = await createSession(made.user.id);
+    const req = new NextRequest("http://localhost/api/my/games", { headers: { cookie: `${SESSION_COOKIE}=${token}; ms_lang=ms` } });
+    expect((await getSessionUser(req))?.id).toBe(made.user.id);
+    await emailPlayer({ venueId, userId: made.user.id, ...drawMade, link: "https://x.my/t/1" });
+    const malay = await latest("siti@lang.my");
+    expect(malay).toMatchObject({ subject: "Cabutan telah dibuat: Piala", locale: "ms" });
+    expect(malay.body).toMatch(/^Hai Siti,\n\nCabutan untuk Piala telah dibuat\./);
+
+    // Switched to Chinese: followed.
+    await getSessionUser(new NextRequest("http://localhost/api/my/games", { headers: { cookie: `${SESSION_COOKIE}=${token}; ms_lang=zh` } }));
+    await emailPlayer({ venueId, userId: made.user.id, ...drawMade, link: "https://x.my/t/1" });
+    expect(await latest("siti@lang.my")).toMatchObject({ subject: "抽签已完成：Piala", locale: "zh" });
+  });
+
+  it("ignores a language the install does not offer, or that is not a language at all", async () => {
+    const made = await registerUser({ name: "Arun Kumar", email: "arun@lang.my", phone: "0128880052", password: "a long enough password" });
+    if (!made.ok) throw new Error(made.error);
+    const { token } = await createSession(made.user.id);
+    await getSessionUser(new NextRequest("http://localhost/api/my/games", { headers: { cookie: `${SESSION_COOKIE}=${token}; ms_lang=xx` } }));
+    expect(((await getDb().prepare("SELECT locale FROM users WHERE id = ?").get(made.user.id)) as { locale: string | null }).locale).toBeNull();
+    // Stored but no longer offered (the install changed its languages): the install's first.
+    await getDb().prepare("UPDATE users SET locale = 'fr' WHERE id = ?").run(made.user.id);
+    await emailPlayer({ venueId, userId: made.user.id, ...drawMade, link: "https://x.my/t/1" });
+    expect(await latest("arun@lang.my")).toMatchObject({ locale: "en", subject: "The draw is made: Piala" });
   });
 });

@@ -9,7 +9,7 @@ import { LEVELS, type Level } from "./games";
 import { isWho, whoRefusal, type Who } from "./who";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
-import { baseUrl, emailPlayer } from "./outbox";
+import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
 import { toWhatsAppNumber } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
@@ -466,7 +466,8 @@ export async function closeLeague(leagueId: number): Promise<Result> {
     await db.prepare("UPDATE leagues SET status = 'closed' WHERE id = ?").run(leagueId);
   })();
   for (const p of await activePlayers(leagueId))
-    if (p.user_id) await tellPlayer(p.user_id, league, `${league.name} has stopped`, `${league.venueName} has stopped running ${league.name}. Thank you for playing.`);
+    if (p.user_id)
+      await tellPlayer(p.user_id, league, (tr) => tr("mail.league.stopped.s", { l: league.name }), (tr) => tr("mail.league.stopped.b", { l: league.name, venue: league.venueName }));
   return { ok: true, value: (await leagueById(leagueId))! };
 }
 
@@ -508,14 +509,15 @@ export async function join(user: { id: number; name: string }, leagueId: number,
   await tellPlayer(
     user.id,
     league,
-    `You're in: ${league.name}`,
-    `You're in ${league.name} at ${league.venueName}.` +
-      (next?.status === "forming"
-        ? ` Season ${next.number} starts on ${next.startsOn}; you'll hear your box and who is in it then.`
-        : next?.status === "running"
-          ? ` A season is being played now, so you'll go into a box when the next one starts, after ${next.endsOn}.`
-          : "") +
-      (league.fee > 0 ? ` The fee is ${money(league.fee.toFixed(2))} a season.` : "")
+    (tr) => tr("mail.league.joined.s", { l: league.name }),
+    (tr) =>
+      sentences(
+        tr,
+        tr("mail.league.joined.b", { l: league.name, venue: league.venueName }),
+        next?.status === "forming" && tr("mail.league.joined.forming", { n: next.number, date: next.startsOn }),
+        next?.status === "running" && tr("mail.league.joined.running", { date: next.endsOn }),
+        league.fee > 0 && tr("mail.league.feeSeason", { fee: money(league.fee.toFixed(2)) })
+      )
   );
   return { ok: true, value: (await playerById(id))! };
 }
@@ -707,11 +709,15 @@ export async function startSeason(leagueId: number, opts: { startsOn?: string; e
       await tellPlayer(
         p.user_id,
         league,
-        `Season ${season.number} has started: you're in box ${i + 1}`,
-        `Season ${season.number} of ${league.name} runs from ${startsOn} to ${endsOn}. You're in box ${i + 1} with ${others}.\n\n` +
-          "Play each of them once before the season ends: arrange it between you — their numbers are on the league's page — and book a court as usual. " +
-          "Whoever wins or loses, either of you reports the score there, and the other confirms it." +
-          (league.fee > 0 ? `\n\nThe fee is ${money(league.fee.toFixed(2))}${league.payOnline ? "; pay it on the league's page or at the venue" : ", paid at the venue"}.` : "")
+        (tr) => tr("mail.league.started.s", { n: season.number, box: i + 1 }),
+        (tr) =>
+          [
+            tr("mail.league.started.b", { n: season.number, l: league.name, from: startsOn, to: endsOn, box: i + 1, others }),
+            tr("mail.league.started.how"),
+            league.fee > 0 && tr(league.payOnline ? "mail.league.feeOnline" : "mail.league.feeVenue", { fee: money(league.fee.toFixed(2)) }),
+          ]
+            .filter(Boolean)
+            .join("\n\n")
       );
     }
   return { ok: true, value: (await leagueDetail(leagueId, { forStaff: true }))! };
@@ -759,14 +765,24 @@ export async function endSeason(leagueId: number, today = todayISO()): Promise<R
   for (const place of after.places) {
     const p = after.people.find((x) => x.id === place.playerId);
     if (!p?.userId || p.status !== "active" || place.finish === null) continue;
-    const move =
-      place.move === "up" ? `you go up to box ${place.boxNo - 1}` : place.move === "down" ? `you go down to box ${place.boxNo + 1}` : `you stay in box ${place.boxNo}`;
+    const finish = place.finish;
+    const move: Written = (tr) =>
+      place.move === "up"
+        ? tr("mail.league.up", { box: place.boxNo - 1 })
+        : place.move === "down"
+          ? tr("mail.league.down", { box: place.boxNo + 1 })
+          : tr("mail.league.stay", { box: place.boxNo });
     await tellPlayer(
       p.userId,
       league,
-      `Season ${season.number} is over: ${league.name}`,
-      `Season ${season.number} of ${league.name} is over. You finished ${ordinal(place.finish)} in box ${place.boxNo}, so ${move}.` +
-        (next ? ` Season ${next.number} starts on ${next.startsOn}.` : "")
+      (tr) => tr("mail.league.over.s", { n: season.number, l: league.name }),
+      (tr) =>
+        sentences(
+          tr,
+          // English says "2nd"; the others write the number into their own phrase.
+          tr("mail.league.over.b", { n: season.number, l: league.name, place: tr.locale === "en" ? ordinal(finish) : finish, box: place.boxNo, move: move(tr) }),
+          next && tr("mail.league.next", { n: next.number, date: next.startsOn })
+        )
     );
   }
   return { ok: true, value: after };
@@ -883,10 +899,13 @@ export async function reportResult(userId: number, matchId: number, input: { win
     await tellPlayer(
       side.theirUser,
       league,
-      `${me} reported your match`,
-      `${me} says ${input.winner === side.me ? "they" : "you"} won your ${league.name} match, ${typed} (their games first). ` +
-        `If that's right, confirm it on the league's page; if not, say so there and the venue will decide. ` +
-        `If you say nothing, it stands in ${CONFIRM_DAYS} days.`
+      (tr) => tr("mail.league.reported.s", { me }),
+      (tr) =>
+        sentences(
+          tr,
+          tr(input.winner === side.me ? "mail.league.reported.they" : "mail.league.reported.you", { me, l: league.name, score: typed }),
+          tr("mail.league.reported.ask", { days: CONFIRM_DAYS })
+        )
     );
   }
   return { ok: true, value: (await matchesOf(m.season_id)).find((x) => x.id === matchId)! };
@@ -956,7 +975,8 @@ export async function decideResult(
 
 // ------------------------------------------------------------ telling people
 
-async function tellPlayer(userId: number, league: League, subject: string, body: string): Promise<void> {
+/** An email to a player, written in their language (subject and body take the lookup). */
+async function tellPlayer(userId: number, league: League, subject: Written, body: Written): Promise<void> {
   await emailPlayer({ venueId: league.venueId, userId, subject, body, link: `${baseUrl()}/leagues/${league.id}` });
 }
 

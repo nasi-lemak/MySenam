@@ -79,7 +79,7 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | ---------- | ------------------ | -------------- |
 | Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs and company accounts work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
-| Messages in English only: game, tournament and league emails, company-account invoices and the terms; the staff dashboard; Tamil and built-in activity names in Malay and Chinese not reviewed by a native speaker ([languages](#languages)) | Booking messages and the customer pages are in the customer's language; the rest are not | Decide which languages the launch promises. At least have a native speaker review the Malay customer pages and messages first |
+| Messages in English only: company-account invoices and the terms; the staff dashboard. Not reviewed by a native speaker: Tamil, built-in activity names in Malay and Chinese, and the game, tournament and league emails in Malay, Chinese and Tamil ([languages](#languages)) | Booking messages, programme emails and the customer pages are in the customer's language; the rest are not | Decide which languages the launch promises. At least have a native speaker review the Malay customer pages and messages first |
 | Defaults marked *for review*: adjacent buffers add up; at most eight places per booking unless the venue sets more; a first lesson needing a sign-off is booked at the counter ([booking time model](#booking-and-availability-b), [activities](#activities)) | As described | Accept as the launch defaults |
 
 ### Accepted
@@ -273,10 +273,12 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 The customer pages, booking messages and refusals are in English, Malay,
 Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
 
-- **Game, tournament and league emails** are written in English whatever
-  the customer's language (`tellPlayer` in `src/lib/games.ts`, `tellEntrant`
-  in `src/lib/tournaments.ts`); so are company-account invoices and the
-  terms (P2).
+- **Company-account invoices and the terms** are in English whatever the
+  customer's language (P2). Game, tournament, league and group emails are in
+  the player's language; in them, round names ("Semi-final 2") and what
+  staff typed stay as written (P3).
+- **Not reviewed by a native speaker:** the Malay, Chinese and Tamil wording
+  of game, tournament, league and group emails (machine-assisted) (P2).
 - **The staff dashboard** is English only ([roadmap](roadmap.md)) (P2).
 - **Not reviewed by a native speaker:** the Tamil dictionary, and the
   built-in activity names in Malay and Chinese (machine-assisted) (P2).
@@ -398,6 +400,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Players moved into or out of a knockout filled again were not messaged | Those newly through and those no longer through are emailed; somebody who left is not ([tournaments](../features/tournaments.md#corrections-after-the-knockout-has-begun)) | `tests/tournaments.test.ts` ("tells who is newly through…", "tells the one who takes their place…") |
 | Ranking by set or point ratios, and a forfeit score, could not be expressed | Rank keys `set_ratio` and `point_ratio`; a walkover's score in the rules, checked against the match as set up, used in the tables of tournaments and box leagues; the volleyball and goals templates carry one ([tournaments](../features/tournaments.md)) | `tests/brackets.test.ts` ("ratios and forfeit scores"), `tests/competitions.test.ts` |
 | A player's tournament report waited for the other side with no time limit | The other side is emailed; unanswered for 24 hours it stands through the same checks, or goes to staff as disputed if it no longer can ([tournaments](../features/tournaments.md#results)) | `tests/match-reports.test.ts` ("a report nobody answers") |
+| Game, tournament and league emails were in English whatever the player's language | Written in the language the account last used the site in (`users.locale`, migration 0112), greeting and all ([messaging](../integrations/messaging.md)) | `tests/outbox.test.ts` ("a programme email in the player's language"), `tests/tournaments.test.ts` ("emails in each entrant's language") |
 
 ## Production readiness
 

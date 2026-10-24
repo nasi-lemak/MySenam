@@ -40,9 +40,6 @@ booking was taken, because that is how an operator thinks about a month.
   either. The demo data is what made that obvious: courts read 13% while the
   building read 2%.
 
-What the reports leave out ([known limitations](../roadmap/known-limitations.md)):
-courts that share a floor are each counted as sellable, so a hall sold as
-one pitch reads as its courts idle (B11).
 - **What you still owe** is the part a spreadsheet usually misses. Unspent pass
   entries are hours already paid for that somebody can still walk in and take,
   and lapsing memberships are next month's renewals. Stored credit is shown to

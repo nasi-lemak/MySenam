@@ -6,7 +6,8 @@ import { isBlocked } from "./limits";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { distanceM } from "./geo";
-import { baseUrl, emailPlayer } from "./outbox";
+import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
+import type { T } from "./i18n";
 import { addDays, formatHour, isPastSlot, slotStartsAt, todayISO } from "./time";
 import type { Near } from "./store";
 import { isWho, whoRefusal, type Who } from "./who";
@@ -1278,20 +1279,23 @@ export async function remindPlayers(now = new Date()): Promise<number> {
     if (Number.isFinite(joined) && start - joined < REMIND_HOURS * 3_600_000) continue;
     const key = `game-reminder:${r.id}:${game.date}:${Math.round(game.startHour * 60)}`;
     if (await db.prepare("SELECT 1 AS n FROM messages WHERE dedupe_key = ?").get(key)) continue;
-    const share =
+    const share: Written = (tr) =>
       game.share <= 0
         ? ""
         : r.paid_at !== null
-          ? " Your share is paid."
-          : game.payOnline
-            ? ` Your share of ${money(game.share.toFixed(2))} is still to pay: pay it from My games.`
-            : ` Bring your share of ${money(game.share.toFixed(2))} to pay at the venue.`;
+          ? tr("mail.game.sharePaid")
+          : tr(game.payOnline ? "mail.game.shareDueOnline" : "mail.game.shareDueVenue", { share: money(game.share.toFixed(2)) });
     await emailUser(
       r.user_id,
       game.venueId,
-      `Coming up: ${game.venueName}, ${when(game)}`,
-      `A reminder of ${game.hostName}'s game: ${game.courtName} at ${game.venueName}, ${when(game)}.${share} ` +
-        `If you cannot make it, leave the game under My games, so the place goes to somebody else.`,
+      (tr) => tr("mail.game.reminder.s", { venue: game.venueName, when: when(game) }),
+      (tr) =>
+        sentences(
+          tr,
+          tr("mail.game.reminder.b", { host: game.hostName, court: game.courtName, venue: game.venueName, when: when(game) }),
+          share(tr),
+          tr("mail.game.reminder.leave")
+        ),
       key
     );
     sent++;
@@ -1303,54 +1307,54 @@ export async function remindPlayers(now = new Date()): Promise<number> {
 
 const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
 
-async function emailUser(userId: number, venueId: number, subject: string, body: string, dedupeKey?: string): Promise<void> {
+async function emailUser(userId: number, venueId: number, subject: Written, body: Written, dedupeKey?: string): Promise<void> {
   await emailPlayer({ venueId, userId, subject, body, link: `${baseUrl()}/games`, dedupeKey });
 }
 
+/** An email to a player about a game, in their language. */
 async function tellPlayer(
   userId: number,
   g: OpenGame,
   what: "accepted" | "declined" | "removed" | "cancelled" | "calledOff" | "offered" | "invited" | "moved",
   opts: { by?: string; dedupeKey?: string } = {}
 ): Promise<void> {
-  const game = `${g.courtName} at ${g.venueName}, ${when(g)}`;
-  const lines = {
+  const at = { venue: g.venueName, when: when(g) };
+  const game = (tr: T) => tr("mail.game.where", { court: g.courtName, venue: g.venueName, when: when(g) });
+  const share = money(g.share.toFixed(2));
+  const by = opts.by ?? g.hostName;
+  const lines: Record<typeof what, [Written, Written]> = {
     accepted: [
-      `You're in: ${g.venueName}, ${when(g)}`,
-      `${g.hostName} has you in their game: ${game}. The court is booked under ${g.bookingCode}.` +
-        (g.share > 0
-          ? g.payOnline
-            ? ` Your share is ${money(g.share.toFixed(2))}; pay it from My games.`
-            : ` Your share is ${money(g.share.toFixed(2))}, paid at the venue.`
-          : ""),
+      (tr) => tr("mail.game.accepted.s", at),
+      (tr) =>
+        sentences(
+          tr,
+          tr("mail.game.accepted.b", { host: g.hostName, game: game(tr), code: g.bookingCode }),
+          g.share > 0 && tr(g.payOnline ? "mail.game.shareOnline" : "mail.game.shareVenue", { share })
+        ),
     ],
-    declined: [`Not this time: ${g.venueName}, ${when(g)}`, `${g.hostName}'s game (${game}) is full or not the right fit this time.`],
-    removed: [`You're out of a game: ${g.venueName}, ${when(g)}`, `${g.hostName} has taken you out of their game (${game}). Any share you paid online will be refunded by the venue.`],
-    cancelled: [`Game called off: ${g.venueName}, ${when(g)}`, `The booking for ${g.hostName}'s game (${game}) was cancelled. Any share you paid online will be refunded by the venue.`],
-    calledOff: [`Game called off: ${g.venueName}, ${when(g)}`, `${g.hostName} has called off their game (${game}). Any share you paid online will be refunded by the venue.`],
-    offered: [
-      `A place is free for you: ${g.venueName}, ${when(g)}`,
-      `A place has come up in ${g.hostName}'s game (${game}), and it is held for you for ${OFFER_MINUTES / 60} hours. Take it or let it go under My games; after that it goes to the next in line.`,
-    ],
-    moved: [
-      `A game has a new time: ${g.venueName}, ${when(g)}`,
-      `${g.hostName}'s game is now ${game}. If that no longer suits you, withdraw under My games.`,
-    ],
+    declined: [(tr) => tr("mail.game.declined.s", at), (tr) => tr("mail.game.declined.b", { host: g.hostName, game: game(tr) })],
+    removed: [(tr) => tr("mail.game.removed.s", at), (tr) => sentences(tr, tr("mail.game.removed.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
+    cancelled: [(tr) => tr("mail.game.calledOff.s", at), (tr) => sentences(tr, tr("mail.game.cancelled.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
+    calledOff: [(tr) => tr("mail.game.calledOff.s", at), (tr) => sentences(tr, tr("mail.game.calledOff.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
+    offered: [(tr) => tr("mail.game.offered.s", at), (tr) => tr("mail.game.offered.b", { host: g.hostName, game: game(tr), hours: OFFER_MINUTES / 60 })],
+    moved: [(tr) => tr("mail.game.moved.s", at), (tr) => tr("mail.game.moved.b", { host: g.hostName, game: game(tr) })],
     invited: [
-      `${opts.by ?? g.hostName} invited you to a game: ${g.venueName}, ${when(g)}`,
-      `${opts.by ?? g.hostName} has invited you to ${g.hostName}'s game: ${game}.` +
-        (g.share > 0 ? ` Each player's share is ${money(g.share.toFixed(2))}.` : "") +
-        ` Say yes or no under My games; the invitation lasts ${INVITE_HOURS} hours. Nothing is booked or paid until you say yes.`,
+      (tr) => tr("mail.game.invited.s", { by, ...at }),
+      (tr) =>
+        sentences(
+          tr,
+          tr("mail.game.invited.b", { by, host: g.hostName, game: game(tr) }),
+          g.share > 0 && tr("mail.game.eachShare", { share }),
+          tr("mail.game.invited.ask", { hours: INVITE_HOURS })
+        ),
     ],
-  }[what];
-  await emailUser(userId, g.venueId, lines[0], lines[1], opts.dedupeKey);
+  };
+  const [subject, body] = lines[what];
+  await emailUser(userId, g.venueId, subject, body, opts.dedupeKey);
 }
 
+/** An email to a game's host, in their language. */
 async function tellHost(g: OpenGame, what: "asked" | "joined" | "left"): Promise<void> {
-  const lines = {
-    asked: [`Somebody wants to join your game, ${when(g)}`, `A player has asked to join your game at ${g.venueName}, ${when(g)}. Say yes or no under My games.`],
-    joined: [`A player joined your game, ${when(g)}`, `A player has joined your game at ${g.venueName}, ${when(g)}.`],
-    left: [`A player left your game, ${when(g)}`, `A player has dropped out of your game at ${g.venueName}, ${when(g)}. It is open for somebody else.`],
-  }[what];
-  await emailUser(g.hostId, g.venueId, lines[0], lines[1]);
+  const at = { venue: g.venueName, when: when(g) };
+  await emailUser(g.hostId, g.venueId, (tr) => tr(`mail.game.${what}.s`, at), (tr) => tr(`mail.game.${what}.b`, at));
 }

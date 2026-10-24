@@ -23,7 +23,7 @@ import { aggregate, formatMark, parseMark, rankPerformances, seedHeats, type Ran
 import { templateByKey, templateFor, type EntryKind } from "./competition-templates";
 import { accessRefusal, accountPhone } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
-import { baseUrl, emailPlayer } from "./outbox";
+import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { activeMembership, memberNumberTrusted, blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
 import { addDays, isValidDateString, todayISO } from "./time";
@@ -977,7 +977,7 @@ export async function cancelTournament(id: number): Promise<Result> {
   })();
   // Whoever is waiting for one of those courts is offered it.
   for (const day of freed) await offerSlotPlace(day.court_id, day.date);
-  for (const userId of await entrants(id)) await tellEntrant(userId, t, `${t.name} is called off`, `${t.name} at ${t.venueName} has been called off. Any entry fee you paid online will be refunded by the venue.`);
+  for (const userId of await entrants(id)) await tellEntrant(userId, t, (tr) => tr("mail.tour.calledOff.s", { t: t.name }), (tr) => tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }));
   // A division: the competition's time it would have used goes back once nothing else needs it.
   if (t.competition) await releaseCompetitionTime(t.competition.id);
   return { ok: true, value: (await tournamentById(id))! };
@@ -1167,12 +1167,16 @@ export async function enter(
   await tellEntrant(
     user.id,
     t,
-    status === "entered" ? `You're entered: ${t.name}` : `You're on the waiting list: ${t.name}`,
-    status === "entered"
-      ? `You're entered in ${t.name} at ${t.venueName}, ${t.startsOn}.` +
-          (t.entryFee > 0 ? ` The entry fee is ${money(t.entryFee.toFixed(2))}${t.payOnline ? "; pay it from the tournament's page" : ", paid at the venue"}.` : "") +
-          " You'll hear your first match once the draw is made."
-      : `${t.name} is full, so you're on its waiting list. If somebody withdraws, you're in, and we'll tell you.`
+    (tr) => tr(status === "entered" ? "mail.tour.entered.s" : "mail.tour.waiting.s", { t: t.name }),
+    (tr) =>
+      status === "entered"
+        ? sentences(
+            tr,
+            tr("mail.tour.entered.b", { t: t.name, venue: t.venueName, date: t.startsOn }),
+            t.entryFee > 0 && tr(t.payOnline ? "mail.tour.feeOnline" : "mail.tour.feeVenue", { fee: money(t.entryFee.toFixed(2)) }),
+            tr("mail.tour.entered.next")
+          )
+        : tr("mail.tour.waiting.b", { t: t.name })
   );
   return { ok: true, value: (await entryById(info.lastInsertRowid as number))! };
 }
@@ -1326,7 +1330,7 @@ async function takeOutOnce(entryId: number, reason: OutReason, note?: string): P
       .get(t.id)) as { id: number; user_id: number | null } | undefined;
     if (next) {
       await db.prepare("UPDATE tournament_entries SET status = 'entered' WHERE id = ?").run(next.id);
-      if (next.user_id) await tellEntrant(next.user_id, t, `You're in: ${t.name}`, `A place came free in ${t.name} at ${t.venueName}, and it's yours.`);
+      if (next.user_id) await tellEntrant(next.user_id, t, (tr) => tr("mail.tour.promoted.s", { t: t.name }), (tr) => tr("mail.tour.promoted.b", { t: t.name, venue: t.venueName }));
     }
   }
   return { ok: true, value: (await entryById(entryId))! };
@@ -2477,7 +2481,12 @@ export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: num
   for (const entryId of [m.a, m.b]) {
     const userId = entryId === null ? null : ((await getDb().prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(entryId)) as { user_id: number | null } | undefined)?.user_id;
     if (userId)
-      await tellEntrant(userId, d, `Your match has moved: ${d.name}`, `${matchName(d, m)} in ${d.name} is now on ${m.date} at ${formatMinute(m.minute!)}, ${m.courtName}.`);
+      await tellEntrant(
+        userId,
+        d,
+        (tr) => tr("mail.tour.moved.s", { t: d.name }),
+        (tr) => tr("mail.tour.moved.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!), court: m.courtName ?? "" })
+      );
   }
   return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, change: result.value.change } };
 }
@@ -2579,7 +2588,13 @@ export async function resolveIssue(
     for (const m of d.matches.filter((x) => x.status === "scheduled" && x.date !== null && result.value.changes.some((c) => c.startsWith(matchName(d, x))))) {
       for (const entryId of [m.a, m.b]) {
         const userId = entryId === null ? null : ((await getDb().prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(entryId)) as { user_id: number | null } | undefined)?.user_id;
-        if (userId) await tellEntrant(userId, d, `A match is replayed: ${d.name}`, `${matchName(d, m)} in ${d.name} is to be replayed on ${m.date} at ${formatMinute(m.minute!)}, ${m.courtName}. The organiser corrected an earlier result.`);
+        if (userId)
+          await tellEntrant(
+            userId,
+            d,
+            (tr) => tr("mail.tour.replay.s", { t: d.name }),
+            (tr) => tr("mail.tour.replay.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!), court: m.courtName ?? "" })
+          );
       }
     }
   }
@@ -2705,10 +2720,10 @@ async function fillKnockout(tournamentId: number): Promise<void> {
     const userOf = new Map(accounts.filter((a) => stillIn.has(a.id)).map((a) => [a.id, a.user_id]));
     for (const id of after)
       if (!before.has(id) && userOf.get(id))
-        await tellEntrant(userOf.get(id)!, t, `You're through: ${t.name}`, `The knockout of ${t.name} has changed after a group result was put right or somebody left, and you now go through to it. Your first match is on the draw.`);
+        await tellEntrant(userOf.get(id)!, t, (tr) => tr("mail.tour.through.s", { t: t.name }), (tr) => tr("mail.tour.through.b", { t: t.name }));
     for (const id of before)
       if (!after.has(id) && userOf.get(id))
-        await tellEntrant(userOf.get(id)!, t, `The knockout has changed: ${t.name}`, `The knockout of ${t.name} has changed after a group result was put right or somebody left, and you no longer go through to it. The tables are on the draw.`);
+        await tellEntrant(userOf.get(id)!, t, (tr) => tr("mail.tour.notThrough.s", { t: t.name }), (tr) => tr("mail.tour.notThrough.b", { t: t.name }));
   }
   for (let i = 0; i < firstRoundMatches.length; i++) {
     const [a, b] = pairs[i];
@@ -2885,7 +2900,8 @@ async function entrants(tournamentId: number): Promise<number[]> {
   ).map((r) => r.user_id);
 }
 
-export async function tellEntrant(userId: number, t: Tournament, subject: string, body: string): Promise<void> {
+/** An email to an entrant, written in their language (subject and body take the lookup). */
+export async function tellEntrant(userId: number, t: Tournament, subject: Written, body: Written): Promise<void> {
   await emailPlayer({ venueId: t.venueId, userId, subject, body, link: `${baseUrl()}/tournaments/${t.id}` });
 }
 
@@ -2902,13 +2918,20 @@ async function tellFirstMatches(d: TournamentDetail): Promise<void> {
     const lane = heat ? d.performance!.lines[heat.id].find((l) => l.entryId === r.id)!.lane : null;
     const first = d.matches.find((m) => m.status === "scheduled" && (m.a === r.id || m.b === r.id));
     const bye = d.matches.some((m) => m.status === "bye" && m.winner === r.id);
-    const text = heat
-      ? `You're in heat ${heat.position} of ${d.name}, lane ${lane}: ${heat.date} ${formatMinute(heat.minute!)}, ${heat.courtName}.`
-      : first
-      ? `Your first match in ${d.name}: ${first.date} ${formatMinute(first.minute!)}, ${first.courtName}, against ${names.get(first.a === r.id ? first.b! : first.a!) ?? "to be decided"}.`
-      : bye
-        ? `You have a bye in the first round of ${d.name}. Your next match is on the draw.`
-        : `The draw for ${d.name} is made.`;
-    await tellEntrant(r.user_id, d, `The draw is made: ${d.name}`, text);
+    const text: Written = (tr) =>
+      heat
+        ? tr("mail.tour.draw.heat", { heat: heat.position, t: d.name, lane: lane ?? "", date: heat.date!, time: formatMinute(heat.minute!), court: heat.courtName ?? "" })
+        : first
+          ? tr("mail.tour.draw.first", {
+              t: d.name,
+              date: first.date!,
+              time: formatMinute(first.minute!),
+              court: first.courtName ?? "",
+              opponent: names.get(first.a === r.id ? first.b! : first.a!) ?? tr("mail.tour.draw.tbd"),
+            })
+          : bye
+            ? tr("mail.tour.draw.bye", { t: d.name })
+            : tr("mail.tour.draw.made", { t: d.name });
+    await tellEntrant(r.user_id, d, (tr) => tr("mail.tour.draw.s", { t: d.name }), text);
   }
 }

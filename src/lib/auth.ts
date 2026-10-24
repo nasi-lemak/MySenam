@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { getDb } from "./db";
+import { isLocale, LOCALE_COOKIE } from "./i18n";
 
 export const SESSION_COOKIE = "ms_session";
 const SESSION_DAYS = 30;
@@ -93,20 +94,33 @@ export async function destroySession(token: string) {
 }
 
 export async function getUserByToken(token: string): Promise<User | null> {
-  const db = getDb();
-  const row = await db
+  const found = await userAndLocale(token);
+  return found && { id: found.id, name: found.name, email: found.email, phone: found.phone };
+}
+
+async function userAndLocale(token: string): Promise<(User & { locale: string | null }) | null> {
+  const row = await getDb()
     .prepare(`
-      SELECT u.id, u.name, u.email, u.phone FROM sessions s
+      SELECT u.id, u.name, u.email, u.phone, u.locale FROM sessions s
       JOIN users u ON u.id = s.user_id
       WHERE s.token = ? AND s.expires_at >= datetime('now')
     `)
-    .get(sessionKey(token)) as User | undefined;
+    .get(sessionKey(token)) as (User & { locale: string | null }) | undefined;
   return row ?? null;
 }
 
-/** Resolve the logged-in user from the session cookie, or null. */
+/**
+ * Resolve the logged-in user from the session cookie, or null. The language
+ * they are using the site in is kept on the account when it changes, so
+ * emails sent later (lib/outbox.ts, emailPlayer) are written in it.
+ */
 export async function getSessionUser(req: NextRequest): Promise<User | null> {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return await getUserByToken(token);
+  const found = await userAndLocale(token);
+  if (!found) return null;
+  const { locale, ...user } = found;
+  const using = req.cookies.get(LOCALE_COOKIE)?.value;
+  if (isLocale(using) && using !== locale) await getDb().prepare("UPDATE users SET locale = ? WHERE id = ?").run(using, user.id);
+  return user;
 }

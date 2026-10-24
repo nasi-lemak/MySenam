@@ -331,6 +331,24 @@ function swapSecondAndThird(d: Awaited<ReturnType<typeof tournamentDetail>>) {
   return { m, second, third, swap: { winner: third, score: m.a === third ? "21-15, 21-15" : "15-21, 15-21" } };
 }
 
+describe("emails in each entrant's language", () => {
+  it("enters and draws in the language the account last used, each entrant their own", async () => {
+    const t = await tournament();
+    const [zh, ms] = [await player(), await player()];
+    await getDb().prepare("UPDATE users SET locale = 'zh' WHERE id = ?").run(zh.id);
+    await getDb().prepare("UPDATE users SET locale = 'ms' WHERE id = ?").run(ms.id);
+    sent.length = 0;
+    expect((await enter(zh, t.id)).ok).toBe(true);
+    expect((await enter(ms, t.id)).ok).toBe(true);
+    expect(sent.find((e) => e.to === zh.email)).toMatchObject({ subject: `报名成功：${t.name}`, text: expect.stringContaining("报名费为") });
+    expect(sent.find((e) => e.to === ms.email)).toMatchObject({ subject: `Anda telah mendaftar: ${t.name}`, text: expect.stringMatching(/^Hai Player/) });
+    sent.length = 0;
+    expect((await makeDraw(t.id, fixed)).ok).toBe(true);
+    expect(sent.find((e) => e.to === zh.email)!.subject).toBe(`抽签已完成：${t.name}`);
+    expect(sent.find((e) => e.to === ms.email)!.subject).toBe(`Cabutan telah dibuat: ${t.name}`);
+  });
+});
+
 describe("a group result put right after the knockout is filled (B9)", () => {
   it("fills the knockout again, while none of it has been played", async () => {
     const { t } = await groupsCup();

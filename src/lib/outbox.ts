@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { formatHour } from "./time";
-import { Locale, isLocale, translator } from "./i18n";
-import type { Phrase, Vars } from "./i18n";
+import { Locale, isLocale, offeredLocales, translator } from "./i18n";
+import type { Phrase, T, Vars } from "./i18n";
 import { emailConfig, emailTransport, whatsappConfig, whatsappTransport } from "./transports";
 import { chatOfferedFor, paidByVenue, refundCredit, spendCredit } from "./whatsapp-credit";
 
@@ -683,20 +683,41 @@ export async function emailPlain(input: {
   });
 }
 
-export async function emailPlayer(input: { venueId: number | null; userId: number; subject: string; body: string; link: string; dedupeKey?: string }): Promise<void> {
+/** Text for one reader: written in their language by the lookup it is given. */
+export type Written = (t: T) => string;
+
+/** Sentences joined as the language writes them: a space between, none in Chinese. */
+export function sentences(t: T, ...parts: (string | false | null | undefined)[]): string {
+  return parts.filter((p): p is string => Boolean(p)).join(t.locale === "zh" ? "" : " ");
+}
+
+/** The language an account last used the site in, if this install offers it; else the install's first. */
+export async function accountLocale(userId: number): Promise<Locale> {
+  const row = (await getDb().prepare("SELECT locale FROM users WHERE id = ?").get(userId)) as { locale: string | null } | undefined;
+  const offered = offeredLocales();
+  return isLocale(row?.locale) && offered.includes(row.locale) ? row.locale : offered[0];
+}
+
+/**
+ * An email to a player about a game, tournament, league or group, written in
+ * the language their account last used (users.locale), the greeting too.
+ */
+export async function emailPlayer(input: { venueId: number | null; userId: number; subject: Written; body: Written; link: string; dedupeKey?: string }): Promise<void> {
   const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(input.userId)) as { name: string; email: string } | undefined;
   if (!user) return;
   const { siteName } = await import("./site");
-  const text = `Hi ${user.name.split(/\s+/)[0]},\n\n${input.body}\n\n${input.link}\n\n${siteName()}`;
+  const locale = await accountLocale(input.userId);
+  const t = translator(locale, siteName());
+  const text = `${t("mail.hi", { name: user.name.split(/\s+/)[0] })}\n\n${input.body(t)}\n\n${input.link}\n\n${siteName()}`;
   await enqueue({
     venueId: input.venueId,
     kind: "programme",
     channel: "email",
     recipient: user.email,
-    locale: "en",
+    locale,
     subject: "msg.programmeSubject",
     body: "msg.programmeBody",
-    vars: { subject: input.subject, text },
+    vars: { subject: input.subject(t), text },
     // The same notice twice (a job run on two servers) is queued once.
     dedupeKey: input.dedupeKey,
   });

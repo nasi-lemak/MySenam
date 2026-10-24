@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { getDb } from "./db";
 import { flipScore, scoreRefusal } from "./brackets";
+import { sentences } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
 import { recordResult, tellEntrant, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
 import { venueHours } from "./store";
@@ -149,8 +150,13 @@ export async function reportResult(userId: number, matchId: number, input: { win
     await tellEntrant(
       theirs.user_id,
       t,
-      `Confirm your result: ${t.name}`,
-      `The other side has reported your match in ${t.name}${input.walkover ? " as a walkover" : score ? ` as ${score}` : ""}. Confirm it, or say it is wrong, from the tournament's page. If you say nothing, it stands in ${REPORT_STANDS_HOURS} hours.`
+      (tr) => tr("mail.report.s", { t: t.name }),
+      (tr) =>
+        sentences(
+          tr,
+          input.walkover || !score ? tr("mail.report.walkover", { t: t.name }) : tr("mail.report.score", { t: t.name, score }),
+          tr("mail.report.ask", { hours: REPORT_STANDS_HOURS })
+        )
     );
   return { ok: true, value: toReport(row) };
 }

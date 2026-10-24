@@ -205,8 +205,8 @@ export async function joinGroup(userId: number, groupId: number): Promise<GroupR
       await emailPlayer({
         venueId: null,
         userId: group.organiserId,
-        subject: `Somebody wants to join ${group.name}`,
-        body: `A player has asked to join your group ${group.name}. Say yes or no under Groups.`,
+        subject: (tr) => tr("mail.group.request.s", { g: group.name }),
+        body: (tr) => tr("mail.group.request.b", { g: group.name }),
         link: `${baseUrl()}/games/groups/${groupId}`,
       });
     return null;
@@ -244,8 +244,8 @@ export async function decideMember(organiserId: number, memberId: number, action
       await emailPlayer({
         venueId: null,
         userId: row.user_id,
-        subject: `You're in ${row.name}`,
-        body: `The organiser of ${row.name} has said yes: you are a member now.`,
+        subject: (tr) => tr("mail.group.accepted.s", { g: row.name }),
+        body: (tr) => tr("mail.group.accepted.b", { g: row.name }),
         link: `${baseUrl()}/games/groups/${row.group_id}`,
       });
     } else if (action === "decline") {
@@ -282,8 +282,8 @@ export async function inviteToGroup(organiserId: number, groupId: number, email:
       await emailPlayer({
         venueId: null,
         userId: user.id,
-        subject: `${firstName(organiser.name)} invited you to ${group.name}`,
-        body: `${firstName(organiser.name)} has invited you to join ${group.name}, a group who play together. Say yes or no under Groups. Members can invite each other to games; nothing is booked or paid by joining.`,
+        subject: (tr) => tr("mail.group.invite.s", { by: firstName(organiser.name), g: group.name }),
+        body: (tr) => tr("mail.group.invite.b", { by: firstName(organiser.name), g: group.name }),
         link: `${baseUrl()}/games/groups/${groupId}`,
         dedupeKey: `group-invite:${groupId}:${user.id}:${new Date().toISOString().slice(0, 10)}`,
       });

@@ -53,7 +53,12 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 
 Programme emails are queued in the outbox, inside the change's own
 transaction where it has one (a withdrawal, a result, a season starting), so
-one whose email fails is retried like any other.
+one whose email fails is retried like any other. Each is written in the
+language the player's account last used the site in (`users.locale`, kept
+when a signed-in request carries a different language; migration 0112), or
+the install's first language before it has one or if it no longer offers
+it. What staff typed (a venue's reason for moving a game) and the names of
+rounds ("Semi-final 2") stay as written.
 
 ### Emails that belong to no venue's customers
 

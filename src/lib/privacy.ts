@@ -315,6 +315,8 @@ export interface CustomerExport {
     phoneCheckedAt: string | null;
     /** Which games they said they play in: woman, man, or prefer not to say. */
     playsIn: string | null;
+    /** The language their emails are written in: the one they last used the site in. */
+    language: string | null;
   };
   /** Ways of signing in besides a password: which provider, and the email it gave. */
   signIns: unknown[];
@@ -364,9 +366,9 @@ export interface CustomerExport {
 export async function exportCustomerData(userId: number): Promise<CustomerExport | null> {
   const db = getDb();
   const account = await db
-    .prepare("SELECT id, name, email, phone, created_at, phone_verified_at, gender FROM users WHERE id = ?")
+    .prepare("SELECT id, name, email, phone, created_at, phone_verified_at, gender, locale FROM users WHERE id = ?")
     .get(userId) as
-    | { id: number; name: string; email: string; phone: string; created_at: string | null; phone_verified_at: string | null; gender: string | null }
+    | { id: number; name: string; email: string; phone: string; created_at: string | null; phone_verified_at: string | null; gender: string | null; locale: string | null }
     | undefined;
   if (!account) return null;
 
@@ -382,6 +384,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       createdAt: account.created_at ?? null,
       phoneCheckedAt: account.phone_verified_at ?? null,
       playsIn: account.gender ?? null,
+      language: account.locale ?? null,
     },
     signIns: await all("SELECT provider, email, created_at FROM user_identities WHERE user_id = ?", userId),
     bookings: await all(

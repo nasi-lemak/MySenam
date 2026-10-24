@@ -1,7 +1,7 @@
 import { getDb, withTransaction } from "./db";
 import { release } from "./claims";
 import { formatMinute, instantOf } from "./interval";
-import { baseUrl, emailPlayer } from "./outbox";
+import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { money } from "./region";
 import { changeDeadline, rescheduleBooking, type RescheduleResult } from "./store";
 import { gameById, gamePlayers, gameTimeChanged, moveOf, pendingMove, resumeGame, type GameMove, type OpenGame } from "./games";
@@ -228,12 +228,23 @@ export async function hostMove(hostId: number, gameId: number, to: To): Promise<
         await tell(
           p.user_id,
           game,
-          `${game.hostName} wants to move your game: ${game.venueName}`,
-          `${game.hostName} would like to move your game from ${when(preview.preview.from)} (${preview.preview.from.courtName}) to ` +
-            `${when(r.to)} (${r.to.courtName}), at ${game.venueName}. Nothing changes unless every player agrees or leaves. ` +
-            `Keep your place at the new time, or leave the game${game.share > 0 ? " (any share you paid online is refunded by the venue)" : ""}, under My games ` +
-            `by ${new Intl.DateTimeFormat("en-GB", { timeZone: game.timeZone, day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(until)}. ` +
-            `If not everybody has answered by then, the game stays where it is.`,
+          (tr) => tr("mail.move.ask.s", { host: game.hostName, venue: game.venueName }),
+          (tr) =>
+            sentences(
+              tr,
+              tr("mail.move.ask.b", {
+                host: game.hostName,
+                from: when(preview.preview.from),
+                fromCourt: preview.preview.from.courtName,
+                to: when(r.to),
+                toCourt: r.to.courtName,
+                venue: game.venueName,
+              }),
+              tr(game.share > 0 ? "mail.move.ask.keepRefund" : "mail.move.ask.keep", {
+                until: new Intl.DateTimeFormat(DATE_LOCALE[tr.locale], { timeZone: game.timeZone, day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(until),
+              }),
+              tr("mail.move.ask.else")
+            ),
           `game-move:${made.id}:${p.id}`
         );
       return made.id;
@@ -315,7 +326,13 @@ export async function settleMove(gameId: number): Promise<void> {
     )
     .all(moveId)) as { user_id: number }[];
   for (const p of kept)
-    await tell(p.user_id, moved, `Your game has moved: ${moved.venueName}, ${when(outcome.to)}`, `Every player has answered, and ${moved.hostName}'s game is now ${when(outcome.to)} on ${outcome.to.courtName} at ${moved.venueName}.`, `game-moved:${moveId}:${p.user_id}`);
+    await tell(
+      p.user_id,
+      moved,
+      (tr) => tr("mail.move.done.s", { venue: moved.venueName, when: when(outcome.to) }),
+      (tr) => tr("mail.move.done.b", { host: moved.hostName, when: when(outcome.to), court: outcome.to.courtName, venue: moved.venueName }),
+      `game-moved:${moveId}:${p.user_id}`
+    );
   await gameTimeChanged(gameId);
   await resumeGame(gameId);
 }
@@ -342,13 +359,15 @@ export async function endMove(gameId: number, status: "withdrawn" | "expired" | 
     .prepare("SELECT p.user_id FROM game_move_answers a JOIN open_game_players p ON p.id = a.player_id WHERE a.move_id = ? AND a.answer = 'yes'")
     .all(ended.id)) as { user_id: number }[];
   const told = new Set([...asked, ...answered].map((p) => p.user_id));
-  const subject = `Your game stays as it was: ${game.venueName}, ${when({ date: game.date, startMin: game.startHour * 60, endMin: game.endHour * 60 })}`;
-  const body =
+  const subject: Written = (tr) =>
+    tr("mail.move.stays.s", { venue: game.venueName, when: when({ date: game.date, startMin: game.startHour * 60, endMin: game.endHour * 60 }) });
+  const where = { host: game.hostName, court: game.courtName, venue: game.venueName, date: game.date };
+  const body: Written = (tr) =>
     status === "withdrawn"
-      ? `${game.hostName} has withdrawn the new time they proposed. The game stays on ${game.courtName} at ${game.venueName}, ${game.date}.`
+      ? tr("mail.move.stays.withdrawn", where)
       : status === "expired"
-        ? `Not every player answered in time, so the game stays on ${game.courtName} at ${game.venueName}, ${game.date}.`
-        : `The new time could not be kept (${why}), so the game stays on ${game.courtName} at ${game.venueName}, ${game.date}.`;
+        ? tr("mail.move.stays.expired", where)
+        : tr("mail.move.stays.failed", { ...where, why });
   for (const u of told) await tell(u, game, subject, body, `game-move-end:${ended.id}:${u}`);
   if (status !== "withdrawn") await tell(game.hostId, game, subject, body, `game-move-end:${ended.id}:host`);
   await resumeGame(gameId);
@@ -419,10 +438,13 @@ export async function staffMove(
         await tell(
           p.user_id,
           moved,
-          `The venue has moved your game: ${moved.venueName}, ${when(r.to)}`,
-          `${moved.venueName} has moved ${moved.hostName}'s game from ${when(r.from)} to ${when(r.to)} on ${r.to.courtName}. ` +
-            `The venue says: "${why}". Confirm under My games that you are still coming, or leave the game` +
-            `${moved.share > 0 ? ` (a share of ${money(moved.share.toFixed(2))} paid online is refunded by the venue)` : ""}.`,
+          (tr) => tr("mail.move.venue.s", { venue: moved.venueName, when: when(r.to) }),
+          (tr) =>
+            sentences(
+              tr,
+              tr("mail.move.venue.b", { venue: moved.venueName, host: moved.hostName, from: when(r.from), to: when(r.to), court: r.to.courtName, why }),
+              moved.share > 0 ? tr("mail.move.venue.askRefund", { share: money(moved.share.toFixed(2)) }) : tr("mail.move.venue.ask")
+            ),
           `game-venue-move:${made.id}:${p.id}`
         );
       return { r, moveId: made.id };
@@ -439,6 +461,10 @@ export async function staffMove(
 
 const when = (d: { date: string; startMin: number; endMin: number }) => `${d.date} ${formatMinute(d.startMin)}–${formatMinute(d.endMin)}`;
 
-async function tell(userId: number, game: OpenGame, subject: string, body: string, dedupeKey: string): Promise<void> {
+/** How each language writes the date a proposal must be answered by. */
+const DATE_LOCALE: Record<string, string> = { en: "en-GB", ms: "ms-MY", zh: "zh-CN", ta: "ta-IN" };
+
+/** An email to a player about their game's time, in their language. */
+async function tell(userId: number, game: OpenGame, subject: Written, body: Written, dedupeKey: string): Promise<void> {
   await emailPlayer({ venueId: game.venueId, userId, subject, body, link: `${baseUrl()}/games`, dedupeKey });
 }

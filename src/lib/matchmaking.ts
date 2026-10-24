@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import type { Written } from "./outbox";
 import { distanceM } from "./geo";
 import { hoursOf } from "./interval";
 import { listRule } from "./listing";
@@ -380,12 +381,15 @@ export async function sendMatchNotices(): Promise<{ checked: number; emailed: nu
     for (const g of fresh) await db.prepare("INSERT INTO match_notices (user_id, game_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(p.user_id, g.id);
     const { baseUrl, emailPlayer } = await import("./outbox");
     const { formatHour } = await import("./time");
-    const lines = fresh.map((g) => `- ${g.date} ${formatHour(g.startHour)}, ${g.venueName} (${g.courtName})${g.share > 0 ? `, share ${g.share.toFixed(2)}` : ""}`);
+    const lines = (tr: Parameters<Written>[0]) =>
+      fresh
+        .map((g) => `- ${g.date} ${formatHour(g.startHour)}, ${g.venueName} (${g.courtName})${g.share > 0 ? `, ${tr("mail.match.share", { share: g.share.toFixed(2) })}` : ""}`)
+        .join("\n");
     await emailPlayer({
       venueId: fresh[0].venueId,
       userId: p.user_id,
-      subject: fresh.length === 1 ? "A game that suits you" : `${fresh.length} games that suit you`,
-      body: `Open games picked from your playing preferences:\n\n${lines.join("\n")}\n\nAsk to join from the games page. To stop these emails, or have them less often, change your playing preferences.`,
+      subject: (tr) => tr.plural("mail.match.s", fresh.length),
+      body: (tr) => tr("mail.match.b", { lines: lines(tr) }),
       link: `${baseUrl()}/games`,
       dedupeKey: `match-notice:${p.user_id}:${fresh.map((g) => g.id).join(",")}`,
     });
