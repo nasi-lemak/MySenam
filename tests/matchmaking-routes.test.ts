@@ -79,6 +79,13 @@ describe("one game", () => {
     const get = (cookie: string | null, query = "") => route.GET(json(`http://localhost/api/games/${game.id}${query}`, "GET", cookie), params(game.id));
     expect((await get(stranger.cookie)).status).toBe(404);
     expect((await get(null)).status).toBe(404);
+    // Indistinguishable from a game that does not exist, to look at or to ask to join.
+    const none = 999999;
+    const ghost = await route.GET(json(`http://localhost/api/games/${none}`, "GET", stranger.cookie), params(none));
+    expect(await (await get(stranger.cookie)).json()).toEqual(await ghost.json());
+    const ask = (id: number) => route.POST(json(`http://localhost/api/games/${id}`, "POST", stranger.cookie, { action: "join" }), params(id));
+    const [asked, askedGhost] = [await ask(game.id), await ask(none)];
+    expect([asked.status, await asked.json()]).toEqual([askedGhost.status, await askedGhost.json()]);
     const hosted = await (await get(host.cookie)).json();
     expect(hosted.game).toMatchObject({ id: game.id, yours: true, players: [] });
 

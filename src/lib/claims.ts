@@ -125,6 +125,8 @@ export async function claim(input: {
   expiresAt?: Date | null;
   /** An open-ended claim (an outage with no last day). */
   openEnded?: boolean;
+  /** Only these of the court's spaces (a proposed move beside a booking that already holds the rest). */
+  onlySpaces?: number[];
 }): Promise<void> {
   const db = getDb();
   const before = input.bufferBefore ?? 0;
@@ -137,7 +139,7 @@ export async function claim(input: {
     : rangeLiteral(input.date, input.span.start - before, input.span.end + after, input.zone);
   const column = SOURCE_COLUMN[input.source.kind];
   const expires = input.expiresAt ? input.expiresAt.toISOString() : null;
-  const spaces = input.court.capacity === 1 ? await spacesOf(input.court.id) : [];
+  const spaces = input.court.capacity === 1 ? (await spacesOf(input.court.id)).filter((s) => !input.onlySpaces || input.onlySpaces.includes(s)) : [];
   if (input.court.capacity === 1) await lockAll("space", spaces);
   else await lockAll("court", [input.court.id]);
   if (input.court.capacity === 1) {

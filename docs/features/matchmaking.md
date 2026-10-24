@@ -98,7 +98,9 @@ looking.
 **A host's proposal.** With players in the game, the host proposes the new
 time. It is held on the court for the game (a claim of its own, as a
 waiting-list offer is held), while the booking keeps its own time; where the
-two overlap on the same court, the booking's own time covers that part. Each
+two overlap on floor the booking already holds (the same court, a pitch over
+it or a court under it), the booking's own time covers that part there, and
+the rest of the new court's floor is held for all of it. Each
 player is emailed and answers under *My games*: *Keep my place*, or *Leave
 the game*, which owes back any share they paid online, as leaving always
 does. When the last player has answered, the booking moves onto the time

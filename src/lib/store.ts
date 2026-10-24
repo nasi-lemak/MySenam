@@ -66,6 +66,7 @@ import {
   peakPlaces,
   release,
   releaseBooking,
+  spacesOf,
   unclaim,
   type Occupant,
 } from "./claims";
@@ -2937,12 +2938,27 @@ async function rescheduleBookingOnce(
         }
         if (to.hold) {
           // The booking keeps its own time; the new time is held beside it. Where
-          // the two overlap on the same court, the booking already holds that part.
+          // the two overlap on floor the booking already holds (the same court, or
+          // a court sharing its floor: a pitch over it, a court under it), only the
+          // part outside the booking's time is held there; the rest of the new
+          // court's floor is held for all of it.
           const ownSpan = { start: booking.startMin - fromPolicy.bufferBefore, end: booking.endMin + fromPolicy.bufferAfter };
           const newSpan = { start: span.start - day.policy.bufferBefore, end: span.end + day.policy.bufferAfter };
-          const parts = court.id === fromCourt.id && to.date === booking.date ? outside(newSpan, ownSpan) : [newSpan];
-          for (const part of parts)
-            await claim({ court, source: { kind: "move", moveId: to.hold.moveId }, date: to.date, span: part, zone, places: players, expiresAt: to.hold.expiresAt });
+          const source = { kind: "move" as const, moveId: to.hold.moveId };
+          const sameDay = to.date === booking.date;
+          if (court.capacity === 1 && fromCourt.capacity === 1 && sameDay) {
+            const own = new Set(await spacesOf(fromCourt.id));
+            const mine = await spacesOf(court.id);
+            const shared = mine.filter((s) => own.has(s));
+            const rest = mine.filter((s) => !own.has(s));
+            if (rest.length > 0) await claim({ court, source, date: to.date, span: newSpan, zone, expiresAt: to.hold.expiresAt, onlySpaces: rest });
+            if (shared.length > 0)
+              for (const part of outside(newSpan, ownSpan))
+                await claim({ court, source, date: to.date, span: part, zone, expiresAt: to.hold.expiresAt, onlySpaces: shared });
+          } else {
+            const parts = court.id === fromCourt.id && sameDay ? outside(newSpan, ownSpan) : [newSpan];
+            for (const part of parts) await claim({ court, source, date: to.date, span: part, zone, places: players, expiresAt: to.hold.expiresAt });
+          }
         } else {
           if (to.fromHold !== undefined) await unclaim({ kind: "move", moveId: to.fromHold });
           // The claims are what decide: a booking, class, block, waiting-list offer or held move there refuses it.

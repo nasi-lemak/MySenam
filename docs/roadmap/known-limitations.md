@@ -173,10 +173,6 @@ Also, in [tournaments](../features/tournaments.md):
 
 Also, in [open games](../features/matchmaking.md#moving-a-game-to-another-time):
 
-- A host's proposal to a time that overlaps the game's own, on a different
-  court sharing its floor (a pitch over its court), is refused as taken:
-  only the part of the new time outside the booking's own claim on the same
-  court is held (P3).
 - A proposal waits a day at most (or until the new start, or the
   cancellation cutoff), not a time the venue sets (P3).
 - A venue's change of a game's time, from the staff screen, is tested by
@@ -401,6 +397,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Ranking by set or point ratios, and a forfeit score, could not be expressed | Rank keys `set_ratio` and `point_ratio`; a walkover's score in the rules, checked against the match as set up, used in the tables of tournaments and box leagues; the volleyball and goals templates carry one ([tournaments](../features/tournaments.md)) | `tests/brackets.test.ts` ("ratios and forfeit scores"), `tests/competitions.test.ts` |
 | A player's tournament report waited for the other side with no time limit | The other side is emailed; unanswered for 24 hours it stands through the same checks, or goes to staff as disputed if it no longer can ([tournaments](../features/tournaments.md#results)) | `tests/match-reports.test.ts` ("a report nobody answers") |
 | Game, tournament and league emails were in English whatever the player's language | Written in the language the account last used the site in (`users.locale`, migration 0112), greeting and all ([messaging](../integrations/messaging.md)) | `tests/outbox.test.ts` ("a programme email in the player's language"), `tests/tournaments.test.ts` ("emails in each entrant's language") |
+| A host's proposal to a time overlapping the game's own, on a court sharing its floor (a pitch over its court), was refused as taken | The new time is held space by space: in full on floor the booking does not hold, and outside the booking's own time on floor it does ([matchmaking](../features/matchmaking.md#moving-a-game-to-another-time)) | `tests/game-moves.test.ts` ("a proposal onto a court sharing the game's floor") |
 
 ## Production readiness
 

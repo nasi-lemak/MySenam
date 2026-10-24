@@ -27,7 +27,8 @@ import { askToJoin, cancelGame, gameById, gameForViewer, invitePlayer, leaveGame
 import { expireMoves, hostMove, keepPlace, previewMove, staffMove, withdrawMove } from "../src/lib/game-moves";
 import { savePaymentSettings, settleBill, startSharePayment } from "../src/lib/payments";
 import { saveProfile } from "../src/lib/player-profiles";
-import { createBooking, getBookingById, listVenues, rescheduleBooking, rescheduleOptions } from "../src/lib/store";
+import { createBooking, createCourt, getBookingById, listVenues, rescheduleBooking, rescheduleOptions } from "../src/lib/store";
+import { setCourtParts } from "../src/lib/court-links";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as adminReschedule } from "../src/app/api/admin/bookings/reschedule/route";
 
@@ -403,5 +404,40 @@ describe("moving at the same time as something else", () => {
       const accepted = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM open_game_players WHERE game_id = ? AND status = 'accepted'").get(game.id)) as { n: number };
       expect(asked.n).toBe(accepted.n);
     } else expect(moved.ok).toBe(true);
+  });
+});
+
+describe("a proposal onto a court sharing the game's floor", () => {
+  it("holds the new time beside the booking's own, so a pitch over the game's court can take an overlapping time", async () => {
+    const make = async (name: string) => {
+      const made = await createCourt({ venueId, name: `${name} ${++n}`, sport: "badminton", offPeakRate: 20, peakRate: 20 });
+      if (!made.ok) throw new Error(made.error);
+      return made.court.id;
+    };
+    const [whole, a, b] = [await make("Hall"), await make("Hall A"), await make("Hall B")];
+    expect(await setCourtParts(whole, [a, b])).toMatchObject({ ok: true });
+    const host = await player("Host");
+    const date = addDays(todayISO(), 12);
+    const made = await createBooking({ courtId: a, date, hours: [18, 19], name: host.name, phone: host.phone, userId: host.id });
+    if (!made.ok) throw new Error(made.error);
+    const opened = await openGame(host.id, { bookingCode: made.booking.code, spots: 4, level: null, share: 5, autoAccept: true });
+    if (!opened.ok) throw new Error(opened.error);
+    const p = await player();
+    expect((await askToJoin(p, opened.game.id)).ok).toBe(true);
+
+    // An hour later on the whole hall, overlapping the game's own last hour on court A.
+    const proposed = await hostMove(host.id, opened.game.id, { date, start: 19 * 60, courtId: whole });
+    expect(proposed).toMatchObject({ ok: true, outcome: "proposal" });
+    // Held while the players answer: court B for all of it, court A for the hour after the game's own.
+    const other = (phone: string, courtId: number, hour: number) => createBooking({ courtId, date, hours: [hour], name: "Other", phone });
+    expect((await other("0145099001", b, 19)).ok).toBe(false);
+    expect((await other("0145099002", b, 20)).ok).toBe(false);
+    expect((await other("0145099003", a, 20)).ok).toBe(false);
+    expect((await other("0145099004", b, 18)).ok).toBe(true);
+
+    // Everybody keeps their place: the game moves to the whole hall.
+    expect((await keepPlace(p.id, opened.game.id)).ok).toBe(true);
+    expect(await bookingRow(made.booking.id)).toMatchObject({ court_id: whole, start_min: 19 * 60, status: "confirmed" });
+    expect(await holds((await moveRow(opened.game.id))!.id)).toBe(0);
   });
 });
