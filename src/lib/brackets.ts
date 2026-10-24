@@ -394,3 +394,101 @@ export function scheduleMatches(
   }
   return unplaced > 0 ? { ok: false, unplaced } : { ok: true, placed };
 }
+
+/** Time a tournament holds on one court on one day, in minutes of the day. */
+export interface Window {
+  courtId: number;
+  date: string;
+  start: number;
+  end: number;
+}
+
+/** A match to place, with how long it is given on court. */
+export interface TimedMatch extends ToSchedule {
+  minutes: number;
+}
+
+/** Something already on a court, or a side already playing, then. */
+export interface Taken {
+  courtId?: number;
+  date: string;
+  start: number;
+  end: number;
+}
+
+const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+
+/** The grid starts fall on: the greatest common divisor of the lengths, so matches of one length keep their old slots. */
+export function startStep(minutes: number[]): number {
+  return minutes.reduce((g, m) => gcd(g, m), 0) || 60;
+}
+
+/**
+ * Fit matches of differing lengths into the hours held, earliest first: no
+ * court has two at once, nobody plays two at once, and a match starts only
+ * once every match feeding it has ended. Starts fall on a grid of `step`
+ * minutes counted from `origin` (the tournament's first minute of the day).
+ * `occupied` is what else is on the courts then (another division's
+ * matches); `sideBusy` is when sides are playing elsewhere, keyed as
+ * `ToSchedule.sides` are. `allowed` says whether a start may be used (not
+ * in the past). With every match one length this places them exactly where
+ * `scheduleMatches` does.
+ */
+export function scheduleTimed(
+  matches: TimedMatch[],
+  windows: Window[],
+  opts: { step: number; origin: number; occupied?: Taken[]; sideBusy?: Map<string, Taken[]>; allowed?: (date: string, minute: number) => boolean }
+): { ok: true; placed: Map<string, Slot & { end: number }> } | { ok: false; unplaced: number } {
+  const ordered = [...windows].sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start || a.courtId - b.courtId);
+  const onCourt = new Map<string, Taken[]>();
+  for (const o of opts.occupied ?? []) {
+    const k = `${o.courtId}:${o.date}`;
+    onCourt.set(k, [...(onCourt.get(k) ?? []), o]);
+  }
+  const busy = new Map<string, Taken[]>([...(opts.sideBusy ?? new Map<string, Taken[]>())].map(([k, v]) => [k, [...v]]));
+  const overlaps = (list: Taken[] | undefined, date: string, start: number, end: number) => !!list?.some((o) => o.date === date && o.start < end && start < o.end);
+  const placed = new Map<string, Slot & { end: number }>();
+  let unplaced = 0;
+
+  for (const match of matches) {
+    let after: { date: string; minute: number } | null = null;
+    let waiting = false;
+    for (const k of match.after) {
+      const p = placed.get(k);
+      if (!p) {
+        waiting = true;
+        break;
+      }
+      if (!after || p.date > after.date || (p.date === after.date && p.end > after.minute)) after = { date: p.date, minute: p.end };
+    }
+    if (waiting) {
+      unplaced++;
+      continue;
+    }
+    let best: (Slot & { end: number }) | null = null;
+    for (const w of ordered) {
+      if (after && w.date < after.date) continue;
+      if (best && (w.date > best.date || (w.date === best.date && w.start > best.minute))) break;
+      const first = w.start + ((((opts.origin - w.start) % opts.step) + opts.step) % opts.step);
+      for (let s = first; s + match.minutes <= w.end; s += opts.step) {
+        if (best && w.date === best.date && (s > best.minute || (s === best.minute && w.courtId > best.courtId))) break;
+        if (after && w.date === after.date && s < after.minute) continue;
+        const end: number = s + match.minutes;
+        if (opts.allowed && !opts.allowed(w.date, s)) continue;
+        if (overlaps(onCourt.get(`${w.courtId}:${w.date}`), w.date, s, end)) continue;
+        if (match.sides.some((side) => overlaps(busy.get(side), w.date, s, end))) continue;
+        best = { courtId: w.courtId, date: w.date, minute: s, end };
+        break;
+      }
+    }
+    if (!best) {
+      unplaced++;
+      continue;
+    }
+    const k = `${best.courtId}:${best.date}`;
+    onCourt.set(k, [...(onCourt.get(k) ?? []), { courtId: best.courtId, date: best.date, start: best.minute, end: best.end }]);
+    for (const side of match.sides) busy.set(side, [...(busy.get(side) ?? []), { date: best.date, start: best.minute, end: best.end }]);
+    placed.set(match.key, best);
+  }
+  return unplaced > 0 ? { ok: false, unplaced } : { ok: true, placed };
+}

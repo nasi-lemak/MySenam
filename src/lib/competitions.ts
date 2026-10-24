@@ -23,8 +23,9 @@ import {
  * that time around the matches the other divisions already have, on court and
  * by player: somebody entered in two divisions is never put on court in both
  * at once. Held time goes back on sale once every division still running has
- * made its draw, and what is left of it as results come in. Every division's
- * matches are the competition's length, so all of them share one set of slots.
+ * made its draw, and what is left of it as results come in. A division's
+ * matches are the competition's length unless it gives its own; each draw is
+ * fitted around the others' matches by their own lengths.
  */
 
 export interface Competition {

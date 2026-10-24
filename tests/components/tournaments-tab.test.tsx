@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { TournamentsTab } from "../../src/components/admin/TournamentsTab";
 import { TEMPLATES } from "../../src/lib/competition-templates";
 import { DEFAULT_RULES } from "../../src/lib/tournament-rules";
+import { formatMinute } from "../../src/lib/interval";
 
 /**
  * The organiser's screen for a tournament: a performance event's heats are
@@ -209,5 +210,48 @@ describe("a competition's divisions", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Set it up and hold the courts" })[1]);
     await act(async () => {});
     expect(posts.at(-1)).toMatchObject({ url: "/api/admin/competitions", body: { name: "Junior Open", sport: "badminton", courtIds: [7], maxDivisionsPerPlayer: 2 } });
+  });
+});
+
+describe("on the day", () => {
+  const today = {
+    ...cup,
+    issues: [],
+    ageRange: { min: 10, max: 15 },
+    thirdPlace: true,
+    stageMinutes: {},
+    entries: [
+      { id: 1, name: "Aina", status: "entered", seed: null, paid: false, out: null, entryMark: null, checkedIn: false, guardian: { name: "Aunty Lim", consentAt: "2026-11-01 10:00:00" }, eligibilityChecked: null },
+      { id: 2, name: "Bala", status: "entered", seed: null, paid: false, out: null, entryMark: null, checkedIn: true, guardian: null, eligibilityChecked: { at: "2026-11-20 08:00:00", by: "Desk" } },
+    ],
+    matches: [
+      { id: 70, stage: "knockout", groupNo: null, round: 2, position: 2, placement: 3, a: 1, b: 2, courtId: 7, courtName: "Court 1", date: "2026-11-20", minute: 600, hour: 10, score: null, winner: null, next: null, nextSlot: null, loserNext: null, loserNextSlot: null, minutes: 45, status: "scheduled" },
+    ],
+  };
+
+  it("checks entrants in, records an age check without the document, shows a declared minor's guardian as their word, and moves a fixture", async () => {
+    detail = today;
+    const badmintonVenue = { ...(venue as object), courts: [{ id: 7, name: "Court 1", sport: "badminton", activities: [] }] } as never;
+    render(<TournamentsTab venues={[badmintonVenue]} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await act(async () => {});
+    expect(screen.getByText(/guardian Aunty Lim agreed \(their word, not checked\)/)).toBeTruthy();
+    expect(screen.getByText("✓ eligibility checked by Desk")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "check in" }));
+    await act(async () => {});
+    expect(posts.at(-1)).toEqual({ url: "/api/admin/tournaments/9/entries/1", body: { checkedIn: true } });
+    fireEvent.click(screen.getAllByRole("button", { name: "age checked" })[0]);
+    await act(async () => {});
+    expect(posts.at(-1)).toEqual({ url: "/api/admin/tournaments/9/entries/1", body: { eligibilityChecked: true } });
+    // The third-place match, its length shown, moved and lengthened.
+    expect(screen.getByText(/Third-place match/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${formatMinute(600)}–${formatMinute(645)}`))).toBeTruthy();
+    fireEvent.click(screen.getByText("Move…"));
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-11-21" } });
+    fireEvent.change(screen.getByDisplayValue("45"), { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move it and tell the players" }));
+    await act(async () => {});
+    expect(posts.at(-1)).toEqual({ url: "/api/admin/tournaments/9/matches/70", body: { move: { date: "2026-11-21", startMin: 600, courtId: 7, minutes: 60 } } });
   });
 });

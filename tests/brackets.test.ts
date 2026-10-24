@@ -8,7 +8,9 @@ import {
   parseScore,
   roundRobin,
   scheduleMatches,
+  scheduleTimed,
   seedOrder,
+  startStep,
   shuffle,
   standings,
   parseTally,
@@ -183,5 +185,49 @@ describe("scoring by the sport's rules", () => {
     const results = [{ a: 1, b: 2, winner: 2, score: "21-15, 3-8", retired: true }];
     expect(standings([1, 2], results).find((s) => s.entryId === 2)).toMatchObject({ won: 1, setDiff: 0, pointDiff: 0 });
     expect(standings([1, 2], results, { ...DEFAULT_SCORING, retired: "as_played" }).find((s) => s.entryId === 2)).toMatchObject({ won: 1, setDiff: 0, pointDiff: -1 });
+  });
+});
+
+describe("matches of different lengths in court time", () => {
+  const windows = [1, 2].map((courtId) => ({ courtId, date: "2026-12-01", start: 540, end: 780 }));
+  const grid = (len: number) => windows.flatMap((w) => Array.from({ length: (w.end - w.start) / len }, (_, i) => ({ courtId: w.courtId, date: w.date, minute: w.start + i * len })));
+
+  it("places matches of one length exactly where the slot scheduler does", () => {
+    const matches = [
+      { key: "q1", sides: ["e1", "e2"], after: [] },
+      { key: "q2", sides: ["e3", "e4"], after: [] },
+      { key: "q3", sides: ["e5", "e6"], after: [] },
+      { key: "q4", sides: ["e7", "e8"], after: [] },
+      { key: "s1", sides: ["w:s1:a", "w:s1:b"], after: ["q1", "q2"] },
+      { key: "s2", sides: ["w:s2:a", "w:s2:b"], after: ["q3", "q4"] },
+      { key: "f", sides: ["w:f:a", "w:f:b"], after: ["s1", "s2"] },
+    ];
+    const slots = scheduleMatches(matches, grid(30));
+    const timed = scheduleTimed(matches.map((m) => ({ ...m, minutes: 30 })), windows, { step: startStep([30]), origin: 540 });
+    if (!slots.ok || !timed.ok) throw new Error("did not fit");
+    for (const m of matches) expect({ ...timed.placed.get(m.key)!, end: undefined }).toEqual({ ...slots.placed.get(m.key)!, end: undefined });
+  });
+
+  it("gives each its length: no court or side has two at once, and a match starts once those feeding it have ended", () => {
+    const matches = [
+      { key: "g1", sides: ["e1", "e2"], after: [], minutes: 30 },
+      { key: "g2", sides: ["e1", "e3"], after: [], minutes: 30 },
+      { key: "g3", sides: ["e2", "e3"], after: [], minutes: 30 },
+      { key: "f", sides: ["w:f:a", "w:f:b"], after: ["g1", "g2", "g3"], minutes: 90 },
+    ];
+    expect(startStep([30, 90, 45])).toBe(15);
+    const timed = scheduleTimed(matches, windows, { step: 30, origin: 540, occupied: [{ courtId: 2, date: "2026-12-01", start: 540, end: 600 }], sideBusy: new Map([["e3", [{ date: "2026-12-01", start: 540, end: 570 }]]]) });
+    if (!timed.ok) throw new Error("did not fit");
+    const at = (k: string) => timed.placed.get(k)!;
+    // Court 2 is taken until 10:00 by another division; e3 plays elsewhere until 09:30.
+    expect(at("g1")).toMatchObject({ courtId: 1, minute: 540, end: 570 });
+    expect(at("g2")).toMatchObject({ minute: 570 });
+    expect(at("g3")).toMatchObject({ minute: 600 });
+    expect(at("f")).toMatchObject({ minute: 630, end: 720 });
+    // Too long for what is held: not placed.
+    expect(scheduleTimed([{ key: "x", sides: [], after: [], minutes: 300 }], windows, { step: 30, origin: 540 })).toEqual({ ok: false, unplaced: 1 });
+    // Not before what `allowed` lets through (the past).
+    const later = scheduleTimed([{ key: "y", sides: [], after: [], minutes: 30 }], windows, { step: 30, origin: 540, allowed: (_d, m) => m >= 660 });
+    expect(later.ok && later.placed.get("y")).toMatchObject({ minute: 660 });
   });
 });

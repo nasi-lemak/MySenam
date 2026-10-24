@@ -9,14 +9,15 @@ import {
   intoGroups,
   knockoutFromGroups,
   roundRobin,
-  scheduleMatches,
+  scheduleTimed,
   scoreRefusal,
-  slotTime,
   shuffle,
   standings,
-  type Slot,
+  startStep,
   type Standing,
-  type ToSchedule,
+  type Taken,
+  type TimedMatch,
+  type Window,
 } from "./brackets";
 import { aggregate, formatMark, parseMark, rankPerformances, seedHeats, type Ranked } from "./performance-math";
 import { templateByKey, templateFor, type EntryKind } from "./competition-templates";
@@ -62,6 +63,9 @@ import { groupResultsVoid, parseRules, readRules, type CompetitionRules, type Ou
 export type Format = "knockout" | "groups" | "round_robin" | "performance";
 export type TournamentStatus = "open" | "closed" | "drawn" | "finished" | "cancelled";
 export type EntryStatus = "entered" | "waitlisted" | "withdrawn";
+/** Stages a match length can be set for: the knockout's last round and its third-place match are "final". */
+export type StageKey = "group" | "knockout" | "final" | "heat";
+export const STAGE_KEYS: StageKey[] = ["group", "knockout", "final", "heat"];
 
 export interface Tournament {
   id: number;
@@ -92,8 +96,12 @@ export interface Tournament {
   endMin: number;
   startHour: number;
   endHour: number;
-  /** How long each match is given on court. */
+  /** How long each match is given on court, unless its stage says otherwise. */
   matchMinutes: number;
+  /** Match length by stage, over `matchMinutes`; each match keeps its own once drawn (Match.minutes). */
+  stageMinutes: Partial<Record<StageKey, number>>;
+  /** A knockout whose semi-final losers play for third place. */
+  thirdPlace: boolean;
   description: string | null;
   status: TournamentStatus;
   courtIds: number[];
@@ -126,6 +134,13 @@ export interface Entry {
   roster?: string[] | null;
   /** A performance event's entry mark, for seeding. */
   entryMark: number | null;
+  /** Marked arrived on the day by staff. */
+  checkedIn: boolean;
+  /** Only for staff: a declared minor's guardian and consent, as the entrant declared them, and an organiser's own eligibility check. */
+  guardian?: { name: string; consentAt: string } | null;
+  eligibilityChecked?: { at: string; by: string } | null;
+  /** Only for staff: the ages declared (date of birth), never verified by the app. */
+  declaredBirthDate?: string | null;
 }
 
 /** A line of a group's table: who is out is shown where their results put them, never ranked to go through. */
@@ -150,6 +165,13 @@ export interface Match {
   /** The match its winner goes on to, in a knockout, and which side of it. */
   next: number | null;
   nextSlot: "a" | "b" | null;
+  /** A semi-final's loser goes to the third-place match, on this side of it. */
+  loserNext: number | null;
+  loserNextSlot: "a" | "b" | null;
+  /** 3: the third-place match. */
+  placement: 3 | null;
+  /** How long it is given on court. */
+  minutes: number;
   /** "done" with no winner is a draw (where the rules allow one). */
   status: "scheduled" | "done" | "walkover" | "bye" | "retired";
   /** Who entered the result: "staff", "players" (reported and confirmed), "official: <name>". */
@@ -252,6 +274,8 @@ interface TRow {
   age_max: number | null;
   members_only: number;
   results_by: "staff" | "players" | null;
+  stage_minutes: string | null;
+  third_place: number | null;
 }
 
 function toTournament(r: TRow): Tournament {
@@ -280,6 +304,8 @@ function toTournament(r: TRow): Tournament {
     startHour: hoursOf(r.start_min),
     endHour: hoursOf(r.end_min),
     matchMinutes: r.match_minutes ?? 60,
+    stageMinutes: readStageMinutes(r.stage_minutes),
+    thirdPlace: Boolean(r.third_place),
     description: r.description,
     status: r.status,
     courtIds: (r.court_ids ?? []).map(Number),
@@ -293,6 +319,21 @@ function toTournament(r: TRow): Tournament {
     membersOnly: Boolean(r.members_only),
     resultsBy: r.results_by === "players" ? "players" : "staff",
   };
+}
+
+function readStageMinutes(text: string | null): Partial<Record<StageKey, number>> {
+  if (!text) return {};
+  try {
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    return Object.fromEntries(STAGE_KEYS.filter((k) => Number.isInteger(raw[k])).map((k) => [k, raw[k] as number]));
+  } catch {
+    return {};
+  }
+}
+
+/** The length a match of this stage is given: its stage's, else the tournament's. */
+export function minutesFor(t: Pick<Tournament, "matchMinutes" | "stageMinutes">, stage: StageKey): number {
+  return t.stageMinutes[stage] ?? t.matchMinutes;
 }
 
 export async function tournamentById(id: number): Promise<Tournament | null> {
@@ -337,12 +378,13 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
   const entries = (
     (await db
       .prepare(
-        `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark FROM tournament_entries
+        `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark, checked_in_at,
+                guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date FROM tournament_entries
           WHERE tournament_id = ? ORDER BY status = 'entered' DESC, seed NULLS LAST, id`
       )
       .all(id)) as EntryRow[]
   ).map((e) => toEntry(e, opts.forStaff ?? false));
-  const matches = await matchesOf(id);
+  const matches = await matchesOf(id, t.matchMinutes);
   // Whoever is out goes no further. Their group results stand or are void by
   // the tournament's rules; standing, they are shown where those results put
   // them, flagged, and the next in the table goes through instead (B10).
@@ -412,6 +454,12 @@ interface EntryRow {
   out_stage: OutStage | null;
   roster: string | null;
   entry_mark: number | string | null;
+  checked_in_at?: string | null;
+  guardian_name?: string | null;
+  guardian_consent_at?: string | null;
+  eligibility_checked_at?: string | null;
+  eligibility_checked_by?: string | null;
+  birth_date?: string | null;
 }
 
 function toEntry(e: EntryRow, forStaff: boolean): Entry {
@@ -421,9 +469,18 @@ function toEntry(e: EntryRow, forStaff: boolean): Entry {
     status: e.status,
     seed: e.seed,
     paid: e.paid_at !== null,
-    ...(forStaff ? { userId: e.user_id, roster: e.roster ? (JSON.parse(e.roster) as string[]) : null } : {}),
+    ...(forStaff
+      ? {
+          userId: e.user_id,
+          roster: e.roster ? (JSON.parse(e.roster) as string[]) : null,
+          guardian: e.guardian_name && e.guardian_consent_at ? { name: e.guardian_name, consentAt: e.guardian_consent_at } : null,
+          eligibilityChecked: e.eligibility_checked_at ? { at: e.eligibility_checked_at, by: e.eligibility_checked_by ?? "" } : null,
+          declaredBirthDate: e.birth_date ?? null,
+        }
+      : {}),
     out: e.status === "withdrawn" ? { reason: e.out_reason ?? "withdrawn", stage: e.out_stage } : null,
     entryMark: e.entry_mark === null ? null : Number(e.entry_mark),
+    checkedIn: Boolean(e.checked_in_at),
   };
 }
 
@@ -482,11 +539,11 @@ function cutTie(heatRanked: Ranked[], size: number, out: Map<number, unknown>): 
   return before + level.length > size ? level.map((r) => r.entryId) : null;
 }
 
-async function matchesOf(tournamentId: number): Promise<Match[]> {
+async function matchesOf(tournamentId: number, defaultMinutes: number): Promise<Match[]> {
   const rows = (await getDb()
     .prepare(
       `SELECT m.*, c.name AS court_name FROM tournament_matches m LEFT JOIN courts c ON c.id = m.court_id
-        WHERE m.tournament_id = ? ORDER BY m.stage = 'knockout', m.round, m.group_no, m.position`
+        WHERE m.tournament_id = ? ORDER BY m.stage = 'knockout', m.round, m.group_no, m.placement NULLS FIRST, m.position`
     )
     .all(tournamentId)) as {
     id: number;
@@ -506,6 +563,10 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
     next_slot: "a" | "b" | null;
     status: Match["status"];
     result_by: string | null;
+    minutes: number | null;
+    placement: number | null;
+    loser_next_match_id: number | null;
+    loser_next_slot: "a" | "b" | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
@@ -524,6 +585,10 @@ async function matchesOf(tournamentId: number): Promise<Match[]> {
     winner: r.winner,
     next: r.next_match_id,
     nextSlot: r.next_slot,
+    loserNext: r.loser_next_match_id,
+    loserNextSlot: r.loser_next_slot,
+    placement: r.placement === 3 ? 3 : null,
+    minutes: r.minutes ?? defaultMinutes,
     status: r.status,
     ...(r.result_by ? { resultBy: r.result_by } : {}),
   }));
@@ -557,8 +622,12 @@ export interface TournamentInput {
   endMin?: number;
   startHour?: number;
   endHour?: number;
-  /** How long each match is given on court; an hour unless said. */
+  /** How long each match is given on court; an hour unless said. A division's own, or its competition's. */
   matchMinutes?: number;
+  /** Longer or shorter matches for a stage: {"final": 90}. */
+  stageMinutes?: Partial<Record<StageKey, number>> | null;
+  /** A knockout's semi-final losers play for third place. */
+  thirdPlace?: boolean;
   courtIds: number[];
   description?: string;
   /** Scoring, ranking and how it treats somebody who leaves, over the template's (lib/tournament-rules.ts). */
@@ -580,14 +649,6 @@ export interface TournamentInput {
 async function tournamentZone(tournamentId: number): Promise<string> {
   const row = (await getDb().prepare("SELECT venue_id FROM tournaments WHERE id = ?").get(tournamentId)) as { venue_id: number } | undefined;
   return (await venueHours(row?.venue_id ?? 0)).zone;
-}
-
-/** Every day, court and match slot a tournament would hold: one match long each, from the start of its time. */
-function heldSlots(t: { startsOn: string; endsOn: string; startMin: number; endMin: number; matchMinutes: number; courtIds: number[] }): Slot[] {
-  const slots: Slot[] = [];
-  for (let d = t.startsOn; d <= t.endsOn; d = addDays(d, 1))
-    for (let m = t.startMin; m + t.matchMinutes <= t.endMin; m += t.matchMinutes) for (const c of t.courtIds) slots.push({ courtId: c, date: d, minute: m });
-  return slots;
 }
 
 /** Days, hours and courts to hold for a tournament or a competition, as asked. */
@@ -752,6 +813,22 @@ function checkEligibility(input: Pick<TournamentInput, "entriesCloseOn" | "ageMi
   return null;
 }
 
+/** Stage lengths from a form: each 5 minutes to 10 hours, and no longer than a day's time. */
+function checkStageMinutes(input: unknown, dayMinutes: number): { ok: true; value: Partial<Record<StageKey, number>> } | Refused {
+  if (input === null || input === undefined) return { ok: true, value: {} };
+  if (typeof input !== "object" || Array.isArray(input)) return { ok: false, error: "Give stage lengths in minutes." };
+  const value: Partial<Record<StageKey, number>> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (v === null || v === undefined || v === "") continue;
+    if (!STAGE_KEYS.includes(k as StageKey)) return { ok: false, error: `No stage called ${k}.` };
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 5 || n > 600) return { ok: false, error: "Give each stage's matches 5 minutes to 10 hours." };
+    if (n > dayMinutes) return { ok: false, error: `A ${k} match of ${n} minutes does not fit in the time each day.` };
+    value[k as StageKey] = n;
+  }
+  return { ok: true, value };
+}
+
 export async function createTournament(input: TournamentInput, adminId: number): Promise<Result> {
   const db = getDb();
   const name = input.name.trim();
@@ -791,7 +868,11 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (!Number.isFinite(input.entryFee) || input.entryFee < 0 || input.entryFee > 10000) return { ok: false, error: "Check the entry fee." };
   let hold: CheckedHold;
   if (competition) {
-    hold = competition.hold;
+    // A division may give its matches a length of its own, inside the competition's time.
+    const own = input.matchMinutes ?? competition.hold.matchMinutes;
+    if (!Number.isInteger(own) || own < 5 || own > 600) return { ok: false, error: "Give each match 5 minutes to 10 hours." };
+    if (competition.hold.endMin - competition.hold.startMin < own) return { ok: false, error: "The time each day must fit at least one match." };
+    hold = { ...competition.hold, matchMinutes: own };
     const today = todayISO((await venueHours(hold.venueId)).zone);
     if (hold.startsOn <= today) return { ok: false, error: "That competition has started: divisions are added before it." };
   } else {
@@ -801,6 +882,10 @@ export async function createTournament(input: TournamentInput, adminId: number):
   }
   const ineligible = checkEligibility(input, hold.startsOn);
   if (ineligible) return ineligible;
+  const stageMinutes = checkStageMinutes(input.stageMinutes ?? null, hold.endMin - hold.startMin);
+  if (!stageMinutes.ok) return stageMinutes;
+  if (input.thirdPlace && input.format !== "knockout" && input.format !== "groups")
+    return { ok: false, error: "A third-place match is for a knockout, or groups then a knockout." };
   if (!competition) {
     const before = await holdInTheWay(hold);
     if (before) return before;
@@ -816,8 +901,9 @@ export async function createTournament(input: TournamentInput, adminId: number):
       .prepare(
         `INSERT INTO tournaments (venue_id, name, sport, format, team_size, category, level, entry_fee, max_entries, group_size, advance,
                                   starts_on, ends_on, start_min, end_min, match_minutes, description, created_by, rules,
-                                  entry_kind, roster_min, roster_max, template, competition_id, entries_close_on, age_min, age_max, members_only, results_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                  entry_kind, roster_min, roster_max, template, competition_id, entries_close_on, age_min, age_max, members_only, results_by,
+                                  stage_minutes, third_place)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         hold.venueId,
@@ -848,7 +934,9 @@ export async function createTournament(input: TournamentInput, adminId: number):
         input.ageMin ?? null,
         input.ageMax ?? null,
         input.membersOnly ? 1 : 0,
-        input.resultsBy === "players" && input.format !== "performance" ? "players" : "staff"
+        input.resultsBy === "players" && input.format !== "performance" ? "players" : "staff",
+        Object.keys(stageMinutes.value).length > 0 ? JSON.stringify(stageMinutes.value) : null,
+        input.thirdPlace ? 1 : 0
       );
     id = info.lastInsertRowid as number;
     for (const c of hold.courtIds) await db.prepare("INSERT INTO tournament_courts (tournament_id, court_id) VALUES (?, ?)").run(id, c);
@@ -917,6 +1005,14 @@ export async function closeDueEntries(): Promise<number> {
 // ------------------------------------------------------------ entries
 
 /** Whole years old on `day`, born on `birthDate` (both YYYY-MM-DD). */
+/**
+ * Below this declared age an entry needs a parent or guardian's agreement.
+ * An operator policy, not a legal determination: what consent the law asks
+ * for, and whether a venue needs more (a signed form), is for the operator
+ * and the organiser to settle (docs/features/programmes.md).
+ */
+export const GUARDIAN_AGE = 18;
+
 export function ageOn(birthDate: string, day: string): number {
   const [by, bm, bd] = birthDate.split("-").map(Number);
   const [y, m, d] = day.split("-").map(Number);
@@ -958,6 +1054,9 @@ export async function enter(
     birthDate?: string;
     partnerBirthDate?: string;
     rosterEligible?: boolean;
+    /** For a declared minor: a parent or guardian's name, and that they agree. */
+    guardianName?: string;
+    guardianConsent?: boolean;
   } = {}
 ): Promise<Result<Entry>> {
   const db = getDb();
@@ -980,6 +1079,17 @@ export async function enter(
       partnerBirthDate = input.partnerBirthDate!;
     }
     if (t.entryKind === "team" && input.rosterEligible !== true) return { ok: false, error: `Confirm that everybody on the roster is aged ${ageText(t.ageRange)} on ${t.startsOn}.`, code: "AGE_RANGE" };
+  }
+  // A declared minor enters with a parent or guardian's agreement, as the entrant declares it: the app does not verify it.
+  let guardianName: string | null = null;
+  const minor =
+    (birthDate !== null && ageOn(birthDate, t.startsOn) < GUARDIAN_AGE) ||
+    (partnerBirthDate !== null && ageOn(partnerBirthDate, t.startsOn) < GUARDIAN_AGE) ||
+    (t.entryKind === "team" && t.ageRange !== null && t.ageRange.max !== null && t.ageRange.max < GUARDIAN_AGE);
+  if (minor) {
+    guardianName = input.guardianName?.trim() ?? "";
+    if (guardianName.length < 2 || guardianName.length > 80 || input.guardianConsent !== true)
+      return { ok: false, error: `Entrants under ${GUARDIAN_AGE} need a parent or guardian's agreement: give their name and confirm they agree.`, code: "GUARDIAN_CONSENT" };
   }
   if (t.competition) {
     const cap = (await db.prepare("SELECT max_divisions_per_player AS cap FROM competitions WHERE id = ?").get(t.competition.id)) as { cap: number | null };
@@ -1035,8 +1145,9 @@ export async function enter(
   const name = t.entryKind === "team" ? teamName : t.teamSize === 2 ? `${user.name.trim()} / ${partner}` : user.name.trim();
   const info = await db
     .prepare(
-      `INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status, team_name, roster, entry_mark, birth_date, partner_birth_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status, team_name, roster, entry_mark, birth_date, partner_birth_date,
+                                       guardian_name, guardian_consent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${guardianName ? "datetime('now')" : "NULL"})`
     )
     .run(
       tournamentId,
@@ -1049,7 +1160,8 @@ export async function enter(
       roster ? JSON.stringify(roster) : null,
       entryMark,
       birthDate,
-      partnerBirthDate
+      partnerBirthDate,
+      guardianName
     );
   await tellEntrant(
     user.id,
@@ -1066,7 +1178,10 @@ export async function enter(
 
 async function entryById(id: number): Promise<Entry | null> {
   const r = (await getDb()
-    .prepare("SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark FROM tournament_entries WHERE id = ?")
+    .prepare(
+      `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark, checked_in_at,
+              guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date FROM tournament_entries WHERE id = ?`
+    )
     .get(id)) as EntryRow | undefined;
   return r ? toEntry(r, true) : null;
 }
@@ -1241,6 +1356,7 @@ async function dryRun<T>(fn: () => Promise<T>): Promise<T> {
 /** A match, as an organiser names it. */
 function matchName(d: TournamentDetail, m: Match): string {
   if (m.stage === "group") return `Group ${m.groupNo}`;
+  if (m.placement === 3) return "Third-place match";
   const rounds = Math.max(...d.matches.filter((x) => x.stage === "knockout").map((x) => x.round));
   const from = rounds - m.round;
   return from === 0 ? "Final" : from === 1 ? `Semi-final ${m.position}` : from === 2 ? `Quarter-final ${m.position}` : `Knockout round ${m.round}, match ${m.position}`;
@@ -1303,7 +1419,10 @@ export async function paidOnline(column: "tournament_entry_id" | "league_place_i
     .get(id));
 }
 
-export async function setEntry(entryId: number, change: { paid?: boolean; seed?: number | null }): Promise<Result<Entry>> {
+export async function setEntry(
+  entryId: number,
+  change: { paid?: boolean; seed?: number | null; checkedIn?: boolean; eligibilityCheckedBy?: string | null }
+): Promise<Result<Entry>> {
   const db = getDb();
   if (change.paid !== undefined) {
     // A fee paid online is the gateway's to give back, not a mark to take off:
@@ -1322,6 +1441,14 @@ export async function setEntry(entryId: number, change: { paid?: boolean; seed?:
       return { ok: false, error: "A seed is 1 or more." };
     await db.prepare("UPDATE tournament_entries SET seed = ? WHERE id = ?").run(change.seed, entryId);
   }
+  // Arrived on the day; taken back if marked by mistake.
+  if (change.checkedIn !== undefined)
+    await db.prepare(`UPDATE tournament_entries SET checked_in_at = ${change.checkedIn ? "COALESCE(checked_in_at, datetime('now'))" : "NULL"} WHERE id = ?`).run(entryId);
+  // An organiser's own check (a document seen at the desk): who checked and when, never the document.
+  if (change.eligibilityCheckedBy !== undefined)
+    await db
+      .prepare(`UPDATE tournament_entries SET eligibility_checked_at = ${change.eligibilityCheckedBy ? "datetime('now')" : "NULL"}, eligibility_checked_by = ? WHERE id = ?`)
+      .run(change.eligibilityCheckedBy ? change.eligibilityCheckedBy.slice(0, 100) : null, entryId);
   const entry = await entryById(entryId);
   return entry ? { ok: true, value: entry } : { ok: false, error: "Not found." };
 }
@@ -1342,10 +1469,25 @@ interface NewMatch {
   bye: boolean;
   /** A heat's competitors, each in a lane. */
   lanes?: { lane: number; entryId: number }[];
+  /** The third-place match; and, on a semi-final, where its loser goes. */
+  placement?: 3;
+  loserNextKey?: string;
+  loserNextSlot?: "a" | "b";
 }
 
-/** The skeleton of a knockout of `size` lines, round by round. */
-function knockout(size: number, firstPairs: [number | null, number | null][], feedersOfRoundOne: string[]): NewMatch[] {
+/** Which stage length a match takes (Tournament.stageMinutes). */
+function stageKeyOf(m: Pick<NewMatch, "stage" | "round" | "placement">, lastRound: number): StageKey {
+  if (m.stage === "group") return "group";
+  if (m.stage === "heat") return "heat";
+  if (m.stage === "final" || m.placement === 3 || m.round === lastRound) return "final";
+  return "knockout";
+}
+
+/**
+ * The skeleton of a knockout of `size` lines, round by round; with
+ * `thirdPlace`, a third-place match the semi-finals' losers go to.
+ */
+function knockout(size: number, firstPairs: [number | null, number | null][], feedersOfRoundOne: string[], thirdPlace = false): NewMatch[] {
   const rounds = Math.log2(size);
   const out: NewMatch[] = [];
   for (let r = 1; r <= rounds; r++) {
@@ -1367,6 +1509,26 @@ function knockout(size: number, firstPairs: [number | null, number | null][], fe
       });
     }
   }
+  if (thirdPlace && rounds >= 2) {
+    for (const semi of out.filter((m) => m.round === rounds - 1)) {
+      semi.loserNextKey = "k3p";
+      semi.loserNextSlot = semi.position === 1 ? "a" : "b";
+    }
+    out.push({
+      key: "k3p",
+      stage: "knockout",
+      groupNo: null,
+      round: rounds,
+      position: 2,
+      placement: 3,
+      a: null,
+      b: null,
+      nextKey: null,
+      nextSlot: null,
+      after: [`k${rounds - 1}-1`, `k${rounds - 1}-2`],
+      bye: false,
+    });
+  }
   return out;
 }
 
@@ -1387,7 +1549,7 @@ interface SiblingMatch {
 async function siblingMatches(competitionId: number, exceptTournamentId: number): Promise<SiblingMatch[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT m.id, m.court_id, m.date, m.start_min, d.match_minutes,
+      `SELECT m.id, m.court_id, m.date, m.start_min, COALESCE(m.minutes, d.match_minutes) AS match_minutes,
               (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_a) AS user_a,
               (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_b) AS user_b,
               ARRAY(SELECT e.user_id FROM tournament_performances p JOIN tournament_entries e ON e.id = p.entry_id
@@ -1429,7 +1591,8 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
 
   const matches: NewMatch[] = [];
   if (t.format === "knockout") {
-    matches.push(...knockout(bracketSize(ranked.length), firstRound(ranked), []));
+    // A third-place match needs two semi-finals to come from.
+    matches.push(...knockout(bracketSize(ranked.length), firstRound(ranked), [], t.thirdPlace && ranked.length >= 4));
   } else if (t.format === "performance") {
     // Heats seeded by entry mark, the best in the last heat and the middle lanes; the unmarked drawn by lot before them.
     const rules = t.rules.performance!;
@@ -1490,7 +1653,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       const lines = Array.from({ length: qualifiers }, () => null);
       // Who fills it is known only when the groups finish; byes, if any, are
       // marked then, so they still fall to the best group finishers.
-      matches.push(...knockout(size, firstRound(lines).map(() => [null, null] as [null, null]), groupKeys));
+      matches.push(...knockout(size, firstRound(lines).map(() => [null, null] as [null, null]), groupKeys, t.thirdPlace && qualifiers >= 4));
     }
   }
 
@@ -1503,13 +1666,17 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
     }
   }
   const byes = new Set(matches.filter((m) => m.bye).map((m) => m.key));
+  // Each match's length: its stage's, else the tournament's.
+  const lastRound = Math.max(0, ...matches.filter((m) => m.stage === "knockout").map((m) => m.round));
+  const lengthOf = new Map(matches.map((m) => [m.key, minutesFor(t, stageKeyOf(m, lastRound))]));
   // A player is also known by their account, so a division does not put them on court while they play in another.
   const person = new Map(entries.filter((e) => e.user_id !== null).map((e) => [e.id, `u${e.user_id}`]));
   const sidesOf = (ids: (number | null)[]) => ids.flatMap((id) => (id === null ? [] : [`e${id}`, ...(person.has(id) ? [person.get(id)!] : [])]));
-  const toPlay: ToSchedule[] = matches
+  const toPlay: TimedMatch[] = matches
     .filter((m) => !m.bye)
     .map((m) => ({
       key: m.key,
+      minutes: lengthOf.get(m.key)!,
       sides: m.lanes
         ? sidesOf(m.lanes.map((l) => l.entryId))
         : m.stage === "final"
@@ -1518,33 +1685,31 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       after: m.after.filter((k) => !byes.has(k)),
     }));
   const zone = await tournamentZone(tournamentId);
-  // The match slots wholly inside what is still held (an outage since takes its hold away): the
-  // tournament's own hold, or its competition's, less what the competition's other divisions use.
+  // The time still held (an outage since takes its hold away): the tournament's own hold, or
+  // its competition's, within its hours each day, around what the competition's other divisions use.
   const holds = (await db
     .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ? OR (competition_id IS NOT NULL AND competition_id = ?) ORDER BY date, start_min")
     .all(tournamentId, t.competition?.id ?? null)) as { court_id: number; date: string; start_min: number; end_min: number }[];
+  const windows: Window[] = holds
+    .filter((h) => t.courtIds.includes(h.court_id) && h.date >= t.startsOn && h.date <= t.endsOn)
+    .map((h) => ({ courtId: h.court_id, date: h.date, start: Math.max(h.start_min, t.startMin), end: Math.min(h.end_min, t.endMin) }))
+    .filter((w) => w.end > w.start);
   const siblings = t.competition ? await siblingMatches(t.competition.id, tournamentId) : [];
+  const sideBusy = new Map<string, Taken[]>();
+  for (const o of siblings)
+    for (const u of o.userIds) sideBusy.set(`u${u}`, [...(sideBusy.get(`u${u}`) ?? []), { date: o.date, start: o.minute, end: o.minute + o.minutes }]);
   const now = Date.now();
-  const slots = heldSlots(t).filter(
-    (s) =>
-      holds.some((h) => h.court_id === s.courtId && h.date === s.date && h.start_min <= s.minute && s.minute + t.matchMinutes <= h.end_min) &&
-      !siblings.some((o) => o.courtId === s.courtId && o.date === s.date && o.minute < s.minute + t.matchMinutes && s.minute < o.minute + o.minutes) &&
-      instantOf(s.date, s.minute, zone).getTime() > now
-  );
-  // Who is already on court in another division, and when.
-  const busy = new Map<string, Set<string>>();
-  for (const s of slots)
-    for (const o of siblings)
-      if (o.userIds.length > 0 && o.date === s.date && o.minute < s.minute + t.matchMinutes && s.minute < o.minute + o.minutes) {
-        const key = slotTime(s);
-        if (!busy.has(key)) busy.set(key, new Set());
-        for (const u of o.userIds) busy.get(key)!.add(`u${u}`);
-      }
-  const scheduled = scheduleMatches(toPlay, slots, busy);
+  const scheduled = scheduleTimed(toPlay, windows, {
+    step: startStep([t.matchMinutes, ...toPlay.map((m) => m.minutes)]),
+    origin: t.startMin,
+    occupied: siblings.map((o) => ({ courtId: o.courtId, date: o.date, start: o.minute, end: o.minute + o.minutes })),
+    sideBusy,
+    allowed: (date, minute) => instantOf(date, minute, zone).getTime() > now,
+  });
   if (!scheduled.ok)
     return {
       ok: false,
-      error: `Not enough court time: ${scheduled.unplaced} of ${toPlay.length} matches do not fit in the hours held. Add courts, hours or days, or take fewer entries.`,
+      error: `Not enough court time: ${scheduled.unplaced} of ${toPlay.length} matches do not fit in the hours held. Add courts, hours or days, shorten the matches, or take fewer entries.`,
     };
 
   await db.transaction(async () => {
@@ -1555,8 +1720,9 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       const info = await db
         .prepare(
           `INSERT INTO tournament_matches (tournament_id, stage, group_no, round, position, entry_a, entry_b,
-                                           next_match_id, next_slot, court_id, date, start_min, winner, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                           next_match_id, next_slot, court_id, date, start_min, winner, status,
+                                           minutes, placement, loser_next_match_id, loser_next_slot)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           tournamentId,
@@ -1572,7 +1738,11 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
           at?.date ?? null,
           at?.minute ?? null,
           m.bye ? (m.a ?? m.b) : null,
-          m.bye ? "bye" : "scheduled"
+          m.bye ? "bye" : "scheduled",
+          lengthOf.get(m.key)!,
+          m.placement ?? null,
+          m.loserNextKey ? ids.get(m.loserNextKey) ?? null : null,
+          m.loserNextSlot ?? null
         );
       ids.set(m.key, info.lastInsertRowid as number);
       for (const l of m.lanes ?? [])
@@ -1659,6 +1829,8 @@ async function recordResultOnce(matchId: number, input: ResultInput, mode: Resul
         entry_b: number | null;
         next_match_id: number | null;
         next_slot: "a" | "b" | null;
+        loser_next_match_id: number | null;
+        loser_next_slot: "a" | "b" | null;
         status: string;
       }
     | undefined;
@@ -1683,26 +1855,31 @@ async function recordResultOnce(matchId: number, input: ResultInput, mode: Resul
     if (refusal) return { ok: false, error: refusal };
   } else if (draw) return { ok: false, error: "Give the score of the draw." };
   else if (!input.walkover && !input.retired) return { ok: false, error: "Give the score, or mark it a walkover or a retirement." };
+  const loser = input.winner === m.entry_a ? m.entry_b : m.entry_a;
+  // Where the winner goes on to, and a semi-final's loser (the third-place match).
+  const onward = [
+    { id: m.next_match_id, slot: m.next_slot, goes: input.winner },
+    { id: m.loser_next_match_id, slot: m.loser_next_slot, goes: loser },
+  ].filter((o): o is { id: number; slot: "a" | "b"; goes: number | null } => o.id !== null && o.slot !== null);
   let recordOnly = false;
-  if (m.next_match_id !== null) {
-    const next = (await db.prepare("SELECT status, entry_a, entry_b FROM tournament_matches WHERE id = ?").get(m.next_match_id)) as {
+  for (const o of onward) {
+    const next = (await db.prepare("SELECT status, entry_a, entry_b FROM tournament_matches WHERE id = ?").get(o.id)) as {
       status: string;
       entry_a: number | null;
       entry_b: number | null;
     };
-    const there = m.next_slot === "a" ? next.entry_a : next.entry_b;
+    const there = o.slot === "a" ? next.entry_a : next.entry_b;
     if (next.status === "done" || next.status === "walkover" || next.status === "retired") {
-      // A replayed match whose winner is who went on already: consistent, recorded, and nothing after it changes.
-      if (m.status === "scheduled" && input.winner === there) recordOnly = true;
+      // A replayed match whose winner (or loser) is who went on already: consistent, recorded, and nothing after it changes.
+      if (m.status === "scheduled" && o.goes === there) recordOnly = true;
       else if (mode === "normal")
         throw new KnockoutUnderway(
-          "The next match is played already. A manager can review what correcting this result would change, and correct its record without changing who went on."
+          "A match it fed is played already. A manager can review what correcting this result would change, and correct its record without changing who went on."
         );
       recordOnly = true;
     }
   }
   if (recordOnly && input.outOfEvent) return { ok: false, error: "A correction of the record only cannot take anybody out of the event; withdraw them instead." };
-  const loser = input.winner === m.entry_a ? m.entry_b : m.entry_a;
   const before = m.stage === "group" ? qualifiers((await tournamentDetail(t.id))!, t.advance) : null;
   await decide(matchId, input.winner, score, input.retired ? "retired" : input.walkover ? "walkover" : "done", !recordOnly);
   if (input.retired && input.outOfEvent && loser !== null) {
@@ -2075,6 +2252,11 @@ function findProgressionIssues(before: TournamentDetail, after: TournamentDetail
       const chain = wrongChain(after, now.next, was.winner);
       if (chain.length > 0) found.push({ fromMatchId: now.next, wrong: was.winner, right: now.winner, affected: chainSentences(after, chain, was.winner, now.winner) });
     }
+    // A semi-final: who went to the third-place match lost it before, and has now won it.
+    if (was.winner !== null && now.winner !== null && now.winner !== was.winner && now.loserNext !== null) {
+      const chain = wrongChain(after, now.loserNext, now.winner);
+      if (chain.length > 0) found.push({ fromMatchId: now.loserNext, wrong: now.winner, right: was.winner, affected: chainSentences(after, chain, now.winner, was.winner) });
+    }
     return found;
   }
   const wanted = qualifiers(after, after.advance);
@@ -2173,7 +2355,7 @@ export interface MatchSlot {
  */
 async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignoring: Set<number>): Promise<string | null> {
   const db = getDb();
-  const end = slot.startMin + t.matchMinutes;
+  const end = slot.startMin + match.minutes;
   if (!isValidDateString(slot.date) || !Number.isInteger(slot.startMin)) return "Give the date and time.";
   const court = (await db
     .prepare("SELECT c.id, c.name FROM courts c WHERE c.id = ? AND c.venue_id = ? AND EXISTS (SELECT 1 FROM court_activities ca WHERE ca.court_id = c.id AND ca.sport = ?)")
@@ -2191,7 +2373,7 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
   const others = (await db
     .prepare(
       `SELECT id, court_id, entry_a, entry_b, start_min FROM tournament_matches
-        WHERE tournament_id = ? AND status = 'scheduled' AND date = ? AND start_min < ? AND start_min + ? > ? AND id <> ?`
+        WHERE tournament_id = ? AND status = 'scheduled' AND date = ? AND start_min < ? AND start_min + COALESCE(minutes, ?) > ? AND id <> ?`
     )
     .all(t.id, slot.date, end, t.matchMinutes, slot.startMin, match.id)) as { id: number; court_id: number | null; entry_a: number | null; entry_b: number | null }[];
   const live = others.filter((o) => !ignoring.has(o.id));
@@ -2228,6 +2410,75 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
   }
   await db.prepare("UPDATE tournament_matches SET court_id = ?, date = ?, start_min = ?, updated_at = datetime('now') WHERE id = ?").run(slot.courtId, slot.date, slot.startMin, match.id);
   return null;
+}
+
+/**
+ * Move a fixture still to play, or change how long it is given, as an
+ * organiser: to a court and time held for the tournament or free to hold,
+ * with the same checks as any match's slot (holdMatchSlot), after every
+ * match feeding it ends and before every match it feeds begins. The
+ * length is the time held, not a limit on play. Both sides are told.
+ * Atomic: the match moves, and the time it needs is held, or nothing changes.
+ */
+export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: number }): Promise<Result<{ detail: TournamentDetail; change: string }>> {
+  const row = (await getDb().prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
+  if (!row) return { ok: false, error: "Match not found." };
+  const tournamentId = row.tournament_id;
+  const result = await withTransaction(async (): Promise<Result<{ detail: TournamentDetail; change: string }>> => {
+    const db = getDb();
+    // One change to a tournament's fixtures at a time.
+    await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(tournamentId);
+    const t = (await tournamentById(tournamentId))!;
+    if (t.status !== "drawn") return { ok: false, error: "Fixtures are moved once the draw is made, until it is over." };
+    const d = (await tournamentDetail(tournamentId, { forStaff: true }))!;
+    const m = d.matches.find((x) => x.id === matchId)!;
+    if (m.status !== "scheduled") return { ok: false, error: "That match is decided: a result is corrected, not moved." };
+    const minutes = to.minutes ?? m.minutes;
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > 600) return { ok: false, error: "Give the match 5 minutes to 10 hours." };
+    const start = { date: to.date, minute: to.startMin };
+    const end = { date: to.date, minute: to.startMin + minutes };
+    const before = (x: { date: string; minute: number }, y: { date: string; minute: number }) => x.date < y.date || (x.date === y.date && x.minute <= y.minute);
+    // What has to be over first, and what has to come after.
+    const firstRoundAfterGroups = m.stage === "knockout" && m.round === 1 && d.matches.some((x) => x.stage === "group");
+    const feeders = d.matches.filter(
+      (x) => x.next === m.id || x.loserNext === m.id || (firstRoundAfterGroups && x.stage === "group") || (m.stage === "final" && x.stage === "heat")
+    );
+    const fed = d.matches.filter(
+      (x) =>
+        x.id === m.next ||
+        x.id === m.loserNext ||
+        (m.stage === "group" && x.stage === "knockout" && x.round === 1) ||
+        (m.stage === "heat" && x.stage === "final")
+    );
+    for (const f of feeders)
+      if (f.status === "scheduled" && f.date !== null && f.minute !== null && !before({ date: f.date, minute: f.minute + f.minutes }, start))
+        return { ok: false, error: `${matchName(d, m)} has to start after ${matchName(d, f)} ends (${f.date} ${formatMinute(f.minute + f.minutes)}).` };
+    for (const f of fed)
+      if (f.status === "scheduled" && f.date !== null && f.minute !== null && !before(end, { date: f.date, minute: f.minute }))
+        return { ok: false, error: `${matchName(d, m)} has to end before ${matchName(d, f)} starts (${f.date} ${formatMinute(f.minute)}).` };
+    const refused = await holdMatchSlot(t, { ...m, minutes }, to, new Set());
+    if (refused) throw new IssueRefused(refused);
+    await db.prepare("UPDATE tournament_matches SET minutes = ?, updated_at = datetime('now') WHERE id = ?").run(minutes, matchId);
+    const court = (await db.prepare("SELECT name FROM courts WHERE id = ?").get(to.courtId)) as { name: string };
+    const change = `${matchName(d, m)} moved to ${to.date} ${formatMinute(to.startMin)}–${formatMinute(to.startMin + minutes)}, ${court.name}${
+      m.date !== null && m.minute !== null ? ` (was ${m.date} ${formatMinute(m.minute)}–${formatMinute(m.minute + m.minutes)}, ${m.courtName ?? ""})` : ""
+    }.`;
+    return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, change } };
+  }).catch((err) => {
+    if (err instanceof IssueRefused) return { ok: false as const, error: err.message };
+    throw err;
+  });
+  if (!result.ok) return result;
+  // Time the old slot no longer needs goes back on sale.
+  await releaseUnneeded(tournamentId);
+  const d = result.value.detail;
+  const m = d.matches.find((x) => x.id === matchId)!;
+  for (const entryId of [m.a, m.b]) {
+    const userId = entryId === null ? null : ((await getDb().prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(entryId)) as { user_id: number | null } | undefined)?.user_id;
+    if (userId)
+      await tellEntrant(userId, d, `Your match has moved: ${d.name}`, `${matchName(d, m)} in ${d.name} is now on ${m.date} at ${formatMinute(m.minute!)}, ${m.courtName}.`);
+  }
+  return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, change: result.value.change } };
 }
 
 /**
@@ -2292,8 +2543,8 @@ export async function resolveIssue(
           const fresh = { ...m, a: feederSide === "a" ? newSide : m.a, b: feederSide === "b" ? newSide : m.b };
           const refused = await holdMatchSlot(t, fresh, slot, ids);
           if (refused) throw new IssueRefused(`${need.name}: ${refused}`);
-          previousEnd = { date: slot.date, minute: slot.startMin + t.matchMinutes };
-        } else if (m.date !== null && m.minute !== null) previousEnd = { date: m.date, minute: m.minute + t.matchMinutes };
+          previousEnd = { date: slot.date, minute: slot.startMin + m.minutes };
+        } else if (m.date !== null && m.minute !== null) previousEnd = { date: m.date, minute: m.minute + m.minutes };
         changes.push(
           `${need.name} is to be replayed${i === 0 ? ` with ${name(issue.rightEntry)} in place of ${name(issue.wrongEntry)}` : ", with the winner of the replay before"}${slot ? ` on ${slot.date} at ${formatMinute(slot.startMin)}` : ""}.`
         );
@@ -2347,9 +2598,13 @@ async function decide(
   goesOn = true
 ): Promise<void> {
   const db = getDb();
-  const m = (await db.prepare("SELECT next_match_id, next_slot FROM tournament_matches WHERE id = ?").get(matchId)) as {
+  const m = (await db.prepare("SELECT next_match_id, next_slot, loser_next_match_id, loser_next_slot, entry_a, entry_b FROM tournament_matches WHERE id = ?").get(matchId)) as {
     next_match_id: number | null;
     next_slot: "a" | "b" | null;
+    loser_next_match_id: number | null;
+    loser_next_slot: "a" | "b" | null;
+    entry_a: number | null;
+    entry_b: number | null;
   };
   await db
     .prepare(
@@ -2362,6 +2617,11 @@ async function decide(
     .run(matchId);
   if (m.next_match_id !== null && goesOn)
     await db.prepare(`UPDATE tournament_matches SET entry_${m.next_slot} = ? WHERE id = ?`).run(winner, m.next_match_id);
+  // A semi-final's loser goes to the third-place match; a bye sends nobody there.
+  if (m.loser_next_match_id !== null && goesOn) {
+    const loser = winner === null || status === "bye" ? null : winner === m.entry_a ? m.entry_b : m.entry_a;
+    await db.prepare(`UPDATE tournament_matches SET entry_${m.loser_next_slot} = ? WHERE id = ?`).run(loser, m.loser_next_match_id);
+  }
 }
 
 /** What follows any change to a tournament's results or entries. */
@@ -2456,7 +2716,7 @@ async function resolveUncontested(tournamentId: number): Promise<void> {
   );
   for (let guard = 0; guard < 256; guard++) {
     const rows = (await db
-      .prepare("SELECT id, stage, status, winner, entry_a, entry_b, next_match_id, next_slot FROM tournament_matches WHERE tournament_id = ?")
+      .prepare("SELECT id, stage, status, winner, entry_a, entry_b, next_match_id, next_slot, loser_next_match_id, loser_next_slot FROM tournament_matches WHERE tournament_id = ?")
       .all(tournamentId)) as {
       id: number;
       stage: string;
@@ -2466,12 +2726,17 @@ async function resolveUncontested(tournamentId: number): Promise<void> {
       entry_b: number | null;
       next_match_id: number | null;
       next_slot: "a" | "b" | null;
+      loser_next_match_id: number | null;
+      loser_next_slot: "a" | "b" | null;
     }[];
     const side = (m: (typeof rows)[number], slot: "a" | "b") => {
       const entry = slot === "a" ? m.entry_a : m.entry_b;
       if (entry !== null) return out.has(entry) ? "out" : "in";
       const feeders = rows.filter((f) => f.next_match_id === m.id && f.next_slot === slot);
-      return feeders.length > 0 && feeders.every((f) => f.status === "bye" && f.winner === null) ? "never" : "unknown";
+      if (feeders.length > 0 && feeders.every((f) => f.status === "bye" && f.winner === null)) return "never";
+      // The third-place match: a semi-final decided without a loser (a bye) sends nobody.
+      const losers = rows.filter((f) => f.loser_next_match_id === m.id && f.loser_next_slot === slot);
+      return losers.length > 0 && losers.every((f) => f.status !== "scheduled") ? "never" : "unknown";
     };
     const next = rows
       .filter((m) => m.stage === "knockout" && m.status === "scheduled")
@@ -2516,7 +2781,7 @@ export async function releaseUnneeded(tournamentId: number): Promise<number> {
   return releaseHeld(
     { tournamentId },
     "SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ?",
-    `SELECT court_id, date, MIN(start_min) AS first, MAX(start_min + ?) AS last_end FROM tournament_matches
+    `SELECT court_id, date, MIN(start_min) AS first, MAX(start_min + COALESCE(minutes, ?)) AS last_end FROM tournament_matches
       WHERE tournament_id = ? AND status = 'scheduled' AND court_id IS NOT NULL
       GROUP BY court_id, date`,
     [t.matchMinutes, tournamentId],
@@ -2540,7 +2805,7 @@ export async function releaseCompetitionTime(competitionId: number): Promise<num
   return releaseHeld(
     { competitionId },
     "SELECT court_id, date, start_min, end_min FROM blocks WHERE competition_id = ?",
-    `SELECT m.court_id, m.date, MIN(m.start_min) AS first, MAX(m.start_min + d.match_minutes) AS last_end
+    `SELECT m.court_id, m.date, MIN(m.start_min) AS first, MAX(m.start_min + COALESCE(m.minutes, d.match_minutes)) AS last_end
        FROM tournament_matches m JOIN tournaments d ON d.id = m.tournament_id
       WHERE d.competition_id = ? AND d.status <> 'cancelled' AND m.status = 'scheduled' AND m.court_id IS NOT NULL
       GROUP BY m.court_id, m.date`,

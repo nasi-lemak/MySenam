@@ -81,9 +81,12 @@ describe("a division's public page", () => {
     expect(dates).toHaveLength(2);
     fireEvent.change(dates[0], { target: { value: "2012-03-14" } });
     fireEvent.change(dates[1], { target: { value: "2013-07-01" } });
+    // Both under 18 on the first day: a parent or guardian's name and agreement are asked for.
+    fireEvent.change(screen.getByLabelText("Parent or guardian's name"), { target: { value: "Aunty Lim" } });
+    fireEvent.click(screen.getByLabelText(/A parent or guardian of each entrant under 18 agrees/));
     fireEvent.click(screen.getByRole("button", { name: /Enter/ }));
     await act(async () => {});
-    expect(posts.at(-1)).toMatchObject({ action: "enter", partnerName: "Mei Ling", birthDate: "2012-03-14", partnerBirthDate: "2013-07-01" });
+    expect(posts.at(-1)).toMatchObject({ action: "enter", partnerName: "Mei Ling", birthDate: "2012-03-14", partnerBirthDate: "2013-07-01", guardianName: "Aunty Lim", guardianConsent: true });
   });
 });
 

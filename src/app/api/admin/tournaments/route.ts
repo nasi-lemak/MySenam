@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readMinute } from "@/lib/api";
 import { TEMPLATES, venueTemplates, type EntryKind } from "@/lib/competition-templates";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { createTournament, listTournaments, type Format } from "@/lib/tournaments";
+import { createTournament, listTournaments, type Format, type StageKey } from "@/lib/tournaments";
 import { listCompetitions } from "@/lib/competitions";
 import type { Level } from "@/lib/games";
 import type { Category } from "@/lib/who";
@@ -78,6 +78,9 @@ export async function POST(req: NextRequest) {
       ageMin: b.ageMin === null || b.ageMin === undefined || b.ageMin === "" ? null : Number(b.ageMin),
       ageMax: b.ageMax === null || b.ageMax === undefined || b.ageMax === "" ? null : Number(b.ageMax),
       membersOnly: b.membersOnly === true,
+      resultsBy: b.resultsBy === "players" ? "players" : "staff",
+      stageMinutes: b.stageMinutes && typeof b.stageMinutes === "object" ? (b.stageMinutes as Partial<Record<StageKey, number>>) : null,
+      thirdPlace: b.thirdPlace === true,
     },
     admin.id
   );

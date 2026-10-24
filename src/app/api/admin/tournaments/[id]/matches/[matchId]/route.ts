@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
-import { applyCorrection, previewResult, recordPerformances, recordResult, tournamentDetail, type PerformanceInput, type ResultInput, type TournamentDetail } from "@/lib/tournaments";
+import {
+  applyCorrection,
+  moveMatch,
+  previewResult,
+  recordPerformances,
+  recordResult,
+  tournamentDetail,
+  type PerformanceInput,
+  type ResultInput,
+  type TournamentDetail,
+} from "@/lib/tournaments";
 import { staffTournament } from "@/lib/tournament-access";
 import { noteResultBy } from "@/lib/match-reports";
 
@@ -23,7 +33,8 @@ function knockoutLines(d: TournamentDetail): string {
  * note? }] }` for a heat or a final.
  * With `preview: true`: what it would change, nothing changed. With `correction: { mode, reason, token }`: a
  * correction after the knockout has begun (a group result, or a knockout result whose next match is played),
- * confirmed against its preview (managers only).
+ * confirmed against its preview (managers only). `{ move: { courtId, date, startMin, minutes? } }`: the fixture
+ * moved or given another length (managers only), its sides told.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; matchId: string }> }) {
   const { id, matchId } = await params;
@@ -38,6 +49,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  // A fixture moved, or given a different length: an organiser's decision.
+  if (body.move && typeof body.move === "object") {
+    if (found.admin.role === "desk") return NextResponse.json({ error: "Only a manager can move a fixture." }, { status: 403 });
+    const mv = body.move as Record<string, unknown>;
+    const moved = await moveMatch(match.id, {
+      courtId: Number(mv.courtId),
+      date: String(mv.date ?? ""),
+      startMin: Number(mv.startMin),
+      ...(mv.minutes !== undefined && mv.minutes !== null && mv.minutes !== "" ? { minutes: Number(mv.minutes) } : {}),
+    });
+    if (!moved.ok) return NextResponse.json({ error: moved.error }, { status: 409 });
+    await logAction(found.admin, { venueId: moved.value.detail.venueId, action: "tournament.match_moved", detail: `${moved.value.detail.name}: ${moved.value.change}` });
+    return NextResponse.json({ tournament: moved.value.detail, change: moved.value.change });
   }
   // A heat or a final: each competitor's marks.
   if (Array.isArray(body.performances)) {

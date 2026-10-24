@@ -3,6 +3,8 @@ import { getDb } from "./db";
 import { flipScore, scoreRefusal } from "./brackets";
 import { tellVenueStaff } from "./owner-alerts";
 import { recordResult, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
+import { venueHours } from "./store";
+import { isValidDateString, todayISO } from "./time";
 
 /**
  * Results entered by the people on court, not only the venue's staff.
@@ -191,29 +193,48 @@ export interface Official {
   name: string;
   createdAt: string;
   revokedAt: string | null;
+  /** The last day the link works, in the venue's time. */
+  expiresOn: string | null;
 }
 
 const hash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 
-/** A link for an official to enter one tournament's results. The token is returned once and not kept. */
-export async function addOfficial(tournamentId: number, name: string, adminId: number | null): Promise<Result<{ official: Official; token: string }>> {
+/**
+ * A link for an official to enter one tournament's results: 192 random bits,
+ * of which only the SHA-256 is kept, so the link is shown once. It works
+ * until the tournament's last day unless an earlier one is given, and stops
+ * at once when withdrawn. An official has no account: the link is the whole
+ * of their access, limited to entering results of this tournament's matches
+ * still to be decided.
+ */
+export async function addOfficial(
+  tournamentId: number,
+  name: string,
+  adminId: number | null,
+  expiresOn?: string | null
+): Promise<Result<{ official: Official; token: string }>> {
   const clean = name.trim();
   if (clean.length < 2 || clean.length > 60) return { ok: false, error: "Give the official's name." };
   const t = await tournamentById(tournamentId);
   if (!t || t.status === "cancelled" || t.status === "finished") return { ok: false, error: "That tournament is not running." };
   if (t.format === "performance") return { ok: false, error: "A performance event's marks are entered by staff." };
+  const until = expiresOn || t.endsOn;
+  if (!isValidDateString(until) || until > t.endsOn || until < todayISO((await venueHours(t.venueId)).zone))
+    return { ok: false, error: `The link can work until ${t.endsOn}, the last day, at the latest.` };
   const token = crypto.randomBytes(24).toString("base64url");
   const row = (await getDb()
-    .prepare("INSERT INTO tournament_officials (tournament_id, name, token_hash, created_by) VALUES (?, ?, ?, ?) RETURNING id, name, created_at, revoked_at")
-    .get(tournamentId, clean, hash(token), adminId)) as { id: number; name: string; created_at: string; revoked_at: string | null };
-  return { ok: true, value: { official: { id: row.id, name: row.name, createdAt: row.created_at, revokedAt: row.revoked_at }, token } };
+    .prepare(
+      "INSERT INTO tournament_officials (tournament_id, name, token_hash, created_by, expires_on) VALUES (?, ?, ?, ?, ?) RETURNING id, name, created_at, revoked_at, expires_on"
+    )
+    .get(tournamentId, clean, hash(token), adminId, until)) as { id: number; name: string; created_at: string; revoked_at: string | null; expires_on: string | null };
+  return { ok: true, value: { official: { id: row.id, name: row.name, createdAt: row.created_at, revokedAt: row.revoked_at, expiresOn: row.expires_on }, token } };
 }
 
 export async function listOfficials(tournamentId: number): Promise<Official[]> {
   const rows = (await getDb()
-    .prepare("SELECT id, name, created_at, revoked_at FROM tournament_officials WHERE tournament_id = ? ORDER BY id")
-    .all(tournamentId)) as { id: number; name: string; created_at: string; revoked_at: string | null }[];
-  return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, revokedAt: r.revoked_at }));
+    .prepare("SELECT id, name, created_at, revoked_at, expires_on FROM tournament_officials WHERE tournament_id = ? ORDER BY id")
+    .all(tournamentId)) as { id: number; name: string; created_at: string; revoked_at: string | null; expires_on: string | null }[];
+  return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, revokedAt: r.revoked_at, expiresOn: r.expires_on }));
 }
 
 /** The link stops working at once. */
@@ -229,11 +250,14 @@ export async function officialByToken(token: string): Promise<{ official: Offici
   if (!token || token.length > 100) return null;
   const row = (await getDb()
     .prepare(
-      `SELECT o.id, o.name, o.created_at, o.revoked_at, o.tournament_id, t.venue_id FROM tournament_officials o JOIN tournaments t ON t.id = o.tournament_id
+      `SELECT o.id, o.name, o.created_at, o.revoked_at, o.expires_on, o.tournament_id, t.venue_id FROM tournament_officials o JOIN tournaments t ON t.id = o.tournament_id
         WHERE o.token_hash = ? AND o.revoked_at IS NULL AND t.status IN ('open', 'closed', 'drawn')`
     )
-    .get(hash(token))) as { id: number; name: string; created_at: string; revoked_at: null; tournament_id: number; venue_id: number } | undefined;
-  return row ? { official: { id: row.id, name: row.name, createdAt: row.created_at, revokedAt: null }, tournamentId: row.tournament_id, venueId: row.venue_id } : null;
+    .get(hash(token))) as { id: number; name: string; created_at: string; revoked_at: null; expires_on: string | null; tournament_id: number; venue_id: number } | undefined;
+  if (!row) return null;
+  // Past its last day, in the venue's time: it no longer works.
+  if (row.expires_on && todayISO((await venueHours(row.venue_id)).zone) > row.expires_on) return null;
+  return { official: { id: row.id, name: row.name, createdAt: row.created_at, revokedAt: null, expiresOn: row.expires_on }, tournamentId: row.tournament_id, venueId: row.venue_id };
 }
 
 /** An official enters a result: as staff would, recorded with their name and in the activity log. */
@@ -241,8 +265,10 @@ export async function officialResult(token: string, matchId: number, input: Resu
   const who = await officialByToken(token);
   if (!who) return { ok: false, error: "This link no longer works." };
   const db = getDb();
-  const m = (await db.prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
+  const m = (await db.prepare("SELECT tournament_id, status FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number; status: string } | undefined;
   if (!m || m.tournament_id !== who.tournamentId) return { ok: false, error: "That match is not in this tournament." };
+  // A result already in is corrected by the organiser, who sees what a correction changes.
+  if (m.status !== "scheduled") return { ok: false, error: "That match has its result: ask the organiser to correct it." };
   // An official records results; taking a player out of the event stays with staff.
   const done = await recordResult(matchId, { ...input, outOfEvent: false });
   if (!done.ok) return done;

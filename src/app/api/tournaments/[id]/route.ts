@@ -81,6 +81,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       birthDate: typeof body.birthDate === "string" ? body.birthDate : undefined,
       partnerBirthDate: typeof body.partnerBirthDate === "string" ? body.partnerBirthDate : undefined,
       rosterEligible: body.rosterEligible === true,
+      guardianName: typeof body.guardianName === "string" ? body.guardianName : undefined,
+      guardianConsent: body.guardianConsent === true,
     });
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.code ? 403 : 409 });
     return NextResponse.json({ mine: result.value }, { status: 201 });

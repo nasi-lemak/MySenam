@@ -8,7 +8,8 @@ import { staffTournament } from "@/lib/tournament-access";
 export const dynamic = "force-dynamic";
 
 /**
- * `{ paid?, seed? }` — staff on one entry; or `{ withdraw: true, reason?, note?, preview?, token? }` to take them out
+ * `{ paid?, seed?, checkedIn?, eligibilityChecked? }` — staff on one entry (an eligibility check records who checked,
+ * never the document seen); or `{ withdraw: true, reason?, note?, preview?, token? }` to take them out
  * (withdrawn, retired or disqualified): with `preview`, what it would change and a token, nothing changed; after
  * the draw, made only with that token (code CONFIRM without one, CHANGED if the tournament changed since).
  */
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const result = await setEntry(entry.id, {
     paid: typeof body.paid === "boolean" ? body.paid : undefined,
     seed: body.seed === null ? null : body.seed !== undefined ? Number(body.seed) : undefined,
+    checkedIn: typeof body.checkedIn === "boolean" ? body.checkedIn : undefined,
+    eligibilityCheckedBy: typeof body.eligibilityChecked === "boolean" ? (body.eligibilityChecked ? found.admin.name || found.admin.email : null) : undefined,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });

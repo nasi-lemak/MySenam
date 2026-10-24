@@ -201,25 +201,28 @@ describe("who may enter", () => {
     expect(ageOn(born(12, 1), first)).toBe(11);
     expect(await enter(await player(), juniors.id)).toMatchObject({ ok: false, code: "AGE_RANGE", error: expect.stringMatching(/date of birth is needed/) });
     expect(await enter(await player(), juniors.id, { birthDate: born(12) })).toMatchObject({ ok: false, error: expect.stringMatching(/You are 12 on .*ages 11 and under/) });
-    const ok = await enter(await player(), juniors.id, { birthDate: born(12, 1) });
+    // Under 18: a parent or guardian's agreement as well (lib/tournaments.ts, GUARDIAN_AGE).
+    const guardian = { guardianName: "A Parent", guardianConsent: true };
+    const ok = await enter(await player(), juniors.id, { birthDate: born(12, 1), ...guardian });
     expect(ok).toMatchObject({ ok: true });
     expect(((await getDb().prepare("SELECT birth_date FROM tournament_entries WHERE id = ?").get(ok.ok ? ok.value.id : 0)) as { birth_date: string }).birth_date).toBe(born(12, 1));
 
     const pairs = await division(c.id, { name: "Under 16 Doubles", teamSize: 2, ageMin: 10, ageMax: 15 });
     expect(await enter(await player(), pairs.id, { partnerName: "Mei", birthDate: born(14) })).toMatchObject({ ok: false, error: expect.stringMatching(/Your partner's date of birth/) });
     expect(await enter(await player(), pairs.id, { partnerName: "Mei", birthDate: born(14), partnerBirthDate: born(9) })).toMatchObject({ ok: false, error: expect.stringMatching(/Your partner is 9/) });
-    expect(await enter(await player(), pairs.id, { partnerName: "Mei", birthDate: born(14), partnerBirthDate: born(13) })).toMatchObject({ ok: true });
+    expect(await enter(await player(), pairs.id, { partnerName: "Mei", birthDate: born(14), partnerBirthDate: born(13), ...guardian })).toMatchObject({ ok: true });
 
     // A declared date of birth is the entrant's data: in their export, gone when they are erased.
     const entrant = ok.ok ? ok.value.userId! : 0;
-    expect((await exportCustomerData(entrant))?.tournaments).toEqual([expect.objectContaining({ declared_birth_date: born(12, 1) })]);
+    expect((await exportCustomerData(entrant))?.tournaments).toEqual([expect.objectContaining({ declared_birth_date: born(12, 1), guardian_name: "A Parent" })]);
     expect(await eraseCustomer(entrant)).toMatchObject({ ok: true });
-    expect(((await getDb().prepare("SELECT birth_date FROM tournament_entries WHERE id = ?").get(ok.ok ? ok.value.id : 0)) as { birth_date: string | null }).birth_date).toBeNull();
+    expect((await getDb().prepare("SELECT birth_date, guardian_name FROM tournament_entries WHERE id = ?").get(ok.ok ? ok.value.id : 0)) as object).toEqual({ birth_date: null, guardian_name: null });
 
     const teams = await division(c.id, { name: "Junior Teams", entryKind: "team", roster: { min: 2, max: 6 }, ageMax: 15 });
     const captain = await player();
     expect(await enter(captain, teams.id, { teamName: "Shuttle Kids", roster: ["Ali", "Bea"], birthDate: born(14) })).toMatchObject({ ok: false, error: expect.stringMatching(/Confirm that everybody on the roster/) });
-    expect(await enter(captain, teams.id, { teamName: "Shuttle Kids", roster: ["Ali", "Bea"], birthDate: born(14), rosterEligible: true })).toMatchObject({ ok: true });
+    expect(await enter(captain, teams.id, { teamName: "Shuttle Kids", roster: ["Ali", "Bea"], birthDate: born(14), rosterEligible: true })).toMatchObject({ ok: false, code: "GUARDIAN_CONSENT" });
+    expect(await enter(captain, teams.id, { teamName: "Shuttle Kids", roster: ["Ali", "Bea"], birthDate: born(14), rosterEligible: true, ...guardian })).toMatchObject({ ok: true });
   });
 
   it("members only takes an active membership at the venue", async () => {

@@ -157,7 +157,8 @@ rules, which start from the sport's template
   5 to 14). The one entering is the captain. The public sees the team's name;
   the roster only its staff and the captain.
 - Level, entry fee, most entries, days (up to two weeks), daily hours to the
-  minute, how long each match or heat is given on court, and which courts.
+  minute, how long each match or heat is given on court (below), and which
+  courts.
   Those hours are **held at once**: ordinary blocks with the tournament's
   name, so every booking path already treats them as taken. It will not hold
   over a booking already made, or a court out of service, and says which.
@@ -173,7 +174,19 @@ rules, which start from the sport's template
     birth, and a partner's in doubles; a team's captain declares that the
     roster is within the ages. Nothing is checked against a document: the
     venue checks on the day if it matters. A declared date of birth is in the
-    player's data export and erased with their account.
+    player's data export and erased with their account. A declared age is
+    the entrant's word, not verified eligibility.
+  - **Under 18, with a guardian's agreement.** Where an age range asks for
+    dates of birth and one makes the entrant or their partner under 18 on
+    the first day, or the event is a team event for under-18s, the entry
+    needs a parent or guardian's name and a tick that they agree. Both are
+    recorded as the entrant declared them: the app does not verify them, and
+    the organiser's screen says so. The threshold (`GUARDIAN_AGE`, 18) is an
+    operator policy, not a legal determination. Whether a venue needs a signed
+    form as well is for the operator and organiser to settle. No identity
+    document is asked for or stored. The guardian's name is in the
+    entrant's export and erased with their account. An event with no age
+    range asks for no dates of birth, so minors in it are not detected.
   - **Members only:** an active membership at the venue.
   - Points by set score, where wanted, under *Scoring and ranking*: four
     numbers for a clear win, a deciding-set win, a deciding-set loss and a
@@ -187,18 +200,86 @@ divisions*). Each **division** is a tournament set up as *Part of* it: men's
 singles, girls under 12, mixed doubles, each with its own format, rules,
 who may enter, fee, entries and draw (`src/lib/competitions.ts`).
 
-- A division takes the competition's days, hours, courts and match length;
-  it holds nothing of its own.
+- A division takes the competition's days, hours and courts, and holds
+  nothing of its own. Its matches are the competition's length unless the
+  division gives its own (*This division's matches*): a 30-minute junior
+  draw and a 45-minute open draw share the same courts.
 - Each division's draw is scheduled into the competition's time around the
-  matches the other divisions already have: never two matches on one court,
-  and a player (by account) in two divisions never on court in both at
-  once. Divisions are added before any draw.
+  matches the other divisions already have, whatever their lengths: never two
+  matches on one court, and a player (by account) in two divisions never on
+  court in both at once. Divisions are added before any draw.
 - The competition can limit how many divisions one player enters.
 - Held time no division will use goes back on sale once every division still
   running has made its draw, and more as results come in. Calling off one
   division gives back what it no longer needs once the rest are drawn;
   calling off the competition calls off every division (entrants told, fees
   paid online owed back) and gives the courts back.
+
+### Match lengths
+
+How long a match is given on court comes from the most specific of:
+
+1. **the fixture**, once an organiser moves it or gives it longer (below);
+2. **its stage**, under *Match lengths by stage*: group matches, knockout
+   rounds, the final (the knockout's last round and its third-place match),
+   heats;
+3. **the tournament**, or the division of a competition;
+4. **the competition**.
+
+Each match keeps the length it was drawn with (`tournament_matches.minutes`).
+A length is the time held on court, not how long play takes: a match that
+finishes early leaves its court free, and one that runs over runs into the
+next time held, never into a booking.
+
+### The third-place match
+
+A knockout, or the knockout after groups, can have a **third-place match**
+(*Third-place match*, under *Match lengths by stage*). It is made at the draw
+only when there are at least four in the knockout, and is played by the two
+semi-finals' losers, scheduled after both semi-finals. It goes through the
+same progression as every match:
+
+- **Byes.** A semi-final decided as a bye sends nobody, and the third-place
+  match is then a bye.
+- **Walkovers and withdrawals.** A semi-final lost by walkover sends its
+  loser, who is out, so the third-place match is a walkover to the other.
+  If both losers are out, nobody plays it.
+- **Corrections.** A semi-final result can be put right while neither the
+  final nor the third-place match has been played. After either has, it is
+  refused as a plain result. A record-only correction then opens a
+  progression issue for each match the wrong competitor played or is due to
+  play, the third-place match included. The tournament does not finish until
+  it is resolved. Replaying is refused while the competitor due the place
+  is in the other of the two matches, so the organiser lets the results
+  stand or arranges it by hand. A played match is never rewritten.
+- **Finishing.** The tournament finishes once the final and the third-place
+  match are both decided.
+
+### Moving a fixture
+
+A manager moves a match still to play, or gives it a different length, from
+*Move…* on its row (`moveMatch`). The new time has to satisfy everything a
+replay's does:
+
+- the court is the venue's for the sport, open, in the future, and not used
+  by another match of the tournament or of another division;
+- neither side plays elsewhere then;
+- the time is held already or free to hold, and a booking is never moved;
+- the match starts after every match feeding it ends, and ends before every
+  match it feeds begins.
+
+Either it moves and its time is held, or nothing changes. Both sides are
+emailed the new time, the move is in the activity log with the old time, and
+held time no longer needed goes back on sale. A decided match is corrected,
+not moved. Front desk staff cannot move fixtures.
+
+### On the day
+
+- **Check-in:** staff mark each entrant arrived (*check in*), and can take it
+  back.
+- **Eligibility checked:** for an event with an age range, staff can record
+  that they saw proof of age at the venue (*age checked*): who checked and
+  when, never the document or its number.
 
 ### The draw and the schedule
 
@@ -208,9 +289,12 @@ its winner. A performance event's heats are seeded by entry mark: the best
 in the last heat, laned from the middle out, those with no mark drawn by lot
 into the earlier heats, and no heat left with one competitor where that can
 be avoided. Every match or heat gets a court and a time within those held,
-with nobody in two places at once, no round before the one feeding it, and
-the final after every heat — or the draw says how many did not fit and
-changes nothing. Everybody is emailed their first match, or their heat and
+each for its own length, with nobody in two places at once, no round
+starting before the matches feeding it have ended, and the final after every
+heat. Starts fall on a grid of the lengths' greatest common divisor from
+the first minute of the day, so a tournament whose matches are all one
+length keeps the slots it always had. Otherwise the draw says how many did
+not fit and changes nothing. Everybody is emailed their first match, or their heat and
 lane.
 
 ### Results
@@ -230,9 +314,19 @@ lane.
   own for one tournament from *Give an official a link*, shown once; no
   account is needed. Whoever holds it enters results as staff would (not
   taking anybody out of the event), each recorded with the official's name
-  on the match and in the activity log. Staff withdraw a link at any time;
-  it stops working too when the tournament ends. Only the SHA-256 of the
-  link's secret is kept.
+  on the match and in the activity log.
+  - **Scope.** A link enters results only for this tournament's matches
+    still to be decided. A result already in is corrected by the organiser,
+    who sees what a correction changes.
+  - **Expiry.** It works until the tournament's last day, or an earlier day
+    the organiser gives, and when the tournament ends.
+  - **Revocation.** Staff withdraw a link at any time, and it stops at once.
+  - **Strength.** The link carries 192 random bits; only their SHA-256 is
+    kept, so it is shown once. Its page is rate-limited.
+  - **What it shows.** Entrants' names and matches, as the public page does.
+  - **Why a link.** Officials are often volunteers without an account, and
+    their one-tournament, results-only access does not justify one. A venue
+    that wants named accounts can make them staff with the front-desk role.
 
 - **Matches:** staff enter the score in the sport's form and who won; a
   score that says the other side won, or has more sets than the match is the

@@ -210,6 +210,9 @@ function Create({
     ageMax: "",
     membersOnly: false,
     resultsBy: "staff",
+    // Match lengths by stage (blank: the length above), and a third-place match.
+    stageMinutes: { group: "", knockout: "", final: "", heat: "" } as Record<"group" | "knockout" | "final" | "heat", string>,
+    thirdPlace: false,
   });
   const partOf = competitions.find((c) => String(c.id) === f.competitionId) ?? null;
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
@@ -248,6 +251,8 @@ function Create({
           groupSize: Number(f.groupSize),
           advance: Number(f.advance),
           matchMinutes: Number(f.matchMinutes),
+          stageMinutes: Object.fromEntries(Object.entries(f.stageMinutes).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
+          thirdPlace: f.thirdPlace && (f.format === "knockout" || f.format === "groups"),
           courtIds: f.courtIds.length ? f.courtIds : courts.map((c) => c.id),
         });
         if (ok) setF({ ...f, name: "", description: "" });
@@ -262,7 +267,8 @@ function Create({
             value={f.competitionId}
             onChange={(e) => {
               const c = competitions.find((x) => String(x.id) === e.target.value);
-              if (c) setF({ ...f, competitionId: e.target.value, sport: c.sport as Sport, template: templateFor(c.sport).key, rules: templateFor(c.sport).rules });
+              if (c)
+                setF({ ...f, competitionId: e.target.value, sport: c.sport as Sport, template: templateFor(c.sport).key, rules: templateFor(c.sport).rules, matchMinutes: String(c.matchMinutes) });
               else setF({ ...f, competitionId: "" });
             }}
             className={`w-72 ${input}`}
@@ -414,10 +420,16 @@ function Create({
         )}
       </div>
       {partOf ? (
-        <p className="text-sm text-slate-600">
-          Played in {partOf.name}&apos;s time: {partOf.startsOn}
-          {partOf.endsOn !== partOf.startsOn && ` to ${partOf.endsOn}`}, {formatMinute(partOf.startMin)}–{formatMinute(partOf.endMin)}, {partOf.matchMinutes} minutes a match, on its courts.
-        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <p className="text-sm text-slate-600">
+            Played in {partOf.name}&apos;s time: {partOf.startsOn}
+            {partOf.endsOn !== partOf.startsOn && ` to ${partOf.endsOn}`}, {formatMinute(partOf.startMin)}–{formatMinute(partOf.endMin)}, on its courts; its matches are {partOf.matchMinutes} minutes unless this division says.
+          </p>
+          <label className={label}>
+            This division&apos;s matches (minutes)
+            <input type="number" min={5} max={600} value={f.matchMinutes} onChange={(e) => setF({ ...f, matchMinutes: e.target.value })} className={`w-24 ${input}`} />
+          </label>
+        </div>
       ) : (
       <div className="flex flex-wrap items-end gap-3">
         <label className={label}>
@@ -495,6 +507,26 @@ function Create({
         under.
       </p>
       {f.format !== "performance" && <RulesFields rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />}
+      <details className="rounded-lg border border-slate-200 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700">Match lengths by stage{f.format === "knockout" || f.format === "groups" ? ", third-place match" : ""}</summary>
+        <p className="mt-2 text-xs text-slate-500">
+          Blank takes {f.matchMinutes} minutes. Each fixture keeps the length it was drawn with, and can be given more when you move it. A length is the time held on court, not how long play will take.
+        </p>
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          {(f.format === "performance" ? (["heat", "final"] as const) : f.format === "knockout" ? (["knockout", "final"] as const) : f.format === "groups" ? (["group", "knockout", "final"] as const) : (["group"] as const)).map((k) => (
+            <label key={k} className={label}>
+              {k === "group" ? "Group matches" : k === "knockout" ? "Knockout rounds" : k === "heat" ? "Heats" : "Final"}
+              <input type="number" min={5} max={600} placeholder={f.matchMinutes} value={f.stageMinutes[k]} onChange={(e) => setF({ ...f, stageMinutes: { ...f.stageMinutes, [k]: e.target.value } })} className={`w-24 ${input}`} />
+            </label>
+          ))}
+          {(f.format === "knockout" || f.format === "groups") && (
+            <label className="flex items-center gap-1.5 text-sm text-slate-600">
+              <input type="checkbox" checked={f.thirdPlace} onChange={(e) => setF({ ...f, thirdPlace: e.target.checked })} />
+              Third-place match (the semi-finals&apos; losers; played at the final&apos;s length)
+            </label>
+          )}
+        </div>
+      </details>
       <details className="rounded-lg border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm font-medium text-slate-700">Scoring and ranking</summary>
         <ScoringFields rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />
@@ -646,12 +678,14 @@ function ResultsByPeople({ t }: { t: TournamentDetail }) {
       )}
       <div className="mt-3">
         <p className="text-slate-600">
-          Officials (referees) enter results through a link of their own, no account needed; each result is recorded with their name.
+          Officials (referees) enter results through a link of their own, no account needed; each result is recorded with their name. A link
+          enters results of matches still to be decided, works until the last day, and stops at once when withdrawn; corrections stay with you.
         </p>
         <ul className="mt-1 space-y-1">
           {live.map((o) => (
             <li key={o.id} className="flex items-center gap-2">
               {o.name}
+              {o.expiresOn && <span className="text-xs text-slate-500">until {o.expiresOn}</span>}
               <button
                 onClick={async () => {
                   setError(null);
@@ -1049,8 +1083,34 @@ function Manage({
           <tbody>
             {t.entries.filter((e) => e.status !== "withdrawn").map((e) => (
               <tr key={e.id} className="border-t border-slate-100">
-                <td className="py-1.5">{e.name}</td>
+                <td className="py-1.5">
+                  {e.name}
+                  {e.guardian && (
+                    <div className="text-xs text-slate-500">
+                      Under 18 as declared · guardian {e.guardian.name} agreed (their word, not checked)
+                    </div>
+                  )}
+                  {e.eligibilityChecked && <div className="text-xs text-emerald-700">✓ eligibility checked by {e.eligibilityChecked.by}</div>}
+                </td>
                 <td className="text-slate-500">{e.status === "waitlisted" ? "waiting" : ""}</td>
+                <td className="space-x-1 whitespace-nowrap">
+                  {e.status === "entered" && t.status !== "cancelled" && (
+                    <>
+                      <button onClick={() => void post(`${base}/entries/${e.id}`, { checkedIn: !e.checkedIn })} className={`${small} ${e.checkedIn ? "bg-emerald-50 text-emerald-700" : ""}`}>
+                        {e.checkedIn ? "✓ here" : "check in"}
+                      </button>
+                      {t.ageRange && (
+                        <button
+                          onClick={() => void post(`${base}/entries/${e.id}`, { eligibilityChecked: !e.eligibilityChecked })}
+                          title="You saw proof of age at the venue. Nothing about the document is recorded."
+                          className={small}
+                        >
+                          {e.eligibilityChecked ? "undo check" : "age checked"}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td>
                   {t.entryFee > 0 && (
                     <button onClick={() => void post(`${base}/entries/${e.id}`, { paid: !e.paid })} className={`${small} ${e.paid ? "bg-emerald-50 text-emerald-700" : ""}`}>
@@ -1258,9 +1318,38 @@ function CorrectionPanel({
   );
 }
 
+/** Move a fixture still to play, or give it longer: to a court and time held for it or free to hold (managers). */
+function MoveFixture({ m, venue, save }: { m: Match; venue: ManagedVenue; save: (body: object) => Promise<boolean> }) {
+  const [to, setTo] = useState({ date: m.date ?? "", startMin: m.minute ?? 540, courtId: m.courtId ?? 0, minutes: String(m.minutes) });
+  return (
+    <details className="mt-1">
+      <summary className="cursor-pointer text-teal-700">Move…</summary>
+      <div className="mt-1 flex flex-col gap-1">
+        <input type="date" aria-label="Date" value={to.date} onChange={(e) => setTo({ ...to, date: e.target.value })} className={input} />
+        <ClockField label="Start" value={to.startMin} onChange={(v) => setTo({ ...to, startMin: v })} className={input} />
+        <select aria-label="Court" value={to.courtId} onChange={(e) => setTo({ ...to, courtId: Number(e.target.value) })} className={input}>
+          {venue.courts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <label>
+          Minutes{" "}
+          <input type="number" min={5} max={600} value={to.minutes} onChange={(e) => setTo({ ...to, minutes: e.target.value })} className={`w-16 ${input}`} />
+        </label>
+        <button onClick={() => void save({ move: { ...to, minutes: Number(to.minutes) } })} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+          Move it and tell the players
+        </button>
+      </div>
+    </details>
+  );
+}
+
 function MatchRow({
   m,
   names,
+  venue,
   rules,
   save,
 }: {
@@ -1274,13 +1363,14 @@ function MatchRow({
   const [score, setScore] = useState(m.score ?? "");
   const known = m.a !== null && m.b !== null;
   const side = (id: number | null) => (id === null ? "to be decided" : names.get(id) ?? "?");
-  const label = m.stage === "group" ? `Group ${m.groupNo}` : `Knockout round ${m.round}`;
+  const label = m.stage === "group" ? `Group ${m.groupNo}` : m.placement === 3 ? "Third-place match" : `Knockout round ${m.round}`;
   return (
     <li className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
       <span className="w-40 shrink-0 text-xs text-slate-500">
-        {m.date} {m.minute !== null && formatMinute(m.minute)} · {m.courtName ?? "—"}
+        {m.date} {m.minute !== null && `${formatMinute(m.minute)}–${formatMinute(m.minute + m.minutes)}`} · {m.courtName ?? "—"}
         <br />
         {label}
+        {m.status === "scheduled" && m.date !== null && <MoveFixture m={m} venue={venue} save={save} />}
       </span>
       <span className={`min-w-[10rem] flex-1 ${m.winner === m.a && m.a !== null ? "font-semibold" : ""}`}>{side(m.a)}</span>
       <span className="text-slate-400">v</span>

@@ -27,7 +27,7 @@ export default function TournamentPage() {
   const [missing, setMissing] = useState(false);
   const [partner, setPartner] = useState("");
   const [partnerGender, setPartnerGender] = useState<"woman" | "man" | "">("");
-  const [team, setTeam] = useState<TeamForm>({ name: "", roster: "", mark: "", birth: "", partnerBirth: "", rosterOk: false });
+  const [team, setTeam] = useState<TeamForm>({ name: "", roster: "", mark: "", birth: "", partnerBirth: "", rosterOk: false, guardian: "", guardianOk: false });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -389,9 +389,10 @@ function Bracket({ t, matches, names }: { t: T; matches: Match[]; names: Map<num
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{roundName(t, round, rounds)}</div>
             {matches
               .filter((m) => m.round === round)
-              .sort((a, b) => a.position - b.position)
+              .sort((a, b) => (a.placement ?? 0) - (b.placement ?? 0) || a.position - b.position)
               .map((m) => (
                 <div key={m.id} className="rounded-lg border border-slate-200 text-sm">
+                  {m.placement === 3 && <div className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("tour.thirdPlace")}</div>}
                   {[m.a, m.b].map((side, i) => (
                     <div
                       key={i}
@@ -424,6 +425,16 @@ interface TeamForm {
   birth: string;
   partnerBirth: string;
   rosterOk: boolean;
+  guardian: string;
+  guardianOk: boolean;
+}
+
+/** Under 18 on the first day, by a declared date of birth (the server checks it again). */
+function minorOn(birth: string, day: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birth)) return false;
+  const [by, bm, bd] = birth.split("-").map(Number);
+  const [y, m, d] = day.split("-").map(Number);
+  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0) < 18;
 }
 
 /** Who may enter, as a line: ages on the first day, members only, the last day for entries. */
@@ -495,6 +506,10 @@ function EnterBox({
         {t("tour.signInToEnter")}
       </Link>
     );
+  // A declared minor (or a team event for under-18s) enters with a parent or guardian's agreement.
+  const minors =
+    !!x.ageRange &&
+    (minorOn(team.birth, x.startsOn) || (x.teamSize === 2 && minorOn(team.partnerBirth, x.startsOn)) || (x.entryKind === "team" && x.ageRange.max !== null && x.ageRange.max < 18));
   return (
     <form
       onSubmit={(e) => {
@@ -510,6 +525,7 @@ function EnterBox({
           ...(x.ageRange
             ? { birthDate: team.birth, ...(x.teamSize === 2 ? { partnerBirthDate: team.partnerBirth } : {}), ...(x.entryKind === "team" ? { rosterEligible: team.rosterOk } : {}) }
             : {}),
+          ...(minors ? { guardianName: team.guardian, guardianConsent: team.guardianOk } : {}),
         });
       }}
       className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -606,6 +622,24 @@ function EnterBox({
           <input type="checkbox" required checked={team.rosterOk} onChange={(e) => setTeam({ ...team, rosterOk: e.target.checked })} />
           {t("tour.rosterEligible", { date: x.startsOn })}
         </label>
+      )}
+      {minors && (
+        <>
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("tour.guardianName")}
+            <input
+              required
+              minLength={2}
+              value={team.guardian}
+              onChange={(e) => setTeam({ ...team, guardian: e.target.value })}
+              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" required checked={team.guardianOk} onChange={(e) => setTeam({ ...team, guardianOk: e.target.checked })} />
+            {t("tour.guardianConsent")}
+          </label>
+        </>
       )}
       <button className={button}>{t("tour.enter")}</button>
       <span className="text-sm text-slate-500">
