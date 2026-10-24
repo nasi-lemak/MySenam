@@ -1,3 +1,5 @@
+import { DEFAULT_SCORING, type RankKey, type ScoringRules } from "./tournament-rules";
+
 /**
  * The arithmetic of a tournament, kept apart from the database: who meets
  * whom, where the byes fall, how a group finishes, and how matches fit into
@@ -153,52 +155,153 @@ export function parseScore(score: string): ParsedScore | null {
   };
 }
 
+export interface ParsedTally {
+  a: number;
+  b: number;
+  /** How a level knockout match was decided, as written: "penalties 4-3". */
+  decider: string | null;
+}
+
+/** "3-2", or "2-2 (penalties 4-3)" — one number each side. Null if it does not read as one. */
+export function parseTally(score: string): ParsedTally | null {
+  const m = /^\s*(\d{1,4})\s*[-–:]\s*(\d{1,4})\s*(?:\((.{1,60})\))?\s*$/.exec(score);
+  if (!m) return null;
+  return { a: Number(m[1]), b: Number(m[2]), decider: m[3]?.trim() || null };
+}
+
+/**
+ * Why a score cannot stand for this result, or null. Sets: each set has a
+ * winner, there are no more than the match is the best of, and the winner
+ * took more of them (not so for a retirement, where the score is what was
+ * played) but never more than a majority. Tally: the winner scored more; a
+ * level score is a draw where draws are allowed, and otherwise needs how it
+ * was decided, in brackets.
+ */
+export function scoreRefusal(
+  score: string,
+  winnerIsA: boolean | null,
+  scoring: Pick<ScoringRules, "kind" | "bestOf" | "draws">,
+  opts: { retired?: boolean; drawAllowed?: boolean } = {}
+): string | null {
+  if (scoring.kind === "tally") {
+    const t = parseTally(score);
+    if (!t) return 'Write the score as one number each side, like "3-2".';
+    if (winnerIsA === null) return t.a === t.b && opts.drawAllowed ? null : t.a === t.b ? "A draw is not allowed here: give the winner." : "That score has a winner.";
+    if (opts.retired) return null;
+    if (t.a === t.b) return t.decider ? null : 'Level: say how it was decided, like "2-2 (penalties 4-3)".';
+    return (t.a > t.b) === winnerIsA ? null : "That score says the other side won.";
+  }
+  if (winnerIsA === null) return "A match in sets always has a winner.";
+  const parsed = parseScore(score);
+  if (!parsed) return 'Write the score as sets, like "21-15, 18-21, 21-10".';
+  if (parsed.sets.length > scoring.bestOf) return `That is more sets than a best of ${scoring.bestOf}.`;
+  const won = winnerIsA ? parsed.setsA : parsed.setsB;
+  const lost = winnerIsA ? parsed.setsB : parsed.setsA;
+  if (opts.retired) return null;
+  if (won <= lost) return "That score says the other side won.";
+  if (won > Math.ceil(scoring.bestOf / 2)) return `A best of ${scoring.bestOf} is won with ${Math.ceil(scoring.bestOf / 2)} sets.`;
+  return null;
+}
+
 export interface Standing {
   entryId: number;
   played: number;
   won: number;
+  drawn: number;
   lost: number;
   setDiff: number;
+  /** Points (or goals) scored, and the difference. */
+  pointsFor: number;
   pointDiff: number;
+  /** Table points, by the rules' points for a win, a draw and a loss. */
+  points: number;
+}
+
+export interface TableResult {
+  a: number;
+  b: number;
+  winner: number | null;
+  score: string | null;
+  /** Played and level (a tally sport's draw). */
+  draw?: boolean;
+  /** One side stopped part-way. */
+  retired?: boolean;
 }
 
 /**
- * A group's table: most wins first, then the better set difference, then
- * points; then, between two level on all that, whoever won when they met.
- * A walkover counts as a win, with no sets or points either way.
+ * A group's table, ranked by the rules' keys in order (by default most wins,
+ * then the better set difference, then points, then whoever won when two
+ * level on all that met), the entry's id settling anything still level. A
+ * walkover counts as a win with no sets or points either way; a retirement as
+ * a win, with its partial score counted only where the rules say "as_played".
  */
 export function standings(
   entryIds: number[],
-  results: { a: number; b: number; winner: number | null; score: string | null }[]
+  results: TableResult[],
+  scoring: Pick<ScoringRules, "kind" | "tablePoints" | "rankBy" | "retired"> = DEFAULT_SCORING
 ): Standing[] {
   const table = new Map<number, Standing>(
-    entryIds.map((id) => [id, { entryId: id, played: 0, won: 0, lost: 0, setDiff: 0, pointDiff: 0 }])
+    entryIds.map((id) => [id, { entryId: id, played: 0, won: 0, drawn: 0, lost: 0, setDiff: 0, pointsFor: 0, pointDiff: 0, points: 0 }])
   );
   for (const r of results) {
-    if (r.winner === null) continue;
+    if (r.winner === null && !r.draw) continue;
     const a = table.get(r.a);
     const b = table.get(r.b);
     if (!a || !b) continue;
     a.played++;
     b.played++;
-    const [win, loss] = r.winner === r.a ? [a, b] : [b, a];
-    win.won++;
-    loss.lost++;
-    const parsed = r.score ? parseScore(r.score) : null;
-    if (parsed) {
+    if (r.draw) {
+      a.drawn++;
+      b.drawn++;
+      a.points += scoring.tablePoints.draw;
+      b.points += scoring.tablePoints.draw;
+    } else {
+      const [win, loss] = r.winner === r.a ? [a, b] : [b, a];
+      win.won++;
+      loss.lost++;
+      win.points += scoring.tablePoints.win;
+      loss.points += scoring.tablePoints.loss;
+    }
+    if (!r.score || (r.retired && scoring.retired === "win_only")) continue;
+    if (scoring.kind === "tally") {
+      const t = parseTally(r.score);
+      if (!t) continue;
+      a.pointsFor += t.a;
+      b.pointsFor += t.b;
+      a.pointDiff += t.a - t.b;
+      b.pointDiff += t.b - t.a;
+    } else {
+      const parsed = parseScore(r.score);
+      if (!parsed) continue;
       a.setDiff += parsed.setsA - parsed.setsB;
       b.setDiff += parsed.setsB - parsed.setsA;
+      a.pointsFor += parsed.pointsA;
+      b.pointsFor += parsed.pointsB;
       a.pointDiff += parsed.pointsA - parsed.pointsB;
       b.pointDiff += parsed.pointsB - parsed.pointsA;
     }
   }
   const headToHead = (x: number, y: number) =>
-    results.find((r) => r.winner !== null && ((r.a === x && r.b === y) || (r.a === y && r.b === x)))?.winner;
+    results.find((r) => r.winner !== null && !r.draw && ((r.a === x && r.b === y) || (r.a === y && r.b === x)))?.winner;
+  const value: Record<Exclude<RankKey, "head_to_head">, (s: Standing) => number> = {
+    points: (s) => s.points,
+    wins: (s) => s.won,
+    set_diff: (s) => s.setDiff,
+    point_diff: (s) => s.pointDiff,
+    points_for: (s) => s.pointsFor,
+  };
   return [...table.values()].sort((x, y) => {
-    const by = y.won - x.won || y.setDiff - x.setDiff || y.pointDiff - x.pointDiff;
-    if (by !== 0) return by;
-    const met = headToHead(x.entryId, y.entryId);
-    return met === x.entryId ? -1 : met === y.entryId ? 1 : x.entryId - y.entryId;
+    for (const key of scoring.rankBy) {
+      if (key === "head_to_head") {
+        const met = headToHead(x.entryId, y.entryId);
+        if (met === x.entryId) return -1;
+        if (met === y.entryId) return 1;
+        continue;
+      }
+      const by = value[key](y) - value[key](x);
+      if (by !== 0) return by;
+    }
+    return x.entryId - y.entryId;
   });
 }
 

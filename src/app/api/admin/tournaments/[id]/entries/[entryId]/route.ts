@@ -8,8 +8,9 @@ import { staffTournament } from "@/lib/tournament-access";
 export const dynamic = "force-dynamic";
 
 /**
- * `{ paid?, seed? }` — staff on one entry; or `{ withdraw: true, reason?, note?, preview? }` to take them out
- * (withdrawn, retired or disqualified): with `preview`, what it would change, and nothing changed.
+ * `{ paid?, seed? }` — staff on one entry; or `{ withdraw: true, reason?, note?, preview?, token? }` to take them out
+ * (withdrawn, retired or disqualified): with `preview`, what it would change and a token, nothing changed; after
+ * the draw, made only with that token (code CONFIRM without one, CHANGED if the tournament changed since).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; entryId: string }> }) {
   const { id, entryId } = await params;
@@ -30,13 +31,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Disqualifying somebody is a decision about the competition, not the desk's to make.
     if (reason === "disqualified" && found.admin.role === "desk")
       return NextResponse.json({ error: "Only a manager can disqualify an entrant." }, { status: 403 });
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    if (reason === "disqualified" && body.preview !== true && note.length < 5)
+      return NextResponse.json({ error: "Say why they are disqualified: it is kept with the record." }, { status: 400 });
     if (body.preview === true) {
       const preview = await previewTakeOut(entry.id, reason);
       if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 409 });
-      return NextResponse.json({ changes: preview.value.changes });
+      return NextResponse.json(preview.value);
     }
-    const out = await takeOut(entry.id, reason, typeof body.note === "string" ? body.note : undefined);
-    if (!out.ok) return NextResponse.json({ error: out.error }, { status: 409 });
+    // After the draw it changes matches and tables: made only as confirmed against its preview.
+    const t = (await getDb().prepare("SELECT status FROM tournaments WHERE id = ?").get(found.id)) as { status: string };
+    const token = typeof body.token === "string" ? body.token : null;
+    if (t.status === "drawn" && !token)
+      return NextResponse.json({ error: "Review what this changes, then confirm it.", code: "CONFIRM" }, { status: 409 });
+    const out = await takeOut(entry.id, reason, note || undefined, token ? { token } : undefined);
+    if (!out.ok) return NextResponse.json({ error: out.error, code: out.code }, { status: 409 });
     const d = (await tournamentDetail(found.id, { forStaff: true }))!;
     await logAction(found.admin, {
       venueId: d.venueId,

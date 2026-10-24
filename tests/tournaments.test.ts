@@ -43,6 +43,8 @@ import {
   previewResult,
   applyCorrection,
   setRules,
+  reviewIssue,
+  resolveIssue,
   type TournamentInput,
 } from "../src/lib/tournaments";
 
@@ -616,6 +618,11 @@ describe("correcting a group result after the knockout has begun", () => {
     // The knockout is as it was played.
     expect(done.value.detail.matches.find((x) => x.id === affected.id)).toMatchObject({ status: "done", a: affected.a, b: affected.b });
     expect(done.value.detail.corrections.map((c) => c.kind)).toEqual(["standings_only"]);
+    // The semi-final was played by the competitor the tables no longer send: flagged for the organiser.
+    const second = affected.a === swap.winner ? affected.b : [affected.a, affected.b].find((x) => x !== swap.winner);
+    expect(done.value.detail.issues).toEqual([expect.objectContaining({ status: "open", fromMatchId: affected.id, rightEntry: swap.winner })]);
+    expect([affected.a, affected.b]).toContain(done.value.detail.issues[0].wrongEntry);
+    expect(second).toBeDefined();
   });
 
   it("of a knockout match whose next match is played: its record put right, the later rounds as they were played", async () => {
@@ -644,8 +651,14 @@ describe("correcting a group result after the knockout has begun", () => {
     expect(done.value.detail.matches.find((x) => x.id === semi.id)).toMatchObject({ winner: semi.b, score: "10-21, 12-21" });
     // Who went on, and the final they played, are not rewritten.
     expect(done.value.detail.matches.find((x) => x.id === final.id)).toMatchObject({ a: final.a, b: final.b, winner: semi.a, status: "done" });
-    expect(done.value.detail.status).toBe("finished");
     expect(done.value.detail.corrections).toEqual([expect.objectContaining({ kind: "standings_only", knockout: true, reason: "Names swapped on the sheet" })]);
+    // But the bracket is not quietly left wrong: the wrong side played the final, so it is under review and not finished.
+    expect(preview.value.issuesIfStandingsOnly?.join(" ")).toMatch(/Final: .* played instead of/);
+    expect(done.value.detail.status).toBe("drawn");
+    expect(done.value.detail.issues).toEqual([
+      expect.objectContaining({ status: "open", fromMatchId: final.id, wrongEntry: semi.a, rightEntry: semi.b, affected: [expect.objectContaining({ matchId: final.id, played: true })] }),
+    ]);
+    expect(done.value.changes.join(" ")).toMatch(/Under review/);
   });
 
   it("is refused against a preview of a tournament that has since changed", async () => {
@@ -679,6 +692,152 @@ describe("correcting a group result after the knockout has begun", () => {
       { params: Promise.resolve({ id: String(t.id), matchId: String(m.id) }) }
     );
     expect(res.status).toBe(403);
+  });
+});
+
+describe("progression a correction left wrong", () => {
+  /** A finished four-player knockout whose first semi-final's sheet had the names swapped, corrected in the record only. */
+  async function wrongFinal() {
+    const t = await tournament();
+    await entries(t.id, 4);
+    const drawn = await makeDraw(t.id, fixed);
+    if (!drawn.ok) throw new Error(drawn.error);
+    const [semi, other] = drawn.value.matches.filter((x) => x.round === 1).sort((a, b) => a.position - b.position);
+    expect((await recordResult(semi.id, { winner: semi.a!, score: "21-10, 21-12" })).ok).toBe(true);
+    expect((await recordResult(other.id, { winner: other.a!, score: "21-10, 21-12" })).ok).toBe(true);
+    const final = (await tournamentDetail(t.id))!.matches.find((x) => x.round === 2)!;
+    expect((await recordResult(final.id, { winner: semi.a!, score: "21-18, 21-19" })).ok).toBe(true);
+    expect((await tournamentDetail(t.id))!.status).toBe("finished");
+    const swap = { winner: semi.b!, score: "10-21, 12-21" };
+    const preview = await previewResult(semi.id, swap);
+    if (!preview.ok) throw new Error(preview.error);
+    const owner = (await listAdmins())[0];
+    const done = await applyCorrection(semi.id, swap, { mode: "standings_only", reason: "Names swapped on the sheet", token: preview.value.token }, owner);
+    if (!done.ok) throw new Error(done.error);
+    return { t, semi, other, final, owner, issue: done.value.detail.issues[0] };
+  }
+
+  it("does not finish while it is open, whatever else is played", async () => {
+    const { t, issue } = await wrongFinal();
+    expect(issue.status).toBe("open");
+    const d = (await tournamentDetail(t.id))!;
+    expect(d.status).toBe("drawn");
+    expect(d.matches.every((m) => m.status !== "scheduled")).toBe(true);
+  });
+
+  it("can be let stand, with a reason, against what was reviewed: the results as played, recorded so, then finished", async () => {
+    const { final, owner, issue, semi } = await wrongFinal();
+    const review = await reviewIssue(issue.id);
+    if (!review.ok) throw new Error(review.error);
+    expect(review.value.replay).toMatchObject({ possible: true, matches: [{ matchId: final.id, needsSlot: true }] });
+    expect(await resolveIssue(issue.id, { action: "stand", reason: "no", token: review.value.token }, owner)).toMatchObject({ ok: false });
+    expect(await resolveIssue(issue.id, { action: "stand", reason: "Both finalists agreed", token: "stale" }, owner)).toMatchObject({ ok: false, code: "CHANGED" });
+    const done = await resolveIssue(issue.id, { action: "stand", reason: "Both finalists agreed the final stands", token: review.value.token }, owner);
+    if (!done.ok) throw new Error(done.error);
+    expect(done.value.detail.status).toBe("finished");
+    expect(done.value.detail.issues[0]).toMatchObject({ status: "stood", resolutionReason: "Both finalists agreed the final stands" });
+    expect(done.value.detail.matches.find((m) => m.id === final.id)).toMatchObject({ winner: semi.a, status: "done" });
+    expect(done.value.detail.corrections.map((c) => c.kind)).toEqual(["standings_only", "stand"]);
+    // Resolved once.
+    expect(await resolveIssue(issue.id, { action: "stand", reason: "Again, by mistake", token: review.value.token }, owner)).toMatchObject({ ok: false });
+  });
+
+  it("can be replayed at a court and time the tournament holds: the right side in the final, what was played kept in the record", async () => {
+    const { t, final, owner, issue, semi } = await wrongFinal();
+    const review = await reviewIssue(issue.id);
+    if (!review.ok) throw new Error(review.error);
+    // A replay needs its court and time.
+    expect(await resolveIssue(issue.id, { action: "replay", reason: "Final replayed with the right finalist", token: review.value.token }, owner)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/court and a time/),
+    });
+    const slot = { courtId: final.courtId!, date: final.date!, startMin: final.minute! };
+    const done = await resolveIssue(issue.id, { action: "replay", reason: "Final replayed with the right finalist", token: review.value.token, slots: { [final.id]: slot } }, owner);
+    if (!done.ok) throw new Error(done.error);
+    const replay = done.value.detail.matches.find((m) => m.id === final.id)!;
+    expect(replay).toMatchObject({ status: "scheduled", winner: null, score: null, courtId: slot.courtId, date: slot.date, minute: slot.startMin });
+    expect([replay.a, replay.b]).toContain(semi.b);
+    expect([replay.a, replay.b]).not.toContain(semi.a);
+    expect(done.value.detail.issues[0].status).toBe("replayed");
+    // The court time is held again for it, as a tournament block.
+    const held = await getDb().prepare("SELECT 1 FROM blocks WHERE tournament_id = ? AND court_id = ? AND date = ? AND start_min <= ? AND end_min >= ?").get(t.id, slot.courtId, slot.date, slot.startMin, slot.startMin + 60);
+    expect(held).toBeTruthy();
+    // What was played is in the record, not deleted.
+    const kept = (await getDb().prepare("SELECT before_state FROM tournament_corrections WHERE tournament_id = ? AND kind = 'replay'").get(t.id)) as { before_state: string };
+    expect(JSON.parse(kept.before_state)).toEqual([expect.objectContaining({ id: final.id, winner: semi.a, status: "done", score: "21-18, 21-19" })]);
+    // Played again, it finishes.
+    const again = await recordResult(final.id, { winner: semi.b!, score: "21-15, 21-17" });
+    if (!again.ok) throw new Error(again.error);
+    expect(again.value.status).toBe("finished");
+  });
+
+  it("is not replayed onto a court somebody has booked: the booking is never moved", async () => {
+    const { t, final, owner, issue } = await wrongFinal();
+    const review = await reviewIssue(issue.id);
+    if (!review.ok) throw new Error(review.error);
+    const booked = await createBooking({ courtId: final.courtId!, date: final.date!, hours: [final.minute! / 60], name: "Somebody Else", phone: "0123999111", staff: { override: true } });
+    if (!booked.ok) throw new Error(booked.error);
+    const done = await resolveIssue(
+      issue.id,
+      { action: "replay", reason: "Final replayed with the right finalist", token: review.value.token, slots: { [final.id]: { courtId: final.courtId!, date: final.date!, startMin: final.minute! } } },
+      owner
+    );
+    expect(done).toMatchObject({ ok: false, error: expect.stringMatching(/not free/) });
+    // Nothing changed: still open, the final as played.
+    const d = (await tournamentDetail(t.id))!;
+    expect(d.issues[0].status).toBe("open");
+    expect(d.matches.find((m) => m.id === final.id)!.status).toBe("done");
+  });
+});
+
+describe("how results count, by the sport's rules", () => {
+  it("a retirement keeps the score as it stood, and counts it in the table only where the rules say as played", async () => {
+    for (const retired of ["win_only", "as_played"] as const) {
+      const t = await tournament({ format: "round_robin", rules: { scoring: { retired } } });
+      await entries(t.id, 3);
+      const drawn = await makeDraw(t.id, fixed);
+      if (!drawn.ok) throw new Error(drawn.error);
+      const m = drawn.value.matches.find((x) => x.stage === "group")!;
+      // The first-named side won the first game, then stopped in the second, 3-8 down.
+      const score = "21-15, 3-8";
+      const r = await recordResult(m.id, { winner: m.b!, score, retired: true });
+      if (!r.ok) throw new Error(r.error);
+      const after = r.value.matches.find((x) => x.id === m.id)!;
+      expect(after).toMatchObject({ status: "retired", winner: m.b, score: "21-15, 3-8" });
+      const row = r.value.groups[0].table.find((x) => x.entryId === m.b)!;
+      expect(row.won).toBe(1);
+      // Never made up: one game each as played, 23 points to 24.
+      expect(row.setDiff).toBe(0);
+      expect(row.pointDiff).toBe(retired === "win_only" ? 0 : -1);
+    }
+  });
+
+  it("a sport scored in goals allows draws in a round robin, ranks by points, and needs a winner in a knockout", async () => {
+    const arena = (await listVenues()).find((v) => v.courts.some((c) => c.sport === "futsal"))!;
+    const futsalCourts = arena.courts.filter((c) => c.sport === "futsal").map((c) => c.id);
+    const t = await tournament({ venueId: arena.id, sport: "futsal", format: "round_robin", entryKind: "team", courtIds: futsalCourts.slice(0, 1) });
+    expect(t.template).toBe("goals_league");
+    expect(t.rules.scoring).toMatchObject({ kind: "tally", draws: true, tablePoints: { win: 3, draw: 1, loss: 0 } });
+    const teams = [];
+    for (const team of ["Red", "Blue", "Green"]) {
+      const user = await player();
+      const made = await enter(user, t.id, { teamName: `${team} FC`, roster: ["One Player", "Two Player", "Three Player", "Four Player", "Five Player"] });
+      if (!made.ok) throw new Error(made.error);
+      teams.push(made.value.id);
+    }
+    const drawn = await makeDraw(t.id, fixed);
+    if (!drawn.ok) throw new Error(drawn.error);
+    expect(drawn.value.matches.every((m) => m.stage === "group")).toBe(true);
+    const [first, second, third] = drawn.value.matches;
+    expect(await recordResult(first.id, { winner: first.a!, score: "1-2" })).toMatchObject({ ok: false, error: "That score says the other side won." });
+    expect((await recordResult(first.id, { winner: null, score: "2-2" })).ok).toBe(true);
+    expect((await recordResult(second.id, { winner: second.a!, score: "3-1" })).ok).toBe(true);
+    const last = await recordResult(third.id, { winner: third.b!, score: "0-1" });
+    if (!last.ok) throw new Error(last.error);
+    expect(last.value.status).toBe("finished");
+    const table = last.value.groups[0].table;
+    expect(table.reduce((sum, r) => sum + r.points, 0)).toBe(3 + 3 + 1 + 1);
+    expect(table.find((r) => r.entryId === first.a)!.drawn).toBe(1);
   });
 });
 

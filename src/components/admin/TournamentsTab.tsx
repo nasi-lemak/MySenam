@@ -345,8 +345,11 @@ function Manage({
     const preview = await call(`${base}/entries/${entryId}`, { withdraw: true, reason, preview: true });
     if (!preview.ok) return;
     const changes = (preview.data.changes as string[]) ?? [];
+    // A disqualification is kept with why; anything else may have a note.
+    const note = window.prompt(reason === "disqualified" ? `Why is ${name} disqualified? (kept with the record)` : `A note for the record (optional): why ${name} is ${reason}`) ?? null;
+    if (note === null || (reason === "disqualified" && note.trim().length < 5)) return;
     if (!window.confirm(`${name}: ${reason}?\n\n${changes.join("\n") || "Nothing else changes."}`)) return;
-    const done = await call(`${base}/entries/${entryId}`, { withdraw: true, reason });
+    const done = await call(`${base}/entries/${entryId}`, { withdraw: true, reason, note, token: preview.data.token });
     if (done.ok) setSaid((done.data.changes as string[]) ?? []);
   }
 
@@ -585,7 +588,7 @@ function CorrectionPanel({
   );
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm" aria-label="Correction">
-      <h3 className="font-semibold">The knockout has begun: review this correction ({names.get(fixing.input.winner)} won)</h3>
+      <h3 className="font-semibold">The knockout has begun: review this correction ({fixing.input.winner === null ? "a draw" : `${names.get(fixing.input.winner)} won`})</h3>
       <p className="mt-1 text-xs text-slate-600">
         Nothing has changed yet. It is kept with your reason and what it changes, and the public page says a correction was made.
       </p>

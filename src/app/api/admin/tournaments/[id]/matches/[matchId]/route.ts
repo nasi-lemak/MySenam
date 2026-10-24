@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const input: ResultInput = {
-    winner: Number(body.winner),
+    winner: body.winner === null ? null : Number(body.winner),
     score: typeof body.score === "string" ? body.score : undefined,
     walkover: body.walkover === true,
     retired: body.retired === true,
