@@ -76,7 +76,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("the policy", () => {
   it("is off by default: no late cancelling online, no strikes", async () => {
-    expect(await cancelPolicy(venueId)).toEqual({ lateKeep: null, strikeLimit: null, strikeDays: 90, onlineRefunds: "staff" });
+    expect(await cancelPolicy(venueId)).toEqual({ lateKeep: null, strikeLimit: null, strikeDays: 90, onlineRefunds: "staff", refundWithinDays: 7 });
     const b = await booked();
     const result = await cancelBooking(b.code, PHONE);
     expect(result).toMatchObject({ ok: false });
@@ -91,7 +91,7 @@ describe("the policy", () => {
     expect(await setCancelPolicy(venueId, { onlineRefunds: "cheque" })).toMatchObject({ ok: false });
     expect(await setCancelPolicy(venueId, { lateKeep: 25, strikeLimit: null, strikeDays: 30 })).toEqual({
       ok: true,
-      policy: { lateKeep: 25, strikeLimit: null, strikeDays: 30, onlineRefunds: "staff" },
+      policy: { lateKeep: 25, strikeLimit: null, strikeDays: 30, onlineRefunds: "staff", refundWithinDays: 7 },
     });
   });
 });
