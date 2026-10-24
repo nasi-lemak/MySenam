@@ -11,7 +11,7 @@
  *   node scripts/stage.mjs down <id>
  *   node scripts/stage.mjs run [--keep] [--suite smoke,e2e,uat]   # all of the above, one go
  *   node scripts/stage.mjs status
- *   node scripts/stage.mjs gc [--dry-run]        # remove what has outlived its --ttl
+ *   node scripts/stage.mjs gc [--dry-run] [--images 3]   # remove what has outlived its --ttl; keep the newest 3 images
  *
  * Each deployment has an id (stg-<time>-<random>) carried as a label on
  * every container, network and volume it makes; down and gc remove only what
@@ -241,12 +241,12 @@ function evidence(id) {
 /** Every staging resource, by deployment, with when it expires. */
 function inventory() {
   const rows = [];
-  for (const [kind, list] of [
-    ["container", ["ps", "-a"]],
-    ["network", ["network", "ls"]],
-    ["volume", ["volume", "ls"]],
+  for (const [kind, list, name] of [
+    ["container", ["ps", "-a"], "{{.Names}}"],
+    ["network", ["network", "ls"], "{{.Name}}"],
+    ["volume", ["volume", "ls"], "{{.Name}}"],
   ]) {
-    const out = docker([...list, "--filter", `label=${LABEL}`, "--format", '{{.Name}}\t{{.Label "mysenam.deployment"}}\t{{.Label "mysenam.expires"}}']);
+    const out = docker([...list, "--filter", `label=${LABEL}`, "--format", `${name}\t{{.Label "mysenam.deployment"}}\t{{.Label "mysenam.expires"}}`]);
     for (const line of out.split("\n").filter(Boolean)) {
       const [name, deployment, expires] = line.split("\t");
       rows.push({ kind, name, deployment, expires: Number(expires) });
@@ -258,10 +258,28 @@ function inventory() {
 function gc(dryRun) {
   const now = Date.now() / 1000;
   const expired = [...new Set(inventory().filter((r) => !(r.expires > now)).map((r) => r.deployment))];
-  if (expired.length === 0) return say("Nothing has outlived its time.");
+  if (expired.length === 0) say("No deployment has outlived its time.");
   for (const id of expired) {
     if (dryRun) say(`Would remove ${id}.`);
     else down(id);
+  }
+  // Images are kept for reuse, but not without end: the newest few, and any a container still runs.
+  const keep = Number(flag("--images", 0));
+  if (keep > 0) {
+    const inUse = new Set(docker(["ps", "-a", "--format", "{{.Image}}"]).split("\n").filter(Boolean));
+    const images = docker(["images", "mysenam", "--format", "{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}"])
+      .split("\n")
+      .filter((l) => l.startsWith("mysenam:src-"))
+      .map((l) => l.split("\t"))
+      .sort((a, b) => b[1].localeCompare(a[1]));
+    for (const [tag] of images.slice(keep)) {
+      if (inUse.has(tag)) continue;
+      if (dryRun) say(`Would remove image ${tag}.`);
+      else {
+        docker(["rmi", tag]);
+        say(`Removed image ${tag}.`);
+      }
+    }
   }
 }
 
