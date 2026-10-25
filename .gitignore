@@ -40,3 +40,6 @@ secret.key
 
 # Test evidence: verify reports, staging logs, UAT videos, traces and screenshots.
 /artifacts
+
+# Agents' git worktrees
+.claude/worktrees/
