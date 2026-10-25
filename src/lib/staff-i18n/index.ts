@@ -12,6 +12,8 @@ import reports from "./reports";
 import settings from "./settings";
 import shell from "./shell";
 import venues from "./venues";
+import { REFUSALS as REFUSALS_1 } from "./refusals-1";
+import { REFUSALS as REFUSALS_2 } from "./refusals-2";
 
 /**
  * The staff dashboard's own dictionaries: English, Malay and Chinese, the
@@ -69,6 +71,31 @@ export interface StaffT {
   locale: StaffLocale;
 }
 
+/** English refusals as sent, in Malay and Chinese; those with {0}, {1}… as patterns, tried in turn. */
+export const STAFF_REFUSALS: Record<string, { ms: string; zh: string }> = { ...REFUSALS_1, ...REFUSALS_2 };
+const exactRefusals = new Map<string, { ms: string; zh: string }>();
+const patternRefusals: { re: RegExp; said: { ms: string; zh: string } }[] = [];
+for (const [en, said] of Object.entries(STAFF_REFUSALS)) {
+  if (!/\{\d+\}/.test(en)) exactRefusals.set(en, said);
+  else
+    patternRefusals.push({
+      re: new RegExp(`^${en.split(/\{\d+\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("(.+?)")}$`),
+      said,
+    });
+}
+
+/** A refusal the server sent in English, in Malay or Chinese if it is in the map; null if not. */
+export function staffRefusal(sentence: string, locale: StaffLocale): string | null {
+  if (locale === "en" || !sentence) return null;
+  const exact = exactRefusals.get(sentence);
+  if (exact) return exact[locale];
+  for (const { re, said } of patternRefusals) {
+    const m = sentence.match(re);
+    if (m) return said[locale].replace(/\{(\d+)\}/g, (_, i: string) => m[Number(i) + 1] ?? "");
+  }
+  return null;
+}
+
 // One object per language and site, so a `t` in a hook's dependencies stays the same.
 const cache = new Map<string, StaffT>();
 
@@ -85,8 +112,11 @@ export function staffTranslator(locale: StaffLocale, site: string = siteName()):
     return fill(dict[key] ?? EN[key] ?? stem, { ...base, n, ...vars });
   };
   t.err = (body, fallback) => {
+    const sent = typeof body === "string" ? body : (body?.error ?? "");
     const said = translateError(customer, body);
-    return said || (fallback ?? t("c.failed"));
+    // Not translated by its code or the customer map: the staff map, then as sent.
+    const staff = said === sent ? staffRefusal(sent, locale) : null;
+    return staff ?? (said || (fallback ?? t("c.failed")));
   };
   t.customer = customer;
   t.locale = locale;

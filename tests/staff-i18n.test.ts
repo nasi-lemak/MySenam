@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { STAFF_AREAS, STAFF_DICTIONARIES, staffTranslator } from "../src/lib/staff-i18n";
+import { STAFF_AREAS, STAFF_DICTIONARIES, STAFF_REFUSALS, staffRefusal, staffTranslator } from "../src/lib/staff-i18n";
 
 /**
  * The staff dashboard in English, Malay and Chinese (lib/staff-i18n).
@@ -38,10 +38,27 @@ describe("the staff dictionaries", () => {
     }
   });
 
+  it("give the server's English refusals in Malay and Chinese, with the same values in the same places", () => {
+    const slots = (text: string) => [...text.matchAll(/\{(\d+)\}/g)].map((m) => m[1]).sort();
+    for (const [en, said] of Object.entries(STAFF_REFUSALS))
+      for (const l of ["ms", "zh"] as const) {
+        expect(said[l], `${en} in ${l}`).toBeTruthy();
+        expect(slots(said[l]), `${en} in ${l}: values`).toEqual(slots(en));
+      }
+    // A pattern fills the server's values back in.
+    const pattern = Object.keys(STAFF_REFUSALS).find((en) => en.includes("{0}") && !en.includes("{1}"));
+    if (pattern) {
+      const sent = pattern.replace("{0}", "42");
+      expect(staffRefusal(sent, "ms")).toBe(STAFF_REFUSALS[pattern].ms.replace("{0}", "42"));
+    }
+    expect(staffRefusal("Nothing the server ever says.", "zh")).toBeNull();
+  });
+
   it("write Chinese in simplified characters", () => {
     // Common characters whose traditional form differs; none may appear.
     const traditional = /[們個會員價錢費號碼確認請與為對還開關門點東網頁帳顯場時間這預訂課練賽聯單設選擇區條約資訊應該現發記錄]/;
     for (const [key, text] of Object.entries(STAFF_DICTIONARIES.zh)) expect(traditional.test(text), `${key}: ${text}`).toBe(false);
+    for (const [en, said] of Object.entries(STAFF_REFUSALS)) expect(traditional.test(said.zh), `${en}: ${said.zh}`).toBe(false);
   });
 
   it("fill placeholders, count, and say a refusal in the staff language", () => {
