@@ -38,17 +38,16 @@ most steps are tested only by route and unit tests.
 
 | Step | Status | Where |
 | ---- | ------ | ----- |
-| Sign up at `/list-your-venue`, confirm the email | Built | [Marketplace](marketplace.md#running-the-marketplace) |
-| Set up the draft: courts from templates, opening hours, staff | Built; a banner lists what is missing | [Activities](../features/activities.md), [booking](../features/booking.md) |
+| Sign up at `/list-your-venue`, confirm the email | Built; signing up tested in a browser on an install that sends no email, so the account opens at once and the emailed link is not followed | [Marketplace](marketplace.md#running-the-marketplace) |
+| Set up the draft: courts from templates, opening hours, staff | Built; a banner lists what is missing; adding a court with its rates and checking the hours from the checklist tested in a browser | [Activities](../features/activities.md), [booking](../features/booking.md) |
 | Prices, peak bands, booking rules, cancellation policy | Built | [Pricing](../features/pricing.md), [booking](../features/booking.md#booking-rules-starts-lengths-buffers) |
 | Connect the venue's own Billplz or Stripe account | Built; live accounts never verified | [Payment gateways](../integrations/payment-gateways.md) |
-| Ask to go live; the platform owner checks and approves | Built | [Marketplace](marketplace.md#checking-a-venue-is-real) |
+| Ask to go live; the platform owner checks and approves | Built; tested in a browser | [Marketplace](marketplace.md#checking-a-venue-is-real) |
 | Take bookings, see them on the day list | Built; tested in a browser | [Booking](../features/booking.md) |
-| Daily work: check-in, counter payments, moving and cancelling, hire, notes | Built | [Venue operations](../features/venue-operations.md) |
+| Daily work: check-in, counter payments, moving and cancelling, hire, notes | Built; changing a booking's time tested in a browser | [Venue operations](../features/venue-operations.md) |
 | Reports, exports, the monthly invoice | Built | [Reporting](../features/reporting.md), [marketplace](marketplace.md) |
 
-Gaps: the set-up journey as a whole is not driven in a browser, from sign-up
-to the first booking; on the staff dashboard, in Malay or Chinese, text the
+Gaps: on the staff dashboard, in Malay or Chinese, text the
 server composes still reads in English ([known limitations](../roadmap/known-limitations.md#languages)).
 
 ### A player booking a court
@@ -61,9 +60,7 @@ server composes still reads in English ([known limitations](../roadmap/known-lim
 | Pay online, or at the counter | Built; the online leg is never verified against a live gateway | [Payments and credit](../features/payments-and-credit.md) |
 | Confirmation by email with a calendar invite | Built; delivery never verified | [Messaging](../integrations/messaging.md) |
 | Attend: check in at the desk or by QR | Built | [Venue operations](../features/venue-operations.md#check-in-and-live-crowd-levels) |
-| Change the time, cancel, book again, from `/my-booking` | Built; cancelling tested in a browser | [Booking](../features/booking.md#changing-the-date-or-time) |
-
-Gaps: changing a booking's time is not driven in a browser.
+| Change the time, cancel, book again, from `/my-booking` | Built; changing the time (and its refusals) and cancelling tested in a browser | [Booking](../features/booking.md#changing-the-date-or-time) |
 
 ### A tournament organiser
 
@@ -92,8 +89,7 @@ a browser; nothing announces the next match on the day
 | Move the game to another time, with the players' agreement | Built; tested in a browser | [Matchmaking](../features/matchmaking.md#moving-a-game-to-another-time) |
 | Call it off, keeping the court, or end a weekly game | Built; tested in a browser | [Matchmaking](../features/matchmaking.md#weekly-games) |
 
-Gaps: a venue's change of a game's time is not driven in a browser; hosts and
-players cannot write to each other in the app ([roadmap](../roadmap/roadmap.md)).
+Gaps: hosts and players cannot write to each other in the app ([roadmap](../roadmap/roadmap.md)).
 
 ### A player looking for a game
 
@@ -129,8 +125,8 @@ Gaps: levels are self-declared, not earned from results
 - On the staff dashboard, text the server composes is English in every language.
 
 **Not driven in a browser** (journeys covered by route and unit tests only):
-a venue's set-up from sign-up to the first booking; changing a booking's time;
-a venue's change of an open game's time; setting up and drawing a tournament;
-corrections. The
-most valuable to add first are the first two, since every venue and most
-customers go through them.
+setting up and drawing a tournament; corrections; following the emailed link
+that confirms a venue's sign-up. A venue's set-up from sign-up to its first
+booking, changing a booking's time (by the customer and by the venue's staff)
+and a venue's change of an open game's time are driven by acceptance
+scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)).
