@@ -1,9 +1,10 @@
 "use client";
 
-import { activityName } from "@/lib/activity-registry";
+import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { clockOf, parseClock } from "@/lib/interval";
 import { MAX_CANCEL_CUTOFF_HOURS, type Sport } from "@/lib/types";
+import { useStaffT } from "./StaffLanguage";
 
 interface SportPeak {
   weekdayFrom: number;
@@ -30,6 +31,7 @@ const KEEPS = [0, 25, 50, 75, 100];
  * (BookingPolicyEditor).
  */
 export function SportRulesEditor({ venueId, sports }: { venueId: number; sports: Sport[] }) {
+  const t = useStaffT();
   const [rules, setRules] = useState<Rules[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -54,28 +56,30 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
       body: JSON.stringify({ venueId, ...next }),
     });
     const data = await res.json();
-    if (!res.ok) setError(data.error ?? "Could not save");
-    else setNotice(`Saved the rules for ${activityName(next.sport)}.`);
+    if (!res.ok) setError(t.err(data));
+    else setNotice(t("spr.saved", { sport: sportLabel(t.customer, next.sport) }));
     await load();
   }
 
   // One sport has the venue's settings to itself.
   if (!rules || sports.length < 2) return null;
+  const venues = t("spr.venues");
+  const [introBefore, introAfter] = t("spr.intro").split("{venue}");
   return (
     <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">Rules by sport</h3>
+      <h3 className="font-semibold">{t("spr.title")}</h3>
       <p className="mt-1 text-xs text-slate-500">
-        Where one sport needs different rules from the rest: tennis cancelled a day ahead while badminton is two hours, or pickleball
-        at peak from 5 PM. Anything left on <em>venue&apos;s</em> follows the venue&apos;s settings. Customers see the sport&apos;s
-        own rules before they book it.
+        {introBefore}
+        <em>{venues}</em>
+        {introAfter}
       </p>
       <table className="mt-2 w-full min-w-[640px] text-xs">
         <thead>
           <tr className="text-left text-slate-500">
-            <th className="py-1 pr-2 font-medium">Sport</th>
-            <th className="py-1 pr-2 font-medium">Free cancellation until</th>
-            <th className="py-1 pr-2 font-medium">Cancelled later, online</th>
-            <th className="py-1 font-medium">Peak hours</th>
+            <th className="py-1 pr-2 font-medium">{t("spr.colSport")}</th>
+            <th className="py-1 pr-2 font-medium">{t("spr.colFreeCancel")}</th>
+            <th className="py-1 pr-2 font-medium">{t("spr.colLate")}</th>
+            <th className="py-1 font-medium">{t("spr.colPeak")}</th>
           </tr>
         </thead>
         <tbody>
@@ -101,17 +105,17 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
             );
             return (
               <tr key={sport} className="border-t border-slate-100 align-top">
-                <td className="py-1.5 pr-2 font-medium">{activityName(sport)}</td>
+                <td className="py-1.5 pr-2 font-medium">{sportLabel(t.customer, sport)}</td>
                 <td className="py-1.5 pr-2">
                   <select
                     value={r.cutoffHours ?? ""}
                     onChange={(e) => save({ ...r, cutoffHours: e.target.value === "" ? null : Number(e.target.value) })}
                     className={sel}
                   >
-                    <option value="">venue&apos;s</option>
+                    <option value="">{venues}</option>
                     {CUTOFFS.map((h) => (
                       <option key={h} value={h}>
-                        {h === 0 ? "it starts" : `${h} hour${h === 1 ? "" : "s"} before`}
+                        {h === 0 ? t("spr.itStarts") : t.plural("spr.hoursBefore", h)}
                       </option>
                     ))}
                   </select>
@@ -124,11 +128,11 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
                     }
                     className={sel}
                   >
-                    <option value="">venue&apos;s</option>
-                    <option value="none">not online: call</option>
+                    <option value="">{venues}</option>
+                    <option value="none">{t("spr.notOnline")}</option>
                     {KEEPS.map((k) => (
                       <option key={k} value={k}>
-                        keep {k}%
+                        {t("spr.keep", { k })}
                       </option>
                     ))}
                   </select>
@@ -136,15 +140,15 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
                 <td className="py-1.5">
                   {r.peak ? (
                     <span className="inline-flex flex-wrap items-center gap-1">
-                      weekdays {hourSel("weekdayFrom")}–{hourSel("weekdayUntil")}, weekends {hourSel("weekendFrom")}–
+                      {t("spr.weekdays")} {hourSel("weekdayFrom")}–{hourSel("weekdayUntil")}, {t("spr.weekends")} {hourSel("weekendFrom")}–
                       {hourSel("weekendUntil")}
                       <button onClick={() => save({ ...r, peak: null })} className="text-teal-700 underline">
-                        venue&apos;s
+                        {venues}
                       </button>
                     </span>
                   ) : (
                     <button onClick={() => save({ ...r, peak })} className="text-teal-700 underline">
-                      venue&apos;s · set its own
+                      {t("spr.setOwn")}
                     </button>
                   )}
                 </td>

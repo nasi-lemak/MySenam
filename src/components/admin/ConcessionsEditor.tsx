@@ -1,8 +1,11 @@
 "use client";
 
-import { activityName, activityKeys } from "@/lib/activity-registry";
+import { activityKeys } from "@/lib/activity-registry";
+import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { type Sport } from "@/lib/types";
+import { useStaffT } from "./StaffLanguage";
+import { withMarks } from "./ResourcesEditor";
 
 interface Concession {
   id: number;
@@ -13,19 +16,20 @@ interface Concession {
   offPeakOnly: boolean;
 }
 
-const PRESETS: { name: string; percent: number; proof: string }[] = [
-  { name: "Student", percent: 20, proof: "your student card" },
-  { name: "Senior (60+)", percent: 30, proof: "your IC" },
-  { name: "Child (under 12)", percent: 50, proof: "your child's MyKid or birth certificate" },
-  { name: "OKU", percent: 50, proof: "your OKU card" },
-];
-
 /**
  * Concession prices (lib/concessions.ts): student, senior, child or OKU, as a
  * share off. Customers pick one at booking and show proof at the counter; the
  * proof is looked at, never kept.
  */
 export function ConcessionsEditor({ venueId }: { venueId: number }) {
+  const t = useStaffT();
+  // Suggestions to start from, in the staff's language; what is offered is the name and proof as saved.
+  const presets: { name: string; percent: number; proof: string }[] = [
+    { name: t("con.preset.student"), percent: 20, proof: t("con.proof.student") },
+    { name: t("con.preset.senior"), percent: 30, proof: t("con.proof.senior") },
+    { name: t("con.preset.child"), percent: 50, proof: t("con.proof.child") },
+    { name: t("con.preset.oku"), percent: 50, proof: t("con.proof.oku") },
+  ];
   const [list, setList] = useState<Concession[] | null>(null);
   const [form, setForm] = useState({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false });
   const [error, setError] = useState<string | null>(null);
@@ -50,32 +54,29 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
         body: JSON.stringify({ venueId, ...form, percent: Number(form.percent), sport: form.sport || null }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      if (!res.ok) throw new Error(t.err(data));
       setForm({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     } finally {
       setBusy(false);
     }
   }
 
   async function withdraw(c: Concession) {
-    if (!window.confirm(`Stop offering the ${c.name} price? Bookings already made keep theirs.`)) return;
+    if (!window.confirm(t("con.withdrawConfirm", { name: c.name }))) return;
     const res = await fetch(`/api/admin/concessions?venueId=${venueId}&id=${c.id}`, { method: "DELETE" });
-    if (!res.ok) setError((await res.json()).error ?? "Could not withdraw it");
+    if (!res.ok) setError(t.err(await res.json()));
     await load();
   }
 
   if (!list) return null;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">Concession prices</h3>
+      <h3 className="font-semibold">{t("con.title")}</h3>
       <p className="mt-1 text-xs text-slate-500">
-        A lower price for students, seniors, children or OKU. Customers pick it when booking and show proof at the counter; your
-        staff press <em>Proof seen</em> or <em>No proof</em>, and without proof the full price is charged. Nothing is photographed
-        or stored: only that someone saw it, and until when not to ask again. One discount at a time, so not with a promo code or
-        a last-minute price.
+        {withMarks(t("con.intro"), { seen: <em>{t("con.proofSeen")}</em>, none: <em>{t("con.noProof")}</em> })}
       </p>
       {list.length > 0 && (
         <ul className="mt-3 space-y-1">
@@ -83,18 +84,19 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
             <li key={c.id} className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{c.name}</span>
               <span className="text-slate-600">
-                {c.percent}% off{c.sport ? `, ${activityName(c.sport)} only` : ""}
-                {c.offPeakOnly ? ", off-peak only" : ""} · bring {c.proof}
+                {t("con.percentOff", { percent: c.percent })}
+                {c.sport ? `, ${t("con.sportOnly", { sport: sportLabel(t.customer, c.sport) })}` : ""}
+                {c.offPeakOnly ? `, ${t("con.offPeakOnly")}` : ""} · {t("con.bring", { proof: c.proof })}
               </span>
               <button onClick={() => void withdraw(c)} className="text-xs font-semibold text-red-600 underline">
-                Withdraw
+                {t("con.withdraw")}
               </button>
             </li>
           ))}
         </ul>
       )}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {PRESETS.filter((p) => !list.some((c) => c.name === p.name)).map((p) => (
+        {presets.filter((p) => !list.some((c) => c.name === p.name)).map((p) => (
           <button
             key={p.name}
             onClick={() => setForm({ ...form, name: p.name, percent: String(p.percent), proof: p.proof })}
@@ -106,16 +108,16 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
       </div>
       <div className="mt-2 flex flex-wrap items-end gap-2">
         <label className="text-xs text-slate-600">
-          Name
+          {t("c.name")}
           <input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Student"
+            placeholder={t("con.preset.student")}
             className="mt-1 block w-36 rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </label>
         <label className="text-xs text-slate-600">
-          % off
+          {t("con.percentLabel")}
           <input
             type="number"
             min={5}
@@ -126,39 +128,39 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
           />
         </label>
         <label className="text-xs text-slate-600">
-          They bring
+          {t("con.theyBring")}
           <input
             value={form.proof}
             onChange={(e) => setForm({ ...form, proof: e.target.value })}
-            placeholder="your student card"
+            placeholder={t("con.proof.student")}
             className="mt-1 block w-48 rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </label>
         <label className="text-xs text-slate-600">
-          Sport
+          {t("con.sport")}
           <select
             value={form.sport}
             onChange={(e) => setForm({ ...form, sport: e.target.value })}
             className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm"
           >
-            <option value="">Every sport</option>
+            <option value="">{t("con.everySport")}</option>
             {activityKeys().map((s) => (
               <option key={s} value={s}>
-                {activityName(s)}
+                {sportLabel(t.customer, s)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex items-center gap-1.5 pb-1.5 text-xs text-slate-600">
           <input type="checkbox" checked={form.offPeakOnly} onChange={(e) => setForm({ ...form, offPeakOnly: e.target.checked })} />
-          Off-peak only
+          {t("con.offPeakOnlyLabel")}
         </label>
         <button
           disabled={busy || form.name.trim() === ""}
           onClick={() => void add()}
           className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
         >
-          Offer it
+          {t("con.offer")}
         </button>
       </div>
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}

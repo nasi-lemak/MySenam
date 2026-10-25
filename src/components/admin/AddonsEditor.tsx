@@ -1,11 +1,12 @@
 "use client";
 
 import { sportsOf } from "@/lib/court-activities";
-import { activityName } from "@/lib/activity-registry";
+import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import type { Addon } from "@/lib/addons";
 import type { ManagedVenue } from "./shared";
-import { money, currencySymbol } from "@/lib/region";
+import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 const BLANK = { name: "", kind: "rental" as "rental" | "sale", price: "", stock: "", sport: "" };
 
@@ -15,6 +16,7 @@ const BLANK = { name: "", kind: "rental" as "rental" | "sale", price: "", stock:
  * say what they had.
  */
 export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
+  const t = useStaffT();
   const [open, setOpen] = useState(false);
   const [addons, setAddons] = useState<Addon[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
     });
     const out = await res.json();
     if (!res.ok) {
-      setError(out.error);
+      setError(t.err(out));
       return false;
     }
     setAddons(out.addons);
@@ -52,15 +54,12 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
   return (
     <div className="w-full border-t border-slate-100 pt-2 text-sm">
       <button onClick={() => setOpen(!open)} className="text-xs font-medium text-teal-700 underline">
-        {open ? "Close extras" : active ? `Extras for sale or hire (${active})` : "Extras for sale or hire (optional)"}
+        {open ? t("add.close") : active ? t("add.toggleCount", { n: active }) : t("add.toggleOptional")}
       </button>
       {open && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-slate-500">
-            Rackets, bibs or mats to hire, shuttles or drinks to buy. Customers can add them when they book a court or
-            enrol in a class; they are never chosen for them. The price goes on the booking, so it is paid online, from
-            credit or at the counter with the court. Give a rental how many you have and it cannot be over-booked for the
-            same hours. A pass pays for court time only.
+            {t("add.intro")}
           </p>
           {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
           <ul className="space-y-1">
@@ -71,9 +70,10 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
               >
                 <span className="flex-1">
                   {a.kind === "rental" ? "🎒" : "🛒"} <span className="font-medium">{a.name}</span> · {money(a.price)}
-                  {a.kind === "rental" ? ` to hire${a.stock !== null ? `, ${a.stock} in stock` : ""}` : " to buy"}
-                  {a.sport && ` · ${activityName(a.sport)} only`}
-                  {!a.active && " · retired"}
+                  {" "}
+                  {a.kind === "rental" ? (a.stock !== null ? t("add.toHireStock", { n: a.stock }) : t("add.toHire")) : t("add.toBuy")}
+                  {a.sport && ` · ${t("add.sportOnly", { sport: sportLabel(t.customer, a.sport) })}`}
+                  {!a.active && ` · ${t("add.retired")}`}
                 </span>
                 {a.active && (
                   <button
@@ -83,7 +83,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
                     }}
                     className="text-teal-700 underline"
                   >
-                    Edit
+                    {t("c.edit")}
                   </button>
                 )}
                 <button
@@ -94,7 +94,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
                   }
                   className={a.active ? "text-red-700 underline" : "text-teal-700 underline"}
                 >
-                  {a.active ? "Retire" : "Bring back"}
+                  {a.active ? t("add.retire") : t("add.bringBack")}
                 </button>
               </li>
             ))}
@@ -114,41 +114,41 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
             className="flex flex-wrap items-end gap-2"
           >
             <label className="flex min-w-[10rem] flex-1 flex-col text-xs font-medium text-slate-500">
-              Name
-              <input required minLength={2} maxLength={60} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={input} placeholder="Racket" />
+              {t("c.name")}
+              <input required minLength={2} maxLength={60} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={input} placeholder={t("add.nameExample")} />
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Kind
+              {t("add.kind")}
               <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as "rental" | "sale" })} className={input}>
-                <option value="rental">To hire</option>
-                <option value="sale">To buy</option>
+                <option value="rental">{t("add.optHire")}</option>
+                <option value="sale">{t("add.optBuy")}</option>
               </select>
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Price ({currencySymbol()})
+              {t("add.price")}
               <input required type="number" min={0} max={1000} step={0.01} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} className={`w-24 ${input}`} />
             </label>
             {f.kind === "rental" && (
               <label className="flex flex-col text-xs font-medium text-slate-500">
-                How many you have
-                <input type="number" min={1} max={500} value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} className={`w-28 ${input}`} placeholder="no limit" />
+                {t("add.stock")}
+                <input type="number" min={1} max={500} value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} className={`w-28 ${input}`} placeholder={t("add.noLimit")} />
               </label>
             )}
             {sports.length > 1 && (
               <label className="flex flex-col text-xs font-medium text-slate-500">
-                With
+                {t("add.with")}
                 <select value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value })} className={input}>
-                  <option value="">Any sport</option>
+                  <option value="">{t("add.anySport")}</option>
                   {sports.map((s) => (
                     <option key={s} value={s}>
-                      {activityName(s)} only
+                      {t("add.sportOnly", { sport: sportLabel(t.customer, s) })}
                     </option>
                   ))}
                 </select>
               </label>
             )}
             <button className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700">
-              {editing ? "Save changes" : "Add"}
+              {editing ? t("add.saveChanges") : t("c.add")}
             </button>
             {editing && (
               <button
@@ -159,7 +159,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
                 }}
                 className="text-xs text-slate-500 underline"
               >
-                Cancel
+                {t("c.cancel")}
               </button>
             )}
           </form>

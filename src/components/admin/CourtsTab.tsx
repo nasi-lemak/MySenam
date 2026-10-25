@@ -1,9 +1,9 @@
 "use client";
 
 import { sportsOf } from "@/lib/court-activities";
-import { activity, activityName, activityIcon } from "@/lib/activity-registry";
+import { activity, activityIcon } from "@/lib/activity-registry";
 import { PeakHoursEditor } from "./PeakHoursEditor";
-import { AddResourcesForm, CourtActivitiesEditor, SignOffsPanel } from "./ResourcesEditor";
+import { AddResourcesForm, CourtActivitiesEditor, SignOffsPanel, withMarks } from "./ResourcesEditor";
 import { BookingPolicyEditor } from "./BookingPolicyEditor";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
@@ -14,10 +14,15 @@ import type { Court, Induction, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
 import { localTime } from "./shared";
 import { SURFACES, type CourtFeatures } from "@/lib/facilities";
-import { DICTIONARIES } from "@/lib/i18n";
-import { currencySymbol, region } from "@/lib/region";
+import { hasPhrase, sportLabel, type T } from "@/lib/i18n";
+import { region } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
-const SURFACE_LABEL = (x: string) => (DICTIONARIES.en as Record<string, string>)[`surface.${x}`] ?? x;
+/** A surface's name as customers read it, in the same language. */
+const surfaceLabel = (t: T, x: string) => {
+  const key = `surface.${x}`;
+  return hasPhrase(key) ? t(key) : x;
+};
 
 /** What one row of the courts table can change in a save. */
 interface CourtEdits {
@@ -39,6 +44,7 @@ export function CourtsTab({
   venues: (Venue & { courts: Court[] })[];
   onVenuesChange: (venues: (Venue & { courts: Court[] })[]) => void;
 }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -82,11 +88,11 @@ export function CourtsTab({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
-      setNotice(`Saved ${data.court.name}.`);
+      if (!res.ok) throw new Error(t.err(data));
+      setNotice(t("ct.saved", { name: data.court.name }));
       refreshVenues();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
@@ -101,11 +107,11 @@ export function CourtsTab({
         body: JSON.stringify(change),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
-      setNotice(`Saved what ${data.court.name} is like.`);
+      if (!res.ok) throw new Error(t.err(data));
+      setNotice(t("ct.savedFeatures", { name: data.court.name }));
       refreshVenues();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
@@ -128,11 +134,11 @@ export function CourtsTab({
         body: JSON.stringify(change),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
-      setNotice(`Saved how ${data.court.name} is booked.`);
+      if (!res.ok) throw new Error(t.err(data));
+      setNotice(t("ct.savedBooking", { name: data.court.name }));
       refreshVenues();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
@@ -143,7 +149,7 @@ export function CourtsTab({
     try {
       const res = await fetch(`/api/admin/courts/${court.id}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load the door");
+      if (!res.ok) throw new Error(t.err(data));
       setDoor({
         court,
         code: data.access.code ?? "",
@@ -152,7 +158,7 @@ export function CourtsTab({
         unmanned: data.court.unmanned,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the door");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
@@ -172,7 +178,7 @@ export function CourtsTab({
         body: JSON.stringify(changes),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save the door");
+      if (!res.ok) throw new Error(t.err(data));
       setDoor({
         court: data.court,
         code: data.access.code ?? "",
@@ -181,13 +187,11 @@ export function CourtsTab({
         unmanned: data.court.unmanned,
       });
       setNotice(
-        data.court.unmanned
-          ? `${data.court.name} is unmanned — customers with a paid booking see the code an hour before their slot.`
-          : `${data.court.name} is staffed. No code is given out for it.`
+        data.court.unmanned ? t("ct.unmannedNotice", { name: data.court.name }) : t("ct.staffedNotice", { name: data.court.name })
       );
       refreshVenues();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the door");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
@@ -197,10 +201,10 @@ export function CourtsTab({
     try {
       const res = await fetch(`/api/admin/access?venueId=${venueId}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load the door log");
+      if (!res.ok) throw new Error(t.err(data));
       setReveals(data.reveals);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the door log");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
@@ -235,8 +239,8 @@ export function CourtsTab({
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 {[
-                  "Court", "Sport", `Off-peak (${currencySymbol()}/hr)`, `Peak (${currencySymbol()}/hr)`,
-                  "Member off-peak", "Member peak", "Capacity", `Deposit (${currencySymbol()})`, "Door", "",
+                  t("ct.col.court"), t("ct.col.sport"), t("ct.col.offPeak"), t("ct.col.peak"),
+                  t("ct.col.memberOffPeak"), t("ct.col.memberPeak"), t("ct.col.capacity"), t("ct.col.deposit"), t("ct.col.door"), "",
                 ].map((h, i) => (
                   <th key={i} className="px-3 py-2 font-semibold">
                     {h}
@@ -278,11 +282,8 @@ export function CourtsTab({
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold">What each court is like</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Players compare venues by these and can search for them — air-conditioned badminton, floodlit tennis. Saved
-            as soon as you change one.
-          </p>
+          <h3 className="font-semibold">{t("ct.featuresTitle")}</h3>
+          <p className="mt-1 text-sm text-slate-500">{t("ct.featuresIntro")}</p>
           <table className="mt-2 w-full min-w-[560px] text-sm">
             <tbody>
               {venue.courts.map((court) => (
@@ -295,13 +296,8 @@ export function CourtsTab({
 
       {venue && venue.courts.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold">How one booking is priced</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            A court booked whole is one price for the booking, or priced per player with the customer saying how many play. Where a
-            resource has places (a gym floor, a wall, a fleet of kayaks), each place booked is priced unless you make the rate one price
-            for the whole booking. Either way, larger bookings can pay less per head. When bookings start and how long they run are the
-            booking rules above.
-          </p>
+          <h3 className="font-semibold">{t("ct.pricingTitle")}</h3>
+          <p className="mt-1 text-sm text-slate-500">{t("ct.pricingIntro")}</p>
           <table className="mt-2 w-full min-w-[480px] text-sm">
             <tbody>
               {venue.courts.map((court) => (
@@ -310,13 +306,13 @@ export function CourtsTab({
                   <td className="py-1.5 pl-3">
                     <span className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
                       {court.capacity > 1 && (
-                        <label className="flex items-center gap-1" title="Customers book its classes on the Classes page, not places in the room. Staff can still hire it out.">
+                        <label className="flex items-center gap-1" title={t("ct.classesOnlyTitle")}>
                           <input
                             type="checkbox"
                             checked={!!court.classesOnly}
                             onChange={(e) => saveLengths(court, { classesOnly: e.target.checked })}
                           />
-                          Classes only
+                          {t("ct.classesOnly")}
                         </label>
                       )}
                       {court.capacity === 1 ? (
@@ -326,30 +322,30 @@ export function CourtsTab({
                             checked={!!court.perPlayer}
                             onChange={(e) => saveLengths(court, { perPlayer: e.target.checked })}
                           />
-                          Per player
+                          {t("ct.perPlayer")}
                         </label>
                       ) : (
                         <select
-                          aria-label={`How ${court.name} is priced`}
+                          aria-label={t("ct.howPricedAria", { name: court.name })}
                           value={court.flatRate ? "booking" : "place"}
                           onChange={(e) => saveLengths(court, { flatRate: e.target.value === "booking" })}
                           className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
                         >
-                          <option value="place">Per place booked</option>
-                          <option value="booking">One price for the booking</option>
+                          <option value="place">{t("ct.perPlace")}</option>
+                          <option value="booking">{t("ct.onePrice")}</option>
                         </select>
                       )}
                       {(court.perPlayer || court.capacity > 1) && (
                         <select
-                          aria-label={`Most in one booking on ${court.name}`}
+                          aria-label={t("ct.mostAria", { name: court.name })}
                           value={court.maxPlayers ?? ""}
                           onChange={(e) => saveLengths(court, { maxPlayers: e.target.value === "" ? null : Number(e.target.value) })}
                           className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
                         >
-                          <option value="">up to 8</option>
+                          <option value="">{t("ct.upTo", { n: 8 })}</option>
                           {(court.capacity > 1 ? [1, 2, 4, 6, 10, 12, 16, 20, 30] : [2, 4, 6, 10, 12, 16, 20, 30]).map((n) => (
                             <option key={n} value={n}>
-                              up to {n}
+                              {t("ct.upTo", { n })}
                             </option>
                           ))}
                         </select>
@@ -375,22 +371,19 @@ export function CourtsTab({
       {door && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-sm font-semibold">The door on {door.court.name}</p>
+            <p className="text-sm font-semibold">{t("ct.doorTitle", { name: door.court.name })}</p>
             <button
               onClick={() => setDoor(null)}
               className="text-xs font-medium text-slate-500 hover:text-slate-700"
             >
-              Close
+              {t("c.close")}
             </button>
           </div>
-          <p className="mt-0.5 text-xs text-slate-600">
-            Type in the code you have programmed into the lock. The booking system only passes it on — it
-            never changes the lock, so a code invented here would shut everybody out.
-          </p>
+          <p className="mt-0.5 text-xs text-slate-600">{t("ct.doorIntro")}</p>
 
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div>
-              <label className="block text-xs font-medium text-slate-600">Code on the lock</label>
+              <label className="block text-xs font-medium text-slate-600">{t("ct.lockCode")}</label>
               <input
                 value={door.code}
                 onChange={(e) => setDoor({ ...door, code: e.target.value })}
@@ -403,7 +396,7 @@ export function CourtsTab({
               onClick={() => saveDoor({ accessCode: door.code })}
               className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
             >
-              Save code
+              {t("ct.saveCode")}
             </button>
             <button
               onClick={() => saveDoor({ unmanned: !door.unmanned })}
@@ -413,29 +406,26 @@ export function CourtsTab({
                   : "bg-teal-600 text-white hover:bg-teal-700"
               }`}
             >
-              {door.unmanned ? "Put someone on this door" : "Leave this one unmanned"}
+              {door.unmanned ? t("ct.staffIt") : t("ct.leaveUnmanned")}
             </button>
             {door.code !== "" && (
               <button
                 onClick={() => saveDoor({ accessCode: null })}
-                title="Forget the code. The resource stops being unmanned."
+                title={t("ct.clearTitle")}
                 className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600"
               >
-                Clear
+                {t("ct.clear")}
               </button>
             )}
           </div>
 
           <p className="mt-2 text-xs text-slate-600">
-            {door.unmanned
-              ? "Unmanned. A customer with a paid booking sees this code an hour before their slot, and that counts as their arrival."
-              : "Staffed. Nobody is given a code for this one."}
-            {door.changedAt && ` Code last changed ${localTime(door.changedAt)}.`}
+            {door.unmanned ? t("ct.unmannedState") : t("ct.staffedState")}
+            {door.changedAt && ` ${t("ct.codeChanged", { when: localTime(door.changedAt) })}`}
           </p>
           {door.stale && (
             <p className="mt-1 text-xs font-medium text-red-700">
-              This code has not changed in over {ACCESS_CODE_STALE_DAYS} days. Change it on the
-              lock, then type the new one in here.
+              {t("ct.stale", { days: ACCESS_CODE_STALE_DAYS })}
             </p>
           )}
         </div>
@@ -444,30 +434,25 @@ export function CourtsTab({
       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold">Who has been let in</p>
-            <p className="text-xs text-slate-500">
-              Every time a door code was shown, newest first. This is the list you want when a
-              court is found in a state.
-            </p>
+            <p className="text-sm font-semibold">{t("ct.logTitle")}</p>
+            <p className="text-xs text-slate-500">{t("ct.logIntro")}</p>
           </div>
           <button
             onClick={() => (reveals === null ? loadReveals() : setReveals(null))}
             className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
           >
-            {reveals === null ? "Show log" : "Hide"}
+            {reveals === null ? t("ct.showLog") : t("c.hide")}
           </button>
         </div>
         {reveals !== null &&
           (reveals.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">
-              Nobody has been given a code at this venue yet.
-            </p>
+            <p className="mt-3 text-sm text-slate-500">{t("ct.logEmpty")}</p>
           ) : (
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[460px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                    {["When", "Code", "Court", "Customer", "Phone"].map((h) => (
+                    {[t("ct.log.when"), t("ct.log.code"), t("ct.col.court"), t("ct.log.customer"), t("c.phone")].map((h) => (
                       <th key={h} className="px-3 py-2 font-semibold">
                         {h}
                       </th>
@@ -529,6 +514,7 @@ function CourtRow({
   onSave: (court: Court, edits: CourtEdits) => void;
   onDoor: () => void;
 }) {
+  const t = useStaffT();
   const [name, setName] = useState(court.name);
   const [offPeak, setOffPeak] = useState(String(court.offPeakRate));
   const [peak, setPeak] = useState(String(court.peakRate));
@@ -560,7 +546,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        {activityIcon(court.sport)} {activityName(court.sport)}
+        {activityIcon(court.sport)} {sportLabel(t.customer, court.sport)}
       </td>
       <td className="px-3 py-2">
         <input
@@ -590,7 +576,7 @@ function CourtRow({
           value={memberOffPeak}
           onChange={(e) => setMemberOffPeak(e.target.value)}
           placeholder="—"
-          title="What a member pays off-peak. Leave blank for no member discount."
+          title={t("ct.memberOffPeakTitle")}
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
         />
       </td>
@@ -602,7 +588,7 @@ function CourtRow({
           value={memberPeak}
           onChange={(e) => setMemberPeak(e.target.value)}
           placeholder="—"
-          title="What a member pays at peak. Leave blank for no member discount."
+          title={t("ct.memberPeakTitle")}
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
         />
       </td>
@@ -613,7 +599,7 @@ function CourtRow({
           max={MAX_CAPACITY}
           value={capacity}
           onChange={(e) => setCapacity(e.target.value)}
-          title="1 for an exclusive court; higher for a shared facility"
+          title={t("ct.capacityTitle")}
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
         />
       </td>
@@ -625,21 +611,21 @@ function CourtRow({
           max={MAX_DEPOSIT}
           value={deposit}
           onChange={(e) => setDeposit(e.target.value)}
-          title="Held at the desk while the kit is out. 0 for anything that stays put, like a court."
+          title={t("ct.depositTitle")}
           className="w-20 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
         />
       </td>
       <td className="px-3 py-2">
         <button
           onClick={onDoor}
-          title="The code on this door, and who has been given it"
+          title={t("ct.doorButtonTitle")}
           className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition ${
             court.unmanned
               ? "bg-amber-100 text-amber-800 hover:bg-amber-200"
               : "bg-slate-100 text-slate-500 hover:bg-slate-200"
           }`}
         >
-          {court.unmanned ? "unmanned" : "staffed"}
+          {court.unmanned ? t("ct.unmanned") : t("ct.staffed")}
         </button>
       </td>
       <td className="px-3 py-2">
@@ -650,7 +636,7 @@ function CourtRow({
           }
           className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
         >
-          Save
+          {t("c.save")}
         </button>
       </td>
     </tr>
@@ -659,6 +645,7 @@ function CourtRow({
 
 
 function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; onFeatures: (change: Partial<CourtFeatures>) => void }) {
+  const t = useStaffT();
   // Shown changed at once, and saved behind it; the saved court replaces it when it comes back.
   const [court, setCourt] = useState(saved);
   useEffect(() => setCourt(saved), [saved]);
@@ -675,34 +662,34 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
         {/* For players comparing venues; saved as soon as it changes. */}
         <div className="flex min-w-[15rem] flex-wrap items-center gap-2 text-xs">
           <select
-            aria-label={`${court.name}: indoor or outdoor`}
+            aria-label={t("ct.settingAria", { name: court.name })}
             value={court.setting ?? ""}
             onChange={(e) => onFeatures({ setting: e.target.value === "" ? null : (e.target.value as "indoor" | "outdoor") })}
             className="rounded-md border border-slate-200 px-1.5 py-1"
           >
-            <option value="">Indoor/outdoor?</option>
-            <option value="indoor">Indoor</option>
-            <option value="outdoor">Outdoor</option>
+            <option value="">{t("ct.settingUnset")}</option>
+            <option value="indoor">{t("res.indoor")}</option>
+            <option value="outdoor">{t("res.outdoor")}</option>
           </select>
-          <label className="flex items-center gap-1" title="Air-conditioned">
+          <label className="flex items-center gap-1" title={t("ct.airconTitle")}>
             <input type="checkbox" checked={court.aircon} onChange={(e) => onFeatures({ aircon: e.target.checked })} />
-            ❄️ Air-con
+            ❄️ {t("ct.aircon")}
           </label>
-          <label className="flex items-center gap-1" title="Lit for playing after dark">
+          <label className="flex items-center gap-1" title={t("ct.litTitle")}>
             <input type="checkbox" checked={court.floodlit} onChange={(e) => onFeatures({ floodlit: e.target.checked })} />
-            💡 Lit
+            💡 {t("ct.lit")}
           </label>
           {activity(court.sport).surfaced && (
             <select
-              aria-label={`${court.name}: surface`}
+              aria-label={t("ct.surfaceAria", { name: court.name })}
               value={court.surface ?? ""}
               onChange={(e) => onFeatures({ surface: e.target.value === "" ? null : (e.target.value as CourtFeatures["surface"]) })}
               className="rounded-md border border-slate-200 px-1.5 py-1"
             >
-              <option value="">Surface?</option>
+              <option value="">{t("ct.surfaceUnset")}</option>
               {SURFACES.map((x) => (
                 <option key={x} value={x}>
-                  {SURFACE_LABEL(x)}
+                  {surfaceLabel(t.customer, x)}
                 </option>
               ))}
             </select>
@@ -722,6 +709,7 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
  * the customer.
  */
 function InductionsPanel({ venueId }: { venueId: number }) {
+  const t = useStaffT();
   const [inductions, setInductions] = useState<Induction[] | null>(null);
   const [form, setForm] = useState({ phone: "", name: "", note: "" });
   const [error, setError] = useState<string | null>(null);
@@ -732,13 +720,13 @@ function InductionsPanel({ venueId }: { venueId: number }) {
     try {
       const res = await fetch(`/api/admin/inductions?venueId=${venueId}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load inductions");
+      if (!res.ok) throw new Error(t.err(data));
       setInductions(data.inductions);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load inductions");
+      setError(err instanceof Error ? err.message : t("c.failed"));
       setInductions(null);
     }
-  }, [venueId]);
+  }, [venueId, t]);
 
   useEffect(() => {
     load();
@@ -755,37 +743,34 @@ function InductionsPanel({ venueId }: { venueId: number }) {
         body: JSON.stringify({ venueId, ...form }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not record the induction");
-      setNotice(`${data.induction.name} can now use this venue out of hours.`);
+      if (!res.ok) throw new Error(t.err(data));
+      setNotice(t("ct.inducted", { name: data.induction.name }));
       setForm({ phone: "", name: "", note: "" });
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not record the induction");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
   async function revoke(induction: Induction) {
-    if (!window.confirm(`Withdraw out-of-hours access for ${induction.name}?`)) return;
+    if (!window.confirm(t("ct.withdrawConfirm", { name: induction.name }))) return;
     setError(null);
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/inductions/${induction.id}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not withdraw access");
-      setNotice(`${induction.name} can no longer get in out of hours.`);
+      if (!res.ok) throw new Error(t.err(data));
+      setNotice(t("ct.withdrawn", { name: induction.name }));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not withdraw access");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <p className="text-sm font-semibold">Cleared for unstaffed hours</p>
-      <p className="text-xs text-slate-500">
-        Record this after you have walked somebody round in person: the emergency button, the
-        rules, and their IC. Nobody gets a door code out of hours without it.
-      </p>
+      <p className="text-sm font-semibold">{t("ct.inductTitle")}</p>
+      <p className="text-xs text-slate-500">{t("ct.inductIntro")}</p>
 
       {error && (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -803,7 +788,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
           required
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="Name"
+          placeholder={t("c.name")}
           className="w-40 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input
@@ -816,28 +801,26 @@ function InductionsPanel({ venueId }: { venueId: number }) {
         <input
           value={form.note}
           onChange={(e) => setForm({ ...form, note: e.target.value })}
-          placeholder="IC checked, shown the alarm"
+          placeholder={t("ct.inductNotePh")}
           className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
         />
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
         >
-          Record induction
+          {t("ct.recordInduction")}
         </button>
       </form>
 
       {inductions !== null &&
         (inductions.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">
-            Nobody is cleared for unstaffed hours here yet.
-          </p>
+          <p className="mt-3 text-sm text-slate-500">{t("ct.inductEmpty")}</p>
         ) : (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[520px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                  {["Name", "Phone", "Inducted", "By", "Note", ""].map((h, i) => (
+                  {[t("c.name"), t("c.phone"), t("ct.ind.inducted"), t("ct.ind.by"), t("ct.ind.note"), ""].map((h, i) => (
                     <th key={i} className="px-3 py-2 font-semibold">
                       {h}
                     </th>
@@ -860,14 +843,14 @@ function InductionsPanel({ venueId }: { venueId: number }) {
                     <td className="px-3 py-2 text-right">
                       {i.revokedAt ? (
                         <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold">
-                          withdrawn
+                          {t("ct.ind.withdrawn")}
                         </span>
                       ) : (
                         <button
                           onClick={() => revoke(i)}
                           className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                         >
-                          Withdraw
+                          {t("ct.ind.withdraw")}
                         </button>
                       )}
                     </td>
@@ -887,6 +870,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
  * any of the four takes the pitch.
  */
 function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[] }) {
+  const t = useStaffT();
   const [links, setLinks] = useState<{ wholeId: number; partId: number }[] | null>(null);
   const [editing, setEditing] = useState<{ wholeId: number; parts: number[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -901,7 +885,7 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
     void load();
   }, [load]);
 
-  const name = (id: number) => courts.find((c) => c.id === id)?.name ?? `Court ${id}`;
+  const name = (id: number) => courts.find((c) => c.id === id)?.name ?? t("ct.courtN", { id });
   const partsOf = (id: number) => (links ?? []).filter((l) => l.wholeId === id).map((l) => l.partId);
   const isPart = (id: number) => (links ?? []).some((l) => l.partId === id);
   const wholes = [...new Set((links ?? []).map((l) => l.wholeId))];
@@ -917,11 +901,11 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
         body: JSON.stringify({ courtId: editing.wholeId, parts: editing.parts }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      if (!res.ok) throw new Error(t.err(data));
       setEditing(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     } finally {
       setBusy(false);
     }
@@ -930,23 +914,19 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
   if (!links) return null;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">Courts that share a floor</h3>
-      <p className="mt-1 text-xs text-slate-500">
-        For a hall sold more than one way, like a futsal pitch that is also four badminton courts. Say which courts the bigger
-        one takes: booking it then takes all of them, and booking any of them takes it. A block or a court out of service
-        closes the courts it shares the floor with too. Only courts booked whole can be linked.
-      </p>
+      <h3 className="font-semibold">{t("ct.linksTitle")}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t("ct.linksIntro")}</p>
       {wholes.length > 0 && (
         <ul className="mt-3 space-y-1">
           {wholes.map((w) => (
             <li key={w} className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{name(w)}</span>
-              <span className="text-slate-500">takes {partsOf(w).map(name).join(", ")}</span>
+              <span className="text-slate-500">{t("ct.takes", { courts: partsOf(w).map(name).join(", ") })}</span>
               <button
                 onClick={() => setEditing({ wholeId: w, parts: partsOf(w) })}
                 className="text-xs font-semibold text-teal-700 underline"
               >
-                Change
+                {t("c.change")}
               </button>
             </li>
           ))}
@@ -955,21 +935,23 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
       {editing ? (
         <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
           <label className="flex items-center gap-2">
-            Booking
-            <select
-              value={editing.wholeId}
-              onChange={(e) => setEditing({ wholeId: Number(e.target.value), parts: partsOf(Number(e.target.value)) })}
-              className="rounded-md border border-slate-300 px-2 py-1"
-            >
-              {courts
-                .filter((c) => !isPart(c.id))
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
-            also takes:
+            {withMarks(t("ct.alsoTakes"), {
+              court: (
+                <select
+                  value={editing.wholeId}
+                  onChange={(e) => setEditing({ wholeId: Number(e.target.value), parts: partsOf(Number(e.target.value)) })}
+                  className="rounded-md border border-slate-300 px-2 py-1"
+                >
+                  {courts
+                    .filter((c) => !isPart(c.id))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+              ),
+            })}
           </label>
           <div className="mt-2 flex flex-wrap gap-3">
             {courts
@@ -992,10 +974,10 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
           </div>
           <div className="mt-3 flex gap-2">
             <button disabled={busy} onClick={() => void save()} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
-              Save
+              {t("c.save")}
             </button>
             <button onClick={() => setEditing(null)} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold">
-              Cancel
+              {t("c.cancel")}
             </button>
           </div>
         </div>
@@ -1007,7 +989,7 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
           }}
           className="mt-3 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold"
         >
-          Link courts
+          {t("ct.linkCourts")}
         </button>
       )}
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
@@ -1025,38 +1007,42 @@ function QuantityPriceField({
   value: { from: number; percent: number }[] | null;
   onSave: (bands: { from: number; percent: number }[] | null) => void;
 }) {
+  const t = useStaffT();
   const first = value?.[0];
   const [from, setFrom] = useState(first ? String(first.from) : "");
   const [percent, setPercent] = useState(first ? String(first.percent) : "");
   return (
     <span className="flex items-center gap-1">
-      from
-      <input
-        aria-label={`Larger bookings on ${courtName} from`}
-        type="number"
-        min={2}
-        max={50}
-        value={from}
-        onChange={(e) => setFrom(e.target.value)}
-        className="w-14 rounded-md border border-slate-300 px-1.5 py-1 text-sm"
-      />
-      at
-      <input
-        aria-label={`Larger bookings on ${courtName} pay percent`}
-        type="number"
-        min={1}
-        max={99}
-        value={percent}
-        onChange={(e) => setPercent(e.target.value)}
-        className="w-14 rounded-md border border-slate-300 px-1.5 py-1 text-sm"
-      />
-      % each
+      {withMarks(t("ct.qtyRule"), {
+        from: (
+          <input
+            aria-label={t("ct.qtyFromAria", { name: courtName })}
+            type="number"
+            min={2}
+            max={50}
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="w-14 rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+          />
+        ),
+        percent: (
+          <input
+            aria-label={t("ct.qtyPercentAria", { name: courtName })}
+            type="number"
+            min={1}
+            max={99}
+            value={percent}
+            onChange={(e) => setPercent(e.target.value)}
+            className="w-14 rounded-md border border-slate-300 px-1.5 py-1 text-sm"
+          />
+        ),
+      })}
       <button
         type="button"
         onClick={() => onSave(from === "" || percent === "" ? null : [{ from: Number(from), percent: Number(percent) }])}
         className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700 hover:bg-slate-200"
       >
-        Save
+        {t("c.save")}
       </button>
     </span>
   );

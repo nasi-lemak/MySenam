@@ -6,16 +6,19 @@ import { calendarUntil, MY_STATES } from "@/lib/holiday-calendar";
 import { region } from "@/lib/region";
 import { todayISO, type PeakRules } from "@/lib/time";
 import { clockOf, parseClock } from "@/lib/interval";
+import { useStaffT } from "./StaffLanguage";
+import { withMarks } from "./ResourcesEditor";
 
 type Rules = Omit<PeakRules, "holidays">;
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 /**
  * When a venue's peak rates apply: the hours on working days and at the
  * weekend, which days are the weekend, and holidays priced like it.
  */
 export function PeakHoursEditor({ venueId }: { venueId: number }) {
+  const t = useStaffT();
   const [rules, setRules] = useState<Rules | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [day, setDay] = useState({ date: "", name: "" });
@@ -44,9 +47,9 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     });
     const d = await res.json().catch(() => ({}));
     setBusy(false);
-    if (!res.ok) return setError(d.error ?? "Could not save");
+    if (!res.ok) return setError(t.err(d));
     setLoyalty(d.every);
-    setNotice(d.every === null ? "Free hours for regulars are off." : `One free hour for every ${d.every} hours played.`);
+    setNotice(d.every === null ? t("pk.loyaltyOff") : t("pk.loyaltyOn", { n: d.every }));
   }
 
   useEffect(() => {
@@ -73,10 +76,10 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
         body: body ? JSON.stringify(body) : undefined,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      if (!res.ok) throw new Error(t.err(data));
       return data;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("c.failed"));
       return null;
     } finally {
       setBusy(false);
@@ -87,7 +90,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     const data = await send("/api/admin/peak-rules", "POST", { venueId, ...rules });
     if (!data) return;
     setRules(data.rules as Rules);
-    setNotice("Saved. Prices from now on follow these hours; bookings already made keep theirs.");
+    setNotice(t("pk.savedRules"));
   }
 
   async function saveLastMinute() {
@@ -97,7 +100,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     });
     if (!data) return;
     setRules(data.rules as Rules);
-    setNotice(lm.on ? "Saved. Customers see the lower price on hours that qualify, and pay it if they book then." : "Last-minute prices are off.");
+    setNotice(lm.on ? t("pk.savedLastMinute") : t("pk.lastMinuteOff"));
   }
 
   async function addDay() {
@@ -111,11 +114,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
     const data = await send("/api/admin/holidays", "POST", { venueId, fill: true, state });
     if (!data) return;
     setHolidays(data.holidays as Holiday[]);
-    setNotice(
-      data.added === 0
-        ? "Nothing to add: every public holiday listed so far is on your list."
-        : `Added ${data.added} public holiday${data.added === 1 ? "" : "s"}. Remove any you open as usual.`
-    );
+    setNotice(data.added === 0 ? t("pk.nothingToAdd") : t.plural("pk.added", Number(data.added)));
   }
 
   async function removeDay(date: string) {
@@ -131,7 +130,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
       <input
         type="time"
         step={60}
-        aria-label="From"
+        aria-label={t("c.from")}
         value={clockOf(rules[fromKey])}
         onChange={(e) => {
           const m = parseClock(e.target.value);
@@ -139,11 +138,11 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
         }}
         className={input}
       />
-      to
+      {t("pk.to")}
       <input
         type="time"
         step={60}
-        aria-label="Until"
+        aria-label={t("c.until")}
         value={clockOf(rules[untilKey])}
         onChange={(e) => {
           const m = parseClock(e.target.value);
@@ -158,23 +157,20 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">When peak rates apply</h3>
-      <p className="mt-1 text-xs text-slate-500">
-        Each court above has an off-peak and a peak rate; these times decide which one each minute costs, so a booking across the change pays each part at its own rate. The same time twice
-        means no peak; 00:00 to 00:00 is all day. Holidays are priced like the weekend.
-      </p>
+      <h3 className="font-semibold">{t("pk.title")}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t("pk.intro")}</p>
       <div className="mt-3 space-y-2">
         <p>
-          <span className="inline-block w-24 text-xs font-medium text-slate-600">Weekdays</span>
+          <span className="inline-block w-24 text-xs font-medium text-slate-600">{t("pk.weekdays")}</span>
           {span("weekdayFrom", "weekdayUntil")}
         </p>
         <p>
-          <span className="inline-block w-24 text-xs font-medium text-slate-600">Weekend</span>
+          <span className="inline-block w-24 text-xs font-medium text-slate-600">{t("pk.weekend")}</span>
           {span("weekendFrom", "weekendUntil")}
         </p>
         <p className="flex flex-wrap items-center gap-1">
-          <span className="inline-block w-24 text-xs font-medium text-slate-600">Weekend days</span>
-          {DAYS.map((name, d) => {
+          <span className="inline-block w-24 text-xs font-medium text-slate-600">{t("pk.weekendDays")}</span>
+          {DAYS.map((d) => {
             const on = rules.weekendDays.includes(d);
             return (
               <button
@@ -188,7 +184,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
                   on ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-300 text-slate-600"
                 }`}
               >
-                {name}
+                {t(`pk.day.${d}`)}
               </button>
             );
           })}
@@ -198,74 +194,71 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
           onClick={saveRules}
           className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
         >
-          Save peak hours
+          {t("pk.savePeak")}
         </button>
       </div>
 
-      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Last-minute prices</h4>
-      <p className="mt-1 text-xs text-slate-500">
-        Fill hours that would otherwise go empty: an hour still free shortly before it starts costs less, for whoever books
-        it then. Bookings already made keep their price, and a booking moved into such an hour does not get the lower one.
-      </p>
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("pk.lastMinuteTitle")}</h4>
+      <p className="mt-1 text-xs text-slate-500">{t("pk.lastMinuteIntro")}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={lm.on} onChange={(e) => setLm({ ...lm, on: e.target.checked })} />
-          On:
+          {t("pk.onLabel")}
         </label>
-        <select aria-label="Discount" value={lm.percent} disabled={!lm.on} onChange={(e) => setLm({ ...lm, percent: Number(e.target.value) })} className={input}>
-          {[10, 15, 20, 25, 30, 40, 50].map((p) => (
-            <option key={p} value={p}>
-              {p}% off
-            </option>
-          ))}
-        </select>
-        within
-        <select aria-label="Hours before" value={lm.hours} disabled={!lm.on} onChange={(e) => setLm({ ...lm, hours: Number(e.target.value) })} className={input}>
-          {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
-            <option key={h} value={h}>
-              {h} hour{h === 1 ? "" : "s"}
-            </option>
-          ))}
-        </select>
-        of the start
+        {withMarks(t("pk.lastMinuteRule"), {
+          discount: (
+            <select aria-label={t("pk.discount")} value={lm.percent} disabled={!lm.on} onChange={(e) => setLm({ ...lm, percent: Number(e.target.value) })} className={input}>
+              {[10, 15, 20, 25, 30, 40, 50].map((p) => (
+                <option key={p} value={p}>
+                  {t("pk.percentOff", { p })}
+                </option>
+              ))}
+            </select>
+          ),
+          hours: (
+            <select aria-label={t("pk.hoursBefore")} value={lm.hours} disabled={!lm.on} onChange={(e) => setLm({ ...lm, hours: Number(e.target.value) })} className={input}>
+              {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+                <option key={h} value={h}>
+                  {t.plural("c.hours", h)}
+                </option>
+              ))}
+            </select>
+          ),
+        })}
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={lm.offPeakOnly} disabled={!lm.on} onChange={(e) => setLm({ ...lm, offPeakOnly: e.target.checked })} />
-          off-peak hours only
+          {t("pk.offPeakOnly")}
         </label>
         <button disabled={busy} onClick={saveLastMinute} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
-          Save
+          {t("c.save")}
         </button>
       </div>
       {lm.on && !lm.offPeakOnly && (
         <p className="mt-1 text-xs text-amber-700">
-          Peak hours too: regulars may learn to wait for the lower price on your busiest evenings.
+          {t("pk.peakWarning")}
         </p>
       )}
 
-      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">A free hour for regulars</h4>
-      <p className="mt-1 text-xs text-slate-500">
-        Rather than prices that move with demand, thank the people who keep coming: every so many paid hours somebody
-        plays here, the next hour is on you. It goes to them once a day as a one-hour pass (90 days to use it), by email.
-        Classes, no-shows and hours paid with a free hour do not count.
-      </p>
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("pk.loyaltyTitle")}</h4>
+      <p className="mt-1 text-xs text-slate-500">{t("pk.loyaltyIntro")}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
-          aria-label="Free hour for regulars"
+          aria-label={t("pk.loyaltyAria")}
           value={loyalty ?? ""}
           disabled={busy}
           onChange={(e) => void saveLoyalty(e.target.value === "" ? null : Number(e.target.value))}
           className={input}
         >
-          <option value="">Off</option>
+          <option value="">{t("pk.loyaltyOffOption")}</option>
           {[5, 8, 10, 12, 15, 20, 30].map((n) => (
             <option key={n} value={n}>
-              One free hour every {n} hours played
+              {t("pk.loyaltyEvery", { n })}
             </option>
           ))}
         </select>
       </div>
 
-      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Holidays at weekend prices</h4>
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("pk.holidaysTitle")}</h4>
       {holidays.length > 0 ? (
         <ul className="mt-1 divide-y divide-slate-100">
           {holidays.map((h) => (
@@ -274,26 +267,26 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
                 <span className="font-medium">{h.date}</span> · {h.name}
               </span>
               <button disabled={busy} onClick={() => removeDay(h.date)} className="text-xs font-medium text-red-700">
-                Remove
+                {t("c.remove")}
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-xs text-slate-500">None listed. Add public, school or festive holidays as they are announced.</p>
+        <p className="mt-1 text-xs text-slate-500">{t("pk.noHolidays")}</p>
       )}
       <div className="mt-2 flex flex-wrap items-end gap-2">
         <input
           type="date"
-          aria-label="Holiday date"
+          aria-label={t("pk.holidayDate")}
           min={todayISO()}
           value={day.date}
           onChange={(e) => setDay({ ...day, date: e.target.value })}
           className={input}
         />
         <input
-          aria-label="Holiday name"
-          placeholder="Hari Raya Aidilfitri"
+          aria-label={t("pk.holidayName")}
+          placeholder={t("pk.holidayExample")}
           value={day.name}
           onChange={(e) => setDay({ ...day, name: e.target.value })}
           className={`w-48 ${input}`}
@@ -303,29 +296,34 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
           onClick={addDay}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
         >
-          Add holiday
+          {t("pk.addHoliday")}
         </button>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-        <span>Or fill in the public holidays{region().country === "MY" ? " for" : ""}</span>
-        {region().country === "MY" && (
-          <select aria-label="State" value={state} onChange={(e) => setState(e.target.value)} className={input}>
-            <option value="">every state (national only)</option>
-            {MY_STATES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+        {region().country === "MY" ? (
+          withMarks(t("pk.fillForState"), {
+            state: (
+              <select aria-label={t("pk.state")} value={state} onChange={(e) => setState(e.target.value)} className={input}>
+                <option value="">{t("pk.everyState")}</option>
+                {MY_STATES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            ),
+          })
+        ) : (
+          <span>{t("pk.fill")}</span>
         )}
         <button
           disabled={busy}
           onClick={fill}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
         >
-          Fill in
+          {t("pk.fillIn")}
         </button>
-        <span className="text-slate-500">As gazetted, to {calendarUntil(region().country)}. Islamic holidays can move a day once announced.</span>
+        <span className="text-slate-500">{t("pk.gazetted", { until: calendarUntil(region().country) })}</span>
       </div>
       {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-xs text-emerald-700">{notice}</p>}

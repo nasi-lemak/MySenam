@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ACTIVITY_CATEGORIES, RESOURCE_MODELS, RESOURCE_NOUNS, type ActivityCategory, type ResourceModel } from "@/lib/activity-catalogue";
-import { activityIcon, activityName, type Activity } from "@/lib/activity-registry";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ACTIVITY_CATEGORIES, RESOURCE_MODELS, RESOURCE_NOUNS } from "@/lib/activity-catalogue";
+import { activityIcon, type Activity } from "@/lib/activity-registry";
 import { courtSports } from "@/lib/court-activities";
-import { currencySymbol, region } from "@/lib/region";
+import { sportLabel } from "@/lib/i18n";
+import { region } from "@/lib/region";
 import { MAX_CAPACITY, MAX_DEPOSIT, type Court } from "@/lib/types";
+import type { StaffT } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * Resources and the activities they are booked for (ADR 0011), as an
@@ -14,47 +17,42 @@ import { MAX_CAPACITY, MAX_DEPOSIT, type Court } from "@/lib/types";
  * activity of the venue's own; record staff sign-offs.
  */
 
-export const CATEGORY_LABELS: Record<ActivityCategory, string> = {
-  racket: "Racket sports",
-  team: "Team sports",
-  aquatic: "In the pool",
-  water: "On the water",
-  fitness: "Fitness",
-  studio: "Classes and studios",
-  specialist: "Specialist",
-};
+/**
+ * A phrase whose `{marks}` are elements (a select, an emphasised word), in
+ * the order the language puts them. Pass the phrase without those values, so
+ * its marks are still there to fill.
+ */
+export function withMarks(text: string, marks: Record<string, ReactNode>): ReactNode[] {
+  return text
+    .split(/(\{\w+\})/)
+    .filter((part) => part !== "")
+    .map((part, i) => {
+      const mark = /^\{(\w+)\}$/.exec(part)?.[1];
+      return <Fragment key={i}>{mark !== undefined && mark in marks ? marks[mark] : part}</Fragment>;
+    });
+}
 
-const MODEL_LABELS: Record<ResourceModel, string> = {
-  exclusive: "One booking at a time (a court, a pitch)",
-  lanes: "Several of the same, one booking each (lanes, bays, tables)",
-  shared: "Many people at once, up to its places (a gym floor, a wall)",
-  class: "Classes led by an instructor (a studio)",
-  hire: "Kit hired out, several per booking (kayaks, boards, bikes)",
-};
-
-const SUPPORT_LABELS = {
-  full: "Fully supported",
-  basic: "Basic booking",
-  specialised: "Needs a workflow not built yet",
-} as const;
+/** An activity's name in the staff's language, from the names it was given. */
+const nameOf = (t: StaffT, a: Activity) => a.names[t.locale] ?? a.names.en;
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 
-async function json<T>(res: Response, fallback: string): Promise<T> {
+async function json<T>(res: Response, t: StaffT): Promise<T> {
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? fallback);
+  if (!res.ok) throw new Error(t.err(data));
   return data as T;
 }
 
 /** The activities this venue may offer: the platform's, and its own. */
 export function useVenueActivities(venueId: number): { activities: Activity[]; reload: () => void } {
+  const t = useStaffT();
   const [activities, setActivities] = useState<Activity[]>([]);
   const reload = useCallback(() => {
     fetch(`/api/admin/activities?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => json<{ activities: Activity[] }>(r, "Could not load activities"))
+      .then((r) => json<{ activities: Activity[] }>(r, t))
       .then((d) => setActivities(d.activities))
       .catch(() => setActivities([]));
-  }, [venueId]);
+  }, [venueId, t]);
   useEffect(() => reload(), [reload]);
   return { activities, reload };
 }
@@ -64,26 +62,27 @@ function ActivityPicker({
   activities,
   value,
   onChange,
-  label = "Activity",
+  label,
 }: {
   activities: Activity[];
   value: string;
   onChange: (key: string) => void;
   label?: string;
 }) {
+  const t = useStaffT();
   return (
     <label className="flex flex-col text-xs font-medium text-slate-500">
-      {label}
+      {label ?? t("res.activity")}
       <select value={value} onChange={(e) => onChange(e.target.value)} className={`mt-1 ${input}`}>
         {ACTIVITY_CATEGORIES.map((cat) => {
           const here = activities.filter((a) => a.category === cat);
           if (here.length === 0) return null;
           return (
-            <optgroup key={cat} label={CATEGORY_LABELS[cat]}>
+            <optgroup key={cat} label={t(`res.cat.${cat}`)}>
               {here.map((a) => (
                 <option key={a.key} value={a.key}>
-                  {a.icon} {a.names.en}
-                  {a.businessId !== null || a.venueId !== null ? " (yours)" : ""}
+                  {a.icon} {nameOf(t, a)}
+                  {a.businessId !== null || a.venueId !== null ? ` (${t("res.yours")})` : ""}
                 </option>
               ))}
             </optgroup>
@@ -96,6 +95,7 @@ function ActivityPicker({
 
 /** Add one resource, or several of the same, from an activity's template. */
 export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdded: (message: string) => void }) {
+  const t = useStaffT();
   const { activities, reload } = useVenueActivities(venueId);
   const [sport, setSport] = useState("badminton");
   const chosen = activities.find((a) => a.key === sport) ?? null;
@@ -106,16 +106,16 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
   // A new activity chosen: start from its template.
   useEffect(() => {
     if (!chosen) return;
-    const t = chosen.template;
+    const tpl = chosen.template;
     setForm((f) => ({
       ...f,
-      count: String(t.count),
-      noun: t.noun,
-      capacity: String(t.capacity),
-      perPlayer: t.perPlayer,
-      maxPlayers: t.maxPlayers === null ? "" : String(t.maxPlayers),
-      setting: t.setting ?? "",
-      deposit: t.model === "hire" ? f.deposit : "0",
+      count: String(tpl.count),
+      noun: tpl.noun,
+      capacity: String(tpl.capacity),
+      perPlayer: tpl.perPlayer,
+      maxPlayers: tpl.maxPlayers === null ? "" : String(tpl.maxPlayers),
+      setting: tpl.setting ?? "",
+      deposit: tpl.model === "hire" ? f.deposit : "0",
     }));
   }, [chosen]);
 
@@ -142,96 +142,93 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
             setting: form.setting || null,
           }),
         }),
-        "Could not add"
+        t
       );
-      onAdded(`Added ${data.courts.map((c) => c.name).join(", ")}.`);
+      onAdded(t("res.added", { names: data.courts.map((c) => c.name).join(", ") }));
       setForm((f) => ({ ...f, name: "", offPeak: "", peak: "" }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not add");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
   return (
     <section className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-white p-4">
-      <h3 className="font-semibold">Add courts, lanes, bays or a facility</h3>
-      <p className="text-sm text-slate-500">
-        Choose what it is for, and it starts as that activity usually is: lanes come in sets, a gym floor has places, kayaks are hired several at a
-        time. Change anything before adding.
-      </p>
+      <h3 className="font-semibold">{t("res.addTitle")}</h3>
+      <p className="text-sm text-slate-500">{t("res.addIntro")}</p>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <form onSubmit={add} className="flex flex-wrap items-end gap-2">
         <ActivityPicker activities={activities} value={sport} onChange={setSport} />
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          How many
+          {t("res.howMany")}
           <input type="number" min={1} max={20} value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         {form.count === "1" && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Name (optional)
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Centre court" className={`mt-1 w-36 ${input}`} />
+            {t("res.nameOptional")}
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("res.nameExample")} className={`mt-1 w-36 ${input}`} />
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Each is a
+          {t("res.eachIsA")}
           <select value={form.noun} onChange={(e) => setForm({ ...form, noun: e.target.value })} className={`mt-1 ${input}`}>
             {RESOURCE_NOUNS.map((n) => (
               <option key={n} value={n}>
-                {n}
+                {t(`res.noun.${n}`)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Off-peak ({currencySymbol()}/hr)
+          {t("res.offPeakRate")}
           <input required type="number" step={0.01} min={0} value={form.offPeak} onChange={(e) => setForm({ ...form, offPeak: e.target.value })} className={`mt-1 w-24 ${input}`} />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Peak ({currencySymbol()}/hr)
+          {t("res.peakRate")}
           <input required type="number" step={0.01} min={0} value={form.peak} onChange={(e) => setForm({ ...form, peak: e.target.value })} className={`mt-1 w-24 ${input}`} />
         </label>
-        <label className="flex flex-col text-xs font-medium text-slate-500" title="1: one booking at a time. More: that many people, or items, at once.">
-          Places
+        <label className="flex flex-col text-xs font-medium text-slate-500" title={t("res.placesTitle")}>
+          {t("res.places")}
           <input type="number" min={1} max={MAX_CAPACITY} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
-        <label className="flex flex-col text-xs font-medium text-slate-500" title="Held while kit is out. 0 for anything that stays on site.">
-          Deposit ({currencySymbol()})
+        <label className="flex flex-col text-xs font-medium text-slate-500" title={t("res.depositTitle")}>
+          {t("res.deposit")}
           <input type="number" step={0.01} min={0} max={MAX_DEPOSIT} value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         {form.capacity === "1" && (
           <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
             <input type="checkbox" checked={form.perPlayer} onChange={(e) => setForm({ ...form, perPlayer: e.target.checked })} />
-            Priced per person
+            {t("res.perPerson")}
           </label>
         )}
-        <label className="flex flex-col text-xs font-medium text-slate-500" title="For search's indoor and outdoor filters.">
-          Indoor or outdoor
+        <label className="flex flex-col text-xs font-medium text-slate-500" title={t("res.settingTitle")}>
+          {t("res.setting")}
           <select value={form.setting} onChange={(e) => setForm({ ...form, setting: e.target.value })} className={`mt-1 ${input}`}>
-            <option value="">Not said</option>
-            <option value="indoor">Indoor</option>
-            <option value="outdoor">Outdoor</option>
+            <option value="">{t("res.notSaid")}</option>
+            <option value="indoor">{t("res.indoor")}</option>
+            <option value="outdoor">{t("res.outdoor")}</option>
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Most in one booking
-          <input type="number" min={1} max={50} placeholder="Any" value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: e.target.value })} className={`mt-1 w-20 ${input}`} />
+          {t("res.mostInBooking")}
+          <input type="number" min={1} max={50} placeholder={t("res.any")} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         <button type="submit" className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
-          Add
+          {t("c.add")}
         </button>
       </form>
       {chosen && (
         <p className="text-xs text-slate-500">
-          <span className="font-semibold">{chosen.icon} {chosen.names.en}</span>: {MODEL_LABELS[chosen.template.model]}.{" "}
+          <span className="font-semibold">{chosen.icon} {nameOf(t, chosen)}</span>: {t(`res.model.${chosen.template.model}`)}.{" "}
           <span className={chosen.support === "full" ? "text-emerald-700" : chosen.support === "basic" ? "text-amber-700" : "text-red-700"}>
-            {SUPPORT_LABELS[chosen.support]}
+            {t(`res.support.${chosen.support}`)}
           </span>
           {chosen.supportNote ? ` — ${chosen.supportNote}` : ""}
-          {chosen.template.signOff ? " Customers need a staff sign-off before they book it, unless you turn that off in the booking rules." : ""}
-          {chosen.policy.defaultLength && chosen.policy.defaultLength !== 60 ? ` Usually booked for ${chosen.policy.defaultLength} minutes.` : ""}
+          {chosen.template.signOff ? ` ${t("res.needsSignOff")}` : ""}
+          {chosen.policy.defaultLength && chosen.policy.defaultLength !== 60 ? ` ${t("res.usualLength", { n: chosen.policy.defaultLength })}` : ""}
         </p>
       )}
       <button type="button" onClick={() => setOwnOpen(!ownOpen)} className="text-xs font-semibold text-teal-700 hover:underline">
-        {ownOpen ? "Close" : "Not in the list? Add an activity of your own"}
+        {ownOpen ? t("c.close") : t("res.ownToggle")}
       </button>
       {ownOpen && (
         <OwnActivityForm
@@ -249,6 +246,7 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
 
 /** An activity of the venue's own (every branch of its business): named, filed, and booked like any other. */
 function OwnActivityForm({ venueId, onAdded }: { venueId: number; onAdded: (key: string) => void }) {
+  const t = useStaffT();
   const [form, setForm] = useState({ en: "", ms: "", zh: "", ta: "", category: "specialist", model: "exclusive", noun: "court", icon: "", aliases: "" });
   const [error, setError] = useState<string | null>(null);
   async function save(e: React.FormEvent) {
@@ -269,69 +267,66 @@ function OwnActivityForm({ venueId, onAdded }: { venueId: number; onAdded: (key:
             aliases: form.aliases.split(",").map((x) => x.trim()).filter(Boolean),
           }),
         }),
-        "Could not add the activity"
+        t
       );
       onAdded(data.activity.key);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not add the activity");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
   return (
     <form onSubmit={save} className="space-y-2 rounded-lg bg-slate-50 p-3">
-      <p className="text-xs text-slate-500">
-        It is booked with the same courts, rules and prices as everything else, and players find it in search once one of your courts offers it. Its
-        name in other languages is optional.
-      </p>
+      <p className="text-xs text-slate-500">{t("res.ownIntro")}</p>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="flex flex-wrap items-end gap-2">
         {(["en", "ms", "zh", "ta"] as const).map((l) => (
           <label key={l} className="flex flex-col text-xs font-medium text-slate-500">
-            Name ({l === "en" ? "English" : l === "ms" ? "Malay" : l === "zh" ? "Chinese" : "Tamil"})
+            {t("res.nameIn", { language: t(`res.lang.${l}`) })}
             <input required={l === "en"} maxLength={40} value={form[l]} onChange={(e) => setForm({ ...form, [l]: e.target.value })} className={`mt-1 w-36 ${input}`} />
           </label>
         ))}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Icon
+          {t("res.icon")}
           <input maxLength={4} value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="🏑" className={`mt-1 w-14 ${input}`} />
         </label>
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Category
+          {t("res.category")}
           <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={`mt-1 ${input}`}>
             {ACTIVITY_CATEGORIES.map((c) => (
               <option key={c} value={c}>
-                {CATEGORY_LABELS[c]}
+                {t(`res.cat.${c}`)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          How it is booked
+          {t("res.howBooked")}
           <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} className={`mt-1 ${input}`}>
             {RESOURCE_MODELS.map((m) => (
               <option key={m} value={m}>
-                {MODEL_LABELS[m]}
+                {t(`res.model.${m}`)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Each is a
+          {t("res.eachIsA")}
           <select value={form.noun} onChange={(e) => setForm({ ...form, noun: e.target.value })} className={`mt-1 ${input}`}>
             {RESOURCE_NOUNS.map((n) => (
               <option key={n} value={n}>
-                {n}
+                {t(`res.noun.${n}`)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Also searched as (commas)
+          {t("res.aliases")}
           <input value={form.aliases} onChange={(e) => setForm({ ...form, aliases: e.target.value })} className={`mt-1 w-48 ${input}`} />
         </label>
         <button type="submit" className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
-          Add activity
+          {t("res.addActivity")}
         </button>
       </div>
     </form>
@@ -340,6 +335,7 @@ function OwnActivityForm({ venueId, onAdded }: { venueId: number; onAdded: (key:
 
 /** What each court can be booked for besides its main activity, each at the court's rates or its own. */
 export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: number; courts: Court[]; onSaved: (message: string) => void }) {
+  const t = useStaffT();
   const { activities } = useVenueActivities(venueId);
   const [courtId, setCourtId] = useState(courts[0]?.id ?? 0);
   const court = courts.find((c) => c.id === courtId) ?? courts[0];
@@ -374,29 +370,31 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
             })),
           }),
         }),
-        "Could not save"
+        t
       );
-      onSaved(`${court.name} is booked for ${[court.sport, ...rows.map((r) => r.sport)].map((s) => activityName(s)).join(", ")}.`);
+      onSaved(
+        t("res.bookedFor", {
+          court: court.name,
+          sports: [court.sport, ...rows.map((r) => r.sport)].map((s) => sportLabel(t.customer, s)).join(", "),
+        })
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="font-semibold">Courts booked for more than one activity</h3>
-      <p className="text-sm text-slate-500">
-        A hall booked for badminton can be booked for pickleball or volleyball too: it shows under each, at each one&apos;s rates and booking rules,
-        and only one booking holds it at a time. Leave the rates blank to charge the court&apos;s own.
-      </p>
+      <h3 className="font-semibold">{t("res.multiTitle")}</h3>
+      <p className="text-sm text-slate-500">{t("res.multiIntro")}</p>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Court
+          {t("res.court")}
           <select value={court.id} onChange={(e) => setCourtId(Number(e.target.value))} className={`mt-1 ${input}`}>
             {courts.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} ({activityName(c.sport)})
+                {c.name} ({sportLabel(t.customer, c.sport)})
               </option>
             ))}
           </select>
@@ -404,18 +402,18 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
       </div>
       <ul className="space-y-1 text-sm">
         <li className="text-slate-500">
-          {activityIcon(court.sport)} {activityName(court.sport)}: its main activity, at the court&apos;s rates
+          {activityIcon(court.sport)} {t("res.mainActivity", { sport: sportLabel(t.customer, court.sport) })}
         </li>
         {rows.map((r, i) => (
           <li key={r.sport} className="flex flex-wrap items-center gap-2">
             <span>
-              {activityIcon(r.sport)} {activityName(r.sport)}
+              {activityIcon(r.sport)} {sportLabel(t.customer, r.sport)}
             </span>
             <input
               type="number"
               step={0.01}
               min={0}
-              placeholder={`Off-peak ${currencySymbol()}`}
+              placeholder={t("res.offPeakPh")}
               value={r.offPeak}
               onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, offPeak: e.target.value } : x)))}
               className={`w-28 ${input}`}
@@ -424,25 +422,25 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
               type="number"
               step={0.01}
               min={0}
-              placeholder={`Peak ${currencySymbol()}`}
+              placeholder={t("res.peakPh")}
               value={r.peak}
               onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, peak: e.target.value } : x)))}
               className={`w-28 ${input}`}
             />
             <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-xs text-red-600 hover:underline">
-              Remove
+              {t("c.remove")}
             </button>
           </li>
         ))}
       </ul>
       <div className="flex flex-wrap items-end gap-2">
         <select value={adding} onChange={(e) => setAdding(e.target.value)} className={input}>
-          <option value="">Also booked for…</option>
+          <option value="">{t("res.alsoFor")}</option>
           {activities
             .filter((a) => !offered.includes(a.key) && !rows.some((r) => r.sport === a.key))
             .map((a) => (
               <option key={a.key} value={a.key}>
-                {a.icon} {a.names.en}
+                {a.icon} {nameOf(t, a)}
               </option>
             ))}
         </select>
@@ -455,10 +453,10 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
           }}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50"
         >
-          Add
+          {t("c.add")}
         </button>
         <button type="button" onClick={save} className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
-          Save
+          {t("c.save")}
         </button>
       </div>
     </section>
@@ -488,6 +486,7 @@ const EMPTY_SIGN_OFF = { name: "", phone: "", email: "", sport: "", kind: "opera
  * staff have seen. Online, only the customer's own account books on one.
  */
 export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Court[] }) {
+  const t = useStaffT();
   const [rows, setRows] = useState<SignOffRow[]>([]);
   const [form, setForm] = useState(EMPTY_SIGN_OFF);
   const [error, setError] = useState<string | null>(null);
@@ -495,10 +494,10 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
 
   const load = useCallback(() => {
     fetch(`/api/admin/sign-offs?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => json<{ signOffs: SignOffRow[] }>(r, "Could not load sign-offs"))
+      .then((r) => json<{ signOffs: SignOffRow[] }>(r, t))
       .then((d) => setRows(d.signOffs))
-      .catch((err) => setError(err instanceof Error ? err.message : "Could not load sign-offs"));
-  }, [venueId]);
+      .catch((err) => setError(err instanceof Error ? err.message : t("c.failed")));
+  }, [venueId, t]);
   useEffect(() => load(), [load]);
 
   async function add(e: React.FormEvent) {
@@ -518,74 +517,74 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             expiresOn: form.expiresOn || null,
           }),
         }),
-        "Could not record the sign-off"
+        t
       );
       setForm({ ...EMPTY_SIGN_OFF, sport: form.sport, kind: form.kind });
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not record the sign-off");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
   async function revoke(row: SignOffRow) {
-    const reason = window.prompt(`Take back ${row.name}'s ${row.kind === "certification" ? "certification" : "sign-off"}? Say why (kept on record).`);
+    const reason = window.prompt(t(row.kind === "certification" ? "res.revokeCert" : "res.revokeSignOff", { name: row.name }));
     if (reason === null) return;
     setError(null);
     try {
       await json(
         await fetch(`/api/admin/sign-offs?venueId=${venueId}&id=${row.id}&reason=${encodeURIComponent(reason)}`, { method: "DELETE" }),
-        "Could not take it back"
+        t
       );
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not take it back");
+      setError(err instanceof Error ? err.message : t("c.failed"));
     }
   }
 
   const certification = form.kind === "certification";
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="font-semibold">Staff sign-offs and certifications</h3>
+      <h3 className="font-semibold">{t("res.soTitle")}</h3>
       <p className="text-sm text-slate-500">
-        Where an activity&apos;s booking rules ask for one, customers book it online only once it is recorded here, and only from their own
-        account: the one you name by email, or one that has checked this phone number. A <strong>sign-off</strong> is your own check (a belay
-        check, a range briefing, an induction). A <strong>certification</strong> is a qualification the law or a governing body asks for that you
-        have seen, with its number and the day it runs out. Staff can still book anyone in at the counter; a manager going past the rules is recorded.
+        {withMarks(t("res.soIntro"), {
+          signOff: <strong>{t("res.signOffWord")}</strong>,
+          certification: <strong>{t("res.certificationWord")}</strong>,
+        })}
       </p>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <form onSubmit={add} className="flex flex-wrap items-end gap-2">
-        <select aria-label="Kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} className={input}>
-          <option value="operational">Sign-off</option>
-          <option value="certification">Certification</option>
+        <select aria-label={t("res.kind")} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} className={input}>
+          <option value="operational">{t("res.signOff")}</option>
+          <option value="certification">{t("res.certification")}</option>
         </select>
-        <input required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-36 ${input}`} />
+        <input required placeholder={t("c.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-36 ${input}`} />
         <input required placeholder={region().phone.example} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-36 ${input}`} />
         <input
           type="email"
-          placeholder="Their account email (optional)"
+          placeholder={t("res.accountEmail")}
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
           className={`w-52 ${input}`}
         />
-        <select aria-label="For" value={form.sport} onChange={(e) => setForm({ ...form, sport: e.target.value })} className={input}>
-          <option value="">Anything here</option>
+        <select aria-label={t("res.for")} value={form.sport} onChange={(e) => setForm({ ...form, sport: e.target.value })} className={input}>
+          <option value="">{t("res.anythingHere")}</option>
           {sports.map((s) => (
             <option key={s} value={s}>
-              {activityIcon(s)} {activityName(s)}
+              {activityIcon(s)} {sportLabel(t.customer, s)}
             </option>
           ))}
         </select>
         {certification && (
           <input
             required
-            placeholder="Certificate number and issuer"
+            placeholder={t("res.certRef")}
             value={form.reference}
             onChange={(e) => setForm({ ...form, reference: e.target.value })}
             className={`w-52 ${input}`}
           />
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {certification ? "Runs out" : "Until (optional)"}
+          {certification ? t("res.runsOut") : t("res.untilOptional")}
           <input
             type="date"
             required={certification}
@@ -594,13 +593,13 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             className={`mt-1 ${input}`}
           />
         </label>
-        <input placeholder="Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`w-40 ${input}`} />
+        <input placeholder={t("res.note")} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`w-40 ${input}`} />
         <label className="flex items-center gap-1 text-xs text-slate-600">
           <input type="checkbox" checked={form.wholeBusiness} onChange={(e) => setForm({ ...form, wholeBusiness: e.target.checked })} />
-          Every branch
+          {t("res.everyBranch")}
         </label>
         <button type="submit" className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
-          Record
+          {t("res.record")}
         </button>
       </form>
       {rows.length > 0 && (
@@ -609,15 +608,15 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
               <span>
                 {r.kind === "certification" ? `📜 ${r.reference} · ` : ""}
-                {r.name} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${activityName(r.sport)}` : "anything"}
-                {r.businessId ? " · every branch" : ""}
-                {r.expiresOn ? ` · until ${r.expiresOn}` : ""}
-                {r.userId ? " · account linked" : " · no account yet: online once they check this number"}
-                {` · by ${r.adminName ?? "staff"} on ${r.createdAt.slice(0, 10)}`}
+                {r.name} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${sportLabel(t.customer, r.sport)}` : t("res.anything")}
+                {r.businessId ? ` · ${t("res.everyBranchRow")}` : ""}
+                {r.expiresOn ? ` · ${t("res.untilDate", { date: r.expiresOn })}` : ""}
+                {` · ${r.userId ? t("res.accountLinked") : t("res.noAccount")}`}
+                {` · ${t("res.byOn", { name: r.adminName ?? t("res.staff"), date: r.createdAt.slice(0, 10) })}`}
                 {r.note ? ` · ${r.note}` : ""}
               </span>
               <button type="button" onClick={() => revoke(r)} className="text-xs text-red-600 hover:underline">
-                Take back
+                {t("res.takeBack")}
               </button>
             </li>
           ))}
