@@ -1,5 +1,6 @@
 import { billplzHost, createBill, redirectBillId, verifyCallback, verifyRedirect } from "../billplz";
 import type { GatewayAccount, PaymentGateway } from "./types";
+import { englishOf, said } from "../staff-text";
 
 /** Billplz (Malaysia): FPX online banking and cards. The protocol itself is in lib/billplz.ts. */
 export const billplz: PaymentGateway = {
@@ -12,7 +13,8 @@ export const billplz: PaymentGateway = {
     { key: "collectionId", label: "Collection ID", secret: false, help: "Billplz → Billing → the collection to pay into" },
     { key: "xSignatureKey", label: "X Signature key", secret: true, help: "Billplz → Settings → Keys & Integration" },
   ],
-  setup: "Nothing needs setting up on the Billplz side: each bill tells Billplz where to report back.",
+  setup: englishOf(said("srv.gw.billplz.setup")),
+  setupPhrase: said("srv.gw.billplz.setup"),
 
   checkCredentials(c) {
     return /^[\w-]{3,40}$/.test(c.collectionId) ? null : "That does not look like a Billplz collection ID.";

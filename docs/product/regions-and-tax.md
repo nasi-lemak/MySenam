@@ -62,8 +62,35 @@ table in `src/lib/region.ts`:
   characters, and parses every staff screen to fail on any text a person
   would read that bypasses the dictionaries. Refusals the server sends are
   shown in the staff language by their code, or by their English sentence
-  (`src/lib/staff-i18n/refusals-*.ts`); what the server composes otherwise
-  stays English ([known limitations](../roadmap/known-limitations.md#languages)).
+  (`src/lib/staff-i18n/refusals-*.ts`).
+- **Text the server composes for staff screens** is said in the staff
+  language too (`src/lib/staff-text.ts`): the server sends, beside the
+  English it always sent, a phrase of the staff dictionaries' server area
+  (`srv.`, `src/lib/staff-i18n/server.ts`) with its values, and the screen
+  says it (`t.say`). The English is that same phrase said in English, so
+  emails, logs, the activity log and anything reading the English are
+  unchanged. This covers location warnings on applications, what a draft
+  still needs, system alerts and the detail MySenam wrote for them, why a
+  pass, code or membership cannot be used, how a voucher was paid, backup
+  problems and why off-site copies are paused, the retention lines, what
+  the made-up month added, deposit-keep reasons, a court's day (buffers,
+  offers, "Out of service", "Closed") and its booking rules in a line,
+  e-invoicing's missing fields, gateway methods, fields, help and set-up,
+  chargeback reasons and stages, catalogue notes, competition templates,
+  what a tournament result, correction or replay changes or why it cannot
+  go ahead, round names, message kinds and transports, and urgent notices'
+  lines. Names the dashboard knows by a code (a template's key, a gateway's
+  field) are looked up by that code (`t.known`), falling back to the
+  server's English for one it has no phrase for.
+- **What stays as stored or as sent:** what people typed (a block's reason,
+  a counter top-up's reason, a correction's reason, names), the errors
+  gateways, LHDN, mail and WhatsApp providers send, raw exception text and
+  stack traces, the activity log's details, and records written before
+  phrases were kept: credit lines, receipt lines, alerts, urgent notices and
+  tournament corrections from before migration 0120 show their English. New
+  ones keep their phrase beside the English (migration 0120; a receipt's
+  line and a progression issue's affected matches inside their own JSON).
+  A receipt itself, as printed, says its English.
 - **The Tamil is a machine translation awaiting a native speaker's review**
   before a venue relies on it: in particular the words chosen for venue
   (மையம்) and court (கோர்ட்), sports terms such as walkover and bye, and the

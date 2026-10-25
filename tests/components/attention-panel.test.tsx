@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 
 import { AttentionPanel } from "../../src/components/admin/AttentionPanel";
+import { LanguageProvider } from "../../src/components/Language";
 
 let fetchMock: ReturnType<typeof vi.fn>;
 const json = (body: unknown, ok = true) => ({ ok, json: async () => body });
@@ -34,6 +35,27 @@ const notice = (over = {}) => ({
 });
 
 describe("the needs-attention panel", () => {
+  it("says what the venue did in the staff language, where the notice kept its phrase; an older one as stored", async () => {
+    const phrase = {
+      key: "srv.urgent.cancelled",
+      vars: {
+        venue: "Arena",
+        code: "MS-ABC234",
+        where: { key: "srv.urgent.where", vars: { court: "Court 1", venue: "Arena" } },
+        when: { key: "srv.urgent.when", vars: { date: "2026-10-25", from: "6:00 PM", to: "7:00 PM" } },
+      },
+    };
+    fetchMock.mockImplementation(async () => json({ open: [notice({ summaryPhrase: phrase }), notice({ id: 3, summaryPhrase: null, summary: "Stored long ago." })], recent: [] }));
+    render(
+      <LanguageProvider locale="zh">
+        <AttentionPanel />
+      </LanguageProvider>
+    );
+    await act(async () => {});
+    expect(screen.getByText("Arena 取消了预订 MS-ABC234：Arena 的 Court 1，2026-10-25，6:00 PM 至 7:00 PM。")).toBeTruthy();
+    expect(screen.getByText("Stored long ago.")).toBeTruthy();
+  });
+
   it("is not there when nothing needs attention", async () => {
     const { container } = render(<AttentionPanel />);
     await act(async () => {});

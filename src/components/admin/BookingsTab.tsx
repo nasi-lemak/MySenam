@@ -661,7 +661,7 @@ export function BookingsTab() {
                     >
                       {treatments.map((tr) => (
                         <option key={tr.reason} value={tr.reason} disabled={tr.reason !== d.reason && deductions.some((x) => x.reason === tr.reason)}>
-                          {tr.label}
+                          {t(`srv.deduction.${tr.reason}`)}
                         </option>
                       ))}
                     </select>

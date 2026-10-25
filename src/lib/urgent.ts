@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { hoursOf } from "./interval";
 import { getDb } from "./db";
+import { readStaffText, type StaffText } from "./staff-text";
 
 /**
  * News the customer must not miss — the venue cancelled their booking, or
@@ -36,6 +37,8 @@ export interface UrgentNotice {
   date: string;
   startHour: number;
   summary: string;
+  /** The summary as a phrase staff read in the staff language; null for a notice from before phrases were kept. */
+  summaryPhrase: StaffText | null;
   createdAt: string;
   ackedAt: string | null;
   resolvedAt: string | null;
@@ -56,6 +59,7 @@ interface NoticeRow {
   date: string;
   start_min: number;
   summary: string;
+  summary_phrase?: string | null;
   created_at: string;
   acked_at: string | null;
   resolved_at: string | null;
@@ -73,14 +77,27 @@ export async function createNotice(input: {
   /** When the booking starts, in minutes of the day. */
   startMin: number;
   summary: string;
+  summaryPhrase?: StaffText;
 }): Promise<{ id: number; token: string }> {
   const token = randomBytes(12).toString("base64url");
   const info = await getDb()
     .prepare(
-      `INSERT INTO urgent_notices (venue_id, booking_id, kind, name, phone, email, date, start_min, summary, ack_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO urgent_notices (venue_id, booking_id, kind, name, phone, email, date, start_min, summary, summary_phrase, ack_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(input.venueId, input.bookingId, input.kind, input.name, input.phone, input.email, input.date, input.startMin, input.summary, token);
+    .run(
+      input.venueId,
+      input.bookingId,
+      input.kind,
+      input.name,
+      input.phone,
+      input.email,
+      input.date,
+      input.startMin,
+      input.summary,
+      input.summaryPhrase ? JSON.stringify(input.summaryPhrase) : null,
+      token
+    );
   return { id: info.lastInsertRowid as number, token };
 }
 
@@ -127,6 +144,7 @@ async function withMessages(rows: NoticeRow[]): Promise<UrgentNotice[]> {
       date: r.date,
       startHour: hoursOf(r.start_min),
       summary: r.summary,
+      summaryPhrase: readStaffText(r.summary_phrase),
       createdAt: r.created_at,
       ackedAt: r.acked_at,
       resolvedAt: r.resolved_at,

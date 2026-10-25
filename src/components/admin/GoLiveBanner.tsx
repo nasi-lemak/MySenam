@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
 
 interface GoLiveStatus {
@@ -8,6 +9,7 @@ interface GoLiveStatus {
   suspension: { by: "payment" | "owner"; reason: string | null } | null;
   request: { status: "draft" | "pending" | "approved" | "rejected"; reason: string | null } | null;
   missing: string[];
+  missingPhrases?: StaffText[];
 }
 
 /**
@@ -116,8 +118,8 @@ export function GoLiveBanner({
           )}
           {!waiting && status.missing.length > 0 && (
             <ul className="mt-2 list-inside list-disc">
-              {status.missing.map((m) => (
-                <li key={m}>{m}</li>
+              {status.missing.map((m, i) => (
+                <li key={m}>{t.say(status.missingPhrases?.[i], m)}</li>
               ))}
             </ul>
           )}

@@ -19,6 +19,16 @@ import type { RefusalBody } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import { sportLabel } from "@/lib/i18n";
+import type { StaffText } from "@/lib/staff-text";
+
+/** A sentence the server wrote: its English, and its phrase for the staff language where it sent one. */
+type Said = { text: string; phrase?: StaffText };
+
+/** What a change said, from a response's `changes` and `changePhrases`. */
+function changesSaid(data: Record<string, unknown>): Said[] {
+  const phrases = (data.changePhrases as StaffText[] | undefined) ?? [];
+  return ((data.changes as string[] | undefined) ?? []).map((text, i) => ({ text, phrase: phrases[i] }));
+}
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
@@ -360,7 +370,7 @@ function Create({
               .filter((x) => x.sports.includes(f.sport) || x.sports.length === 0 || x.formats.some((fm) => fm !== "performance"))
               .map((x) => (
                 <option key={x.key} value={x.key}>
-                  {x.label}
+                  {t.known(`srv.tpl.${x.key}`) ?? x.label}
                 </option>
               ))}
             {catalog.venueTemplates.length > 0 && (
@@ -539,7 +549,7 @@ function Create({
       )}
       <textarea placeholder={t("tn.aboutPlaceholder")} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={`w-full ${input}`} />
       <p className="text-xs text-slate-500">
-        {template.note} {t("tn.templateCaveat")}
+        {t.known(`srv.tpl.${template.key}.note`) ?? template.note} {t("tn.templateCaveat")}
       </p>
       {f.format !== "performance" && <RulesFields rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />}
       <details className="rounded-lg border border-slate-200 p-3">
@@ -1004,20 +1014,20 @@ function Manage({
   const t = useStaffT();
   const names = new Map(tn.entries.map((e) => [e.id, e.name]));
   const base = `/api/admin/tournaments/${tn.id}`;
-  const [said, setSaid] = useState<string[]>([]);
+  const [said, setSaid] = useState<Said[]>([]);
   const [fixing, setFixing] = useState<{ matchId: number; input: ResultInput; preview: CorrectionPreview } | null>(null);
 
   /** Out of the competition, after seeing what it changes. */
   async function takeOut(entryId: number, name: string, reason: OutReason) {
     const preview = await call(`${base}/entries/${entryId}`, { withdraw: true, reason, preview: true });
     if (!preview.ok) return;
-    const changes = (preview.data.changes as string[]) ?? [];
+    const changes = changesSaid(preview.data).map((c) => t.say(c.phrase, c.text));
     // A disqualification is kept with why; anything else may have a note.
     const note = window.prompt(reason === "disqualified" ? t("tn.out.whyDq", { name }) : t("tn.out.note", { name, reason: outLabel(t, reason) })) ?? null;
     if (note === null || (reason === "disqualified" && note.trim().length < 5)) return;
     if (!window.confirm(t("tn.out.confirm", { name, reason: outLabel(t, reason), changes: changes.join("\n") || t("tn.out.nothingElse") }))) return;
     const done = await call(`${base}/entries/${entryId}`, { withdraw: true, reason, note, token: preview.data.token });
-    if (done.ok) setSaid((done.data.changes as string[]) ?? []);
+    if (done.ok) setSaid(changesSaid(done.data));
   }
 
   /** A result; one the knockout has moved past opens the correction review instead. */
@@ -1065,7 +1075,7 @@ function Manage({
           <button
             onClick={() => {
               const name = window.prompt(t("tn.saveTemplatePrompt"), tn.name);
-              if (name) void call(base, { action: "save_template", name }).then((r) => r.ok && setSaid([t("tn.savedTemplate", { name })]));
+              if (name) void call(base, { action: "save_template", name }).then((r) => r.ok && setSaid([{ text: t("tn.savedTemplate", { name }) }]));
             }}
             className={small}
           >
@@ -1114,7 +1124,7 @@ function Manage({
           <h3 className="font-semibold">{t("tn.whatChanged")}</h3>
           <ul className="mt-1 list-disc pl-5">
             {said.map((c, i) => (
-              <li key={i}>{c}</li>
+              <li key={i}>{t.say(c.phrase, c.text)}</li>
             ))}
           </ul>
         </section>
@@ -1129,7 +1139,7 @@ function Manage({
           onApply={async (mode, reason) => {
             const done = await call(`${base}/matches/${fixing.matchId}`, { ...fixing.input, correction: { mode, reason, token: fixing.preview.token } });
             if (done.ok) {
-              setSaid((done.data.changes as string[]) ?? []);
+              setSaid(changesSaid(done.data));
               setFixing(null);
             }
           }}
@@ -1288,7 +1298,9 @@ function Manage({
                         ? t("tn.corr.recordOnly")
                         : t("tn.corr.groupOnly")}
                 : {c.reason}
-                {c.changes && c.changes.length > 0 && <span className="text-slate-600"> — {c.changes.join(" ")}</span>}
+                {c.changes && c.changes.length > 0 && (
+                  <span className="text-slate-600"> — {c.changes.map((x, j) => t.say(c.changePhrases?.[j], x)).join(" ")}</span>
+                )}
               </li>
             ))}
           </ul>
@@ -1319,10 +1331,10 @@ function CorrectionPanel({
   const t = useStaffT();
   const [reason, setReason] = useState("");
   const { preview } = fixing;
-  const list = (items: string[]) => (
+  const list = (items: string[], phrases?: StaffText[]) => (
     <ul className="mt-1 list-disc pl-5">
       {items.map((c, i) => (
-        <li key={i}>{c}</li>
+        <li key={i}>{t.say(phrases?.[i], c)}</li>
       ))}
     </ul>
   );
@@ -1336,11 +1348,11 @@ function CorrectionPanel({
         <div className="rounded-lg border border-slate-200 bg-white p-3">
           <h4 className="font-semibold">{t("tn.putIntoKnockout")}</h4>
           {preview.replace.possible ? (
-            list(preview.replace.changes)
+            list(preview.replace.changes, preview.replace.changePhrases)
           ) : (
             <>
               <p className="mt-1 text-xs text-red-700">{t("tn.notSafely")}</p>
-              {list(preview.replace.blockers)}
+              {list(preview.replace.blockers, preview.replace.blockerPhrases)}
             </>
           )}
         </div>
@@ -1349,7 +1361,7 @@ function CorrectionPanel({
           <p className="mt-1 text-xs text-slate-600">
             {knockout ? t("tn.recordOnlyNote") : t("tn.groupOnlyNote")}
           </p>
-          {list(preview.standingsOnly.changes)}
+          {list(preview.standingsOnly.changes, preview.standingsOnly.changePhrases)}
         </div>
       </div>
       <label className="mt-3 block text-xs font-medium text-slate-600">
@@ -1531,7 +1543,7 @@ function IssuePanel({
   names: Map<number, string>;
   venue: ManagedVenue;
   call: (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
-  onDone: (changes: string[]) => void;
+  onDone: (changes: Said[]) => void;
 }) {
   const t = useStaffT();
   const [review, setReview] = useState<IssueReview | null>(null);
@@ -1547,7 +1559,7 @@ function IssuePanel({
     if (!review) return;
     if (!window.confirm(action === "stand" ? t("tn.issue.standConfirm") : t("tn.issue.replayConfirm"))) return;
     const done = await call(url, { action, reason, token: review.token, slots: action === "replay" ? slots : undefined });
-    if (done.ok) onDone((done.data.changes as string[]) ?? []);
+    if (done.ok) onDone(changesSaid(done.data));
   }
   return (
     <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm" aria-label={t("tn.issue.label")}>
@@ -1560,7 +1572,7 @@ function IssuePanel({
       <p className="mt-1 text-xs text-slate-600">{t("tn.issue.note")}</p>
       <ul className="mt-2 list-disc pl-5">
         {issue.affected.map((a) => (
-          <li key={a.matchId}>{a.text}</li>
+          <li key={a.matchId}>{t.say(a.phrase, a.text)}</li>
         ))}
       </ul>
       {review && (
@@ -1568,7 +1580,7 @@ function IssuePanel({
           {review.replay.possible ? (
             <div className="space-y-1">
               <p className="text-xs font-medium text-slate-700">{t("tn.issue.giveSlots")}</p>
-              {review.replay.matches.map((m) => (
+              {review.replay.matches.map(({ namePhrase, ...m }) => ({ ...m, name: t.say(namePhrase, m.name) })).map((m) => (
                 <div key={m.matchId} className="flex flex-wrap items-center gap-2">
                   <span className="w-40 text-xs">{m.needsSlot ? m.name : t("tn.issue.keepsTime", { name: m.name })}</span>
                   {m.needsSlot && (
@@ -1605,7 +1617,7 @@ function IssuePanel({
               ))}
             </div>
           ) : (
-            <p className="text-xs text-red-800">{t("tn.issue.cannotReplay", { blockers: review.replay.blockers.join(" ") })}</p>
+            <p className="text-xs text-red-800">{t("tn.issue.cannotReplay", { blockers: review.replay.blockers.map((b, i) => t.say("blockerPhrases" in review.replay ? review.replay.blockerPhrases[i] : null, b)).join(" ") })}</p>
           )}
           <label className="block text-xs font-medium text-slate-600">
             {t("tn.issue.why")}

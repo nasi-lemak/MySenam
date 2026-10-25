@@ -109,7 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       action: c.mode === "replace" ? "tournament.corrected" : "tournament.corrected_standings_only",
       detail: `${done.value.detail.name}: ${String(c.reason).slice(0, 200)}. ${done.value.changes.join(" ")}`,
     });
-    return NextResponse.json({ tournament: done.value.detail, changes: done.value.changes });
+    return NextResponse.json({ tournament: done.value.detail, changes: done.value.changes, changePhrases: done.value.changePhrases });
   }
   const result = await recordResult(match.id, input);
   if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: 409 });

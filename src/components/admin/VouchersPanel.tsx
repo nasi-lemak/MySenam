@@ -58,8 +58,17 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
     }
   }
 
+  /** How it was paid, in the staff language; what was stored when it is not a method this screen knows. */
+  const paidHowText = (v: Listed) => {
+    const how = v.paidHow;
+    if (!how) return v.paidVia ?? "";
+    if (how.via === "counter") return t("srv.via.counter");
+    if (how.via === "online" && how.gateway) return t("srv.via.onlineGateway", { gateway: how.gateway });
+    return t(`c.via.${how.via}`);
+  };
+
   async function cancel(v: Listed) {
-    if (!confirm(t(v.paidVia?.startsWith("Online") ? "vch.cancelConfirmOnline" : "vch.cancelConfirmCounter", { code: v.code }))) return;
+    if (!confirm(t(v.paidHow?.via === "online" ? "vch.cancelConfirmOnline" : "vch.cancelConfirmCounter", { code: v.code }))) return;
     setError(null);
     setNotice(null);
     const res = await fetch(`/api/admin/vouchers/${v.id}/void`, { method: "POST" });
@@ -123,7 +132,7 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
                 <span className="block text-xs text-slate-500">
                   {STATUS[v.status]}
                   {v.status === "redeemed" && v.redeemedByName && ` ${t("vch.redeemedBy", { name: v.redeemedByName })}`}
-                  {v.status === "active" && ` · ${t("vch.until", { date: v.expiresOn })}`} · {v.paidVia ?? ""}
+                  {v.status === "active" && ` · ${t("vch.until", { date: v.expiresOn })}`} · {paidHowText(v)}
                 </span>
               </span>
               <span className="flex gap-3 text-xs font-medium">

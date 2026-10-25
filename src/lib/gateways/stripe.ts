@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import type { DisputeEvent, GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult, SubscriptionEvent } from "./types";
+import { englishOf, said } from "../staff-text";
 
 /**
  * Stripe (Singapore, and most places beyond): cards, PayNow and the wallets a
@@ -35,6 +36,13 @@ const DISPUTE_EVENTS = new Set(["charge.dispute.created", "charge.dispute.update
 
 /** Every event the webhook acts on: what a venue is told to send, so the two cannot drift apart. */
 export const HANDLED_EVENTS = [...PAYMENT_EVENTS, ...SUBSCRIPTION_EVENTS, ...DISPUTE_EVENTS];
+
+/** What to set up in Stripe, for the settings form. */
+const SETUP = said("srv.gw.stripe.setup", {
+  payment: [...PAYMENT_EVENTS].join(", "),
+  subscription: said("srv.list.and", { a: [...SUBSCRIPTION_EVENTS].slice(0, -1).join(", "), b: [...SUBSCRIPTION_EVENTS].at(-1)! }),
+  dispute: [...DISPUTE_EVENTS].join(", "),
+});
 
 interface Dispute {
   id: string;
@@ -176,11 +184,8 @@ export const stripe: PaymentGateway = {
     },
   ],
   webhook: true,
-  setup:
-    `In Stripe, add a webhook endpoint at the address below, sending ${[...PAYMENT_EVENTS].join(", ")}; ` +
-    `${[...SUBSCRIPTION_EVENTS].join(" and ")} (for memberships that renew themselves); ` +
-    `and ${[...DISPUTE_EVENTS].join(", ")} (so a chargeback is recorded and its booking or credit taken back). ` +
-    "Turn on PayNow and cards under Settings → Payment methods.",
+  setup: englishOf(SETUP),
+  setupPhrase: SETUP,
 
   checkCredentials(c) {
     if (!/^(rk|sk)_(live|test)_[A-Za-z0-9]{10,}$/.test(c.secretKey)) return "That does not look like a Stripe key (rk_live_… or sk_live_…).";

@@ -101,8 +101,9 @@ import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
-import { creditBooking, creditReceipt, issueReceipt } from "./documents";
+import { creditBooking, creditReceipt, issueReceipt, saidLine } from "./documents";
 import { venueTax } from "./tax";
+import { englishOf, lengthText, readStaffText, said, withPhrase, type StaffText } from "./staff-text";
 
 interface CourtRow {
   id: number;
@@ -2308,6 +2309,8 @@ export interface ScheduleEntry {
   end: number;
   /** A booking's code and booker, a class's name, a block's reason; for a buffer, what it is kept for. */
   label: string;
+  /** The label as a phrase a staff screen says in the staff language, where MySenam worded it. */
+  phrase?: StaffText;
   bookingCode?: string;
   blockId?: number;
   /** Places it holds of a shared facility. */
@@ -2333,6 +2336,8 @@ export interface AdminCourtSlots {
     /** Places out of service, while some remain bookable. */
     blockedPlaces?: number;
     blockReason?: string;
+    /** The reason as a phrase, where MySenam worded it ("Closed"). */
+    blockReasonPhrase?: StaffText;
   }[];
   /** Everything on the court that day, with buffers, to the minute. */
   entries: ScheduleEntry[];
@@ -2389,11 +2394,19 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
           reason: string | null;
         }[])
       : []
-    ).map((o) => [o.id, o.reason ?? "Out of service"])
+    ).map((o) => [o.id, o.reason])
   );
   const classNames = await classNamesFor(all.map((o) => o.classId).filter((id): id is number => id !== null));
+  // An outage nobody gave a reason for is out of service: MySenam's words, so a phrase too.
+  const unexplained = (o: Occupant) => o.outageId !== null && outageReasons.has(o.outageId) && outageReasons.get(o.outageId) === null;
   const reasonOf = (o: Occupant) =>
-    o.blockId !== null ? (blockReasons.get(o.blockId) ?? "") : o.outageId !== null ? (outageReasons.get(o.outageId) ?? "") : undefined;
+    o.blockId !== null
+      ? (blockReasons.get(o.blockId) ?? "")
+      : o.outageId !== null
+        ? unexplained(o)
+          ? englishOf(said("srv.sch.outOfService"))
+          : (outageReasons.get(o.outageId) ?? "")
+        : undefined;
 
   return courts.map((court) => {
     // As held, separation included: what each keeps free around it reads as a buffer.
@@ -2417,21 +2430,36 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
                   ? // Named by the schedule in the staff language, by its kind.
                     ""
                   : (reasonOf(o) ?? "");
+      const phrase =
+        o.kind === "class" && !classNames.has(o.classId!)
+          ? said("srv.sch.class")
+          : o.kind === "offer"
+            ? said("srv.sch.offer")
+            : o.kind === "move"
+              ? said("srv.sch.move")
+              : unexplained(o)
+                ? said("srv.sch.outOfService")
+                : undefined;
       entries.push({
         kind: o.kind,
         start: clip(o.span.start),
         end: clip(o.span.end),
         label,
+        ...(phrase ? { phrase } : {}),
         ...(b ? { bookingCode: b.code } : {}),
         ...(o.blockId !== null ? { blockId: o.blockId } : {}),
         ...places,
         ...via,
       });
       // Staff see the buffers, and what they are kept for.
+      const kept = (side: "before" | "after") => {
+        const said_ = label ? said(`srv.sch.kept.${side}`, { label: phrase ?? label }) : said(`srv.sch.kept.${side}.bare`);
+        return { label: englishOf(said_), phrase: said_ };
+      };
       if (o.occupied.start < o.span.start)
-        entries.push({ kind: "buffer", start: clip(o.occupied.start), end: clip(o.span.start), label: `Kept free before ${label}`.trim(), ...via });
+        entries.push({ kind: "buffer", start: clip(o.occupied.start), end: clip(o.span.start), ...kept("before"), ...via });
       if (o.occupied.end > o.span.end)
-        entries.push({ kind: "buffer", start: clip(o.span.end), end: clip(o.occupied.end), label: `Kept free after ${label}`.trim(), ...via });
+        entries.push({ kind: "buffer", start: clip(o.span.end), end: clip(o.occupied.end), ...kept("after"), ...via });
     }
     entries.sort((a, b) => a.start - b.start || a.end - b.end);
     const slots: AdminCourtSlots["slots"] = [];
@@ -2446,7 +2474,9 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
       const out = peakPlaces(blocks, cell);
       const block = blocks[0];
       // A whole-day closure reads as a block on every column that is not sold.
-      const blockReason = block !== undefined ? (reasonOf(block) ?? "") : closure ? (closure.reason ?? "Closed") : undefined;
+      const blockReason = block !== undefined ? (reasonOf(block) ?? "") : closure ? (closure.reason ?? englishOf(said("srv.sch.closed"))) : undefined;
+      const blockReasonPhrase =
+        block !== undefined ? (unexplained(block) ? said("srv.sch.outOfService") : undefined) : closure && closure.reason === null ? said("srv.sch.closed") : undefined;
       // A shared facility only reads as "booked" once every place is gone, and
       // a partial block only reads as "blocked" once it has taken the last one.
       const shutByBlock = closure !== null || (block !== undefined && count + out >= court.capacity);
@@ -2462,6 +2492,7 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
         ...(covered ? { partly: true } : {}),
         ...(court.capacity === 1 && booking ? { bookingCode: bookings.get(booking.bookingId!)?.code } : {}),
         ...(blockReason !== undefined ? { blockReason } : {}),
+        ...(blockReasonPhrase ? { blockReasonPhrase } : {}),
         ...(out > 0 && !shutByBlock ? { blockedPlaces: out } : {}),
       });
     }
@@ -4376,6 +4407,7 @@ export async function returnHire(
         hireRecordId: done.id,
         reason: d.reason,
         description: `${DEDUCTION_INFO[d.reason].label}: ${court?.name ?? "hired kit"} (${booking.code}). ${note}`,
+        phrase: said("srv.line.kept", { reason: said(`srv.deduction.${d.reason}`), item: court?.name ?? said("srv.line.hiredKit"), code: booking.code, note }),
         amount: d.amount,
         via,
         customerName: booking.name,
@@ -5184,6 +5216,7 @@ interface WalletRow {
   id: number;
   amount: number;
   reason: string;
+  reason_phrase?: string | null;
   booking_id: number | null;
   created_at: string;
   venue_id?: number | null;
@@ -5191,15 +5224,17 @@ interface WalletRow {
 }
 
 const WALLET_SELECT = `
-  SELECT w.id, w.amount, w.reason, w.booking_id, w.created_at, w.venue_id, v.name AS venue_name
+  SELECT w.id, w.amount, w.reason, w.reason_phrase, w.booking_id, w.created_at, w.venue_id, v.name AS venue_name
   FROM wallet_entries w LEFT JOIN venues v ON v.id = w.venue_id
 `;
 
 function toWalletEntry(r: WalletRow): WalletEntry {
+  const phrase = readStaffText(r.reason_phrase);
   return {
     id: r.id,
     amount: r.amount,
     reason: r.reason,
+    ...(phrase ? { reasonPhrase: phrase } : {}),
     bookingId: r.booking_id,
     createdAt: r.created_at,
     venueId: r.venue_id ?? null,
@@ -5298,12 +5333,13 @@ export async function topUpWallet(input: {
 
     const info = await db
       .prepare(
-        "INSERT INTO wallet_entries (user_id, amount, reason, admin_id, venue_id) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, admin_id, venue_id) VALUES (?, ?, ?, ?, ?, ?)"
       )
       .run(
         input.userId,
         input.amount,
-        input.reason?.trim() || "Counter top-up",
+        // What staff typed stays as typed.
+        ...(input.reason?.trim() ? [input.reason.trim(), null] : withPhrase(said("srv.wallet.counterTopUp"))),
         input.adminId,
         perVenue ? input.venueId! : null
       );
@@ -5313,7 +5349,8 @@ export async function topUpWallet(input: {
       venueId: perVenue ? input.venueId! : venueId,
       userId: input.userId,
       name: ((await db.prepare("SELECT name FROM users WHERE id = ?").get(input.userId)) as { name: string }).name,
-      lines: [{ description: `Stored credit: ${input.reason?.trim() || "counter top-up"}`, amount: input.amount }],
+      // What staff typed stays as typed, inside the line's words.
+      lines: [saidLine(said("srv.line.credit", { what: input.reason?.trim() || said("srv.line.counterTopUp") }), input.amount)],
       paidVia: "At the counter",
       // Credit is taxed when it is spent, on what it buys.
       taxable: false,
@@ -5377,18 +5414,18 @@ export async function payBookingFromWallet(bookingId: number): Promise<WalletRes
       const price = booking.totalPrice;
       if (await getWalletBalance(userId, venueId) < price) throw new Error("INSUFFICIENT");
       const charge = db.prepare(
-        "INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, booking_id, venue_id) VALUES (?, ?, ?, ?, ?, ?)"
       );
-      const reason = `Booking ${booking.code}`;
+      const reason = withPhrase(said("srv.wallet.booking", { code: booking.code }));
       let first: number | bigint | null = null;
       if (venueId === undefined) {
-        first = (await charge.run(userId, -price, reason, booking.id, null)).lastInsertRowid;
+        first = (await charge.run(userId, -price, ...reason, booking.id, null)).lastInsertRowid;
       } else {
         const fromVenue = Math.min(Math.max(await potBalance(userId, venueId), 0), price);
         if (fromVenue > 0)
-          first = (await charge.run(userId, -fromVenue, reason, booking.id, venueId)).lastInsertRowid;
+          first = (await charge.run(userId, -fromVenue, ...reason, booking.id, venueId)).lastInsertRowid;
         if (price - fromVenue > 0) {
-          const id = (await charge.run(userId, -(price - fromVenue), reason, booking.id, null)).lastInsertRowid;
+          const id = (await charge.run(userId, -(price - fromVenue), ...reason, booking.id, null)).lastInsertRowid;
           first ??= id;
         }
       }
@@ -5438,15 +5475,16 @@ export async function refundBookingToWallet(bookingId: number, share = 1): Promi
     | { code: string }
     | undefined)?.code;
   const put = db.prepare(
-    "INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, booking_id, venue_id) VALUES (?, ?, ?, ?, ?, ?)"
   );
+  const reason = withPhrase(code ? said("srv.wallet.refund", { code }) : said("srv.wallet.refundBooking"));
   const ids = await db.transaction(async () => {
     const made: number[] = [];
     for (const c of charges) {
       const back = roundMoney(-c.amount * share);
       if (back <= 0) continue;
       made.push(
-        (await put.run(c.user_id, back, `Refund for ${code ?? "booking"}`, bookingId, c.venue_id)).lastInsertRowid as number
+        (await put.run(c.user_id, back, ...reason, bookingId, c.venue_id)).lastInsertRowid as number
       );
     }
     return made;
@@ -5588,16 +5626,16 @@ function toMembership(r: MembershipRow): Membership {
     ratePercent: r.tier_rate ?? null,
     aheadDays: r.tier_ahead ?? null,
   };
-  const reason = membershipBlockedReason(m);
-  return reason ? { ...m, unusableReason: reason } : m;
+  const reason = membershipBlocked(m);
+  return reason ? { ...m, unusableReason: englishOf(reason), unusablePhrase: reason } : m;
 }
 
 /** Why a membership is not giving member rates today. */
-function membershipBlockedReason(m: Membership): string | null {
-  if (m.status === "void") return "This membership was cancelled.";
+function membershipBlocked(m: Membership): StaffText | null {
+  if (m.status === "void") return said("srv.unusable.membershipCancelled");
   const today = todayISO();
-  if (today < m.startsOn) return `This membership starts on ${m.startsOn}.`;
-  if (today > m.expiresOn) return `This membership expired on ${m.expiresOn}.`;
+  if (today < m.startsOn) return said("srv.unusable.membershipStarts", { date: m.startsOn });
+  if (today > m.expiresOn) return said("srv.unusable.membershipExpired", { date: m.expiresOn });
   return null;
 }
 
@@ -5737,7 +5775,7 @@ export async function sellMembership(input: {
       userId: input.userId ?? null,
       name: holderName,
       phone: holderPhone,
-      lines: [{ description: `Membership ${membership.code}, ${input.startsOn} to ${input.expiresOn}`, amount: input.price }],
+      lines: [saidLine(said("srv.line.membership", { code: membership.code, from: input.startsOn, to: input.expiresOn }), input.price)],
       paidVia: input.paidVia ?? "At the counter",
       taxable: true,
     });
@@ -5823,17 +5861,22 @@ function toPromo(r: PromoRow): PromoCode {
     used: r.used,
     status: r.status,
   };
-  const reason = promoBlockedReason(promo);
-  return reason ? { ...promo, unusableReason: reason } : promo;
+  const reason = promoBlocked(promo);
+  return reason ? { ...promo, unusableReason: englishOf(reason), unusablePhrase: reason } : promo;
 }
 
 /** Why a code is dead regardless of which booking it is put against. */
-function promoBlockedReason(p: PromoCode): string | null {
-  if (p.status === "void") return "This code was withdrawn.";
-  if (p.maxUses !== null && p.used >= p.maxUses) return "This code has been fully claimed.";
-  if (p.validTo < todayISO()) return `This code ran out on ${p.validTo}.`;
+function promoBlocked(p: PromoCode): StaffText | null {
+  if (p.status === "void") return said("srv.unusable.codeWithdrawn");
+  if (p.maxUses !== null && p.used >= p.maxUses) return said("srv.unusable.codeClaimed");
+  if (p.validTo < todayISO()) return said("srv.unusable.codeRanOut", { date: p.validTo });
   return null;
 }
+
+const promoBlockedReason = (p: PromoCode): string | null => {
+  const reason = promoBlocked(p);
+  return reason && englishOf(reason);
+};
 
 /** What a code takes off a price. Never more than the price itself. */
 function promoDiscount(p: Pick<PromoCode, "kind" | "value">, price: number): number {
@@ -6149,18 +6192,23 @@ function toPass(r: PassRow): Pass {
     status: r.status,
     createdAt: r.created_at,
   };
-  const reason = passBlockedReason(pass);
-  return reason ? { ...pass, unusableReason: reason } : pass;
+  const reason = passBlocked(pass);
+  return reason ? { ...pass, unusableReason: englishOf(reason), unusablePhrase: reason } : pass;
 }
 
 /** Why a pass cannot be spent today, or null when it can. */
-function passBlockedReason(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">): string | null {
-  if (pass.status === "void") return "This pass was cancelled.";
+function passBlocked(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">): StaffText | null {
+  if (pass.status === "void") return said("srv.unusable.passCancelled");
   // expires_on is inclusive, so a pass is good for the whole of that day.
-  if (pass.expiresOn < todayISO()) return `This pass expired on ${pass.expiresOn}.`;
-  if (pass.remaining <= 0) return pass.kind === "time" ? "This pass has no time left." : "This pass has no entries left.";
+  if (pass.expiresOn < todayISO()) return said("srv.unusable.passExpired", { date: pass.expiresOn });
+  if (pass.remaining <= 0) return said(pass.kind === "time" ? "srv.unusable.passNoTime" : "srv.unusable.passNoEntries");
   return null;
 }
+
+const passBlockedReason = (pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">): string | null => {
+  const reason = passBlocked(pass);
+  return reason && englishOf(reason);
+};
 
 export async function getPass(code: string): Promise<Pass | null> {
   const row = await getDb()
@@ -6325,7 +6373,7 @@ export async function issuePass(input: {
       userId: input.userId ?? null,
       name: holderName,
       phone: holderPhone,
-      lines: [{ description: `${name} (${pass.code}), ${passAmount(pass, input.entries)}, until ${input.expiresOn}`, amount: input.price }],
+      lines: [saidLine(said("srv.line.pass", { name, code: pass.code, amount: passUnits(pass, input.entries), date: input.expiresOn }), input.price)],
       paidVia: input.price === 0 ? null : "At the counter",
       taxable: true,
     });
@@ -6436,8 +6484,13 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
 
 /** "3 entries", "1 h 30 min": an amount of what a pass holds. */
 export function passAmount(pass: Pick<Pass, "kind">, units: number): string {
-  if (pass.kind === "time") return formatLength(units);
-  return `${units} ${units === 1 ? "entry" : "entries"}`;
+  return englishOf(passUnits(pass, units));
+}
+
+/** The same, as a phrase a staff screen says in the staff language. */
+function passUnits(pass: Pick<Pass, "kind">, units: number): StaffText {
+  if (pass.kind === "time") return lengthText(units);
+  return said(units === 1 ? "srv.pass.entries_one" : "srv.pass.entries_other", { n: units });
 }
 
 /** Empty is the same as unset for optional text a venue types in. */

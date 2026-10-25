@@ -63,5 +63,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     action: body.action === "replay" ? "tournament.replay" : "tournament.results_stand",
     detail: `${done.value.detail.name}: ${String(body.reason).slice(0, 200)}. ${done.value.changes.join(" ")}`,
   });
-  return NextResponse.json({ tournament: done.value.detail, changes: done.value.changes });
+  return NextResponse.json({ tournament: done.value.detail, changes: done.value.changes, changePhrases: done.value.changePhrases });
 }

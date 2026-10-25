@@ -1,12 +1,13 @@
 import crypto from "crypto";
 import { getDb, withTransaction } from "./db";
-import { creditReceipt, issueReceipt, paidVia as paidViaLabel } from "./documents";
+import { creditReceipt, issueReceipt, paidHowOf, paidVia as paidViaLabel, saidLine, type PaidHow } from "./documents";
 import { errorText, isLocale, translator, type ErrorCode, type Locale } from "./i18n";
 import { creditScope } from "./mode";
 import { enqueue } from "./outbox";
 import { isAmount, money, roundMoney } from "./region";
 import { keyedHash } from "./secrets";
 import { siteName } from "./site";
+import { said, withPhrase } from "./staff-text";
 import { venueBaseUrl } from "./storefront";
 import { venueTax } from "./tax";
 import { addDays, todayISO } from "./time";
@@ -45,6 +46,8 @@ export interface Voucher {
   expiresOn: string;
   createdAt: string;
   paidVia: string | null;
+  /** The same, as a method, for a screen in another language; null when it says something else. */
+  paidHow: PaidHow | null;
   redeemedAt: string | null;
   /** Who it became credit for. */
   redeemedByName: string | null;
@@ -93,6 +96,7 @@ function toVoucher(r: VoucherRow): Voucher {
     expiresOn: r.expires_on,
     createdAt: r.created_at,
     paidVia: r.paid_via,
+    paidHow: paidHowOf(r.paid_via),
     redeemedAt: r.redeemed_at,
     redeemedByName: r.redeemed_by_name,
     locale: isLocale(r.locale) ? r.locale : "en",
@@ -226,7 +230,7 @@ async function receiptVoucher(voucher: Voucher, source: string, paidVia: string 
     venueId: voucher.venueId,
     name: voucher.buyerName,
     phone: voucher.buyerPhone,
-    lines: [{ description: `Gift voucher ${voucher.code}`, amount: voucher.amount }],
+    lines: [saidLine(said("srv.line.voucher", { code: voucher.code }), voucher.amount)],
     paidVia,
     // Taxed when it is spent, on what it buys, like the credit it becomes.
     taxable: false,
@@ -275,8 +279,8 @@ export async function redeemVoucher(userId: number, code: string): Promise<Redee
     if (claimed.changes !== 1) return refuse("VOUCHER_USED");
     // Credit belongs to the venue where credit is per venue, as a top-up's does.
     await db
-      .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, ?, ?)")
-      .run(userId, voucher.amount, `Gift voucher ${voucher.code}`, creditScope() === "venue" ? voucher.venueId : null);
+      .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, venue_id) VALUES (?, ?, ?, ?, ?)")
+      .run(userId, voucher.amount, ...withPhrase(said("srv.wallet.voucher", { code: voucher.code })), creditScope() === "venue" ? voucher.venueId : null);
     return { ok: true, voucher: (await voucherById(voucher.id))! };
   });
 }

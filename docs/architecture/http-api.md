@@ -48,6 +48,14 @@ These hold for every route below unless its row says otherwise.
   | `409` | Refused by a rule of the business: the time is taken, past the cutoff, the game is full |
   | `429` | Too many requests; `Retry-After` says when to try again ([security](security.md#rate-limiting)) |
   | `503` | Busy (`code: "BUSY"`, `Retry-After: 2`): nothing was kept, so sending it again is safe |
+- **Text the server words for staff screens** (a warning, a reason, a list
+  of changes, a summary) comes in English and, beside it, as a phrase with
+  its values: a field named for it with `Phrase` or `Phrases` (`warnings` and
+  `phrases`, `unusableReason` and `unusablePhrase`, `changes` and
+  `changePhrases`), `{ key, vars }` where `key` is an `srv.` phrase of the
+  staff dictionaries and a value may itself be one. The dashboard says it in
+  the staff language; what people typed and providers' errors stay values
+  ([regions and languages](../product/regions-and-tax.md)).
 - **Money.** No route marks anything paid because it was called: payment
   routes answer with the gateway's page to send the payer to, and only the
   gateway's signed report or the redirect's check marks it paid

@@ -5,6 +5,7 @@ import { creditReceipt, documentFor, issueReceipt, paidVia } from "./documents";
 import { longEnough } from "./phone";
 import { receiptPath } from "./receipts";
 import { roundMoney } from "./region";
+import type { StaffText } from "./staff-text";
 import { COUNTER_METHODS, type CounterMethod } from "./types";
 import { venueZoneOf } from "./zones";
 
@@ -161,6 +162,8 @@ export async function sellKeptDeposit(input: {
   hireRecordId: number;
   reason: DeductionReason;
   description: string;
+  /** The description as a phrase, for staff screens in another language (lib/staff-text.ts). */
+  phrase?: StaffText;
   amount: number;
   via: CounterMethod;
   customerName: string | null;
@@ -186,7 +189,7 @@ export async function sellKeptDeposit(input: {
     venueId: input.venueId,
     name: input.customerName ?? "Counter customer",
     phone: input.customerPhone,
-    lines: [{ description: lines[0].name, amount: lines[0].unitPrice }],
+    lines: [{ description: lines[0].name, amount: lines[0].unitPrice, ...(input.phrase ? { phrase: input.phrase } : {}) }],
     paidVia: paidVia(input.via),
     taxable: treatment.taxed,
     note: treatment.taxed ? undefined : NOTE[treatment.nature],

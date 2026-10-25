@@ -38,6 +38,7 @@ import { DataRequestPanel } from "./DataRequestPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
+import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -929,6 +930,7 @@ function BackupsPanel() {
       location?: string | null;
       endpointSays?: { provider: string; region: string | null; country: string | null } | null;
       paused?: string | null;
+      pausedPhrase?: StaffText | null;
       lastCopied: { name: string; at: string; manifest?: boolean; encrypted?: boolean; signed?: boolean } | null;
       lastError: { at: string; error: string } | null;
     };
@@ -938,6 +940,7 @@ function BackupsPanel() {
       recoverableHours: number | null;
       offsite: "off" | "active" | "paused" | "failing";
       problems: string[];
+      problemPhrases?: StaffText[];
     };
     schedule: { hour: number } | null;
   } | null>(null);
@@ -1035,8 +1038,8 @@ function BackupsPanel() {
               ` · ${t("vn.recoverable", { hours: Math.floor(state.health.recoverableHours), target: state.health.rpoHours })}`}
             {state.health.problems.length > 0 && (
               <ul className="mt-1 list-disc pl-5">
-                {state.health.problems.map((p) => (
-                  <li key={p}>{p}</li>
+                {state.health.problems.map((p, i) => (
+                  <li key={p}>{t.say(state.health!.problemPhrases?.[i], p)}</li>
                 ))}
               </ul>
             )}
@@ -1086,7 +1089,7 @@ function BackupsPanel() {
                   ) : (
                     ` ${t("vn.nothingCopied")}`
                   )}
-                  {state.offsite.paused && <div className="mt-1 font-semibold">{t("vn.offsitePaused", { reason: state.offsite.paused })}</div>}
+                  {state.offsite.paused && <div className="mt-1 font-semibold">{t("vn.offsitePaused", { reason: t.say(state.offsite.pausedPhrase, state.offsite.paused) })}</div>}
                   {!state.offsite.paused &&
                     state.offsite.lastError &&
                     (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at) && (
@@ -1146,7 +1149,7 @@ function BackupsPanel() {
 function RetentionPanel() {
   const t = useStaffT();
   const [state, setState] = useState<{
-    due: { what: string; days: number; action: string; affected: number }[];
+    due: { what: string; whatPhrase?: StaffText; days: number; action: string; affected: number }[];
     lastRun: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1239,11 +1242,11 @@ function RetentionPanel() {
               <tbody>
                 {state.due.map((line) => (
                   <tr key={line.what} className="border-b border-slate-100 last:border-0">
-                    <td className="px-3 py-2">{line.what}</td>
+                    <td className="px-3 py-2">{t.say(line.whatPhrase, line.what)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                       {line.days === 0 ? t("vn.untilExpire") : t("vn.daysKept", { n: line.days })}
                     </td>
-                    <td className="px-3 py-2 text-slate-600">{line.action}</td>
+                    <td className="px-3 py-2 text-slate-600">{t.known(`srv.ret.action.${line.action}`) ?? line.action}</td>
                     <td className="px-3 py-2 font-medium tabular-nums">
                       {line.affected === 0 ? "—" : line.affected}
                     </td>

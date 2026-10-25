@@ -7,6 +7,7 @@ import { withdraw } from "./tournaments";
 import { forgetLeaguePlayer } from "./leagues";
 import { removeVenuePhotoFiles } from "./photos";
 import { money } from "./region";
+import { englishOf, said, type StaffText } from "./staff-text";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -82,6 +83,8 @@ export const RETENTION = {
 
 export interface RetentionLine {
   what: string;
+  /** The same, as a phrase a staff screen says in the staff language. */
+  whatPhrase: StaffText;
   /** Days after which the record, or the person inside it, goes. */
   days: number;
   /** What actually happens when the clock runs out. */
@@ -102,7 +105,7 @@ export const ANONYMOUS = "(removed)";
  * day" — which lets an index answer it (see db/migrations/0002).
  */
 interface Rule {
-  what: string;
+  what: StaffText;
   days: number;
   action: RetentionLine["action"];
   table: string;
@@ -113,42 +116,42 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
-    what: "Phone check codes",
+    what: said("srv.ret.phoneCodes"),
     days: RETENTION.phoneCodeDays,
     action: "deleted",
     table: "phone_codes",
     where: "created_at < ?",
   },
   {
-    what: "Private hire enquiries",
+    what: said("srv.ret.enquiries"),
     days: RETENTION.enquiryDays,
     action: "deleted",
     table: "hire_enquiries",
     where: "created_at < ?",
   },
   {
-    what: "Door codes shown",
+    what: said("srv.ret.doorCodes"),
     days: RETENTION.accessRevealDays,
     action: "deleted",
     table: "access_reveals",
     where: "revealed_at < ?",
   },
   {
-    what: "Arrivals at the desk",
+    what: said("srv.ret.arrivals"),
     days: RETENTION.checkInDays,
     action: "deleted",
     table: "check_ins",
     where: "checked_in_at < ?",
   },
   {
-    what: "Settled waiting-list entries",
+    what: said("srv.ret.waitlist"),
     days: RETENTION.waitlistDays,
     action: "deleted",
     table: "waitlist",
     where: "status IN ('claimed','expired','cancelled') AND created_at < ?",
   },
   {
-    what: "Messages sent to customers",
+    what: said("srv.ret.messages"),
     days: RETENTION.messageDays,
     action: "deleted",
     table: "messages",
@@ -156,7 +159,7 @@ const RULES: Rule[] = [
     where: "status IN ('sent','abandoned') AND created_at < ?",
   },
   {
-    what: "Webhook deliveries to venues' systems",
+    what: said("srv.ret.webhooks"),
     days: RETENTION.webhookDeliveryDays,
     action: "deleted",
     table: "webhook_deliveries",
@@ -164,7 +167,7 @@ const RULES: Rule[] = [
     where: "(delivered_at IS NOT NULL OR attempts >= 8) AND created_at < ?",
   },
   {
-    what: "Names and numbers on old bookings",
+    what: said("srv.ret.bookingNames"),
     days: RETENTION.bookingIdentityDays,
     action: "anonymised",
     table: "bookings",
@@ -176,7 +179,7 @@ const RULES: Rule[] = [
     set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL`,
   },
   {
-    what: "Names and numbers on old receipts",
+    what: said("srv.ret.receiptNames"),
     days: RETENTION.bookingIdentityDays,
     action: "anonymised",
     table: "receipts",
@@ -185,42 +188,42 @@ const RULES: Rule[] = [
     set: `customer_name = '${ANONYMOUS}', customer_phone = NULL, user_id = NULL`,
   },
   {
-    what: "Withdrawn out-of-hours access",
+    what: said("srv.ret.access"),
     days: RETENTION.revokedInductionDays,
     action: "deleted",
     table: "inductions",
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
   },
   {
-    what: "Withdrawn activity sign-offs",
+    what: said("srv.ret.signOffs"),
     days: RETENTION.revokedInductionDays,
     action: "deleted",
     table: "sign_offs",
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
   },
   {
-    what: "Documents sent with activity applications, once decided",
+    what: said("srv.ret.approvalDocuments"),
     days: RETENTION.approvalDocumentDays,
     action: "deleted",
     table: "approval_documents",
     where: "request_id IN (SELECT id FROM approval_requests WHERE decided_at IS NOT NULL AND decided_at < ?::timestamptz)",
   },
   {
-    what: "Activity applications refused, withdrawn or lapsed",
+    what: said("srv.ret.approvalsClosed"),
     days: RETENTION.approvalRequestDays,
     action: "deleted",
     table: "approval_requests",
     where: "status IN ('rejected', 'withdrawn', 'expired') AND decided_at < ?::timestamptz",
   },
   {
-    what: "Activity approvals that ran out",
+    what: said("srv.ret.approvalsEnded"),
     days: RETENTION.approvalRequestDays,
     action: "deleted",
     table: "approval_requests",
     where: "status = 'approved' AND valid_until IS NOT NULL AND valid_until < ?",
   },
   {
-    what: "Venue applications never confirmed by email",
+    what: said("srv.ret.applications"),
     days: RETENTION.unconfirmedApplicationDays,
     action: "deleted",
     table: "venue_applications",
@@ -238,19 +241,24 @@ export async function retentionDue(): Promise<RetentionLine[]> {
   const lines: RetentionLine[] = [];
   for (const rule of RULES)
     lines.push({
-      what: rule.what,
+      what: englishOf(rule.what),
+      whatPhrase: rule.what,
       days: rule.days,
       action: rule.action,
       affected: await count(`SELECT COUNT(*) AS n FROM ${rule.table} WHERE ${rule.where}`, addDays(today, -rule.days)),
     });
+  const drafts = said("srv.ret.drafts", { n: STALE_DRAFT_DAYS });
+  const sessions = said("srv.ret.sessions");
   lines.push({
-    what: `Draft venues never live, nobody signed in for ${STALE_DRAFT_DAYS} days`,
+    what: englishOf(drafts),
+    whatPhrase: drafts,
     days: STALE_DRAFT_DAYS,
     action: "deleted",
     affected: (await staleDrafts()).length,
   });
   lines.push({
-    what: "Expired sign-in sessions",
+    what: englishOf(sessions),
+    whatPhrase: sessions,
     days: 0,
     action: "deleted",
     affected:

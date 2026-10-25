@@ -24,6 +24,8 @@ import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
+import { englishOf } from "../src/lib/staff-text";
+import { staffTranslator } from "../src/lib/staff-i18n";
 import { markRefunded, refundsOwed, savePaymentSettings, settleBill, startEntryPayment } from "../src/lib/payments";
 import { createBooking, createVenue, getAvailability, joinSlotWaitlist, listVenues, listWaitlistFor } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -718,6 +720,19 @@ describe("correcting a group result after the knockout has begun", () => {
       expect.objectContaining({ status: "open", fromMatchId: final.id, wrongEntry: semi.a, rightEntry: semi.b, affected: [expect.objectContaining({ matchId: final.id, played: true })] }),
     ]);
     expect(done.value.changes.join(" ")).toMatch(/Under review/);
+    // The same sentences as phrases, said in the staff language (lib/staff-text.ts); the English unchanged.
+    const ms = staffTranslator("ms", "MySenam");
+    expect(done.value.changePhrases.map(englishOf)).toEqual(done.value.changes);
+    expect(ms.say(done.value.changePhrases.at(-1))).toMatch(/^Sedang disemak: .* mara menggantikan /);
+    expect(preview.value.standingsOnly.changePhrases.map(englishOf)).toEqual(preview.value.standingsOnly.changes);
+    expect(preview.value.standingsOnly.changePhrases.map((p) => ms.say(p)).join(" ")).toMatch(/Separuh akhir 1/);
+    expect(preview.value.issuePhrasesIfStandingsOnly?.map(englishOf)).toEqual(preview.value.issuesIfStandingsOnly);
+    // Kept with the record: the correction's phrases, and each affected match's.
+    const kept = (await tournamentDetail(t.id, { forStaff: true }))!;
+    expect(kept.corrections[0].changePhrases?.map(englishOf)).toEqual(kept.corrections[0].changes);
+    const affected = kept.issues[0].affected[0];
+    expect(affected.phrase && englishOf(affected.phrase)).toBe(affected.text);
+    expect(staffTranslator("zh", "MySenam").say(affected.phrase)).toMatch(/^决赛：.*顶替/);
   });
 
   it("is refused against a preview of a tournament that has since changed", async () => {
@@ -806,6 +821,10 @@ describe("progression a correction left wrong", () => {
     expect(done.value.detail.issues[0]).toMatchObject({ status: "stood", resolutionReason: "Both finalists agreed the final stands" });
     expect(done.value.detail.matches.find((m) => m.id === final.id)).toMatchObject({ winner: semi.a, status: "done" });
     expect(done.value.detail.corrections.map((c) => c.kind)).toEqual(["standings_only", "stand"]);
+    expect(englishOf(done.value.changePhrases[0])).toBe(done.value.changes[0]);
+    expect(staffTranslator("zh", "MySenam").say(done.value.changePhrases[0])).toMatch(/^按实际比赛结果维持/);
+    // The match to replay is named in the staff language too.
+    expect(review.value.replay.possible && staffTranslator("ms", "MySenam").say(review.value.replay.matches[0].namePhrase)).toBe("Akhir");
     // Resolved once.
     expect(await resolveIssue(issue.id, { action: "stand", reason: "Again, by mistake", token: review.value.token }, owner)).toMatchObject({ ok: false });
   });
@@ -827,6 +846,8 @@ describe("progression a correction left wrong", () => {
     expect([replay.a, replay.b]).toContain(semi.b);
     expect([replay.a, replay.b]).not.toContain(semi.a);
     expect(done.value.detail.issues[0].status).toBe("replayed");
+    expect(done.value.changePhrases.map(englishOf)).toEqual(done.value.changes);
+    expect(staffTranslator("ms", "MySenam").say(done.value.changePhrases[0])).toMatch(/^Akhir akan dimainkan semula dengan .* pada /);
     // The court time is held again for it, as a tournament block.
     const held = await getDb().prepare("SELECT 1 FROM blocks WHERE tournament_id = ? AND court_id = ? AND date = ? AND start_min <= ? AND end_min >= ?").get(t.id, slot.courtId, slot.date, slot.startMin, slot.startMin + 60);
     expect(held).toBeTruthy();

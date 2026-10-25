@@ -264,8 +264,8 @@ function Evidence({ a }: { a: VenueApplication }) {
           <p className="text-emerald-700">✓ {t("app.allAgree")}</p>
         ) : (
           <ul className="space-y-1 text-amber-800">
-            {warnings.map((w) => (
-              <li key={w}>! {w}</li>
+            {warnings.map((w, i) => (
+              <li key={w}>! {t.say(a.location?.phrases?.[i], w)}</li>
             ))}
           </ul>
         )}

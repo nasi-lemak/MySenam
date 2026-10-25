@@ -317,8 +317,9 @@ what they reviewed:
   results stand or arranges it by hand.
 
 Each correction and resolution is kept in `tournament_corrections` (with
-what it changed and the matches as they were) and `tournament_issues`, and
-in the staff activity log; the public page says that a correction was made,
+what it changed, in English and as phrases the staff screen says in the
+staff language, and the matches as they were) and `tournament_issues`, and
+in the staff activity log (in English); the public page says that a correction was made,
 not why. Front desk staff enter results but cannot correct, disqualify or
 resolve. A result and everything that follows from it are one change.
 

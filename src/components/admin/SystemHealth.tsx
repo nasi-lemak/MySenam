@@ -45,7 +45,7 @@ export function SystemHealth() {
           <li key={a.key} className="rounded-lg bg-white/70 px-3 py-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="font-semibold">
-                {a.subject} <span className="font-normal text-red-700">
+                {t.say(a.subjectPhrase, a.subject)} <span className="font-normal text-red-700">
                   · {t("sys.countLast", { n: a.count, date: a.lastAt.slice(0, 10), time: localTime(a.lastAt) })}
                 </span>
               </span>
@@ -53,7 +53,12 @@ export function SystemHealth() {
                 {t("sys.dealtWith")}
               </button>
             </div>
-            {a.lastDetail && <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-red-800">{a.lastDetail}</pre>}
+            {/* An error's own text stays as it came; what MySenam wrote, in the staff language. */}
+            {a.lastDetail && (
+              <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-red-800">
+                {a.detailPhrases ? a.detailPhrases.map((p) => t.say(p)).join("\n") : a.lastDetail}
+              </pre>
+            )}
           </li>
         ))}
       </ul>

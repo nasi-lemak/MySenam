@@ -191,7 +191,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
             <ul className="mt-4 divide-y divide-slate-100 border-t border-slate-100 pt-2 text-sm">
               {entries.map((entry) => (
                 <li key={entry.id} className="flex items-center justify-between gap-3 py-1.5">
-                  <span className="text-slate-600">{entry.reason}</span>
+                  <span className="text-slate-600">{t.say(entry.reasonPhrase, entry.reason)}</span>
                   <span
                     className={`font-semibold ${
                       entry.amount >= 0 ? "text-emerald-700" : "text-slate-700"
@@ -549,7 +549,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">{pass.expiresOn}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
                   {pass.unusableReason ? (
-                    <span className="text-xs text-slate-400">{pass.unusableReason}</span>
+                    <span className="text-xs text-slate-400">{t.say(pass.unusablePhrase, pass.unusableReason)}</span>
                   ) : (
                     <button
                       onClick={() => cancel(pass)}
@@ -856,7 +856,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
                   {p.unusableReason ? (
-                    <span className="text-xs text-slate-400">{p.unusableReason}</span>
+                    <span className="text-xs text-slate-400">{t.say(p.unusablePhrase, p.unusableReason)}</span>
                   ) : (
                     <button
                       onClick={() => withdraw(p)}
@@ -1141,7 +1141,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
                   {m.unusableReason ? (
-                    <span className="text-xs text-slate-400">{m.unusableReason}</span>
+                    <span className="text-xs text-slate-400">{t.say(m.unusablePhrase, m.unusableReason)}</span>
                   ) : (
                     <>
                       <button

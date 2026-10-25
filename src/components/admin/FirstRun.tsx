@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { intlTag, isoOffset, region } from "@/lib/region";
 import type { Locale } from "@/lib/i18n";
+import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- First run ---------------- */
@@ -48,7 +49,7 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
   const [state, setState] = useState<DemoState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ bookings: number; extras: string[] } | null>(null);
+  const [done, setDone] = useState<{ bookings: number; extras: string[]; extraPhrases?: StaffText[] } | null>(null);
   // A reload throws data away. Cheap to confirm, expensive to mis-click.
   const [confirming, setConfirming] = useState(false);
 
@@ -70,7 +71,7 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("fr.couldNotLoad")));
-      setDone({ bookings: data.bookings, extras: data.extras });
+      setDone({ bookings: data.bookings, extras: data.extras, extraPhrases: data.extraPhrases });
       setState(null);
       onSeeded();
     } catch (err) {
@@ -87,7 +88,7 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
           {t("fr.written", { n: done.bookings })}
         </p>
         <p className="mt-1 text-sm text-emerald-800">
-          {withElements(t("fr.doneNext", { extras: done.extras.join(", ") }), {
+          {withElements(t("fr.doneNext", { extras: done.extras.map((e, i) => t.say(done.extraPhrases?.[i], e)).join(t("srv.list.comma")) }), {
             reports: <strong>{t("sh.tab.reports")}</strong>,
             bookings: <strong>{t("sh.tab.bookings")}</strong>,
           })}

@@ -1,8 +1,9 @@
 import { getDb } from "./db";
-import { DAY_MINUTES, LATEST_MINUTE } from "./interval";
+import { DAY_MINUTES, formatMinute, LATEST_MINUTE } from "./interval";
 import { isActivity } from "./activities";
 import { MAX_COURT_HOURS, type Sport } from "./types";
 import { parseWeekHours } from "./week-hours";
+import { lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
   SETTING_KEYS,
   resolvePolicy,
@@ -13,6 +14,32 @@ import {
 } from "./booking-rules";
 
 export * from "./booking-rules";
+
+/** `describePolicy` (lib/booking-rules.ts) as a phrase, for the staff screen in the staff language: the same words in English. */
+export function policySummary(p: BookingPolicy): StaffText {
+  const starts = p.startTimes
+    ? said("srv.pol.startsAt", { times: p.startTimes.map(formatMinute).join(", ") })
+    : p.startEvery === 60 && p.startOffset === 0
+      ? said("srv.pol.onTheHour")
+      : said("srv.pol.startsEvery", { length: lengthText(p.startEvery) });
+  const lengths: StaffValue = p.lengths
+    ? p.lengths.map(lengthText)
+    : said("srv.pol.range", { min: lengthText(p.minLength), max: lengthText(p.maxLength), step: lengthText(p.lengthStep) });
+  const around = (beforeMin: number, afterMin: number) => {
+    const before = beforeMin ? said("srv.pol.before", { length: lengthText(beforeMin) }) : null;
+    const after = afterMin ? said("srv.pol.after", { length: lengthText(afterMin) }) : null;
+    return before && after ? said("srv.pol.beforeAndAfter", { before, after }) : (before ?? after);
+  };
+  // Minimum separation, shared with the neighbour; setup and cleaning, which add up.
+  const separation = around(p.bufferBefore, p.bufferAfter);
+  const operational = around(p.operationalBefore, p.operationalAfter);
+  const kept = separation ? said("srv.pol.kept", { around: separation }) : null;
+  const work = operational ? said("srv.pol.operational", { around: operational }) : null;
+  if (kept && work) return said("srv.pol.summaryBoth", { starts, lengths, kept, work });
+  if (kept) return said("srv.pol.summaryKept", { starts, lengths, kept });
+  if (work) return said("srv.pol.summaryWork", { starts, lengths, work });
+  return said("srv.pol.summary", { starts, lengths });
+}
 
 /**
  * Booking policies as stored (`booking_policies`, db/migrations/0089) and

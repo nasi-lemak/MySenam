@@ -22,6 +22,7 @@ import { Court } from "./types";
 import { addDays, todayISO } from "./time";
 import { peakRules } from "./peak";
 import { money, region } from "./region";
+import { englishOf, said, type StaffText } from "./staff-text";
 
 /**
  * A fortnight of plausible trading, for showing somebody what this does.
@@ -121,6 +122,8 @@ export interface DemoResult {
   customers: number;
   classes: number;
   extras: string[];
+  /** The same, as phrases a staff screen says in the staff language. */
+  extraPhrases: StaffText[];
 }
 
 export type SeedResult = DemoResult | { ok: false; error: string };
@@ -259,7 +262,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
   let bookings = 0;
   let cancelled = 0;
   let noShows = 0;
-  const extras: string[] = [];
+  const extras: StaffText[] = [];
 
   /** Each venue's peak hours, looked up once rather than for every booking invented. */
   const rulesOf = new Map<number, Awaited<ReturnType<typeof peakRules>>>();
@@ -352,7 +355,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
         phone: phoneFor(person),
       });
     }
-    extras.push(`${classes} class sessions with a roster`);
+    extras.push(said("srv.demo.classes", { n: classes }));
   }
 
   await db.transaction(async () => {
@@ -425,7 +428,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
   if (account.ok) {
     customers++;
     await topUpWallet({ userId: account.user.id, amount: 80, adminId: opts.adminId, reason: "Counter top-up" });
-    extras.push(`a customer holding ${money(80)} of credit`);
+    extras.push(said("srv.demo.credit", { amount: money(80) }));
   }
 
   const pass = await issuePass({
@@ -439,7 +442,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     expiresOn: addDays(today, 120),
     adminId: opts.adminId,
   });
-  if (pass.ok) extras.push("a 10-hour pass, part used");
+  if (pass.ok) extras.push(said("srv.demo.pass"));
 
   const membership = await sellMembership({
     venueId: arena.id,
@@ -450,7 +453,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     price: 240,
     adminId: opts.adminId,
   });
-  if (membership.ok) extras.push("a membership lapsing within the month");
+  if (membership.ok) extras.push(said("srv.demo.membership"));
 
   const promo = await createPromoCode({
     venueId: arena.id,
@@ -463,12 +466,12 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     maxUses: 50,
     adminId: opts.adminId,
   });
-  if (promo.ok) extras.push("a live promo code (RAYA20)");
+  if (promo.ok) extras.push(said("srv.demo.promo"));
 
   // A court out for repair, and a public holiday coming up.
   await blockSlots(racquet.id, addDays(today, 3), [14, 15, 16], "Net replacement");
   await closeVenueDay(arena.id, addDays(today, 8), "Public holiday");
-  extras.push("an afternoon blocked for maintenance and a closed public holiday");
+  extras.push(said("srv.demo.blocked"));
 
   // Somebody cleared for unstaffed hours.
   const inducted = await recordInduction({
@@ -478,7 +481,7 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
     adminId: opts.adminId,
     note: "IC checked, shown the alarm and the AED",
   });
-  if (inducted.ok) extras.push("one customer inducted for unstaffed hours");
+  if (inducted.ok) extras.push(said("srv.demo.inducted"));
 
   // Everything here was invented by this function — the guard above means no
   // real booking can have existed when it started — so marking the lot is
@@ -490,5 +493,5 @@ export async function seedDemoData(opts: { force?: boolean; adminId: number }): 
   await record.run("demo_seeded_on", today);
   await record.run("demo_runs_to", addDays(today, FUTURE_DAYS));
 
-  return { ok: true, bookings, cancelled, noShows, customers, classes, extras };
+  return { ok: true, bookings, cancelled, noShows, customers, classes, extras: extras.map(englishOf), extraPhrases: extras };
 }

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { raiseAlert } from "./alerts";
 import { getDb } from "./db";
 import { siteName } from "./site";
+import { said } from "./staff-text";
 
 /**
  * Errors, grouped so they can be fixed: every server error from a request,
@@ -111,11 +112,11 @@ export async function recordError(input: ErrorInput): Promise<{ id: number; isNe
     if (input.source === "server" && (isNew || reopened))
       await raiseAlert(
         `error:${fp}`,
-        `${reopened ? "Back again" : "New error"}: ${name}: ${message.slice(0, 120)}`,
+        said(reopened ? "srv.alert.backAgain" : "srv.alert.newError", { name, message: message.slice(0, 120) }),
         [`${input.method ?? ""} ${bare(input.path) ?? ""}`.trim(), stack?.split("\n").slice(0, 6).join("\n") ?? message].join("\n")
       );
     else if (input.source === "browser")
-      await raiseAlert("errors:browser", "Customers' browsers are reporting errors", `${name}: ${message}\n${bare(input.path) ?? ""}`);
+      await raiseAlert("errors:browser", said("srv.alert.browser"), `${name}: ${message}\n${bare(input.path) ?? ""}`);
     void toSentry({ ...input, name, message, stack, path: bare(input.path) });
     return { id: row.id, isNew, reopened };
   } catch (err) {

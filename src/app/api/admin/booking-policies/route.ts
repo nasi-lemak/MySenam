@@ -2,7 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
-import { describePolicy, policiesFor, sportPolicyAt, updatePolicy, venuePolicyLevels, type PolicyScope } from "@/lib/booking-policy";
+import { describePolicy, policiesFor, policySummary, sportPolicyAt, updatePolicy, venuePolicyLevels, type PolicyScope } from "@/lib/booking-policy";
 import { getDb } from "@/lib/db";
 import { getCourt } from "@/lib/store";
 import { type Sport } from "@/lib/types";
@@ -38,14 +38,14 @@ export async function GET(req: NextRequest) {
   for (const c of full)
     for (const sport of courtSports(c).slice(1)) {
       const p = (await policiesFor([{ id: c.id, venueId: c.venueId, sport }])).get(c.id)!;
-      (products[c.id] ??= {})[sport] = { ...p, summary: describePolicy(p) };
+      (products[c.id] ??= {})[sport] = { ...p, summary: describePolicy(p), summaryPhrase: policySummary(p) };
     }
   return NextResponse.json(
     {
       levels: await venuePolicyLevels(venueId),
       effective: {
         sports: bySport,
-        courts: Object.fromEntries([...resolved].map(([id, p]) => [id, { ...p, summary: describePolicy(p) }])),
+        courts: Object.fromEntries([...resolved].map(([id, p]) => [id, { ...p, summary: describePolicy(p), summaryPhrase: policySummary(p) }])),
         products,
       },
     },
