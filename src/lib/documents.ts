@@ -5,6 +5,7 @@ import { taxIncluded, venueTax } from "./tax";
 import { formatHour } from "./time";
 import { hoursOf } from "./interval";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
+import { englishOf, said, type StaffText } from "./staff-text";
 
 /**
  * Receipts and credit notes kept as documents (migration 0040): one for each
@@ -21,6 +22,13 @@ import { PAID_VIA_LABELS, type PaidVia } from "./types";
 export interface Line {
   description: string;
   amount: number;
+  /** The description as a phrase a staff screen says in the staff language, where MySenam wrote it; the receipt itself says the English. */
+  phrase?: StaffText;
+}
+
+/** A line MySenam words: the receipt's English, with its phrase kept beside it. */
+export function saidLine(text: StaffText, amount: number): Line {
+  return { description: englishOf(text), amount, phrase: text };
 }
 
 export interface Document {
@@ -133,6 +141,23 @@ export function paidVia(via: string | null | undefined, gatewayName?: string): s
   if (!via) return null;
   if (via === "online" && gatewayName) return `Online (${gatewayName})`;
   return PAID_VIA_LABELS[via as PaidVia] ?? via;
+}
+
+/** How a payment was made, as a method: `counter` when a sale says only that it was at the counter. */
+export interface PaidHow {
+  via: PaidVia | "counter";
+  /** The gateway's name, for one paid online. */
+  gateway?: string;
+}
+
+/** The method behind what `paidVia` wrote (or "At the counter"), so a screen can say it in its own language; null for anything else. */
+export function paidHowOf(label: string | null | undefined): PaidHow | null {
+  if (!label) return null;
+  if (label === "At the counter") return { via: "counter" };
+  const online = /^Online \((.+)\)$/.exec(label);
+  if (online) return { via: "online", gateway: online[1] };
+  const via = (Object.keys(PAID_VIA_LABELS) as PaidVia[]).find((k) => PAID_VIA_LABELS[k] === label);
+  return via ? { via } : null;
 }
 
 type Fields = Omit<Row, "id" | "number" | "issued_at" | "total" | "tax_rate" | "tax_amount"> & {
@@ -412,7 +437,7 @@ export async function creditBooking(bookingId: number, why: string, share = 1): 
       : {
           ...full,
           total: roundMoney(full.total * share),
-          lines: [{ description: `${Math.round(share * 100)}% of ${full.code}, cancelled late`, amount: roundMoney(full.total * share) }],
+          lines: [saidLine(said("srv.line.lateShare", { pct: Math.round(share * 100), code: full.code }), roundMoney(full.total * share))],
         };
   const tax = sale.taxRate ? await venueTax(sale.venueId) : null;
   return write({
@@ -441,7 +466,7 @@ interface FeeSale {
   userId: number | null;
   name: string;
   phone: string | null;
-  description: string;
+  description: StaffText;
   fee: number;
 }
 
@@ -454,7 +479,7 @@ export async function entrySale(entryId: number): Promise<FeeSale | null> {
     )
     .get(entryId)) as { venue_id: number; tournament: string; fee: number; user_id: number | null; name: string; phone: string | null } | undefined;
   return row
-    ? { venueId: row.venue_id, userId: row.user_id, name: row.name, phone: row.phone, description: `Entry: ${row.tournament}`, fee: row.fee }
+    ? { venueId: row.venue_id, userId: row.user_id, name: row.name, phone: row.phone, description: said("srv.line.entry", { name: row.tournament }), fee: row.fee }
     : null;
 }
 
@@ -475,7 +500,7 @@ export async function placeSale(placeId: number): Promise<FeeSale | null> {
         userId: row.user_id,
         name: row.name,
         phone: row.phone,
-        description: `League fee: ${row.league}, season ${row.number}`,
+        description: said("srv.line.leagueFee", { name: row.league, n: row.number }),
         fee: row.fee,
       }
     : null;
@@ -507,7 +532,7 @@ export async function receiptFee(kind: "entry" | "place", id: number, paid: bool
     userId: sale.userId,
     name: sale.name,
     phone: sale.phone,
-    lines: [{ description: sale.description, amount: sale.fee }],
+    lines: [saidLine(sale.description, sale.fee)],
     paidVia: "At the counter",
     taxable: true,
   });

@@ -1158,7 +1158,8 @@ export async function unpayShare(bookingId: number, amount: number): Promise<voi
               shares_paid = shares_paid + ?, deposit_paid = deposit_paid + ? WHERE id = ?`
     )
     .run(part, part, bookingId);
-  const { issueReceipt } = await import("./documents");
+  const { issueReceipt, saidLine } = await import("./documents");
+  const { said } = await import("./staff-text");
   const issuedAt = before.paid_at ? before.paid_at.replace("T", " ").slice(0, 19) : null;
   for (const p of paid)
     await issueReceipt({
@@ -1167,7 +1168,7 @@ export async function unpayShare(bookingId: number, amount: number): Promise<voi
       userId: before.user_id,
       name: before.name,
       phone: before.phone,
-      lines: [{ description: `Paid online towards ${before.code}`, amount: Math.round(p.amount * 100) / 100 }],
+      lines: [saidLine(said("srv.line.paidTowards", { code: before.code }), Math.round(p.amount * 100) / 100)],
       paidVia: "online",
       taxable: true,
       issuedAt,

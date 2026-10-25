@@ -249,17 +249,17 @@ export function ScheduleTab({
                               (slot.blockedPlaces
                                 ? ` · ${
                                     slot.blockReason
-                                      ? t("sch.outOfServiceWhy", { n: slot.blockedPlaces, reason: slot.blockReason })
+                                      ? t("sch.outOfServiceWhy", { n: slot.blockedPlaces, reason: t.say(slot.blockReasonPhrase, slot.blockReason) })
                                       : t("sch.outOfService", { n: slot.blockedPlaces })
                                   }`
                                 : slot.status === "blocked"
-                                  ? ` · ${slot.blockReason ? t("sch.allOutWhy", { reason: slot.blockReason }) : t("sch.allOut")}`
+                                  ? ` · ${slot.blockReason ? t("sch.allOutWhy", { reason: t.say(slot.blockReasonPhrase, slot.blockReason) }) : t("sch.allOut")}`
                                   : "")
                             : slot.status === "booked"
                               ? t("sch.booked", { code: String(slot.bookingCode) })
                               : slot.status === "blocked"
                                 ? slot.blockReason
-                                  ? t("sch.blockedWhyRelease", { reason: slot.blockReason })
+                                  ? t("sch.blockedWhyRelease", { reason: t.say(slot.blockReasonPhrase, slot.blockReason) })
                                   : t("sch.blockedRelease")
                                 : slot.status === "past"
                                   ? t("sch.past")
@@ -313,7 +313,7 @@ export function ScheduleTab({
                   <ul className="mt-1 space-y-0.5 text-xs">
                     {entries.map((e, i) => (
                       <li key={i} className={e.kind === "buffer" ? "text-slate-400" : "text-slate-700"}>
-                        {formatMinute(e.start)}–{formatMinute(e.end)} · {t("sch.minutes", { n: e.end - e.start })} · {e.label || kinds[e.kind]}
+                        {formatMinute(e.start)}–{formatMinute(e.end)} · {t("sch.minutes", { n: e.end - e.start })} · {(e.phrase ? t.say(e.phrase) : e.label) || kinds[e.kind]}
                         {e.places ? ` · ${t.plural("sch.places", e.places)}` : ""}
                       </li>
                     ))}

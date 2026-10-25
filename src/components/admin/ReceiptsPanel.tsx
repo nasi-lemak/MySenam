@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
+import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
 
 interface Row {
@@ -10,6 +11,7 @@ interface Row {
   kind: "receipt" | "credit_note";
   customer: string;
   description: string;
+  descriptionPhrase: StaffText | null;
   total: number;
   tax: number;
   credits: string | null;
@@ -70,7 +72,7 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
                   <td className="py-1.5 pr-2 text-xs text-slate-500">{r.issuedAt.slice(0, 10)}</td>
                   <td className="py-1.5 pr-2">{r.customer}</td>
                   <td className="py-1.5 pr-2 text-slate-600">
-                    {r.description}
+                    {t.say(r.descriptionPhrase, r.description)}
                     {r.credits && <span className="text-amber-700">{` ${t("rcp.reverses", { number: r.credits })}`}</span>}
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{r.kind === "credit_note" ? `−${money(r.total)}` : money(r.total)}</td>

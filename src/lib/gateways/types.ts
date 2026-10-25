@@ -10,6 +10,8 @@
  * is the same for every gateway and lives in lib/payments.ts.
  */
 
+import type { StaffText } from "../staff-text";
+
 export type ProviderId = "billplz" | "stripe";
 
 /** A venue's (or the platform's) account at one gateway, its secrets unsealed. */
@@ -161,6 +163,8 @@ export interface PaymentGateway {
   fields: CredentialField[];
   /** Anything to do on the gateway's own side, for the settings form. */
   setup?: string;
+  /** The same, as a phrase the settings form says in the staff language (lib/staff-text.ts). */
+  setupPhrase?: StaffText;
   /**
    * The venue registers our callback address in the gateway's dashboard (it
    * is not sent with each payment), so the form shows it to copy.

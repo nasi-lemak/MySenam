@@ -1,8 +1,9 @@
 import { getDb } from "./db";
-import { DAY_MINUTES, LATEST_MINUTE } from "./interval";
+import { DAY_MINUTES, formatMinute, LATEST_MINUTE } from "./interval";
 import { isActivity } from "./activities";
 import { MAX_COURT_HOURS, type Sport } from "./types";
 import { parseWeekHours } from "./week-hours";
+import { lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
   SETTING_KEYS,
   resolvePolicy,
@@ -13,6 +14,22 @@ import {
 } from "./booking-rules";
 
 export * from "./booking-rules";
+
+/** `describePolicy` (lib/booking-rules.ts) as a phrase, for the staff screen in the staff language: the same words in English. */
+export function policySummary(p: BookingPolicy): StaffText {
+  const starts = p.startTimes
+    ? said("srv.pol.startsAt", { times: p.startTimes.map(formatMinute).join(", ") })
+    : p.startEvery === 60 && p.startOffset === 0
+      ? said("srv.pol.onTheHour")
+      : said("srv.pol.startsEvery", { length: lengthText(p.startEvery) });
+  const lengths: StaffValue = p.lengths
+    ? p.lengths.map(lengthText)
+    : said("srv.pol.range", { min: lengthText(p.minLength), max: lengthText(p.maxLength), step: lengthText(p.lengthStep) });
+  const before = p.bufferBefore ? said("srv.pol.before", { length: lengthText(p.bufferBefore) }) : null;
+  const after = p.bufferAfter ? said("srv.pol.after", { length: lengthText(p.bufferAfter) }) : null;
+  const buffers = before && after ? said("srv.pol.beforeAndAfter", { before, after }) : (before ?? after);
+  return buffers ? said("srv.pol.summaryKept", { starts, lengths, buffers }) : said("srv.pol.summary", { starts, lengths });
+}
 
 /**
  * Booking policies as stored (`booking_policies`, db/migrations/0089) and

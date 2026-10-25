@@ -8,6 +8,7 @@ import { getDb } from "./db.ts";
 import type { BackupFile } from "./backup";
 import { decryptFile, encryptFile, readKeyFile, signBytes, signatureValid } from "./backup-crypto.ts";
 import { region } from "./region.ts";
+import { englishOf, said, type StaffText } from "./staff-text.ts";
 
 /**
  * Copies of the backups somewhere that is not this machine.
@@ -178,19 +179,23 @@ export const MAX_UPLOAD = PART_BYTES * MAX_PARTS;
  * null when copies may go.
  */
 export function offsiteTransferCheck(): string | null {
+  const why = offsiteTransferPause();
+  return why && englishOf(why);
+}
+
+/** The same, as a phrase a staff screen says in the staff language. */
+export function offsiteTransferPause(): StaffText | null {
   const location = process.env.OFFSITE_DATA_LOCATION?.trim().toUpperCase();
   const home = region();
-  if (!location)
-    return "Off-site copies are paused until OFFSITE_DATA_LOCATION says which country the bucket keeps data in (for example MY, SG or US).";
+  if (!location) return said("srv.offsite.noLocation");
   // A typed country is checked against the region the endpoint itself names.
   const named = process.env.OFFSITE_S3_ENDPOINT ? endpointLocation(process.env.OFFSITE_S3_ENDPOINT) : null;
   if (named?.country && named.country !== location)
-    return `Off-site copies are paused: the endpoint is ${named.provider} ${named.region}, in ${named.country}, but OFFSITE_DATA_LOCATION says ${location}. Correct whichever is wrong.`;
+    return said("srv.offsite.mismatch", { provider: named.provider, region: String(named.region), country: named.country, location });
   if (location === home.country) return null;
   if (process.env.OFFSITE_TRANSFER_APPROVED?.trim().toUpperCase() !== location)
-    return `The bucket keeps data in ${location}, outside ${home.name}: nothing is sent abroad until the transfer is approved and recorded as OFFSITE_TRANSFER_APPROVED=${location}.`;
-  if (!process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE)
-    return `The bucket keeps data in ${location}, outside ${home.name}: copies sent abroad must be encrypted first (OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE).`;
+    return said("srv.offsite.notApproved", { location, home: home.name });
+  if (!process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE) return said("srv.offsite.notEncrypted", { location, home: home.name });
   return null;
 }
 
@@ -447,6 +452,8 @@ export interface OffsiteStatus {
   endpointSays: EndpointLocation | null;
   /** Why copies are not being sent, where they may not go (`offsiteTransferCheck`). */
   paused: string | null;
+  /** The same, as a phrase a staff screen says in the staff language. */
+  pausedPhrase: StaffText | null;
   /** `manifest`: the set's manifest went too, so the copy can be checked whole when it is fetched back. */
   lastCopied: { name: string; at: string; key: string; manifest?: boolean; encrypted?: boolean; signed?: boolean; largestBytes?: number } | null;
   lastError: { at: string; error: string } | null;
@@ -481,12 +488,14 @@ async function remember(next: Stored): Promise<void> {
 export async function offsiteStatus(): Promise<OffsiteStatus> {
   const config = offsiteConfig();
   const { lastCopied, lastError } = await stored();
+  const why = config ? offsiteTransferPause() : null;
   return {
     configured: config !== null,
     destination: config ? `${config.endpoint}/${config.bucket}/${config.prefix}` : null,
     location: process.env.OFFSITE_DATA_LOCATION?.trim().toUpperCase() || null,
     endpointSays: config ? endpointLocation(config.endpoint) : null,
-    paused: config ? offsiteTransferCheck() : null,
+    paused: why && englishOf(why),
+    pausedPhrase: why,
     lastCopied,
     lastError,
   };

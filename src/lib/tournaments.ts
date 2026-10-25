@@ -33,6 +33,7 @@ import type { Level } from "./games";
 import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
 import { groupResultsVoid, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
+import { englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
 
 /**
  * Tournaments run by venues.
@@ -205,8 +206,8 @@ export interface ProgressionIssue {
   fromMatchId: number;
   wrongEntry: number;
   rightEntry: number | null;
-  /** The fixtures affected, each said in a sentence; played ones first in the order they were played. */
-  affected: { matchId: number; played: boolean; text: string }[];
+  /** The fixtures affected, each said in a sentence; played ones first in the order they were played. `phrase`: the same for the staff language (none on issues from before). */
+  affected: { matchId: number; played: boolean; text: string; phrase?: StaffText }[];
   status: "open" | "stood" | "replayed";
   reason?: string;
   resolutionReason?: string | null;
@@ -220,7 +221,15 @@ export interface TournamentDetail extends Tournament {
   groups: { groupNo: number; table: GroupStanding[] }[];
   /** Corrections made after the knockout began; why, and what they changed, only for staff. */
   /** `knockout`: the match corrected was a knockout match, so "standings_only" corrected its record only. */
-  corrections: { kind: "replace" | "standings_only" | "stand" | "replay"; knockout: boolean; createdAt: string; reason?: string; changes?: string[] }[];
+  corrections: {
+    kind: "replace" | "standings_only" | "stand" | "replay";
+    knockout: boolean;
+    createdAt: string;
+    reason?: string;
+    changes?: string[];
+    /** The same, as phrases for staff screens in the staff language; null for corrections from before phrases were kept. */
+    changePhrases?: StaffText[] | null;
+  }[];
   /** Progression left wrong by a correction, open until an organiser resolves it; while any is open the tournament does not finish. */
   issues: ProgressionIssue[];
   /** A performance event's heats, final and ranking. */
@@ -407,15 +416,15 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
   const corrections = (
     (await db
       .prepare(
-        `SELECT c.kind, c.reason, c.changes, c.created_at, m.stage FROM tournament_corrections c
+        `SELECT c.kind, c.reason, c.changes, c.change_phrases, c.created_at, m.stage FROM tournament_corrections c
            LEFT JOIN tournament_matches m ON m.id = c.match_id WHERE c.tournament_id = ? ORDER BY c.id`
       )
-      .all(id)) as { kind: "replace" | "standings_only"; reason: string; changes: string; created_at: string; stage: string | null }[]
+      .all(id)) as { kind: "replace" | "standings_only"; reason: string; changes: string; change_phrases: string | null; created_at: string; stage: string | null }[]
   ).map((c) => ({
     kind: c.kind,
     knockout: c.stage === "knockout",
     createdAt: c.created_at,
-    ...(opts.forStaff ? { reason: c.reason, changes: JSON.parse(c.changes) as string[] } : {}),
+    ...(opts.forStaff ? { reason: c.reason, changes: JSON.parse(c.changes) as string[], changePhrases: storedPhrases(c.change_phrases) } : {}),
   }));
   const issues = (
     (await db.prepare("SELECT * FROM tournament_issues WHERE tournament_id = ? ORDER BY id").all(id)) as {
@@ -1239,7 +1248,7 @@ export async function takeOut(
   note?: string,
   /** The token its preview gave: when given, it is made only against the tournament as previewed. */
   confirm?: { token: string }
-): Promise<Result<{ entry: Entry; changes: string[] }>> {
+): Promise<Result<{ entry: Entry } & Changes>> {
   if (confirm && (await takeOutToken(entryId, reason)) !== confirm.token)
     return { ok: false, error: "The tournament has changed since you looked. Review it again.", code: "CHANGED" };
   return withTransaction(async () => {
@@ -1247,7 +1256,7 @@ export async function takeOut(
     const done = await takeOutOnce(entryId, reason, note);
     if (!done.ok) return done;
     const after = before ? (await tournamentDetail(before.id, { forStaff: true }))! : null;
-    return { ok: true, value: { entry: done.value, changes: before && after ? describeChanges(before, after) : [] } };
+    return { ok: true, value: { entry: done.value, ...changesOf(before && after ? changePhrases(before, after) : []) } };
   });
 }
 
@@ -1256,14 +1265,14 @@ export async function takeOut(
  * it is consequential (after the draw, it changes matches and tables, so it
  * is confirmed against this preview's token); and that token.
  */
-export async function previewTakeOut(entryId: number, reason: OutReason): Promise<Result<{ changes: string[]; consequential: boolean; token: string }>> {
+export async function previewTakeOut(entryId: number, reason: OutReason): Promise<Result<Changes & { consequential: boolean; token: string }>> {
   const token = await takeOutToken(entryId, reason);
-  const preview = await dryRun(async (): Promise<Result<{ changes: string[]; consequential: boolean }>> => {
+  const preview = await dryRun(async (): Promise<Result<Changes & { consequential: boolean }>> => {
     const before = await detailForEntry(entryId);
     const done = await takeOutOnce(entryId, reason);
     if (!done.ok) return done;
     const after = before ? (await tournamentDetail(before.id, { forStaff: true }))! : null;
-    return { ok: true, value: { changes: before && after ? describeChanges(before, after) : [], consequential: !!before && before.status === "drawn" } };
+    return { ok: true, value: { ...changesOf(before && after ? changePhrases(before, after) : []), consequential: !!before && before.status === "drawn" } };
   });
   return preview.ok ? { ok: true, value: { ...preview.value, token } } : preview;
 }
@@ -1360,12 +1369,51 @@ async function dryRun<T>(fn: () => Promise<T>): Promise<T> {
 
 /** A match, as an organiser names it. */
 function matchName(d: TournamentDetail, m: Match): string {
-  if (m.stage === "group") return `Group ${m.groupNo}`;
-  if (m.placement === 3) return "Third-place match";
+  return englishOf(matchNamePhrase(d, m));
+}
+
+/** A match's name ("Semi-final 2") as a phrase, for staff screens in the staff language. */
+function matchNamePhrase(d: TournamentDetail, m: Match): StaffText {
+  if (m.stage === "group") return said("srv.round.group", { n: String(m.groupNo) });
+  if (m.placement === 3) return said("srv.round.third");
   const rounds = Math.max(...d.matches.filter((x) => x.stage === "knockout").map((x) => x.round));
   const from = rounds - m.round;
-  return from === 0 ? "Final" : from === 1 ? `Semi-final ${m.position}` : from === 2 ? `Quarter-final ${m.position}` : `Knockout round ${m.round}, match ${m.position}`;
+  return from === 0
+    ? said("srv.round.final")
+    : from === 1
+      ? said("srv.round.semi", { n: m.position })
+      : from === 2
+        ? said("srv.round.quarter", { n: m.position })
+        : said("srv.round.knockout", { round: m.round, n: m.position });
 }
+
+/** What a change said, in English (as the activity log and older screens have it) and as phrases for the staff language. */
+export interface Changes {
+  changes: string[];
+  changePhrases: StaffText[];
+}
+
+const changesOf = (phrases: StaffText[]): Changes => ({ changes: phrases.map(englishOf), changePhrases: phrases });
+
+/** Phrases kept beside stored sentences, read back; none when there are none (rows from before) or they do not read. */
+function storedPhrases(raw: string | null): StaffText[] | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? v.map((x) => readStaffText(JSON.stringify(x))).filter((x): x is StaffText => x !== null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Who an entry is, in a sentence: their name, or "nobody". */
+const entryName = (d: TournamentDetail, id: number | null): StaffValue => (id === null ? said("srv.tn.nobody") : (d.entries.find((e) => e.id === id)?.name ?? `#${id}`));
+
+/** "A v B". */
+const sidesOf = (d: TournamentDetail, a: number | null, b: number | null) => said("srv.tn.sides", { a: entryName(d, a), b: entryName(d, b) });
+
+/** Names joined with "and", or "nobody". */
+const namesAnd = (d: TournamentDetail, ids: number[]): StaffValue => (ids.length === 0 ? said("srv.tn.nobody") : joinSaid(ids.map((id) => entryName(d, id)), "srv.list.and"));
 
 /**
  * What changed between two states of a tournament, as sentences for its
@@ -1373,46 +1421,53 @@ function matchName(d: TournamentDetail, m: Match): string {
  * through from each group; who is out, and whether their results count.
  */
 export function describeChanges(before: TournamentDetail, after: TournamentDetail): string[] {
-  const name = (id: number | null) => (id === null ? "nobody" : after.entries.find((e) => e.id === id)?.name ?? `#${id}`);
-  const outcome = (m: Match) =>
+  return changePhrases(before, after).map(englishOf);
+}
+
+/** The same, as phrases for staff screens in the staff language. */
+export function changePhrases(before: TournamentDetail, after: TournamentDetail): StaffText[] {
+  const name = (id: number | null) => entryName(after, id);
+  const outcome = (m: Match): StaffText =>
     m.status === "scheduled"
-      ? "to play"
+      ? said("srv.tn.outcome.toPlay")
       : m.status === "bye"
         ? m.winner === null
-          ? "nobody goes through"
-          : `a bye for ${name(m.winner)}`
+          ? said("srv.tn.outcome.byeNobody")
+          : said("srv.tn.outcome.bye", { name: name(m.winner) })
         : m.status === "walkover"
-          ? `a walkover to ${name(m.winner)}`
+          ? said("srv.tn.outcome.walkover", { name: name(m.winner) })
           : m.status === "retired"
-            ? `won by ${name(m.winner)} (the other side retired)`
+            ? said("srv.tn.outcome.retired", { name: name(m.winner) })
             : m.winner === null
-              ? `drawn${m.score ? ` ${m.score}` : ""}`
-              : `won by ${name(m.winner)}${m.score ? ` ${m.score}` : ""}`;
-  const out: string[] = [];
+              ? m.score
+                ? said("srv.tn.outcome.drawnScore", { score: m.score })
+                : said("srv.tn.outcome.drawn")
+              : m.score
+                ? said("srv.tn.outcome.wonScore", { name: name(m.winner), score: m.score })
+                : said("srv.tn.outcome.won", { name: name(m.winner) });
+  const out: StaffText[] = [];
   for (const e of after.entries) {
     const was = before.entries.find((x) => x.id === e.id);
     if (e.out && !was?.out) {
       const voidNow = after.groups.some((g) => g.table.some((s) => s.entryId === e.id && s.resultsVoid));
-      out.push(
-        `${e.name} is out (${e.out.reason}${e.out.stage === "before_draw" ? ", before the draw" : e.out.stage === "groups" ? ", in the groups" : e.out.stage === "knockout" ? ", in the knockout" : ""}).` +
-          (voidNow ? " Their group results no longer count, under this tournament's rules." : e.out.stage === "groups" ? " The group results they played stand." : "")
-      );
+      const why = said(e.out.stage ? `srv.tn.out.at.${e.out.stage}` : "srv.tn.out.at", { reason: said(`srv.tn.out.reason.${e.out.reason}`) });
+      out.push(said(voidNow ? "srv.tn.out.void" : e.out.stage === "groups" ? "srv.tn.out.stand" : "srv.tn.out", { name: e.name, why }));
     }
   }
   for (const m of after.matches) {
     const was = before.matches.find((x) => x.id === m.id);
     if (!was) continue;
-    const sides = (x: Match) => `${name(x.a)} v ${name(x.b)}`;
-    if (was.a !== m.a || was.b !== m.b) out.push(`${matchName(after, m)}: now ${sides(m)} (was ${sides(was)}).`);
+    const match = matchNamePhrase(after, m);
+    if (was.a !== m.a || was.b !== m.b) out.push(said("srv.tn.change.sides", { match, sides: sidesOf(after, m.a, m.b), was: sidesOf(after, was.a, was.b) }));
     if (was.status !== m.status || was.winner !== m.winner || was.score !== m.score)
-      out.push(`${matchName(after, m)}, ${sides(m)}: ${outcome(m)} (was ${outcome(was)}).`);
+      out.push(said("srv.tn.change.result", { match, sides: sidesOf(after, m.a, m.b), outcome: outcome(m), was: outcome(was) }));
   }
   for (const g of after.groups) {
     const wasG = before.groups.find((x) => x.groupNo === g.groupNo);
     const through = (table: GroupStanding[]) => table.filter((s) => !s.out).slice(0, after.advance).map((s) => s.entryId);
     const now = through(g.table);
     const then = wasG ? through(wasG.table) : [];
-    if (now.join() !== then.join()) out.push(`Group ${g.groupNo} now puts ${now.map(name).join(" and ") || "nobody"} on top (was ${then.map(name).join(" and ") || "nobody"}).`);
+    if (now.join() !== then.join()) out.push(said("srv.tn.change.group", { n: g.groupNo, now: namesAnd(after, now), was: namesAnd(after, then) }));
   }
   return out;
 }
@@ -1804,8 +1859,8 @@ class KnockoutUnderway extends Error {}
 
 /** Thrown to undo a correction that cannot be made safely, with why. */
 class CorrectionBlocked extends Error {
-  readonly blockers: string[];
-  constructor(blockers: string[]) {
+  readonly blockers: StaffText[];
+  constructor(blockers: StaffText[]) {
     super("blocked");
     this.blockers = blockers;
   }
@@ -1917,17 +1972,16 @@ async function replaceQualifiers(tournamentId: number): Promise<void> {
   const t = (await tournamentById(tournamentId))!;
   const d = (await tournamentDetail(tournamentId))!;
   const wanted = qualifiers(d, t.advance);
-  if (!wanted) throw new CorrectionBlocked(["The groups are not finished, so there is nothing to put into the knockout yet."]);
+  if (!wanted) throw new CorrectionBlocked([said("srv.tn.block.groupsUnfinished")]);
   const firstRound = d.matches.filter((x) => x.stage === "knockout" && x.round === 1).sort((x, y) => x.position - y.position);
-  const name = (id: number | null) => (id === null ? "nobody" : d.entries.find((e) => e.id === id)?.name ?? `#${id}`);
-  const blockers: string[] = [];
+  const blockers: StaffText[] = [];
   const changes: { id: number; a: number | null; b: number | null }[] = [];
   firstRound.forEach((x, i) => {
     const [a, b] = wanted[i];
     if (x.a === a && x.b === b) return;
     if (x.status !== "scheduled")
-      blockers.push(`${matchName(d, x)}, ${name(x.a)} v ${name(x.b)}, has been ${x.status === "bye" ? "given as a bye" : "decided"}: it would need replaying as ${name(a)} v ${name(b)}.`);
-    else if (x.courtId === null || a === null || b === null) blockers.push(`${matchName(d, x)} would become ${name(a)} v ${name(b)}, which has no court held for it.`);
+      blockers.push(said(x.status === "bye" ? "srv.tn.block.bye" : "srv.tn.block.decided", { match: matchNamePhrase(d, x), sides: sidesOf(d, x.a, x.b), as: sidesOf(d, a, b) }));
+    else if (x.courtId === null || a === null || b === null) blockers.push(said("srv.tn.block.noCourt", { match: matchNamePhrase(d, x), sides: sidesOf(d, a, b) }));
     else changes.push({ id: x.id, a, b });
   });
   if (blockers.length > 0) throw new CorrectionBlocked(blockers);
@@ -1954,13 +2008,15 @@ export interface CorrectionPreview {
    * organiser to resolve, and said here before anything is changed.
    */
   issuesIfStandingsOnly?: string[];
-  /** False: it goes in as an ordinary result; `changes` says what it changes. */
+  issuePhrasesIfStandingsOnly?: StaffText[];
+  /** False: it goes in as an ordinary result; `changes` says what it changes. Each list's `…Phrases`: the same for staff screens in the staff language. */
   needsCorrection: boolean;
   changes: string[];
+  changePhrases: StaffText[];
   /** Put into the knockout too: possible, and what it changes; or why not. */
-  replace: { possible: true; changes: string[] } | { possible: false; blockers: string[] };
+  replace: ({ possible: true } & Changes) | { possible: false; blockers: string[]; blockerPhrases: StaffText[] };
   /** Corrected in the group table only, the knockout left as it is being played. */
-  standingsOnly: { changes: string[] };
+  standingsOnly: Changes;
   /** Given back to confirm against: a change made meanwhile makes it stale. */
   token: string;
 }
@@ -1971,13 +2027,13 @@ export async function previewResult(matchId: number, input: ResultInput): Promis
   if (!m) return { ok: false, error: "Match not found." };
   const token = await correctionToken(m.tournament_id, matchId, input);
   const attempt = (mode: ResultMode) =>
-    dryRun(async (): Promise<{ ok: true; changes: string[]; issues?: string[] } | { ok: false; error: string; blockers?: string[]; underway?: boolean }> => {
+    dryRun(async (): Promise<{ ok: true; changes: StaffText[]; issues?: StaffText[] } | { ok: false; error: string; blockers?: StaffText[]; underway?: boolean }> => {
       const before = (await tournamentDetail(m.tournament_id, { forStaff: true }))!;
       try {
         const done = await recordResultOnce(matchId, input, mode);
         if (!done.ok) return done;
         const issues = mode === "standings_only" ? findProgressionIssues(before, done.value, matchId).map((i) => issueSentence(done.value, i)) : [];
-        return { ok: true, changes: describeChanges(before, done.value), issues };
+        return { ok: true, changes: changePhrases(before, done.value), issues };
       } catch (err) {
         if (err instanceof KnockoutUnderway) return { ok: false, error: err.message, underway: true };
         if (err instanceof CorrectionBlocked) return { ok: false, error: "blocked", blockers: err.blockers };
@@ -1985,8 +2041,10 @@ export async function previewResult(matchId: number, input: ResultInput): Promis
       }
     });
   const normal = await attempt("normal");
-  if (normal.ok)
-    return { ok: true, value: { needsCorrection: false, changes: normal.changes, replace: { possible: true, changes: normal.changes }, standingsOnly: { changes: normal.changes }, token } };
+  if (normal.ok) {
+    const both = changesOf(normal.changes);
+    return { ok: true, value: { needsCorrection: false, ...both, replace: { possible: true, ...both }, standingsOnly: both, token } };
+  }
   if (!normal.underway) return { ok: false, error: normal.error };
   const replace = await attempt("replace");
   const standingsOnly = await attempt("standings_only");
@@ -1996,9 +2054,15 @@ export async function previewResult(matchId: number, input: ResultInput): Promis
     value: {
       needsCorrection: true,
       changes: [],
-      replace: replace.ok ? { possible: true, changes: replace.changes } : { possible: false, blockers: replace.blockers ?? [replace.error] },
-      standingsOnly: { changes: standingsOnly.changes },
-      issuesIfStandingsOnly: standingsOnly.issues ?? [],
+      changePhrases: [],
+      replace: replace.ok
+        ? { possible: true, ...changesOf(replace.changes) }
+        : replace.blockers
+          ? { possible: false, blockers: replace.blockers.map(englishOf), blockerPhrases: replace.blockers }
+          : { possible: false, blockers: [replace.error], blockerPhrases: [] },
+      standingsOnly: changesOf(standingsOnly.changes),
+      issuesIfStandingsOnly: (standingsOnly.issues ?? []).map(englishOf),
+      issuePhrasesIfStandingsOnly: standingsOnly.issues ?? [],
       token,
     },
   };
@@ -2015,7 +2079,7 @@ export async function applyCorrection(
   input: ResultInput,
   confirm: { mode: "replace" | "standings_only"; reason: string; token: string },
   by: { id: number; name: string }
-): Promise<Result<{ detail: TournamentDetail; changes: string[] }>> {
+): Promise<Result<{ detail: TournamentDetail } & Changes>> {
   const m = (await getDb().prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
   if (!m) return { ok: false, error: "Match not found." };
   const reason = confirm.reason?.trim() ?? "";
@@ -2027,17 +2091,27 @@ export async function applyCorrection(
       const before = (await tournamentDetail(m.tournament_id, { forStaff: true }))!;
       const done = await recordResultOnce(matchId, input, confirm.mode);
       if (!done.ok) return done;
-      const changes = describeChanges(before, done.value);
+      const changes = changePhrases(before, done.value);
       const touched = new Set(done.value.matches.filter((x) => {
         const was = before.matches.find((y) => y.id === x.id)!;
         return was.status !== x.status || was.winner !== x.winner || was.a !== x.a || was.b !== x.b || was.score !== x.score;
       }).map((x) => x.id));
       await getDb()
         .prepare(
-          `INSERT INTO tournament_corrections (tournament_id, match_id, kind, reason, changes, before_state, admin_id, admin_name)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO tournament_corrections (tournament_id, match_id, kind, reason, changes, change_phrases, before_state, admin_id, admin_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(m.tournament_id, matchId, confirm.mode, reason.slice(0, 1000), JSON.stringify(changes), JSON.stringify(before.matches.filter((x) => touched.has(x.id))), by.id, by.name);
+        .run(
+          m.tournament_id,
+          matchId,
+          confirm.mode,
+          reason.slice(0, 1000),
+          JSON.stringify(changes.map(englishOf)),
+          JSON.stringify(changes),
+          JSON.stringify(before.matches.filter((x) => touched.has(x.id))),
+          by.id,
+          by.name
+        );
       // The record put right, the knockout left as played: where that left the wrong competitor in it, say so, and hold the finish.
       if (confirm.mode === "standings_only") {
         const found = findProgressionIssues(before, done.value, matchId);
@@ -2053,10 +2127,10 @@ export async function applyCorrection(
         // Finished on progression now known to be wrong: not finished until it is resolved.
         if (found.length > 0) await getDb().prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ? AND status = 'finished'").run(m.tournament_id);
       }
-      return { ok: true, value: { detail: (await tournamentDetail(m.tournament_id, { forStaff: true }))!, changes } };
+      return { ok: true, value: { detail: (await tournamentDetail(m.tournament_id, { forStaff: true }))!, ...changesOf(changes) } };
     });
   } catch (err) {
-    if (err instanceof CorrectionBlocked) return { ok: false, error: `It cannot be put into the knockout safely: ${err.blockers.join(" ")}`, code: "BLOCKED" };
+    if (err instanceof CorrectionBlocked) return { ok: false, error: `It cannot be put into the knockout safely: ${err.blockers.map(englishOf).join(" ")}`, code: "BLOCKED" };
     throw err;
   }
 }
@@ -2228,14 +2302,16 @@ function wrongChain(d: TournamentDetail, fromId: number, wrong: number): Match[]
 }
 
 function chainSentences(d: TournamentDetail, chain: Match[], wrong: number, right: number | null): ProgressionIssue["affected"] {
-  const name = (id: number | null) => (id === null ? "nobody" : d.entries.find((e) => e.id === id)?.name ?? `#${id}`);
+  const name = (id: number | null) => entryName(d, id);
   return chain.map((m) => {
     const opponent = m.a === wrong ? m.b : m.a;
-    const instead = right === null ? "" : ` instead of ${name(right)}`;
-    const text = played(m)
-      ? `${matchName(d, m)}: ${name(wrong)} played${instead} against ${name(opponent)}; ${m.winner === null ? "drawn" : `${name(m.winner)} won`}${m.score ? ` ${m.score}` : m.status === "walkover" ? " by walkover" : ""}.`
-      : `${matchName(d, m)}: ${name(wrong)} is in it${instead}, against ${name(opponent)}, still to play.`;
-    return { matchId: m.id, played: played(m), text };
+    const who = { match: matchNamePhrase(d, m), wrong: name(wrong), right: name(right), opponent: name(opponent) };
+    const how = m.score ? "Score" : m.status === "walkover" ? "Walkover" : "";
+    const result = m.winner === null ? said(`srv.tn.chain.drawn${how}`, { score: m.score ?? "" }) : said(`srv.tn.chain.won${how}`, { name: name(m.winner), score: m.score ?? "" });
+    const phrase = played(m)
+      ? said(right === null ? "srv.tn.chain.played" : "srv.tn.chain.playedInstead", { ...who, result })
+      : said(right === null ? "srv.tn.chain.toPlay" : "srv.tn.chain.toPlayInstead", who);
+    return { matchId: m.id, played: played(m), text: englishOf(phrase), phrase };
   });
 }
 
@@ -2279,9 +2355,12 @@ function findProgressionIssues(before: TournamentDetail, after: TournamentDetail
   return found;
 }
 
-function issueSentence(d: TournamentDetail, i: FoundIssue): string {
-  const name = (id: number | null) => (id === null ? "nobody" : d.entries.find((e) => e.id === id)?.name ?? `#${id}`);
-  return `Under review: ${name(i.wrong)} went on in place of ${name(i.right)}. ${i.affected.map((a) => a.text).join(" ")} The tournament does not finish until an organiser lets the results stand or replays.`;
+function issueSentence(d: TournamentDetail, i: FoundIssue): StaffText {
+  return said("srv.tn.issue.underReview", {
+    wrong: entryName(d, i.wrong),
+    right: entryName(d, i.right),
+    affected: joinSaid(i.affected.map((a) => a.phrase ?? a.text), "srv.list.space"),
+  });
 }
 
 /** A fingerprint of a tournament as it stands, for confirming against what was reviewed. */
@@ -2300,28 +2379,30 @@ async function stateToken(tournamentId: number, extra: unknown = null): Promise<
 export interface IssueReview {
   issue: ProgressionIssue;
   /** Replaying: the matches to replay and those needing a new court and time, or why it cannot be done here. */
-  replay: { possible: true; matches: { matchId: number; name: string; needsSlot: boolean }[] } | { possible: false; blockers: string[] };
+  replay:
+    | { possible: true; matches: { matchId: number; name: string; namePhrase: StaffText; needsSlot: boolean }[] }
+    | { possible: false; blockers: string[]; blockerPhrases: StaffText[] };
   token: string;
 }
 
 /** What replaying the wrong chain would do, or why it cannot be done safely here. */
 async function replayPlan(d: TournamentDetail, issue: ProgressionIssue): Promise<IssueReview["replay"]> {
-  const name = (id: number | null) => (id === null ? "nobody" : d.entries.find((e) => e.id === id)?.name ?? `#${id}`);
-  const blockers: string[] = [];
-  if (issue.rightEntry === null) blockers.push("Nobody is known to have been due the place, so there is nobody to replay with.");
+  const name = (id: number | null) => entryName(d, id);
+  const blockers: StaffText[] = [];
+  if (issue.rightEntry === null) blockers.push(said("srv.tn.replay.nobody"));
   else {
-    if (d.entries.find((e) => e.id === issue.rightEntry)?.out) blockers.push(`${name(issue.rightEntry)} has left the tournament since.`);
+    if (d.entries.find((e) => e.id === issue.rightEntry)?.out) blockers.push(said("srv.tn.replay.left", { name: name(issue.rightEntry) }));
     // Already in the knockout from where it went wrong on: they cannot be in two places in it.
     const from = d.matches.find((m) => m.id === issue.fromMatchId);
     const elsewhere = d.matches.find((m) => m.stage === "knockout" && m.round >= (from?.round ?? 1) && (m.a === issue.rightEntry || m.b === issue.rightEntry));
-    if (elsewhere) blockers.push(`${name(issue.rightEntry)} is already in the knockout (${matchName(d, elsewhere)}).`);
+    if (elsewhere) blockers.push(said("srv.tn.replay.already", { name: name(issue.rightEntry), match: matchNamePhrase(d, elsewhere) }));
   }
   if (d.entries.find((e) => e.id === issue.wrongEntry)?.out && blockers.length === 0) {
     // Out since: their place is still the right one's; replaying is still possible.
   }
   const chain = wrongChain(d, issue.fromMatchId, issue.wrongEntry);
-  if (chain.length === 0) blockers.push("The matches it named have changed since; review it again.");
-  if (blockers.length > 0) return { possible: false, blockers };
+  if (chain.length === 0) blockers.push(said("srv.tn.replay.changed"));
+  if (blockers.length > 0) return { possible: false, blockers: blockers.map(englishOf), blockerPhrases: blockers };
   const zone = await tournamentZone(d.id);
   const now = Date.now();
   return {
@@ -2329,6 +2410,7 @@ async function replayPlan(d: TournamentDetail, issue: ProgressionIssue): Promise
     matches: chain.map((m) => ({
       matchId: m.id,
       name: matchName(d, m),
+      namePhrase: matchNamePhrase(d, m),
       needsSlot: played(m) || m.courtId === null || m.date === null || m.minute === null || instantOf(m.date, m.minute, zone).getTime() <= now,
     })),
   };
@@ -2507,7 +2589,7 @@ export async function resolveIssue(
   issueId: number,
   confirm: { action: "stand" | "replay"; reason: string; token: string; slots?: Record<string, MatchSlot> },
   by: { id: number; name: string }
-): Promise<Result<{ detail: TournamentDetail; changes: string[] }>> {
+): Promise<Result<{ detail: TournamentDetail } & Changes>> {
   const row = (await getDb().prepare("SELECT tournament_id, status FROM tournament_issues WHERE id = ?").get(issueId)) as
     | { tournament_id: number; status: string }
     | undefined;
@@ -2519,16 +2601,16 @@ export async function resolveIssue(
   if ((await stateToken(row.tournament_id, issueId)) !== confirm.token)
     return { ok: false, error: "The tournament has changed since you looked. Review it again.", code: "CHANGED" };
   const tournamentId = row.tournament_id;
-  const result = await withTransaction(async (): Promise<Result<{ detail: TournamentDetail; changes: string[] }>> => {
+  const result = await withTransaction(async (): Promise<Result<{ detail: TournamentDetail } & Changes>> => {
     const db = getDb();
     const before = (await tournamentDetail(tournamentId, { forStaff: true }))!;
     const t = (await tournamentById(tournamentId))!;
     const issue = before.issues.find((i) => i.id === issueId)!;
-    const name = (id: number | null) => (id === null ? "nobody" : before.entries.find((e) => e.id === id)?.name ?? `#${id}`);
-    let changes: string[];
+    const name = (id: number | null) => entryName(before, id);
+    let changes: StaffText[];
     let reset: Match[] = [];
     if (confirm.action === "stand") {
-      changes = [`The results as played stand: ${name(issue.wrongEntry)} went on in place of ${name(issue.rightEntry)}.`];
+      changes = [said("srv.tn.stand", { wrong: name(issue.wrongEntry), right: name(issue.rightEntry) })];
     } else {
       const plan = await replayPlan(before, issue);
       if (!plan.possible) return { ok: false, error: `It cannot be replayed here: ${plan.blockers.join(" ")}`, code: "BLOCKED" };
@@ -2555,8 +2637,11 @@ export async function resolveIssue(
           if (refused) throw new IssueRefused(`${need.name}: ${refused}`);
           previousEnd = { date: slot.date, minute: slot.startMin + m.minutes };
         } else if (m.date !== null && m.minute !== null) previousEnd = { date: m.date, minute: m.minute + m.minutes };
+        const at: Record<string, string> = slot ? { date: slot.date, time: formatMinute(slot.startMin) } : {};
         changes.push(
-          `${need.name} is to be replayed${i === 0 ? ` with ${name(issue.rightEntry)} in place of ${name(issue.wrongEntry)}` : ", with the winner of the replay before"}${slot ? ` on ${slot.date} at ${formatMinute(slot.startMin)}` : ""}.`
+          i === 0
+            ? said(slot ? "srv.tn.replay.firstAt" : "srv.tn.replay.first", { match: need.namePhrase, right: name(issue.rightEntry), wrong: name(issue.wrongEntry), ...at })
+            : said(slot ? "srv.tn.replay.nextAt" : "srv.tn.replay.next", { match: need.namePhrase, ...at })
         );
       }
       // The last match the wrong competitor won sent them on: that place now waits for the replay's winner.
@@ -2572,12 +2657,12 @@ export async function resolveIssue(
       .run(confirm.action === "stand" ? "stood" : "replayed", by.id, reason.slice(0, 1000), issueId);
     await db
       .prepare(
-        `INSERT INTO tournament_corrections (tournament_id, match_id, kind, reason, changes, before_state, admin_id, admin_name)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tournament_corrections (tournament_id, match_id, kind, reason, changes, change_phrases, before_state, admin_id, admin_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(tournamentId, issue.fromMatchId, confirm.action, reason.slice(0, 1000), JSON.stringify(changes), JSON.stringify(reset), by.id, by.name);
+      .run(tournamentId, issue.fromMatchId, confirm.action, reason.slice(0, 1000), JSON.stringify(changes.map(englishOf)), JSON.stringify(changes), JSON.stringify(reset), by.id, by.name);
     await afterChange(tournamentId, false);
-    return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, changes } };
+    return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, ...changesOf(changes) } };
   }).catch((err) => {
     if (err instanceof IssueRefused) return { ok: false as const, error: err.message };
     throw err;

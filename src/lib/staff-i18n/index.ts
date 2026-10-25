@@ -16,6 +16,7 @@ import shell from "./shell";
 import venues from "./venues";
 import { REFUSALS as REFUSALS_1 } from "./refusals-1";
 import { REFUSALS as REFUSALS_2 } from "./refusals-2";
+import { sayWith, type StaffText } from "../staff-text";
 
 /**
  * The staff dashboard's own dictionaries: English, Malay and Chinese, the
@@ -72,6 +73,10 @@ export interface StaffT {
   plural(stem: string, n: number, vars?: Vars): string;
   /** A refusal from the server, in this language where it carries a code or a known sentence; else as sent. */
   err(body: string | RefusalBody | null | undefined, fallback?: string): string;
+  /** Text the server composed (lib/staff-text.ts), in this language; the fallback (the server's English, or what was stored) when there is none. */
+  say(text: StaffText | null | undefined, fallback?: string): string;
+  /** A phrase named at run time (a gateway's, a template's), or null when the dictionaries have none. */
+  known(phrase: string, vars?: Vars): string | null;
   /** The customer dictionary in the same language, for what customers also see (activity names, refusals). */
   customer: T;
   locale: StaffLocale;
@@ -124,6 +129,8 @@ export function staffTranslator(locale: StaffLocale, site: string = siteName()):
     const staff = said === sent ? staffRefusal(sent, locale) : null;
     return staff ?? (said || (fallback ?? t("c.failed")));
   };
+  t.say = (text, fallback = "") => (text ? sayWith(text, (key, vars) => t(key, vars)) : fallback);
+  t.known = (phrase, vars) => (phrase in dict ? t(phrase as StaffPhrase, vars) : null);
   t.customer = customer;
   t.locale = locale;
   cache.set(key, t);

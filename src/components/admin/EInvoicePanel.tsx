@@ -186,7 +186,9 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                 {settings.enabled ? (settings.sandbox ? t("einv.onSandbox") : t("einv.onProduction")) : t("einv.off")}
               </span>
               {settings.missing.length > 0 && settings.missing[0] !== "everything" && (
-                <span className="ml-2 text-slate-500">{t("einv.stillNeeded", { list: settings.missing.join(", ") })}</span>
+                <span className="ml-2 text-slate-500">
+                  {t("einv.stillNeeded", { list: settings.missing.map((m, i) => t.say(settings.missingPhrases?.[i], m)).join(t("srv.list.comma")) })}
+                </span>
               )}
             </p>
             <button type="button" className="text-sm font-medium text-teal-700 hover:underline" onClick={() => setOpen(!open)}>

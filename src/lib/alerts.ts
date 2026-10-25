@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { tellOwners } from "./owner-alerts";
 import { siteName } from "./site";
+import { englishOf, isStaffText, said, type StaffText } from "./staff-text";
 
 /**
  * Telling the platform owner when something breaks.
@@ -22,25 +23,35 @@ export const RESEND_HOURS = 6;
 export interface SystemAlert {
   key: string;
   subject: string;
+  /** The subject as a phrase the dashboard says in the staff language; null for one raised before phrases were kept. */
+  subjectPhrase: StaffText | null;
   lastDetail: string | null;
+  /** The detail's lines as phrases, when MySenam composed them (not an error's own text). */
+  detailPhrases: StaffText[] | null;
   count: number;
   firstAt: string;
   lastAt: string;
   lastSentAt: string | null;
 }
 
-/** Note a failure; tell the owners if it is new or has not been told for a while. Never throws. */
-export async function raiseAlert(key: string, subject: string, detail: string): Promise<boolean> {
+/**
+ * Note a failure; tell the owners if it is new or has not been told for a while. Never throws.
+ * A subject given as a phrase, and the detail's lines when MySenam composed them, are kept so
+ * the owner's dashboard says them in the staff language; the email says them in English.
+ */
+export async function raiseAlert(key: string, about: string | StaffText, detail: string, detailPhrases?: StaffText[]): Promise<boolean> {
   try {
+    const subject = typeof about === "string" ? about : englishOf(about);
+    const phrases = typeof about === "string" ? null : JSON.stringify({ subject: about, ...(detailPhrases ? { detail: detailPhrases } : {}) });
     const db = getDb();
     const row = (await db
       .prepare(
-        `INSERT INTO system_alerts (key, subject, last_detail, count) VALUES (?, ?, ?, 1)
-         ON CONFLICT (key) DO UPDATE SET subject = excluded.subject, last_detail = excluded.last_detail,
+        `INSERT INTO system_alerts (key, subject, last_detail, count, said) VALUES (?, ?, ?, 1, ?)
+         ON CONFLICT (key) DO UPDATE SET subject = excluded.subject, last_detail = excluded.last_detail, said = excluded.said,
            count = system_alerts.count + 1, last_at = datetime('now')
          RETURNING count, last_sent_at, (last_sent_at IS NULL OR last_sent_at < datetime('now', '-${RESEND_HOURS} hours')) AS due`
       )
-      .get(key, subject, detail.slice(0, 2000))) as { count: number; last_sent_at: string | null; due: boolean };
+      .get(key, subject, detail.slice(0, 2000), phrases)) as { count: number; last_sent_at: string | null; due: boolean };
     if (!row.due) return false;
     // Claimed before sending, so two processes do not both tell it.
     const claimed = await db
@@ -88,16 +99,29 @@ export async function recentAlerts(days = 7): Promise<SystemAlert[]> {
     first_at: string;
     last_at: string;
     last_sent_at: string | null;
+    said: string | null;
   }[];
   return rows.map((r) => ({
     key: r.key,
     subject: r.subject,
+    ...phrasesOf(r.said),
     lastDetail: r.last_detail,
     count: r.count,
     firstAt: r.first_at,
     lastAt: r.last_at,
     lastSentAt: r.last_sent_at,
   }));
+}
+
+/** The phrases kept with an alert, read back; nothing usable reads as none. */
+function phrasesOf(raw: string | null): { subjectPhrase: StaffText | null; detailPhrases: StaffText[] | null } {
+  try {
+    const v = raw ? (JSON.parse(raw) as { subject?: unknown; detail?: unknown }) : {};
+    const detail = Array.isArray(v.detail) && v.detail.every(isStaffText) ? (v.detail as StaffText[]) : null;
+    return { subjectPhrase: isStaffText(v.subject) ? v.subject : null, detailPhrases: detail };
+  } catch {
+    return { subjectPhrase: null, detailPhrases: null };
+  }
 }
 
 /** Clear one once it is dealt with, so the next one is news again. */
@@ -122,12 +146,10 @@ export async function checkMessages(): Promise<void> {
        FROM messages WHERE created_at >= datetime('now', '-1 hours')`
     )
     .get()) as { failed: number | null; sent: number | null; error: string | null };
-  if ((row.failed ?? 0) >= 5 && (row.sent ?? 0) === 0)
-    await raiseAlert(
-      "messages",
-      "Messages to customers are not going out",
-      `${row.failed} failed in the last hour and none were sent. The last error: ${row.error ?? "(none given)"}.\n\nCheck the email (SMTP_URL) and WhatsApp settings. Customers still see their booking codes on screen.`
-    );
+  if ((row.failed ?? 0) >= 5 && (row.sent ?? 0) === 0) {
+    const detail = said("srv.alert.messagesDetail", { n: row.failed!, error: row.error ?? said("srv.alert.noneGiven") });
+    await raiseAlert("messages", said("srv.alert.messages"), englishOf(detail), [detail]);
+  }
 }
 
 /**

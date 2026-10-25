@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
       kind: d.kind,
       customer: d.customerName,
       description: d.lines[0]?.description ?? "",
+      // Where MySenam worded it: the phrase, for the staff language (lib/staff-text.ts).
+      descriptionPhrase: d.lines[0]?.phrase ?? null,
       total: d.total,
       tax: d.tax?.amount ?? 0,
       credits: d.credits,

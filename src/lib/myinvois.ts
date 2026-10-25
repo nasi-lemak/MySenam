@@ -12,6 +12,7 @@ import { venueTax } from "./tax";
 import { todayISO } from "./time";
 import type { Refusal } from "./types";
 import { venueZoneOf } from "./zones";
+import { englishOf, said, type ServerPhrase, type StaffText } from "./staff-text";
 
 /**
  * Malaysia's e-invoicing (LHDN MyInvois), for a venue that must or wants to.
@@ -56,6 +57,8 @@ export interface EInvoiceSettings {
   email: string | null;
   /** What is still needed before anything can be sent. */
   missing: string[];
+  /** The same, as phrases the settings screen says in the staff language. */
+  missingPhrases: StaffText[];
   /** The platform can act as intermediary on this install. */
   intermediaryAvailable: boolean;
 }
@@ -94,22 +97,27 @@ async function settingsRow(venueId: number): Promise<SettingsRow | undefined> {
 }
 
 function missingOf(r: SettingsRow | undefined): string[] {
-  if (!r) return ["everything"];
-  const need: [unknown, string][] = [
-    [r.tin, "TIN"],
-    [r.brn, "business registration number"],
-    [r.msic_code, "MSIC code"],
-    [r.legal_name, "registered name"],
-    [r.address_line, "address"],
-    [r.city, "city"],
-    [r.postcode, "postcode"],
-    [r.state_code, "state"],
-    [r.phone, "phone"],
-    [r.email, "email"],
+  return missingPhrases(r).map(englishOf);
+}
+
+/** The same, as phrases the settings screen says in the staff language. */
+function missingPhrases(r: SettingsRow | undefined): StaffText[] {
+  if (!r) return [said("srv.einv.everything")];
+  const need: [unknown, ServerPhrase][] = [
+    [r.tin, "srv.einv.tin"],
+    [r.brn, "srv.einv.brn"],
+    [r.msic_code, "srv.einv.msic"],
+    [r.legal_name, "srv.einv.legalName"],
+    [r.address_line, "srv.einv.address"],
+    [r.city, "srv.einv.city"],
+    [r.postcode, "srv.einv.postcode"],
+    [r.state_code, "srv.einv.state"],
+    [r.phone, "srv.einv.phone"],
+    [r.email, "srv.einv.email"],
   ];
-  const missing = need.filter(([value]) => !value).map(([, label]) => label);
-  if (r.mode === "own" && (!r.client_id || !r.client_secret)) missing.push("MyInvois client ID and secret");
-  if (r.mode === "intermediary" && !intermediaryAvailable()) missing.push("the platform's intermediary credentials");
+  const missing = need.filter(([value]) => !value).map(([, key]) => said(key));
+  if (r.mode === "own" && (!r.client_id || !r.client_secret)) missing.push(said("srv.einv.ownCredentials"));
+  if (r.mode === "intermediary" && !intermediaryAvailable()) missing.push(said("srv.einv.intermediary"));
   return missing;
 }
 
@@ -133,6 +141,7 @@ export async function einvoiceSettings(venueId: number): Promise<EInvoiceSetting
     phone: r?.phone ?? null,
     email: r?.email ?? null,
     missing: missingOf(r),
+    missingPhrases: missingPhrases(r),
     intermediaryAvailable: intermediaryAvailable(),
   };
 }

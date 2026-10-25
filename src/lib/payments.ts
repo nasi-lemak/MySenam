@@ -31,8 +31,9 @@ import { extendHolds, holdPolicy, PAYMENT_PAGE_MINUTES } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
-import { creditReceipt, documentFor, entrySale, issueReceipt, keepBookingReceipt, paidVia, placeSale, type Line } from "./documents";
+import { creditReceipt, documentFor, entrySale, issueReceipt, keepBookingReceipt, paidVia, placeSale, saidLine, type Line } from "./documents";
 import { venueTax } from "./tax";
+import { said, withPhrase, type StaffText } from "./staff-text";
 import { cancelPolicy, struckOut, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
 
@@ -69,6 +70,7 @@ export interface GatewayChoice {
   methods: string;
   fields: CredentialField[];
   setup?: string;
+  setupPhrase?: StaffText;
   /** Where the gateway should send its reports, when the venue sets that up itself. */
   callbackUrl?: string;
   /** Test or live follows the key, so there is no sandbox switch to set. */
@@ -132,6 +134,7 @@ const choice = (g: PaymentGateway): GatewayChoice => ({
   methods: g.methods,
   fields: g.fields,
   ...(g.setup ? { setup: g.setup } : {}),
+  ...(g.setupPhrase ? { setupPhrase: g.setupPhrase } : {}),
   ...(g.webhook ? { callbackUrl: `${baseUrl()}/api/payments/${g.id}/callback` } : {}),
   sandboxFromKey: Boolean(g.sandboxFrom),
 });
@@ -661,7 +664,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       const { countSplitShare } = await import("./splits");
       const counted = await countSplitShare(row.id, row.split_id, Number(row.amount));
       // Receipted either way: money was taken; one owed back is credited.
-      await receiptPayment(row, { description: "Share of a booking, split with friends", userId: null, taxable: true });
+      await receiptPayment(row, { description: said("srv.line.splitShare"), userId: null, taxable: true });
       if (!counted) await creditReceipt(`payment:${row.id}`, "receipt.why.refunded");
     })();
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
@@ -705,10 +708,10 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         // The credit is the venue's to honour where credit is per venue;
         // spendable anywhere on a single business's own copy.
         await db
-          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Online top-up', ?)")
-          .run(row.topup_user_id, row.amount, creditScope() === "venue" ? row.venue_id : null);
+          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, venue_id) VALUES (?, ?, ?, ?, ?)")
+          .run(row.topup_user_id, row.amount, ...withPhrase(said("srv.wallet.onlineTopUp")), creditScope() === "venue" ? row.venue_id : null);
         await receiptPayment(row, {
-          description: "Stored credit: online top-up",
+          description: said("srv.line.credit", { what: said("srv.line.onlineTopUp") }),
           userId: row.topup_user_id,
           // Credit is taxed when it is spent, on what it buys.
           taxable: false,
@@ -733,7 +736,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       bought = await activateVoucher(row.voucher_id, paidVia("online", gatewayFor(row.provider)?.name));
       if (bought)
         await receiptPayment(row, {
-          description: `Gift voucher ${bought.code}`,
+          description: said("srv.line.voucher", { code: bought.code }),
           userId: null,
           // Taxed when it is spent, on what it buys, like the credit it becomes.
           taxable: false,
@@ -825,7 +828,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
           .all(...deposited)) as { code: string }[];
         await receiptPayment(
           { ...row, amount: Math.round((Number(row.amount) - owed) * 100) / 100 },
-          { description: `Deposit for ${codes.map((c) => c.code).join(", ")}`, userId: null, taxable: true }
+          { description: said("srv.line.deposit", { codes: codes.map((c) => c.code).join(", ") }), userId: null, taxable: true }
         );
       }
       return;
@@ -909,9 +912,11 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
 /** Receipt an online payment for something other than court time, as it settles. */
 async function receiptPayment(
   row: PaymentRow,
-  sale: { description: string; userId: number | null; taxable: boolean; note?: string | null }
+  sale: { description: string | StaffText; userId: number | null; taxable: boolean; note?: string | null }
 ): Promise<void> {
-  const lines: Line[] = [{ description: sale.description, amount: Number(row.amount) }];
+  const lines: Line[] = [
+    typeof sale.description === "string" ? { description: sale.description, amount: Number(row.amount) } : saidLine(sale.description, Number(row.amount)),
+  ];
   await issueReceipt({
     source: `payment:${row.id}`,
     venueId: row.venue_id,
@@ -1608,9 +1613,9 @@ async function refundToCredit(row: PaymentRow, bookingIds: number[], amount: num
     // Keyed on what has been owed in all, like a gateway refund: the same cancellation twice is one credit.
     return await recordRefund(row, amount, `credit-${row.id}-${Math.round(row.refund_due * 100)}`, false, null, async () => {
       await db
-        .prepare("INSERT INTO wallet_entries (user_id, amount, reason, booking_id, venue_id) VALUES (?, ?, ?, ?, ?)")
+        .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, booking_id, venue_id) VALUES (?, ?, ?, ?, ?, ?)")
         // Into the same pot a top-up there would go: the venue's own, or the one spendable anywhere.
-        .run(booking.user_id, amount, `Refund for ${booking.code}, as credit`, booking.id, creditScope() === "venue" ? row.venue_id : null);
+        .run(booking.user_id, amount, ...withPhrase(said("srv.wallet.refundAsCredit", { code: booking.code })), booking.id, creditScope() === "venue" ? row.venue_id : null);
     });
   } catch {
     return false;
@@ -1728,7 +1733,7 @@ async function settleShare(row: PaymentRow): Promise<void> {
     )
     .get(target.id, target.booking_id)) as { name: string; date: string; start_min: number; end_min: number; user_id: number };
   await receiptPayment(row, {
-    description: `Share of ${court.name}, ${court.date} ${formatHour(hoursOf(court.start_min))}–${formatHour(hoursOf(court.end_min))}`,
+    description: said("srv.line.gameShare", { court: court.name, date: court.date, from: formatHour(hoursOf(court.start_min)), to: formatHour(hoursOf(court.end_min)) }),
     userId: court.user_id,
     taxable: true,
   });
@@ -2483,8 +2488,8 @@ async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promis
     case "topup":
       if (payment.topup_user_id)
         await db
-          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Top-up charged back', ?)")
-          .run(payment.topup_user_id, -amount, scope);
+          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, venue_id) VALUES (?, ?, ?, ?, ?)")
+          .run(payment.topup_user_id, -amount, ...withPhrase(said("srv.wallet.topUpChargedBack")), scope);
       break;
     case "voucher": {
       if (payment.voucher_id == null) break;
@@ -2501,8 +2506,8 @@ async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promis
       // Already turned into credit: that credit goes.
       if (voucher?.redeemed_by)
         await db
-          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, venue_id) VALUES (?, ?, 'Gift voucher charged back', ?)")
-          .run(voucher.redeemed_by, -amount, scope);
+          .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, venue_id) VALUES (?, ?, ?, ?, ?)")
+          .run(voucher.redeemed_by, -amount, ...withPhrase(said("srv.wallet.voucherChargedBack")), scope);
       break;
     }
     case "membership":

@@ -15,6 +15,7 @@ import { listingState, venueListing, type ListingState } from "./listing";
 import { businessSuspension } from "./suspensions";
 import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inCountry, placeAt, readPoint, type Point } from "./geo";
 import { region } from "./region";
+import { englishOf, said, type StaffText } from "./staff-text";
 
 /**
  * Businesses joining the marketplace, and their venues going live.
@@ -67,6 +68,8 @@ export interface LocationReport {
   nearby: { id: number; name: string; distanceM: number }[];
   /** Everything worth a second look, in words. Empty: nothing found wrong. */
   warnings: string[];
+  /** The same, as phrases a staff screen says in the staff language (lib/staff-text.ts). */
+  phrases: StaffText[];
 }
 
 export interface VenueApplication {
@@ -175,16 +178,19 @@ async function lookUp(address: string, area: string, pin: Point) {
 
 /** What doesn't add up about where an application says it is. */
 export async function locationReport(a: VenueApplication): Promise<LocationReport> {
-  const warnings: string[] = [];
-  if (!a.pin) return { distanceM: null, nearby: [], warnings: ["No pin on the map: it applied before pins were asked for."] };
+  const phrases: StaffText[] = [];
+  const report = (distance: number | null, nearby: LocationReport["nearby"]): LocationReport => ({ distanceM: distance, nearby, warnings: phrases.map(englishOf), phrases });
+  if (!a.pin) {
+    phrases.push(said("srv.app.noPin"));
+    return report(null, []);
+  }
 
   const distance = a.found ? distanceM(a.pin, a.found) : null;
-  if (!geocoderOn()) warnings.push("Addresses are not looked up on this install (MYSENAM_GEOCODER=off).");
-  else if (!a.found) warnings.push("The address could not be found on the map. Look it up yourself.");
-  else if (distance! > FAR_FROM_ADDRESS_M)
-    warnings.push(`The pin is ${formatDistance(distance!)} from where the address leads.`);
+  if (!geocoderOn()) phrases.push(said("srv.app.noGeocoder"));
+  else if (!a.found) phrases.push(said("srv.app.notFound"));
+  else if (distance! > FAR_FROM_ADDRESS_M) phrases.push(said("srv.app.farPin", { distance: formatDistance(distance!) }));
   if (a.pinPlace && !areaMatches(a.area, a.pinPlace))
-    warnings.push(`The map puts the pin in ${a.pinPlace.split(", ").slice(0, 3).join(", ")}, which doesn't mention "${a.area}".`);
+    phrases.push(said("srv.app.otherPlace", { place: a.pinPlace.split(", ").slice(0, 3).join(", "), area: a.area }));
 
   // A degree of latitude is 111 km; this box holds the circle that matters.
   const box = (SAME_SPOT_M / 111_000) * 2;
@@ -205,8 +211,8 @@ export async function locationReport(a: VenueApplication): Promise<LocationRepor
     .map((v) => ({ id: v.id, name: v.name, distanceM: distanceM(a.pin!, v) }))
     .filter((v) => v.distanceM <= SAME_SPOT_M)
     .sort((x, y) => x.distanceM - y.distanceM);
-  for (const v of nearby) warnings.push(`${v.name} is already listed ${formatDistance(v.distanceM)} from the pin.`);
-  return { distanceM: distance, nearby, warnings };
+  for (const v of nearby) phrases.push(said("srv.app.nearby", { name: v.name, distance: formatDistance(v.distanceM) }));
+  return report(distance, nearby);
 }
 
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
@@ -469,17 +475,22 @@ export async function addBranch(
 
 /** What a draft still needs before it can ask to go live. */
 export async function goLiveMissing(venueId: number): Promise<string[]> {
+  return (await goLiveNeeds(venueId)).map(englishOf);
+}
+
+/** The same, as phrases a staff screen says in the staff language. */
+async function goLiveNeeds(venueId: number): Promise<StaffText[]> {
   const db = getDb();
   const venue = (await db.prepare("SELECT lat, lng FROM venues WHERE id = ?").get(venueId)) as
     | { lat: number | null; lng: number | null }
     | undefined;
-  if (!venue) return ["The venue no longer exists."];
-  const missing: string[] = [];
+  if (!venue) return [said("srv.app.gone")];
+  const missing: StaffText[] = [];
   const { courts } = (await db
     .prepare("SELECT COUNT(*)::int AS courts FROM courts WHERE venue_id = ?")
     .get(venueId)) as { courts: number };
-  if (courts === 0) return ["Add at least one court, with its rates."];
-  if (venue.lat === null || venue.lng === null) missing.push("Pin the venue on the map.");
+  if (courts === 0) return [said("srv.app.addCourt")];
+  if (venue.lat === null || venue.lng === null) missing.push(said("srv.app.pin"));
   return missing;
 }
 
@@ -490,6 +501,8 @@ export interface GoLiveStatus {
   /** Its request: 'draft' until it asks, then 'pending', 'approved' or 'rejected'. */
   request: { status: ApplicationStatus; reason: string | null } | null;
   missing: string[];
+  /** The same, as phrases a staff screen says in the staff language. */
+  missingPhrases: StaffText[];
 }
 
 export async function goLiveStatus(venueId: number): Promise<GoLiveStatus | null> {
@@ -501,11 +514,13 @@ export async function goLiveStatus(venueId: number): Promise<GoLiveStatus | null
   const held = (await getDb()
     .prepare("SELECT suspended_by, suspended_reason FROM venues WHERE id = ? AND suspended_at IS NOT NULL")
     .get(venueId)) as { suspended_by: "payment" | "owner" | null; suspended_reason: string | null } | undefined;
+  const needs = listing.publishedAt === null ? await goLiveNeeds(venueId) : [];
   return {
     state: listingState(listing),
     suspension: held ? { by: held.suspended_by ?? "payment", reason: held.suspended_reason } : null,
     request: row ?? null,
-    missing: listing.publishedAt === null ? await goLiveMissing(venueId) : [],
+    missing: needs.map(englishOf),
+    missingPhrases: needs,
   };
 }
 

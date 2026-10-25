@@ -25,6 +25,10 @@ import { reconcileRefunds, settlePendingRefunds, settleRefundClaims } from "./pa
 import { closeDueEntries } from "./tournaments";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
 import { region } from "./region";
+import { said, type ServerPhrase } from "./staff-text";
+
+/** "Scheduled work failed: …", said in the staff language on the owner's dashboard. */
+const failed = (what: ServerPhrase) => said("srv.alert.failed", { what: said(what) });
 
 /**
  * The few things that have to happen whether or not anybody is using the
@@ -84,7 +88,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (drained.failed > 0) await checkMessages();
   } catch (err) {
     console.error("[mysenam] sending messages failed:", err);
-    await raiseAlert("scheduler:sending-messages-failed", "Scheduled work failed: sending messages", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:sending-messages-failed", failed("srv.work.sendingMessages"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -96,7 +100,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await reconcileRefunds();
   } catch (err) {
     console.error("[mysenam] settling interrupted refunds failed:", err);
-    await raiseAlert("scheduler:settling-refunds-failed", "Scheduled work failed: settling interrupted refunds", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:settling-refunds-failed", failed("srv.work.settlingRefunds"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -104,7 +108,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await closeDueEntries();
   } catch (err) {
     console.error("[mysenam] closing tournament entries failed:", err);
-    await raiseAlert("scheduler:closing-entries-failed", "Scheduled work failed: closing tournament entries", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:closing-entries-failed", failed("srv.work.closingEntries"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -112,7 +116,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await releaseExpiredHolds();
   } catch (err) {
     console.error("[mysenam] letting go of unpaid holds failed:", err);
-    await raiseAlert("scheduler:letting-go-of-unpaid-holds-failed", "Scheduled work failed: letting go of unpaid holds", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:letting-go-of-unpaid-holds-failed", failed("srv.work.unpaidHolds"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -121,7 +125,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (issued.length > 0) result.invoices = issued.length;
   } catch (err) {
     console.error("[mysenam] issuing invoices failed:", err);
-    await raiseAlert("scheduler:issuing-invoices-failed", "Scheduled work failed: issuing invoices", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:issuing-invoices-failed", failed("srv.work.issuingInvoices"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -129,7 +133,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await issueDueAccountInvoices();
   } catch (err) {
     console.error("[mysenam] invoicing accounts failed:", err);
-    await raiseAlert("scheduler:invoicing-accounts-failed", "Scheduled work failed: invoicing company and school accounts", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:invoicing-accounts-failed", failed("srv.work.invoicingAccounts"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -137,7 +141,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await applyPaymentHolds(now);
   } catch (err) {
     console.error("[mysenam] checking for overdue invoices failed:", err);
-    await raiseAlert("scheduler:checking-for-overdue-invoices-failed", "Scheduled work failed: checking for overdue invoices", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:checking-for-overdue-invoices-failed", failed("srv.work.overdueInvoices"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -145,7 +149,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await leagueHousekeeping();
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
-    await raiseAlert("scheduler:league-housekeeping-failed", "Scheduled work failed: league housekeeping", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:league-housekeeping-failed", failed("srv.work.leagueHousekeeping"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -153,7 +157,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await (await import("./match-reports")).standUnansweredReports();
   } catch (err) {
     console.error("[mysenam] standing unanswered reports failed:", err);
-    await raiseAlert("scheduler:unanswered-reports-failed", "Scheduled work failed: standing unanswered tournament reports", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:unanswered-reports-failed", failed("srv.work.unansweredReports"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -161,7 +165,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await grantLoyaltyIfDue();
   } catch (err) {
     console.error("[mysenam] giving loyalty hours failed:", err);
-    await raiseAlert("scheduler:loyalty-failed", "Scheduled work failed: loyalty hours", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:loyalty-failed", failed("srv.work.loyalty"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -169,7 +173,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await pruneIfDue();
   } catch (err) {
     console.error("[mysenam] applying the retention policy failed:", err);
-    await raiseAlert("scheduler:retention-failed", "Scheduled work failed: applying the retention policy", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:retention-failed", failed("srv.work.retention"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -178,12 +182,12 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     if (problems && problems.length > 0)
       await raiseAlert(
         "integrity",
-        `${problems.length} booking${problems.length === 1 ? "" : "s"} and the court time held disagree`,
+        said(problems.length === 1 ? "srv.alert.integrity_one" : "srv.alert.integrity_other", { n: problems.length }),
         problems.slice(0, 20).map((p) => `${p.kind} (venue ${p.venueId}): ${p.detail}`).join("\n")
       );
   } catch (err) {
     console.error("[mysenam] checking bookings against held time failed:", err);
-    await raiseAlert("scheduler:integrity-failed", "Scheduled work failed: checking bookings against held time", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:integrity-failed", failed("srv.work.integrity"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -191,7 +195,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await passOnExpiredOffers();
   } catch (err) {
     console.error("[mysenam] passing on waiting-list offers failed:", err);
-    await raiseAlert("scheduler:waitlist-offers-failed", "Scheduled work failed: waiting-list offers", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:waitlist-offers-failed", failed("srv.work.waitlistOffers"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -201,7 +205,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await expireMoves();
   } catch (err) {
     console.error("[mysenam] passing on open-game places failed:", err);
-    await raiseAlert("scheduler:game-places-failed", "Scheduled work failed: open-game invitations and held places", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:game-places-failed", failed("srv.work.gamePlaces"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -211,7 +215,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await sendMatchNotices();
   } catch (err) {
     console.error("[mysenam] weekly games and suggested-game emails failed:", err);
-    await raiseAlert("scheduler:matchmaking-failed", "Scheduled work failed: weekly games and suggested-game emails", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:matchmaking-failed", failed("srv.work.matchmaking"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -219,7 +223,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await runWebhooks(now);
   } catch (err) {
     console.error("[mysenam] webhooks failed:", err);
-    await raiseAlert("scheduler:webhooks-failed", "Scheduled work failed: webhooks", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:webhooks-failed", failed("srv.work.webhooks"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -227,7 +231,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await notifyCoaches(now);
   } catch (err) {
     console.error("[mysenam] telling coaches failed:", err);
-    await raiseAlert("scheduler:telling-coaches-failed", "Scheduled work failed: telling coaches", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:telling-coaches-failed", failed("srv.work.tellingCoaches"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -235,7 +239,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await askForReviews(now);
   } catch (err) {
     console.error("[mysenam] asking for reviews failed:", err);
-    await raiseAlert("scheduler:asking-for-reviews-failed", "Scheduled work failed: asking for reviews", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:asking-for-reviews-failed", failed("srv.work.reviews"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -243,7 +247,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
     await runEInvoicing(now);
   } catch (err) {
     console.error("[mysenam] e-invoicing failed:", err);
-    await raiseAlert("scheduler:e-invoicing-failed", "Scheduled work failed: e-invoicing", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:e-invoicing-failed", failed("srv.work.eInvoicing"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -252,7 +256,7 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
       if (!taken.ok) {
         result.backup = { ok: false, error: taken.error };
         console.error(`[mysenam] scheduled backup failed: ${taken.error}`);
-        await raiseAlert("backup", "The nightly backup failed", taken.error);
+        await raiseAlert("backup", said("srv.alert.backupFailed"), taken.error);
       } else {
         const offsite = await copyOffsite(taken.file, taken.photos.file, taken.manifest);
         result.backup = {
@@ -262,13 +266,13 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
         };
         if (offsite && !offsite.ok) {
           console.error(`[mysenam] off-site copy of ${taken.file.name} failed: ${offsite.error}`);
-          await raiseAlert("offsite", "The off-site copy of the backup failed", `${taken.file.name}: ${offsite.error}`);
+          await raiseAlert("offsite", said("srv.alert.offsiteFailed"), `${taken.file.name}: ${offsite.error}`);
         }
       }
     }
   } catch (err) {
     console.error("[mysenam] scheduled backup failed:", err);
-    await raiseAlert("scheduler:scheduled-backup-failed", "Scheduled work failed: scheduled backup", err instanceof Error ? err.stack ?? err.message : String(err));
+    await raiseAlert("scheduler:scheduled-backup-failed", failed("srv.work.backup"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {
@@ -293,13 +297,13 @@ export async function checkBackupHealth(now = new Date()): Promise<void> {
   if (health.recoverableHours !== null && health.recoverableHours > health.rpoHours) {
     const detail = health.problems.join("\n");
     console.error(`[mysenam] backups are behind: ${detail}`);
-    await raiseAlert("backup-stale", "Backups are older than the recovery-point target", detail);
+    await raiseAlert("backup-stale", said("srv.alert.backupStale"), detail, health.problemPhrases);
   } else if (health.recoverableHours === null && health.offsite !== "off" && health.lastLocalAt) {
     const detail = health.problems.join("\n");
     console.error(`[mysenam] nothing copied off-site: ${detail}`);
-    await raiseAlert("backup-stale", "Nothing has been copied off-site yet", detail);
+    await raiseAlert("backup-stale", said("srv.alert.nothingOffsite"), detail, health.problemPhrases);
   }
-  if (health.nearSizeLimit) await raiseAlert("offsite-near-limit", "Off-site backup sets are nearing the largest single upload", health.problems.join("\n"));
+  if (health.nearSizeLimit) await raiseAlert("offsite-near-limit", said("srv.alert.nearLimit"), health.problems.join("\n"), health.problemPhrases);
 }
 
 export function schedulerEnabled(): boolean {

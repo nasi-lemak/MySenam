@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       action: `tournament.${reason}`,
       detail: `${d.name}: ${out.value.entry.name} ${reason}. ${out.value.changes.join(" ")}`,
     });
-    return NextResponse.json({ tournament: d, changes: out.value.changes });
+    return NextResponse.json({ tournament: d, changes: out.value.changes, changePhrases: out.value.changePhrases });
   }
   const result = await setEntry(entry.id, {
     paid: typeof body.paid === "boolean" ? body.paid : undefined,

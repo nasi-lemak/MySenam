@@ -222,7 +222,7 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
           <span className={chosen.support === "full" ? "text-emerald-700" : chosen.support === "basic" ? "text-amber-700" : "text-red-700"}>
             {t(`res.support.${chosen.support}`)}
           </span>
-          {chosen.supportNote ? ` — ${chosen.supportNote}` : ""}
+          {chosen.supportNote ? ` — ${t.known(`srv.support.${chosen.key}`) ?? chosen.supportNote}` : ""}
           {chosen.template.signOff ? ` ${t("res.needsSignOff")}` : ""}
           {chosen.policy.defaultLength && chosen.policy.defaultLength !== 60 ? ` ${t("res.usualLength", { n: chosen.policy.defaultLength })}` : ""}
         </p>

@@ -22,6 +22,7 @@ import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
+import { said, type ServerPhrase, type StaffText } from "./staff-text";
 
 /**
  * What MySenam tells a customer, and when.
@@ -470,6 +471,26 @@ function slot(
   };
 }
 
+/**
+ * An urgent notice's line for the staff's list, as a phrase they read in the
+ * staff language: what the venue did to the booking, where and when. The
+ * summary stored beside it keeps the customer's language for where and when.
+ */
+function noticePhrase(
+  key: ServerPhrase,
+  venue: string,
+  code: string,
+  court: string,
+  at: { date: string; startHour: number; endHour: number }
+): StaffText {
+  return said(key, {
+    venue,
+    code,
+    where: said("srv.urgent.where", { court, venue }),
+    when: said("srv.urgent.when", { date: at.date, ...hourRange(at.startHour, at.endHour) }),
+  });
+}
+
 /** The total and how it is settled: paid, or still to pay — online too, where the venue takes it. */
 async function totalLine(locale: Locale, amount: number, paid: boolean, venueId: number): Promise<string> {
   const t = translator(locale);
@@ -529,6 +550,7 @@ export async function notifyVenueCancelled(booking: Booking, what?: string): Pro
     date: booking.date,
     startMin: booking.startMin,
     summary: `${venue.name} cancelled booking ${booking.code}: ${where}, ${when}.`,
+    summaryPhrase: noticePhrase("srv.urgent.cancelled", venue.name, booking.code, place, booking),
   });
   await deliver(booking, {
     bookingId: booking.id,
@@ -570,6 +592,7 @@ export async function notifyMoved(booking: Booking): Promise<number | null> {
     date: booking.date,
     startMin: booking.startMin,
     summary: `${venue.name} moved booking ${booking.code} to ${where}, ${when}.`,
+    summaryPhrase: noticePhrase("srv.urgent.moved", venue.name, booking.code, court.name, booking),
   });
   await deliver(booking, {
     bookingId: booking.id,
@@ -652,6 +675,7 @@ export async function notifyRescheduled(
     date: booking.date,
     startMin: booking.startMin,
     summary: `${venue.name} changed booking ${booking.code} to ${where}, ${when}.`,
+    summaryPhrase: noticePhrase("srv.urgent.changed", venue.name, booking.code, court.name, booking),
   });
   await deliver(booking, {
     bookingId: booking.id,

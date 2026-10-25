@@ -134,7 +134,7 @@ export function AttentionPanel() {
               </a>
               {n.email && <span className="text-slate-500"> · {n.email}</span>}
             </div>
-            <div className="mt-1 text-xs text-slate-500">{n.summary}</div>
+            <div className="mt-1 text-xs text-slate-500">{t.say(n.summaryPhrase, n.summary)}</div>
             {n.messages.length > 0 && <div className="mt-1 text-xs text-slate-500">{channelLine(t, n)}</div>}
             {n.resolvedAt === null && (
               <button

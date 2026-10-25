@@ -9,6 +9,7 @@ import { clockOf, parseClock } from "@/lib/interval";
 import { type Court, type Sport } from "@/lib/types";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
+import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
 
 /**
@@ -41,8 +42,8 @@ interface Levels {
 
 interface Effective {
   sports: Partial<Record<Sport, BookingPolicy>>;
-  courts: Record<number, BookingPolicy & { summary: string }>;
-  products: Record<number, Record<string, BookingPolicy & { summary: string }>>;
+  courts: Record<number, BookingPolicy & { summary: string; summaryPhrase?: StaffText }>;
+  products: Record<number, Record<string, BookingPolicy & { summary: string; summaryPhrase?: StaffText }>>;
 }
 
 /** Each setting as typed in the form; blank inherits. */
@@ -265,7 +266,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
           )}
         </select>
       </label>
-      {level.level === "court" && now && "summary" in now && <p className="mt-1 text-xs text-slate-500">{t("pol.now", { summary: String(now.summary) })}</p>}
+      {level.level === "court" && now && "summary" in now && <p className="mt-1 text-xs text-slate-500">{t("pol.now", { summary: t.say("summaryPhrase" in now ? (now.summaryPhrase as StaffText | undefined) : null, String(now.summary)) })}</p>}
 
       <form onSubmit={save} className="mt-3 space-y-3">
         <div className="grid gap-3 sm:grid-cols-3">

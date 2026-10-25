@@ -1,5 +1,6 @@
 import { hoursSinceLastBackup, listBackups } from "./backup";
 import { MAX_UPLOAD, NEAR_LIMIT, offsiteStatus, type OffsiteStatus } from "./offsite";
+import { englishOf, said, type StaffText } from "./staff-text";
 
 /**
  * Whether the install could be recovered, and from how long ago: one answer
@@ -29,6 +30,8 @@ export interface BackupHealth {
   nearSizeLimit: boolean;
   /** What is wrong, in words, worst first. */
   problems: string[];
+  /** The same, as phrases a staff screen says in the staff language. */
+  problemPhrases: StaffText[];
 }
 
 /** `MYSENAM_BACKUP_RPO_HOURS`: the nightly cycle and two hours' slack unless set. */
@@ -57,16 +60,17 @@ export async function backupHealth(now = Date.now()): Promise<BackupHealth> {
   const recoverableHours = offsite === "off" ? hoursSinceLocal : hoursSinceOffsite;
   const nearSizeLimit = (status.lastCopied?.largestBytes ?? 0) > MAX_UPLOAD * NEAR_LIMIT;
 
-  const problems: string[] = [];
-  if (!newest) problems.push("There is no backup on this server yet.");
-  if (offsite === "failing") problems.push(`Off-site copies are failing: ${status.lastError!.error}`);
-  if (offsite === "paused") problems.push(status.paused!);
-  if (recoverableHours === null && newest && offsite !== "off") problems.push("Nothing has been copied off-site yet.");
+  const problems: StaffText[] = [];
+  if (!newest) problems.push(said("srv.backup.none"));
+  // The provider's own error stays as it came.
+  if (offsite === "failing") problems.push(said("srv.backup.failing", { error: status.lastError!.error }));
+  if (offsite === "paused") problems.push(status.pausedPhrase!);
+  if (recoverableHours === null && newest && offsite !== "off") problems.push(said("srv.backup.nothingOffsite"));
   if (recoverableHours !== null && recoverableHours > rpo)
-    problems.push(`The newest ${offsite === "off" ? "backup" : "off-site copy"} is ${Math.floor(recoverableHours)} hours old, past the ${rpo}-hour recovery-point target.`);
+    problems.push(said(offsite === "off" ? "srv.backup.oldLocal" : "srv.backup.oldOffsite", { hours: Math.floor(recoverableHours), rpo }));
   if (nearSizeLimit)
     problems.push(
-      `The largest part of the last off-site set is ${(status.lastCopied!.largestBytes! / 1024 ** 3).toFixed(1)} GB; one upload, in parts, takes about ${Math.floor(MAX_UPLOAD / 1024 ** 3)} GB. Move photos to their own bucket before it is reached.`
+      said("srv.backup.nearLimit", { gb: (status.lastCopied!.largestBytes! / 1024 ** 3).toFixed(1), max: Math.floor(MAX_UPLOAD / 1024 ** 3) })
     );
 
   const stale = recoverableHours === null ? offsite !== "off" : recoverableHours > rpo;
@@ -92,6 +96,7 @@ export async function backupHealth(now = Date.now()): Promise<BackupHealth> {
     hoursSinceOffsite,
     recoverableHours,
     nearSizeLimit,
-    problems,
+    problems: problems.map(englishOf),
+    problemPhrases: problems,
   };
 }

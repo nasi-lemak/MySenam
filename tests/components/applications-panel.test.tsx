@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { ApplicationsPanel } from "../../src/components/admin/ApplicationsPanel";
+import { LanguageProvider } from "../../src/components/Language";
 import { REVIEW_CHECKS } from "../../src/lib/review-checks";
 
 /**
@@ -54,6 +55,22 @@ describe("an application waiting", () => {
     expect(screen.getByText(/this install cannot send email/)).toBeTruthy();
     expect(screen.getByText(/Taman Connaught, Ipoh/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "03-9100 0000" }).getAttribute("href")).toBe("tel:0391000000");
+  });
+
+  it("says what doesn't add up in the staff language, from the phrase the server sends beside its English", async () => {
+    const phrased = {
+      ...APPLICATION,
+      location: { ...APPLICATION.location, phrases: [{ key: "srv.app.farPin", vars: { distance: "181 km" } }] },
+    };
+    fetchMock.mockImplementation(async () => json({ marketplace: true, applications: [phrased] }));
+    render(
+      <LanguageProvider locale="ms">
+        <ApplicationsPanel onChange={() => {}} />
+      </LanguageProvider>
+    );
+    await act(async () => {});
+    expect(screen.getByText(/Pin berada 181 km dari lokasi alamat/)).toBeTruthy();
+    expect(screen.queryByText(/from where the address leads/)).toBeNull();
   });
 
   it("cannot be approved until every check is ticked, and says which were", async () => {

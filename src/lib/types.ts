@@ -1,6 +1,7 @@
 import type { WeekHours } from "./week-hours";
 import type { ErrorCode } from "./i18n";
 import type { Amenity, CourtFeatures } from "./facilities";
+import type { StaffText } from "./staff-text";
 import { region } from "./region.ts";
 /**
  * An activity's key in the catalogue: "badminton", "bouldering", or an
@@ -368,6 +369,8 @@ export interface WalletEntry {
   id: number;
   amount: number;
   reason: string;
+  /** The reason as a phrase a staff screen says in the staff language, when MySenam wrote it (not what staff typed). */
+  reasonPhrase?: StaffText;
   bookingId: number | null;
   createdAt: string;
   /** The venue whose credit this is, when credit is per venue; null for any venue. */
@@ -433,6 +436,8 @@ export interface Pass {
   createdAt: string;
   /** Why the pass cannot be spent right now, if it cannot. */
   unusableReason?: string;
+  /** The same, as a phrase a staff screen says in the staff language. */
+  unusablePhrase?: StaffText;
 }
 
 export type PassStatus = "active" | "void";
@@ -472,6 +477,8 @@ export interface PromoCode {
   status: PromoStatus;
   /** Why it cannot be used today, if it cannot. */
   unusableReason?: string;
+  /** The same, as a phrase a staff screen says in the staff language. */
+  unusablePhrase?: StaffText;
 }
 
 export type PromoKind = "percent" | "amount";
@@ -500,6 +507,8 @@ export interface Membership {
   aheadDays?: number | null;
   /** Why it is not giving member rates today, if it is not. */
   unusableReason?: string;
+  /** The same, as a phrase a staff screen says in the staff language. */
+  unusablePhrase?: StaffText;
 }
 
 export type MembershipStatus = "active" | "void";

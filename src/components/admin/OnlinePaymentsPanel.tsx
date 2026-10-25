@@ -139,7 +139,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        {gateway ? t("opay.introGateway", { methods: gateway.methods.toLowerCase(), name: gateway.name }) : t("opay.intro")}
+        {gateway ? t("opay.introGateway", { methods: (t.known(`srv.gw.${gateway.id}.methods`) ?? gateway.methods).toLowerCase(), name: gateway.name }) : t("opay.intro")}
       </p>
 
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
@@ -175,7 +175,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             >
               {settings.choices.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} — {c.methods}
+                  {c.name} — {t.known(`srv.gw.${c.id}.methods`) ?? c.methods}
                 </option>
               ))}
             </select>
@@ -183,7 +183,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         )}
         {gateway?.fields.map((f) => (
           <label key={f.key} className="text-sm font-medium text-slate-700">
-            {f.label}
+            {t.known(`srv.gw.${gateway?.id}.${f.key}`) ?? f.label}
             <input
               type={f.secret ? "password" : "text"}
               autoComplete="off"
@@ -193,7 +193,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
               placeholder={f.secret ? keyHint(f.key) : ""}
               className={`mt-1 ${input} font-mono`}
             />
-            {f.help && <span className="mt-0.5 block text-xs font-normal text-slate-500">{f.help}</span>}
+            {f.help && <span className="mt-0.5 block text-xs font-normal text-slate-500">{t.known(`srv.gw.${gateway?.id}.${f.key}.help`) ?? f.help}</span>}
           </label>
         ))}
         <div className="flex flex-col justify-end gap-1.5 text-sm text-slate-700">
@@ -227,7 +227,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             </label>
           )}
         </div>
-        {gateway?.setup && <p className="text-xs text-slate-500 sm:col-span-2">{gateway.setup}</p>}
+        {gateway?.setup && <p className="text-xs text-slate-500 sm:col-span-2">{t.say(gateway.setupPhrase, gateway.setup)}</p>}
         {gateway?.callbackUrl && (
           <p className="text-xs text-slate-600 sm:col-span-2">
             {t("opay.webhook")}{" "}
@@ -269,13 +269,13 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
               <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
                   <span className="font-semibold">{money(d.amount)}</span> · {d.payerName ?? t("opay.customer")}
-                  {d.bookingCodes.length > 0 && ` · ${d.bookingCodes.join(", ")}`} · {d.reason.replace(/_/g, " ")}
+                  {d.bookingCodes.length > 0 && ` · ${d.bookingCodes.join(", ")}`} · {t.known(`srv.dispute.reason.${d.reason}`) ?? d.reason.replace(/_/g, " ")}
                   <span className="block text-xs text-red-800">
                     {d.outcome
                       ? d.outcome === "won"
                         ? t("opay.decidedKept")
                         : t("opay.decidedReturned")
-                      : `${d.status.replace(/_/g, " ")}${d.dueBy ? ` · ${t("opay.answerBy", { date: d.dueBy.slice(0, 10) })}` : ""}`}
+                      : `${t.known(`srv.dispute.status.${d.status}`) ?? d.status.replace(/_/g, " ")}${d.dueBy ? ` · ${t("opay.answerBy", { date: d.dueBy.slice(0, 10) })}` : ""}`}
                   </span>
                 </span>
                 {!d.outcome && (

@@ -166,10 +166,10 @@ export function TaxEditor({ venueId }: { venueId: number }) {
             <tbody>
               {deductions.map((d) => (
                 <tr key={d.reason}>
-                  <td className="py-0.5 pr-3 text-slate-700">{d.label}</td>
+                  <td className="py-0.5 pr-3 text-slate-700">{t(`srv.deduction.${d.reason}`)}</td>
                   <td className="py-0.5">
                     <select
-                      aria-label={t("tax.taxOn", { label: d.label })}
+                      aria-label={t("tax.taxOn", { label: t(`srv.deduction.${d.reason}`) })}
                       value={d.usual ? "usual" : d.taxed ? "taxed" : "untaxed"}
                       onChange={(e) => void treat(d.reason, e.target.value === "usual" ? null : e.target.value === "taxed")}
                       className={input}
@@ -210,7 +210,7 @@ export function TaxEditor({ venueId }: { venueId: number }) {
                       ? t("tax.histReviewed", { reviewer: h.reviewer ?? "" })
                       : t("tax.histChanged", {
                           changes: Object.entries(h.changed ?? {})
-                            .map(([r, v]) => `${r} → ${v === null ? t("tax.histUsual") : v ? t("tax.histTaxed") : t("tax.histNotTaxed")}`)
+                            .map(([r, v]) => `${t.known(`srv.deduction.${r}`) ?? r} → ${v === null ? t("tax.histUsual") : v ? t("tax.histTaxed") : t("tax.histNotTaxed")}`)
                             .join(", "),
                         })}
                     {h.adminName ? ` (${h.adminName})` : ""}

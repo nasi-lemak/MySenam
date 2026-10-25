@@ -137,7 +137,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
             {t("msg.via", {
               channels: summary.transport
                 .split("+")
-                .map((name) => (name === "whatsapp" ? "WhatsApp" : name))
+                .map((name) => (name === "whatsapp" ? "WhatsApp" : (t.known(`srv.transport.${name}`) ?? name)))
                 .reduce((a, b) => t("msg.listAnd", { a, b })),
             })}
           </span>
@@ -176,7 +176,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                       onClick={() => setOpen(open === m.id ? null : m.id)}
                       className="font-medium text-teal-700 hover:underline"
                     >
-                      {KIND_LABELS[m.kind] ? t(KIND_LABELS[m.kind]) : m.kind}
+                      {KIND_LABELS[m.kind] ? t(KIND_LABELS[m.kind]) : (t.known(`srv.msgKind.${m.kind}`) ?? m.kind)}
                     </button>
                     {m.free && (
                       <span title={t("msg.freeTitle")} className="ml-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
