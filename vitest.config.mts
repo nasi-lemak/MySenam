@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
@@ -13,6 +13,8 @@ export default defineConfig({
     alias: { "@": path.resolve(import.meta.dirname, "./src") },
   },
   test: {
+    // Agents' git worktrees live under .claude/; their copies of the tests are theirs to run.
+    exclude: [...configDefaults.exclude, ".claude/**"],
     // The default is node, because most of the suite drives a real Postgres
     // database (PGlite, in memory, unless DATABASE_URL names a server). A component test opts into a browser with a
     // `// @vitest-environment jsdom` line at the top of the file, so the two

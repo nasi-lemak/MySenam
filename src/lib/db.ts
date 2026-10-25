@@ -141,18 +141,19 @@ async function postgresDriver(url: string): Promise<Driver> {
   const pool = new pg.Pool({
     connectionString: url,
     max: Number(process.env.DATABASE_POOL_SIZE ?? 10),
+    // No JIT: every query here is a short lookup, and a plan the planner merely
+    // guesses is dear (a capacity sweep over claims easily is) would spend over
+    // a second compiling to save a millisecond. Set before the pool hands the
+    // connection out, so it never overlaps the caller's first query; a pooler
+    // that refuses it only costs speed.
+    onConnect: async (client) => {
+      await client.query("SET jit = off").catch(() => {});
+    },
   });
   // A connection sitting idle in the pool can be cut — the server restarting,
   // a network blip. Unheard, that error would take the whole process down;
   // the pool has already thrown the connection away and opens a new one.
   pool.on("error", (err) => console.error(`[db] idle connection lost: ${err.message}`));
-  // No JIT: every query here is a short lookup, and a plan the planner merely
-  // guesses is dear (a capacity sweep over claims easily is)
-  // would spend over a second compiling to save a millisecond. Queued ahead of
-  // the connection's first query; a pooler that drops it only costs speed.
-  pool.on("connect", (client) => {
-    client.query("SET jit = off").catch(() => {});
-  });
   const toResult = (r: { rows: Record<string, unknown>[]; rowCount: number | null }): QueryResult => ({
     rows: r.rows,
     rowCount: r.rowCount ?? 0,
