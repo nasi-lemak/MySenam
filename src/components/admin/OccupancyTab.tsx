@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Court, Venue } from "@/lib/types";
 import type { OccupancyReport } from "@/lib/store";
 import { intlTag } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- Occupancy tab ---------------- */
 
@@ -14,6 +15,7 @@ export function OccupancyTab({
 }: {
   venues: (Venue & { courts: Court[] })[];
 }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [report, setReport] = useState<OccupancyReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,13 +27,13 @@ export function OccupancyTab({
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load");
+      if (!res.ok) throw new Error(t.err(data, t("occ.loadFailed")));
       setReport(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(err instanceof Error ? err.message : t("occ.loadFailed"));
       setReport(null);
     }
-  }, [venueId]);
+  }, [venueId, t]);
 
   useEffect(() => {
     load();
@@ -70,10 +72,10 @@ export function OccupancyTab({
           <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                <th className="px-3 py-2 font-semibold">Court</th>
+                <th className="px-3 py-2 font-semibold">{t("occ.court")}</th>
                 {report.days.map((d) => (
                   <th key={d.date} className="px-2 py-2 text-center font-medium text-slate-500">
-                    {new Date(`${d.date}T00:00:00Z`).toLocaleDateString(intlTag("en"), {
+                    {new Date(`${d.date}T00:00:00Z`).toLocaleDateString(intlTag(t.locale), {
                       weekday: "short",
                       day: "numeric",
                       timeZone: "UTC",
@@ -97,7 +99,7 @@ export function OccupancyTab({
                       <td key={d.date} className="p-1 text-center">
                         <div
                           className={`rounded-md py-1.5 text-xs font-semibold ${heat(pct)}`}
-                          title={`${booked}/${places} places booked${cell?.blocked ? `, ${cell.blocked} hours blocked` : ""}`}
+                          title={cell?.blocked ? t("occ.cellBlocked", { booked, places, hours: cell.blocked }) : t("occ.cell", { booked, places })}
                         >
                           {booked > 0 ? `${pct}%` : "·"}
                           {cell?.blocked ? <span className="ml-0.5">⛔</span> : null}
@@ -108,7 +110,7 @@ export function OccupancyTab({
                 </tr>
               ))}
               <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
-                <td className="px-3 py-2">Venue total</td>
+                <td className="px-3 py-2">{t("occ.venueTotal")}</td>
                 {report.days.map((d) => {
                   const booked = d.perCourt.reduce((s, c) => s + c.booked, 0);
                   const total = report.courts.reduce(

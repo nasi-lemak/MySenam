@@ -1,7 +1,7 @@
 "use client";
 
 import { activityIcon } from "@/lib/activity-registry";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { RainOutPanel } from "./RainOutPanel";
 import { RepeatBlockPanel } from "./RepeatBlockPanel";
 import { formatHour } from "@/lib/time";
@@ -9,8 +9,27 @@ import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { isShared } from "@/lib/types";
 import type { Court, Venue } from "@/lib/types";
-import type { AdminCourtSlots } from "@/lib/store";
+import type { AdminCourtSlots, ScheduleEntry } from "@/lib/store";
+import type { StaffT } from "@/lib/staff-i18n";
 import { todayLocal } from "./shared";
+import { useStaffT } from "./StaffLanguage";
+
+/** A phrase with elements in it: each `{name}` becomes the element given for it. */
+function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((piece, i) => (i % 2 ? <Fragment key={i}>{parts[piece] ?? `{${piece}}`}</Fragment> : piece));
+}
+
+function kindLabels(t: StaffT): Record<ScheduleEntry["kind"], string> {
+  return {
+    booking: t("sch.kind.booking"),
+    offer: t("sch.kind.offer"),
+    move: t("sch.kind.move"),
+    class: t("sch.kind.class"),
+    block: t("sch.kind.block"),
+    outage: t("sch.kind.outage"),
+    buffer: t("sch.kind.buffer"),
+  };
+}
 
 /* ---------------- Court schedule tab ---------------- */
 
@@ -19,6 +38,7 @@ export function ScheduleTab({
 }: {
   venues: (Venue & { courts: Court[] })[];
 }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [date, setDate] = useState(todayLocal);
   const [reason, setReason] = useState("");
@@ -36,13 +56,13 @@ export function ScheduleTab({
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load");
+      if (!res.ok) throw new Error(t.err(data, t("sch.loadFailed")));
       setCourts(data.courts);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(err instanceof Error ? err.message : t("sch.loadFailed"));
       setCourts(null);
     }
-  }, [venueId, date]);
+  }, [venueId, date, t]);
 
   useEffect(() => {
     load();
@@ -60,11 +80,11 @@ export function ScheduleTab({
         body: JSON.stringify({ courtId: exact.courtId, date, start: exact.start, end: exact.end, reason: reason || undefined, places }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      if (!res.ok) throw new Error(t.err(data, t("sch.updateFailed")));
       setExact(null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("sch.updateFailed"));
     }
   }
 
@@ -82,13 +102,14 @@ export function ScheduleTab({
         body: JSON.stringify({ courtId, date, hours: [hour], reason: reason || undefined, places }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      if (!res.ok) throw new Error(t.err(data, t("sch.updateFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("sch.updateFailed"));
     }
   }
 
+  const kinds = kindLabels(t);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -112,7 +133,7 @@ export function ScheduleTab({
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Block reason (optional)"
+          placeholder={t("sch.reasonPlaceholder")}
           className="w-52 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input
@@ -120,18 +141,17 @@ export function ScheduleTab({
           min={1}
           value={placesOut}
           onChange={(e) => setPlacesOut(e.target.value)}
-          placeholder="Places out"
-          title="Shared facilities only: how many places to take out. Blank takes the whole thing."
+          placeholder={t("sch.placesOut")}
+          title={t("sch.placesOutTitle")}
           className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
       </div>
       <p className="text-sm text-slate-500">
-        Click a <span className="font-medium text-emerald-700">free</span> slot to block it for
-        maintenance; click a <span className="font-medium text-amber-700">blocked</span> slot to
-        release it. Booked slots show the booking code. On a shared facility — a gym floor, a
-        kayak fleet — set <strong>places out</strong> to take only some out of service and leave
-        the rest bookable. A slot marked ½ is partly held: the list under the grid has every booking, block and buffer
-        to the minute.
+        {rich(t("sch.help"), {
+          free: <span className="font-medium text-emerald-700">{t("sch.helpFree")}</span>,
+          blocked: <span className="font-medium text-amber-700">{t("sch.helpBlocked")}</span>,
+          placesOut: <strong>{t("sch.helpPlacesOut")}</strong>,
+        })}
       </p>
       {courts && courts.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -148,14 +168,14 @@ export function ScheduleTab({
                   </option>
                 ))}
               </select>
-              <ClockField label="Block from" value={exact.start} onChange={(m) => setExact({ ...exact, start: m })} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-              to
-              <ClockField label="Block until" value={exact.end} after={exact.start} onChange={(m) => setExact({ ...exact, end: m })} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+              <ClockField label={t("sch.blockFrom")} value={exact.start} onChange={(m) => setExact({ ...exact, start: m })} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+              {t("sch.to")}
+              <ClockField label={t("sch.blockUntil")} value={exact.end} after={exact.start} onChange={(m) => setExact({ ...exact, end: m })} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
               <button onClick={() => void blockExact()} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">
-                Block it
+                {t("sch.blockIt")}
               </button>
               <button onClick={() => setExact(null)} className="text-xs text-slate-500 underline">
-                Cancel
+                {t("c.cancel")}
               </button>
             </>
           ) : (
@@ -163,7 +183,7 @@ export function ScheduleTab({
               onClick={() => setExact({ courtId: courts[0].court.id, start: courts[0].slots[0]?.minute ?? 480, end: (courts[0].slots[0]?.minute ?? 480) + 60 })}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-amber-500"
             >
-              Block an exact time…
+              {t("sch.blockExact")}
             </button>
           )}
         </div>
@@ -199,7 +219,7 @@ export function ScheduleTab({
           <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-semibold">Court</th>
+                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-semibold">{t("sch.court")}</th>
                 {courts[0]?.slots.map((s) => (
                   <th key={s.hour} className="px-1 py-2 text-center font-medium text-slate-500">
                     {formatHour(s.hour).replace(":00 ", "").replace(" ", "")}
@@ -214,7 +234,7 @@ export function ScheduleTab({
                     {activityIcon(court.sport)} {court.name}
                     {isShared(court) && (
                       <span className="ml-1 text-xs font-normal text-slate-400">
-                        {court.capacity} places
+                        {t.plural("sch.places", court.capacity)}
                       </span>
                     )}
                   </td>
@@ -225,19 +245,25 @@ export function ScheduleTab({
                         disabled={slot.status === "booked"}
                         title={
                           isShared(court)
-                            ? `${slot.booked} of ${court.capacity} places taken` +
+                            ? t("sch.taken", { booked: slot.booked, capacity: court.capacity }) +
                               (slot.blockedPlaces
-                                ? ` · ${slot.blockedPlaces} out of service${slot.blockReason ? ` (${slot.blockReason})` : ""}`
+                                ? ` · ${
+                                    slot.blockReason
+                                      ? t("sch.outOfServiceWhy", { n: slot.blockedPlaces, reason: slot.blockReason })
+                                      : t("sch.outOfService", { n: slot.blockedPlaces })
+                                  }`
                                 : slot.status === "blocked"
-                                  ? ` · all out${slot.blockReason ? ` (${slot.blockReason})` : ""} — click to release`
+                                  ? ` · ${slot.blockReason ? t("sch.allOutWhy", { reason: slot.blockReason }) : t("sch.allOut")}`
                                   : "")
                             : slot.status === "booked"
-                              ? `Booked: ${slot.bookingCode}`
+                              ? t("sch.booked", { code: String(slot.bookingCode) })
                               : slot.status === "blocked"
-                                ? `Blocked${slot.blockReason ? `: ${slot.blockReason}` : ""} — click to release`
+                                ? slot.blockReason
+                                  ? t("sch.blockedWhyRelease", { reason: slot.blockReason })
+                                  : t("sch.blockedRelease")
                                 : slot.status === "past"
-                                  ? "Past — can still block/unblock"
-                                  : "Free — click to block"
+                                  ? t("sch.past")
+                                  : t("sch.freeBlock")
                         }
                         className={`h-9 w-12 rounded-md text-[10px] font-semibold transition ${
                           slot.status === "booked"
@@ -276,10 +302,8 @@ export function ScheduleTab({
 
       {courts && courts.some((c) => c.entries.length > 0) && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-          <h3 className="font-semibold">The day to the minute</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Buffers are time kept free around a booking (setup, cleaning); customers cannot book them and are not told why.
-          </p>
+          <h3 className="font-semibold">{t("sch.dayToMinute")}</h3>
+          <p className="mt-1 text-xs text-slate-500">{t("sch.buffersHelp")}</p>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {courts
               .filter((c) => c.entries.length > 0)
@@ -289,8 +313,8 @@ export function ScheduleTab({
                   <ul className="mt-1 space-y-0.5 text-xs">
                     {entries.map((e, i) => (
                       <li key={i} className={e.kind === "buffer" ? "text-slate-400" : "text-slate-700"}>
-                        {formatMinute(e.start)}–{formatMinute(e.end)} · {e.end - e.start} min · {e.label || e.kind}
-                        {e.places ? ` · ${e.places} place${e.places === 1 ? "" : "s"}` : ""}
+                        {formatMinute(e.start)}–{formatMinute(e.end)} · {t("sch.minutes", { n: e.end - e.start })} · {e.label || kinds[e.kind]}
+                        {e.places ? ` · ${t.plural("sch.places", e.places)}` : ""}
                       </li>
                     ))}
                   </ul>

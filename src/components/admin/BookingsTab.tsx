@@ -6,32 +6,45 @@ import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
 import { useCallback, useEffect, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
-import { COUNTER_METHODS, HIRE_CONDITION_LABELS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS } from "@/lib/types";
-import type { CounterMethod } from "@/lib/types";
+import { COUNTER_METHODS, HIRE_CONDITIONS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS } from "@/lib/types";
+import type { BookingStatus, CounterMethod, PaidVia } from "@/lib/types";
 import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
+import type { StaffT } from "@/lib/staff-i18n";
 import { localTime, todayLocal } from "./shared";
-import { money, currencySymbol } from "@/lib/region";
+import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- Bookings tab ---------------- */
 
-const COLUMNS = [
-  "Code",
-  "Venue",
-  "Court",
-  "Time",
-  "Customer",
-  "Phone",
-  "Total",
-  "Status",
-  "Payment",
-  "Attendance",
-  "Kit",
-  "",
-];
+function columns(t: StaffT): string[] {
+  return [
+    t("bk.col.code"),
+    t("c.venue"),
+    t("bk.col.court"),
+    t("c.time"),
+    t("bk.col.customer"),
+    t("c.phone"),
+    t("c.total"),
+    t("c.status"),
+    t("bk.col.payment"),
+    t("bk.col.attendance"),
+    t("bk.col.kit"),
+    "",
+  ];
+}
+
+function conditionLabels(t: StaffT): Record<HireCondition, string> {
+  return { ok: t("bk.cond.ok"), damaged: t("bk.cond.damaged"), lost: t("bk.cond.lost") };
+}
+
+function statusLabels(t: StaffT): Record<BookingStatus, string> {
+  return { confirmed: t("bk.status.confirmed"), cancelled: t("bk.status.cancelled") };
+}
 
 export function BookingsTab() {
+  const t = useStaffT();
   const [date, setDate] = useState(todayLocal);
   // A customer at the desk asking about a booking: by code, number, email or name.
   const [query, setQuery] = useState("");
@@ -79,18 +92,18 @@ export function BookingsTab() {
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load");
+      if (!res.ok) throw new Error(t.err(data, t("bk.loadFailed")));
       setBookings(data.bookings);
       setRevenue(data.revenue);
       setCollected(data.collected);
       setOutstanding(data.outstanding);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(err instanceof Error ? err.message : t("bk.loadFailed"));
       setBookings(null);
     } finally {
       setBusy(false);
     }
-  }, [date]);
+  }, [date, t]);
 
   useEffect(() => {
     load();
@@ -105,14 +118,14 @@ export function BookingsTab() {
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load courts");
+      if (!res.ok) throw new Error(t.err(data, t("bk.courtsLoadFailed")));
       if (data.courts.length === 0) {
-        setError(`No other court of the same sport is free for the whole of ${code}.`);
+        setError(t("bk.noOtherCourt", { code }));
         return;
       }
       setMoving({ code, courts: data.courts });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load courts");
+      setError(err instanceof Error ? err.message : t("bk.courtsLoadFailed"));
     }
   }
 
@@ -126,13 +139,13 @@ export function BookingsTab() {
         body: JSON.stringify({ code, courtId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Move failed");
-      setNotice(`${code} moved from ${data.from} to ${data.to}. Same code, same price. The customer has been sent the news.`);
+      if (!res.ok) throw new Error(t.err(data, t("bk.moveFailed")));
+      setNotice(t("bk.moved", { code, from: data.from, to: data.to }));
       setMoving(null);
       load();
       window.dispatchEvent(new Event("attention:refresh"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Move failed");
+      setError(err instanceof Error ? err.message : t("bk.moveFailed"));
     }
   }
 
@@ -186,23 +199,27 @@ export function BookingsTab() {
         ),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not update the hire");
+      if (!res.ok) throw new Error(t.err(data, t("bk.hireFailed")));
       setNotice(
         kit.mode === "take"
-          ? `${kit.courtName} out on ${kit.code}, ${money(data.hire.deposit)} held.`
+          ? t("bk.kitOut", { kit: kit.courtName, code: kit.code, amount: money(data.hire.deposit) })
           : data.hire.withheld > 0
-            ? `${kit.code} settled — ${money(data.hire.withheld)} kept back, ${money(data.hire.deposit - data.hire.withheld)} returned.`
-            : `${kit.code} settled — ${money(data.hire.deposit)} returned in full.`
+            ? t("bk.kitSettledKept", {
+                code: kit.code,
+                kept: money(data.hire.withheld),
+                returned: money(data.hire.deposit - data.hire.withheld),
+              })
+            : t("bk.kitSettledFull", { code: kit.code, amount: money(data.hire.deposit) })
       );
       setKit(null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update the hire");
+      setError(err instanceof Error ? err.message : t("bk.hireFailed"));
     }
   }
 
   async function cancelBooking(code: string) {
-    if (!window.confirm(`Cancel booking ${code}? Its slots will be released, and the customer is told.`)) return;
+    if (!window.confirm(t("bk.cancelConfirm", { code }))) return;
     setError(null);
     try {
       const res = await fetch("/api/admin/bookings/cancel", {
@@ -211,11 +228,11 @@ export function BookingsTab() {
         body: JSON.stringify({ code }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      if (!res.ok) throw new Error(t.err(data, t("bk.cancelFailed")));
       load();
       window.dispatchEvent(new Event("attention:refresh"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancellation failed");
+      setError(err instanceof Error ? err.message : t("bk.cancelFailed"));
     }
   }
 
@@ -228,19 +245,16 @@ export function BookingsTab() {
         body: JSON.stringify({ bookingId: b.id, outcome, remember, via }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not record it");
+      if (!res.ok) throw new Error(t.err(data, t("bk.recordFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not record it");
+      setError(err instanceof Error ? err.message : t("bk.recordFailed"));
     }
   }
 
   /** The venue's note on this customer (lib/customer-notes.ts): written, changed, or cleared. */
   async function writeNote(b: AdminBookingRow) {
-    const note = window.prompt(
-      `Note on ${b.name} (${b.phone}), shown on each of their bookings here. Keep it factual: they can ask to see it. Clear it to take it away.`,
-      b.staffNote ?? ""
-    );
+    const note = window.prompt(t("bk.notePrompt", { name: b.name, phone: b.phone }), b.staffNote ?? "");
     if (note === null) return;
     setError(null);
     const res = await fetch("/api/admin/customer-notes", {
@@ -249,20 +263,20 @@ export function BookingsTab() {
       body: JSON.stringify({ venueId: b.venueId, phone: b.phone, note }),
     });
     const data = await res.json();
-    if (!res.ok) setError(data.error ?? "Could not save the note");
+    if (!res.ok) setError(t.err(data, t("bk.noteFailed")));
     load();
   }
 
   /** The customer signed the venue's waiver on paper at the desk (lib/waivers.ts). */
   async function paperWaiver(b: AdminBookingRow) {
-    if (!window.confirm(`Has ${b.name} signed the waiver on paper? It is recorded in your name.`)) return;
+    if (!window.confirm(t("bk.waiverConfirm", { name: b.name }))) return;
     setError(null);
     const res = await fetch("/api/admin/waiver/sign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bookingId: b.id }),
     });
-    if (!res.ok) setError((await res.json()).error ?? "Could not record it");
+    if (!res.ok) setError(t.err(await res.json(), t("bk.recordFailed")));
     load();
   }
 
@@ -275,14 +289,14 @@ export function BookingsTab() {
       body: JSON.stringify({ bookingId: b.id, accountId }),
     });
     const data = await res.json();
-    if (!res.ok) setError(data.error ?? "Could not change its account");
+    if (!res.ok) setError(t.err(data, t("bk.accountFailed")));
     load();
   }
 
   async function togglePaid(code: string, paid: boolean, via?: CounterMethod) {
     setError(null);
     setPaying(null);
-    if (!paid && !window.confirm(`Mark ${code} unpaid?`)) return;
+    if (!paid && !window.confirm(t("bk.unpaidConfirm", { code }))) return;
     try {
       const res = await fetch("/api/admin/payments", {
         method: "POST",
@@ -290,10 +304,10 @@ export function BookingsTab() {
         body: JSON.stringify({ code, paid, via }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Payment update failed");
+      if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment update failed");
+      setError(err instanceof Error ? err.message : t("bk.paymentFailed"));
     }
   }
 
@@ -306,10 +320,10 @@ export function BookingsTab() {
         body: JSON.stringify({ code, out }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Check-in failed");
+      if (!res.ok) throw new Error(t.err(data, t("bk.checkInFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Check-in failed");
+      setError(err instanceof Error ? err.message : t("bk.checkInFailed"));
     }
   }
 
@@ -318,9 +332,7 @@ export function BookingsTab() {
    * evening with bookings nobody plays. Their bookings stay until cancelled.
    */
   async function blockNumber(b: AdminBookingRow) {
-    const reason = window.prompt(
-      `Stop ${b.phone} booking ${b.venueName} online? They can still call you. Why (optional, only staff see it):`
-    );
+    const reason = window.prompt(t("bk.blockPrompt", { phone: b.phone, venue: b.venueName }));
     if (reason === null) return;
     setError(null);
     try {
@@ -330,16 +342,15 @@ export function BookingsTab() {
         body: JSON.stringify({ phone: b.phone, reason }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not block the number");
-      setNotice(`${b.phone} can no longer book ${b.venueName} online. Undo under Venue details.`);
+      if (!res.ok) throw new Error(t.err(data, t("bk.blockFailed")));
+      setNotice(t("bk.blocked", { phone: b.phone, venue: b.venueName }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not block the number");
+      setError(err instanceof Error ? err.message : t("bk.blockFailed"));
     }
   }
 
   async function forgiveStrikes(b: AdminBookingRow) {
-    if (!confirm(`Forgive ${b.phone} their ${b.strikes?.count ?? 0} strike(s) at ${b.venueName}? Only what happens from tomorrow counts again.`))
-      return;
+    if (!confirm(t("bk.forgiveConfirm", { phone: b.phone, count: b.strikes?.count ?? 0, venue: b.venueName }))) return;
     setError(null);
     try {
       const res = await fetch("/api/admin/strikes", {
@@ -348,18 +359,17 @@ export function BookingsTab() {
         body: JSON.stringify({ venueId: b.venueId, phone: b.phone }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not forgive the strikes");
-      setNotice(`${b.phone}'s strikes at ${b.venueName} no longer count.`);
+      if (!res.ok) throw new Error(t.err(data, t("bk.forgiveFailed")));
+      setNotice(t("bk.forgiven", { phone: b.phone, venue: b.venueName }));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not forgive the strikes");
+      setError(err instanceof Error ? err.message : t("bk.forgiveFailed"));
     }
   }
 
   async function toggleNoShow(code: string, noShow: boolean) {
     // A no-show can cost the customer: past the venue's strike limit, they pay online to book.
-    if (noShow && !confirm(`Mark ${code} as a no-show? If you count strikes (Venues & staff → Cancellations), this counts against their number.`))
-      return;
+    if (noShow && !confirm(t("bk.noShowConfirm", { code }))) return;
     setError(null);
     try {
       const res = await fetch("/api/admin/no-show", {
@@ -368,10 +378,10 @@ export function BookingsTab() {
         body: JSON.stringify({ code, noShow }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Update failed");
+      if (!res.ok) throw new Error(t.err(data, t("bk.updateFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("bk.updateFailed"));
     }
   }
 
@@ -390,10 +400,10 @@ export function BookingsTab() {
         body: JSON.stringify({ seriesCode, via }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Payment update failed");
+      if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment update failed");
+      setError(err instanceof Error ? err.message : t("bk.paymentFailed"));
     }
   }
 
@@ -431,8 +441,8 @@ export function BookingsTab() {
       >
         <input
           type="search"
-          aria-label="Find a booking"
-          placeholder="Find a booking: code, phone, email or name"
+          aria-label={t("bk.find")}
+          placeholder={t("bk.findPlaceholder")}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -441,13 +451,13 @@ export function BookingsTab() {
           className="min-h-10 w-80 max-w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <button type="submit" className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-teal-500">
-          Find
+          {t("bk.findButton")}
         </button>
       </form>
       {hits && (
         <div className="rounded-lg border border-slate-200 bg-white text-sm shadow-sm">
           {hits.length === 0 ? (
-            <p className="px-4 py-3 text-slate-500">No booking 90 days either side of today matches that.</p>
+            <p className="px-4 py-3 text-slate-500">{t("bk.noHits")}</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {hits.map((h) => (
@@ -471,22 +481,22 @@ export function BookingsTab() {
                     <span>{h.name}</span>
                     <span className="text-slate-500">{h.phone}</span>
                     <span className={h.status === "cancelled" ? "text-red-600" : h.paymentStatus === "paid" ? "text-emerald-700" : "text-amber-700"}>
-                      {h.status === "cancelled" ? "Cancelled" : h.paymentStatus === "paid" ? "Paid" : "Unpaid"}
+                      {h.status === "cancelled" ? t("bk.hitCancelled") : h.paymentStatus === "paid" ? t("c.paid") : t("c.unpaid")}
                     </span>
                   </button>
                 </li>
               ))}
-              {hits.length >= 50 && <li className="px-4 py-2 text-xs text-slate-500">The 50 nearest the end of the range; type more to narrow it down.</li>}
+              {hits.length >= 50 && <li className="px-4 py-2 text-xs text-slate-500">{t("bk.hitsCapped")}</li>}
             </ul>
           )}
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm font-medium text-slate-600">
-          <span className="sr-only">Day to show</span>
+          <span className="sr-only">{t("bk.dayToShow")}</span>
           <input
             type="date"
-            aria-label="Day to show"
+            aria-label={t("bk.dayToShow")}
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
@@ -495,15 +505,15 @@ export function BookingsTab() {
         {bookings && (
           <>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
-              <span className="text-slate-500">Bookings:</span>{" "}
+              <span className="text-slate-500">{t("bk.count")}</span>{" "}
               <span className="font-bold">{bookings.length}</span>
             </div>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
-              <span className="text-slate-500">Expected:</span>{" "}
+              <span className="text-slate-500">{t("bk.expected")}</span>{" "}
               <span className="font-bold text-teal-700">{money(revenue)}</span>
             </div>
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm shadow-sm">
-              <span className="text-emerald-700">Collected:</span>{" "}
+              <span className="text-emerald-700">{t("bk.collected")}</span>{" "}
               <span className="font-bold text-emerald-700">{money(collected)}</span>
             </div>
             <div
@@ -513,7 +523,7 @@ export function BookingsTab() {
                   : "border-slate-200 bg-white text-slate-500"
               }`}
             >
-              <span>Outstanding:</span>{" "}
+              <span>{t("bk.outstanding")}</span>{" "}
               <span className="font-bold">{money(outstanding)}</span>
             </div>
           </>
@@ -528,13 +538,8 @@ export function BookingsTab() {
 
       {moving && (
         <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3">
-          <p className="text-sm font-semibold">
-            Move {moving.code} to which court?
-          </p>
-          <p className="mt-0.5 text-xs text-slate-600">
-            The code, the price and any payment or check-in stay exactly as they are. Only courts
-            free for the whole booking are listed.
-          </p>
+          <p className="text-sm font-semibold">{t("bk.moveWhich", { code: moving.code })}</p>
+          <p className="mt-0.5 text-xs text-slate-600">{t("bk.moveHelp")}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {moving.courts.map((c) => (
               <button
@@ -549,7 +554,7 @@ export function BookingsTab() {
               onClick={() => setMoving(null)}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
             >
-              Cancel
+              {t("c.cancel")}
             </button>
           </div>
         </div>
@@ -578,10 +583,11 @@ export function BookingsTab() {
           }
           onDone={(booking) => {
             setChanging(null);
+            const when = { code: booking.code, date: booking.date, time: `${formatHour(booking.startHour)}–${formatHour(booking.endHour)}` };
             setNotice(
-              `${booking.code} is now ${booking.date}, ${formatHour(booking.startHour)}–${formatHour(booking.endHour)}. Same code; ${
-                booking.paymentStatus === "paid" ? "the price stays as paid" : `${money(booking.totalPrice.toFixed(2))} to pay`
-              }. The customer has been sent the news.`
+              booking.paymentStatus === "paid"
+                ? t("bk.changedPaid", when)
+                : t("bk.changedToPay", { ...when, amount: money(booking.totalPrice.toFixed(2)) })
             );
             load();
             window.dispatchEvent(new Event("attention:refresh"));
@@ -592,15 +598,10 @@ export function BookingsTab() {
 
       {kit && kit.mode === "take" && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
-          <p className="text-sm font-semibold">
-            Hand {kit.courtName} over on {kit.code}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-600">
-            Take the deposit at the desk and hold it until the kit comes back. This also checks the
-            customer in.
-          </p>
+          <p className="text-sm font-semibold">{t("bk.handOverTitle", { kit: kit.courtName, code: kit.code })}</p>
+          <p className="mt-0.5 text-xs text-slate-600">{t("bk.handOverHelp")}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">Deposit held ({currencySymbol()})</label>
+            <label className="text-xs font-medium text-slate-600">{t("bk.depositHeld")}</label>
             <input
               type="number"
             step={0.01}
@@ -614,13 +615,13 @@ export function BookingsTab() {
               onClick={submitKit}
               className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
             >
-              Hand over
+              {t("bk.handOver")}
             </button>
             <button
               onClick={() => setKit(null)}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
             >
-              Cancel
+              {t("c.cancel")}
             </button>
           </div>
         </div>
@@ -628,48 +629,43 @@ export function BookingsTab() {
 
       {kit && kit.mode === "return" && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
-          <p className="text-sm font-semibold">
-            Take {kit.courtName} back in on {kit.code}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-600">
-            {money(kit.deposit)} is held. Anything kept back needs a note saying why — the customer is
-            about to be told.
-          </p>
+          <p className="text-sm font-semibold">{t("bk.takeBackTitle", { kit: kit.courtName, code: kit.code })}</p>
+          <p className="mt-0.5 text-xs text-slate-600">{t("bk.takeBackHelp", { amount: money(kit.deposit) })}</p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div>
-              <label className="block text-xs font-medium text-slate-600">Condition</label>
+              <label className="block text-xs font-medium text-slate-600">{t("bk.condition")}</label>
               <select
                 value={condition}
                 onChange={(e) => setCondition(e.target.value as HireCondition)}
                 className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
               >
-                {Object.entries(HIRE_CONDITION_LABELS).map(([value, label]) => (
+                {HIRE_CONDITIONS.map((value) => (
                   <option key={value} value={value}>
-                    {label}
+                    {conditionLabels(t)[value]}
                   </option>
                 ))}
               </select>
             </div>
             <div className="w-full space-y-1">
-              <div className="text-xs font-medium text-slate-600">Kept back, and why</div>
+              <div className="text-xs font-medium text-slate-600">{t("bk.keptBackWhy")}</div>
               {deductions.map((d, i) => {
-                const how = treatments.find((t) => t.reason === d.reason);
+                const how = treatments.find((tr) => tr.reason === d.reason);
                 return (
                   <div key={i} className="flex flex-wrap items-center gap-2">
                     <select
-                      aria-label="Reason"
+                      aria-label={t("c.reason")}
                       value={d.reason}
                       onChange={(e) => setDeductions(deductions.map((x, j) => (j === i ? { ...x, reason: e.target.value as DeductionReason } : x)))}
                       className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
                     >
-                      {treatments.map((t) => (
-                        <option key={t.reason} value={t.reason} disabled={t.reason !== d.reason && deductions.some((x) => x.reason === t.reason)}>
-                          {t.label}
+                      {treatments.map((tr) => (
+                        <option key={tr.reason} value={tr.reason} disabled={tr.reason !== d.reason && deductions.some((x) => x.reason === tr.reason)}>
+                          {tr.label}
                         </option>
                       ))}
                     </select>
                     <input
-                      aria-label={`Amount (${currencySymbol()})`}
+                      aria-label={t("bk.amountCur")}
                       type="number"
                       step={0.01}
                       min={0}
@@ -680,16 +676,19 @@ export function BookingsTab() {
                     />
                     {how && (
                       <span className="text-xs text-slate-500">
-                        {how.taxed ? "With the venue's tax, if registered" : "No tax"}
-                        {how.basis === "reviewed"
-                          ? " (reviewed)"
-                          : how.basis === "provisional"
-                            ? " (provisional default, not reviewed by an adviser)"
-                            : " (the venue's choice, not yet reviewed)"}
+                        {t("bk.taxBasis", {
+                          tax: how.taxed ? t("bk.taxed") : t("bk.noTax"),
+                          basis:
+                            how.basis === "reviewed"
+                              ? t("bk.basis.reviewed")
+                              : how.basis === "provisional"
+                                ? t("bk.basis.provisional")
+                                : t("bk.basis.venue"),
+                        })}
                       </span>
                     )}
                     <button onClick={() => setDeductions(deductions.filter((_, j) => j !== i))} className="text-xs text-slate-500 underline">
-                      Remove
+                      {t("c.remove")}
                     </button>
                   </div>
                 );
@@ -697,39 +696,39 @@ export function BookingsTab() {
               {deductions.length < treatments.length && (
                 <button
                   onClick={() => {
-                    const free = treatments.find((t) => !deductions.some((d) => d.reason === t.reason));
+                    const free = treatments.find((tr) => !deductions.some((d) => d.reason === tr.reason));
                     if (free) setDeductions([...deductions, { reason: free.reason, amount: "" }]);
                   }}
                   className="text-xs font-semibold text-teal-700 underline"
                 >
-                  {deductions.length === 0 ? "Keep some back" : "Another reason"}
+                  {deductions.length === 0 ? t("bk.keepSomeBack") : t("bk.anotherReason")}
                 </button>
               )}
               {withheld > 0 && (
                 <div className="flex items-center gap-2 text-xs text-slate-600">
-                  {money(withheld)} kept, {money(Math.max(kit.deposit - withheld, 0))} handed back. The deposit was paid by
+                  {t("bk.keptHandedBack", { kept: money(withheld), back: money(Math.max(kit.deposit - withheld, 0)) })}
                   <select
                     value={heldVia}
                     onChange={(e) => setHeldVia(e.target.value as typeof heldVia)}
                     className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
                   >
-                    <option value="cash">Cash</option>
+                    <option value="cash">{t("c.via.cash")}</option>
                     <option value="qr">QR</option>
-                    <option value="transfer">Transfer</option>
-                    <option value="card">Card</option>
+                    <option value="transfer">{t("bk.heldVia.transfer")}</option>
+                    <option value="card">{t("bk.heldVia.card")}</option>
                   </select>
                 </div>
               )}
             </div>
             <div className="min-w-[16rem] flex-1">
               <label className="block text-xs font-medium text-slate-600">
-                What happened{condition === "ok" && withheld === 0 ? " (optional)" : ""}
+                {condition === "ok" && withheld === 0 ? t("bk.whatHappenedOptional") : t("bk.whatHappened")}
               </label>
               <input
                 value={note}
                 maxLength={MAX_HIRE_NOTE}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Cracked hull near the bow seat"
+                placeholder={t("bk.whatHappenedPlaceholder")}
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
               />
             </div>
@@ -737,13 +736,13 @@ export function BookingsTab() {
               onClick={submitKit}
               className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
             >
-              Take back
+              {t("bk.takeBack")}
             </button>
             <button
               onClick={() => setKit(null)}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
             >
-              Cancel
+              {t("c.cancel")}
             </button>
           </div>
         </div>
@@ -757,11 +756,11 @@ export function BookingsTab() {
 
       {busy && !bookings ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          Loading…
+          {t("c.loading")}
         </div>
       ) : bookings && bookings.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          No bookings on {date}.
+          {t("bk.noBookings", { date })}
         </div>
       ) : bookings ? (
         <>
@@ -789,7 +788,7 @@ export function BookingsTab() {
                   <div className="text-right">
                     <div className="font-semibold">{money(b.totalPrice)}</div>
                     {b.status !== "confirmed" && (
-                      <span className="text-xs font-semibold text-slate-400">{b.releasedUnpaid ? "released (unpaid)" : b.status}</span>
+                      <span className="text-xs font-semibold text-slate-400">{b.releasedUnpaid ? t("bk.releasedUnpaid") : statusLabels(t)[b.status]}</span>
                     )}
                   </div>
                 </div>
@@ -824,7 +823,7 @@ export function BookingsTab() {
             <table className="w-full min-w-[860px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  {COLUMNS.map((label, i) => (
+                  {columns(t).map((label, i) => (
                     <th key={i} className="px-3 py-2 font-semibold">
                       {label}
                     </th>
@@ -866,7 +865,7 @@ export function BookingsTab() {
                             : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {b.releasedUnpaid ? "released (unpaid)" : b.status}
+                        {b.releasedUnpaid ? t("bk.releasedUnpaid") : statusLabels(t)[b.status]}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -924,11 +923,12 @@ interface Act {
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
 
 function SeriesChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (!b.seriesCode) return null;
   return (
     <button
       onClick={() => act.paySeries(b.seriesCode!)}
-      title={`Mark all unpaid sessions in ${b.seriesCode} as paid`}
+      title={t("bk.seriesPayAll", { series: b.seriesCode })}
       className="ml-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-violet-50 text-[10px] font-semibold text-violet-700 hover:bg-violet-100"
     >
       🔁
@@ -938,9 +938,10 @@ function SeriesChip({ b, act }: { b: AdminBookingRow; act: Act }) {
 
 /** Booked from an account that proved, with a code sent to it, that this number is theirs. */
 function CheckedPhone({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
   if (!b.phoneChecked) return null;
   return (
-    <span title="Number checked: the customer proved it is theirs" className="ml-1 text-xs font-semibold text-emerald-700">
+    <span title={t("bk.phoneChecked")} className="ml-1 text-xs font-semibold text-emerald-700">
       ✓
     </span>
   );
@@ -948,9 +949,10 @@ function CheckedPhone({ b }: { b: AdminBookingRow }) {
 
 /** The venue's note on this customer, or a way to write one. */
 function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (!b.staffNote)
     return (
-      <button type="button" onClick={() => act.writeNote(b)} className="ml-1 text-xs text-slate-400 hover:text-teal-700" title="Write a note on this customer">
+      <button type="button" onClick={() => act.writeNote(b)} className="ml-1 text-xs text-slate-400 hover:text-teal-700" title={t("bk.writeNote")}>
         📝
       </button>
     );
@@ -958,7 +960,7 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
     <button
       type="button"
       onClick={() => act.writeNote(b)}
-      title="Change the note"
+      title={t("bk.changeNote")}
       className="mt-1 block max-w-xs rounded bg-amber-50 px-2 py-0.5 text-left text-xs text-amber-900 ring-1 ring-amber-200"
     >
       📝 {b.staffNote}
@@ -968,25 +970,27 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
 
 /** Not yet agreed to the venue's waiver: to sign at the desk. Nothing where it is signed, or asked for none. */
 function WaiverChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (b.waiverSigned || b.status !== "confirmed") return null;
   return (
     <button
       type="button"
       onClick={() => act.paperWaiver(b)}
-      title="Has not agreed to your waiver. Click once they have signed it on paper."
+      title={t("bk.waiverTitle")}
       className="mt-1 block rounded bg-rose-50 px-2 py-0.5 text-left text-xs font-medium text-rose-800 ring-1 ring-rose-200"
     >
-      ✍ No waiver yet: signed on paper?
+      ✍ {t("bk.noWaiver")}
     </button>
   );
 }
 
 /** Rackets, shuttles or drinks to hand over with the booking. */
 function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (!b.addons?.length)
     return (
       <>
-        {(b.players ?? 1) > 1 && <div className="mt-1 text-xs text-slate-600">👥 {b.players} players</div>}
+        {(b.players ?? 1) > 1 && <div className="mt-1 text-xs text-slate-600">👥 {t.plural("bk.players", b.players ?? 1)}</div>}
         {b.coachName && <Coach b={b} />}
         <ConcessionCheck b={b} act={act} />
       </>
@@ -994,8 +998,8 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <div className="mt-1 text-xs text-slate-600">
       {b.coachName && <Coach b={b} />}
-      {(b.players ?? 1) > 1 && <div>👥 {b.players} players</div>}
-      🎒 {b.addons.map((a) => `${a.quantity} × ${a.name}${a.kind === "rental" ? " (hire)" : ""}`).join(", ")}
+      {(b.players ?? 1) > 1 && <div>👥 {t.plural("bk.players", b.players ?? 1)}</div>}
+      🎒 {b.addons.map((a) => (a.kind === "rental" ? t("bk.addonHire", { qty: a.quantity, name: a.name }) : `${a.quantity} × ${a.name}`)).join(", ")}
       <ConcessionCheck b={b} act={act} />
     </div>
   );
@@ -1007,35 +1011,37 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
  * proof itself is never kept, only that it was seen.
  */
 function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   const [step, setStep] = useState<"seen" | "refused" | null>(null);
   if (!b.concessionName || !b.concessionCheck) return null;
   const off = money(b.concessionOff ?? 0);
-  if (b.concessionCheck === "seen") return <div className="mt-1 text-xs text-emerald-700">🎫 {b.concessionName} price · proof seen</div>;
-  if (b.concessionCheck === "refused") return <div className="mt-1 text-xs text-slate-500">🎫 No {b.concessionName} proof: full price</div>;
+  const name = b.concessionName;
+  if (b.concessionCheck === "seen") return <div className="mt-1 text-xs text-emerald-700">🎫 {t("bk.concSeen", { name })}</div>;
+  if (b.concessionCheck === "refused") return <div className="mt-1 text-xs text-slate-500">🎫 {t("bk.concRefused", { name })}</div>;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-amber-800">
-      <span title="Look at the proof: nothing is photographed or kept, only that you saw it.">
-        🎫 {b.concessionName} price ({off} off): check proof
+      <span title={t("bk.concLookTitle")}>
+        🎫 {t("bk.concCheck", { name, off })}
       </span>
       {b.status === "confirmed" && step === null && (
         <>
           <button onClick={() => setStep("seen")} className={`${CHIP} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200`}>
-            Proof seen
+            {t("bk.proofSeen")}
           </button>
           <button onClick={() => setStep("refused")} className={`${CHIP} bg-amber-50 text-amber-800 ring-1 ring-amber-200`}>
-            No proof
+            {t("bk.noProof")}
           </button>
         </>
       )}
       {step === "seen" && (
         <span className="inline-flex flex-wrap items-center gap-1">
-          <span className="text-slate-500">Don&apos;t ask again until</span>
+          <span className="text-slate-500">{t("bk.dontAskUntil")}</span>
           {(
             [
-              ["visit", "next visit"],
-              ["month", "month end"],
-              ["year", "year end"],
-              ["twelve", "12 months"],
+              ["visit", t("bk.until.visit")],
+              ["month", t("bk.until.month")],
+              ["year", t("bk.until.year")],
+              ["twelve", t("bk.until.twelve")],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -1046,20 +1052,20 @@ function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
               {label}
             </button>
           ))}
-          <button onClick={() => setStep(null)} aria-label="Cancel" className="px-1 text-slate-400">
+          <button onClick={() => setStep(null)} aria-label={t("c.cancel")} className="px-1 text-slate-400">
             ✕
           </button>
         </span>
       )}
       {step === "refused" &&
         (b.paymentStatus === "paid" ? (
-          <MethodPicker label={`Take ${off} more by`} onPick={(via) => act.checkConcession(b, "refused", undefined, via)} onCancel={() => setStep(null)} />
+          <MethodPicker label={t("bk.takeMoreBy", { off })} onPick={(via) => act.checkConcession(b, "refused", undefined, via)} onCancel={() => setStep(null)} />
         ) : (
           <span className="inline-flex items-center gap-1">
             <button onClick={() => act.checkConcession(b, "refused")} className={`${CHIP} bg-amber-600 text-white`}>
-              Charge full price (+{off})
+              {t("bk.chargeFull", { off })}
             </button>
-            <button onClick={() => setStep(null)} aria-label="Cancel" className="px-1 text-slate-400">
+            <button onClick={() => setStep(null)} aria-label={t("c.cancel")} className="px-1 text-slate-400">
               ✕
             </button>
           </span>
@@ -1070,33 +1076,37 @@ function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
 
 /** A lesson: the coach, and their fee inside the price. */
 function Coach({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
   return (
     <div className="mt-1 text-xs text-indigo-700">
-      🎓 Lesson with {b.coachName} ({money(b.coachFee ?? 0)} of it the coach&apos;s)
+      🎓 {t("bk.lesson", { coach: b.coachName ?? "", fee: money(b.coachFee ?? 0) })}
     </div>
   );
 }
 
 /** Strikes against this number here, where the venue counts them, with a way to let them off. */
 function StrikesBadge({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (!b.strikes || b.strikes.count === 0) return null;
   const out = b.strikes.count >= b.strikes.limit;
+  const counts = { count: b.strikes.count, limit: b.strikes.limit };
   return (
     <button
       onClick={() => act.forgiveStrikes(b)}
-      title={`${b.strikes.count} of ${b.strikes.limit} strikes here${out ? ": must pay online to book" : ""}. Click to forgive.`}
+      title={out ? t("bk.strikesTitleOut", counts) : t("bk.strikesTitle", counts)}
       className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${out ? "bg-red-600 text-white" : "bg-amber-100 text-amber-800"}`}
     >
-      {b.strikes.count}/{b.strikes.limit} strikes
+      {t("bk.strikes", counts)}
     </button>
   );
 }
 
 function NoShowBadge({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
   if (b.priorNoShows === 0) return null;
   return (
     <span
-      title={`${b.priorNoShows} previous no-show${b.priorNoShows > 1 ? "s" : ""}`}
+      title={t.plural("bk.priorNoShows", b.priorNoShows)}
       className="ml-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600"
     >
       ⚠ {b.priorNoShows}
@@ -1105,37 +1115,38 @@ function NoShowBadge({ b }: { b: AdminBookingRow }) {
 }
 
 function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
   // Held for payment online: it goes by itself if not paid in time.
   if (b.paymentStatus === "unpaid" && b.holdUntil)
     return (
       <span
-        title="The customer is paying online. Not paid by then, the booking is let go."
+        title={t("bk.heldTitle")}
         className={`${CHIP} bg-amber-50 text-amber-700 ring-1 ring-amber-200`}
       >
-        held till {localTime(b.holdUntil)}
+        {t("bk.heldTill", { time: localTime(b.holdUntil) })}
       </span>
     );
   // Nothing to take: a free court (a condominium's, say) owes nothing.
   if (b.totalPrice === 0 && b.paymentStatus !== "paid")
-    return <span className={`${CHIP} bg-slate-100 text-slate-500`}>free</span>;
+    return <span className={`${CHIP} bg-slate-100 text-slate-500`}>{t("bk.free")}</span>;
   const paid = b.paymentStatus === "paid";
   // The money is in the venue's gateway account, not the till: undoing it is
   // a refund there, not a click here.
   if (paid && b.paidOnline)
     return (
       <span
-        title="Paid online, into the venue's payment account. Refund it there if it has to go back."
+        title={t("bk.paidOnlineTitle")}
         className={`${CHIP} bg-emerald-100 text-emerald-700`}
       >
-        ✓ online
+        {`✓ ${t("bk.via.online")}`}
       </span>
     );
   const asking = act.paying === b.code || (b.seriesCode !== null && act.paying === `series:${b.seriesCode}`);
   if (!paid && asking) {
     const series = act.paying !== b.code;
     return <MethodPicker
-      label={series ? `Series ${b.seriesCode} paid by` : "Paid by"}
+      label={series ? t("bk.seriesPaidBy", { series: b.seriesCode ?? "" }) : t("bk.paidBy")}
       onPick={(via) => (series ? act.paySeries(b.seriesCode!, via) : act.togglePaid(b.code, true, via))}
       onCancel={() => act.setPaying(null)}
     />;
@@ -1143,11 +1154,15 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <button
       onClick={() => (paid ? act.togglePaid(b.code, false) : act.setPaying(b.code))}
-      title={
-        ((b.depositPaid ?? 0) > 0 ? `${money(b.depositPaid ?? 0)} deposit paid online. ` : "") +
-        (b.sharesPaid - (b.depositPaid ?? 0) > 0 ? `${money(b.sharesPaid - (b.depositPaid ?? 0))} paid online by other players or friends. ` : "") +
-        (paid ? `${b.paidVia ? `${PAID_VIA_LABELS[b.paidVia]}. ` : ""}Click to mark unpaid` : "Click to mark paid")
-      }
+      title={[
+        ...((b.depositPaid ?? 0) > 0 ? [t("bk.depositPaidOnline", { amount: money(b.depositPaid ?? 0) })] : []),
+        ...(b.sharesPaid - (b.depositPaid ?? 0) > 0
+          ? [t("bk.sharesPaidOnline", { amount: money(b.sharesPaid - (b.depositPaid ?? 0)) })]
+          : []),
+        ...(paid
+          ? [...(b.paidVia ? [t("bk.viaSentence", { via: t(`c.via.${b.paidVia}`) })] : []), t("bk.clickUnpaid")]
+          : [t("bk.clickPaid")]),
+      ].join(" ")}
       className={`${CHIP} ${
         paid
           ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
@@ -1155,10 +1170,10 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
       }`}
     >
       {paid
-        ? `✓ ${b.paidVia ? SHORT_VIA[b.paidVia] : "paid"}`
+        ? `✓ ${b.paidVia ? shortVia(t)[b.paidVia] : t("bk.paidShort")}`
         : b.sharesPaid > 0
-          ? `${money(b.totalPrice - b.sharesPaid)} due`
-          : "unpaid"}
+          ? t("bk.due", { amount: money(b.totalPrice - b.sharesPaid) })
+          : t("bk.unpaidShort")}
     </button>
   );
 }
@@ -1168,15 +1183,16 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
  * invoice yet. An unpaid booking can be put on one here, or taken off until invoiced.
  */
 function AccountChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   const [choices, setChoices] = useState<{ id: number; name: string }[] | null>(null);
   if (b.status !== "confirmed") return null;
   if (b.accountName)
     return (
-      <span className={`${CHIP} mt-1 gap-1 bg-sky-50 text-sky-800 ring-1 ring-sky-200`} title="Paid on the account's monthly invoice">
+      <span className={`${CHIP} mt-1 gap-1 bg-sky-50 text-sky-800 ring-1 ring-sky-200`} title={t("bk.accountTitle")}>
         🏢 {b.accountName}
-        {b.invoiced ? " · invoiced" : ""}
+        {b.invoiced ? ` · ${t("bk.invoiced")}` : ""}
         {!b.invoiced && b.paymentStatus === "unpaid" && (
-          <button type="button" aria-label="Take it off the account" onClick={() => act.charge(b, null)} className="text-sky-500 hover:text-red-600">
+          <button type="button" aria-label={t("bk.takeOffAccount")} onClick={() => act.charge(b, null)} className="text-sky-500 hover:text-red-600">
             ×
           </button>
         )}
@@ -1193,18 +1209,18 @@ function AccountChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         }}
         className="mt-1 block text-xs text-slate-500 underline hover:text-teal-700"
       >
-        on account…
+        {t("bk.onAccount")}
       </button>
     );
-  if (choices.length === 0) return <span className="mt-1 block text-xs text-slate-400">No accounts here</span>;
+  if (choices.length === 0) return <span className="mt-1 block text-xs text-slate-400">{t("bk.noAccounts")}</span>;
   return (
     <select
-      aria-label="Charge to an account"
+      aria-label={t("bk.chargeToAccount")}
       defaultValue=""
       onChange={(e) => e.target.value && act.charge(b, Number(e.target.value))}
       className="mt-1 block rounded-md border border-slate-300 px-1 py-0.5 text-xs"
     >
-      <option value="">Charge to…</option>
+      <option value="">{t("bk.chargeTo")}</option>
       {choices.map((a) => (
         <option key={a.id} value={a.id}>
           {a.name}
@@ -1214,15 +1230,18 @@ function AccountChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   );
 }
 
-const SHORT_VIA: Record<NonNullable<AdminBookingRow["paidVia"]>, string> = {
-  cash: "cash",
-  qr: "QR",
-  transfer: "transfer",
-  card: "card",
-  online: "online",
-  pass: "pass",
-  credit: "credit",
-};
+/** How it was paid, in a word, for a chip. */
+function shortVia(t: StaffT): Record<PaidVia, string> {
+  return {
+    cash: t("bk.via.cash"),
+    qr: t("bk.via.qr"),
+    transfer: t("bk.via.transfer"),
+    card: t("bk.via.card"),
+    online: t("bk.via.online"),
+    pass: t("bk.via.pass"),
+    credit: t("bk.via.credit"),
+  };
+}
 
 /** How the desk took the money: one tap each, so the till and the bank can be reconciled later. */
 function MethodPicker({
@@ -1234,6 +1253,8 @@ function MethodPicker({
   onPick: (via: CounterMethod) => void;
   onCancel: () => void;
 }) {
+  const t = useStaffT();
+  const short = shortVia(t);
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <span className="text-xs text-slate-500">{label}</span>
@@ -1241,13 +1262,13 @@ function MethodPicker({
         <button
           key={m}
           onClick={() => onPick(m)}
-          title={PAID_VIA_LABELS[m]}
+          title={t(`c.via.${m}`)}
           className={`${CHIP} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100`}
         >
-          {SHORT_VIA[m]}
+          {short[m]}
         </button>
       ))}
-      <button onClick={onCancel} aria-label="Cancel" className="px-1 text-xs text-slate-400 hover:text-slate-600">
+      <button onClick={onCancel} aria-label={t("c.cancel")} className="px-1 text-xs text-slate-400 hover:text-slate-600">
         ✕
       </button>
     </span>
@@ -1255,6 +1276,7 @@ function MethodPicker({
 }
 
 function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
   if (b.checkedInAt)
     return (
@@ -1262,8 +1284,8 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         onClick={() => act.toggleCheckIn(b.code, !b.checkedOutAt)}
         title={
           b.checkedOutAt
-            ? `Left at ${localTime(b.checkedOutAt)}`
-            : `Arrived ${localTime(b.checkedInAt)} — click to check out`
+            ? t("bk.leftAt", { time: localTime(b.checkedOutAt) })
+            : t("bk.arrived", { time: localTime(b.checkedInAt) })
         }
         className={`${CHIP} ${
           b.checkedOutAt
@@ -1271,67 +1293,68 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
             : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
         }`}
       >
-        {b.checkedOutAt ? `left ${localTime(b.checkedOutAt)}` : `in ${localTime(b.checkedInAt)}`}
+        {b.checkedOutAt ? t("bk.left", { time: localTime(b.checkedOutAt) }) : t("bk.in", { time: localTime(b.checkedInAt) })}
       </button>
     );
   return (
     <span className="inline-flex gap-1">
       <button
         onClick={() => act.toggleCheckIn(b.code, false)}
-        title="Check the customer in at the desk"
+        title={t("bk.checkInTitle")}
         className={`${CHIP} bg-teal-50 text-teal-700 hover:bg-teal-100`}
       >
-        check in
+        {t("bk.checkIn")}
       </button>
       <button
         onClick={() => act.toggleNoShow(b.code, !b.noShow)}
-        title={b.noShow ? "Click to clear the no-show" : "Mark the customer as a no-show"}
+        title={b.noShow ? t("bk.clearNoShow") : t("bk.markNoShow")}
         className={`${CHIP} ${
           b.noShow
             ? "bg-red-100 text-red-700 hover:bg-red-200"
             : "bg-slate-100 text-slate-500 hover:bg-slate-200"
         }`}
       >
-        {b.noShow ? "no-show" : "no-show?"}
+        {b.noShow ? t("bk.noShow") : t("bk.noShowQ")}
       </button>
     </span>
   );
 }
 
 function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (b.hire === null && (b.courtDeposit === 0 || b.status !== "confirmed")) return null;
   if (b.hire === null)
     return (
       <button
         onClick={() => act.openKit(b, "take")}
-        title={`Hand ${b.courtName} over against an ${money(b.courtDeposit)} deposit`}
+        title={t("bk.handOutTitle", { kit: b.courtName, amount: money(b.courtDeposit) })}
         className={`${CHIP} bg-amber-50 text-amber-700 hover:bg-amber-100`}
       >
-        hand out
+        {t("bk.handOut")}
       </button>
     );
   if (b.hire.returnedAt === null)
     return (
       <button
         onClick={() => act.openKit(b, "return")}
-        title={`Out since ${localTime(b.hire.takenAt)}, ${money(b.hire.deposit)} held — click to take it back`}
+        title={t("bk.outTitle", { time: localTime(b.hire.takenAt), amount: money(b.hire.deposit) })}
         className={`${CHIP} bg-amber-100 text-amber-800 hover:bg-amber-200`}
       >
-        out · {money(b.hire.deposit)}
+        {t("bk.out", { amount: money(b.hire.deposit) })}
       </button>
     );
   return (
     <span
       title={
-        (b.hire.note ?? "No note.") + (b.hire.withheld ? ` ${money(b.hire.withheld)} kept back.` : "")
+        (b.hire.note ?? t("bk.noNote")) + (b.hire.withheld ? ` ${t("bk.keptBackNote", { amount: money(b.hire.withheld) })}` : "")
       }
       className={`${CHIP} ${
         b.hire.condition === "ok" ? "bg-slate-100 text-slate-500" : "bg-red-100 text-red-700"
       }`}
     >
       {b.hire.condition === "ok"
-        ? "back"
-        : `${HIRE_CONDITION_LABELS[b.hire.condition!].toLowerCase()}${
+        ? t("bk.back")
+        : `${conditionLabels(t)[b.hire.condition!].toLowerCase()}${
             b.hire.withheld ? ` · ${money(b.hire.withheld)}` : ""
           }`}
     </span>
@@ -1339,37 +1362,38 @@ function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
 }
 
 function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
   if (b.status !== "confirmed") return null;
   return (
     <>
       <button
         onClick={() => act.openMove(b.code)}
-        title="Put this booking on another court, keeping its code and payment"
+        title={t("bk.moveTitle")}
         className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
       >
-        Move
+        {t("bk.move")}
       </button>
       {b.classId === null && !b.checkedInAt && (
         <button
           onClick={() => act.openChange(b)}
-          title="Move this booking to another day or time, keeping its code and payment"
+          title={t("bk.changeTimeTitle")}
           className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
         >
-          Change time
+          {t("bk.changeTime")}
         </button>
       )}
       <button
         onClick={() => act.cancelBooking(b.code)}
         className="inline-flex min-h-7 items-center rounded-md border border-red-300 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"
       >
-        Cancel
+        {t("c.cancel")}
       </button>
       <button
         onClick={() => act.blockNumber(b)}
-        title="Stop this phone number booking online"
+        title={t("bk.blockTitle")}
         className="inline-flex min-h-7 items-center rounded-md px-2 text-xs text-slate-400 hover:text-red-600"
       >
-        Block number
+        {t("bk.blockNumber")}
       </button>
     </>
   );
