@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import type { TwoFactorStatus } from "@/lib/two-factor";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * This staff account's two-factor sign-in: set up with an authenticator app,
  * recovery codes shown once, and turned off again where the install allows.
  */
 export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; onChange: (s: TwoFactorStatus) => void }) {
+  const t = useStaffT();
   const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState<string[] | null>(null);
@@ -24,10 +26,10 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      if (!res.ok) throw new Error(t.err(data, t("tfa.couldNotSave")));
       return data;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("tfa.couldNotSave"));
       return null;
     } finally {
       setBusy(false);
@@ -37,12 +39,11 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
   const input = "w-28 rounded-md border border-slate-300 px-2 py-1 text-center font-mono tracking-widest";
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">Two-factor sign-in</h3>
+      <h3 className="font-semibold">{t("tfa.title")}</h3>
       {recovery ? (
         <div className="mt-2 space-y-2">
           <p className="text-emerald-700">
-            On. Keep these recovery codes somewhere safe: each signs you in once if you lose your phone. They are not
-            shown again.
+            {t("tfa.recoveryShown")}
           </p>
           <ul className="grid grid-cols-2 gap-1 font-mono text-sm sm:grid-cols-5">
             {recovery.map((c) => (
@@ -52,16 +53,16 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
             ))}
           </ul>
           <button onClick={() => setRecovery(null)} className="text-xs font-semibold text-teal-700 underline">
-            I have saved them
+            {t("tfa.saved")}
           </button>
         </div>
       ) : status.enabled ? (
         <div className="mt-2 space-y-2">
           <p className="text-slate-600">
-            On since {status.enabledAt?.slice(0, 10)}. {status.recoveryLeft} recovery codes left.
+            {t("tfa.onSince", { date: status.enabledAt?.slice(0, 10) ?? "", n: status.recoveryLeft })}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <input aria-label="Code" inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} className={input} />
+            <input aria-label={t("tfa.code")} inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} className={input} />
             <button
               disabled={busy || !code}
               onClick={async () => {
@@ -73,7 +74,7 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
               }}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
             >
-              New recovery codes
+              {t("tfa.newCodes")}
             </button>
             {!status.required && (
               <button
@@ -87,22 +88,22 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
                 }}
                 className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50"
               >
-                Turn off
+                {t("tfa.turnOff")}
               </button>
             )}
           </div>
-          <p className="text-xs text-slate-500">Either needs a code from your app (or a recovery code).</p>
+          <p className="text-xs text-slate-500">{t("tfa.eitherNeeds")}</p>
         </div>
       ) : setup ? (
         <div className="mt-2 space-y-2">
-          <p className="text-slate-600">Scan this with your authenticator app, then type the six digits it shows.</p>
+          <p className="text-slate-600">{t("tfa.scan")}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={setup.qr} alt="QR code for your authenticator app" width={180} height={180} />
+          <img src={setup.qr} alt={t("tfa.qrAlt")} width={180} height={180} />
           <p className="text-xs text-slate-500">
-            Or type this key into it: <span className="font-mono">{setup.secret.match(/.{1,4}/g)?.join(" ")}</span>
+            {t("tfa.typeKey")} <span className="font-mono">{setup.secret.match(/.{1,4}/g)?.join(" ")}</span>
           </p>
           <div className="flex items-center gap-2">
-            <input aria-label="Code" inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} className={input} />
+            <input aria-label={t("tfa.code")} inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} className={input} />
             <button
               disabled={busy || code.length < 6}
               onClick={async () => {
@@ -116,7 +117,7 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
               }}
               className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
             >
-              Turn on
+              {t("tfa.turnOn")}
             </button>
           </div>
         </div>
@@ -124,8 +125,8 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
         <div className="mt-2 space-y-2">
           <p className="text-slate-600">
             {status.required
-              ? "This site requires it for your account: set it up to carry on."
-              : "A code from an app on your phone as well as your password, so a stolen password is not enough."}
+              ? t("tfa.required")
+              : t("tfa.why")}
           </p>
           <button
             disabled={busy}
@@ -135,7 +136,7 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
             }}
             className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
-            Set up two-factor sign-in
+            {t("tfa.setUp")}
           </button>
         </div>
       )}

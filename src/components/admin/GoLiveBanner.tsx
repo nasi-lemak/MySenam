@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useStaffT } from "./StaffLanguage";
 
 interface GoLiveStatus {
   state: "draft" | "live" | "unlisted";
@@ -29,6 +30,7 @@ export function GoLiveBanner({
   refreshKey: string;
   onChange: () => void;
 }) {
+  const t = useStaffT();
   const [status, setStatus] = useState<GoLiveStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,27 +52,26 @@ export function GoLiveBanner({
         body: JSON.stringify({ venueId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not send it.");
+      if (!res.ok) throw new Error(t.err(data, t("live.couldNotSend")));
       setStatus(data.status);
       if (data.live) onChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send it.");
+      setError(err instanceof Error ? err.message : t("live.couldNotSend"));
     } finally {
       setBusy(false);
     }
   }
 
   if (!status || status.state === "live") return null;
-  const name = venueName ?? "Your venue";
+  const name = venueName ?? t("live.yourVenue");
 
   if (status.state === "unlisted" && status.suspension?.by === "owner")
     return (
       <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-        <p className="font-semibold">{name} has been suspended</p>
+        <p className="font-semibold">{t("live.suspended", { name })}</p>
         <p className="mt-1">
-          {status.suspension.reason ? `${status.suspension.reason}. ` : ""}Customers cannot find, book or pay it online until
-          the platform owner lifts this. Bookings already made stand, and you can still use your dashboard. Reply to the
-          email we sent you to talk to us.
+          {status.suspension.reason ? `${status.suspension.reason}. ` : ""}
+          {t("live.suspendedBody")}
         </p>
       </section>
     );
@@ -78,10 +79,9 @@ export function GoLiveBanner({
   if (status.state === "unlisted")
     return (
       <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-        <p className="font-semibold">{name} is off the marketplace</p>
+        <p className="font-semibold">{t("live.unlisted", { name })}</p>
         <p className="mt-1">
-          An invoice is more than 14 days overdue, so customers cannot find, book or pay it online. Bookings already
-          made stand. Pay it under Venues &amp; staff → Billing and it is back straight away.
+          {t("live.unlistedBody")}
         </p>
       </section>
     );
@@ -93,18 +93,17 @@ export function GoLiveBanner({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-semibold">
-            {waiting ? `${name} is waiting to go live` : `${name} is a draft: only you and your staff can see it`}
+            {waiting ? t("live.waiting", { name }) : t("live.draft", { name })}
           </p>
           {waiting ? (
-            <p className="mt-1">We are checking it, and will email you once it is live. You can keep setting it up meanwhile.</p>
+            <p className="mt-1">{t("live.waitingBody")}</p>
           ) : turnedDown ? (
             <p className="mt-1">
-              Not live yet{status.request?.reason ? `: ${status.request.reason}` : "."} Put it right, then ask again.
+              {status.request?.reason ? t("live.rejectedReason", { reason: status.request.reason }) : t("live.rejected")}
             </p>
           ) : (
             <p className="mt-1">
-              Set it up and try it out — your booking page works for you as a preview. When it is ready, send it to go
-              live: we check it is real, email you, and customers can find it from then.
+              {t("live.draftBody")}
             </p>
           )}
           {!waiting && status.missing.length > 0 && (
@@ -118,7 +117,7 @@ export function GoLiveBanner({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <a href={`/venue/${venueId}`} target="_blank" rel="noopener" className="underline">
-            See your page ↗
+            {t("live.seePage")}
           </a>
           {!waiting && (
             <button
@@ -126,7 +125,7 @@ export function GoLiveBanner({
               disabled={busy || status.missing.length > 0}
               className="rounded-lg bg-teal-600 px-3 py-1.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
             >
-              {turnedDown ? "Ask again" : "Ask to go live"}
+              {turnedDown ? t("live.askAgain") : t("live.ask")}
             </button>
           )}
         </div>

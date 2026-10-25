@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { intlTag, isoOffset, region } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- First run ---------------- */
 
@@ -23,6 +24,11 @@ function readable(date: string): string {
   });
 }
 
+/** A phrase with elements (bold tab names) where its `{name}` placeholders are. */
+function withElements(text: string, parts: Record<string, ReactNode>): ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((piece, i) => (i % 2 ? <Fragment key={i}>{parts[piece] ?? `{${piece}}`}</Fragment> : piece));
+}
+
 /**
  * What an empty install — or a demo that has aged out — says for itself.
  *
@@ -37,6 +43,7 @@ function readable(date: string): string {
  * at an empty day list and concluding the software does not work.
  */
 export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
+  const t = useStaffT();
   const [state, setState] = useState<DemoState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,12 +68,12 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
         body: JSON.stringify({ refresh }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load the demo data");
+      if (!res.ok) throw new Error(t.err(data, t("fr.couldNotLoad")));
       setDone({ bookings: data.bookings, extras: data.extras });
       setState(null);
       onSeeded();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the demo data");
+      setError(err instanceof Error ? err.message : t("fr.couldNotLoad"));
     } finally {
       setBusy(false);
     }
@@ -76,11 +83,13 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
     return (
       <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
         <p className="text-sm font-semibold text-emerald-900">
-          {done.bookings} bookings written across the last two weeks and the next two.
+          {t("fr.written", { n: done.bookings })}
         </p>
         <p className="mt-1 text-sm text-emerald-800">
-          Plus {done.extras.join(", ")}. Every tab has something in it now — start with{" "}
-          <strong>Reports</strong> to see a month, or <strong>Bookings</strong> for today&apos;s desk.
+          {withElements(t("fr.doneNext", { extras: done.extras.join(", ") }), {
+            reports: <strong>{t("sh.tab.reports")}</strong>,
+            bookings: <strong>{t("sh.tab.bookings")}</strong>,
+          })}
         </p>
       </div>
     );
@@ -88,12 +97,12 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
   if (state?.stale && state.refreshable)
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
-        <h2 className="text-base font-bold text-amber-900">This demo has run out</h2>
+        <h2 className="text-base font-bold text-amber-900">{t("fr.runOut")}</h2>
         <p className="mt-1 max-w-2xl text-sm text-amber-900/85">
-          It was written on {state.seededOn ? readable(state.seededOn) : "an earlier day"} and only
-          has bookings up to {state.runsTo ? readable(state.runsTo) : "a date now past"}, so
-          today&apos;s desk list opens empty. Reloading writes the same fortnight again, around
-          today.
+          {t("fr.runOutBody", {
+            written: state.seededOn ? readable(state.seededOn) : t("fr.earlierDay"),
+            runsTo: state.runsTo ? readable(state.runsTo) : t("fr.datePast"),
+          })}
         </p>
         {confirming ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -102,14 +111,14 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
               disabled={busy}
               className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
             >
-              {busy ? "Rewriting…" : "Yes — clear it and write today's"}
+              {busy ? t("fr.rewriting") : t("fr.confirmReload")}
             </button>
             <button
               onClick={() => setConfirming(false)}
               disabled={busy}
               className="rounded-lg px-3 py-2 text-sm font-medium text-amber-900 underline disabled:opacity-50"
             >
-              Leave it alone
+              {t("fr.leaveIt")}
             </button>
           </div>
         ) : (
@@ -117,13 +126,11 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
             onClick={() => setConfirming(true)}
             className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
           >
-            Reload the demo onto today
+            {t("fr.reload")}
           </button>
         )}
         <p className="mt-2 text-xs text-amber-900/70">
-          This clears every booking, customer, pass and class first. It is offered only because
-          every one of them was invented by the seeder — the first real booking withdraws it for
-          good.
+          {t("fr.reloadWarning")}
         </p>
         {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
       </div>
@@ -133,52 +140,38 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
 
   return (
     <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-4">
-      <h2 className="text-base font-bold text-teal-900">Nothing has been booked here yet</h2>
+      <h2 className="text-base font-bold text-teal-900">{t("fr.empty")}</h2>
       <p className="mt-1 max-w-2xl text-sm text-teal-900/80">
-        Every tab will look empty until somebody books something. Two ways forward, depending on
-        why you are here.
+        {t("fr.emptyBody")}
       </p>
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div className="rounded-lg border border-teal-200 bg-white p-3.5">
-          <p className="text-sm font-semibold">Just looking?</p>
+          <p className="text-sm font-semibold">{t("fr.justLooking")}</p>
           <p className="mt-1 text-sm text-slate-600">
-            Fill this install with a plausible fortnight — bookings across every sport, a class
-            with a roster, passes, a membership, a promo code, arrivals and a no-show. Enough to
-            see what each screen is for.
+            {t("fr.demoBody")}
           </p>
           <button
             onClick={() => loadDemo()}
             disabled={busy}
             className="mt-3 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {busy ? "Writing…" : "Load demo data"}
+            {busy ? t("fr.writing") : t("fr.loadDemo")}
           </button>
           <p className="mt-2 text-xs text-slate-500">
-            Offered only while this install is empty. Once a real booking exists it is refused, so
-            invented customers cannot appear in a working day list.
+            {t("fr.demoNote")}
           </p>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-          <p className="text-sm font-semibold">Setting up a real venue?</p>
+          <p className="text-sm font-semibold">{t("fr.realVenue")}</p>
           <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-slate-600">
-            <li>
-              <strong>Venues &amp; staff</strong> — add your venue, its opening hours and its
-              cancellation cutoff.
-            </li>
-            <li>
-              <strong>Courts &amp; rates</strong> — add each court with its peak and off-peak
-              price. A gym floor or pool takes a capacity above 1.
-            </li>
-            <li>
-              <strong>Venues &amp; staff</strong> again — create a login for whoever works the
-              counter, and change the password you signed in with.
-            </li>
+            <li>{withElements(t("fr.step1"), { tab: <strong>{t("sh.tab.venuesStaff")}</strong> })}</li>
+            <li>{withElements(t("fr.step2"), { tab: <strong>{t("sh.tab.courts")}</strong> })}</li>
+            <li>{withElements(t("fr.step3"), { tab: <strong>{t("sh.tab.venuesStaff")}</strong> })}</li>
           </ol>
           <p className="mt-2 text-xs text-slate-500">
-            The four demo venues a new install starts with can stay or go — they are only there so the
-            first screen is not blank.
+            {t("fr.demoVenues")}
           </p>
         </div>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useStaffT } from "./StaffLanguage";
 
 interface VenueSetup {
   venueId: number;
@@ -40,6 +41,7 @@ export function SetupChecklist({
   refreshKey: string;
   onGo: (tab: Tab) => void;
 }) {
+  const t = useStaffT();
   const [setup, setSetup] = useState<VenueSetup | null>(null);
   const [open, setOpen] = useState(startOpen);
 
@@ -64,27 +66,27 @@ export function SetupChecklist({
   const steps: { done: boolean; title: string; body: string; actions: React.ReactNode; optional?: boolean }[] = [
     {
       done: setup.courts > 0,
-      title: "Add your courts and rates",
-      body: "Add each court, room or lane, with its off-peak and peak rate per hour.",
-      actions: <Go onClick={() => onGo("courts")}>Courts &amp; rates</Go>,
+      title: t("set.courts.title"),
+      body: t("set.courts.body"),
+      actions: <Go onClick={() => onGo("courts")}>{t("sh.tab.courts")}</Go>,
     },
     {
       done: setup.detailsChecked,
-      title: "Check your opening hours",
-      body: "New venues open 8 am to 11 pm. Change the hours, address, phone and how late customers may cancel under Venue details.",
+      title: t("set.hours.title"),
+      body: t("set.hours.body"),
       actions: (
         <>
-          <Go onClick={() => onGo("venues")}>Venue details</Go>
+          <Go onClick={() => onGo("venues")}>{t("sh.tab.venueDetails")}</Go>
           <button onClick={() => act("detailsChecked")} className="text-sm text-slate-500 underline hover:text-teal-700">
-            They are right as they are
+            {t("set.hoursRight")}
           </button>
         </>
       ),
     },
     {
       done: setup.testBooking,
-      title: "Make a test booking",
-      body: "Book a slot on your own page to see what customers see. It then appears under Bookings, where you can cancel it. Nobody is messaged about a test booking before your venue is live.",
+      title: t("set.test.title"),
+      body: t("set.test.body"),
       actions: (
         <a
           href={`/venue/${venueId}`}
@@ -92,23 +94,23 @@ export function SetupChecklist({
           rel="noopener"
           className="inline-flex min-h-9 items-center rounded-md bg-teal-600 px-3 text-sm font-medium text-white hover:bg-teal-700"
         >
-          Open your booking page ↗
+          {t("set.openPage")}
         </a>
       ),
     },
     {
       done: setup.onlinePayment,
       optional: true,
-      title: "Take payment online",
-      body: "Optional. Customers can pay at the counter as they are. To take payment online, connect your payment gateway account under Venue details.",
-      actions: <Go onClick={() => onGo("venues")}>Venue details</Go>,
+      title: t("set.pay.title"),
+      body: t("set.pay.body"),
+      actions: <Go onClick={() => onGo("venues")}>{t("sh.tab.venueDetails")}</Go>,
     },
     {
       done: setup.photos && setup.facilities,
       optional: true,
-      title: "Add a cover photo and your facilities",
-      body: "Optional. Players choose by these: a photo of your courts, and what you have — showers, parking, a surau, air-con. Under Venue details; what each court is like is under Courts & rates.",
-      actions: <Go onClick={() => onGo("venues")}>Venue details</Go>,
+      title: t("set.photos.title"),
+      body: t("set.photos.body"),
+      actions: <Go onClick={() => onGo("venues")}>{t("sh.tab.venueDetails")}</Go>,
     },
   ];
   const left = steps.filter((s) => !s.done && !s.optional).length;
@@ -116,12 +118,12 @@ export function SetupChecklist({
   return (
     <section className="rounded-xl border border-teal-200 bg-teal-50/60 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold text-teal-900">{venueName ? `Set up ${venueName}` : "Set up your venue"}</h2>
+        <h2 className="text-lg font-semibold text-teal-900">{venueName ? t("set.titleNamed", { venue: venueName }) : t("set.title")}</h2>
         <span className="text-sm text-teal-800">
-          {left === 1 ? "1 step to go" : `${left} steps to go`}
+          {t.plural("set.stepsLeft", left)}
           {!open && (
             <button onClick={() => setOpen(true)} className="ml-3 font-medium underline">
-              Show
+              {t("c.show")}
             </button>
           )}
         </span>
@@ -142,7 +144,7 @@ export function SetupChecklist({
             <div className="min-w-0">
               <p className={`font-medium ${step.done ? "text-slate-500 line-through" : "text-slate-900"}`}>
                 {step.title}
-                <span className="sr-only">{step.done ? " (done)" : ""}</span>
+                <span className="sr-only">{step.done ? ` ${t("set.done")}` : ""}</span>
               </p>
               {!step.done && (
                 <>
@@ -158,7 +160,7 @@ export function SetupChecklist({
         onClick={() => act("dismiss")}
         className="mt-4 text-xs text-slate-500 underline hover:text-teal-700"
       >
-        Hide this; I know my way round
+        {t("set.hide")}
       </button>
         </>
       )}

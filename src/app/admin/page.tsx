@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Admin } from "@/lib/admin-auth";
 import { BookingsTab } from "@/components/admin/BookingsTab";
 import { ChangePassword } from "@/components/ChangePassword";
@@ -22,6 +22,7 @@ import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
 import type { TwoFactorStatus } from "@/lib/two-factor";
+import { useStaffT } from "@/components/admin/StaffLanguage";
 
 type Tab =
   | "bookings"
@@ -35,7 +36,13 @@ type Tab =
   | "credit"
   | "venues";
 
+/** A phrase with elements (a button, a link) where its `{name}` placeholders are. */
+function withElements(text: string, parts: Record<string, ReactNode>): ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((piece, i) => (i % 2 ? <Fragment key={i}>{parts[piece] ?? `{${piece}}`}</Fragment> : piece));
+}
+
 export default function AdminPage() {
+  const t = useStaffT();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [venues, setVenues] = useState<ManagedVenue[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -79,7 +86,7 @@ export default function AdminPage() {
       if (!res.ok) {
         // A ticket that ran out (or too many wrong codes) means the password again.
         if (ticket && /timed out|again/i.test(data.error ?? "")) setTicket(null);
-        throw new Error(data.error ?? "Sign-in failed");
+        throw new Error(t.err(data, t("sh.signInFailed")));
       }
       if (data.twoFactor) {
         setTicket(data.ticket);
@@ -91,7 +98,7 @@ export default function AdminPage() {
       setTicket(null);
       setCode("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setError(err instanceof Error ? err.message : t("sh.signInFailed"));
     } finally {
       setBusy(false);
     }
@@ -106,7 +113,7 @@ export default function AdminPage() {
   if (!loaded) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-        Loading…
+        {t("c.loading")}
       </div>
     );
   }
@@ -115,9 +122,9 @@ export default function AdminPage() {
     return (
       <div className="mx-auto max-w-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Venue admin</h1>
+          <h1 className="text-2xl font-bold">{t("sh.venueAdmin")}</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Sign in with your operator account to manage your venue.
+            {t("sh.signInIntro")}
           </p>
         </div>
         <form
@@ -126,7 +133,7 @@ export default function AdminPage() {
         >
           {ticket ? (
             <label className="block text-sm font-medium text-slate-700">
-              Code from your authenticator app
+              {t("sh.codeLabel")}
               <input
                 inputMode="numeric"
                 autoComplete="one-time-code"
@@ -137,12 +144,12 @@ export default function AdminPage() {
                 placeholder="123456"
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-center font-mono tracking-widest focus:border-teal-500 focus:outline-none"
               />
-              <span className="mt-1 block text-xs font-normal text-slate-500">Lost your phone? A recovery code works here too.</span>
+              <span className="mt-1 block text-xs font-normal text-slate-500">{t("sh.lostPhone")}</span>
             </label>
           ) : (
           <>
           <label className="block text-sm font-medium text-slate-700">
-            Email
+            {t("c.email")}
             <input
               type="email"
               required
@@ -154,7 +161,7 @@ export default function AdminPage() {
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
-            Password
+            {t("sh.password")}
             <input
               type="password"
               required
@@ -170,11 +177,11 @@ export default function AdminPage() {
             disabled={busy}
             className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {busy ? "Checking…" : "Sign in"}
+            {busy ? t("sh.checking") : t("sh.signIn")}
           </button>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <a href="/forgot-password?kind=admin" className="block text-center text-sm text-teal-700 underline">
-            Forgot your password?
+            {t("sh.forgot")}
           </a>
         </form>
       </div>
@@ -185,14 +192,13 @@ export default function AdminPage() {
   if (twoFactor?.required && !twoFactor.enabled)
     return (
       <div className="mx-auto max-w-lg space-y-4">
-        <h1 className="text-2xl font-bold">Set up two-factor sign-in</h1>
+        <h1 className="text-2xl font-bold">{t("tfa.setUp")}</h1>
         <p className="text-sm text-slate-600">
-          {admin.name}, this site asks every staff account like yours to sign in with a code from a phone app as well as
-          a password. It takes a minute.
+          {t("sh.tfaRequired", { name: admin.name })}
         </p>
         <TwoFactorPanel status={twoFactor} onChange={() => void refreshVenues()} />
         <button onClick={signOut} className="text-sm text-slate-500 underline">
-          Sign out
+          {t("sh.signOut")}
         </button>
       </div>
     );
@@ -202,35 +208,35 @@ export default function AdminPage() {
   // Front desk runs the day; the money totals and the staff log are a manager's.
   const desk = admin.role === "desk";
   const tabs: [Tab, string][] = [
-    ["bookings", "Bookings"],
-    ["schedule", "Court schedule"],
-    ["occupancy", "Occupancy"],
-    ...(desk ? [] : ([["reports", "Reports"]] as [Tab, string][])),
-    ["courts", "Courts & rates"],
-    ["classes", "Classes"],
-    ["tournaments", "Tournaments"],
-    ["leagues", "Leagues"],
-    ["credit", "Credit & passes"],
-    ["venues", isOwner ? "Venues & staff" : isManager ? "Branches & staff" : "Venue details"],
+    ["bookings", t("sh.tab.bookings")],
+    ["schedule", t("sh.tab.schedule")],
+    ["occupancy", t("sh.tab.occupancy")],
+    ...(desk ? [] : ([["reports", t("sh.tab.reports")]] as [Tab, string][])),
+    ["courts", t("sh.tab.courts")],
+    ["classes", t("sh.tab.classes")],
+    ["tournaments", t("sh.tab.tournaments")],
+    ["leagues", t("sh.tab.leagues")],
+    ["credit", t("sh.tab.credit")],
+    ["venues", isOwner ? t("sh.tab.venuesStaff") : isManager ? t("sh.tab.branchesStaff") : t("sh.tab.venueDetails")],
   ];
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Admin dashboard</h1>
+          <h1 className="text-2xl font-bold">{t("sh.dashboard")}</h1>
           <p className="mt-0.5 text-sm text-slate-500">
             {admin.name} ·{" "}
             {isOwner ? (
-              <span className="font-medium text-teal-700">Platform owner — all venues</span>
+              <span className="font-medium text-teal-700">{t("sh.platformOwner")}</span>
             ) : isManager && venues.length > 1 ? (
               <span className="font-medium text-teal-700">
-                {admin.businessName} · {venues.length} branches
+                {admin.businessName} · {t.plural("sh.branches", venues.length)}
               </span>
             ) : (
               <span className="font-medium text-teal-700">
-                {venues[0]?.name ?? "Your venue"}
-                {desk && <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">Front desk</span>}
+                {venues[0]?.name ?? t("sh.yourVenue")}
+                {desk && <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{t("sh.frontDesk")}</span>}
               </span>
             )}
           </p>
@@ -240,7 +246,7 @@ export default function AdminPage() {
             onClick={signOut}
             className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-slate-500 underline hover:text-teal-700"
           >
-            Sign out
+            {t("sh.signOut")}
           </button>
           <ChangePassword endpoint="/api/admin/auth/password" />
         </div>
@@ -249,7 +255,7 @@ export default function AdminPage() {
       {twoFactor && (
         <details className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">
           <summary className="cursor-pointer font-medium text-slate-700">
-            Two-factor sign-in: {twoFactor.enabled ? "on" : "off"}
+            {twoFactor.enabled ? t("sh.tfaOn") : t("sh.tfaOff")}
           </summary>
           <div className="mt-2">
             <TwoFactorPanel status={twoFactor} onChange={setTwoFactor} />
@@ -316,11 +322,13 @@ export default function AdminPage() {
 
       {venues.length === 0 && tab !== "venues" ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          No venues yet. Create one in the{" "}
-          <button onClick={() => setTab("venues")} className="font-medium text-teal-700 underline">
-            Venues &amp; staff
-          </button>{" "}
-          tab.
+          {withElements(t("sh.noVenues"), {
+            tab: (
+              <button onClick={() => setTab("venues")} className="font-medium text-teal-700 underline">
+                {t("sh.tab.venuesStaff")}
+              </button>
+            ),
+          })}
         </div>
       ) : (
         <>
