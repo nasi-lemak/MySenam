@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import type { CoachPayout } from "@/lib/coach-schedule";
 import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /** What each coach is owed for the period: their fee on lessons that went ahead (lib/coach-schedule.ts). */
 export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from: string; to: string }) {
+  const t = useStaffT();
   const [payouts, setPayouts] = useState<CoachPayout[] | null>(null);
   useEffect(() => {
     setPayouts(null);
@@ -18,27 +20,24 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-semibold">Coaches: lessons and fees</h3>
+        <h3 className="font-semibold">{t("cpay.title")}</h3>
         <a href={`/api/admin/coach-payouts?venueId=${venueId}&from=${from}&to=${to}&format=csv`} className="font-medium text-teal-700 underline">
-          Every lesson (CSV)
+          {t("cpay.csv")}
         </a>
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        The coach&apos;s fee on each lesson dated in the period that went ahead. Fees on lessons not yet paid are owed
-        once you collect them. No-shows and paid lessons cancelled late are listed apart: whether the coach is paid
-        for them is yours to decide. For a late cancellation the figure is the coach&apos;s fee times the share you
-        kept.
+        {t("cpay.intro")}
       </p>
       <table className="mt-2 w-full text-left">
         <thead className="text-xs text-slate-500">
           <tr>
-            <th className="py-1">Coach</th>
-            <th className="py-1 text-right">Lessons</th>
-            <th className="py-1 text-right">Hours</th>
-            <th className="py-1 text-right">Fees, paid</th>
-            <th className="py-1 text-right">Fees, not yet paid</th>
-            <th className="py-1 text-right">No-shows</th>
-            <th className="py-1 text-right">Late cancellations</th>
+            <th className="py-1">{t("cpay.coach")}</th>
+            <th className="py-1 text-right">{t("cpay.lessons")}</th>
+            <th className="py-1 text-right">{t("cpay.hours")}</th>
+            <th className="py-1 text-right">{t("cpay.feesPaid")}</th>
+            <th className="py-1 text-right">{t("cpay.feesUnpaid")}</th>
+            <th className="py-1 text-right">{t("cpay.noShows")}</th>
+            <th className="py-1 text-right">{t("cpay.lateCancels")}</th>
           </tr>
         </thead>
         <tbody>

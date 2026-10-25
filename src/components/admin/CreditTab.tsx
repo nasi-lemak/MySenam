@@ -1,6 +1,6 @@
 "use client";
 
-import { activityName, activityIcon } from "@/lib/activity-registry";
+import { activityIcon } from "@/lib/activity-registry";
 import { ReceiptsPanel } from "./ReceiptsPanel";
 import { VouchersPanel } from "./VouchersPanel";
 import { CounterSalesPanel } from "./CounterSalesPanel";
@@ -10,7 +10,10 @@ import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AM
 import type { Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
-import { money, currencySymbol, region } from "@/lib/region";
+import { money, region } from "@/lib/region";
+import { sportLabel } from "@/lib/i18n";
+import type { StaffT } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- Credit tab ---------------- */
 
@@ -23,6 +26,7 @@ interface WalletCustomer {
 }
 
 export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [query, setQuery] = useState("");
   // Where credit is per venue, which venue's counter this is.
   const [creditVenueId, setCreditVenueId] = useState(venues[0]?.id ?? 0);
@@ -43,12 +47,12 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
         { cache: "no-store" }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Lookup failed");
+      if (!res.ok) throw new Error(t.err(data, t("cr.lookupFailed")));
       setScope(data.scope);
       setCustomer(data.customer);
       setEntries(data.entries);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Lookup failed");
+      setError(err instanceof Error ? err.message : t("cr.lookupFailed"));
       setCustomer(null);
       setEntries([]);
     }
@@ -65,12 +69,12 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
         body: JSON.stringify({ userId: customer.id, amount: Number(amount), venueId: creditVenueId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Top-up failed");
-      setNotice(`Added ${money(amount)}. New balance ${money(data.balance)}.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.topUpFailed")));
+      setNotice(t("cr.added", { amount: money(amount), balance: money(data.balance) }));
       setCustomer({ ...customer, balance: data.balance });
       setEntries([data.entry, ...entries]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Top-up failed");
+      setError(err instanceof Error ? err.message : t("cr.topUpFailed"));
     }
   }
 
@@ -81,8 +85,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
     <div className="space-y-6">
       <div className="max-w-2xl space-y-4">
       <p className="text-sm text-slate-600">
-        Sell credit at the counter. Customers can then pay for bookings and classes from their
-        balance instead of cash.
+        {t("cr.intro")}
       </p>
 
       <form onSubmit={lookup} className="flex flex-wrap items-end gap-2">
@@ -94,7 +97,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
               setCustomer(null);
               setEntries([]);
             }}
-            aria-label="Venue counter"
+            aria-label={t("cr.venueCounter")}
             className={inputClass}
           >
             {venues.map((v) => (
@@ -108,14 +111,14 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
           required
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Customer email or phone"
+          placeholder={t("cr.findPlaceholder")}
           className={`w-64 ${inputClass}`}
         />
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
         >
-          Find
+          {t("cr.find")}
         </button>
       </form>
 
@@ -143,20 +146,20 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
               <div className="text-2xl font-bold text-teal-700">{money(customer.balance)}</div>
               {scope === "venue" && (
                 <div className="text-xs text-slate-500">
-                  spendable at {venues.find((v) => v.id === creditVenueId)?.name ?? "this venue"}
+                  {t("cr.spendableAt", { venue: venues.find((v) => v.id === creditVenueId)?.name ?? t("cr.thisVenue") })}
                 </div>
               )}
             </div>
           </div>
           {scope === "venue" && (
             <p className="mt-2 text-xs text-slate-500">
-              Credit sold here is this venue&apos;s: spendable only here, and yours to honour.
+              {t("cr.venueCredit")}
             </p>
           )}
 
           <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4">
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Top up ({currencySymbol()})
+              {t("cr.topUpField")}
               <input
                 type="number"
             step={0.01}
@@ -180,7 +183,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
               onClick={topUp}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
             >
-              Add credit
+              {t("cr.addCredit")}
             </button>
           </div>
 
@@ -223,12 +226,13 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
 
 /** Sell and manage multi-visit passes at the counter. */
 function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [passes, setPasses] = useState<Pass[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
-    name: "10-hour badminton pass",
+    name: t("cr.passDefaultName"),
     sport: "",
     kind: "session" as "session" | "time",
     entries: "10",
@@ -288,27 +292,27 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not issue the pass");
-      setNotice(`Sold ${data.pass.code} to ${data.pass.holderName}.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.passIssueFailed")));
+      setNotice(t("cr.passSold", { code: data.pass.code, name: data.pass.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not issue the pass");
+      setError(err instanceof Error ? err.message : t("cr.passIssueFailed"));
     }
   }
 
   async function cancel(pass: Pass) {
-    if (!confirm(`Cancel ${pass.code}? Entries already spent stay spent.`)) return;
+    if (!confirm(t("cr.passCancelConfirm", { code: pass.code }))) return;
     setError(null);
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/passes/${pass.id}/void`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not cancel the pass");
-      setNotice(`Cancelled ${pass.code}.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.passCancelFailed")));
+      setNotice(t("cr.passCancelled", { code: pass.code }));
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not cancel the pass");
+      setError(err instanceof Error ? err.message : t("cr.passCancelFailed"));
     }
   }
 
@@ -317,13 +321,9 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
 
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">Multi-visit passes</h2>
+      <h2 className="text-lg font-bold">{t("cr.passesTitle")}</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Sell entries or court time up front. An entry covers so many minutes or part of them (an hour unless you
-        say), or a whole booking when left blank, so with an hour a 90-minute booking spends two. A time pass
-        spends the minutes booked, exactly. The holder quotes the pass code when booking. A lesson pack is a pass
-        for one coach: it pays lessons with that coach, court and coach, and nothing else. A court pass does not pay
-        lessons.
+        {t("cr.passesIntro")}
       </p>
 
       {error && (
@@ -340,7 +340,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
       <form onSubmit={issue} className="mt-4 flex flex-wrap items-end gap-2">
         {venues.length > 1 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Venue
+            {t("c.venue")}
             <select
               value={venueId}
               onChange={(e) => setVenueId(Number(e.target.value))}
@@ -355,7 +355,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Pass name
+          {t("cr.passName")}
           <input
             required
             value={form.name}
@@ -364,50 +364,50 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Sport
+          {t("cr.sport")}
           <select
             value={form.sport}
             onChange={(e) => setForm({ ...form, sport: e.target.value })}
             className={`mt-1 w-40 ${inputClass}`}
           >
-            <option value="">Any sport</option>
+            <option value="">{t("cr.anySport")}</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {activityIcon(sp)} {activityName(sp)}
+                {activityIcon(sp)} {sportLabel(t.customer, sp)}
               </option>
             ))}
           </select>
         </label>
         {coaches.length > 0 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            For
+            {t("cr.for")}
             <select
               value={form.coachId}
               onChange={(e) => setForm({ ...form, coachId: e.target.value })}
               className={`mt-1 w-48 ${inputClass}`}
             >
-              <option value="">Court time</option>
+              <option value="">{t("cr.courtTime")}</option>
               {coaches.map((c) => (
                 <option key={c.id} value={c.id}>
-                  Lessons with {c.name}
+                  {t("cr.lessonsWith", { name: c.name })}
                 </option>
               ))}
             </select>
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Spends
+          {t("cr.spends")}
           <select
             value={form.kind}
             onChange={(e) => setForm({ ...form, kind: e.target.value as "session" | "time" })}
             className={`mt-1 w-40 ${inputClass}`}
           >
-            <option value="session">Entries</option>
-            <option value="time">Court time</option>
+            <option value="session">{t("cr.entries")}</option>
+            <option value="time">{t("cr.courtTime")}</option>
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {form.kind === "time" ? "Hours of court time" : "Entries"}
+          {form.kind === "time" ? t("cr.hoursOfCourtTime") : t("cr.entries")}
           <input
             type="number"
             min={form.kind === "time" ? 0.25 : 1}
@@ -421,12 +421,12 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
         </label>
         {form.kind === "session" && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            An entry covers (minutes)
+            {t("cr.entryCovers")}
             <input
               type="number"
               min={1}
               max={1440}
-              placeholder="A whole booking"
+              placeholder={t("cr.wholeBooking")}
               value={form.entryMinutes}
               onChange={(e) => setForm({ ...form, entryMinutes: e.target.value })}
               className={`mt-1 w-32 ${inputClass}`}
@@ -434,19 +434,19 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Longest booking (minutes)
+          {t("cr.longestBooking")}
           <input
             type="number"
             min={1}
             max={1440}
-            placeholder="Any"
+            placeholder={t("cr.any")}
             value={form.maxMinutes}
             onChange={(e) => setForm({ ...form, maxMinutes: e.target.value })}
             className={`mt-1 w-28 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Price ({currencySymbol()})
+          {t("cr.price")}
           <input
             type="number"
             step={0.01}
@@ -458,17 +458,17 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Holder
+          {t("cr.holder")}
           <input
             required
-            placeholder="Name"
+            placeholder={t("c.name")}
             value={form.holderName}
             onChange={(e) => setForm({ ...form, holderName: e.target.value })}
             className={`mt-1 w-40 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Phone
+          {t("c.phone")}
           <input
             required
             placeholder={region().phone.example}
@@ -478,7 +478,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Expires
+          {t("cr.expires")}
           <input
             type="date"
             required
@@ -489,7 +489,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Account email (optional)
+          {t("cr.accountEmail")}
           <input
             type="email"
             placeholder="they@example.com"
@@ -502,7 +502,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
         >
-          Sell pass
+          {t("cr.sellPass")}
         </button>
       </form>
 
@@ -510,11 +510,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2">Code</th>
-              <th className="px-3 py-2">Pass</th>
-              <th className="px-3 py-2">Holder</th>
-              <th className="px-3 py-2">Left</th>
-              <th className="px-3 py-2">Expires</th>
+              <th className="px-3 py-2">{t("cr.code")}</th>
+              <th className="px-3 py-2">{t("cr.pass")}</th>
+              <th className="px-3 py-2">{t("cr.holder")}</th>
+              <th className="px-3 py-2">{t("cr.left")}</th>
+              <th className="px-3 py-2">{t("cr.expires")}</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -527,8 +527,8 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="px-3 py-2">
                   {pass.name}
                   <span className="ml-1 text-xs text-slate-400">
-                    {pass.sport ? activityIcon(pass.sport) : "all sports"}
-                    {pass.coachName && ` · lessons with ${pass.coachName}`}
+                    {pass.sport ? activityIcon(pass.sport) : t("cr.allSports")}
+                    {pass.coachName && ` · ${t("cr.passLessonsWith", { name: pass.coachName })}`}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
@@ -539,8 +539,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                   <span className="font-semibold">{pass.remaining}</span>
                   <span className="text-slate-400">
                     {" "}
-                    / {pass.entries}
-                    {pass.kind === "time" ? " min" : pass.entryMinutes ? ` × ${pass.entryMinutes} min` : " bookings"}
+                    {pass.kind === "time"
+                      ? t("cr.ofMinutes", { total: pass.entries })
+                      : pass.entryMinutes
+                        ? t("cr.ofEntriesOf", { total: pass.entries, minutes: pass.entryMinutes })
+                        : t("cr.ofBookings", { total: pass.entries })}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">{pass.expiresOn}</td>
@@ -552,7 +555,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                       onClick={() => cancel(pass)}
                       className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                     >
-                      Cancel
+                      {t("c.cancel")}
                     </button>
                   )}
                 </td>
@@ -561,7 +564,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             {passes.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                  No passes sold at this venue yet.
+                  {t("cr.noPasses")}
                 </td>
               </tr>
             )}
@@ -574,6 +577,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
 
 /** Create and withdraw the venue's promo codes. */
 function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [promos, setPromos] = useState<PromoCode[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -630,27 +634,27 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not create the code");
-      setNotice(`${data.promo.code} is live.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.promoCreateFailed")));
+      setNotice(t("cr.promoLive", { code: data.promo.code }));
       setForm({ ...form, code: "", description: "" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the code");
+      setError(err instanceof Error ? err.message : t("cr.promoCreateFailed"));
     }
   }
 
   async function withdraw(promo: PromoCode) {
-    if (!window.confirm(`Withdraw ${promo.code}? Nobody can use it after this; bookings it is already on keep their discount.`)) return;
+    if (!window.confirm(t("cr.promoWithdrawConfirm", { code: promo.code }))) return;
     setError(null);
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/promos/${promo.id}/void`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not withdraw the code");
-      setNotice(`${promo.code} withdrawn. Discounts already given stand.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.promoWithdrawFailed")));
+      setNotice(t("cr.promoWithdrawn", { code: promo.code }));
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not withdraw the code");
+      setError(err instanceof Error ? err.message : t("cr.promoWithdrawFailed"));
     }
   }
 
@@ -659,10 +663,9 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
 
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">Promo codes</h2>
+      <h2 className="text-lg font-bold">{t("cr.promosTitle")}</h2>
       <p className="mt-1 text-sm text-slate-600">
-        A discount customers claim by typing the code when they book. It comes off the booking
-        total, so credit and passes then pay the discounted figure.
+        {t("cr.promosIntro")}
       </p>
 
       {error && (
@@ -679,7 +682,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
       <form onSubmit={create} className="mt-4 flex flex-wrap items-end gap-2">
         {venues.length > 1 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Venue
+            {t("c.venue")}
             <select
               value={venueId}
               onChange={(e) => setVenueId(Number(e.target.value))}
@@ -694,7 +697,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Code
+          {t("cr.code")}
           <input
             required
             value={form.code}
@@ -704,28 +707,28 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          What it is for
+          {t("cr.promoFor")}
           <input
             required
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder="20% off for Raya"
+            placeholder={t("cr.promoExample")}
             className={`mt-1 w-56 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Type
+          {t("cr.type")}
           <select
             value={form.kind}
             onChange={(e) => setForm({ ...form, kind: e.target.value })}
             className={`mt-1 w-28 ${inputClass}`}
           >
-            <option value="percent">% off</option>
-            <option value="amount">{currencySymbol()} off</option>
+            <option value="percent">{t("cr.percentOff")}</option>
+            <option value="amount">{t("cr.amountOff")}</option>
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {form.kind === "percent" ? "Percent" : "Ringgit"}
+          {form.kind === "percent" ? t("cr.percent") : t("cr.ringgit")}
           <input
             type="number"
             min={1}
@@ -737,22 +740,22 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Sport
+          {t("cr.sport")}
           <select
             value={form.sport}
             onChange={(e) => setForm({ ...form, sport: e.target.value })}
             className={`mt-1 w-36 ${inputClass}`}
           >
-            <option value="">Any sport</option>
+            <option value="">{t("cr.anySport")}</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {activityIcon(sp)} {activityName(sp)}
+                {activityIcon(sp)} {sportLabel(t.customer, sp)}
               </option>
             ))}
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Min hours
+          {t("cr.minHours")}
           <input
             type="number"
             min={1}
@@ -763,7 +766,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          From
+          {t("c.from")}
           <input
             type="date"
             required
@@ -773,7 +776,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Until
+          {t("c.until")}
           <input
             type="date"
             required
@@ -784,26 +787,26 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Limit
+          {t("cr.limit")}
           <input
             type="number"
             min={1}
             value={form.maxUses}
             onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
             placeholder="∞"
-            title="Leave blank for unlimited"
+            title={t("cr.limitHint")}
             className={`mt-1 w-20 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Per customer
+          {t("cr.perCustomer")}
           <input
             type="number"
             min={1}
             value={form.maxPerCustomer}
             onChange={(e) => setForm({ ...form, maxPerCustomer: e.target.value })}
             placeholder="∞"
-            title="How many bookings one phone number can use it on. Leave blank for no limit."
+            title={t("cr.perCustomerHint")}
             className={`mt-1 w-20 ${inputClass}`}
           />
         </label>
@@ -811,7 +814,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
         >
-          Create code
+          {t("cr.createCode")}
         </button>
       </form>
 
@@ -819,11 +822,11 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2">Code</th>
-              <th className="px-3 py-2">What it is for</th>
-              <th className="px-3 py-2">Takes off</th>
-              <th className="px-3 py-2">Used</th>
-              <th className="px-3 py-2">Runs</th>
+              <th className="px-3 py-2">{t("cr.code")}</th>
+              <th className="px-3 py-2">{t("cr.promoFor")}</th>
+              <th className="px-3 py-2">{t("cr.takesOff")}</th>
+              <th className="px-3 py-2">{t("cr.used")}</th>
+              <th className="px-3 py-2">{t("cr.runs")}</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -836,8 +839,8 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="px-3 py-2">
                   {p.description}
                   <span className="ml-1 text-xs text-slate-400">
-                    {p.sport ? activityIcon(p.sport) : "all sports"}
-                    {p.minHours > 1 ? ` · ${p.minHours}h+` : ""}
+                    {p.sport ? activityIcon(p.sport) : t("cr.allSports")}
+                    {p.minHours > 1 ? ` · ${t("cr.minHoursShort", { n: p.minHours })}` : ""}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">
@@ -846,7 +849,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="whitespace-nowrap px-3 py-2">
                   {p.used}
                   <span className="text-slate-400"> / {p.maxUses ?? "∞"}</span>
-                  {p.maxPerCustomer !== null && <span className="block text-xs text-slate-400">{p.maxPerCustomer} per customer</span>}
+                  {p.maxPerCustomer !== null && <span className="block text-xs text-slate-400">{t("cr.perCustomerCount", { n: p.maxPerCustomer })}</span>}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {p.validFrom} → {p.validTo}
@@ -859,7 +862,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                       onClick={() => withdraw(p)}
                       className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                     >
-                      Withdraw
+                      {t("cr.withdraw")}
                     </button>
                   )}
                 </td>
@@ -868,7 +871,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
             {promos.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                  No promo codes at this venue yet.
+                  {t("cr.noPromos")}
                 </td>
               </tr>
             )}
@@ -881,6 +884,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
 
 /** Sell and cancel memberships at the counter. */
 function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [members, setMembers] = useState<Membership[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -931,20 +935,20 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not sell the membership");
-      setNotice(`${data.membership.code} sold to ${data.membership.holderName}.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.memberSellFailed")));
+      setNotice(t("cr.memberSold", { code: data.membership.code, name: data.membership.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not sell the membership");
+      setError(err instanceof Error ? err.message : t("cr.memberSellFailed"));
     }
   }
 
   /** Days given back: an injury, time away, a long closure. */
   async function extend(m: Membership) {
-    const answer = window.prompt(`Give ${m.holderName} days back on ${m.code}: how many (1–90)? It now ends ${m.expiresOn}.`, "14");
+    const answer = window.prompt(t("cr.extendPrompt", { name: m.holderName, code: m.code, date: m.expiresOn }), "14");
     if (answer === null) return;
-    const reason = window.prompt("Why, for the activity log (optional)?", "") ?? "";
+    const reason = window.prompt(t("cr.extendReason"), "") ?? "";
     setError(null);
     setNotice(null);
     const res = await fetch(`/api/admin/memberships/${m.id}/extend`, {
@@ -953,36 +957,37 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
       body: JSON.stringify({ days: Number(answer), reason }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return setError(data.error ?? "Could not extend the membership");
-    setNotice(`${m.code} now runs until ${data.membership.expiresOn}.`);
+    if (!res.ok) return setError(t.err(data, t("cr.extendFailed")));
+    setNotice(t("cr.extended", { code: m.code, date: data.membership.expiresOn }));
     await load();
   }
 
   async function cancel(m: Membership) {
-    if (!window.confirm(`Cancel ${m.holderName}'s membership (${m.code})? Member rates stop for them at once.`)) return;
+    if (!window.confirm(t("cr.memberCancelConfirm", { name: m.holderName, code: m.code }))) return;
     setError(null);
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/memberships/${m.id}/void`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not cancel the membership");
-      setNotice(`${m.code} cancelled. Bookings already made keep the price they were given.`);
+      if (!res.ok) throw new Error(t.err(data, t("cr.memberCancelFailed")));
+      setNotice(t("cr.memberCancelled", { code: m.code }));
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not cancel the membership");
+      setError(err instanceof Error ? err.message : t("cr.memberCancelFailed"));
     }
   }
 
+  const intro = t("cr.membershipsIntro").split("{section}");
   const inputClass =
     "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
 
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">Memberships</h2>
+      <h2 className="text-lg font-bold">{t("cr.membershipsTitle")}</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Add their account email and the membership appears on their own page. A member pays your member rates, set per court under <strong>Courts &amp; rates</strong>.
-        Membership is held against the phone number, so a member who books as a guest still gets
-        their price.
+        {intro[0]}
+        <strong>{t("cr.courtsAndRates")}</strong>
+        {intro[1]}
       </p>
 
       {error && (
@@ -999,7 +1004,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
       <form onSubmit={sell} className="mt-4 flex flex-wrap items-end gap-2">
         {venues.length > 1 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Venue
+            {t("c.venue")}
             <select
               value={venueId}
               onChange={(e) => setVenueId(Number(e.target.value))}
@@ -1014,17 +1019,17 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Member
+          {t("cr.member")}
           <input
             required
-            placeholder="Name"
+            placeholder={t("c.name")}
             value={form.holderName}
             onChange={(e) => setForm({ ...form, holderName: e.target.value })}
             className={`mt-1 w-44 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Phone
+          {t("c.phone")}
           <input
             required
             placeholder={region().phone.example}
@@ -1035,23 +1040,23 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         </label>
         {tiers.length > 0 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            Plan
+            {t("cr.plan")}
             <select
               value={form.tierId}
               onChange={(e) => setForm({ ...form, tierId: e.target.value })}
               className={`mt-1 w-56 ${inputClass}`}
             >
-              <option value="">None: member rates</option>
+              <option value="">{t("cr.noPlan")}</option>
               {tiers.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({tierBenefits(p)})
+                  {p.name} ({tierBenefits(t, p)})
                 </option>
               ))}
             </select>
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          From
+          {t("c.from")}
           <input
             type="date"
             required
@@ -1061,7 +1066,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Until
+          {t("c.until")}
           <input
             type="date"
             required
@@ -1072,7 +1077,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Fee ({currencySymbol()})
+          {t("cr.fee")}
           <input
             type="number"
             step={0.01}
@@ -1084,7 +1089,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Account email (optional)
+          {t("cr.accountEmail")}
           <input
             type="email"
             placeholder="they@example.com"
@@ -1097,7 +1102,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
         >
-          Sell membership
+          {t("cr.sellMembership")}
         </button>
       </form>
 
@@ -1107,10 +1112,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         <table className="w-full min-w-[700px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2">Code</th>
-              <th className="px-3 py-2">Member</th>
-              <th className="px-3 py-2">Runs</th>
-              <th className="px-3 py-2">Fee</th>
+              <th className="px-3 py-2">{t("cr.code")}</th>
+              <th className="px-3 py-2">{t("cr.member")}</th>
+              <th className="px-3 py-2">{t("cr.runs")}</th>
+              <th className="px-3 py-2">{t("cr.feeHeading")}</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -1132,7 +1137,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">
                   {money(m.price)}
-                  {m.online && <span className="ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700">online</span>}
+                  {m.online && <span className="ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700">{t("cr.onlineBadge")}</span>}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
                   {m.unusableReason ? (
@@ -1143,13 +1148,13 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                         onClick={() => extend(m)}
                         className="mr-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                       >
-                        Give days back
+                        {t("cr.giveDaysBack")}
                       </button>
                       <button
                         onClick={() => cancel(m)}
                         className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                       >
-                        Cancel
+                        {t("c.cancel")}
                       </button>
                     </>
                   )}
@@ -1159,7 +1164,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             {members.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                  No members at this venue yet.
+                  {t("cr.noMembers")}
                 </td>
               </tr>
             )}
@@ -1184,16 +1189,17 @@ const RATE_CHOICES = [95, 90, 85, 80, 75, 70, 60, 50];
 const AHEAD_CHOICES = [7, 14, 21, 30, 45, 60, 90];
 
 /** What a tier gives, in a few words. */
-function tierBenefits(p: Plan): string {
+function tierBenefits(t: StaffT, p: Plan): string {
   const parts = [
-    p.ratePercent !== null ? `pays ${p.ratePercent}% of the price` : "member rates",
-    p.aheadDays !== null ? `books ${p.aheadDays} days ahead` : null,
+    p.ratePercent !== null ? t("cr.tierPays", { percent: p.ratePercent }) : t("cr.tierMemberRates"),
+    p.aheadDays !== null ? t("cr.tierBooksAhead", { days: p.aheadDays }) : null,
   ];
   return parts.filter(Boolean).join(", ");
 }
 
 /** Membership plans customers can join or renew on online, paid to the venue. */
 function MembershipPlans({ venueId }: { venueId: number }) {
+  const t = useStaffT();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [online, setOnline] = useState(true);
   const [form, setForm] = useState({ name: "", months: "12", price: "", ratePercent: "", aheadDays: "" });
@@ -1227,7 +1233,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return setError(data.error ?? "Could not add the plan");
+    if (!res.ok) return setError(t.err(data, t("cr.planAddFailed")));
     setForm({ name: "", months: "12", price: "", ratePercent: "", aheadDays: "" });
     await load();
   }
@@ -1240,33 +1246,29 @@ function MembershipPlans({ venueId }: { venueId: number }) {
       body: JSON.stringify({ venueId, id: plan.id, ratePercent: plan.ratePercent, aheadDays: plan.aheadDays, ...change }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return setError(data.error ?? "Could not change the plan");
+    if (!res.ok) return setError(t.err(data, t("cr.planChangeFailed")));
     await load();
   }
 
   async function retire(plan: Plan) {
-    if (!window.confirm(`Stop selling the ${plan.name} plan online? Memberships already bought on it stand.`)) return;
+    if (!window.confirm(t("cr.planRetireConfirm", { name: plan.name }))) return;
     setError(null);
     const res = await fetch(`/api/admin/membership-plans?venueId=${venueId}&id=${plan.id}`, { method: "DELETE" });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return setError(data.error ?? "Could not retire the plan");
+    if (!res.ok) return setError(t.err(data, t("cr.planRetireFailed")));
     await load();
   }
 
   const inputClass = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
   return (
     <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
-      <h3 className="font-semibold">Plans and tiers</h3>
+      <h3 className="font-semibold">{t("cr.plansTitle")}</h3>
       <p className="mt-0.5 text-sm text-slate-600">
-        Plans shown on your venue page. A signed-in customer pays you through your own online payment account and the
-        membership is made when the money is in, against their account&apos;s phone number. A member renews from{" "}
-        45 days before theirs ends, and the new one runs on from the old. A plan can also be a tier with benefits of its own,
-        a lower price or a longer booking window (Gold pays 70% and books 30 days ahead), and memberships sold at the counter
-        can be put on it too.
+        {t("cr.plansIntro")}
       </p>
       {!online && (
         <p className="mt-2 text-sm font-medium text-amber-700">
-          Not showing yet: set up Online payment under Venue details first.
+          {t("cr.plansNotShowing")}
         </p>
       )}
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
@@ -1277,32 +1279,32 @@ function MembershipPlans({ venueId }: { venueId: number }) {
               <span>
                 <span className="font-medium">{p.name}</span>{" "}
                 <span className="text-slate-500">
-                  · {p.months} month{p.months === 1 ? "" : "s"} · {money(p.price)}
+                  · {t.plural("cr.months", p.months)} · {money(p.price)}
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-                  Members on it pay
+                  {t("cr.membersPay")}
                   <select
                     value={p.ratePercent ?? ""}
                     onChange={(e) => benefits(p, { ratePercent: e.target.value === "" ? null : Number(e.target.value) })}
                     className="rounded border border-slate-300 px-1 py-0.5"
                   >
-                    <option value="">each court&apos;s member rate</option>
+                    <option value="">{t("cr.memberRateOption")}</option>
                     {RATE_CHOICES.map((r) => (
                       <option key={r} value={r}>
-                        {r}% of the public price
+                        {t("cr.ofPublicPrice", { percent: r })}
                       </option>
                     ))}
                   </select>
-                  and book
+                  {t("cr.andBook")}
                   <select
                     value={p.aheadDays ?? ""}
                     onChange={(e) => benefits(p, { aheadDays: e.target.value === "" ? null : Number(e.target.value) })}
                     className="rounded border border-slate-300 px-1 py-0.5"
                   >
-                    <option value="">as far ahead as members do</option>
+                    <option value="">{t("cr.asFarAheadAsMembers")}</option>
                     {AHEAD_CHOICES.map((d) => (
                       <option key={d} value={d}>
-                        {d} days ahead
+                        {t("cr.daysAhead", { days: d })}
                       </option>
                     ))}
                   </select>
@@ -1312,7 +1314,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                 onClick={() => retire(p)}
                 className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white"
               >
-                Stop offering
+                {t("cr.stopOffering")}
               </button>
             </li>
           ))}
@@ -1320,17 +1322,17 @@ function MembershipPlans({ venueId }: { venueId: number }) {
       )}
       <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2">
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Plan
+          {t("cr.plan")}
           <input
             required
-            placeholder="Annual"
+            placeholder={t("cr.planExample")}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className={`mt-1 w-40 ${inputClass}`}
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Months
+          {t("cr.monthsField")}
           <input
             type="number"
             min={1}
@@ -1342,7 +1344,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Fee ({currencySymbol()})
+          {t("cr.fee")}
           <input
             type="number"
             step={0.01}
@@ -1354,7 +1356,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
           />
         </label>
         <button type="submit" className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700">
-          Add plan
+          {t("cr.addPlan")}
         </button>
       </form>
     </div>

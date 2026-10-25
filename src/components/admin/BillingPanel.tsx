@@ -6,6 +6,7 @@ import type { OnlinePayment } from "@/lib/payments";
 import type { PlanTiers } from "@/lib/plans";
 import { PlanTiersEditor } from "./PlanTiersEditor";
 import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * What a marketplace venue owes the platform, month by month.
@@ -15,6 +16,7 @@ import { money } from "@/lib/region";
  * payment that arrived some other way.
  */
 export function BillingPanel({ isOwner }: { isOwner: boolean }) {
+  const t = useStaffT();
   const [state, setState] = useState<{
     marketplace: boolean;
     invoices: Invoice[];
@@ -34,12 +36,12 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
     try {
       const res = await fetch("/api/admin/billing", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load billing");
+      if (!res.ok) throw new Error(t.err(data, t("bill.loadFailed")));
       setState(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load billing");
+      setError(err instanceof Error ? err.message : t("bill.loadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -56,7 +58,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (!res.ok) throw new Error(t.err(data, t("bill.requestFailed")));
       if (typeof data.url === "string") {
         window.location.assign(data.url);
         return;
@@ -65,7 +67,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
       setEditing(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : t("bill.requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -78,52 +80,58 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
   return (
     <section>
       <h2 className="text-lg font-bold">
-        Billing{outstanding.length > 0 && ` (${outstanding.length} unpaid)`}
+        {outstanding.length > 0 ? t("bill.titleUnpaid", { n: outstanding.length }) : t("bill.title")}
       </h2>
       <p className="mt-1 text-sm text-slate-500">
         {isOwner
-          ? "What each venue pays to be listed, invoiced on the first of every month."
-          : "What this venue pays to be listed, invoiced on the first of every month."}
+          ? t("bill.introOwner")
+          : t("bill.introVenue")}
       </p>
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-3 text-sm font-medium text-emerald-700">{notice}</p>}
       {overdue.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <strong>{overdue.length} overdue.</strong>{" "}
-          {isOwner ? "Remind these venues." : "Please pay, or get in touch if something is wrong."}
+          <strong>{t("bill.overdue", { n: overdue.length })}</strong>{" "}
+          {isOwner ? t("bill.remindVenues") : t("bill.pleasePay")}
         </div>
       )}
 
       {isOwner && state.refundsOwed && state.refundsOwed.length > 0 && (
         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-          <h3 className="font-semibold text-amber-900">Owed back to venues</h3>
+          <h3 className="font-semibold text-amber-900">{t("bill.owedBack")}</h3>
           <p className="mt-1 text-amber-800">
-            Paid to the platform twice, or after the invoice or pack was voided. Kept apart from what the platform has earned until it is refunded.
+            {t("bill.owedBackIntro")}
           </p>
           <ul className="mt-2 space-y-2">
             {state.refundsOwed.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {p.payerName ?? "A venue"}: {money(p.refundOwed)} of {money(p.amount)} ({p.purpose === "pack" ? "WhatsApp pack" : "invoice"}, {p.providerName})
+                  {t("bill.owedLine", {
+                    payer: p.payerName ?? t("bill.aVenue"),
+                    owed: money(p.refundOwed),
+                    amount: money(p.amount),
+                    what: p.purpose === "pack" ? t("bill.whatsappPack") : t("bill.invoiceLower"),
+                    provider: p.providerName,
+                  })}
                 </span>
                 <span className="flex gap-2">
                   {p.refundsByApi && (
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => act({ action: "refund", paymentId: p.id, how: "gateway" }, "Refund sent.")}
+                      onClick={() => act({ action: "refund", paymentId: p.id, how: "gateway" }, t("bill.refundSent"))}
                       className="rounded-md bg-amber-700 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
                     >
-                      Refund through {p.providerName}
+                      {t("bill.refundThrough", { provider: p.providerName })}
                     </button>
                   )}
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => act({ action: "refund", paymentId: p.id, how: "manual" }, "Marked refunded.")}
+                    onClick={() => act({ action: "refund", paymentId: p.id, how: "manual" }, t("bill.markedRefunded"))}
                     className="rounded-md border border-amber-700 px-2 py-1 text-xs font-semibold text-amber-800 disabled:opacity-50"
                   >
-                    Refunded in {p.providerName}
+                    {t("bill.refundedIn", { provider: p.providerName })}
                   </button>
                 </span>
               </li>
@@ -138,7 +146,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
           suggested={state.suggestedTiers}
           defaultFee={state.defaultFee ?? 0}
           busy={busy}
-          onSave={(plan) => act({ action: "setTiers", ...plan }, "Tiers saved. They apply from the next invoice.")}
+          onSave={(plan) => act({ action: "setTiers", ...plan }, t("bill.tiersSaved"))}
         />
       )}
 
@@ -147,21 +155,25 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
           {state.plans.map((p) => (
             <p key={p.venueId}>
               {state.plans!.length > 1 && <span className="font-medium">{p.venueName}: </span>}
-              <span className="font-semibold">{money(p.effectiveFee.toFixed(2))} a month</span>
-              {p.feeFrom === "tier" ? ` — ${p.tierName}, for ${p.resources} court${p.resources === 1 ? "" : "s"} or rooms` : p.feeFrom === "own" ? " — your agreed fee" : ""}
-              {p.billingStartsOn === null ? " (not billed yet)" : ""}
+              <span className="font-semibold">{t("bill.perMonth", { amount: money(p.effectiveFee.toFixed(2)) })}</span>
+              {p.feeFrom === "tier"
+                ? ` — ${t.plural("bill.tierFor", p.resources, { tier: p.tierName ?? "" })}`
+                : p.feeFrom === "own"
+                  ? ` — ${t("bill.agreedFee")}`
+                  : ""}
+              {p.billingStartsOn === null ? ` ${t("bill.notBilledYet")}` : ""}
             </p>
           ))}
           {state.tiers && state.tiers.tiers.length > 0 && (
             <p className="mt-1 text-xs text-slate-500">
-              Counted when each month is invoiced; a court out of service all month is not counted.{" "}
+              {t("bill.countedNote")}{" "}
               {state.tiers.tiers
-                .map((t, i) => {
+                .map((tier, i) => {
                   const from = i === 0 ? 1 : (state.tiers!.tiers[i - 1].upTo ?? 0) + 1;
-                  return `${t.name} ${money(t.monthlyFee.toFixed(2))} (${t.upTo === null ? `${from}+` : `${from}–${t.upTo}`})`;
+                  return `${tier.name} ${money(tier.monthlyFee.toFixed(2))} (${tier.upTo === null ? `${from}+` : `${from}–${tier.upTo}`})`;
                 })
                 .join(" · ")}
-              {state.tiers.extraEach > 0 && `, then ${money(state.tiers.extraEach)} each`}.
+              {state.tiers.extraEach > 0 && `, ${t("bill.thenEach", { amount: money(state.tiers.extraEach) })}`}.
             </p>
           )}
         </div>
@@ -172,9 +184,9 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-3 py-2">Venue</th>
-                <th className="px-3 py-2">Monthly fee · tier · courts</th>
-                <th className="px-3 py-2">Billed from</th>
+                <th className="px-3 py-2">{t("c.venue")}</th>
+                <th className="px-3 py-2">{t("bill.colFee")}</th>
+                <th className="px-3 py-2">{t("bill.colFrom")}</th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
@@ -187,7 +199,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                       <input
                         value={editing.fee}
                         onChange={(e) => setEditing({ ...editing, fee: e.target.value })}
-                        placeholder={p.feeFrom === "own" ? "by size" : `${money(p.effectiveFee)} by size`}
+                        placeholder={p.feeFrom === "own" ? t("bill.bySize") : t("bill.amountBySize", { amount: money(p.effectiveFee) })}
                         inputMode="decimal"
                         className="w-28 rounded-md border border-slate-300 px-2 py-1"
                       />
@@ -211,15 +223,15 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                               monthlyFee: editing.fee,
                               billingStartsOn: editing.start,
                             },
-                            "Saved."
+                            t("c.saved")
                           )
                         }
                         className="rounded-md bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
                       >
-                        Save
+                        {t("c.save")}
                       </button>{" "}
                       <button onClick={() => setEditing(null)} className="text-xs text-slate-500">
-                        Cancel
+                        {t("c.cancel")}
                       </button>
                     </td>
                   </tr>
@@ -229,10 +241,10 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                     <td className="px-3 py-2">
                       {money(p.effectiveFee.toFixed(2))}
                       <span className="text-xs text-slate-400">
-                        {p.feeFrom === "tier" ? ` ${p.tierName} · ${p.resources}` : p.feeFrom === "own" ? " (agreed)" : " (default)"}
+                        {p.feeFrom === "tier" ? ` ${p.tierName} · ${p.resources}` : p.feeFrom === "own" ? ` ${t("bill.agreed")}` : ` ${t("bill.default")}`}
                       </span>
                     </td>
-                    <td className="px-3 py-2">{p.billingStartsOn ?? <span className="text-slate-400">not billed</span>}</td>
+                    <td className="px-3 py-2">{p.billingStartsOn ?? <span className="text-slate-400">{t("bill.notBilled")}</span>}</td>
                     <td className="px-3 py-2 text-right">
                       <button
                         onClick={() =>
@@ -244,7 +256,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                         }
                         className="text-xs font-semibold text-teal-700 hover:underline"
                       >
-                        Change
+                        {t("c.change")}
                       </button>
                     </td>
                   </tr>
@@ -256,17 +268,17 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
       )}
 
       {state.invoices.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">No invoices yet.</p>
+        <p className="mt-3 text-sm text-slate-500">{t("bill.noInvoices")}</p>
       ) : (
         <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-3 py-2">Month</th>
-                {isOwner && <th className="px-3 py-2">Venue</th>}
-                <th className="px-3 py-2 text-right">Amount</th>
-                <th className="px-3 py-2">Due</th>
-                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">{t("bill.colMonth")}</th>
+                {isOwner && <th className="px-3 py-2">{t("c.venue")}</th>}
+                <th className="px-3 py-2 text-right">{t("c.amount")}</th>
+                <th className="px-3 py-2">{t("bill.colDue")}</th>
+                <th className="px-3 py-2">{t("c.status")}</th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
@@ -292,23 +304,25 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                     {money(i.amount)}
                     {i.tax && (
                       <span className="block text-xs text-slate-500">
-                        incl. {i.tax.name} {money(i.tax.amount)}
+                        {t("bill.inclTax", { tax: i.tax.name, amount: money(i.tax.amount) })}
                       </span>
                     )}
                   </td>
                   <td className={`px-3 py-2 ${i.overdue ? "font-semibold text-red-700" : ""}`}>{i.dueOn}</td>
                   <td className="px-3 py-2">
                     {i.status === "paid"
-                      ? `Paid${i.paidVia === "online" ? " online" : ""}`
+                      ? i.paidVia === "online"
+                        ? t("bill.paidOnline")
+                        : t("c.paid")
                       : i.status === "void"
-                        ? "Void"
+                        ? t("bill.statusVoid")
                         : i.overdue
-                          ? "Overdue"
-                          : "Due"}
+                          ? t("bill.statusOverdue")
+                          : t("bill.statusDue")}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     <a href={`/admin/invoices/${i.id}`} target="_blank" rel="noopener" className="text-xs font-semibold text-teal-700 hover:underline">
-                      {i.tax ? "Tax invoice" : "Invoice"}
+                      {i.tax ? t("bill.taxInvoice") : t("bill.invoice")}
                     </a>{" "}
                     {i.status === "due" && state.canPayOnline && (
                       <button
@@ -316,7 +330,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                         onClick={() => act({ action: "pay", invoiceId: i.id })}
                         className="rounded-md bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                       >
-                        Pay online
+                        {t("bill.payOnline")}
                       </button>
                     )}
                     {i.status === "due" && isOwner && (
@@ -324,20 +338,20 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                         {" "}
                         <button
                           disabled={busy}
-                          onClick={() => act({ action: "markPaid", invoiceId: i.id }, "Marked paid.")}
+                          onClick={() => act({ action: "markPaid", invoiceId: i.id }, t("bill.markedPaid"))}
                           className="text-xs font-semibold text-teal-700 hover:underline"
                         >
-                          Mark paid
+                          {t("bill.markPaid")}
                         </button>{" "}
                         <button
                           disabled={busy}
                           onClick={() => {
-                            if (window.confirm(`Void ${i.venueName}'s ${i.period} invoice?`))
-                              act({ action: "void", invoiceId: i.id }, "Voided.");
+                            if (window.confirm(t("bill.voidConfirm", { venue: i.venueName, period: i.period })))
+                              act({ action: "void", invoiceId: i.id }, t("bill.voided"));
                           }}
                           className="text-xs text-slate-500 hover:underline"
                         >
-                          Void
+                          {t("bill.voidButton")}
                         </button>
                       </>
                     )}

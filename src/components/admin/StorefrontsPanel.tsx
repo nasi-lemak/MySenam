@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Storefront } from "@/lib/storefront";
 import type { ManagedVenue } from "./shared";
+import { useStaffT } from "./StaffLanguage";
 
 const EMPTY = { hostname: "", name: "", tagline: "", accentColor: "", logoUrl: "", venueIds: [] as number[] };
 
@@ -13,6 +14,7 @@ const EMPTY = { hostname: "", name: "", tagline: "", accentColor: "", logoUrl: "
  * can see.
  */
 export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [storefronts, setStorefronts] = useState<Storefront[] | null>(null);
   const [editing, setEditing] = useState<(typeof EMPTY & { id?: number }) | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,12 +25,12 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
     try {
       const res = await fetch("/api/admin/storefronts", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load storefronts");
+      if (!res.ok) throw new Error(t.err(data, t("sf.loadFailed")));
       setStorefronts(data.storefronts);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load storefronts");
+      setError(err instanceof Error ? err.message : t("sf.loadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -47,29 +49,29 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
         body: JSON.stringify(editing),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
-      setNotice(`Saved ${data.storefront.hostname}. Point its DNS here if you have not yet.`);
+      if (!res.ok) throw new Error(t.err(data, t("sf.saveFailed")));
+      setNotice(t("sf.saved", { host: data.storefront.hostname }));
       setEditing(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("sf.saveFailed"));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove(s: Storefront) {
-    if (!window.confirm(`Remove ${s.hostname}? It will show the whole marketplace instead.`)) return;
+    if (!window.confirm(t("sf.removeConfirm", { host: s.hostname }))) return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/admin/storefronts?id=${s.id}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not remove");
-      setNotice(`Removed ${s.hostname}.`);
+      if (!res.ok) throw new Error(t.err(data, t("sf.removeFailed")));
+      setNotice(t("sf.removed", { host: s.hostname }));
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove");
+      setError(err instanceof Error ? err.message : t("sf.removeFailed"));
     } finally {
       setBusy(false);
     }
@@ -82,19 +84,18 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold">Storefront domains</h2>
+        <h2 className="text-lg font-bold">{t("sf.title")}</h2>
         {!editing && (
           <button
             onClick={() => setEditing({ ...EMPTY })}
             className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
           >
-            Add a domain
+            {t("sf.add")}
           </button>
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        Give a venue its own website: its domain shows only its venues, under its name and colour.
-        Bookings, payments and staff accounts work exactly as they do here.
+        {t("sf.intro")}
       </p>
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-3 text-sm font-medium text-emerald-700">{notice}</p>}
@@ -103,7 +104,7 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
         <form onSubmit={save} className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-medium text-slate-700">
-              Domain
+              {t("sf.domain")}
               <input
                 required
                 value={editing.hostname}
@@ -113,32 +114,32 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
               />
             </label>
             <label className="text-sm font-medium text-slate-700">
-              Name shown
+              {t("sf.nameShown")}
               <input
                 required
                 value={editing.name}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                placeholder="ABC Badminton"
+                placeholder={t("sf.nameExample")}
                 className={input}
               />
             </label>
             <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-              Tagline (optional)
+              {t("sf.tagline")}
               <input
                 value={editing.tagline}
                 onChange={(e) => setEditing({ ...editing, tagline: e.target.value })}
-                placeholder="Eight courts in Petaling Jaya, open till midnight"
+                placeholder={t("sf.taglineExample")}
                 className={input}
               />
             </label>
             <label className="text-sm font-medium text-slate-700">
-              Colour (optional)
+              {t("sf.colour")}
               <div className="mt-1 flex gap-2">
                 <input
                   type="color"
                   value={editing.accentColor || "#0d9488"}
                   onChange={(e) => setEditing({ ...editing, accentColor: e.target.value })}
-                  aria-label="Pick a colour"
+                  aria-label={t("sf.pickColour")}
                   className="h-9 w-12 rounded border border-slate-300"
                 />
                 <input
@@ -150,7 +151,7 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
               </div>
             </label>
             <label className="text-sm font-medium text-slate-700">
-              Logo address (optional)
+              {t("sf.logo")}
               <input
                 value={editing.logoUrl}
                 onChange={(e) => setEditing({ ...editing, logoUrl: e.target.value })}
@@ -160,7 +161,7 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
             </label>
           </div>
           <fieldset>
-            <legend className="text-sm font-medium text-slate-700">Venues it shows</legend>
+            <legend className="text-sm font-medium text-slate-700">{t("sf.venues")}</legend>
             <div className="mt-1 grid gap-1 sm:grid-cols-2">
               {venues.map((v) => (
                 <label key={v.id} className="flex items-center gap-2 text-sm">
@@ -188,15 +189,14 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
               disabled={busy}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
             >
-              Save
+              {t("c.save")}
             </button>
             <button type="button" onClick={() => setEditing(null)} className="px-3 text-sm text-slate-500">
-              Cancel
+              {t("c.cancel")}
             </button>
           </div>
           <p className="text-xs text-slate-500">
-            Then give the domain an A record with this server&apos;s address. The certificate is issued on the
-            first visit.
+            {t("sf.dnsHelp")}
           </p>
         </form>
       )}
@@ -243,10 +243,10 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
                   }
                   className="text-teal-700 hover:underline"
                 >
-                  Change
+                  {t("c.change")}
                 </button>
                 <button disabled={busy} onClick={() => remove(s)} className="text-red-600 hover:underline">
-                  Remove
+                  {t("c.remove")}
                 </button>
               </div>
             </li>

@@ -3,10 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Admin } from "@/lib/admin-auth";
 import type { MapPoint } from "@/components/PinMap";
-import PinPicker, { PIN_TEXT_EN } from "@/components/PinPicker";
+import PinPicker, { type PinPickerText } from "@/components/PinPicker";
+import type { StaffT } from "@/lib/staff-i18n";
 import type { ManagedVenue } from "./shared";
+import { useStaffT } from "./StaffLanguage";
 
 const input = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+
+const pinText = (t: StaffT): PinPickerText => ({
+  label: t("biz.pin.label"),
+  hint: t("biz.pin.hint"),
+  find: t("biz.pin.find"),
+  useLocation: t("biz.pin.useLocation"),
+  looking: t("biz.pin.looking"),
+  found: t("biz.pin.found"),
+  notFound: t("biz.pin.notFound"),
+  pinned: t("biz.pin.pinned"),
+  locationFailed: t("biz.pin.locationFailed"),
+});
 
 interface BranchRequest {
   id: number;
@@ -24,6 +38,7 @@ interface BranchRequest {
  * the install allows that and its pin and address agree.
  */
 export function BranchRequestPanel({ businessName, onChange }: { businessName: string; onChange: () => void }) {
+  const t = useStaffT();
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [form, setForm] = useState({ name: "", area: "", address: "", phone: "", message: "" });
   const [pin, setPin] = useState<MapPoint | null>(null);
@@ -42,7 +57,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
     e.preventDefault();
     setError(null);
     setNotice(null);
-    if (!pin) return setError("Drop a pin on the map where the branch is.");
+    if (!pin) return setError(t("biz.dropPin"));
     const name = form.name.trim();
     const res = await fetch("/api/admin/branches", {
       method: "POST",
@@ -50,8 +65,8 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
       body: JSON.stringify({ ...form, ...pin }),
     });
     const data = await res.json();
-    if (!res.ok) return setError(data.error ?? "Could not send that.");
-    setNotice(`${name} is added as a draft. Set it up from its checklist above, then send it to go live.`);
+    if (!res.ok) return setError(t.err(data, t("biz.sendFailed")));
+    setNotice(t("biz.addedDraft", { name }));
     setForm({ name: "", area: "", address: "", phone: "", message: "" });
     setPin(null);
     await load();
@@ -60,26 +75,23 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
 
   return (
     <section>
-      <h2 className="text-lg font-bold">Add a branch</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Another location for {businessName}, yours to set up straight away. Customers see it once it goes live.
-        Credit and passes customers buy at any branch work at all of them.
-      </p>
+      <h2 className="text-lg font-bold">{t("biz.addBranch")}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t("biz.addBranchIntro", { business: businessName })}</p>
       <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4">
-        <input required minLength={2} placeholder="Branch name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-52 ${input}`} />
-        <input required minLength={2} placeholder="Area (e.g. Cheras)" value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} className={`w-40 ${input}`} />
-        <input required minLength={5} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={`w-64 ${input}`} />
-        <input required placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-40 ${input}`} />
-        <input placeholder="Anything we should know? (optional)" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
+        <input required minLength={2} placeholder={t("biz.branchName")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-52 ${input}`} />
+        <input required minLength={2} placeholder={t("biz.area")} value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} className={`w-40 ${input}`} />
+        <input required minLength={5} placeholder={t("biz.address")} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={`w-64 ${input}`} />
+        <input required placeholder={t("c.phone")} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-40 ${input}`} />
+        <input placeholder={t("biz.anything")} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
         <div className="w-full">
           <PinPicker
             query={[form.address, form.area].filter((v) => v.trim()).join(", ")}
             pin={pin}
             onPin={setPin}
-            text={PIN_TEXT_EN}
+            text={pinText(t)}
           />
         </div>
-        <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Add this branch</button>
+        <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{t("biz.addThisBranch")}</button>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {notice && <p className="mt-2 text-sm text-emerald-700">{notice}</p>}
@@ -89,13 +101,13 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
             <li key={r.id}>
               <span className="font-medium">{r.businessName}</span> ({r.area}) ·{" "}
               {r.status === "draft" ? (
-                <span className="text-slate-600">being set up</span>
+                <span className="text-slate-600">{t("biz.settingUp")}</span>
               ) : r.status === "pending" ? (
-                <span className="text-amber-700">waiting to go live</span>
+                <span className="text-amber-700">{t("biz.waiting")}</span>
               ) : r.status === "approved" ? (
-                <span className="text-emerald-700">live</span>
+                <span className="text-emerald-700">{t("biz.live")}</span>
               ) : (
-                <span className="text-red-700">not live yet{r.reason ? `: ${r.reason}` : ""}</span>
+                <span className="text-red-700">{r.reason ? t("biz.notLiveYetReason", { reason: r.reason }) : t("biz.notLiveYet")}</span>
               )}
             </li>
           ))}
@@ -120,6 +132,7 @@ interface Business {
  * the one business they are.
  */
 export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; onChange: () => void }) {
+  const t = useStaffT();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [staff, setStaff] = useState<Admin[]>([]);
   const [name, setName] = useState("");
@@ -152,7 +165,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
     let reason = "";
     if (!b.suspended) {
       const given = window.prompt(
-        `Suspend ${b.name} and all ${b.branches.length} of its branches? Customers stop seeing them at once. Why (their staff are told):`,
+        t("biz.suspendPrompt", { name: b.name, n: b.branches.length }),
         ""
       );
       if (!given) return;
@@ -165,7 +178,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
       body: JSON.stringify({ businessId: b.id, action: b.suspended ? "lift" : "suspend", reason }),
     });
     const data = await res.json();
-    if (!res.ok) return setError(data.error ?? "Could not do that.");
+    if (!res.ok) return setError(t.err(data, t("biz.doFailed")));
     await load();
     onChange();
   }
@@ -183,7 +196,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
       }),
     });
     const data = await res.json();
-    if (!res.ok) return setError(data.error ?? "That did not work.");
+    if (!res.ok) return setError(t.err(data, t("biz.failed")));
     setBusinesses(data.businesses);
     setName("");
     setInto("");
@@ -195,11 +208,8 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
 
   return (
     <section>
-      <h2 className="text-lg font-bold">Businesses</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        A business owns one or more branches. Its managers sign in once for all of them, and credit and passes bought
-        at one branch work at every branch.
-      </p>
+      <h2 className="text-lg font-bold">{t("biz.title")}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t("biz.intro")}</p>
       {businesses.length > 0 && (
         <ul className="mt-3 space-y-2 text-sm">
           {businesses.map((b) => (
@@ -209,7 +219,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
                   {b.name}
                   {b.suspended && (
                     <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
-                      suspended{b.suspendedReason ? `: ${b.suspendedReason}` : ""}
+                      {b.suspendedReason ? t("biz.suspendedReason", { reason: b.suspendedReason }) : t("biz.suspended")}
                     </span>
                   )}
                 </span>
@@ -218,14 +228,14 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
                   onClick={() => void suspend(b)}
                   className={`text-xs font-medium underline ${b.suspended ? "text-teal-700" : "text-red-700"}`}
                 >
-                  {b.suspended ? "Lift the suspension" : "Suspend the business"}
+                  {b.suspended ? t("biz.lift") : t("biz.suspend")}
                 </button>
               </div>
               <div className="text-slate-600">
-                {b.branches.length === 0 ? "No branches" : b.branches.map((v) => `${v.name} (${v.area})`).join(" · ")}
+                {b.branches.length === 0 ? t("biz.noBranches") : b.branches.map((v) => `${v.name} (${v.area})`).join(" · ")}
               </div>
               <div className="text-xs text-slate-500">
-                Managed by {b.managers.length === 0 ? "nobody yet" : b.managers.map((m) => m.email).join(", ")}
+                {t("biz.managedBy", { who: b.managers.length === 0 ? t("biz.nobodyYet") : b.managers.map((m) => m.email).join(", ") })}
               </div>
             </li>
           ))}
@@ -233,21 +243,21 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
       )}
       <form onSubmit={submit} className="mt-3 space-y-3 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <select value={into} onChange={(e) => setInto(e.target.value)} className={input} aria-label="Business">
-            <option value="">A new business, called…</option>
+          <select value={into} onChange={(e) => setInto(e.target.value)} className={input} aria-label={t("biz.business")}>
+            <option value="">{t("biz.newBusiness")}</option>
             {businesses.map((b) => (
               <option key={b.id} value={b.id}>
-                Add to {b.name}
+                {t("biz.addTo", { name: b.name })}
               </option>
             ))}
           </select>
           {!target && (
-            <input required minLength={2} placeholder="Business name" value={name} onChange={(e) => setName(e.target.value)} className={`w-56 ${input}`} />
+            <input required minLength={2} placeholder={t("biz.businessName")} value={name} onChange={(e) => setName(e.target.value)} className={`w-56 ${input}`} />
           )}
         </div>
         <fieldset>
-          <legend className="font-medium text-slate-700">Venues not in a business yet</legend>
-          {loose.length === 0 && <p className="text-slate-500">Every venue is in a business.</p>}
+          <legend className="font-medium text-slate-700">{t("biz.looseVenues")}</legend>
+          {loose.length === 0 && <p className="text-slate-500">{t("biz.allGrouped")}</p>}
           <div className="mt-1 flex flex-wrap gap-3">
             {loose.map((v) => (
               <label key={v.id} className="inline-flex items-center gap-1.5">
@@ -259,7 +269,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
         </fieldset>
         {promotable.length > 0 && (
           <fieldset>
-            <legend className="font-medium text-slate-700">Make managers of the whole business</legend>
+            <legend className="font-medium text-slate-700">{t("biz.makeManagers")}</legend>
             <div className="mt-1 flex flex-wrap gap-3">
               {promotable.map((a) => (
                 <label key={a.id} className="inline-flex items-center gap-1.5">
@@ -271,7 +281,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
           </fieldset>
         )}
         <button className="rounded-lg bg-teal-600 px-4 py-2 font-semibold text-white hover:bg-teal-700">
-          {target ? `Add to ${target.name}` : "Create business"}
+          {target ? t("biz.addTo", { name: target.name }) : t("biz.create")}
         </button>
         {error && <p className="text-red-600">{error}</p>}
       </form>

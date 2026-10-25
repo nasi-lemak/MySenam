@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Photo } from "@/lib/photos-shared";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * Photos venues have added in the last fortnight, for the platform owner.
@@ -10,6 +11,7 @@ import type { Photo } from "@/lib/photos-shared";
  * picture, a customer's face. Removing one tells nobody; say why yourself.
  */
 export function RecentPhotosPanel() {
+  const t = useStaffT();
   const [photos, setPhotos] = useState<(Photo & { venueName: string })[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
@@ -21,19 +23,19 @@ export function RecentPhotosPanel() {
   }, [load]);
 
   async function remove(p: Photo) {
-    if (!window.confirm("Remove this photo from the venue?")) return;
+    if (!window.confirm(t("rph.removeConfirm"))) return;
     setError(null);
     const res = await fetch(`/api/admin/venues/${p.venueId}/photos/${p.id}`, { method: "DELETE" });
-    if (!res.ok) return setError((await res.json().catch(() => ({}))).error ?? "Could not remove it.");
+    if (!res.ok) return setError(t.err(await res.json().catch(() => null), t("rph.removeFailed")));
     await load();
   }
 
   return (
     <section>
-      <h2 className="text-lg font-bold">New photos</h2>
-      <p className="mt-1 text-sm text-slate-500">What venues have added in the last 14 days. Remove anything that is not that venue.</p>
+      <h2 className="text-lg font-bold">{t("rph.title")}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t("rph.intro")}</p>
       {error && <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-      {photos && photos.length === 0 && <p className="mt-2 text-sm text-slate-500">None.</p>}
+      {photos && photos.length === 0 && <p className="mt-2 text-sm text-slate-500">{t("rph.none")}</p>}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         {(photos ?? []).map((p) => (
           <figure key={p.id} className="space-y-1 text-xs">
@@ -43,7 +45,7 @@ export function RecentPhotosPanel() {
             </div>
             <figcaption className="truncate text-slate-600">{p.venueName}</figcaption>
             <button onClick={() => void remove(p)} className="text-red-700 underline">
-              Remove
+              {t("c.remove")}
             </button>
           </figure>
         ))}

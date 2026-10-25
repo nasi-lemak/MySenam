@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 interface Row {
   number: string;
@@ -22,6 +23,7 @@ interface Row {
  * A booking's receipt is on the booking.
  */
 export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [rows, setRows] = useState<Row[] | null>(null);
 
@@ -35,7 +37,7 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold">Receipts and credit notes</h3>
+        <h3 className="font-semibold">{t("rcp.title")}</h3>
         {venues.length > 1 && (
           <select
             value={venueId}
@@ -51,10 +53,9 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
         )}
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        Numbered in order as each pass, membership, top-up, entry, league fee or share is paid, and a credit note when one
-        is cancelled, refunded or voided. Open one to print it. A booking&apos;s receipt is on the booking.
+        {t("rcp.intro")}
       </p>
-      {rows && rows.length === 0 && <p className="mt-2 text-sm text-slate-500">None yet.</p>}
+      {rows && rows.length === 0 && <p className="mt-2 text-sm text-slate-500">{t("rcp.none")}</p>}
       {rows && rows.length > 0 && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
@@ -70,7 +71,7 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
                   <td className="py-1.5 pr-2">{r.customer}</td>
                   <td className="py-1.5 pr-2 text-slate-600">
                     {r.description}
-                    {r.credits && <span className="text-amber-700"> (reverses {r.credits})</span>}
+                    {r.credits && <span className="text-amber-700">{` ${t("rcp.reverses", { number: r.credits })}`}</span>}
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{r.kind === "credit_note" ? `−${money(r.total)}` : money(r.total)}</td>
                 </tr>

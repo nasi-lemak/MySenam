@@ -7,6 +7,7 @@ import { venueTax } from "@/lib/tax";
 import { money } from "@/lib/region";
 import { siteName } from "@/lib/site";
 import { PrintButton } from "@/components/PrintButton";
+import { staffServerT } from "@/lib/staff-locale";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     (invoice.venueId !== null && canAccessVenue(admin, invoice.venueId)) ||
     (invoice.businessId !== null && admin.businessId === invoice.businessId);
   if (!allowed) notFound();
+  const t = await staffServerT();
 
   const venue = invoice.venueId !== null ? await getVenue(invoice.venueId) : null;
   // The venue's own tax number, where it has one: a registered buyer may want it on the invoice.
@@ -39,12 +41,16 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const lines =
     invoice.lines.length > 0
       ? invoice.lines.map((l) => ({
-          description: `${siteName()} — ${l.venueName}, ${invoice.period}${l.planName ? ` (${l.planName}, ${l.resources} courts and rooms)` : ""}`,
+          description: l.planName
+            ? t("bill.inv.linePlan", { site: siteName(), venue: l.venueName, period: invoice.period, plan: l.planName, n: String(l.resources) })
+            : `${siteName()} — ${l.venueName}, ${invoice.period}`,
           amount: l.amount,
         }))
       : [
           {
-            description: `${siteName()} — ${invoice.venueName}, ${invoice.period}${invoice.planName ? ` (${invoice.planName}, ${invoice.resources} courts and rooms)` : ""}`,
+            description: invoice.planName
+              ? t("bill.inv.linePlan", { site: siteName(), venue: invoice.venueName, period: invoice.period, plan: invoice.planName, n: String(invoice.resources) })
+              : `${siteName()} — ${invoice.venueName}, ${invoice.period}`,
             amount: invoice.net,
           },
         ];
@@ -53,41 +59,39 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     <article className="mx-auto max-w-2xl space-y-6 rounded-2xl border border-slate-200 bg-white p-8 text-sm shadow-sm print:border-0 print:shadow-none">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">{invoice.tax ? "Tax invoice" : "Invoice"}</h1>
+          <h1 className="text-2xl font-bold">{invoice.tax ? t("bill.taxInvoice") : t("bill.invoice")}</h1>
           <p className="mt-1 text-slate-600">
-            No. <span className="font-mono font-semibold">{`${invoice.period}-${String(invoice.id).padStart(5, "0")}`}</span>
+            {t("bill.inv.no")} <span className="font-mono font-semibold">{`${invoice.period}-${String(invoice.id).padStart(5, "0")}`}</span>
           </p>
-          <p className="text-slate-600">Issued {invoice.issuedOn} · due {invoice.dueOn}</p>
+          <p className="text-slate-600">{t("bill.inv.issuedDue", { issued: invoice.issuedOn, due: invoice.dueOn })}</p>
         </div>
-        <PrintButton label="Print or save as PDF" />
+        <PrintButton label={t("bill.inv.print")} />
       </header>
 
       <div className="grid gap-6 sm:grid-cols-2">
         <section>
-          <p className="text-xs uppercase tracking-wide text-slate-500">From</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500">{t("bill.inv.from")}</p>
           <p className="font-semibold">{operator.name}</p>
-          {operator.registration && <p className="text-slate-600">Registration no. {operator.registration}</p>}
+          {operator.registration && <p className="text-slate-600">{t("bill.inv.regNo", { no: operator.registration })}</p>}
           {invoice.tax?.regNo && (
-            <p className="text-slate-600">
-              {invoice.tax.name} registration no. {invoice.tax.regNo}
-            </p>
+            <p className="text-slate-600">{t("bill.inv.taxRegNo", { tax: invoice.tax.name, no: invoice.tax.regNo })}</p>
           )}
           {operator.address && <p className="whitespace-pre-line text-slate-600">{operator.address}</p>}
           {operator.email && <p className="text-slate-600">{operator.email}</p>}
         </section>
         <section>
-          <p className="text-xs uppercase tracking-wide text-slate-500">To</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500">{t("bill.inv.to")}</p>
           <p className="font-semibold">{invoice.venueName}</p>
           {venue && <p className="text-slate-600">{venue.address}</p>}
-          {venueTaxNo && <p className="text-slate-600">Tax no. {venueTaxNo}</p>}
+          {venueTaxNo && <p className="text-slate-600">{t("bill.inv.taxNo", { no: venueTaxNo })}</p>}
         </section>
       </div>
 
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-            <th className="py-2 pr-3 font-medium">Description</th>
-            <th className="py-2 text-right font-medium">Amount</th>
+            <th className="py-2 pr-3 font-medium">{t("bill.inv.description")}</th>
+            <th className="py-2 text-right font-medium">{t("c.amount")}</th>
           </tr>
         </thead>
         <tbody>
@@ -102,19 +106,17 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           {invoice.tax && (
             <>
               <tr>
-                <td className="pt-3 pr-3 text-slate-600">Total before {invoice.tax.name}</td>
+                <td className="pt-3 pr-3 text-slate-600">{t("bill.inv.totalBefore", { tax: invoice.tax.name })}</td>
                 <td className="pt-3 text-right tabular-nums text-slate-600">{money(invoice.net)}</td>
               </tr>
               <tr>
-                <td className="pr-3 text-slate-600">
-                  {invoice.tax.name} at {invoice.tax.rate}%
-                </td>
+                <td className="pr-3 text-slate-600">{t("bill.inv.taxAt", { tax: invoice.tax.name, rate: invoice.tax.rate })}</td>
                 <td className="text-right tabular-nums text-slate-600">{money(invoice.tax.amount)}</td>
               </tr>
             </>
           )}
           <tr>
-            <td className="pt-2 pr-3 font-semibold">{invoice.tax ? `Total, including ${invoice.tax.name}` : "Total"}</td>
+            <td className="pt-2 pr-3 font-semibold">{invoice.tax ? t("bill.inv.totalIncl", { tax: invoice.tax.name }) : t("c.total")}</td>
             <td className="pt-2 text-right text-base font-bold tabular-nums">{money(invoice.amount)}</td>
           </tr>
         </tfoot>
@@ -122,10 +124,12 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
 
       <p className="text-slate-600">
         {invoice.status === "paid"
-          ? `Paid${invoice.paidAt ? ` on ${invoice.paidAt.slice(0, 10)}` : ""}${invoice.paidVia === "online" ? ", online" : ""}. Thank you.`
+          ? invoice.paidAt
+            ? t(invoice.paidVia === "online" ? "bill.inv.paidOnOnline" : "bill.inv.paidOn", { date: invoice.paidAt.slice(0, 10) })
+            : t(invoice.paidVia === "online" ? "bill.inv.paidOnline" : "bill.inv.paid")
           : invoice.status === "void"
-            ? "Cancelled: nothing is owed on this invoice."
-            : `Please pay by ${invoice.dueOn}.`}
+            ? t("bill.inv.void")
+            : t("bill.inv.payBy", { due: invoice.dueOn })}
       </p>
     </article>
   );

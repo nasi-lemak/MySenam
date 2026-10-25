@@ -3,19 +3,28 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import type { EmailCheck, VenueApplication } from "@/lib/applications";
-import { REVIEW_CHECKS } from "@/lib/review-checks";
+import { REVIEW_CHECKS, type ReviewCheck } from "@/lib/review-checks";
 import { googleMapsLink, streetViewLink } from "@/components/PinMap";
 import { money } from "@/lib/region";
+import type { StaffT } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
 const PinMap = dynamic(() => import("@/components/PinMap"), { ssr: false });
 
-const EMAIL_CHECK: Record<EmailCheck, { text: string; ok: boolean }> = {
-  confirmed: { text: "Email confirmed", ok: true },
-  account: { text: "Asked from their manager account", ok: true },
-  unsent: { text: "Email not confirmed: this install cannot send email", ok: false },
-  "not asked": { text: "Applied before emails were confirmed", ok: false },
-  waiting: { text: "Email not confirmed yet", ok: false },
-};
+const emailChecks = (t: StaffT): Record<EmailCheck, { text: string; ok: boolean }> => ({
+  confirmed: { text: t("app.email.confirmed"), ok: true },
+  account: { text: t("app.email.account"), ok: true },
+  unsent: { text: t("app.email.unsent"), ok: false },
+  "not asked": { text: t("app.email.notAsked"), ok: false },
+  waiting: { text: t("app.email.waiting"), ok: false },
+});
+
+const checkLabels = (t: StaffT): Record<ReviewCheck, string> => ({
+  location: t("app.check.location"),
+  phone: t("app.check.phone"),
+  business: t("app.check.business"),
+  photos: t("app.check.photos"),
+});
 
 /**
  * Venues asking to join, for the platform owner to let in or turn away.
@@ -29,6 +38,7 @@ const EMAIL_CHECK: Record<EmailCheck, { text: string; ok: boolean }> = {
  * address to pass the news on to.
  */
 export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
+  const t = useStaffT();
   const [applications, setApplications] = useState<VenueApplication[] | null>(null);
   const [marketplace, setMarketplace] = useState(false);
   const [drafts, setDrafts] = useState(0);
@@ -46,14 +56,14 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
     try {
       const res = await fetch("/api/admin/venue-applications", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load applications");
+      if (!res.ok) throw new Error(t.err(data, t("app.loadFailed")));
       setApplications(data.applications);
       setMarketplace(data.marketplace);
       setDrafts(data.drafts ?? 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load applications");
+      setError(err instanceof Error ? err.message : t("app.loadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -62,16 +72,16 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   async function decide(a: VenueApplication, decision: "approve" | "reject") {
     let reason = "";
     if (decision === "reject") {
-      const given = window.prompt(`Not putting ${a.businessName} live? A reason for them (optional):`, "");
+      const given = window.prompt(t("app.rejectPrompt", { name: a.businessName }), "");
       if (given === null) return;
       reason = given;
     } else if (
       !window.confirm(
         a.forBusiness
-          ? `Put ${a.businessName} live as a branch of ${a.forBusiness}?`
+          ? t("app.confirmBranch", { name: a.businessName, business: a.forBusiness })
           : a.venueId === null
-            ? `Approve ${a.businessName}? This creates the venue and ${a.email}'s account.`
-            : `Put ${a.businessName} live? Customers can find, book and pay it from now, and its free months start.`
+            ? t("app.confirmApprove", { name: a.businessName, email: a.email })
+            : t("app.confirmLive", { name: a.businessName })
       )
     ) {
       return;
@@ -86,19 +96,19 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
         body: JSON.stringify({ id: a.id, decision, reason, checks: ticked[a.id] ?? [] }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (!res.ok) throw new Error(t.err(data, t("app.requestFailed")));
       const told = data.emailed
-        ? `${a.email} has been emailed.`
-        : `Email is not set up, so let them know yourself: ${a.email}, ${a.venuePhone}.`;
+        ? t("app.emailed", { email: a.email })
+        : t("app.tellThem", { email: a.email, phone: a.venuePhone });
       setNotice(
         decision === "approve"
-          ? `${a.businessName} is live. ${told}`
-          : `${a.businessName} is not live. ${told}`
+          ? t("app.isLive", { name: a.businessName, told })
+          : t("app.isNotLive", { name: a.businessName, told })
       );
       await load();
       if (decision === "approve") onChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : t("app.requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -107,22 +117,25 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   if (!applications || (!marketplace && applications.length === 0)) return null;
   const pending = applications.filter((a) => a.status === "pending");
   const decided = applications.filter((a) => a.status !== "pending").slice(0, 10);
+  const labels = checkLabels(t);
+  const [introBefore, introAfter] = t("app.intro", { path: "{path}" }).split("{path}");
 
   return (
     <section>
       <h2 className="text-lg font-bold">
-        Going live{pending.length > 0 && ` (${pending.length} waiting)`}
+        {pending.length > 0 ? t("app.titleWaiting", { n: pending.length }) : t("app.title")}
       </h2>
       <p className="mt-1 text-sm text-slate-500">
-        Businesses sign up at <span className="font-mono">/list-your-venue</span> and set their venue up as a draft
-        nobody else sees, then ask to go live from their dashboard.{" "}
-        {drafts === 1 ? "1 draft is being set up now." : `${drafts} drafts are being set up now.`}
+        {introBefore}
+        <span className="font-mono">/list-your-venue</span>
+        {introAfter}{" "}
+        {t.plural("app.drafts", drafts)}
       </p>
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-3 text-sm font-medium text-emerald-700">{notice}</p>}
 
       {pending.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">Nobody is waiting.</p>
+        <p className="mt-3 text-sm text-slate-500">{t("app.nobody")}</p>
       ) : (
         <div className="mt-3 space-y-3">
           {pending.map((a) => (
@@ -133,7 +146,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                     {a.businessName}
                     {a.forBusiness && (
                       <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                        new branch of {a.forBusiness}
+                        {t("app.newBranch", { business: a.forBusiness })}
                       </span>
                     )}
                   </div>
@@ -144,20 +157,22 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                     </a>
                   </div>
                   <div className="mt-1 text-sm text-slate-600">
-                    {a.contactName} · <span className="font-mono text-xs">{a.email}</span> · asked{" "}
-                    {a.createdAt.slice(0, 10)}
+                    {a.contactName} · <span className="font-mono text-xs">{a.email}</span> ·{" "}
+                    {t("app.asked", { date: a.createdAt.slice(0, 10) })}
                   </div>
                   {a.setup && (
                     <div className="mt-1 text-sm text-slate-600">
-                      {a.setup.courts === 1 ? "1 court" : `${a.setup.courts} courts`}
+                      {t.plural("app.courts", a.setup.courts)}
                       {a.setup.sports && ` · ${a.setup.sports}`}
                       {a.setup.lowRate !== null &&
-                        ` · ${money(a.setup.lowRate)}${a.setup.highRate !== a.setup.lowRate ? `–${a.setup.highRate}` : ""} an hour`}
+                        ` · ${t("app.perHour", {
+                          rate: `${money(a.setup.lowRate)}${a.setup.highRate !== a.setup.lowRate ? `–${a.setup.highRate}` : ""}`,
+                        })}`}
                       {a.venueId !== null && (
                         <>
                           {" · "}
                           <a href={`/venue/${a.venueId}`} target="_blank" rel="noopener" className="underline">
-                            their page ↗
+                            {t("app.theirPage")}
                           </a>
                         </>
                       )}
@@ -172,25 +187,25 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                 <div className="flex gap-2">
                   <button
                     disabled={busy || !REVIEW_CHECKS.every((c) => ticked[a.id]?.includes(c.id))}
-                    title="Tick every check below first"
+                    title={t("app.tickFirst")}
                     onClick={() => decide(a, "approve")}
                     className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                   >
-                    Approve
+                    {t("app.approve")}
                   </button>
                   <button
                     disabled={busy}
                     onClick={() => decide(a, "reject")}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    Not yet
+                    {t("app.notYet")}
                   </button>
                 </div>
               </div>
               <Evidence a={a} />
               <fieldset className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
                 <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Before approving
+                  {t("app.beforeApproving")}
                 </legend>
                 {REVIEW_CHECKS.map((c) => (
                   <label key={c.id} className="flex items-start gap-2 text-sm text-slate-700">
@@ -200,7 +215,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                       checked={ticked[a.id]?.includes(c.id) ?? false}
                       onChange={() => tick(a.id, c.id)}
                     />
-                    {c.label}
+                    {labels[c.id]}
                   </label>
                 ))}
               </fieldset>
@@ -216,9 +231,9 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
               {a.businessName} —{" "}
               {a.status === "approved"
                 ? a.reviewChecks.includes("auto")
-                  ? "live, on its own"
-                  : "live"
-                : "not live"}{" "}
+                  ? t("app.liveAuto")
+                  : t("app.live")
+                : t("app.notLive")}{" "}
               {a.decidedAt?.slice(0, 10)}
               {a.reason ? ` (${a.reason})` : ""}
             </li>
@@ -231,7 +246,8 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
 
 /** Where it says it is, and what about that doesn't add up. */
 function Evidence({ a }: { a: VenueApplication }) {
-  const email = EMAIL_CHECK[a.emailCheck];
+  const t = useStaffT();
+  const email = emailChecks(t)[a.emailCheck];
   const warnings = a.location?.warnings ?? [];
   return (
     <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-2">
@@ -241,11 +257,11 @@ function Evidence({ a }: { a: VenueApplication }) {
         </p>
         {a.pinPlace && (
           <p className="text-slate-600">
-            <span className="font-medium text-slate-700">What the map says is at the pin:</span> {a.pinPlace}
+            <span className="font-medium text-slate-700">{t("app.pinPlace")}</span> {a.pinPlace}
           </p>
         )}
         {warnings.length === 0 ? (
-          <p className="text-emerald-700">✓ The pin, the address and the area agree, and no other venue is listed there.</p>
+          <p className="text-emerald-700">✓ {t("app.allAgree")}</p>
         ) : (
           <ul className="space-y-1 text-amber-800">
             {warnings.map((w) => (
@@ -256,10 +272,10 @@ function Evidence({ a }: { a: VenueApplication }) {
         {a.pin && (
           <p className="flex gap-3 text-xs font-semibold">
             <a href={googleMapsLink(a.pin)} target="_blank" rel="noreferrer" className="text-teal-700 underline">
-              Open in Google Maps
+              {t("app.openMaps")}
             </a>
             <a href={streetViewLink(a.pin)} target="_blank" rel="noreferrer" className="text-teal-700 underline">
-              Street View
+              {t("app.streetView")}
             </a>
           </p>
         )}
@@ -268,7 +284,8 @@ function Evidence({ a }: { a: VenueApplication }) {
         <div>
           <PinMap pin={a.pin} found={a.found} height={200} />
           <p className="mt-1 text-xs text-slate-500">
-            Teal pin: where they say the venue is.{a.found && " Grey ring: where the address they typed leads."}
+            {t("app.tealPin")}
+            {a.found && ` ${t("app.greyRing")}`}
           </p>
         </div>
       )}
