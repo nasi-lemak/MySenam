@@ -67,9 +67,22 @@ export interface BookingPolicy {
   lengths: number[] | null;
   /** What the booking board offers first. */
   defaultLength: number;
-  /** Kept free before and after each booking (changeover, cleaning); customers cannot book into them. */
+  /**
+   * Minimum separation before and after each booking: time kept free that
+   * does not add up. Two neighbours need the larger of the two separations
+   * that face each other (10 after one and 10 before the next: 10 apart).
+   * Customers cannot book into it and are not charged for it.
+   */
   bufferBefore: number;
   bufferAfter: number;
+  /**
+   * Operational time before and after each booking (setting up, preparing;
+   * cleaning, turnover): work on the court that adds up, so 10 minutes of
+   * cleaning after one and 10 of preparation before the next need 20. Not
+   * bookable, not charged (a setup or cleanup fee is a price rule apart).
+   */
+  operationalBefore: number;
+  operationalAfter: number;
   /** The court's own hours, weekday by weekday (minutes); null: the venue's. */
   weekHours: WeekHours | null;
   /** How long before it starts a customer may book, at the latest. */
@@ -93,6 +106,8 @@ export type PolicySettings = {
   defaultLength?: number | null;
   bufferBefore?: number | null;
   bufferAfter?: number | null;
+  operationalBefore?: number | null;
+  operationalAfter?: number | null;
   weekHours?: WeekHours | null;
   noticeMinutes?: number | null;
   rateMode?: "split" | "start" | null;
@@ -117,6 +132,8 @@ export const SETTING_KEYS = [
   "defaultLength",
   "bufferBefore",
   "bufferAfter",
+  "operationalBefore",
+  "operationalAfter",
   "weekHours",
   "noticeMinutes",
   "rateMode",
@@ -142,6 +159,8 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   defaultLength: null,
   bufferBefore: 0,
   bufferAfter: 0,
+  operationalBefore: 0,
+  operationalAfter: 0,
   weekHours: null,
   noticeMinutes: 0,
   rateMode: "split",
@@ -193,6 +212,8 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     defaultLength,
     bufferBefore: pick("bufferBefore")!,
     bufferAfter: pick("bufferAfter")!,
+    operationalBefore: pick("operationalBefore")!,
+    operationalAfter: pick("operationalAfter")!,
     weekHours: pick("weekHours"),
     noticeMinutes: pick("noticeMinutes")!,
     signOff: pick("signOff") === true,
@@ -210,6 +231,30 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
 }
 
 // ------------------------------------------------------------ the rules
+
+/**
+ * What a booking under this policy keeps around its time, as availability
+ * checks it (`fits` in lib/claims.ts): operational time, which adds up with a
+ * neighbour's, and minimum separation, which does not.
+ */
+export function policyBuffers(p: Pick<BookingPolicy, "bufferBefore" | "bufferAfter" | "operationalBefore" | "operationalAfter">): {
+  before: number;
+  after: number;
+  sepBefore: number;
+  sepAfter: number;
+} {
+  return { before: p.operationalBefore, after: p.operationalAfter, sepBefore: p.bufferBefore, sepAfter: p.bufferAfter };
+}
+
+/** The same, as `claim` in lib/claims.ts takes it. */
+export function claimBuffers(p: Pick<BookingPolicy, "bufferBefore" | "bufferAfter" | "operationalBefore" | "operationalAfter">): {
+  bufferBefore: number;
+  bufferAfter: number;
+  separationBefore: number;
+  separationAfter: number;
+} {
+  return { bufferBefore: p.operationalBefore, bufferAfter: p.operationalAfter, separationBefore: p.bufferBefore, separationAfter: p.bufferAfter };
+}
 
 /** Is `start` a minute bookings may start at? */
 export function startAllowed(policy: BookingPolicy, start: number): boolean {
@@ -334,8 +379,9 @@ export function describePolicy(p: BookingPolicy): string {
   const lengths = p.lengths
     ? p.lengths.map(formatLength).join(", ")
     : `${formatLength(p.minLength)} to ${formatLength(p.maxLength)}, in ${formatLength(p.lengthStep)} steps`;
-  const buffers = [p.bufferBefore ? `${formatLength(p.bufferBefore)} before` : "", p.bufferAfter ? `${formatLength(p.bufferAfter)} after` : ""]
-    .filter(Boolean)
-    .join(" and ");
-  return [starts, lengths, buffers ? `kept free ${buffers}` : ""].filter(Boolean).join("; ");
+  const around = (before: number, after: number) =>
+    [before ? `${formatLength(before)} before` : "", after ? `${formatLength(after)} after` : ""].filter(Boolean).join(" and ");
+  const buffers = around(p.bufferBefore, p.bufferAfter);
+  const operational = around(p.operationalBefore, p.operationalAfter);
+  return [starts, lengths, buffers ? `kept free ${buffers} (shared with neighbours)` : "", operational ? `setup and cleaning ${operational} (adds up)` : ""].filter(Boolean).join("; ");
 }

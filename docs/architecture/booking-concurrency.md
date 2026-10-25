@@ -36,10 +36,12 @@ themselves are in [booking](../features/booking.md).
   at all. The locks are released when the transaction ends.
 - **Claims on court time** ([booking time model](booking-time-model.md#claims)).
   Everything that occupies a court is a row in `claims`. An exclusion
-  constraint refuses two active claims whose time (buffers included)
-  overlaps on the same space, and a trigger that locks the court refuses a
-  claim that would put a shared facility over its capacity at any moment.
-  Both raise `23P01`, which every path turns into "taken"; a path that reads
+  constraint refuses two active claims whose time (operational time
+  included) overlaps on the same space, a second (`claim_gaps_apart`, on rows
+  triggers keep beside each claim) refuses a claim's time within another's
+  minimum separation on the same space, and a trigger that locks the court
+  refuses a claim that would put a shared facility over its capacity at any
+  moment. All raise `23P01`, which every path turns into "taken"; a path that reads
   first and writes after (blocking around bookings) works it out again.
 - **Linked courts.** A court over others covers their spaces, so its claims
   and theirs meet in the same constraint, at any number of courts sharing
@@ -58,6 +60,7 @@ themselves are in [booking](../features/booking.md).
 | A shared facility never holds more than its capacity | Verified on Postgres | Capacity trigger `claims_capacity` under a court-row lock, counting bookings, offers and partial blocks; raw SQL refused in `tests/capacity.test.ts`; "sells a shared floor's places once each"; `tests/intervals.test.ts` "fills a shared facility to its places at every moment"; `tests/contention.test.ts`: 24 at once for a floor of five, four rounds: five booked | — |
 | Linked courts take each other | Verified on Postgres | Shared spaces; `tests/court-links.test.ts` including a two-request race and two wholes over one part; `tests/intervals.test.ts` "holds the court over it too"; `tests/contention.test.ts`: a pitch and its three courts asked for three times each at once, four rounds: the pitch or its courts, never both | Linking is one level deep (a rule of the editor, not of storage). |
 | Nothing overlaps a block, class, outage, offer or buffer | Verified on Postgres | All are claims under the same constraint; `tests/outages.test.ts` "a booking made while a court is being taken out"; `tests/move.test.ts` "never leave a booking inside the block"; `tests/intervals.test.ts` buffers | — |
+| Neighbours on a space are at least the larger of their facing separations apart | Verified on Postgres | `claim_gaps_apart` (migration 0119), an exclusion constraint that reads nothing, so it adds no serializable retries; raw SQL refused, two bookings racing for times 5 minutes apart (one of them gets it, four rounds, a court and a pitch over a court), and two raw writers without the application's locks under read committed and serializable, in `tests/separation.test.ts` | Shared facilities hold separation as places under the capacity trigger instead (it adds up there) |
 | A coach is in one lesson at a time | Verified on Postgres | `coach_claims_no_overlap`; `tests/coaching.test.ts` "will not put the coach in two places at once"; `tests/concurrency.test.ts` "puts a coach in one lesson at a time, and lets the other courts go" (eight lessons on eight courts at once: one sold, the other courts left free); `tests/contention.test.ts` the same through the booking route, four rounds: one 201, no 5xx | — |
 | A freed hour goes to one of a reschedule and a new booking | Verified on Postgres | Both claim under the same constraint in their own transactions; `tests/concurrency.test.ts` "gives a freed hour to one of a move and a new booking, never both" | — |
 | A court offering several activities is sold for one at a time | Verified | Every activity claims the court's same spaces; `tests/activities.test.ts` "is booked for one activity at a time" | — |

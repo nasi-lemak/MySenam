@@ -37,6 +37,8 @@ interface Row {
   default_length: number | null;
   buffer_before: number | null;
   buffer_after: number | null;
+  operational_before: number | null;
+  operational_after: number | null;
   week_hours: string | null;
   notice_minutes: number | null;
   rate_mode: "split" | "start" | null;
@@ -82,6 +84,8 @@ function toSettings(r: Row): PolicySettings {
     defaultLength: r.default_length,
     bufferBefore: r.buffer_before,
     bufferAfter: r.buffer_after,
+    operationalBefore: r.operational_before ?? null,
+    operationalAfter: r.operational_after ?? null,
     weekHours: parseWeekHours(r.week_hours),
     noticeMinutes: r.notice_minutes,
     rateMode: r.rate_mode,
@@ -226,6 +230,8 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         break;
       case "bufferBefore":
       case "bufferAfter":
+      case "operationalBefore":
+      case "operationalAfter":
         if (!isWhole(v, 0, 240)) return { ok: false, error: "Buffers are 0 to 240 minutes." };
         set(key, v as number);
         break;
@@ -306,6 +312,8 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.defaultLength ?? null,
     settings.bufferBefore ?? null,
     settings.bufferAfter ?? null,
+    settings.operationalBefore ?? null,
+    settings.operationalAfter ?? null,
     json(settings.weekHours),
     settings.noticeMinutes ?? null,
     settings.rateMode ?? null,
@@ -319,7 +327,8 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.certification ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
-    default_length = ?, buffer_before = ?, buffer_after = ?, week_hours = ?, notice_minutes = ?, rate_mode = ?, bill_step = ?,
+    default_length = ?, buffer_before = ?, buffer_after = ?, operational_before = ?, operational_after = ?, week_hours = ?,
+    notice_minutes = ?, rate_mode = ?, bill_step = ?,
     min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
   if (done.changes > 0) return;
@@ -334,9 +343,10 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
   await db
     .prepare(
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
-         min_length, max_length, lengths, default_length, buffer_before, buffer_after, week_hours, notice_minutes, rate_mode,
-         bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee, sign_off, needs_certification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         min_length, max_length, lengths, default_length, buffer_before, buffer_after, operational_before, operational_after,
+         week_hours, notice_minutes, rate_mode, bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee, sign_off,
+         needs_certification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }

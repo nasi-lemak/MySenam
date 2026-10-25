@@ -96,14 +96,22 @@ the [booking time model](../architecture/booking-time-model.md#booking-policies)
 - **How long they run**: from a shortest to a longest in steps (60 to 240 in
   hours; 60 to 120 in 15s), or only listed lengths (60, 90, 120), with a
   length offered first.
-- **Buffers**: minutes kept free before and after each booking, for setting
-  up or cleaning. Nobody can book into them. Customers just see the time as
-  taken; the staff schedule shows each buffer and what it is for. Buffers
-  are not charged; a setup or cleanup **fee** is a separate rule, shown to
-  the customer apart from the time ([pricing](pricing.md#prices-to-the-minute)).
-  Each booking keeps both its buffers, so two bookings on a court with a
-  10-minute buffer after each are 10 minutes apart, and one before and after
-  of 10 each make them 20.
+- **Buffers**, two kinds, before and after each booking. A **minimum gap**
+  (separation) is time kept free between bookings that neighbours share:
+  where two meet, the larger is needed, so 10 minutes after one and 10
+  before the next leave them 10 apart, and 10 against 25 leaves 25.
+  **Setup and cleaning** (operational time) is work that needs the court,
+  and adds up: 10 minutes of cleaning after one and 10 of setup before the
+  next leave 20. With both, the larger of the setup and cleaning added up
+  and the gaps applies. Nobody can book into either, managers included.
+  Customers just see the time as taken; the staff schedule shows what each
+  booking keeps free and what for. Buffers are not charged; a setup or
+  cleanup **fee** is a separate rule, shown to the customer apart from the
+  time ([pricing](pricing.md#prices-to-the-minute)). On a shared facility a
+  gap is held as places and adds up, since places are not told apart. Each
+  booking keeps the buffers it was made with when the rules change; the
+  details are in the
+  [booking time model](../architecture/booking-time-model.md#buffers-separation-and-operational-time).
 - **Notice**: how long before it starts a booking may be made at the latest.
 - **The court's own hours**, weekday by weekday, inside the venue's: the
   venue's, closed, or its own opening and closing time for each day.

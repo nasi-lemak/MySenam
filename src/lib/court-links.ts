@@ -106,10 +106,10 @@ export async function setCourtParts(
         // What the whole holds from now on takes the part too, as a new booking would.
         await db
           .prepare(
-            `INSERT INTO claims (venue_id, court_id, space_id, kind, booking_id, class_id, block_id, outage_id, waitlist_id,
-                                 during, occupied, buffer_before, buffer_after, active, expires_at)
-             SELECT venue_id, court_id, ?, kind, booking_id, class_id, block_id, outage_id, waitlist_id,
-                    during, occupied, buffer_before, buffer_after, active, expires_at
+            `INSERT INTO claims (venue_id, court_id, space_id, kind, booking_id, class_id, block_id, outage_id, waitlist_id, move_id,
+                                 during, occupied, buffer_before, buffer_after, separation_before, separation_after, active, expires_at)
+             SELECT venue_id, court_id, ?, kind, booking_id, class_id, block_id, outage_id, waitlist_id, move_id,
+                    during, occupied, buffer_before, buffer_after, separation_before, separation_after, active, expires_at
                FROM claims
               WHERE court_id = ? AND space_id = ? AND active AND (upper(occupied) IS NULL OR upper(occupied) > now())`
           )
