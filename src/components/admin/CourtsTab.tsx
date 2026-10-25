@@ -5,6 +5,7 @@ import { activity, activityIcon } from "@/lib/activity-registry";
 import { PeakHoursEditor } from "./PeakHoursEditor";
 import { AddResourcesForm, CourtActivitiesEditor, SignOffsPanel, withMarks } from "./ResourcesEditor";
 import { BookingPolicyEditor } from "./BookingPolicyEditor";
+import { ApprovalSettings, ApprovalsReview } from "./ApprovalsPanel";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
@@ -501,6 +502,8 @@ export function CourtsTab({
       )}
 
       {venue && <SignOffsPanel key={`signoffs-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
+      {venue && <ApprovalsReview key={`approvals-${venue.id}`} venueId={venue.id} />}
+      {venue && <ApprovalSettings key={`approval-settings-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
     </div>
   );
 }

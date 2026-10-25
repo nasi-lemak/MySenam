@@ -55,16 +55,18 @@ The account page's *Download my data* (`/api/my/data`) covers what is filed
 against the account: bookings, credit, passes and memberships sold to it,
 games, the playing profile, people blocked, reports made and community
 groups, leagues, tournaments, receipts and credit notes, waiting-list places,
-gift vouchers used, and the messages still kept about its bookings or sent to
-its address. Its file says what it leaves out: anything filed against a phone
+gift vouchers used, applications to be approved for an activity (answers,
+declarations, history and the documents still held), and the messages still
+kept about its bookings or sent to its address. Its file says what it leaves out: anything filed against a phone
 number at a counter.
 
 For that, the venue's manager has *Venues & staff → A customer's data*
 (`/api/admin/data-request?venueId&phone`). After checking who is asking, the
 manager downloads everything that venue holds against the number, however it
 was typed: bookings with arrivals, no-shows and late cancellations, waiting
-lists, passes, memberships, inductions, activity sign-offs, the venue's own list, blocks,
-receipts, gift vouchers bought and WhatsApp messages. It reaches that venue
+lists, passes, memberships, inductions, activity sign-offs, applications for
+an activity (answers and history; documents counted, not copied), the venue's
+own list, blocks, receipts, gift vouchers bought and WhatsApp messages. It reaches that venue
 only. It is for managers only (front desk is refused), and each download goes
 in the activity log with the last four digits of the number.
 
@@ -84,6 +86,9 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
   about it, community memberships and the groups it organised; reports it
   made stay with the reporter's name removed;
 - deletes the account and its sessions;
+- deletes its applications to be approved for an activity, with their
+  answers, documents and any slot they held; a sign-off already given stays,
+  as the venue's record, no longer linked to anybody's account;
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
@@ -106,6 +111,9 @@ the account would destroy the only record of whose money the venue is holding.
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
+| Documents sent with an application to be approved for an activity, once it is decided | 90 days | deleted; what was seen stays on the sign-off it wrote |
+| Applications refused, withdrawn or lapsed (answers, declarations, history) | 365 days after the decision | deleted |
+| Approved applications whose approval has run out | 365 days after its last day | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
 | Private hire enquiries | 365 days | deleted |
 | Draft venues never live, nobody signed in | 90 days | deleted, unless they hold a customer's pass, membership, credit or payment |

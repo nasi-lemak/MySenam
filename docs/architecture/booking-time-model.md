@@ -72,13 +72,13 @@ time, not of storing it.
 
 | Column | Meaning |
 | ------ | ------- |
-| `kind` | `booking`, `offer`, `class`, `block` or `outage`, with exactly the matching `booking_id`, `waitlist_id`, `class_id`, `block_id` or `outage_id` |
+| `kind` | `booking`, `offer`, `class`, `block`, `outage`, `move` (an open game's proposed new time) or `approval` (a slot held for an [approval application](../features/activities.md#registering-online-for-approval), migration 0114), with exactly the matching `booking_id`, `waitlist_id`, `class_id`, `block_id`, `outage_id`, `move_id` or `approval_id` |
 | `court_id`, `venue_id` | What was claimed; a trigger (`claims_belong`) refuses a court of another venue, a space the court does not cover, places on an exclusive court and spaces on a shared one |
 | `space_id` or `places` | One claim per space for an exclusive court; one claim with a number of places for a shared facility |
 | `during` | The time sold or held |
 | `occupied` | `during` widened by the buffers before and after, as they were when the claim was made |
 | `active` | Cancelling, releasing or expiring a claim sets it false; the row stays for history |
-| `expires_at` | When a waiting-list offer lapses |
+| `expires_at` | When a waiting-list offer, a proposed move or an approval application's hold lapses (an `approval` claim always has one) |
 
 - **Exclusive space**: `EXCLUDE USING gist (int4range(space_id, space_id,
   '[]') WITH &&, occupied WITH &&) WHERE (active AND space_id IS NOT NULL)`.

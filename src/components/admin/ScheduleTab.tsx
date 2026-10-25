@@ -24,6 +24,7 @@ function kindLabels(t: StaffT): Record<ScheduleEntry["kind"], string> {
     booking: t("sch.kind.booking"),
     offer: t("sch.kind.offer"),
     move: t("sch.kind.move"),
+    approval: t("apr.schKind"),
     class: t("sch.kind.class"),
     block: t("sch.kind.block"),
     outage: t("sch.kind.outage"),
