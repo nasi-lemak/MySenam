@@ -90,26 +90,8 @@ const USER_CALLS = /^(confirm|alert|prompt|set(Error|Notice|Message|Info|Warning
  * test, so it is taken off.
  */
 const PENDING = new Set([
-  "src/components/admin/AccessEditor.tsx",
-  "src/components/admin/BookingAlertsEditor.tsx",
-  "src/components/admin/BookingPolicyEditor.tsx",
-  "src/components/admin/CalendarFeedEditor.tsx",
-  "src/components/admin/CancelPolicyEditor.tsx",
-  "src/components/admin/EInvoicePanel.tsx",
-  "src/components/admin/FacilitiesEditor.tsx",
-  "src/components/admin/HoldPolicyEditor.tsx",
-  "src/components/admin/HouseRulesEditor.tsx",
-  "src/components/admin/IntegrationsPanel.tsx",
   "src/components/admin/LeaguesTab.tsx",
-  "src/components/admin/NoticesEditor.tsx",
-  "src/components/admin/OnlinePaymentsPanel.tsx",
-  "src/components/admin/PhotosEditor.tsx",
-  "src/components/admin/TaxEditor.tsx",
-  "src/components/admin/TimeZoneEditor.tsx",
   "src/components/admin/TournamentsTab.tsx",
-  "src/components/admin/VenuesTab.tsx",
-  "src/components/admin/WaiverEditor.tsx",
-  "src/components/admin/WhatsAppEditor.tsx",
 ]);
 
 function files(): string[] {

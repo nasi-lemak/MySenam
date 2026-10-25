@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { CancelPolicy } from "@/lib/cancel-policy";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * What a late cancellation or a no-show costs here: whether customers may
@@ -9,6 +10,7 @@ import type { CancelPolicy } from "@/lib/cancel-policy";
  * many strikes before a number pays online to book.
  */
 export function CancelPolicyEditor({ venueId }: { venueId: number }) {
+  const t = useStaffT();
   const [policy, setPolicy] = useState<CancelPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -32,11 +34,11 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
         body: JSON.stringify({ venueId, ...policy }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      if (!res.ok) throw new Error(t.err(data, t("cxl.couldNotSave")));
       setPolicy(data.policy);
-      setNotice("Saved.");
+      setNotice(t("c.saved"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("cxl.couldNotSave"));
     } finally {
       setBusy(false);
     }
@@ -47,101 +49,92 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
   const num = (v: string) => (v === "" ? null : Number(v));
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-      <h3 className="font-semibold">Cancellations, refunds and no-shows</h3>
-      <p className="mt-1 text-xs text-slate-500">
-        Before the cancel cutoff a customer always gets everything back. After it, by default, they cannot cancel online
-        and have to call you.
-      </p>
+      <h3 className="font-semibold">{t("cxl.title")}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t("cxl.intro")}</p>
       <label className="mt-3 flex flex-wrap items-center gap-2">
         <input
           type="checkbox"
           checked={policy.lateKeep !== null}
           onChange={(e) => setPolicy({ ...policy, lateKeep: e.target.checked ? 50 : null })}
         />
-        Let customers cancel late online, and keep
+        {t("cxl.lateKeepBefore")}
         <input
           type="number"
           min={0}
           max={100}
-          aria-label="Percent kept"
+          aria-label={t("cxl.percentKept")}
           disabled={policy.lateKeep === null}
           value={policy.lateKeep ?? ""}
           onChange={(e) => setPolicy({ ...policy, lateKeep: num(e.target.value) })}
           className={input}
         />
-        % of what they paid
+        {t("cxl.lateKeepAfter")}
       </label>
-      <p className="ml-6 text-xs text-slate-500">The rest goes back the way they paid, with a credit note for it.</p>
+      <p className="ml-6 text-xs text-slate-500">{t("cxl.lateKeepNote")}</p>
       <label className="mt-3 flex flex-wrap items-center gap-2">
         <input
           type="checkbox"
           checked={policy.strikeLimit !== null}
           onChange={(e) => setPolicy({ ...policy, strikeLimit: e.target.checked ? 3 : null })}
         />
-        After
+        {t("cxl.strikesBefore")}
         <input
           type="number"
           min={1}
           max={20}
-          aria-label="Strikes"
+          aria-label={t("cxl.strikes")}
           disabled={policy.strikeLimit === null}
           value={policy.strikeLimit ?? ""}
           onChange={(e) => setPolicy({ ...policy, strikeLimit: num(e.target.value) })}
           className={input}
         />
-        no-shows or unpaid late cancellations in
+        {t("cxl.strikesMiddle")}
         <input
           type="number"
           min={7}
           max={365}
-          aria-label="Days"
+          aria-label={t("cxl.days")}
           disabled={policy.strikeLimit === null}
           value={policy.strikeDays}
           onChange={(e) => setPolicy({ ...policy, strikeDays: Number(e.target.value) })}
           className={input}
         />
-        days, a number must pay online to book
+        {t("cxl.strikesAfter")}
       </label>
-      <p className="ml-6 text-xs text-slate-500">
-        If you take no payment online, they book at the counter instead. Staff bookings are never refused.
-      </p>
+      <p className="ml-6 text-xs text-slate-500">{t("cxl.strikesNote")}</p>
       <label className="mt-3 flex flex-wrap items-center gap-2">
-        Money paid online, when a customer cancels:
+        {t("cxl.onlineRefundsLabel")}
         <select
-          aria-label="Online refunds"
+          aria-label={t("cxl.onlineRefunds")}
           value={policy.onlineRefunds}
           onChange={(e) => setPolicy({ ...policy, onlineRefunds: e.target.value as CancelPolicy["onlineRefunds"] })}
           className="rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
-          <option value="staff">Staff refund it (listed under refunds owed)</option>
-          <option value="gateway">Refund it straight away, through Stripe</option>
-          <option value="credit">Give it back as credit here</option>
+          <option value="staff">{t("cxl.refundStaff")}</option>
+          <option value="gateway">{t("cxl.refundGateway")}</option>
+          <option value="credit">{t("cxl.refundCredit")}</option>
         </select>
       </label>
       <label className="mt-2 flex flex-wrap items-center gap-2">
-        Refunds staff make by hand take up to
+        {t("cxl.refundDaysBefore")}
         <input
           type="number"
           min={1}
           max={30}
-          aria-label="Refund days"
+          aria-label={t("cxl.refundDays")}
           value={policy.refundWithinDays}
           onChange={(e) => setPolicy({ ...policy, refundWithinDays: Number(e.target.value) })}
           className={input}
         />
-        days
+        {t("cxl.refundDaysAfter")}
       </label>
-      <p className="ml-0 text-xs text-slate-500">
-        Customers are told this date when they cancel and can follow their refund; one owed longer shows as overdue.
-        Billplz has no way to refund automatically, so its payments stay with staff. Credit needs the booking made from
-        an account; a booking made without one stays with staff too.
-      </p>
+      <p className="ml-0 text-xs text-slate-500">{t("cxl.refundNote")}</p>
       <button
         disabled={busy}
         onClick={save}
         className="mt-3 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
       >
-        Save
+        {t("c.save")}
       </button>
       {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-xs text-emerald-700">{notice}</p>}

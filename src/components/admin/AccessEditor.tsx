@@ -3,26 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AccessEntry, AccessKind, AccessSettings, VenueAccess } from "@/lib/access";
 import { money, region } from "@/lib/region";
+import type { StaffT } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
-const MODES: { value: VenueAccess; label: string; note: string }[] = [
-  {
-    value: "public",
-    label: "Public",
-    note: "Anyone can find it in search and book. A commercial badminton centre or futsal facility.",
-  },
-  {
-    value: "members",
-    label: "Members only",
-    note: "Bookings need a membership here, or a place on the list below. It can still show in search so new members can find you. A private club taking new members.",
-  },
-  {
-    value: "private",
-    label: "Private",
-    note: "In no search or list. Only people on the list below — and your staff — can open its page and book. A condominium's courts, pool or gym.",
-  },
+const modes = (t: StaffT): { value: VenueAccess; label: string; note: string }[] => [
+  { value: "public", label: t("acs.public"), note: t("acs.publicNote") },
+  { value: "members", label: t("acs.members"), note: t("acs.membersNote") },
+  { value: "private", label: t("acs.private"), note: t("acs.privateNote") },
 ];
 
-const KIND_LABELS: Record<AccessKind, string> = { resident: "Resident", member: "Member", guest: "Guest" };
+const kindLabels = (t: StaffT): Record<AccessKind, string> => ({ resident: t("acs.resident"), member: t("acs.member"), guest: t("acs.guest") });
 
 interface State {
   settings: AccessSettings;
@@ -37,6 +27,9 @@ interface State {
  * management office's spreadsheet.
  */
 export function AccessEditor({ venueId }: { venueId: number }) {
+  const t = useStaffT();
+  const MODES = modes(t);
+  const KIND_LABELS = kindLabels(t);
   const [open, setOpen] = useState(false);
   const [s, setS] = useState<State | null>(null);
   const [mode, setMode] = useState<VenueAccess>("public");
@@ -77,12 +70,12 @@ export function AccessEditor({ venueId }: { venueId: number }) {
         body: JSON.stringify({ venueId, ...body }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not save");
+      if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       take(data);
-      setNotice(typeof data.added === "number" ? `${data.added} added, ${data.updated} updated.` : ok);
+      setNotice(typeof data.added === "number" ? t("acs.imported", { added: data.added, updated: data.updated }) : ok);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
+      setError(err instanceof Error ? err.message : t("vn.couldNotSave"));
       return false;
     } finally {
       setBusy(false);
@@ -94,12 +87,12 @@ export function AccessEditor({ venueId }: { venueId: number }) {
   return (
     <div className="mt-3">
       <button onClick={() => setOpen(!open)} className="text-xs font-medium text-teal-700 underline">
-        {open ? "Hide who it is for" : s ? `Who it is for: ${MODES.find((m) => m.value === current)?.label}` : "Who it is for: public, members or private"}
+        {open ? t("acs.hide") : s ? t("acs.showCurrent", { mode: MODES.find((m) => m.value === current)?.label ?? "" }) : t("acs.show")}
       </button>
       {open && s && (
         <div className="mt-2 space-y-4 rounded-xl border border-slate-200 bg-white p-4">
           <fieldset className="space-y-2">
-            <legend className="text-sm font-semibold">Who can find and book this venue</legend>
+            <legend className="text-sm font-semibold">{t("acs.legend")}</legend>
             {MODES.map((m) => (
               <label key={m.value} className="flex gap-2 text-sm">
                 <input type="radio" name={`access-${venueId}`} checked={mode === m.value} onChange={() => setMode(m.value)} className="mt-1" />
@@ -112,42 +105,38 @@ export function AccessEditor({ venueId }: { venueId: number }) {
             {mode === "members" && (
               <label className="ml-6 flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={listed} onChange={(e) => setListed(e.target.checked)} />
-                Show it in search, so people can find it and ask to join
+                {t("acs.listed")}
               </label>
             )}
             {mode !== "public" && (
               <label className="block text-sm">
-                What somebody not on the list is told
+                {t("acs.noteLabel")}
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}
                   maxLength={500}
-                  placeholder={mode === "members" ? `e.g. Membership ${money(150)} a year — ask at the counter or WhatsApp ${region().phone.example}.` : "e.g. Residents of Taman Indah only. Not on the list? Contact the management office."}
+                  placeholder={mode === "members" ? t("acs.membersExample", { amount: money(150), phone: region().phone.example }) : t("acs.privateExample")}
                   className={`mt-1 w-full ${input}`}
                 />
               </label>
             )}
             <button
               disabled={busy}
-              onClick={() => post({ action: "settings", access: mode, listed, note }, "Saved.")}
+              onClick={() => post({ action: "settings", access: mode, listed, note }, t("c.saved"))}
               className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
             >
-              Save
+              {t("c.save")}
             </button>
           </fieldset>
 
           {current !== "public" && (
             <fieldset className="space-y-2 border-t border-slate-100 pt-3">
-              <legend className="text-sm font-semibold">Residents&apos; own guests</legend>
-              <p className="text-xs text-slate-500">
-                Let residents and members on the list add guests themselves, from their account page, instead of asking you. A guest
-                takes their host&apos;s unit, so their bookings count towards that unit&apos;s house rules, and goes when the host is
-                removed. 0 turns it off.
-              </p>
+              <legend className="text-sm font-semibold">{t("acs.guestsTitle")}</legend>
+              <p className="text-xs text-slate-500">{t("acs.guestsIntro")}</p>
               <div className="flex flex-wrap items-end gap-2 text-sm">
                 <label className="text-xs text-slate-600">
-                  Guests each at a time
+                  {t("acs.guestsEach")}
                   <input
                     type="number"
                     min={0}
@@ -158,7 +147,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                   />
                 </label>
                 <label className="text-xs text-slate-600">
-                  For up to (days)
+                  {t("acs.guestsDays")}
                   <input
                     type="number"
                     min={1}
@@ -171,11 +160,11 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 <button
                   disabled={busy}
                   onClick={() =>
-                    post({ action: "guests", perResident: Number(guests.perResident), days: Number(guests.days) }, "Saved.")
+                    post({ action: "guests", perResident: Number(guests.perResident), days: Number(guests.days) }, t("c.saved"))
                   }
                   className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                 >
-                  Save
+                  {t("c.save")}
                 </button>
               </div>
             </fieldset>
@@ -184,24 +173,23 @@ export function AccessEditor({ venueId }: { venueId: number }) {
           {(current !== "public" || s.list.length > 0) && (
             <div className="space-y-3 border-t border-slate-100 pt-3">
               <p className="text-sm font-semibold">
-                The list ({s.list.length}) {current === "members" && <span className="font-normal text-slate-500">— on top of anyone with an active membership</span>}
+                {t("acs.listCount", { n: s.list.length })}{" "}
+                {current === "members" && <span className="font-normal text-slate-500">{t("acs.plusMembers")}</span>}
               </p>
               <p className="text-xs text-slate-500">
-                Matched by the phone number on the customer&apos;s account
-                {s.phoneChecks ? ", once they have checked it" : " (this site does not check numbers, so anyone who types a number on the list gets in — set up phone checks before relying on it)"}.
-                Guests drop off after their end date.
+                {s.phoneChecks ? t("acs.matchedChecked") : t("acs.matchedUnchecked")} {t("acs.guestsDrop")}
               </p>
               {s.list.length > 0 && (
                 <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
                   <table className="w-full text-left text-xs">
                     <thead className="sticky top-0 bg-slate-50 uppercase text-slate-500">
                       <tr>
-                        <th className="px-2 py-1">Phone</th>
-                        <th className="px-2 py-1">Name</th>
-                        <th className="px-2 py-1">Unit / no.</th>
-                        <th className="px-2 py-1">As</th>
-                        <th className="px-2 py-1">Until</th>
-                        <th className="px-2 py-1">Account</th>
+                        <th className="px-2 py-1">{t("c.phone")}</th>
+                        <th className="px-2 py-1">{t("c.name")}</th>
+                        <th className="px-2 py-1">{t("acs.unit")}</th>
+                        <th className="px-2 py-1">{t("acs.as")}</th>
+                        <th className="px-2 py-1">{t("c.until")}</th>
+                        <th className="px-2 py-1">{t("acs.account")}</th>
                         <th />
                       </tr>
                     </thead>
@@ -213,17 +201,17 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                           <td className="px-2 py-1">{e.label ?? ""}</td>
                           <td className="px-2 py-1">
                             {KIND_LABELS[e.kind]}
-                            {e.invitedBy && <span className="block text-xs text-slate-500">of {e.invitedBy}</span>}
+                            {e.invitedBy && <span className="block text-xs text-slate-500">{t("acs.invitedBy", { name: e.invitedBy })}</span>}
                           </td>
                           <td className="px-2 py-1">{e.expiresOn ?? "—"}</td>
                           <td className="px-2 py-1">{e.hasAccount ? "✓" : ""}</td>
                           <td className="px-2 py-1 text-right">
                             <button
                               disabled={busy}
-                              onClick={() => window.confirm(`Take ${e.name ?? e.phone} off the list?`) && post({ action: "remove", id: e.id }, "Removed.")}
+                              onClick={() => window.confirm(t("acs.removeConfirm", { name: e.name ?? e.phone })) && post({ action: "remove", id: e.id }, t("acs.removed"))}
                               className="text-red-600 hover:underline"
                             >
-                              Remove
+                              {t("c.remove")}
                             </button>
                           </td>
                         </tr>
@@ -233,10 +221,10 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 </div>
               )}
               <div className="flex flex-wrap items-end gap-2">
-                <input aria-label="Phone" placeholder="Phone" value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} className={`${input} w-36`} />
-                <input aria-label="Name" placeholder="Name" value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} className={`${input} w-36`} />
-                <input aria-label="Unit or number" placeholder="Unit / no." value={person.label} onChange={(e) => setPerson({ ...person, label: e.target.value })} className={`${input} w-24`} />
-                <select aria-label="As" value={person.kind} onChange={(e) => setPerson({ ...person, kind: e.target.value as AccessKind })} className={input}>
+                <input aria-label={t("c.phone")} placeholder={t("c.phone")} value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} className={`${input} w-36`} />
+                <input aria-label={t("c.name")} placeholder={t("c.name")} value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} className={`${input} w-36`} />
+                <input aria-label={t("acs.unitLabel")} placeholder={t("acs.unit")} value={person.label} onChange={(e) => setPerson({ ...person, label: e.target.value })} className={`${input} w-24`} />
+                <select aria-label={t("acs.as")} value={person.kind} onChange={(e) => setPerson({ ...person, kind: e.target.value as AccessKind })} className={input}>
                   {(Object.keys(KIND_LABELS) as AccessKind[]).map((k) => (
                     <option key={k} value={k}>
                       {KIND_LABELS[k]}
@@ -245,35 +233,35 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 </select>
                 {person.kind === "guest" && (
                   <label className="text-xs text-slate-600">
-                    until{" "}
+                    {t("acs.until")}{" "}
                     <input type="date" value={person.expiresOn} onChange={(e) => setPerson({ ...person, expiresOn: e.target.value })} className={input} />
                   </label>
                 )}
                 <button
                   disabled={busy || person.phone.trim() === ""}
                   onClick={async () => {
-                    if (await post({ action: "add", ...person }, "Added.")) setPerson({ phone: "", name: "", label: "", kind: person.kind, expiresOn: "" });
+                    if (await post({ action: "add", ...person }, t("acs.added"))) setPerson({ phone: "", name: "", label: "", kind: person.kind, expiresOn: "" });
                   }}
                   className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                 >
-                  Add
+                  {t("c.add")}
                 </button>
               </div>
               <details className="text-sm">
-                <summary className="cursor-pointer text-xs font-medium text-teal-700">Paste many from a spreadsheet</summary>
+                <summary className="cursor-pointer text-xs font-medium text-teal-700">{t("acs.paste")}</summary>
                 <p className="mt-1 text-xs text-slate-500">
-                  One person a line: <span className="font-mono">phone, name, unit</span> — name and unit optional. A number already on
-                  the list is updated, not doubled.
+                  {t("acs.pasteLine")} <span className="font-mono">{t("acs.pasteFormat")}</span> {t("acs.pasteRest")}
                 </p>
+                {/* staff-i18n-ignore: sample rows in the import format (a number, a name, a unit), the same in every language */}
                 <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={5} placeholder={`${region().phone.example}, Aisyah Rahman, A-12-3\n${region().phone.example}, Lee Wei, B-05-1`} className={`mt-1 w-full font-mono ${input}`} />
                 <button
                   disabled={busy || paste.trim() === ""}
                   onClick={async () => {
-                    if (await post({ action: "import", text: paste, kind: person.kind === "guest" ? "resident" : person.kind }, "Imported.")) setPaste("");
+                    if (await post({ action: "import", text: paste, kind: person.kind === "guest" ? "resident" : person.kind }, t("acs.importedOk"))) setPaste("");
                   }}
                   className="mt-1 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                 >
-                  Add them as {person.kind === "member" ? "members" : "residents"}
+                  {person.kind === "member" ? t("acs.addMembers") : t("acs.addResidents")}
                 </button>
               </details>
             </div>

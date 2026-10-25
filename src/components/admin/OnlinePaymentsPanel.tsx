@@ -6,6 +6,7 @@ import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
 import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * A venue's own online payment account, and what came through it.
@@ -16,17 +17,22 @@ import { money } from "@/lib/region";
  * key, which is enough to tell which account is set without making the page
  * worth stealing. The fields are whatever the chosen gateway asks for.
  */
-/** What a payment that is not for bookings was for. */
-const PURPOSES: Partial<Record<OnlinePayment["purpose"], string>> = {
-  share: "share of an open game",
-  split: "share of a split booking",
-  entry: "tournament entry",
-  league: "league fee",
-  topup: "credit top-up",
-  membership: "membership",
-};
-
 export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
+  /** What a payment that is not for bookings was for. */
+  const PURPOSES: Partial<Record<OnlinePayment["purpose"], string>> = {
+    share: t("opay.purpose.share"),
+    split: t("opay.purpose.split"),
+    entry: t("opay.purpose.entry"),
+    league: t("opay.purpose.league"),
+    topup: t("opay.purpose.topup"),
+    membership: t("opay.purpose.membership"),
+  };
+  const REFUND_STATE: Record<RefundInFlight["state"], string> = {
+    asked: t("opay.state.asked"),
+    failed: t("opay.state.failed"),
+    processing: t("opay.state.processing"),
+  };
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [settings, setSettings] = useState<PaymentSettings | null>(null);
   const [payments, setPayments] = useState<OnlinePayment[]>([]);
@@ -54,8 +60,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       ]);
       const settingsData = await s.json();
       const paymentsData = await p.json();
-      if (!s.ok) throw new Error(settingsData.error ?? "Could not load payment settings");
-      if (!p.ok) throw new Error(paymentsData.error ?? "Could not load payments");
+      if (!s.ok) throw new Error(t.err(settingsData, t("opay.couldNotLoadSettings")));
+      if (!p.ok) throw new Error(t.err(paymentsData, t("opay.couldNotLoadPayments")));
       const current: PaymentSettings = settingsData.settings;
       setSettings(current);
       setForm({
@@ -71,9 +77,9 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       setWorkload(paymentsData.workload ?? null);
       setWithinDays(paymentsData.refundWithinDays ?? 7);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load payment settings");
+      setError(err instanceof Error ? err.message : t("opay.couldNotLoadSettings"));
     }
-  }, [venueId]);
+  }, [venueId, t]);
 
   useEffect(() => {
     load();
@@ -90,11 +96,11 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (!res.ok) throw new Error(t.err(data, t("opay.requestFailed")));
       setNotice(ok);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : t("opay.requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -109,15 +115,15 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
     !sameGateway
       ? ""
       : settings!.unreadable
-        ? "Stored key cannot be read on this install — enter it again"
+        ? t("opay.keyUnreadable")
         : settings!.details[key]
-          ? `Saved (ends ${settings!.details[key]}) — leave blank to keep`
+          ? t("opay.keySaved", { last: settings!.details[key] })
           : "";
 
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold">Online payment</h2>
+        <h2 className="text-lg font-bold">{t("opay.title")}</h2>
         {venues.length > 1 && (
           <select
             value={venueId}
@@ -133,9 +139,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        Let customers pay {gateway ? `by ${gateway.methods.toLowerCase()}, ` : ""}into the venue&apos;s own
-        {gateway ? ` ${gateway.name}` : ""} account. The money goes straight to the venue. Paying online is optional for
-        the customer: an unpaid booking still stands, and the counter works as before.
+        {gateway ? t("opay.introGateway", { methods: gateway.methods.toLowerCase(), name: gateway.name }) : t("opay.intro")}
       </p>
 
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
@@ -143,8 +147,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
 
       {settings?.unreadable && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <strong>Online payment is off.</strong> The saved keys cannot be read on this install —
-          it was moved or restored, or its secret changed. Enter the keys again.
+          <strong>{t("opay.offTitle")}</strong> {t("opay.unreadable")}
         </div>
       )}
 
@@ -155,14 +158,14 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             `/api/admin/venues/${venueId}/payment-settings`,
             "PUT",
             form,
-            form.enabled ? "Checked with the gateway and saved. Customers can pay online." : "Saved, and switched off."
+            form.enabled ? t("opay.savedOn") : t("opay.savedOff")
           );
         }}
         className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2"
       >
         {settings && settings.choices.length > 1 && (
           <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-            Payment gateway
+            {t("opay.gatewayLabel")}
             <select
               value={form.provider}
               onChange={(e) =>
@@ -201,16 +204,16 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
               onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
               className="accent-teal-600"
             />
-            Customers can pay online
+            {t("opay.canPayOnline")}
           </label>
           {gateway?.sandboxFromKey ? (
             // The key says test or live; there is no switch to set the wrong way.
             <p className="text-xs text-slate-500">
               {sameGateway
                 ? settings!.sandbox
-                  ? "Test mode: this is a test key, so no real money moves."
-                  : "Live: real payments."
-                : "A test key takes test payments; a live key takes real ones."}
+                  ? t("opay.testMode")
+                  : t("opay.live")
+                : t("opay.testOrLive")}
             </p>
           ) : (
             <label className="flex items-center gap-2">
@@ -220,14 +223,14 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                 onChange={(e) => setForm({ ...form, sandbox: e.target.checked })}
                 className="accent-teal-600"
               />
-              Sandbox (test payments, no real money)
+              {t("opay.sandbox")}
             </label>
           )}
         </div>
         {gateway?.setup && <p className="text-xs text-slate-500 sm:col-span-2">{gateway.setup}</p>}
         {gateway?.callbackUrl && (
           <p className="text-xs text-slate-600 sm:col-span-2">
-            Webhook address:{" "}
+            {t("opay.webhook")}{" "}
             <code className="select-all rounded bg-slate-100 px-1.5 py-0.5 font-mono">{gateway.callbackUrl}</code>
           </p>
         )}
@@ -237,19 +240,19 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
             disabled={busy}
             className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            Save
+            {t("c.save")}
           </button>
           {settings?.configured && (
             <button
               type="button"
               disabled={busy}
               onClick={() => {
-                if (window.confirm("Remove this venue's payment account? Customers will pay at the counter only."))
-                  call(`/api/admin/venues/${venueId}/payment-settings`, "DELETE", undefined, "Removed.");
+                if (window.confirm(t("opay.removeConfirm")))
+                  call(`/api/admin/venues/${venueId}/payment-settings`, "DELETE", undefined, t("opay.removed"));
               }}
               className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
             >
-              Remove
+              {t("c.remove")}
             </button>
           )}
         </div>
@@ -259,22 +262,20 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
 
       {disputes.length > 0 && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
-          <h3 className="text-sm font-bold text-red-900">Disputed payments</h3>
-          <p className="mt-0.5 text-xs text-red-800">
-            A customer has asked their bank for the money back (a chargeback). Answer each one in the gateway&apos;s own
-            dashboard before its date, with what shows the booking was real: the booking, its check-in, messages. Lost, the
-            money goes back to them and the booking shows as unpaid again.
-          </p>
+          <h3 className="text-sm font-bold text-red-900">{t("opay.disputes")}</h3>
+          <p className="mt-0.5 text-xs text-red-800">{t("opay.disputesIntro")}</p>
           <ul className="mt-2 divide-y divide-red-100 text-sm">
             {disputes.map((d) => (
               <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
-                  <span className="font-semibold">{money(d.amount)}</span> · {d.payerName ?? "Customer"}
+                  <span className="font-semibold">{money(d.amount)}</span> · {d.payerName ?? t("opay.customer")}
                   {d.bookingCodes.length > 0 && ` · ${d.bookingCodes.join(", ")}`} · {d.reason.replace(/_/g, " ")}
                   <span className="block text-xs text-red-800">
                     {d.outcome
-                      ? `Decided: ${d.outcome === "won" ? "kept" : "returned to the customer"}`
-                      : `${d.status.replace(/_/g, " ")}${d.dueBy ? ` · answer by ${d.dueBy.slice(0, 10)}` : ""}`}
+                      ? d.outcome === "won"
+                        ? t("opay.decidedKept")
+                        : t("opay.decidedReturned")
+                      : `${d.status.replace(/_/g, " ")}${d.dueBy ? ` · ${t("opay.answerBy", { date: d.dueBy.slice(0, 10) })}` : ""}`}
                   </span>
                 </span>
                 {!d.outcome && (
@@ -284,7 +285,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                     rel="noopener noreferrer"
                     className="text-xs font-semibold text-red-800 underline"
                   >
-                    Answer it
+                    {t("opay.answerIt")}
                   </a>
                 )}
               </li>
@@ -295,15 +296,17 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
 
       {inFlight.length > 0 && (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-          <h3 className="font-semibold">Refunds on their way</h3>
-          <p className="mt-1 text-slate-600">
-            Sent to the gateway and not finished. One with no answer is asked again every few minutes; nothing here can be paid twice. One
-            that failed at the gateway did not reach the customer: it is owed again, under Refunds owed, to refund another way.
-          </p>
+          <h3 className="font-semibold">{t("opay.inFlightTitle")}</h3>
+          <p className="mt-1 text-slate-600">{t("opay.inFlightIntro")}</p>
           <ul className="mt-2 space-y-1">
             {inFlight.map((r) => (
               <li key={`${r.paymentId}-${r.since}`}>
-                {r.payerName ?? "Customer"}: {money(r.amount)} ({r.state === "asked" ? "asked, no answer yet" : r.state === "failed" ? "failed at the gateway, owed again" : "accepted, going through"}) since {localTime(r.since)}
+                {t("opay.inFlightLine", {
+                  name: r.payerName ?? t("opay.customer"),
+                  amount: money(r.amount),
+                  state: REFUND_STATE[r.state],
+                  since: localTime(r.since),
+                })}
               </li>
             ))}
           </ul>
@@ -312,17 +315,13 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
 
       {owed.length > 0 && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h3 className="text-sm font-bold text-amber-900">Refunds owed</h3>
-          <p className="mt-0.5 text-xs text-amber-800">
-            Paid online, then cancelled, or paid for something gone by the time the money came in. Where the gateway can,
-            refund in one click; otherwise refund in the gateway&apos;s own dashboard or by bank transfer, then mark it done
-            with the reference. Customers are told {withinDays} days (cancellation policy) and can see the date.
-          </p>
+          <h3 className="text-sm font-bold text-amber-900">{t("opay.owedTitle")}</h3>
+          <p className="mt-0.5 text-xs text-amber-800">{t("opay.owedIntro", { days: withinDays })}</p>
           <ul className="mt-2 space-y-1.5 text-sm">
             {owed.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  <strong>{money(p.refundOwed)}</strong> to {p.payerName} ({p.payerPhone}) ·{" "}
+                  <strong>{money(p.refundOwed)}</strong> {t("opay.toPayer", { name: p.payerName ?? "", phone: p.payerPhone ?? "" })} ·{" "}
                   {p.bookingCodes.length > 0 ? (
                     <span className="font-mono text-xs">{p.bookingCodes.join(", ")}</span>
                   ) : (
@@ -334,11 +333,11 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                       {" "}·{" "}
                       {p.owed.overdue ? (
                         <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">
-                          Overdue: owed {p.owed.days} days, due by {p.owed.dueBy}
+                          {t("opay.overdue", { n: p.owed.days, date: p.owed.dueBy })}
                         </span>
                       ) : (
                         <span className="text-xs text-amber-800">
-                          owed {p.owed.days} day{p.owed.days === 1 ? "" : "s"}, due by {p.owed.dueBy}
+                          {t.plural("opay.owedDays", p.owed.days, { date: p.owed.dueBy })}
                         </span>
                       )}
                     </>
@@ -349,29 +348,29 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                     <button
                       disabled={busy}
                       onClick={() => {
-                        if (!confirm(`Refund ${money(p.refundOwed)} to ${p.payerName ?? "the payer"} through ${p.providerName} now?`)) return;
+                        if (!confirm(t("opay.refundConfirm", { amount: money(p.refundOwed), name: p.payerName ?? t("opay.thePayer"), gateway: p.providerName }))) return;
                         call(
                           "/api/admin/online-payments",
                           "POST",
                           { venueId, paymentId: p.id, through: "gateway" },
-                          `Refunded ${money(p.refundOwed)} through ${p.providerName}. It reaches the payer's card or account in 5 to 10 days.`
+                          t("opay.refundedThrough", { amount: money(p.refundOwed), gateway: p.providerName })
                         );
                       }}
                       className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
                     >
-                      Refund {money(p.refundOwed)}
+                      {t("opay.refundButton", { amount: money(p.refundOwed) })}
                     </button>
                   )}
                   <button
                     disabled={busy}
                     onClick={() => {
-                      const note = prompt(`Refunded ${money(p.refundOwed)} to ${p.payerName ?? "the payer"}. Reference (bank transfer or gateway), to find it again:`, "");
+                      const note = prompt(t("opay.referencePrompt", { amount: money(p.refundOwed), name: p.payerName ?? t("opay.thePayer") }), "");
                       if (note === null) return;
-                      call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id, note }, "Marked refunded.");
+                      call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id, note }, t("opay.markedRefunded"));
                     }}
                     className="rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
                   >
-                    {p.refundsByApi ? "Refunded in " + p.providerName : "Refunded"}
+                    {p.refundsByApi ? t("opay.refundedIn", { gateway: p.providerName }) : t("opay.refunded")}
                   </button>
                 </span>
               </li>
@@ -382,23 +381,26 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
 
       {workload && (workload.months.length > 0 || workload.owed > 0) && (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-          <h3 className="font-semibold">Refund workload</h3>
+          <h3 className="font-semibold">{t("opay.workloadTitle")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            Refunds staff made by hand, against those the gateway or credit made by itself: the cost of a gateway with no
-            refund API. Owed now: {workload.owed}
-            {workload.overdue > 0 ? `, ${workload.overdue} overdue` : ""}
-            {workload.oldestDays !== null ? `, the oldest ${workload.oldestDays} days` : ""}.
+            {t("opay.workloadIntro", {
+              owed: [
+                String(workload.owed),
+                ...(workload.overdue > 0 ? [t("opay.nOverdue", { n: workload.overdue })] : []),
+                ...(workload.oldestDays !== null ? [t("opay.oldest", { n: workload.oldestDays })] : []),
+              ].join(", "),
+            })}
           </p>
           {workload.months.length > 0 && (
             <table className="mt-2 w-full text-left text-xs">
               <thead className="text-slate-500">
                 <tr>
-                  <th className="py-1">Month</th>
-                  <th className="py-1 text-right">By hand</th>
-                  <th className="py-1 text-right">Amount</th>
-                  <th className="py-1 text-right">Average days</th>
-                  <th className="py-1 text-right">Late</th>
-                  <th className="py-1 text-right">Automatic</th>
+                  <th className="py-1">{t("opay.colMonth")}</th>
+                  <th className="py-1 text-right">{t("opay.colByHand")}</th>
+                  <th className="py-1 text-right">{t("c.amount")}</th>
+                  <th className="py-1 text-right">{t("opay.colAverageDays")}</th>
+                  <th className="py-1 text-right">{t("opay.colLate")}</th>
+                  <th className="py-1 text-right">{t("opay.colAutomatic")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -423,11 +425,11 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-3 py-2">When</th>
-                <th className="px-3 py-2">Bookings</th>
-                <th className="px-3 py-2">Who</th>
-                <th className="px-3 py-2 text-right">Amount</th>
-                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">{t("opay.colWhen")}</th>
+                <th className="px-3 py-2">{t("opay.colBookings")}</th>
+                <th className="px-3 py-2">{t("opay.colWho")}</th>
+                <th className="px-3 py-2 text-right">{t("c.amount")}</th>
+                <th className="px-3 py-2">{t("c.status")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -445,7 +447,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                         p.status === "paid" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
                       }`}
                     >
-                      {p.status === "paid" ? "Paid" : "Not paid (yet)"}
+                      {p.status === "paid" ? t("c.paid") : t("opay.notPaidYet")}
                     </span>
                   </td>
                 </tr>

@@ -4,12 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import type { Notice } from "@/lib/notices";
 import { todayLocal } from "./shared";
 import { addDays } from "@/lib/time";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * Put up a notice, for some days: a venue's on its own page and storefront,
  * or — for the platform owner — the one on the marketplace's front page.
  */
 export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; intro: string }) {
+  const t = useStaffT();
   const [open, setOpen] = useState(venueId === "site");
   const [notices, setNotices] = useState<Notice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
     <div className="w-full border-t border-slate-100 pt-2 text-sm">
       {venueId !== "site" && (
         <button onClick={() => setOpen(!open)} className="text-xs font-medium text-teal-700 underline">
-          {open ? "Close notices" : notices?.length ? `Notices (${notices.length})` : "Put up a notice (optional)"}
+          {open ? t("ntc.close") : notices?.length ? t("ntc.count", { n: notices.length }) : t("ntc.toggle")}
         </button>
       )}
       {open && (
@@ -42,18 +44,18 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
                   {n.link && <span className="text-slate-500"> → {n.link}</span>}
                   <span className="text-slate-500">
                     {" "}
-                    · {n.startsOn} to {n.endsOn}
+                    · {t("ntc.dates", { from: n.startsOn, until: n.endsOn })}
                   </span>
                 </span>
                 <button
                   onClick={async () => {
-                    if (!window.confirm("Take this notice down?")) return;
+                    if (!window.confirm(t("ntc.takeDownConfirm"))) return;
                     const res = await fetch(`/api/admin/notices/${n.id}`, { method: "DELETE" });
                     if (res.ok) setNotices((await res.json()).notices);
                   }}
                   className="text-red-700 underline"
                 >
-                  Take down
+                  {t("ntc.takeDown")}
                 </button>
               </li>
             ))}
@@ -68,29 +70,29 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
                 body: JSON.stringify({ ...f, venueId }),
               });
               const out = await res.json();
-              if (!res.ok) return setError(out.error);
+              if (!res.ok) return setError(t.err(out));
               setNotices(out.notices);
               setF({ ...f, text: "", link: "" });
             }}
             className="flex flex-wrap items-end gap-2"
           >
             <label className="flex min-w-[16rem] flex-1 flex-col text-xs font-medium text-slate-500">
-              Notice ({160 - f.text.length} left)
-              <input required minLength={3} maxLength={160} value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} className={input} placeholder="Raya Open, 12–14 Nov: entries close Friday" />
+              {t("ntc.field", { n: 160 - f.text.length })}
+              <input required minLength={3} maxLength={160} value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} className={input} placeholder={t("ntc.placeholder")} />
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Link (a page here, optional)
+              {t("ntc.link")}
               <input value={f.link} onChange={(e) => setF({ ...f, link: e.target.value })} className={`w-48 ${input}`} placeholder="/tournaments/12" />
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              From
+              {t("c.from")}
               <input type="date" value={f.startsOn} onChange={(e) => setF({ ...f, startsOn: e.target.value })} className={input} />
             </label>
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Until
+              {t("c.until")}
               <input type="date" value={f.endsOn} min={f.startsOn} onChange={(e) => setF({ ...f, endsOn: e.target.value })} className={input} />
             </label>
-            <button className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700">Put it up</button>
+            <button className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700">{t("ntc.putUp")}</button>
           </form>
         </div>
       )}

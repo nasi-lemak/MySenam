@@ -4,14 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import type { Pack } from "@/lib/whatsapp-credit";
 import type { Usage } from "@/lib/whatsapp-usage";
 import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 type Mode = "off" | "urgent" | "all";
 
-const MODES: { value: Mode; label: string; note: string }[] = [
-  { value: "urgent", label: "Urgent only", note: "If you cancel or move a booking, or a waitlist place opens, the customer hears on WhatsApp. Included — no credit needed." },
-  { value: "all", label: "Everything", note: "Confirmations too, and reminders if you tick them. Urgent news stays included; the rest uses prepaid credit." },
-  { value: "off", label: "Off", note: "Email only. Anyone without an email who you cancel or move shows under Needs attention for a call." },
-];
+const MODES: Mode[] = ["urgent", "all", "off"];
 
 interface State {
   mode: Mode;
@@ -32,6 +29,10 @@ interface State {
  * on screen are always there whatever this says.
  */
 export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner: boolean }) {
+  const t = useStaffT();
+  const LABEL: Record<Mode, string> = { urgent: t("wa.mode.urgent"), all: t("wa.mode.all"), off: t("wa.mode.off") };
+  const NOTE: Record<Mode, string> = { urgent: t("wa.mode.urgentNote"), all: t("wa.mode.allNote"), off: t("wa.mode.offNote") };
+  const BUTTON: Record<Mode, string> = { urgent: t("wa.button.urgent"), all: t("wa.button.all"), off: t("wa.button.off") };
   const [open, setOpen] = useState(false);
   const [s, setS] = useState<State | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,11 +58,11 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
         body: JSON.stringify({ venueId, ...body }),
       });
       const out = await res.json();
-      if (!res.ok) throw new Error(out.error ?? "Request failed");
+      if (!res.ok) throw new Error(t.err(out, t("wa.requestFailed")));
       if (typeof out.url === "string") return window.location.assign(out.url);
       setS(out);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : t("wa.requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -75,47 +76,48 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
     <div className="w-full border-t border-slate-100 pt-2 text-sm">
       <button onClick={() => setOpen(!open)} className="text-xs font-medium text-teal-700 underline">
         {open
-          ? "Close WhatsApp"
+          ? t("wa.close")
           : s
-            ? `WhatsApp: ${MODES.find((m) => m.value === s.mode)!.label.toLowerCase()}${s.mode === "all" && s.prepaid ? ` (${s.balance} left)` : ""}`
-            : "WhatsApp messages"}
+            ? s.mode === "all" && s.prepaid
+              ? t("wa.button.allLeft", { n: s.balance })
+              : BUTTON[s.mode]
+            : t("wa.messages")}
       </button>
       {open && s && (
         <div className="mt-2 space-y-3">
           <p className="text-xs text-slate-500">
-            Customers always see their booking code on screen, and get it by email with a calendar invite when they give an address — free.
-            {s.prepaid &&
-              ` With everything on, the extra messages are paid for in advance: ${s.pack.messages} for ${money(s.pack.price)}. When they run out, those stop and email carries on; urgent news still goes, and you are emailed at 20 left and at none.`}
+            {t("wa.intro")}
+            {s.prepaid && ` ${t("wa.prepaidNote", { messages: s.pack.messages, price: money(s.pack.price) })}`}
           </p>
           {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
           {!s.available ? (
-            <p className="text-xs text-amber-700">WhatsApp is not set up on this site yet.</p>
+            <p className="text-xs text-amber-700">{t("wa.notAvailable")}</p>
           ) : (
             <div className="space-y-2">
-              <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="WhatsApp messages">
+              <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t("wa.messages")}>
                 {MODES.map((m) => (
                   <label
-                    key={m.value}
-                    className={`cursor-pointer rounded-lg border p-2.5 text-xs ${s.mode === m.value ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}
+                    key={m}
+                    className={`cursor-pointer rounded-lg border p-2.5 text-xs ${s.mode === m ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}
                   >
                     <span className="flex items-center gap-1.5 font-semibold text-slate-800">
                       <input
                         type="radio"
                         name={`wa-mode-${venueId}`}
-                        checked={s.mode === m.value}
+                        checked={s.mode === m}
                         disabled={busy}
-                        onChange={() => act({ action: "mode", mode: m.value })}
+                        onChange={() => act({ action: "mode", mode: m })}
                       />
-                      {m.label}
-                      {m.value === "urgent" && <span className="font-normal text-slate-500">(default)</span>}
+                      {LABEL[m]}
+                      {m === "urgent" && <span className="font-normal text-slate-500">{t("wa.default")}</span>}
                     </span>
-                    <span className="mt-1 block text-slate-500">{m.note}</span>
+                    <span className="mt-1 block text-slate-500">{NOTE[m]}</span>
                   </label>
                 ))}
               </div>
               {s.mode === "all" && s.prepaid && (
                 <span className={`text-xs ${s.balance === 0 ? "font-semibold text-amber-700" : "text-slate-600"}`}>
-                  {s.balance} messages left{s.balance === 0 ? " — confirmations and reminders go by email only until you buy more" : ""}
+                  {s.balance === 0 ? t("wa.leftNone", { n: s.balance }) : t("wa.left", { n: s.balance })}
                 </span>
               )}
               {s.mode === "all" && (
@@ -126,13 +128,17 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                     disabled={busy}
                     onChange={(e) => act({ action: e.target.checked ? "remindersOn" : "remindersOff" })}
                   />
-                  Day-before reminders on WhatsApp too (one message each; email reminders always go)
+                  {t("wa.reminders")}
                 </label>
               )}
               <span className="block text-xs text-slate-500">
-                This month: {s.usage.urgent} urgent (included)
-                {s.usage.paid > 0 || s.mode === "all" ? `, ${s.usage.paid} from credit` : ""}
-                {s.usage.free > 0 ? `, ${s.usage.free} as replies in chats customers opened` : ""}
+                {t("wa.thisMonth", {
+                  list: [
+                    t("wa.usageUrgent", { n: s.usage.urgent }),
+                    ...(s.usage.paid > 0 || s.mode === "all" ? [t("wa.usagePaid", { n: s.usage.paid })] : []),
+                    ...(s.usage.free > 0 ? [t("wa.usageFree", { n: s.usage.free })] : []),
+                  ].join(", "),
+                })}
               </span>
             </div>
           )}
@@ -145,23 +151,22 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                   onClick={() => act({ action: "buy" })}
                   className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                 >
-                  Buy {s.pack.messages} messages · {money(s.pack.price)}
+                  {t("wa.buy", { n: s.pack.messages, price: money(s.pack.price) })}
                 </button>
                 <label className="flex items-center gap-1 text-xs text-slate-500">
-                  Bookings a month
+                  {t("wa.bookingsAMonth")}
                   <input
                     value={bookings}
                     onChange={(e) => setBookings(e.target.value.replace(/\D/g, ""))}
                     inputMode="numeric"
-                    placeholder="e.g. 500"
-                    aria-label="Bookings a month"
+                    placeholder={t("wa.bookingsExample")}
+                    aria-label={t("wa.bookingsAMonth")}
                     className="w-20 rounded-md border border-slate-300 px-2 py-1"
                   />
                 </label>
                 {perMonth > 0 && (
                   <span className="text-xs text-slate-600" data-testid="estimate">
-                    ≈ {perMonth} messages a month: {packsNeeded} pack{packsNeeded === 1 ? "" : "s"}, about{" "}
-                    {money((packsNeeded * s.pack.price).toFixed(2))}
+                    {t.plural("wa.estimate", packsNeeded, { messages: perMonth, amount: money((packsNeeded * s.pack.price).toFixed(2)) })}
                   </span>
                 )}
               </div>
@@ -170,21 +175,27 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                   {s.packs.map((p) => (
                     <li key={p.id} className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs">
                       <span className="flex-1">
-                        {p.messages} messages · {money(p.amount)} · {p.createdAt.slice(0, 10)} ·{" "}
-                        {p.status === "paid" ? `paid${p.paidVia === "online" ? " online" : ""}` : p.status === "void" ? "void" : "waiting for payment"}
+                        {t("wa.packMessages", { n: p.messages })} · {money(p.amount)} · {p.createdAt.slice(0, 10)} ·{" "}
+                        {p.status === "paid"
+                          ? p.paidVia === "online"
+                            ? t("wa.pack.paidOnline")
+                            : t("wa.pack.paid")
+                          : p.status === "void"
+                            ? t("wa.pack.void")
+                            : t("wa.pack.due")}
                       </span>
                       {p.status === "due" && s.canPayOnline && (
                         <button disabled={busy} onClick={() => act({ action: "pay", packId: p.id })} className="font-semibold text-teal-700 underline">
-                          Pay online
+                          {t("wa.payOnline")}
                         </button>
                       )}
                       {p.status === "due" && isOwner && (
                         <>
                           <button disabled={busy} onClick={() => act({ action: "markPaid", packId: p.id })} className="text-teal-700 underline">
-                            Mark paid
+                            {t("wa.markPaid")}
                           </button>
                           <button disabled={busy} onClick={() => act({ action: "void", packId: p.id })} className="text-slate-500 underline">
-                            Void
+                            {t("wa.void")}
                           </button>
                         </>
                       )}
@@ -205,11 +216,11 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                     onChange={(e) => setGrant(e.target.value)}
                     inputMode="numeric"
                     placeholder="50"
-                    aria-label="Messages to give"
+                    aria-label={t("wa.messagesToGive")}
                     className="w-20 rounded-md border border-slate-300 px-2 py-1"
                   />
                   <button disabled={busy} className="text-teal-700 underline">
-                    Give messages (trial, goodwill)
+                    {t("wa.give")}
                   </button>
                 </form>
               )}

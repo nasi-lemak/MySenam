@@ -1,9 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ApiKey } from "@/lib/api-keys";
 import type { Endpoint } from "@/lib/webhooks";
 import type { ManagedVenue } from "./shared";
+import { useStaffT } from "./StaffLanguage";
+
+/** A phrase with `{name}` places filled by elements (code samples), in the phrase's own word order. */
+function withParts(text: string, parts: Record<string, ReactNode>): ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((piece, i) => (i % 2 === 1 ? <Fragment key={i}>{parts[piece] ?? piece}</Fragment> : piece));
+}
 
 /**
  * A venue's own systems: API keys, webhook addresses, and whether it is in
@@ -11,6 +17,7 @@ import type { ManagedVenue } from "./shared";
  * lib/google-feeds.ts). Keys and signing secrets are shown once.
  */
 export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[]; isOwner: boolean }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
@@ -25,11 +32,11 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
     if (!venueId) return;
     const res = await fetch(`/api/admin/integrations?venueId=${venueId}`, { cache: "no-store" });
     const d = await res.json();
-    if (!res.ok) return setError(d.error ?? "Could not load");
+    if (!res.ok) return setError(t.err(d, t("int.couldNotLoad")));
     setKeys(d.keys);
     setEndpoints(d.endpoints);
     setGoogle(d.google);
-  }, [venueId]);
+  }, [venueId, t]);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -45,7 +52,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
     });
     const d = await res.json();
     if (!res.ok) {
-      setError(d.error ?? "Request failed");
+      setError(t.err(d, t("int.requestFailed")));
       return null;
     }
     await load();
@@ -56,9 +63,9 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold">API and webhooks</h2>
+        <h2 className="text-lg font-bold">{t("int.title")}</h2>
         {venues.length > 1 && (
-          <select value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} aria-label="Venue" className="rounded-md border border-slate-300 px-2 py-1 text-sm">
+          <select value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} aria-label={t("c.venue")} className="rounded-md border border-slate-300 px-2 py-1 text-sm">
             {venues.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.name}
@@ -68,42 +75,48 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        For your own systems: a screen at the desk, your website, your door or accounting software. The API is at{" "}
-        <code className="rounded bg-slate-100 px-1">{origin}/api/v1</code> with the header{" "}
-        <code className="rounded bg-slate-100 px-1">Authorization: Bearer &lt;key&gt;</code>: <code>GET /venue</code>,{" "}
-        <code>GET /availability?date=</code>, <code>GET /bookings?from=&amp;to=</code>, <code>GET /bookings/&lt;code&gt;</code>, and with a write
-        key <code>POST /bookings</code> and <code>POST /bookings/&lt;code&gt;/cancel</code>.
+        {/* The code samples are requests and headers as typed, the same in every language. */}
+        {withParts(t("int.apiIntro"), {
+          url: <code className="rounded bg-slate-100 px-1">{origin}/api/v1</code>,
+          header: <code className="rounded bg-slate-100 px-1">Authorization: Bearer &lt;key&gt;</code>, // staff-i18n-ignore
+          venue: <code>GET /venue</code>, // staff-i18n-ignore
+          availability: <code>GET /availability?date=</code>, // staff-i18n-ignore
+          bookings: <code>GET /bookings?from=&amp;to=</code>, // staff-i18n-ignore
+          booking: <code>GET /bookings/&lt;code&gt;</code>, // staff-i18n-ignore
+          book: <code>POST /bookings</code>, // staff-i18n-ignore
+          cancel: <code>POST /bookings/&lt;code&gt;/cancel</code>, // staff-i18n-ignore
+        })}
       </p>
-      <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-        A key sees your bookings with customers&apos; names and numbers, and a write key can book and cancel: give one only to
-        a system you trust, keep it out of web pages and apps people can open, and revoke it when it is no longer used.
-        Whoever you give it to handles your customers&apos; data for you.
-      </div>
+      <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{t("int.keyWarning")}</div>
       {error && <p className="mt-2 text-sm text-rose-700">{error}</p>}
       {shown && (
         <div className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm">
-          <p className="font-semibold">{shown.label}: copy it now, it will not be shown again.</p>
+          <p className="font-semibold">{t("int.copyNow", { label: shown.label })}</p>
           <p className="mt-1 break-all font-mono text-xs">{shown.value}</p>
           <div className="mt-1 flex gap-3">
             <button type="button" className="font-medium text-teal-700 underline" onClick={() => void navigator.clipboard?.writeText(shown.value)}>
-              Copy
+              {t("c.copy")}
             </button>
             <button type="button" className="font-medium text-slate-600 underline" onClick={() => setShown(null)}>
-              Done
+              {t("int.done")}
             </button>
           </div>
         </div>
       )}
 
-      <h3 className="mt-4 font-semibold">API keys</h3>
+      <h3 className="mt-4 font-semibold">{t("int.keys")}</h3>
       <ul className="mt-1 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
-        {keys.length === 0 && <li className="p-2 text-slate-500">None yet.</li>}
+        {keys.length === 0 && <li className="p-2 text-slate-500">{t("int.noneYet")}</li>}
         {keys.map((k) => (
           <li key={k.id} className={`flex flex-wrap items-center justify-between gap-2 p-2 ${k.revokedAt ? "text-slate-400" : ""}`}>
             <span>
-              <span className="font-medium">{k.name}</span> · <code>{k.prefix}…</code> · {k.scope === "write" ? "read and write" : k.scope === "availability" ? "availability only" : "read only"}
+              <span className="font-medium">{k.name}</span> · <code>{k.prefix}…</code> · {k.scope === "write" ? t("int.scopeWrite") : k.scope === "availability" ? t("int.scopeAvailability") : t("int.scopeRead")}
               <span className="block text-xs text-slate-500">
-                {k.revokedAt ? `revoked ${k.revokedAt.slice(0, 10)}` : k.lastUsedAt ? `last used ${k.lastUsedAt.slice(0, 16)}` : "not used yet"}
+                {k.revokedAt
+                  ? t("int.revokedOn", { date: k.revokedAt.slice(0, 10) })
+                  : k.lastUsedAt
+                    ? t("int.lastUsed", { date: k.lastUsedAt.slice(0, 16) })
+                    : t("int.notUsedYet")}
               </span>
             </span>
             {!k.revokedAt && (
@@ -111,21 +124,21 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
                 type="button"
                 className="font-medium text-rose-700 underline"
                 onClick={() => {
-                  if (window.confirm(`Revoke "${k.name}"? Anything using it stops working at once.`)) void act({ action: "revoke", id: k.id });
+                  if (window.confirm(t("int.revokeConfirm", { name: k.name }))) void act({ action: "revoke", id: k.id });
                 }}
               >
-                Revoke
+                {t("int.revoke")}
               </button>
             )}
           </li>
         ))}
       </ul>
       <div className="mt-2 flex flex-wrap gap-2">
-        <input className={input} placeholder="What will use it" value={keyForm.name} onChange={(e) => setKeyForm({ ...keyForm, name: e.target.value })} aria-label="Key name" />
-        <select className={input} value={keyForm.scope} onChange={(e) => setKeyForm({ ...keyForm, scope: e.target.value })} aria-label="Key scope">
-          <option value="availability">Availability only (for a website: no customer details)</option>
-          <option value="read">Read only</option>
-          <option value="write">Read and write (books and cancels)</option>
+        <input className={input} placeholder={t("int.keyNamePlaceholder")} value={keyForm.name} onChange={(e) => setKeyForm({ ...keyForm, name: e.target.value })} aria-label={t("int.keyName")} />
+        <select className={input} value={keyForm.scope} onChange={(e) => setKeyForm({ ...keyForm, scope: e.target.value })} aria-label={t("int.keyScope")}>
+          <option value="availability">{t("int.optionAvailability")}</option>
+          <option value="read">{t("int.optionRead")}</option>
+          <option value="write">{t("int.optionWrite")}</option>
         </select>
         <button
           type="button"
@@ -133,44 +146,48 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
           onClick={async () => {
             const d = await act({ action: "key", ...keyForm });
             if (d) {
-              setShown({ label: `API key "${d.record.name}"`, value: d.key });
+              setShown({ label: t("int.apiKeyLabel", { name: d.record.name }), value: d.key });
               setKeyForm({ name: "", scope: "read" });
             }
           }}
         >
-          Make a key
+          {t("int.makeKey")}
         </button>
       </div>
 
-      <h3 className="mt-4 font-semibold">Webhooks</h3>
+      <h3 className="mt-4 font-semibold">{t("int.webhooks")}</h3>
       <p className="text-xs text-slate-500">
-        We POST <code>booking.created</code>, <code>booking.cancelled</code>, <code>booking.paid</code> and <code>booking.changed</code> to these
-        HTTPS addresses, signed in the <code>MySenam-Signature</code> header with the address&apos;s secret. Check the signature before
-        trusting a message. An address failing for a day is turned off and you are emailed.
+        {withParts(t("int.webhooksIntro"), {
+          created: <code>booking.created</code>,
+          cancelled: <code>booking.cancelled</code>,
+          paid: <code>booking.paid</code>,
+          changed: <code>booking.changed</code>,
+          header: <code>MySenam-Signature</code>, // staff-i18n-ignore
+        })}
       </p>
       <ul className="mt-1 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
-        {endpoints.length === 0 && <li className="p-2 text-slate-500">None yet.</li>}
+        {endpoints.length === 0 && <li className="p-2 text-slate-500">{t("int.noneYet")}</li>}
         {endpoints.map((e) => (
           <li key={e.id} className="p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="break-all">
                 <span className="font-medium">{e.url}</span>{" "}
                 <span className={`text-xs ${e.active ? (e.failingSince ? "text-amber-700" : "text-emerald-700") : "text-rose-700"}`}>
-                  {e.active ? (e.failingSince ? `failing since ${e.failingSince.slice(0, 16)}` : "on") : "turned off"}
+                  {e.active ? (e.failingSince ? t("int.failingSince", { date: e.failingSince.slice(0, 16) }) : t("int.on")) : t("int.turnedOff")}
                 </span>
               </span>
               <span className="flex gap-3">
                 {e.active ? (
                   <button type="button" className="font-medium text-teal-700 underline" onClick={() => void act({ action: "ping", id: e.id })}>
-                    Send a test
+                    {t("int.sendTest")}
                   </button>
                 ) : (
                   <button type="button" className="font-medium text-teal-700 underline" onClick={() => void act({ action: "resume", id: e.id })}>
-                    Turn back on
+                    {t("int.turnBackOn")}
                   </button>
                 )}
                 <button type="button" className="font-medium text-rose-700 underline" onClick={() => void act({ action: "remove", id: e.id })}>
-                  Remove
+                  {t("c.remove")}
                 </button>
               </span>
             </div>
@@ -178,7 +195,12 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
               <ul className="mt-1 text-xs text-slate-500">
                 {e.recent.slice(0, 5).map((d, i) => (
                   <li key={i}>
-                    {d.at.slice(0, 16)} {d.event}: {d.deliveredAt ? `delivered (${d.status})` : d.error ? `${d.error}, tried ${d.attempts}×` : "waiting"}
+                    {d.at.slice(0, 16)} {d.event}:{" "}
+                    {d.deliveredAt
+                      ? t("int.delivered", { status: String(d.status) })
+                      : d.error
+                        ? t("int.triedTimes", { error: d.error, n: d.attempts })
+                        : t("int.waiting")}
                   </li>
                 ))}
               </ul>
@@ -187,33 +209,30 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
         ))}
       </ul>
       <div className="mt-2 flex flex-wrap gap-2">
-        <input className={`${input} min-w-[18rem]`} placeholder="https://example.com/mysenam-hook" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Webhook address" />
+        <input className={`${input} min-w-[18rem]`} placeholder="https://example.com/mysenam-hook" value={url} onChange={(e) => setUrl(e.target.value)} aria-label={t("int.webhookAddress")} />
         <button
           type="button"
           className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white"
           onClick={async () => {
             const d = await act({ action: "webhook", url });
             if (d) {
-              setShown({ label: "Signing secret for that address", value: d.secret });
+              setShown({ label: t("int.signingSecret"), value: d.secret });
               setUrl("");
             }
           }}
         >
-          Add address
+          {t("int.addAddress")}
         </button>
       </div>
 
-      <h3 className="mt-4 font-semibold">Reserve with Google</h3>
+      <h3 className="mt-4 font-semibold">{t("int.google")}</h3>
       <label className="mt-1 flex items-start gap-2 text-sm">
         <input type="checkbox" checked={google} onChange={(e) => void act({ action: "google", on: e.target.checked })} className="mt-1" />
-        <span>
-          Include this venue in the feeds for Google&apos;s Reserve with Google. Nothing appears on Google until the platform is an
-          approved Google partner and its booking connection is live; until then this only says you want to be in.
-        </span>
+        <span>{t("int.googleInclude")}</span>
       </label>
       {isOwner && (
         <p className="mt-1 text-xs text-slate-500">
-          Platform feeds (draft, for partner onboarding):{" "}
+          {t("int.feeds")}{" "}
           {(["merchants", "services", "availability"] as const).map((f) => (
             <a key={f} href={`/api/admin/google-feeds?feed=${f}`} className="mr-2 font-medium text-teal-700 underline">
               {f}.json

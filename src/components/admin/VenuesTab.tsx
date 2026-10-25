@@ -7,7 +7,7 @@ import type { VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
 import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
 import { ClockField } from "@/components/ClockField";
-import { WEEKDAYS, type DayHours, type WeekHours } from "@/lib/week-hours";
+import type { DayHours, WeekHours } from "@/lib/week-hours";
 import { MessagesPanel } from "./MessagesPanel";
 import { BlockedPhonesPanel } from "./BlockedPhonesPanel";
 import { OnlinePaymentsPanel } from "./OnlinePaymentsPanel";
@@ -21,7 +21,7 @@ import { StorefrontsPanel } from "./StorefrontsPanel";
 import { BranchRequestPanel, BusinessesPanel } from "./BusinessPanels";
 import type { ManagedVenue } from "./shared";
 import type { MapPoint } from "@/components/PinMap";
-import PinPicker, { PIN_TEXT_EN } from "@/components/PinPicker";
+import PinPicker, { type PinPickerText } from "@/components/PinPicker";
 import { FacilitiesEditor } from "./FacilitiesEditor";
 import { PhotosEditor } from "./PhotosEditor";
 import { NoticesEditor } from "./NoticesEditor";
@@ -38,6 +38,7 @@ import { DataRequestPanel } from "./DataRequestPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -50,6 +51,7 @@ export function VenuesTab({
   venues: ManagedVenue[];
   onChange: () => Promise<Admin | null>;
 }) {
+  const t = useStaffT();
   const isOwner = admin.venueId === null && admin.businessId === null;
   // A business manager runs every branch of their business, and its staff.
   const isManager = admin.businessId !== null;
@@ -90,12 +92,12 @@ export function VenuesTab({
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
       setNotice(okMessage);
       await onChange();
       after?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : t("vn.requestFailed"));
     }
   }
 
@@ -119,38 +121,35 @@ export function VenuesTab({
 
       <section>
         <h2 className="text-lg font-bold">
-          {isOwner ? "Venues" : isManager && venues.length > 1 ? "Branches" : "Venue details"}
+          {isOwner ? t("vn.venues") : isManager && venues.length > 1 ? t("vn.branches") : t("vn.details")}
         </h2>
         <div className="mt-3 space-y-3">
           {venues.map((venue) => (
             <VenueRow key={venue.id} venue={venue} onSave={send} isOwner={isOwner} />
           ))}
           {venues.length === 0 && (
-            <p className="text-sm text-slate-500">No venues yet.</p>
+            <p className="text-sm text-slate-500">{t("vn.noVenues")}</p>
           )}
         </div>
       </section>
 
       {isOwner && (
         <section>
-          <h2 className="text-lg font-bold">Site-wide notice</h2>
+          <h2 className="text-lg font-bold">{t("vn.siteNotice")}</h2>
           <NoticesEditor
             venueId="site"
-            intro="The only notice on the marketplace's front page. For what concerns every player — a government programme, a large collaboration — never one venue's promotion, so the front page stays fair to all of them."
+            intro={t("vn.siteNoticeIntro")}
           />
         </section>
       )}
 
       {isOwner && <RecentPhotosPanel />}
 
-      {isManager && <BranchRequestPanel businessName={admin.businessName ?? "your business"} onChange={() => void onChange()} />}
+      {isManager && <BranchRequestPanel businessName={admin.businessName ?? t("vn.yourBusiness")} onChange={() => void onChange()} />}
 
       <section>
-        <h2 className="text-lg font-bold">Closed days</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Shut a venue for a whole day — a public holiday, a private hire, a refit.
-          Nobody can book or join a waitlist for that date.
-        </p>
+        <h2 className="text-lg font-bold">{t("vn.closedDays")}</h2>
+        <p className="mt-1 text-sm text-slate-500">{t("vn.closedIntro")}</p>
         <div className="mt-3 space-y-3">
           {venues.map((venue) => (
             <ClosuresRow key={venue.id} venue={venue} onError={setError} onNotice={setNotice} />
@@ -186,33 +185,33 @@ export function VenuesTab({
 
       {isOwner && (
           <section>
-            <h3 className="font-semibold text-slate-700">Add a venue</h3>
+            <h3 className="font-semibold text-slate-700">{t("vn.addVenue")}</h3>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                send("/api/admin/venues", "POST", newVenue, `Added ${newVenue.name}.`, () =>
+                send("/api/admin/venues", "POST", newVenue, t("vn.added", { name: newVenue.name }), () =>
                   setNewVenue({ name: "", area: "", address: "", phone: "" })
                 );
               }}
               className="mt-2 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
             >
               <input
-                required minLength={2} placeholder="Venue name" value={newVenue.name}
+                required minLength={2} placeholder={t("vn.venueName")} value={newVenue.name}
                 onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
                 className={`w-48 ${inputClass}`}
               />
               <input
-                required minLength={2} placeholder="Area (e.g. Cheras)" value={newVenue.area}
+                required minLength={2} placeholder={t("vn.areaExample")} value={newVenue.area}
                 onChange={(e) => setNewVenue({ ...newVenue, area: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
               <input
-                required minLength={2} placeholder="Address" value={newVenue.address}
+                required minLength={2} placeholder={t("vn.address")} value={newVenue.address}
                 onChange={(e) => setNewVenue({ ...newVenue, address: e.target.value })}
                 className={`w-64 ${inputClass}`}
               />
               <input
-                required minLength={2} placeholder="Phone" value={newVenue.phone}
+                required minLength={2} placeholder={t("c.phone")} value={newVenue.phone}
                 onChange={(e) => setNewVenue({ ...newVenue, phone: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
@@ -220,7 +219,7 @@ export function VenuesTab({
                 type="submit"
                 className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
               >
-                Add venue
+                {t("vn.addVenueButton")}
               </button>
             </form>
           </section>
@@ -228,18 +227,16 @@ export function VenuesTab({
 
       {managesStaff && (
           <section>
-            <h2 className="text-lg font-bold">Staff accounts</h2>
+            <h2 className="text-lg font-bold">{t("vn.staffAccounts")}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {isOwner
-                ? "Branch staff only ever see their own branch's bookings, schedule and revenue; a business's managers see every branch of it. Leave the venue blank to create another platform owner."
-                : "Branch staff only ever see their own branch. Managers see every branch, and add and remove staff."}
+              {isOwner ? t("vn.staffIntroOwner") : t("vn.staffIntroManager")}
             </p>
             {admins && (
               <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
                 <table className="w-full min-w-[520px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                      {["Name", "Email", "Scope", ""].map((h, i) => (
+                      {[t("c.name"), t("c.email"), t("vn.scope"), ""].map((h, i) => (
                         <th key={i} className="px-3 py-2 font-semibold">{h}</th>
                       ))}
                     </tr>
@@ -252,29 +249,29 @@ export function VenuesTab({
                         <td className="px-3 py-2">
                           {a.businessId !== null ? (
                             <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
-                              manager · {a.businessName}
+                              {t("vn.managerOf", { business: a.businessName ?? "" })}
                             </span>
                           ) : a.venueId === null ? (
                             <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-                              platform owner
+                              {t("vn.platformOwner")}
                             </span>
                           ) : (
                             <span className="inline-flex flex-wrap items-center gap-1.5">
                               <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700">
-                                {venues.find((v) => v.id === a.venueId)?.name ?? `Venue ${a.venueId}`}
+                                {venues.find((v) => v.id === a.venueId)?.name ?? t("vn.venueN", { id: a.venueId })}
                               </span>
                               {/* What they may do there: run the day, or set the venue up too. */}
                               <select
-                                aria-label={`Role of ${a.name}`}
+                                aria-label={t("vn.roleOf", { name: a.name })}
                                 value={a.role}
                                 disabled={a.id === admin.id}
                                 onChange={(e) =>
-                                  send(`/api/admin/admins/${a.id}`, "PATCH", { role: e.target.value }, "Role changed.", loadAdmins)
+                                  send(`/api/admin/admins/${a.id}`, "PATCH", { role: e.target.value }, t("vn.roleChanged"), loadAdmins)
                                 }
                                 className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs"
                               >
-                                <option value="manager">Manager</option>
-                                <option value="desk">Front desk</option>
+                                <option value="manager">{t("vn.manager")}</option>
+                                <option value="desk">{t("vn.desk")}</option>
                               </select>
                             </span>
                           )}
@@ -283,29 +280,27 @@ export function VenuesTab({
                           {a.id !== admin.id && (
                             <button
                               onClick={() => {
-                                if (!window.confirm(`Remove ${a.email}?`)) return;
-                                send(`/api/admin/admins/${a.id}`, "DELETE", undefined, "Removed.", loadAdmins);
+                                if (!window.confirm(t("vn.removeConfirm", { email: a.email }))) return;
+                                send(`/api/admin/admins/${a.id}`, "DELETE", undefined, t("vn.removed"), loadAdmins);
                               }}
                               className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                             >
-                              Remove
+                              {t("c.remove")}
                             </button>
                           )}
                           {a.id !== admin.id && (
                             <button
                               onClick={() => {
                                 // Only when they have lost both their authenticator and recovery codes (lib/two-factor-reset.ts).
-                                const reason = window.prompt(
-                                  `Reset two-factor sign-in for ${a.email}? They will be signed out and told by email, as will the platform owners.\n\nHow did you confirm it is really them (seen in person, called on a number on file)?`
-                                );
+                                const reason = window.prompt(t("vn.resetPrompt", { email: a.email }));
                                 if (!reason) return;
-                                const code = window.prompt("Your own two-factor code, to show it is you:");
+                                const code = window.prompt(t("vn.ownCode"));
                                 if (!code) return;
-                                send(`/api/admin/admins/${a.id}/two-factor-reset`, "POST", { reason, code }, "Two-factor sign-in reset.", loadAdmins);
+                                send(`/api/admin/admins/${a.id}/two-factor-reset`, "POST", { reason, code }, t("vn.resetDone"), loadAdmins);
                               }}
                               className="ml-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
                             >
-                              Reset two-factor
+                              {t("vn.resetButton")}
                             </button>
                           )}
                         </td>
@@ -325,7 +320,7 @@ export function VenuesTab({
                   newStaff.venueId === "business"
                     ? { ...newStaff, venueId: null, businessId: admin.businessId }
                     : { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
-                  `Added ${newStaff.email}.`,
+                  t("vn.added", { name: newStaff.email }),
                   () => {
                     setNewStaff({ name: "", email: "", password: "", venueId: staffDefault, role: "desk" });
                     loadAdmins();
@@ -335,17 +330,17 @@ export function VenuesTab({
               className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
             >
               <input
-                required minLength={2} placeholder="Name" value={newStaff.name}
+                required minLength={2} placeholder={t("c.name")} value={newStaff.name}
                 onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
               <input
-                required type="email" placeholder="Email" value={newStaff.email}
+                required type="email" placeholder={t("c.email")} value={newStaff.email}
                 onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
                 className={`w-52 ${inputClass}`}
               />
               <input
-                required type="password" minLength={8} placeholder="Password (8+)"
+                required type="password" minLength={8} placeholder={t("vn.password")}
                 value={newStaff.password}
                 onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
                 className={`w-40 ${inputClass}`}
@@ -356,9 +351,9 @@ export function VenuesTab({
                 className={inputClass}
               >
                 {isOwner ? (
-                  <option value="">Platform owner (all venues)</option>
+                  <option value="">{t("vn.ownerAll")}</option>
                 ) : (
-                  <option value="business">Manager (every branch)</option>
+                  <option value="business">{t("vn.managerAll")}</option>
                 )}
                 {venues.map((v) => (
                   <option key={v.id} value={v.id}>{v.name}</option>
@@ -366,21 +361,21 @@ export function VenuesTab({
               </select>
               {newStaff.venueId !== "" && newStaff.venueId !== "business" && (
                 <select
-                  aria-label="Role"
+                  aria-label={t("vn.role")}
                   value={newStaff.role}
                   onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
-                  title="Front desk runs the day: bookings, payments, check-in. A manager also sets the venue up, prices, refunds and reports."
+                  title={t("vn.roleHelp")}
                   className={inputClass}
                 >
-                  <option value="desk">Front desk</option>
-                  <option value="manager">Manager</option>
+                  <option value="desk">{t("vn.desk")}</option>
+                  <option value="manager">{t("vn.manager")}</option>
                 </select>
               )}
               <button
                 type="submit"
                 className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
               >
-                Add staff
+                {t("vn.addStaff")}
               </button>
             </form>
           </section>
@@ -399,6 +394,7 @@ function ClosuresRow({
   onError: (msg: string | null) => void;
   onNotice: (msg: string | null) => void;
 }) {
+  const t = useStaffT();
   const [closures, setClosures] = useState<VenueClosure[]>([]);
   const [date, setDate] = useState("");
   const [reason, setReason] = useState("");
@@ -426,7 +422,7 @@ function ClosuresRow({
       let data = await res.json();
       // A day with bookings on it: only with a yes, and then they are told.
       if (res.status === 409 && typeof data.bookings === "number") {
-        if (!window.confirm(`${data.error}\n\nCancel them now? Each customer is sent the news, and you can see who has seen it under Bookings → Needs attention.`))
+        if (!window.confirm(t("vn.cancelAffectedConfirm", { error: t.err(data) })))
           return;
         res = await fetch(url, {
           method,
@@ -435,11 +431,11 @@ function ClosuresRow({
         });
         data = await res.json();
       }
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
-      if (okMessage) onNotice(data.cancelled ? `${okMessage} ${data.cancelled} cancelled and told.` : okMessage);
+      if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
+      if (okMessage) onNotice(data.cancelled ? `${okMessage} ${t("vn.cancelledTold", { n: data.cancelled })}` : okMessage);
       await load();
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Request failed");
+      onError(err instanceof Error ? err.message : t("vn.requestFailed"));
     }
   }
 
@@ -448,7 +444,7 @@ function ClosuresRow({
       <p className="text-sm font-semibold">{venue.name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {closures.length === 0 && (
-          <span className="text-xs text-slate-400">No closures scheduled.</span>
+          <span className="text-xs text-slate-400">{t("vn.noClosures")}</span>
         )}
         {closures.map((c) => (
           <span
@@ -463,10 +459,10 @@ function ClosuresRow({
                   `/api/admin/venues/${venue.id}/closures?date=${c.date}`,
                   "DELETE",
                   undefined,
-                  `Re-opened ${c.date}.`
+                  t("vn.reopened", { date: c.date })
                 )
               }
-              title="Re-open this day"
+              title={t("vn.reopen")}
               className="font-bold text-amber-700 hover:text-amber-900"
             >
               ×
@@ -476,7 +472,7 @@ function ClosuresRow({
       </div>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Date
+          {t("c.date")}
           <input
             type="date"
             min={todayLocal()}
@@ -486,11 +482,11 @@ function ClosuresRow({
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          Reason (optional)
+          {t("vn.reasonOptional")}
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Hari Raya"
+            placeholder={t("vn.reasonExample")}
             className="mt-1 w-56 rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
           />
         </label>
@@ -501,7 +497,7 @@ function ClosuresRow({
               `/api/admin/venues/${venue.id}/closures`,
               "POST",
               { date, reason },
-              `Closed ${date}.`
+              t("vn.closed", { date })
             ).then(() => {
               setDate("");
               setReason("");
@@ -509,7 +505,7 @@ function ClosuresRow({
           }
           className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-30"
         >
-          Close day
+          {t("vn.closeDay")}
         </button>
       </div>
     </div>
@@ -531,6 +527,8 @@ function VenueRow({
     after?: () => void
   ) => Promise<void>;
 }) {
+  const t = useStaffT();
+  const dayNames = [t("vn.sunday"), t("vn.monday"), t("vn.tuesday"), t("vn.wednesday"), t("vn.thursday"), t("vn.friday"), t("vn.saturday")];
   const [fields, setFields] = useState({
     name: venue.name,
     area: venue.area,
@@ -571,7 +569,7 @@ function VenueRow({
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Name
+        {t("c.name")}
         <input
           value={fields.name}
           onChange={(e) => setFields({ ...fields, name: e.target.value })}
@@ -579,7 +577,7 @@ function VenueRow({
         />
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Area
+        {t("vn.area")}
         <input
           value={fields.area}
           onChange={(e) => setFields({ ...fields, area: e.target.value })}
@@ -587,7 +585,7 @@ function VenueRow({
         />
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Address
+        {t("vn.address")}
         <input
           value={fields.address}
           onChange={(e) => setFields({ ...fields, address: e.target.value })}
@@ -595,7 +593,7 @@ function VenueRow({
         />
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Phone
+        {t("c.phone")}
         <input
           value={fields.phone}
           onChange={(e) => setFields({ ...fields, phone: e.target.value })}
@@ -603,18 +601,18 @@ function VenueRow({
         />
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Opens
+        {t("vn.opens")}
         <ClockField
-          label="Opens"
+          label={t("vn.opens")}
           value={fields.openMin}
           onChange={(m) => setFields({ ...fields, openMin: m })}
           className={`mt-1 w-28 ${inputClass}`}
         />
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Closes
+        {t("vn.closes")}
         <ClockField
-          label="Closes"
+          label={t("vn.closes")}
           value={fields.closeMin}
           after={fields.openMin}
           onChange={(m) => setFields({ ...fields, closeMin: m })}
@@ -622,11 +620,8 @@ function VenueRow({
         />
       </label>
       <details className="w-full text-xs text-slate-600" open={fields.weekHours !== null}>
-        <summary className="cursor-pointer font-medium text-slate-500">Different hours on some days</summary>
-        <p className="mt-1 text-slate-500">
-          Each day keeps the hours above unless it has its own, or is closed every week. Hours after midnight belong to the
-          evening they started on, and may not run into the next day&apos;s opening.
-        </p>
+        <summary className="cursor-pointer font-medium text-slate-500">{t("vn.differentHours")}</summary>
+        <p className="mt-1 text-slate-500">{t("vn.weekHoursIntro")}</p>
         <div className="mt-2 grid gap-1 sm:grid-cols-2">
           {[1, 2, 3, 4, 5, 6, 0].map((day) => {
             const d = fields.weekHours?.[day] ?? null;
@@ -637,30 +632,30 @@ function VenueRow({
             };
             return (
               <div key={day} className="flex flex-wrap items-center gap-1.5">
-                <span className="w-24 font-medium">{WEEKDAYS[day]}</span>
+                <span className="w-24 font-medium">{dayNames[day]}</span>
                 <select
-                  aria-label={`${WEEKDAYS[day]} hours`}
+                  aria-label={t("vn.dayHours", { day: dayNames[day] })}
                   value={d === null ? "usual" : d === "closed" ? "closed" : "own"}
                   onChange={(e) =>
                     setDay(e.target.value === "usual" ? null : e.target.value === "closed" ? "closed" : { open: fields.openMin, close: fields.closeMin })
                   }
                   className={inputClass}
                 >
-                  <option value="usual">Usual hours</option>
-                  <option value="own">Its own hours</option>
-                  <option value="closed">Closed</option>
+                  <option value="usual">{t("vn.usualHours")}</option>
+                  <option value="own">{t("vn.ownHours")}</option>
+                  <option value="closed">{t("vn.closedEveryWeek")}</option>
                 </select>
                 {d !== null && d !== "closed" && (
                   <>
                     <ClockField
-                      label={`${WEEKDAYS[day]} opens`}
+                      label={t("vn.dayOpens", { day: dayNames[day] })}
                       value={d.open}
                       onChange={(m) => setDay({ open: m, close: Math.max(d.close, m + 1) })}
                       className={inputClass}
                     />
-                    to
+                    {t("vn.to")}
                     <ClockField
-                      label={`${WEEKDAYS[day]} closes`}
+                      label={t("vn.dayCloses", { day: dayNames[day] })}
                       value={d.close}
                       after={d.open}
                       onChange={(m) => setDay({ open: d.open, close: m })}
@@ -674,7 +669,7 @@ function VenueRow({
         </div>
       </details>
       <label className="flex flex-col text-xs font-medium text-slate-500">
-        Cancel cutoff (hrs)
+        {t("vn.cutoff")}
         <input
           type="number"
           min={0}
@@ -683,21 +678,18 @@ function VenueRow({
           onChange={(e) =>
             setFields({ ...fields, cancelCutoffHours: Number(e.target.value) })
           }
-          title="Customers can cancel until this many hours before a booking starts"
+          title={t("vn.cutoffHelp")}
           className={`mt-1 w-24 ${inputClass}`}
         />
       </label>
       <div className="w-full border-t border-slate-100 pt-3">
         <div className="flex flex-wrap items-end gap-2">
           <div>
-            <p className="text-xs font-semibold text-slate-700">Somebody on the counter</p>
-            <p className="text-xs text-slate-500">
-              Outside these hours the venue runs itself: only resources you have marked unmanned
-              can be used, and only by people you have inducted.
-            </p>
+            <p className="text-xs font-semibold text-slate-700">{t("vn.counter")}</p>
+            <p className="text-xs text-slate-500">{t("vn.counterIntro")}</p>
           </div>
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            From
+            {t("c.from")}
             <select
               value={fields.staffedFrom ?? ""}
               onChange={(e) =>
@@ -709,7 +701,7 @@ function VenueRow({
               }
               className={`mt-1 w-28 ${inputClass}`}
             >
-              <option value="">Always</option>
+              <option value="">{t("vn.always")}</option>
               {HOUR_CHOICES.map((h) => (
                 <option key={h} value={h}>
                   {formatHour(h)}
@@ -718,7 +710,7 @@ function VenueRow({
             </select>
           </label>
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            To
+            {t("vn.toField")}
             <select
               value={fields.staffedTo ?? ""}
               disabled={fields.staffedFrom === null}
@@ -730,7 +722,7 @@ function VenueRow({
               }
               className={`mt-1 w-28 ${inputClass} disabled:bg-slate-50`}
             >
-              <option value="">Always</option>
+              <option value="">{t("vn.always")}</option>
               {HOUR_CHOICES.map((h) => (
                 <option key={h} value={h}>
                   {formatHour(h)}
@@ -740,23 +732,23 @@ function VenueRow({
           </label>
           <span className="pb-1.5 text-xs font-medium text-slate-500">
             {alwaysStaffed
-              ? "Somebody is here whenever you are open."
+              ? t("vn.alwaysStaffed")
               : neverStaffed
-                ? "Nobody is ever on the counter here."
-                : `Unstaffed outside ${formatHour(fields.staffedFrom!)}–${formatHour(fields.staffedTo!)}.`}
+                ? t("vn.neverStaffed")
+                : t("vn.unstaffedOutside", { from: formatHour(fields.staffedFrom!), to: formatHour(fields.staffedTo!) })}
           </span>
         </div>
 
         {!alwaysStaffed && !neverStaffed && (
           <label className="mt-3 flex flex-col text-xs font-medium text-slate-500">
-            A booking that runs past the staffed hours (or starts before them)
+            {t("vn.partly")}
             <select
               value={fields.partlyUnstaffed}
               onChange={(e) => setFields({ ...fields, partlyUnstaffed: e.target.value as "code" | "counter" })}
               className={`mt-1 w-full max-w-md ${inputClass}`}
             >
-              <option value="code">Gets the door code, so nobody is shut in or out at the end</option>
-              <option value="counter">Has somebody on the desk until it ends: no code</option>
+              <option value="code">{t("vn.partlyCode")}</option>
+              <option value="counter">{t("vn.partlyCounter")}</option>
             </select>
           </label>
         )}
@@ -764,22 +756,22 @@ function VenueRow({
         {!alwaysStaffed && (
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="flex flex-col text-xs font-medium text-slate-500">
-              Emergency number
+              {t("vn.emergencyPhone")}
               <input
                 value={fields.emergencyPhone}
                 onChange={(e) => setFields({ ...fields, emergencyPhone: e.target.value })}
                 placeholder={`+${region().phone.countryCode} ${region().phone.example.replace(/^0/, "")}`}
-                title="Shown to anybody letting themselves in. A number that is answered at 2 AM."
+                title={t("vn.emergencyPhoneHelp")}
                 className={`mt-1 w-40 ${inputClass}`}
               />
             </label>
             <label className="flex flex-1 flex-col text-xs font-medium text-slate-500">
-              What to tell them
+              {t("vn.emergencyInfo")}
               <input
                 value={fields.emergencyInfo}
                 maxLength={MAX_EMERGENCY_INFO}
                 onChange={(e) => setFields({ ...fields, emergencyInfo: e.target.value })}
-                placeholder="AED on the wall by the main door. Nearest clinic: Klinik Kesihatan SS2, 5 min."
+                placeholder={t("vn.emergencyInfoExample")}
                 className={`mt-1 w-full min-w-[16rem] ${inputClass}`}
               />
             </label>
@@ -787,13 +779,13 @@ function VenueRow({
         )}
       </div>
 
-      <span className="text-xs text-slate-400">{venue.courts.length} courts</span>
+      <span className="text-xs text-slate-400">{t("vn.courts", { n: venue.courts.length })}</span>
       <button
         disabled={!dirty}
-        onClick={() => onSave(`/api/admin/venues/${venue.id}`, "PATCH", fields, `Saved ${fields.name}.`)}
+        onClick={() => onSave(`/api/admin/venues/${venue.id}`, "PATCH", fields, t("vn.saved", { name: fields.name }))}
         className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
       >
-        Save
+        {t("c.save")}
       </button>
       <VenueStanding venue={venue} isOwner={isOwner} onSave={onSave} />
       <FacilitiesEditor key={venue.amenities.join(",")} venue={venue} onSave={onSave} />
@@ -810,7 +802,7 @@ function VenueRow({
       <TimeZoneEditor venueId={venue.id} />
       <NoticesEditor
         venueId={venue.id}
-        intro="A line for customers — an event, a promotion, a change of hours — on this venue's own page and storefront, for the days you choose. It never shows on the marketplace's front page or in search. A link can only go to a page on this site, like your tournament or league."
+        intro={t("vn.noticeIntro")}
       />
     </div>
   );
@@ -829,21 +821,33 @@ function VenueStanding({
   isOwner: boolean;
   onSave: (url: string, method: string, body: unknown, okMessage: string) => Promise<void>;
 }) {
+  const t = useStaffT();
   const [moving, setMoving] = useState(false);
   const [pin, setPin] = useState<MapPoint | null>(venue.lat !== null && venue.lng !== null ? { lat: venue.lat, lng: venue.lng } : null);
   const state =
     venue.publishedAt === null
-      ? { text: "Draft: only its staff can see it", tone: "bg-slate-100 text-slate-700" }
+      ? { text: t("vn.draft"), tone: "bg-slate-100 text-slate-700" }
       : venue.suspendedAt === null
-        ? { text: "Live", tone: "bg-emerald-50 text-emerald-700" }
+        ? { text: t("vn.live"), tone: "bg-emerald-50 text-emerald-700" }
         : venue.suspendedBy === "owner"
-          ? { text: `Suspended: ${venue.suspendedReason ?? "by the platform owner"}`, tone: "bg-red-50 text-red-700" }
-          : { text: "Off the marketplace: invoice overdue", tone: "bg-red-50 text-red-700" };
+          ? { text: t("vn.suspended", { reason: venue.suspendedReason ?? t("vn.byOwner") }), tone: "bg-red-50 text-red-700" }
+          : { text: t("vn.overdue"), tone: "bg-red-50 text-red-700" };
+  const pinText: PinPickerText = {
+    label: t("vn.pinLabel"),
+    hint: t("vn.pinHint"),
+    find: t("vn.pinFind"),
+    useLocation: t("vn.pinUseLocation"),
+    looking: t("vn.pinLooking"),
+    found: t("vn.pinFound"),
+    notFound: t("vn.pinNotFound"),
+    pinned: t("vn.pinPinned"),
+    locationFailed: t("vn.pinLocationFailed"),
+  };
 
   async function suspend() {
-    const reason = window.prompt(`Suspend ${venue.name}? Customers stop seeing it at once. Why (its staff are told):`, "");
+    const reason = window.prompt(t("vn.suspendPrompt", { name: venue.name }), "");
     if (!reason) return;
-    await onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "suspend", reason }, `${venue.name} is suspended.`);
+    await onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "suspend", reason }, t("vn.isSuspended", { name: venue.name }));
   }
 
   return (
@@ -851,35 +855,35 @@ function VenueStanding({
       <div className="flex flex-wrap items-center gap-3">
         <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${state.tone}`}>{state.text}</span>
         <span className="text-xs text-slate-500">
-          {pin ? `Pinned at ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Not on the map yet: customers searching near them will not find it."}
+          {pin ? t("vn.pinnedAt", { lat: pin.lat.toFixed(5), lng: pin.lng.toFixed(5) }) : t("vn.notOnMap")}
         </span>
         <button onClick={() => setMoving(!moving)} className="text-xs font-medium text-teal-700 underline">
-          {moving ? "Close the map" : pin ? "Move the pin" : "Pin it on the map"}
+          {moving ? t("vn.closeMap") : pin ? t("vn.movePin") : t("vn.pinIt")}
         </button>
         {isOwner && venue.publishedAt !== null && (
           venue.suspendedBy === "owner" ? (
             <button
-              onClick={() => onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "lift" }, `${venue.name} is back.`)}
+              onClick={() => onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "lift" }, t("vn.isBack", { name: venue.name }))}
               className="text-xs font-medium text-teal-700 underline"
             >
-              Lift the suspension
+              {t("vn.lift")}
             </button>
           ) : (
             <button onClick={suspend} className="text-xs font-medium text-red-700 underline">
-              Suspend
+              {t("vn.suspend")}
             </button>
           )
         )}
       </div>
       {moving && (
         <div className="max-w-xl">
-          <PinPicker query={`${venue.address}, ${venue.area}`} pin={pin} onPin={setPin} text={PIN_TEXT_EN} />
+          <PinPicker query={`${venue.address}, ${venue.area}`} pin={pin} onPin={setPin} text={pinText} />
           <button
             disabled={!pin}
-            onClick={() => pin && onSave(`/api/admin/venues/${venue.id}`, "PATCH", pin, `Moved ${venue.name}'s pin.`)}
+            onClick={() => pin && onSave(`/api/admin/venues/${venue.id}`, "PATCH", pin, t("vn.pinMoved", { name: venue.name }))}
             className="mt-2 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-30"
           >
-            Save the pin
+            {t("vn.savePin")}
           </button>
         </div>
       )}
@@ -894,16 +898,24 @@ function VenueStanding({
  * answer that is not "ssh in and look", and so somebody can take one by hand
  * before doing something they are not sure about.
  */
-const HEALTH: Record<"ok" | "local_only" | "stale" | "paused" | "failing" | "none", string> = {
-  ok: "Backups: active",
-  local_only: "Backups: on this server only",
-  stale: "Backups: behind the recovery-point target",
-  paused: "Off-site copies: paused",
-  failing: "Off-site copies: failing",
-  none: "Backups: none yet",
-};
+/** A command, typed as it is in every language. */
+const BACKUP_COMMAND = "npm run backup";
 
 function BackupsPanel() {
+  const t = useStaffT();
+  const HEALTH: Record<"ok" | "local_only" | "stale" | "paused" | "failing" | "none", string> = {
+    ok: t("vn.healthOk"),
+    local_only: t("vn.healthLocalOnly"),
+    stale: t("vn.healthStale"),
+    paused: t("vn.healthPaused"),
+    failing: t("vn.healthFailing"),
+    none: t("vn.healthNone"),
+  };
+  // What the storage address itself says about where the copies are.
+  const endpointText = (e: { provider: string; region: string | null; country: string | null }) => {
+    const provider = `${e.provider}${e.region && e.region !== "auto" ? ` ${e.region}` : ""}`;
+    return e.country ? t("vn.addressNames", { provider, country: e.country }) : t("vn.addressNamesNoCountry", { provider });
+  };
   const [state, setState] = useState<{
     backups: { name: string; bytes: number; takenAt: string; complete: boolean }[];
     directory: string;
@@ -936,12 +948,12 @@ function BackupsPanel() {
     try {
       const res = await fetch("/api/admin/backup", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not read the backups");
+      if (!res.ok) throw new Error(t.err(data, t("vn.backupsReadFailed")));
       setState(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read the backups");
+      setError(err instanceof Error ? err.message : t("vn.backupsReadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -954,15 +966,15 @@ function BackupsPanel() {
     try {
       const res = await fetch("/api/admin/backup", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Backup failed");
+      if (!res.ok) throw new Error(t.err(data, t("vn.backupFailed")));
       setNotice(
-        `${data.file.name} — ${Math.round(data.file.bytes / 1024)} KB, ${data.bookings} bookings.` +
-          (data.pruned.length > 0 ? ` Retired ${data.pruned.length} older.` : "") +
-          (data.offsite ? (data.offsite.ok ? " Copied off-site." : " The off-site copy failed — see below.") : "")
+        t("vn.backupTaken", { name: data.file.name, kb: Math.round(data.file.bytes / 1024), bookings: data.bookings }) +
+          (data.pruned.length > 0 ? ` ${t("vn.retired", { n: data.pruned.length })}` : "") +
+          (data.offsite ? ` ${data.offsite.ok ? t("vn.copiedOffsite") : t("vn.offsiteCopyFailed")}` : "")
       );
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Backup failed");
+      setError(err instanceof Error ? err.message : t("vn.backupFailed"));
     } finally {
       setBusy(false);
     }
@@ -972,10 +984,8 @@ function BackupsPanel() {
 
   return (
     <section>
-      <h2 className="text-lg font-bold">Backups</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Everything every venue has is one file. These are the copies of it.
-      </p>
+      <h2 className="text-lg font-bold">{t("vn.backups")}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t("vn.backupsIntro")}</p>
 
       {error && (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -992,15 +1002,13 @@ function BackupsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm">
             {state === null ? (
-              <span className="text-slate-500">Loading…</span>
+              <span className="text-slate-500">{t("c.loading")}</span>
             ) : state.hoursSinceLast === null ? (
-              <span className="font-semibold text-red-700">
-                No backup has ever been taken.
-              </span>
+              <span className="font-semibold text-red-700">{t("vn.neverBackedUp")}</span>
             ) : (
               <span className={stale ? "font-semibold text-red-700" : "text-slate-700"}>
-                Newest backup {Math.round(state.hoursSinceLast)} hours old
-                {stale && " — check the schedule is running"}
+                {t("vn.newestBackup", { n: Math.round(state.hoursSinceLast) })}
+                {stale && ` ${t("vn.checkSchedule")}`}
               </span>
             )}
           </div>
@@ -1009,7 +1017,7 @@ function BackupsPanel() {
             disabled={busy}
             className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {busy ? "Taking…" : "Back up now"}
+            {busy ? t("vn.taking") : t("vn.backUpNow")}
           </button>
         </div>
 
@@ -1022,7 +1030,7 @@ function BackupsPanel() {
           >
             <strong>{HEALTH[state.health.state]}</strong>
             {state.health.recoverableHours !== null &&
-              ` · the newest copy that would survive losing this server is ${Math.floor(state.health.recoverableHours)} hours old (target: under ${state.health.rpoHours})`}
+              ` · ${t("vn.recoverable", { hours: Math.floor(state.health.recoverableHours), target: state.health.rpoHours })}`}
             {state.health.problems.length > 0 && (
               <ul className="mt-1 list-disc pl-5">
                 {state.health.problems.map((p) => (
@@ -1038,9 +1046,10 @@ function BackupsPanel() {
             <p className="mt-2 text-xs text-slate-500">
               <span className="font-mono">{state.database}</span> →{" "}
               <span className="font-mono">{state.directory}</span>
+              {" · "}
               {state.schedule
-                ? ` · taken automatically every night at ${String(state.schedule.hour).padStart(2, "0")}:00`
-                : " · the built-in schedule is off: run npm run backup from cron"}
+                ? t("vn.scheduleAt", { time: `${String(state.schedule.hour).padStart(2, "0")}:00` })
+                : t("vn.scheduleOff", { command: BACKUP_COMMAND })}
             </p>
             <div
               className={`mt-3 rounded-lg px-3 py-2 text-sm ${
@@ -1055,49 +1064,46 @@ function BackupsPanel() {
             >
               {!state.offsite.configured ? (
                 <>
-                  <strong>No off-site copies.</strong> Every backup is on the same disk as the
-                  database. Set the <span className="font-mono">OFFSITE_S3_*</span> settings to send
-                  each one to Backblaze B2 (preferred), Amazon S3 or Cloudflare R2.
+                  <strong>{t("vn.noOffsite")}</strong> {t("vn.sameDisk")} {t("vn.setOffsiteBefore")}{" "}
+                  <span className="font-mono">OFFSITE_S3_*</span> {t("vn.setOffsiteAfter")}
                 </>
               ) : (
                 <>
-                  Off-site to <span className="font-mono text-xs">{state.offsite.destination}</span>
-                  {state.offsite.location ? ` (data kept in ${state.offsite.location})` : ""}
-                  {state.offsite.endpointSays &&
-                    ` · the address names ${state.offsite.endpointSays.provider}${state.offsite.endpointSays.region && state.offsite.endpointSays.region !== "auto" ? ` ${state.offsite.endpointSays.region}` : ""}${state.offsite.endpointSays.country ? ` (${state.offsite.endpointSays.country})` : ", country not stated"}`}
+                  {t("vn.offsiteTo")} <span className="font-mono text-xs">{state.offsite.destination}</span>
+                  {state.offsite.location ? ` ${t("vn.dataKeptIn", { location: state.offsite.location })}` : ""}
+                  {state.offsite.endpointSays && ` · ${endpointText(state.offsite.endpointSays)}`}
                   {state.offsite.lastCopied ? (
                     <>
-                      {" "}— last copy <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
-                      at {state.offsite.lastCopied.at.slice(0, 10)} {localTime(state.offsite.lastCopied.at)}
-                      {state.offsite.lastCopied.manifest ? ", whole with its manifest" : ", without a manifest"}
-                      {state.offsite.lastCopied.encrypted ? ", encrypted before it left" : ", not encrypted by MySenam"}
-                      {state.offsite.lastCopied.signed ? ", manifest signed" : ""}
+                      {" "}
+                      {t("vn.lastCopy")} <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
+                      {t("vn.lastCopyAt", { date: state.offsite.lastCopied.at.slice(0, 10), time: localTime(state.offsite.lastCopied.at) })}
+                      {state.offsite.lastCopied.manifest ? t("vn.withManifest") : t("vn.noManifest")}
+                      {state.offsite.lastCopied.encrypted ? t("vn.encrypted") : t("vn.notEncrypted")}
+                      {state.offsite.lastCopied.signed ? t("vn.signed") : ""}
                     </>
                   ) : (
-                    " — nothing copied yet"
+                    ` ${t("vn.nothingCopied")}`
                   )}
-                  {state.offsite.paused && <div className="mt-1 font-semibold">Paused: {state.offsite.paused}</div>}
+                  {state.offsite.paused && <div className="mt-1 font-semibold">{t("vn.offsitePaused", { reason: state.offsite.paused })}</div>}
                   {!state.offsite.paused &&
                     state.offsite.lastError &&
                     (!state.offsite.lastCopied || state.offsite.lastError.at > state.offsite.lastCopied.at) && (
-                      <div className="mt-1 font-semibold">
-                        The last copy failed: {state.offsite.lastError.error}
-                      </div>
+                      <div className="mt-1 font-semibold">{t("vn.lastCopyFailed", { error: state.offsite.lastError.error })}</div>
                     )}
                 </>
               )}
             </div>
             {state.backups.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">
-                Nothing here yet. Schedule <span className="font-mono">npm run backup</span> daily,
-                and keep a copy somewhere that is not this machine.
+                {t("vn.nothingYet")} {t("vn.scheduleBefore")} <span className="font-mono">{BACKUP_COMMAND}</span>{" "}
+                {t("vn.scheduleAfter")}
               </p>
             ) : (
               <div className="mt-3 overflow-x-auto">
                 <table className="w-full min-w-[420px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                      {["Taken", "File", "Size", "Set"].map((h) => (
+                      {[t("vn.colTaken"), t("vn.colFile"), t("vn.colSize"), t("vn.colSet")].map((h) => (
                         <th key={h} className="px-3 py-2 font-semibold">
                           {h}
                         </th>
@@ -1113,7 +1119,7 @@ function BackupsPanel() {
                           {Math.round(b.bytes / 1024)} KB
                         </td>
                         <td className={`whitespace-nowrap px-3 py-2 text-xs ${b.complete ? "text-emerald-700" : "text-amber-700"}`}>
-                          {b.complete ? "Whole" : "No manifest or a part missing"}
+                          {b.complete ? t("vn.whole") : t("vn.partMissing")}
                         </td>
                       </tr>
                     ))}
@@ -1136,6 +1142,7 @@ function BackupsPanel() {
  * to remove, and when it last ran.
  */
 function RetentionPanel() {
+  const t = useStaffT();
   const [state, setState] = useState<{
     due: { what: string; days: number; action: string; affected: number }[];
     lastRun: string | null;
@@ -1149,12 +1156,12 @@ function RetentionPanel() {
     try {
       const res = await fetch("/api/admin/retention", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not read the retention policy");
+      if (!res.ok) throw new Error(t.err(data, t("vn.retentionReadFailed")));
       setState(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read the retention policy");
+      setError(err instanceof Error ? err.message : t("vn.retentionReadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -1167,15 +1174,11 @@ function RetentionPanel() {
     try {
       const res = await fetch("/api/admin/retention", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Housekeeping failed");
-      setNotice(
-        data.total === 0
-          ? "Nothing was old enough to remove."
-          : `${data.total} records removed or anonymised.`
-      );
+      if (!res.ok) throw new Error(t.err(data, t("vn.housekeepingFailed")));
+      setNotice(data.total === 0 ? t("vn.nothingOld") : t("vn.recordsRemoved", { n: data.total }));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Housekeeping failed");
+      setError(err instanceof Error ? err.message : t("vn.housekeepingFailed"));
     } finally {
       setBusy(false);
     }
@@ -1185,11 +1188,8 @@ function RetentionPanel() {
 
   return (
     <section>
-      <h2 className="text-lg font-bold">Keeping nothing too long</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Personal details are removed once they stop being useful. This runs by itself the first
-        time anyone opens the dashboard each day.
-      </p>
+      <h2 className="text-lg font-bold">{t("vn.retention")}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t("vn.retentionIntro")}</p>
 
       {error && (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1205,13 +1205,12 @@ function RetentionPanel() {
       <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-700">
-            {state === null
-              ? "Loading…"
-              : due === 0
-                ? "Nothing is currently past its date."
-                : `${due} records are past their date.`}
+            {state === null ? t("c.loading") : due === 0 ? t("vn.nothingDue") : t("vn.recordsDue", { n: due })}
             {state?.lastRun && (
-              <span className="text-slate-500"> Last run {localTime(state.lastRun)}.</span>
+              <span className="text-slate-500">
+                {" "}
+                {t("vn.lastRun", { time: localTime(state.lastRun) })}
+              </span>
             )}
           </div>
           <button
@@ -1219,7 +1218,7 @@ function RetentionPanel() {
             disabled={busy}
             className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {busy ? "Running…" : "Run now"}
+            {busy ? t("vn.running") : t("vn.runNow")}
           </button>
         </div>
 
@@ -1228,7 +1227,7 @@ function RetentionPanel() {
             <table className="w-full min-w-[440px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                  {["What", "Kept for", "Then", "Due"].map((h) => (
+                  {[t("vn.colWhat"), t("vn.colKeptFor"), t("vn.colThen"), t("vn.colDue")].map((h) => (
                     <th key={h} className="px-3 py-2 font-semibold">
                       {h}
                     </th>
@@ -1240,7 +1239,7 @@ function RetentionPanel() {
                   <tr key={line.what} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2">{line.what}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600">
-                      {line.days === 0 ? "until they expire" : `${line.days} days`}
+                      {line.days === 0 ? t("vn.untilExpire") : t("vn.daysKept", { n: line.days })}
                     </td>
                     <td className="px-3 py-2 text-slate-600">{line.action}</td>
                     <td className="px-3 py-2 font-medium tabular-nums">
@@ -1253,10 +1252,7 @@ function RetentionPanel() {
           </div>
         )}
 
-        <p className="mt-3 text-xs text-slate-500">
-          A booking is never deleted — its hour and its price are your accounting record. It stops
-          naming anybody instead.
-        </p>
+        <p className="mt-3 text-xs text-slate-500">{t("vn.neverDeleted")}</p>
       </div>
     </section>
   );
