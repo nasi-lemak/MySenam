@@ -69,6 +69,15 @@ export const RETENTION = {
    * Only the last day's count matters (the daily caps).
    */
   phoneCodeDays: 1,
+  /**
+   * A supporting document sent with an application to be approved for an
+   * activity (a certificate, lib/approvals.ts), once the application is
+   * decided: long enough to answer a question about the decision; what was
+   * seen stays on the sign-off it wrote.
+   */
+  approvalDocumentDays: 90,
+  /** An application refused, withdrawn or lapsed, or an approval that has run out: its answers and history. */
+  approvalRequestDays: 365,
 } as const;
 
 export interface RetentionLine {
@@ -188,6 +197,27 @@ const RULES: Rule[] = [
     action: "deleted",
     table: "sign_offs",
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
+  },
+  {
+    what: "Documents sent with activity applications, once decided",
+    days: RETENTION.approvalDocumentDays,
+    action: "deleted",
+    table: "approval_documents",
+    where: "request_id IN (SELECT id FROM approval_requests WHERE decided_at IS NOT NULL AND decided_at < ?::timestamptz)",
+  },
+  {
+    what: "Activity applications refused, withdrawn or lapsed",
+    days: RETENTION.approvalRequestDays,
+    action: "deleted",
+    table: "approval_requests",
+    where: "status IN ('rejected', 'withdrawn', 'expired') AND decided_at < ?::timestamptz",
+  },
+  {
+    what: "Activity approvals that ran out",
+    days: RETENTION.approvalRequestDays,
+    action: "deleted",
+    table: "approval_requests",
+    where: "status = 'approved' AND valid_until IS NOT NULL AND valid_until < ?",
   },
   {
     what: "Venue applications never confirmed by email",
@@ -352,6 +382,8 @@ export interface CustomerExport {
   waivers: unknown[];
   /** Emails and WhatsApp messages about their bookings, or to their address, still kept. */
   messages: unknown[];
+  /** Applications to be approved for an activity: answers, declarations, history and documents still held (lib/approvals.ts). */
+  approvals: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -538,6 +570,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId,
       account.email
     ),
+    approvals: await (await import("./approvals")).approvalsExport(userId),
     heldAtACounter:
       "A pass, membership, waiting-list place, induction, sign-off or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
   };
@@ -574,6 +607,8 @@ export interface PhoneExport {
   /** The venue's waivers this number agreed to, and when (lib/waivers.ts). */
   waivers: unknown[];
   messages: unknown[];
+  /** Applications to be approved for an activity from this number: answers and history; the documents are counted, not copied (lib/approvals.ts). */
+  approvals: unknown[];
 }
 
 /**
@@ -719,6 +754,7 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       ...venueIds,
       phone
     ),
+    approvals: await (await import("./approvals")).approvalsForPhone(venueIds, phone),
   };
 }
 
@@ -824,6 +860,8 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);
+    // Their applications to be approved for an activity: answers, documents and any slot held. A sign-off already given stays the venue's record.
+    await (await import("./approvals")).eraseApprovals(userId);
     // Nor a concession proof remembered against the account's number.
     await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);
     // Nor their enquiries about private hire.

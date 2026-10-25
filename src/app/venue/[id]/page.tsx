@@ -37,6 +37,7 @@ import { siteName } from "@/lib/site";
 import { venueRating, venueReviews } from "@/lib/reviews";
 import { VenueReviews } from "@/components/VenueReviews";
 import HireEnquiry from "@/components/HireEnquiry";
+import ApprovalOffers from "@/components/ApprovalOffers";
 import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
@@ -360,6 +361,8 @@ export default async function VenuePage({
             .join(" · ")}
         </div>
       )}
+      {/* Activities that need the venue's approval first: apply online. */}
+      <ApprovalOffers t={t} venueId={venue.id} />
       {/* Booking first: it is what nearly everybody came for. */}
       <BookingBoard venueId={venue.id} venueName={venue.name} sports={sports} dates={dates} initial={initial} />
       <LiveOccupancy venueId={venue.id} />

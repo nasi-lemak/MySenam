@@ -14,7 +14,7 @@ import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, ran
  * to have kept a conflict out.
  */
 
-export type ClaimKind = "booking" | "offer" | "class" | "block" | "outage" | "move";
+export type ClaimKind = "booking" | "offer" | "class" | "block" | "outage" | "move" | "approval";
 
 /** What a claim belongs to. */
 export type ClaimSource =
@@ -24,7 +24,9 @@ export type ClaimSource =
   | { kind: "block"; blockId: number }
   | { kind: "outage"; outageId: number }
   /** A proposed new time for an open game's booking, held while its players answer (lib/game-moves.ts). */
-  | { kind: "move"; moveId: number };
+  | { kind: "move"; moveId: number }
+  /** A slot asked for with an approval request, held while it is reviewed (lib/approvals.ts). */
+  | { kind: "approval"; approvalId: number };
 
 /**
  * What a claim keeps around its time (docs/architecture/booking-time-model.md#buffers-separation-and-operational-time).
@@ -108,6 +110,7 @@ const SOURCE_COLUMN: Record<ClaimKind, string> = {
   block: "block_id",
   outage: "outage_id",
   move: "move_id",
+  approval: "approval_id",
 };
 const sourceId = (s: ClaimSource): number =>
   s.kind === "booking"
@@ -120,7 +123,9 @@ const sourceId = (s: ClaimSource): number =>
           ? s.blockId
           : s.kind === "move"
             ? s.moveId
-            : s.outageId;
+            : s.kind === "approval"
+              ? s.approvalId
+              : s.outageId;
 
 /**
  * Claim `span` of business day `date` on a court for `source`: each of its
@@ -178,9 +183,9 @@ export async function claim(input: {
           )
           .run(input.court.venueId, input.court.id, space, input.source.kind, sourceId(input.source), during, occupied, before, after, sepBefore, sepAfter, expires);
     };
-    // The constraint cannot see the clock, so an offer (or a proposed move)
-    // past its time can still be in the way: only then are such holds let go,
-    // and the claim tried once more. Reading for them on every claim made
+    // The constraint cannot see the clock, so an offer (or a proposed move, or
+    // an approval request's hold) past its time can still be in the way: only
+    // then are such holds let go, and the claim tried once more. Reading for them on every claim made
     // bookings conflict (B13).
     try {
       await withTransaction(insert);
@@ -232,12 +237,12 @@ export async function unclaim(source: ClaimSource): Promise<void> {
   await getDb().prepare(`DELETE FROM claims WHERE ${SOURCE_COLUMN[source.kind]} = ?`).run(sourceId(source));
 }
 
-/** Waiting-list offers and proposed moves past their time stop holding anything. */
+/** Waiting-list offers, proposed moves and approval requests' holds past their time stop holding anything. */
 export async function releaseExpiredOffers(courtId?: number): Promise<number> {
   const done = await getDb()
     .prepare(
       `UPDATE claims SET active = false
-        WHERE active AND kind IN ('offer', 'move') AND expires_at <= now()
+        WHERE active AND kind IN ('offer', 'move', 'approval') AND expires_at <= now()
           ${courtId === undefined ? "" : "AND (court_id = ? OR space_id IN (SELECT space_id FROM court_spaces WHERE court_id = ?))"}`
     )
     .run(...(courtId === undefined ? [] : [courtId, courtId]));
@@ -253,6 +258,7 @@ export interface Occupant {
   outageId: number | null;
   waitlistId: number | null;
   moveId: number | null;
+  approvalId: number | null;
   /** The court the claim was made on: this court, or one it shares space with. */
   viaCourt: number;
   /** Places it holds of a shared facility; 1 for space. */
@@ -310,6 +316,7 @@ export async function occupantsOn(
     outage_id: number | null;
     waitlist_id: number | null;
     move_id: number | null;
+    approval_id: number | null;
     places: number | null;
     lo: number;
     hi: number | null;
@@ -322,7 +329,7 @@ export async function occupantsOn(
   };
   // Moments as epoch milliseconds: numbers are much quicker to read than timestamps.
   const ms = (e: string) => `(extract(epoch FROM ${e}) * 1000)::float8`;
-  const cols = `c.kind, c.court_id, c.booking_id, c.class_id, c.block_id, c.outage_id, c.waitlist_id, c.move_id, c.places,
+  const cols = `c.kind, c.court_id, c.booking_id, c.class_id, c.block_id, c.outage_id, c.waitlist_id, c.move_id, c.approval_id, c.places,
     ${ms("lower(c.during)")} AS lo, ${ms("upper(c.during)")} AS hi, ${ms("lower(c.occupied)")} AS olo, ${ms("upper(c.occupied)")} AS ohi,
     c.buffer_before, c.buffer_after, c.separation_before, c.separation_after`;
   const live = "c.active AND (c.expires_at IS NULL OR c.expires_at > now())";
@@ -367,7 +374,7 @@ export async function occupantsOn(
   const seen = new Set<string>();
   for (const r of rows) {
     const court = byId.get(r.for_court)!;
-    const key = `${r.for_court}|${r.kind}|${r.booking_id ?? r.class_id ?? r.block_id ?? r.outage_id ?? r.waitlist_id ?? r.move_id}|${r.lo}`;
+    const key = `${r.for_court}|${r.kind}|${r.booking_id ?? r.class_id ?? r.block_id ?? r.outage_id ?? r.waitlist_id ?? r.move_id ?? r.approval_id}|${r.lo}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const z = zoneOf(court.venueId);
@@ -385,6 +392,7 @@ export async function occupantsOn(
       outageId: r.outage_id,
       waitlistId: r.waitlist_id,
       moveId: r.move_id,
+      approvalId: r.approval_id,
       viaCourt: r.court_id,
       places: court.capacity === 1 ? 1 : (r.places ?? 1),
       span,

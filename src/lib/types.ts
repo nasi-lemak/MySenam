@@ -200,6 +200,8 @@ export type AccessDenial =
   | "not-unmanned"
   | "staffed-now"
   | "no-induction"
+  /** The activity needs a sign-off or certification (lib/sign-offs.ts) and none is in force: a pending approval is not one. */
+  | "approval-needed"
   | "cancelled"
   | "unpaid"
   | "too-early"

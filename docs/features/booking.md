@@ -38,8 +38,9 @@ A room run as **classes only** is not on the grid or in search: customers
 book its [classes](programmes.md), and the venue's own staff can still hire
 the room. The
 database refuses an overlapping claim on a space, and a claim that would put
-a facility over its capacity at any moment, partly blocked places and
-waiting-list offers included, whatever path wrote it
+a facility over its capacity at any moment, partly blocked places,
+waiting-list offers and slots held for an [approval application](activities.md#registering-online-for-approval)
+included, whatever path wrote it
 ([booking time model](../architecture/booking-time-model.md#claims);
 guarantees in [booking concurrency](../architecture/booking-concurrency.md)).
 A refused claim is "just taken" to the customer.
@@ -117,7 +118,9 @@ the [booking time model](../architecture/booking-time-model.md#booking-policies)
   venue's, closed, or its own opening and closing time for each day.
 - **Sign-off or certification**: whether a customer needs a staff sign-off,
   or a recorded certification, for the activity before booking it; online it
-  must be on their own account ([sign-offs](activities.md#sign-offs)).
+  must be on their own account ([sign-offs](activities.md#sign-offs)), and
+  where the venue takes applications online the customer can apply for one
+  from its page ([registering online](activities.md#registering-online-for-approval)).
 
 Each rule is inherited where it is not set: one activity's on one court,
 else the court's own, else its activity's at the venue, else the venue's,

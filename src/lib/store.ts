@@ -990,7 +990,7 @@ export async function getAvailability(
         continue;
       }
       const inCell = shown.filter((o) => overlaps(o.occupied, cell));
-      const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move"), cell);
+      const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move" || o.kind === "approval"), cell);
       const out = peakPlaces(inCell.filter((o) => o.kind === "block" || o.kind === "outage"), cell);
       const load = peakPlaces(inCell, cell);
       const session = inCell.find((o) => o.kind === "class" && overlaps(o.span, cell));
@@ -1807,6 +1807,14 @@ export async function createBookingSeries(
     /** The waiting-list offer this booking claims: its own hold is let go for it. */
     waitlistId?: number;
     /**
+     * The approval request this booking is made for (lib/approvals.ts): its
+     * hold on the slot is let go for it. With `assessment`, the booking is the
+     * session at which staff do the request's in-person step, so it is not
+     * held to the sign-off the request is for. Set only by lib/approvals.ts,
+     * never from a request's body.
+     */
+    approval?: { id: number; assessment: boolean };
+    /**
      * How many: players on a court priced per player, or places on a shared
      * facility (people on a gym floor, kayaks from a fleet).
      */
@@ -1864,7 +1872,7 @@ export async function createBookingSeries(
   // check, a range briefing; lib/sign-offs.ts), good until the last week
   // booked. Online it must be the customer's own; a manager going past the
   // rules may book without one, and it is recorded as an override.
-  const signOffNeed = input.classId ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
+  const signOffNeed = input.classId || input.approval?.assessment ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
   if (signOffNeed) {
     const channel = input.by ?? "customer";
     const held = await signOffHolds({
@@ -1908,7 +1916,14 @@ export async function createBookingSeries(
   /** What holds the court that week, said as the customer is told. */
   const reasonFor = async (weekDate: string): Promise<string> => {
     const held = (await occupantsOn([court], weekDate, zone)).get(court.id)!;
-    const why = whyTaken(held, court, span, buffers, (o) => o.waitlistId !== null && o.waitlistId === offer, players);
+    const why = whyTaken(
+      held,
+      court,
+      span,
+      buffers,
+      (o) => (o.waitlistId !== null && o.waitlistId === offer) || (input.approval !== undefined && o.approvalId === input.approval.id),
+      players
+    );
     if (why?.why === "class") return "reserved for a class";
     if (why?.why === "blocked") return "closed for maintenance";
     return court.capacity > 1 ? "fully booked" : "already booked";
@@ -1923,6 +1938,8 @@ export async function createBookingSeries(
       const skipped: SeriesSkip[] = [];
       // The offer being claimed holds the time for this booking: let it go first.
       if (offer) await release({ kind: "offer", waitlistId: offer });
+      // So does an approval request's hold on the slot it asked for.
+      if (input.approval) await release({ kind: "approval", approvalId: input.approval.id });
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
         let reason: string | null = null;
@@ -2285,7 +2302,7 @@ export type AdminSlotStatus = "free" | "booked" | "blocked" | "past";
 
 /** One thing on a court's day, as staff see it: exact times, and why. */
 export interface ScheduleEntry {
-  kind: "booking" | "offer" | "move" | "class" | "block" | "outage" | "buffer";
+  kind: "booking" | "offer" | "move" | "approval" | "class" | "block" | "outage" | "buffer";
   /** Minutes of the day. */
   start: number;
   end: number;
@@ -2396,7 +2413,10 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
               ? "Offered to the waiting list"
               : o.kind === "move"
                 ? "Held for a game's proposed new time"
-                : (reasonOf(o) ?? "");
+                : o.kind === "approval"
+                  ? // Named by the schedule in the staff language, by its kind.
+                    ""
+                  : (reasonOf(o) ?? "");
       entries.push({
         kind: o.kind,
         start: clip(o.span.start),
@@ -2418,7 +2438,10 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
     for (let minute = openMin; minute < closeMin; minute += grid) {
       const cell = { start: minute, end: Math.min(minute + grid, closeMin) };
       const inCell = occupants.filter((o) => overlaps(o.occupied, cell));
-      const count = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move" || o.kind === "class"), cell);
+      const count = peakPlaces(
+        inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move" || o.kind === "approval" || o.kind === "class"),
+        cell
+      );
       const blocks = inCell.filter((o) => o.kind === "block" || o.kind === "outage");
       const out = peakPlaces(blocks, cell);
       const block = blocks[0];
@@ -4023,6 +4046,23 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
       reason: "no-induction",
       message:
         "Before using this outside staffed hours you need a one-off run-through at the desk. Drop in while the counter is open and it takes a few minutes.",
+    };
+
+  // An activity whose rules ask for a sign-off or a certification opens no
+  // door to a booking without one in force that day: a session booked for an
+  // approval's in-person step (lib/approvals.ts), or one a manager booked
+  // past the rules, waits for somebody to be there. A pending approval is
+  // not one.
+  const rules = await policyFor(court);
+  const need = rules.certification ? "certification" : rules.signOff ? "any" : null;
+  if (need && !(await signOffHolds({ venueId: venue.id, sport: booking.sport, until: booking.date, phone: booking.phone, channel: "staff", need })))
+    return {
+      ok: false,
+      reason: "approval-needed",
+      message:
+        need === "certification"
+          ? "This activity needs a certification the venue has recorded for you before the door code is given. Ask at the counter while it is open."
+          : "This activity needs a sign-off from the venue's staff before the door code is given. Ask at the counter while it is open.",
     };
 
   // Nobody is on site to take the money, so the door is the till.

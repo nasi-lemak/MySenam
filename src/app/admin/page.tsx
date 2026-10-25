@@ -16,6 +16,7 @@ import { LeaguesTab } from "@/components/admin/LeaguesTab";
 import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
+import { ApprovalsReview } from "@/components/admin/ApprovalsPanel";
 import { SystemHealth } from "@/components/admin/SystemHealth";
 import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { VenuesTab } from "@/components/admin/VenuesTab";
@@ -303,6 +304,11 @@ export default function AdminPage() {
             ))}
         </div>
       )}
+
+      {/* Applications to be approved for an activity, waiting on the venue: shown only when there are some. */}
+      {!isOwner &&
+        tab === "bookings" &&
+        venues.map((venue) => <ApprovalsReview key={`approvals-${venue.id}`} venueId={venue.id} venueName={venues.length > 1 ? venue.name : null} waitingOnly />)}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (

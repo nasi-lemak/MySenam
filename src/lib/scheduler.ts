@@ -205,6 +205,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Approval applications: holds whose time is up let go, applications nobody acted on lapsed, renewals asked for.
+    await (await import("./approvals")).expireApprovals();
+  } catch (err) {
+    console.error("[mysenam] approval applications failed:", err);
+    await raiseAlert("scheduler:approvals-failed", "Scheduled work failed: approval applications", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Weekly games: dates added to the host's weekly booking get their games.
     await extendSeriesIfDue(now);
     // Players who asked hear of games suggested for them, each game once.

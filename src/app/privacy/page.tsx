@@ -19,11 +19,19 @@ const HOW_LONG_VARS: Record<number, { n: number }> = {
 };
 
 function heldRows(t: T) {
-  return [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({
-    what: t(`privacy.held${i}What` as Phrase),
-    why: t(`privacy.held${i}Why` as Phrase),
-    how: t(`privacy.held${i}How` as Phrase, HOW_LONG_VARS[i]),
-  }));
+  return [
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({
+      what: t(`privacy.held${i}What` as Phrase),
+      why: t(`privacy.held${i}Why` as Phrase),
+      how: t(`privacy.held${i}How` as Phrase, HOW_LONG_VARS[i]),
+    })),
+    // Applications to be approved for an activity (lib/approvals.ts).
+    {
+      what: t("apr.privacyWhat"),
+      why: t("apr.privacyWhy"),
+      how: t("apr.privacyHow", { n: RETENTION.approvalDocumentDays, m: RETENTION.approvalRequestDays }),
+    },
+  ];
 }
 
 /** Who answers for the data, from the same OPERATOR_* settings as the terms. Named only with a way to write to them. */

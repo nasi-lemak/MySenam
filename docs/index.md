@@ -37,7 +37,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | ------- | ---------------------- |
 | Who uses MySenam, their roles as the code has them, and the main journeys through it | [Users and journeys](product/users-and-journeys.md) |
 | Rules that span features and must not break | [Business rules](product/business-rules.md) |
-| What can be booked: the activity catalogue, resource templates, operators' own activities, resources offering several, quantity, sign-offs, localised names, and which activities are fully supported | [Activities](features/activities.md) |
+| What can be booked: the activity catalogue, resource templates, operators' own activities, resources offering several, quantity, sign-offs and registering online for approval, localised names, and which activities are fully supported | [Activities](features/activities.md) |
 | Booking rules (starts, lengths, buffers, notice), availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, who may book | [Booking](features/booking.md) |
 | Prices to the minute, fees, peak bands, holidays, last-minute prices, concessions, promo codes, memberships, passes | [Pricing](features/pricing.md) |
 | Paying online, holds and deposits, stored credit and its ownership, gift vouchers, split costs, extras, counter sales, company accounts | [Payments and credit](features/payments-and-credit.md) |
@@ -84,7 +84,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0015 Backblaze B2 preferred; signed backup sets](architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md) ·
 [0016 Matchmaking on open games](architecture/decisions/0016-matchmaking-on-open-games.md) ·
 [0017 Staging and verification modes](architecture/decisions/0017-staging-and-verification-modes.md) ·
-[0018 Moving open games by consent](architecture/decisions/0018-moving-open-games-by-consent.md)
+[0018 Moving open games by consent](architecture/decisions/0018-moving-open-games-by-consent.md) ·
+[0019 Approval applications apart from bookings](architecture/decisions/0019-approval-requests-apart-from-bookings.md)
 
 ## Integrations
 

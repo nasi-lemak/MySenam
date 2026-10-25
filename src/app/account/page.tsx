@@ -174,6 +174,9 @@ export default function AccountPage() {
       <ChangePassword endpoint="/api/my/password" />
 
       <MyVenues />
+      <Link href="/account/approvals" className="block rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-teal-700 shadow-sm hover:bg-slate-50">
+        {t("apr.accountLink")} →
+      </Link>
       <GuestInvites />
 
       {regulars.length > 0 && (

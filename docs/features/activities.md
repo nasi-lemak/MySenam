@@ -2,9 +2,9 @@
 
 Authoritative for what can be booked: the activity catalogue, how a resource
 is modelled for each kind of activity, templates, operators' own activities,
-resources offering several activities, staff sign-offs, how activities are
-named country by country and found in search, and **how far each activity is
-supported**. How a booking of any of them is checked and stored is
+resources offering several activities, staff sign-offs and registering online
+for approval, how activities are named country by country and found in
+search, and **how far each activity is supported**. How a booking of any of them is checked and stored is
 [booking](booking.md); why activities are data rather than code is
 [ADR 0011](../architecture/decisions/0011-activities-as-data.md).
 Status: [feature status](../product/feature-status.md#booking-and-availability) (the activity rows).
@@ -204,13 +204,132 @@ of a reschedule). One person's sign-off covers one person: online, a
 customer books one place on an activity that asks for one (`SIGN_OFF_EACH`),
 and everyone joining an open game needs their own. Classes are not held to
 it: they are led by an instructor. Refused bookings say why
-(`SIGN_OFF_NEEDED`, `CERTIFICATION_NEEDED`) and point to the counter.
+(`SIGN_OFF_NEEDED`, `CERTIFICATION_NEEDED`) and point to the counter; where
+the venue takes applications online, its page offers that instead
+([below](#registering-online-for-approval)).
 Sign-offs are personal data: they appear in a phone number's export, and
 withdrawn ones are deleted after a year ([privacy](../architecture/privacy.md)).
 
 A sign-off is not an [induction](venue-operations.md): an induction clears
 somebody to use the venue when nobody is staffing it; a sign-off clears them
-to book one activity.
+to book one activity. On an unmanned resource the door code also waits for a
+sign-off where the activity asks for one
+([door codes](venue-operations.md#resources-nobody-is-standing-next-to)).
+
+## Registering online for approval
+
+A customer need not come to the counter just to register for an activity
+that needs a sign-off or certification, or to ask for a first lesson
+(`src/lib/approvals.ts`; [ADR 0019](../architecture/decisions/0019-approval-requests-apart-from-bookings.md)).
+The same workflow serves climbing, kayaking, coaching, equipment hire or any
+activity whose rules ask for a sign-off.
+
+**What the venue asks, per activity** (*Courts & rates → Online
+applications*, managers): what applicants are told first; questions (some
+may be left blank); and one or more verification methods:
+
+| Method | What the customer does | What it records |
+| ------ | ---------------------- | --------------- |
+| Online declaration | Ticks the venue's words | When it was ticked |
+| Documents staff review | Uploads a photo or scan (a certificate, never an identity document: a label naming one is refused) | The image, redrawn as for venue photos, private to the customer and the venue's reviewers |
+| Video briefing | Watches a link and confirms having watched it | When it was confirmed |
+| In-person briefing or assessment | Comes in (and may book the session online) | Who recorded it and when |
+
+It also says whether the venue's [waiver](venue-operations.md#waivers) must be
+agreed (the existing digital waiver, signed once per version), what an
+approval writes (a sign-off, or a certification, for which the customer gives
+its number, issuer and end date and sends the document), how long an
+approval lasts (days, or until taken back), how many days an application may
+wait unanswered before it lapses (14 unless set), how many hours a slot asked
+for is held (48 unless set), and which of the venue's
+[coaches](programmes.md#one-to-one-coaching) may review these applications at their own link.
+
+**Applying** needs a signed-in account (an approval is personal), with a
+number the venue can reach as for booking. The venue's page lists the
+activities it takes applications for. The customer answers what is asked,
+declares whether they are 18 or over, and, if not, gives a parent or
+guardian's name and their declaration that they agree; this is recorded as
+declared, never as verified, and no identity document is asked for. They may
+ask for a slot at the same time: a time the court's booking rules allow,
+checked against the venue's own limits as a booking would be. One application
+per person, activity and venue may be open at a time; somebody approved with
+more than 30 days to run cannot apply again until then.
+
+**Statuses** (`approval_requests.status`):
+
+| Status | Means | Waiting on |
+| ------ | ----- | ---------- |
+| `pending` | Waiting for review | The venue |
+| `info_requested` | A reviewer asked something | The customer: their answer (and any document) sends it back to `pending` |
+| `in_person_due` | The online part is accepted; the in-person step is still to be recorded | The venue |
+| `approved` | Everything asked for is done | — |
+| `rejected`, `withdrawn`, `expired` | Refused with a reason; withdrawn by the customer; lapsed, nobody having acted in time | — |
+
+**Reviewing.** The venue's staff (manager or front desk, as for sign-offs)
+review from the dashboard: the bookings tab shows applications waiting, and
+*Courts & rates* lists them all. A coach the venue named for that
+activity reviews at their private link, sees only those applications, and
+can do nothing else of a manager's. A reviewer can approve, refuse (with a
+reason the customer is told), ask for more (the customer answers and it comes
+back), and record the in-person step. Where an in-person step is set,
+approving accepts only the online part: the application is complete only once
+staff (or the coach) record the in-person step, in either order; an online
+declaration never stands in for it.
+
+**Approved**, the application writes the sign-off or certification the
+booking rules already check, linked to the customer's account, with the
+venue's period as its end (a certification's end is never past the
+certificate's own), naming who approved it. Every booking path then works as
+it always has; nothing else is unlocked by an application on its own. A
+renewal is a new application, linked to the one it renews; the customer is
+reminded 14 days before an approval runs out, and past its end the booking
+rules refuse it again.
+
+**A slot asked for** is held by an expiring claim of its own kind (`approval`),
+which the database counts like any booking while it lasts, until its hours
+are up or the slot starts, and is let go on refusal, withdrawal or lapse. On
+approval it is booked through the ordinary booking path, its hold let go and
+the booking claimed in one transaction under the same constraints; if the
+hold had lapsed and somebody else took the slot, nothing is overbooked: the
+customer is told, and offered the venue's times and its waiting list. Where
+an in-person step is still to come, the slot is booked when the online part
+is accepted, as the session at which it is done; that session is not held to
+the sign-off, and a customer can book one later from their account. A
+pending application never reserves anything beyond its hold.
+
+**Money.** Nothing is charged for applying or while an application waits.
+A booking made on approval is an ordinary booking, unpaid, paid, refunded and
+cancelled the ordinary ways ([payments](payments-and-credit.md)); it is not
+held for payment at a venue that asks for payment to hold, since the customer
+was not there to pay when it was approved. Refusing or lapsing an application
+leaves nothing to refund.
+
+**Access.** A pending application grants nothing: the booking rules refuse
+the activity, and an unmanned resource's door code is not given for an
+activity that needs a sign-off until one is in force for the person booked,
+whoever made the booking ([door codes](venue-operations.md#resources-nobody-is-standing-next-to)).
+Unmanned facilities can approve remotely wherever the activity sets no
+in-person step.
+
+**Telling people.** The customer is emailed in the language their account
+last used when an application is received, asked about, accepted online,
+approved, refused or lapsed, when a held slot is let go, and before an
+approval runs out; their account page (*Approvals for activities*,
+`/account/approvals`) shows each application's status, what is waiting on
+whom, its slot and its history. The venue's booking-alert address and the
+authorised coaches are emailed when an application arrives or is answered.
+
+**The record.** Each application keeps its history (who, when, what and why:
+customer, staff member, coach or the system) and every decision also goes in
+the staff [activity log](reporting.md), a coach's under their name. Answers,
+declarations and documents are personal data: they go out with the customer's
+data export, are erased with the account, and documents are deleted 90 days
+after the decision ([privacy](../architecture/privacy.md#retention)).
+
+Not built: a parent applying for a child from the parent's own account (a
+minor applies from their own, with the guardian's declaration); a coach's
+lesson asked for with an application (a slot is court time; a lesson is booked
+once approved); PDFs as documents (images only, so they can be redrawn).
 
 ## Countries and languages
 
@@ -270,7 +389,11 @@ Tested: `tests/activity-coverage.test.ts` (every built-in, set up from its
 template, found and booked as it is sold), `tests/activities.test.ts`
 (catalogue, templates, multi-activity resources, places, search),
 `tests/hire-pricing.test.ts` (pricing models), `tests/sign-offs.test.ts`,
-`tests/sports.test.ts`, `tests/capacity.test.ts` and `tests/hire.test.ts`.
+`tests/approvals.test.ts` (registering online for approval: approval,
+refusal, questions answered, expiry and renewal, holds and races on
+Postgres, money, who may decide, in-person steps, minors, documents, door
+codes), `tests/sports.test.ts`, `tests/capacity.test.ts` and
+`tests/hire.test.ts`.
 
 | Activity | Category | Model | Support | Not built |
 | -------- | -------- | ----- | ------- | --------- |
