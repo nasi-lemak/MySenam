@@ -615,7 +615,7 @@ const zh: Record<keyof typeof en, string> = {
   "pos.voidFailed": "无法作废",
   "pos.title": "前台销售",
   "pos.intro": "无需预订即可出售饮料、羽毛球或球拍租借。每笔销售都有收据。可在{section}中添加商品；其他商品可直接输入。",
-  "pos.extrasSection": "场馆与员工 → 出售或出租的附加项目",
+  "pos.extrasSection": "场馆与员工 → 可售卖或租借的附加项目",
   "pos.hire": "{name}（租借）",
   "pos.nameAndPrice": "请填写商品名称和价格。",
   "pos.otherItem": "其他商品",

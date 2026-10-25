@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { intlTag, isoOffset, region } from "@/lib/region";
+import type { Locale } from "@/lib/i18n";
 import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- First run ---------------- */
@@ -15,8 +16,8 @@ interface DemoState {
 }
 
 /** A yyyy-mm-dd as a Malaysian would read it. */
-function readable(date: string): string {
-  return new Date(`${date}T00:00:00${isoOffset()}`).toLocaleDateString(intlTag("en"), {
+function readable(date: string, locale: Locale): string {
+  return new Date(`${date}T00:00:00${isoOffset()}`).toLocaleDateString(intlTag(locale), {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -100,8 +101,8 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
         <h2 className="text-base font-bold text-amber-900">{t("fr.runOut")}</h2>
         <p className="mt-1 max-w-2xl text-sm text-amber-900/85">
           {t("fr.runOutBody", {
-            written: state.seededOn ? readable(state.seededOn) : t("fr.earlierDay"),
-            runsTo: state.runsTo ? readable(state.runsTo) : t("fr.datePast"),
+            written: state.seededOn ? readable(state.seededOn, t.locale) : t("fr.earlierDay"),
+            runsTo: state.runsTo ? readable(state.runsTo, t.locale) : t("fr.datePast"),
           })}
         </p>
         {confirming ? (

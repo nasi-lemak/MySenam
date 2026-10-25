@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { EInvoice, EInvoiceSettings } from "@/lib/myinvois";
 import { STATE_CODES } from "@/lib/myinvois/states";
 import { intlTag, money, region } from "@/lib/region";
+import type { Locale } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
 import { useStaffT } from "./StaffLanguage";
 
@@ -59,8 +60,8 @@ const blank = (s: EInvoiceSettings): Form => ({
   email: s.email ?? "",
 });
 
-const when = (at: string) =>
-  new Date(at.includes("Z") || at.includes("+") ? at : `${at.replace(" ", "T")}Z`).toLocaleString(intlTag("en"), {
+const when = (at: string, locale: Locale) =>
+  new Date(at.includes("Z") || at.includes("+") ? at : `${at.replace(" ", "T")}Z`).toLocaleString(intlTag(locale), {
     day: "numeric",
     month: "short",
     hour: "2-digit",
@@ -320,7 +321,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                 </p>
                 <p className="text-slate-500">
                   {money(e.total)}
-                  {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} · {when(e.submittedAt ?? e.createdAt)}
+                  {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} · {when(e.submittedAt ?? e.createdAt, t.locale)}
                 </p>
                 {e.error && <p className="mt-1 text-rose-700">{e.error}</p>}
               </div>

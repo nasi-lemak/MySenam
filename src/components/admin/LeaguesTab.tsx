@@ -11,6 +11,7 @@ import type { CompetitionTemplate } from "@/lib/competition-templates";
 import { money, currencySymbol } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { sportLabel } from "@/lib/i18n";
 import { levelLabel } from "./TournamentsTab";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -197,7 +198,7 @@ function Create({ venue, post, templates }: { venue: ManagedVenue; post: (url: s
           <select value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value as Sport })} className={input}>
             {sports.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {t.locale === "en" ? s : sportLabel(t.customer, s)}
               </option>
             ))}
           </select>

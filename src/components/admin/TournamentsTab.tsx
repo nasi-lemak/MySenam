@@ -18,6 +18,7 @@ import { currencySymbol, money } from "@/lib/region";
 import type { RefusalBody } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { sportLabel } from "@/lib/i18n";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
@@ -326,7 +327,7 @@ function Create({
           <select value={f.sport} onChange={(e) => startFrom(templateFor(e.target.value), e.target.value as Sport)} className={input}>
             {sports.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {t.locale === "en" ? s : sportLabel(t.customer, s)}
               </option>
             ))}
           </select>
@@ -614,7 +615,7 @@ function CreateCompetition({ venue, post }: { venue: ManagedVenue; post: (url: s
             <select value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value as Sport, courtIds: [] })} className={input}>
               {sports.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {t.locale === "en" ? s : sportLabel(t.customer, s)}
                 </option>
               ))}
             </select>
