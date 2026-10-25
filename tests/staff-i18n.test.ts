@@ -84,16 +84,6 @@ const USER_ATTRIBUTES = new Set(["placeholder", "title", "aria-label", "alt", "l
 const USER_PROPERTIES = new Set(["label", "title", "hint", "help", "description", "placeholder", "text", "note", "summary", "message", "notice", "heading", "blurb", "explain", "why"]);
 const USER_CALLS = /^(confirm|alert|prompt|set(Error|Notice|Message|Info|Warning|Done|Result|Status|Saved|Flash|Feedback|Problem|Hint))$/;
 
-/**
- * Screens not yet moved into the dictionaries, skipped until they are. The
- * list only shrinks: a screen on it with nothing left to translate fails the
- * test, so it is taken off.
- */
-const PENDING = new Set([
-  "src/components/admin/LeaguesTab.tsx",
-  "src/components/admin/TournamentsTab.tsx",
-]);
-
 function files(): string[] {
   const only = process.env.STAFF_I18N_FILES?.split(",").map((f) => f.trim()).filter(Boolean);
   if (only?.length) return only;
@@ -178,11 +168,8 @@ function scan(file: string): string[] {
 
 describe("the staff screens", () => {
   it("show no text that bypasses the staff dictionaries", () => {
-    const all = files();
-    const found = all.filter((f) => !PENDING.has(f)).flatMap(scan);
+    const found = files().flatMap(scan);
     if (found.length) console.log(`${found.length} untranslated:\n${found.join("\n")}`);
     expect(found).toEqual([]);
-    const done = all.filter((f) => PENDING.has(f) && scan(f).length === 0);
-    expect(done, "take these off PENDING").toEqual([]);
   });
 });

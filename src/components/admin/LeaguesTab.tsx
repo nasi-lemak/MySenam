@@ -6,12 +6,40 @@ import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { addDays } from "@/lib/time";
 import { type Sport } from "@/lib/types";
-import type { League, LeagueDetail, LeagueMatch } from "@/lib/leagues";
+import type { League, LeagueDetail, LeagueMatch, MatchStatus, SeasonStatus } from "@/lib/leagues";
 import type { CompetitionTemplate } from "@/lib/competition-templates";
 import { money, currencySymbol } from "@/lib/region";
+import type { StaffT } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
+import { levelLabel } from "./TournamentsTab";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
+
+/** A phrase with one value in bold, wherever the language puts it. */
+function withStrong(t: StaffT, phrase: Parameters<StaffT>[0], vars: Record<string, string | number>, bold: string, value: string) {
+  const [before, after = ""] = t(phrase, { ...vars, [bold]: "\u0000" }).split("\u0000");
+  return (
+    <>
+      {before}
+      <strong>{value}</strong>
+      {after}
+    </>
+  );
+}
+
+const seasonStatus = (t: StaffT, status: SeasonStatus): string =>
+  ({ forming: t("lg.status.forming"), running: t("lg.status.running"), finished: t("lg.status.finished") })[status] ?? status;
+
+const matchStatus = (t: StaffT, status: MatchStatus): string =>
+  ({
+    unplayed: t("lg.match.unplayed"),
+    reported: t("lg.match.reported"),
+    confirmed: t("lg.match.confirmed"),
+    disputed: t("lg.match.disputed"),
+    walkover: t("lg.match.walkover"),
+    void: t("lg.match.void"),
+  })[status] ?? status;
 
 /**
  * A venue's box leagues: set one up; see who has joined and place
@@ -19,6 +47,7 @@ const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
  * dates); settle disputed results, and put any result right.
  */
 export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [list, setList] = useState<League[]>([]);
   const [templates, setTemplates] = useState<CompetitionTemplate[]>([]);
@@ -49,7 +78,7 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error ?? "That did not work.");
+      setError(t.err(data));
       return false;
     }
     if (data.league && "boxes" in data.league) setOpen(data.league);
@@ -57,7 +86,7 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
     return true;
   }
 
-  if (!venue) return <p className="text-sm text-slate-500">No venue.</p>;
+  if (!venue) return <p className="text-sm text-slate-500">{t("tn.noVenue")}</p>;
   return (
     <div className="space-y-4">
       {venues.length > 1 && (
@@ -83,25 +112,27 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
       ) : (
         <>
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="font-semibold">Leagues</h2>
+            <h2 className="font-semibold">{t("lg.title")}</h2>
             {list.length === 0 ? (
-              <p className="mt-1 text-sm text-slate-500">None yet. Set one up below.</p>
+              <p className="mt-1 text-sm text-slate-500">{t("tn.noneYet")}</p>
             ) : (
               <ul className="mt-2 divide-y divide-slate-100 text-sm">
                 {list.map((l) => (
                   <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span>
-                      <span className="font-medium">{l.name}</span> · {l.players} players ·{" "}
+                      <span className="font-medium">{l.name}</span> · {t("lg.playerCount", { n: l.players })} ·{" "}
                       <span className="text-slate-500">
                         {l.status === "closed"
-                          ? "stopped"
+                          ? t("lg.stopped")
                           : l.current
-                            ? `season ${l.current.number} ${l.current.status === "forming" ? `starts ${l.current.startsOn}` : `ends ${l.current.endsOn}`}`
+                            ? l.current.status === "forming"
+                              ? t("lg.seasonStarts", { n: l.current.number, date: l.current.startsOn })
+                              : t("lg.seasonEnds", { n: l.current.number, date: l.current.endsOn })
                             : ""}
                       </span>
                     </span>
                     <button onClick={() => void show(l.id)} className="text-sm font-medium text-teal-700 underline">
-                      Open
+                      {t("tn.open")}
                     </button>
                   </li>
                 ))}
@@ -116,6 +147,7 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
 }
 
 function Create({ venue, post, templates }: { venue: ManagedVenue; post: (url: string, body: object) => Promise<boolean>; templates: CompetitionTemplate[] }) {
+  const t = useStaffT();
   const sports = activityKeys().filter((s) => venue.courts.some((c) => c.sport === s));
   /** A sport's own template, as a new league starts from (the server picks the same when none is sent). */
   const ownTemplate = (sport: string) => templates.find((x) => x.sports.includes(sport))?.key ?? "";
@@ -153,19 +185,15 @@ function Create({ venue, post, templates }: { venue: ManagedVenue; post: (url: s
       }}
       className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-white p-4"
     >
-      <h2 className="font-semibold">Set up a box league</h2>
-      <p className="text-sm text-slate-500">
-        Players join at /leagues. Each season they are put in boxes and play everybody in theirs, booking courts as usual
-        and reporting their own scores; the best go up a box and the worst down for the next. Seasons start and end by
-        themselves on their dates — you only settle disputes.
-      </p>
+      <h2 className="font-semibold">{t("lg.setUp")}</h2>
+      <p className="text-sm text-slate-500">{t("lg.setUpIntro")}</p>
       <div className="flex flex-wrap items-end gap-3">
         <label className={label}>
-          Name
-          <input required minLength={3} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`w-64 ${input}`} placeholder="Evening Singles Ladder" />
+          {t("c.name")}
+          <input required minLength={3} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`w-64 ${input}`} placeholder={t("lg.namePlaceholder")} />
         </label>
         <label className={label}>
-          Sport
+          {t("tn.sport")}
           <select value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value as Sport })} className={input}>
             {sports.map((s) => (
               <option key={s} value={s}>
@@ -175,52 +203,52 @@ function Create({ venue, post, templates }: { venue: ManagedVenue; post: (url: s
           </select>
         </label>
         <label className={label}>
-          Play
+          {t("lg.play")}
           <select value={f.teamSize} onChange={(e) => setF({ ...f, teamSize: Number(e.target.value) })} className={input}>
-            <option value={1}>Singles</option>
-            <option value={2}>Doubles pairs</option>
+            <option value={1}>{t("lg.singles")}</option>
+            <option value={2}>{t("lg.doublesPairs")}</option>
           </select>
         </label>
         <label className={label}>
-          Who can play
+          {t("lg.whoCanPlay")}
           <select value={f.who} onChange={(e) => setF({ ...f, who: e.target.value })} className={input}>
-            <option value="anyone">Anyone</option>
-            <option value="women">Women only</option>
-            <option value="men">Men only</option>
+            <option value="anyone">{t("lg.anyone")}</option>
+            <option value="women">{t("lg.womenOnly")}</option>
+            <option value="men">{t("lg.menOnly")}</option>
           </select>
         </label>
         <label className={label}>
-          Level
+          {t("tn.level")}
           <select value={f.level} onChange={(e) => setF({ ...f, level: e.target.value })} className={input}>
             {LEVELS.map((l) => (
               <option key={l} value={l}>
-                {l || "Open to all"}
+                {l ? levelLabel(t, l) : t("tn.openToAll")}
               </option>
             ))}
           </select>
         </label>
         <label className={label}>
-          Box size
+          {t("lg.boxSize")}
           <input type="number" min={3} max={6} value={f.boxSize} onChange={(e) => setF({ ...f, boxSize: e.target.value })} className={`w-16 ${input}`} />
         </label>
         <label className={label}>
-          Up / down
+          {t("lg.upDown")}
           <select value={f.moves} onChange={(e) => setF({ ...f, moves: e.target.value })} className={input}>
-            <option value="1">1 each way</option>
-            <option value="2">2 each way</option>
+            <option value="1">{t("lg.eachWay", { n: 1 })}</option>
+            <option value="2">{t("lg.eachWay", { n: 2 })}</option>
           </select>
         </label>
         <label className={label}>
-          Season (days)
+          {t("lg.seasonDays")}
           <input type="number" min={14} max={62} value={f.seasonDays} onChange={(e) => setF({ ...f, seasonDays: e.target.value })} className={`w-20 ${input}`} />
         </label>
         <label className={label}>
-          Fee a season ({currencySymbol()})
+          {t("lg.fee", { cur: currencySymbol() })}
           <input type="number" min={0} step={0.01} value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} className={`w-24 ${input}`} />
         </label>
         {templates.length > 0 && (
           <label className={label}>
-            Scored and ranked as
+            {t("lg.scoredAs")}
             <select value={f.template || ownTemplate(f.sport)} onChange={(e) => setF({ ...f, template: e.target.value })} className={`w-72 ${input}`}>
               {templates.map((x) => (
                 <option key={x.key} value={x.key}>
@@ -231,16 +259,16 @@ function Create({ venue, post, templates }: { venue: ManagedVenue; post: (url: s
           </label>
         )}
         <label className={label}>
-          First season starts
+          {t("lg.firstSeason")}
           <input type="date" required value={f.startsOn} onChange={(e) => setF({ ...f, startsOn: e.target.value })} className={input} />
         </label>
       </div>
-      {chosen && <p className="text-xs text-slate-500">{chosen.note} A league match always has a winner. Templates are club practice, not a governing body&apos;s regulations.</p>}
+      {chosen && <p className="text-xs text-slate-500">{chosen.note} {t("lg.templateCaveat")}</p>}
       <label className={label}>
-        About it (optional)
+        {t("lg.about")}
         <textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={input} />
       </label>
-      <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Set it up</button>
+      <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{t("lg.setUpButton")}</button>
     </form>
   );
 }
@@ -256,6 +284,7 @@ function Manage({
   show: (season?: number) => void;
   close: () => void;
 }) {
+  const t = useStaffT();
   const names = new Map(l.people.map((p) => [p.id, p.name]));
   const base = `/api/admin/leagues/${l.id}`;
   const current = l.current;
@@ -268,87 +297,88 @@ function Manage({
   return (
     <div className="space-y-4">
       <button onClick={close} className="text-sm text-teal-700 underline">
-        ← All leagues
+        {t("lg.back")}
       </button>
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold">{l.name}</h2>
             <p className="text-sm text-slate-500">
-              {l.sport} · {l.teamSize === 2 ? "doubles pairs" : "singles"}
-              {l.who !== "anyone" && ` · ${l.who} only`} · boxes of {l.boxSize} · {l.moves} up and down ·{" "}
-              {l.seasonDays}-day seasons · {l.fee > 0 ? `${money(l.fee.toFixed(2))} a season` : "no fee"} · {l.players} players
-              {l.status === "closed" && " · stopped"}
+              {l.sport} · {l.teamSize === 2 ? t("lg.doublesPairsLower") : t("lg.singlesLower")}
+              {l.who !== "anyone" && ` · ${l.who === "women" ? t("lg.who.women") : l.who === "men" ? t("lg.who.men") : l.who}`} · {t("lg.boxesOf", { n: l.boxSize })} ·{" "}
+              {t("lg.upAndDown", { n: l.moves })} · {t("lg.seasonLength", { n: l.seasonDays })} ·{" "}
+              {l.fee > 0 ? t("lg.feeASeason", { fee: money(l.fee.toFixed(2)) }) : t("lg.noFee")} · {t("lg.playerCount", { n: l.players })}
+              {l.status === "closed" && ` · ${t("lg.stopped")}`}
             </p>
           </div>
           <a href={`/leagues/${l.id}`} target="_blank" rel="noreferrer" className="text-sm text-teal-700 underline">
-            Public page
+            {t("lg.publicPage")}
           </a>
         </div>
 
         {current?.status === "forming" && (
           <div className="flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 text-sm">
-            <span className="flex-1">
-              Season {current.number} starts on <strong>{current.startsOn}</strong> by itself, if 3 or more have joined
-              ({l.players} so far).
-            </span>
+            <span className="flex-1">{withStrong(t, "lg.formingNote", { n: current.number, players: l.players }, "date", current.startsOn)}</span>
             <input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className={input} />
             <button onClick={() => void post(base, { action: "plan", startsOn })} className="rounded-md border border-slate-300 px-3 py-1.5">
-              Move the start
+              {t("lg.moveStart")}
             </button>
             <button
               onClick={() => {
-                if (window.confirm("Make the boxes and start the season today?")) void post(base, { action: "start" });
+                if (window.confirm(t("lg.startConfirm"))) void post(base, { action: "start" });
               }}
               className="rounded-md bg-teal-600 px-3 py-1.5 font-semibold text-white hover:bg-teal-700"
             >
-              Start it now
+              {t("lg.startNow")}
             </button>
           </div>
         )}
         {current?.status === "running" && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3 text-sm">
-            <span className="flex-1">
-              Season {current.number} runs {current.startsOn} to <strong>{current.endsOn}</strong>, and ends by itself
-              three days after, for late results.
-            </span>
+            <span className="flex-1">{withStrong(t, "lg.runningNote", { n: current.number, from: current.startsOn }, "to", current.endsOn)}</span>
             <button
               onClick={() => {
                 const note = [
-                  waiting > 0 ? `${waiting} result${waiting === 1 ? "" : "s"} waiting for confirmation will stand.` : "",
-                  disputed.length > 0 ? `${disputed.length} disputed result${disputed.length === 1 ? "" : "s"} will not count.` : "",
+                  waiting > 0 ? t.plural("lg.waitingStand", waiting) : "",
+                  disputed.length > 0 ? t.plural("lg.disputedVoid", disputed.length) : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
-                if (window.confirm(`End season ${current.number} now and work out who goes up and down? ${note}`)) void post(base, { action: "end" });
+                if (window.confirm(t("lg.endConfirm", { n: current.number, note }))) void post(base, { action: "end" });
               }}
               className="rounded-md border border-slate-300 px-3 py-1.5"
             >
-              End it now
+              {t("lg.endNow")}
             </button>
           </div>
         )}
         {l.status === "running" && current?.status !== "running" && (
           <button
             onClick={() => {
-              if (window.confirm("Stop running this league? Its players are told.")) void post(base, { action: "close" });
+              if (window.confirm(t("lg.stopConfirm"))) void post(base, { action: "close" });
             }}
             className="text-sm text-red-700 underline"
           >
-            Stop the league
+            {t("lg.stop")}
           </button>
         )}
       </section>
 
       {disputed.length > 0 && (
         <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
-          <h3 className="font-semibold text-amber-900">Disputed results</h3>
+          <h3 className="font-semibold text-amber-900">{t("lg.disputed")}</h3>
           <ul className="mt-2 divide-y divide-amber-200 text-sm">
             {disputed.map((m) => (
               <li key={m.id} className="py-2">
                 <div>
-                  Box {m.boxNo}: {names.get(m.a)} v {names.get(m.b)} — reported {m.score}, won by {names.get(m.winner ?? 0)}
-                  {m.reportedBy && ` (by ${names.get(m.reportedBy)})`}
+                  {t(m.reportedBy ? "lg.disputedLineBy" : "lg.disputedLine", {
+                    box: m.boxNo,
+                    a: names.get(m.a) ?? "",
+                    b: names.get(m.b) ?? "",
+                    score: m.score ?? "",
+                    winner: names.get(m.winner ?? 0) ?? "",
+                    by: m.reportedBy ? (names.get(m.reportedBy) ?? "") : "",
+                  })}
                 </div>
                 <div className="text-amber-900">“{m.disputeNote}”</div>
                 <Decide m={m} names={names} post={(body) => post(`${base}/matches/${m.id}`, body)} />
@@ -368,7 +398,7 @@ function Manage({
                 onClick={() => show(s.number)}
                 className={`rounded-full px-3 py-1 text-sm ${l.viewing?.id === s.id ? "bg-teal-600 text-white" : "bg-white ring-1 ring-slate-200"}`}
               >
-                Season {s.number}
+                {t("lg.season", { n: s.number })}
               </button>
             ))}
         </nav>
@@ -377,12 +407,12 @@ function Manage({
       {l.boxes.length > 0 && l.viewing && (
         <section className="space-y-3">
           <h3 className="font-semibold">
-            Season {l.viewing.number} <span className="text-sm font-normal text-slate-500">({l.viewing.status})</span>
+            {t("lg.season", { n: l.viewing.number })} <span className="text-sm font-normal text-slate-500">({seasonStatus(t, l.viewing.status)})</span>
           </h3>
           <div className="grid gap-3 lg:grid-cols-2">
             {l.boxes.map((box) => (
               <div key={box.boxNo} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h4 className="font-semibold">Box {box.boxNo}</h4>
+                <h4 className="font-semibold">{t("lg.box", { n: box.boxNo })}</h4>
                 <ul className="mt-1 text-sm">
                   {box.table.map((s, i) => {
                     const place = l.places.find((p) => p.playerId === s.entryId)!;
@@ -390,7 +420,7 @@ function Manage({
                       <li key={s.entryId} className="flex flex-wrap items-center gap-x-3 py-0.5">
                         <span className={`flex-1 ${place.withdrawn ? "text-slate-400 line-through" : ""}`}>
                           {i + 1}. {names.get(s.entryId)} <span className="text-slate-500">({s.won}–{s.lost})</span>
-                          {place.move && place.move !== "stay" && <span className="ml-1 text-xs">{place.move === "up" ? "▲ up" : "▼ down"}</span>}
+                          {place.move && place.move !== "stay" && <span className="ml-1 text-xs">{place.move === "up" ? t("lg.up") : t("lg.down")}</span>}
                         </span>
                         {l.fee > 0 && (
                           <label className="flex items-center gap-1 text-xs text-slate-600">
@@ -399,7 +429,7 @@ function Manage({
                               checked={place.paid}
                               onChange={(e) => void post(`${base}/places/${place.id}`, { paid: e.target.checked })}
                             />
-                            paid
+                            {t("lg.paid")}
                           </label>
                         )}
                       </li>
@@ -413,11 +443,11 @@ function Manage({
                       <li key={m.id} className="py-1.5">
                         <div className="flex flex-wrap gap-x-3">
                           <span className="flex-1">
-                            <span className={m.winner === m.a ? "font-semibold" : ""}>{names.get(m.a)}</span> v{" "}
+                            <span className={m.winner === m.a ? "font-semibold" : ""}>{names.get(m.a)}</span> {t("tn.versus")}{" "}
                             <span className={m.winner === m.b ? "font-semibold" : ""}>{names.get(m.b)}</span>
                           </span>
                           <span className="text-slate-600">{m.score}</span>
-                          <span className="text-xs text-slate-400">{m.status === "confirmed" ? "" : m.status}</span>
+                          <span className="text-xs text-slate-400">{m.status === "confirmed" ? "" : matchStatus(t, m.status)}</span>
                         </div>
                         {editable && <Decide m={m} names={names} post={(body) => post(`${base}/matches/${m.id}`, body)} compact />}
                       </li>
@@ -426,16 +456,13 @@ function Manage({
               </div>
             ))}
           </div>
-          {lastBox > 0 && <p className="text-xs text-slate-500">Scores are written with the first-named player&apos;s games first.</p>}
+          {lastBox > 0 && <p className="text-xs text-slate-500">{t("lg.scoresNote")}</p>}
         </section>
       )}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="font-semibold">Players</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          Newcomers go into the bottom box, best level first, unless you give them a box to start in — handy for a strong
-          player joining late.
-        </p>
+        <h3 className="font-semibold">{t("lg.playersTitle")}</h3>
+        <p className="mt-1 text-sm text-slate-500">{t("lg.playersNote")}</p>
         <ul className="mt-2 divide-y divide-slate-100 text-sm">
           {l.people
             .filter((p) => p.status === "active")
@@ -443,10 +470,10 @@ function Manage({
               <li key={p.id} className="flex flex-wrap items-center gap-3 py-1.5">
                 <span className="flex-1">
                   {p.name}
-                  {p.level && <span className="text-slate-500"> · {p.level}</span>}
+                  {p.level && <span className="text-slate-500"> · {levelLabel(t, p.level)}</span>}
                 </span>
                 <label className="flex items-center gap-1 text-xs text-slate-500">
-                  start in box
+                  {t("lg.startInBox")}
                   <input
                     type="number"
                     min={1}
@@ -460,12 +487,12 @@ function Manage({
                 </label>
                 <button
                   onClick={() => {
-                    if (window.confirm(`Take ${p.name} out of the league? Matches they have not played become walkovers.`))
+                    if (window.confirm(t("lg.removeConfirm", { name: p.name })))
                       void post(`${base}/players/${p.id}`, { remove: true });
                   }}
                   className="text-xs text-red-700 underline"
                 >
-                  Remove
+                  {t("c.remove")}
                 </button>
               </li>
             ))}
@@ -487,40 +514,41 @@ function Decide({
   post: (body: object) => Promise<boolean>;
   compact?: boolean;
 }) {
+  const t = useStaffT();
   const [editing, setEditing] = useState(!compact);
   const [winner, setWinner] = useState(m.winner ?? m.a);
   const [score, setScore] = useState(m.score ?? "");
   if (!editing)
     return (
       <button onClick={() => setEditing(true)} className="text-xs text-teal-700 underline">
-        Change
+        {t("c.change")}
       </button>
     );
   const small = "rounded-md border border-slate-300 px-2 py-1 text-xs";
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2">
       <select value={winner} onChange={(e) => setWinner(Number(e.target.value))} className={small}>
-        <option value={m.a}>{names.get(m.a)} won</option>
-        <option value={m.b}>{names.get(m.b)} won</option>
+        <option value={m.a}>{t("tn.nameWon", { name: names.get(m.a) ?? "" })}</option>
+        <option value={m.b}>{t("tn.nameWon", { name: names.get(m.b) ?? "" })}</option>
       </select>
       <input value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 21-18" className={`w-32 ${small}`} />
       <button onClick={() => void post({ winner, score })} className="rounded-md bg-teal-600 px-2 py-1 text-xs font-semibold text-white">
-        Save
+        {t("c.save")}
       </button>
       <button onClick={() => void post({ winner, walkover: true })} className={small}>
-        Walkover
+        {t("lg.walkover")}
       </button>
       <button onClick={() => void post({ void: true })} className={small}>
-        Don&apos;t count
+        {t("lg.dontCount")}
       </button>
       {m.status !== "unplayed" && (
         <button onClick={() => void post({ clear: true })} className={small}>
-          To be played
+          {t("lg.toBePlayed")}
         </button>
       )}
       {compact && (
         <button onClick={() => setEditing(false)} className="text-xs text-slate-500 underline">
-          Cancel
+          {t("c.cancel")}
         </button>
       )}
     </div>
