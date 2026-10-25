@@ -5,8 +5,11 @@ process.env.MYSENAM_DB = ":memory:";
 import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { getDb } from "../src/lib/db";
-import { createOutage, endOutage, listOutages } from "../src/lib/outages";
+import { createOutage, endOutage, listOutages, outagesMissingLateHours, repairLateHours } from "../src/lib/outages";
+import { instantOf } from "../src/lib/interval";
 import {
+  adminCancelBooking,
+  courtZone,
   createBooking,
   createClassSessions,
   createCourt,
@@ -205,5 +208,112 @@ describe("a court out of service at a venue open past midnight", () => {
     expect((await book(day(4), 25 * 60)).ok).toBe(true);
     // And the evening after the stretch is back.
     expect((await book(day(7), 19 * 60)).ok).toBe(true);
+  });
+});
+
+describe("an outage from before migration 0090, at a venue open past midnight", () => {
+  /**
+   * The shape migration 0090 wrote: whole calendar days of its dates, from
+   * midnight of the first to midnight after the last, so the last night's
+   * hours after midnight (here 00:00–02:00) were left open.
+   */
+  async function legacy(courtId: number, startsOn: string, endsOn: string): Promise<number> {
+    const out = await createOutage({ courtId, startsOn, endsOn, reason: "Resurfacing", adminId: ownerId });
+    if (!out.ok) throw new Error(out.error);
+    const zone = await courtZone(courtId);
+    await getDb()
+      .prepare("UPDATE claims SET during = ?::tstzrange, occupied = ?::tstzrange WHERE outage_id = ?")
+      .run(
+        `[${instantOf(startsOn, 0, zone).toISOString()},${instantOf(endsOn, 24 * 60, zone).toISOString()})`,
+        `[${instantOf(startsOn, 0, zone).toISOString()},${instantOf(endsOn, 24 * 60, zone).toISOString()})`,
+        out.outage.id
+      );
+    return out.outage.id;
+  }
+  let late: number;
+  let lateVenue: number;
+  const book = (courtId: number, date: string, startMin: number, phone = "0193335555") =>
+    createBooking({ by: "staff", courtId, date, start: startMin, end: startMin + 60, name: "Night owl", phone });
+
+  beforeAll(async () => {
+    const v = await createVenue({ name: "Midnight Futsal", area: "Cheras", address: "x", phone: "0322224444", openMin: 18 * 60, closeMin: 26 * 60 });
+    if (!v.ok) throw new Error("venue");
+    lateVenue = v.venue.id;
+    const c = await createCourt({ venueId: lateVenue, name: "Pitch L", sport: "futsal", offPeakRate: 50, peakRate: 50 });
+    if (!c.ok) throw new Error(c.error);
+    late = c.court.id;
+  });
+
+  it("leaves its last night's late hours bookable, and staff are shown it", async () => {
+    const id = await legacy(late, day(8), day(9));
+    // A booking sold since, in those hours: 00:00 after the last day.
+    expect(await book(late, day(9), 24 * 60)).toMatchObject({ ok: true });
+    expect((await outagesMissingLateHours([lateVenue])).map((m) => m.outage.id)).toEqual([id]);
+    // Its first evening is closed as it always was.
+    expect((await book(late, day(8), 19 * 60)).ok).toBe(false);
+  });
+
+  it("is repaired where the hours are free, listing the booking in the way and leaving it as it is", async () => {
+    const id = (await outagesMissingLateHours([lateVenue]))[0].outage.id;
+    const [repair] = await repairLateHours({ venueIds: [lateVenue] });
+    expect(repair).toMatchObject({ outageId: id, date: day(9), claimed: [{ start: 25 * 60, end: 26 * 60 }] });
+    expect(repair.collisions).toEqual([expect.objectContaining({ kind: "booking", date: day(9), startMin: 24 * 60, name: "Night owl" })]);
+    // The booking stands; the hour after it is closed now.
+    const code = repair.collisions[0].ref;
+    expect((await getDb().prepare("SELECT status FROM bookings WHERE code = ?").get(code)) as { status: string }).toEqual({ status: "confirmed" });
+    expect(await book(late, day(9), 25 * 60, "0193335556")).toMatchObject({ ok: false });
+    // Nothing was put over the booking: the database holds one claim at 00:30.
+    const at = instantOf(day(9), 24 * 60 + 30, await courtZone(late)).toISOString();
+    const holding = (await getDb()
+      .prepare("SELECT kind FROM claims WHERE court_id = ? AND active AND during @> ?::timestamptz ORDER BY kind")
+      .all(late, at)) as { kind: string }[];
+    expect(holding).toEqual([{ kind: "booking" }]);
+  });
+
+  it("run again, takes nothing twice and lists the booking still there; once it is gone, closes its hour too", async () => {
+    const [again] = await repairLateHours({ venueIds: [lateVenue] });
+    expect(again.claimed).toEqual([]);
+    expect(again.collisions).toHaveLength(1);
+    expect(await adminCancelBooking(again.collisions[0].ref)).toMatchObject({ ok: true });
+    const [last] = await repairLateHours({ venueIds: [lateVenue] });
+    expect(last.claimed).toEqual([{ start: 24 * 60, end: 25 * 60 }]);
+    expect(last.collisions).toEqual([]);
+    expect(await outagesMissingLateHours([lateVenue])).toEqual([]);
+    expect(await repairLateHours({ venueIds: [lateVenue] })).toEqual([]);
+    // That hour is closed to new bookings now.
+    expect((await book(late, day(9), 24 * 60, "0193335557")).ok).toBe(false);
+  });
+
+  it("leaves alone outages made since, open-ended ones, and venues that close by midnight", async () => {
+    const c = await createCourt({ venueId: lateVenue, name: "Pitch M", sport: "futsal", offPeakRate: 50, peakRate: 50 });
+    if (!c.ok) throw new Error(c.error);
+    expect((await createOutage({ courtId: c.court.id, startsOn: day(12), endsOn: day(13), adminId: ownerId })).ok).toBe(true);
+    const d = await createCourt({ venueId: lateVenue, name: "Pitch N", sport: "futsal", offPeakRate: 50, peakRate: 50 });
+    if (!d.ok) throw new Error(d.error);
+    expect((await createOutage({ courtId: d.court.id, startsOn: day(12), endsOn: null, adminId: ownerId })).ok).toBe(true);
+    // At a venue closing at 22:00 a whole calendar day is every hour it opens.
+    const early = await court();
+    await legacy(early, day(14), day(15));
+    expect(await outagesMissingLateHours([lateVenue, venueId])).toEqual([]);
+  });
+
+  it("is a manager's action on the dashboard, for their own venue", async () => {
+    const id = await legacy(late, day(20), day(20));
+    const { GET, PATCH } = await import("../src/app/api/admin/outages/route");
+    const manager = await createAdmin({ name: "Night manager", email: "night@midnight.my", password: "night-password-1", venueId: lateVenue });
+    const other = await createAdmin({ name: "Day manager", email: "day@outage.my", password: "day-password-1", venueId });
+    if (!manager.ok || !other.ok) throw new Error("admin");
+    const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(manager.admin.id)).token}`;
+    const otherCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(other.admin.id)).token}`;
+    const seen = await (await GET(new NextRequest(`http://localhost/api/admin/outages?venueId=${lateVenue}`, { headers: { cookie } }))).json();
+    expect(seen.lateHoursOpen).toEqual([id]);
+    const patch = (as: string, body: unknown) =>
+      PATCH(new NextRequest("http://localhost/api/admin/outages", { method: "PATCH", headers: { cookie: as, "content-type": "application/json" }, body: JSON.stringify(body) }));
+    expect((await patch(otherCookie, { venueId: lateVenue, id })).status).toBe(403);
+    const res = await patch(cookie, { venueId: lateVenue, id });
+    expect(res.status).toBe(200);
+    expect((await res.json()).repairs).toEqual([expect.objectContaining({ outageId: id, claimed: [{ start: 24 * 60, end: 26 * 60 }], collisions: [] })]);
+    const after = await (await GET(new NextRequest(`http://localhost/api/admin/outages?venueId=${lateVenue}`, { headers: { cookie } }))).json();
+    expect(after.lateHoursOpen).toEqual([]);
   });
 });

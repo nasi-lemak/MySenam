@@ -212,6 +212,12 @@ const en = {
   "out.takeOut": "Take out of service",
   "out.classItem": "Class: {name}",
   "out.cancelAll": "Cancel these, refund them, tell the customers, and take it out",
+  "out.lateOpen": "The late hours of its last night, after midnight, can still be booked.",
+  "out.lateClose": "Close those hours too",
+  "out.lateClosed": "{court}: closed {hours} after {date}.",
+  "out.lateNothing": "{court}: nothing more could be closed.",
+  "out.lateLeft": "Booked in those hours, left as it is (move it, or let it be): {list}",
+  "out.lateBusy": "{court}: bookings kept arriving. Try again in a moment.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -422,6 +428,12 @@ const ms: Record<keyof typeof en, string> = {
   "out.takeOut": "Hentikan operasi",
   "out.classItem": "Kelas: {name}",
   "out.cancelAll": "Batalkan semua ini, bayar balik, maklumkan pelanggan, dan hentikan operasi",
+  "out.lateOpen": "Waktu lewat malam terakhirnya, selepas tengah malam, masih boleh ditempah.",
+  "out.lateClose": "Tutup waktu itu juga",
+  "out.lateClosed": "{court}: {hours} selepas {date} ditutup.",
+  "out.lateNothing": "{court}: tiada lagi yang boleh ditutup.",
+  "out.lateLeft": "Ditempah pada waktu itu, dibiarkan seperti sedia ada (pindahkan, atau biarkan): {list}",
+  "out.lateBusy": "{court}: tempahan terus masuk. Cuba lagi sebentar lagi.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -632,6 +644,12 @@ const zh: Record<keyof typeof en, string> = {
   "out.takeOut": "停用场地",
   "out.classItem": "课程：{name}",
   "out.cancelAll": "取消这些预订并退款、通知顾客，然后停用场地",
+  "out.lateOpen": "其最后一晚午夜后的深夜时段仍可预订。",
+  "out.lateClose": "同时关闭这些时段",
+  "out.lateClosed": "{court}：已关闭 {date} 之后的 {hours}。",
+  "out.lateNothing": "{court}：没有更多时段可以关闭。",
+  "out.lateLeft": "这些时段内已有预订，保持不变（可调动，或保留）：{list}",
+  "out.lateBusy": "{court}：预订不断进来。请稍后再试。",
 };
 
 const area = { en, ms, zh };

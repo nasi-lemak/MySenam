@@ -402,8 +402,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/notices/:id` | Taken down: by the venue's staff, or the platform owner |
 | GET | `/api/admin/online-payments` | `?venueId=` → the venue's recent online payments, what it owes back (each with how long it has been owed and whether it is overdue), and its refund workload. `?workload=all` → the workload across every venue (the platform's owner) |
 | POST | `/api/admin/online-payments` | `{ venueId, paymentId, note? }` → staff have refunded it themselves, with the reference they wrote down. `{ venueId, paymentId, through: "gateway" }` → refund it now, through the gateway's API with the venue's account |
-| GET | `/api/admin/outages` | `?venueId=` — its courts' outages, now and to come |
+| GET | `/api/admin/outages` | `?venueId=` — its courts' outages, now and to come, and `lateHoursOpen`: the ids of those whose last night's late hours, after midnight, are not closed (from before migration 0090) |
 | POST | `/api/admin/outages` | `{ courtId, startsOn, endsOn: string \| null, reason?, cancelAffected? }` — take a court out. 409 with `affected` when something is booked in the stretch and `cancelAffected` was not given |
+| PATCH | `/api/admin/outages` | `{ venueId, id? }` — close the late hours of the last night of the venue's outages (or one) where they are free → `repairs`, each with what it `claimed` (minutes of that day) and the bookings and classes there (`collisions`), left as they are ([legacy installs](../archive/migrations/legacy-installs.md#outages-from-before-migration-0090)) |
 | DELETE | `/api/admin/outages` | `?id=` — back in service from today |
 | GET | `/api/admin/peak-rules` | `?venueId` → when the venue's peak rates apply, and its holidays from today |
 | POST | `/api/admin/peak-rules` | `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }` (times to the minute), or `{ venueId, lastMinute: { hours, percent, offPeakOnly } \| { off: true } }` |

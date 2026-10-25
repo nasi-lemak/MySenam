@@ -109,7 +109,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Backups, off-site copies, restoring (disaster recovery) | [Backups](operations/backups.md) |
 | Alerts, errors, health checks | [Monitoring](operations/monitoring.md) |
 | What to do when something goes wrong: severity, containment, evidence, recovery, breach notification in Malaysia and Singapore | [Incident response](operations/incident-response.md) |
-| Installs from before Postgres or before the rename from MudahTempah | [Legacy installs](archive/migrations/legacy-installs.md) |
+| Installs from before Postgres or before the rename from MudahTempah, and outages from before migration 0090 | [Legacy installs](archive/migrations/legacy-installs.md) |
 
 ## Plans, research and audits
 

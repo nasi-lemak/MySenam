@@ -238,7 +238,10 @@ Classes and outages are claimed more widely than the diary showed them (a
 class always held its court; an outage now takes whole days), so the check
 confirms they are there rather than that they match. Outages migrated from
 the diary cover whole calendar days of the business date; new ones cover the
-late hours as well ([known limitations](../roadmap/known-limitations.md)).
+late hours as well. Staff close a migrated outage's missing late hours from
+*Out of service* where they are free, any booking sold there since being
+listed and left alone
+([legacy installs](../archive/migrations/legacy-installs.md#outages-from-before-migration-0090)).
 
 **Backup and rollback.** 0091 is destructive and there is no
 down-migration. Take a backup before upgrading (`npm run backup`); rolling

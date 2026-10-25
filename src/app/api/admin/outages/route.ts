@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { createOutage, endOutage, listOutages, outageById } from "@/lib/outages";
+import { createOutage, endOutage, listOutages, outageById, outagesMissingLateHours, repairLateHours } from "@/lib/outages";
+import { formatMinute } from "@/lib/interval";
 import { getCourt } from "@/lib/store";
 import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
-/** `?venueId=` — its courts' outages, now and to come. */
+/**
+ * `?venueId=` — its courts' outages, now and to come, and `lateHoursOpen`:
+ * the ids of those whose last night's late hours are not closed (outages
+ * from before migration 0090; `PATCH` closes them).
+ */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -14,7 +19,37 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "Which venue?" }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  return NextResponse.json({ outages: await listOutages([venueId]) });
+  return NextResponse.json({
+    outages: await listOutages([venueId]),
+    lateHoursOpen: (await outagesMissingLateHours([venueId])).map((m) => m.outage.id),
+  });
+}
+
+/**
+ * `{ venueId, id? }` — close the late hours of the last night of this
+ * venue's outages (or of one) where they are free, as a court taken out now
+ * would; answers `repairs`, each with what it `claimed` and the bookings and
+ * classes there (`collisions`), which are left as they are.
+ */
+export async function PATCH(req: NextRequest) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || !Number.isInteger(body.venueId)) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
+  const venueId = body.venueId as number;
+  const denied = denyVenue(admin, venueId);
+  if (denied) return denied;
+  if (body.id !== undefined && !Number.isInteger(body.id)) return NextResponse.json({ error: "id must be a number." }, { status: 400 });
+  const repairs = await repairLateHours({ venueIds: [venueId], ...(body.id !== undefined ? { outageId: body.id as number } : {}) });
+  for (const r of repairs.filter((x) => x.claimed.length > 0))
+    await logFromRequest(req, {
+      venueId,
+      action: "settings.changed",
+      detail: `${r.courtName} out of service: the late hours after ${r.date} closed too (${r.claimed.map((s) => `${formatMinute(s.start)}–${formatMinute(s.end)}`).join(", ")})${
+        r.collisions.length > 0 ? `; ${r.collisions.length} booking(s) or class(es) there left as they are` : ""
+      }`,
+    });
+  return NextResponse.json({ repairs });
 }
 
 /**

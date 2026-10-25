@@ -297,6 +297,13 @@ Availability, search, booking, moving a booking, the waitlist, the schedule
 and the reports read it with every other claim, so they close the court
 without knowing outages exist, and the database refuses a booking into it.
 
+An outage whose last night's late hours are not in its claim (one carried
+over from before migration 0090, or one made before its venue came to stay
+open past midnight) says so on *Out of service*; *Close those hours too*
+claims what of them is free and lists any booking or class there, which it
+leaves as it is (`repairLateHours`;
+[legacy installs](../archive/migrations/legacy-installs.md#outages-from-before-migration-0090)).
+
 ### Rained off
 
 Outdoor courts lose an afternoon at a time to the weather. *Schedule →

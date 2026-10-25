@@ -2,8 +2,8 @@ import { getDb, withTransaction } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { adminCancelBooking, courtDaysFor, courtZone, getCourt, releaseBlockTime } from "./store";
 import { addDays, isValidDateString, todayISO } from "./time";
-import { claim, isConflict, unclaim } from "./claims";
-import { DAY_MINUTES, hoursOf } from "./interval";
+import { claim, isConflict, lockCourts, occupantsOn, unclaim, type Occupant } from "./claims";
+import { DAY_MINUTES, freeWithin, hoursOf, merge, overlaps, type Span } from "./interval";
 
 /**
  * A court out of service for days at a time — resurfacing, a torn net, a
@@ -274,4 +274,142 @@ export async function endOutage(id: number): Promise<{ ok: true } | { ok: false;
       await claimOutage(id, outage.courtId, outage.startsOn, last);
     });
   return { ok: true };
+}
+
+// ------------------------------------------------- the last night's late hours
+
+/**
+ * Outages written before migration 0090 (and any whose venue has since come
+ * to stay open past midnight) claim whole calendar days, so the late hours of
+ * their last night, after midnight, stay bookable. `claimOutage` takes them
+ * now; this takes what such an outage is missing, the same way, where it is
+ * free, and lists for staff whatever was sold there since. It never cancels
+ * or overlaps a booking: the hours a booking holds stay its own, and running
+ * it again once that booking is over or moved claims them.
+ */
+export interface LateHoursRepair {
+  outageId: number;
+  courtId: number;
+  courtName: string;
+  /** The outage's last day, whose late hours these are. */
+  date: string;
+  /** What was taken now, in minutes of that day (past 1440 is after midnight). */
+  claimed: Span[];
+  /** Bookings and classes in those hours, left as they are for staff to move or keep. */
+  collisions: Affected[];
+  /** Bookings kept arriving while it tried: run it again. */
+  busy?: boolean;
+}
+
+interface Missing {
+  outage: Outage;
+  /** Late hours of its last day that it does not claim. */
+  gaps: Span[];
+}
+
+/** The late hours of an outage's last night that its claim does not cover, if any. */
+async function missingLateHours(outage: Outage): Promise<Missing | null> {
+  if (outage.endsOn === null) return null;
+  const court = await getCourt(outage.courtId);
+  if (!court) return null;
+  const day = (await courtDaysFor([court.id], outage.endsOn)).get(court.id);
+  if (!day || day.closed || day.closeMin <= DAY_MINUTES) return null;
+  const late = { start: DAY_MINUTES, end: day.closeMin };
+  const held = (await occupantsOn([court], outage.endsOn, await courtZone(court.id))).get(court.id) ?? [];
+  const own = held.filter((o) => o.kind === "outage" && o.outageId === outage.id).map((o) => o.span);
+  const gaps = freeWithin(late, own);
+  return gaps.length > 0 ? { outage, gaps } : null;
+}
+
+/** Outages at these venues (every venue for null) not yet over whose last night's late hours are open. */
+export async function outagesMissingLateHours(venueIds: number[] | null): Promise<Missing[]> {
+  if (venueIds && venueIds.length === 0) return [];
+  const only = venueIds ? ` AND c.venue_id IN (${venueIds.map(() => "?").join(",")})` : "";
+  // From yesterday: its late hours run into this morning.
+  const rows = (await getDb()
+    .prepare(`${SELECT} WHERE o.ends_on IS NOT NULL AND o.ends_on >= ?${only} ORDER BY o.ends_on, o.id`)
+    .all(addDays(todayISO(), -1), ...(venueIds ?? []))) as Row[];
+  const out: Missing[] = [];
+  for (const r of rows) {
+    const missing = await missingLateHours(toOutage(r));
+    if (missing) out.push(missing);
+  }
+  return out;
+}
+
+/** What is in the way in those hours: bookings and classes to list, and anything else that holds them. */
+async function inTheWay(held: Occupant[], outageId: number, gaps: Span[]): Promise<{ list: Affected[]; busy: Span[] }> {
+  const db = getDb();
+  const list: Affected[] = [];
+  const busy: Span[] = [];
+  const seen = new Set<string>();
+  for (const o of held) {
+    if ((o.kind === "outage" && o.outageId === outageId) || !gaps.some((g) => overlaps(o.occupied, g))) continue;
+    busy.push(o.occupied);
+    if (o.kind === "booking" && o.bookingId !== null && !seen.has(`b${o.bookingId}`)) {
+      seen.add(`b${o.bookingId}`);
+      const b = (await db.prepare("SELECT code, date, start_min, name FROM bookings WHERE id = ? AND status = 'confirmed'").get(o.bookingId)) as
+        | { code: string; date: string; start_min: number; name: string }
+        | undefined;
+      if (b) list.push({ kind: "booking", ref: b.code, date: b.date, startMin: b.start_min, startHour: hoursOf(b.start_min), name: b.name });
+    } else if (o.kind === "class" && o.classId !== null && !seen.has(`c${o.classId}`)) {
+      seen.add(`c${o.classId}`);
+      const k = (await db.prepare("SELECT id, date, start_min, name FROM classes WHERE id = ?").get(o.classId)) as
+        | { id: number; date: string; start_min: number; name: string }
+        | undefined;
+      if (k) list.push({ kind: "class", ref: String(k.id), date: k.date, startMin: k.start_min, startHour: hoursOf(k.start_min), name: k.name });
+    }
+  }
+  return { list: list.sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin), busy };
+}
+
+/**
+ * Claim the missing late hours of each such outage at these venues (or one
+ * outage, by `outageId`) where they are free, as `claimOutage` would have;
+ * list what holds the rest. A block there gives way, as it does when a court
+ * is taken out. Safe to run again: what it took is not taken twice.
+ */
+export async function repairLateHours(input: { venueIds: number[] | null; outageId?: number }): Promise<LateHoursRepair[]> {
+  const repairs: LateHoursRepair[] = [];
+  for (const first of await outagesMissingLateHours(input.venueIds)) {
+    if (input.outageId !== undefined && first.outage.id !== input.outageId) continue;
+    const { outage } = first;
+    const court = (await getCourt(outage.courtId))!;
+    const zone = await courtZone(court.id);
+    const date = outage.endsOn!;
+    const done: LateHoursRepair = { outageId: outage.id, courtId: court.id, courtName: outage.courtName, date, claimed: [], collisions: [] };
+    // A booking can land in those hours while this runs: the claim refuses it
+    // and it reads again, a few times, then says so.
+    let finished = false;
+    for (let round = 0; round < 3 && !finished; round++) {
+      try {
+        const result = await withTransaction(async () => {
+          await lockCourts([court]);
+          const now = await missingLateHours(outage);
+          if (!now) return { claimed: [] as Span[], collisions: [] as Affected[] };
+          let held = (await occupantsOn([court], date, zone)).get(court.id) ?? [];
+          // Blocks give way, as when a court is taken out (createOutage).
+          for (const b of held.filter((o) => o.kind === "block" && o.blockId !== null && now.gaps.some((g) => overlaps(o.occupied, g)))) {
+            const block = (await getDb().prepare("SELECT court_id, date FROM blocks WHERE id = ?").get(b.blockId)) as { court_id: number; date: string } | undefined;
+            if (block?.date !== date) continue;
+            for (const g of now.gaps) if (overlaps(b.span, g)) await releaseBlockTime(block.court_id, date, { start: Math.max(b.span.start, g.start), end: Math.min(b.span.end, g.end) });
+          }
+          held = (await occupantsOn([court], date, zone)).get(court.id) ?? [];
+          const way = await inTheWay(held, outage.id, now.gaps);
+          const free = merge(now.gaps.flatMap((g) => freeWithin(g, way.busy)));
+          for (const span of free)
+            await claim({ court, source: { kind: "outage", outageId: outage.id }, date, span, zone, places: court.capacity });
+          return { claimed: free, collisions: way.list };
+        });
+        done.claimed = result.claimed;
+        done.collisions = result.collisions;
+        finished = true;
+      } catch (err) {
+        if (!isConflict(err)) throw err;
+      }
+    }
+    if (!finished) done.busy = true;
+    repairs.push(done);
+  }
+  return repairs;
 }
