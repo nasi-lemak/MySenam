@@ -37,7 +37,7 @@ stands between the two is in [known limitations](../roadmap/known-limitations.md
 
 | Status | Capabilities |
 | ------ | ------------ |
-| IMPLEMENTED_AND_TESTED | 159 |
+| IMPLEMENTED_AND_TESTED | 160 |
 | INTEGRATION_VERIFICATION_REQUIRED | 22 |
 | IMPLEMENTED_UNTESTED | 6 |
 | PARTIALLY_IMPLEMENTED | 3 |
@@ -326,6 +326,7 @@ Authoritative: [regions and tax](regions-and-tax.md).
 | Capability | Status | Implemented behaviour | Code | Tests | Gaps and dependencies |
 | ---------- | ------ | --------------------- | ---- | ----- | --------------------- |
 | English, Malay, Chinese; translated refusals | IMPLEMENTED_AND_TESTED | Typed dictionaries; refusals carry codes | `src/lib/i18n.ts`, `src/lib/i18n-zh.ts`, `src/lib/api.ts` | `tests/i18n.test.ts`, `tests/locale.test.ts`, `tests/components/language.test.tsx` | Built-in activity names in Malay and Chinese are machine-assisted, awaiting a native speaker |
+| Staff dashboard in English, Malay and Chinese | IMPLEMENTED_AND_TESTED | Every staff screen in the staff language: the site's, if staff screens have it, else the install's first (not Tamil); the dashboard's switch offers only those; refusals translated by code or by their English sentence | `src/lib/staff-i18n/index.ts`, `src/lib/staff-locales.ts`, `src/components/admin/StaffLanguage.tsx` | `tests/staff-i18n.test.ts`, `tests/uat/staff-language.uat.ts` | Machine-assisted Malay and Chinese, awaiting a native speaker; text the server composes stays English ([known limitations](../roadmap/known-limitations.md#languages)) |
 | Game, tournament, league and group emails in the player's language | IMPLEMENTED_AND_TESTED | Written in the language the account last used the site in (kept on the account when a signed-in request carries another), greeting and all; the install's first before it has one, or if it is no longer offered | `src/lib/outbox.ts` (`emailPlayer`), `src/lib/auth.ts`, `db/migrations/0112_user_locale.sql` | `tests/outbox.test.ts` ("a programme email in the player's language"), `tests/tournaments.test.ts` ("emails in each entrant's language") | The Malay, Chinese and Tamil wording of these emails is machine-assisted, awaiting a native speaker; round names and what staff typed stay as written; sending needs the [email integration](#integrations) |
 | Tamil | PARTIALLY_IMPLEMENTED | Complete dictionary | `src/lib/i18n-ta.ts` | `tests/i18n.test.ts` | Machine translation awaiting a native speaker's review |
 | Countries, money, phone numbers | IMPLEMENTED_AND_TESTED | Malaysia or Singapore per install; cents; `phone_key()` | `src/lib/region.ts`, `src/lib/phone.ts` | `tests/region.test.ts`, `tests/cents.test.ts`, `tests/phone-region.test.ts` | One country per install |

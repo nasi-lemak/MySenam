@@ -48,8 +48,8 @@ most steps are tested only by route and unit tests.
 | Reports, exports, the monthly invoice | Built | [Reporting](../features/reporting.md), [marketplace](marketplace.md) |
 
 Gaps: the set-up journey as a whole is not driven in a browser, from sign-up
-to the first booking; the staff dashboard is in English only, with Malay and Chinese
-[planned](../roadmap/roadmap.md).
+to the first booking; on the staff dashboard, in Malay or Chinese, text the
+server composes still reads in English ([known limitations](../roadmap/known-limitations.md#languages)).
 
 ### A player booking a court
 
@@ -126,7 +126,7 @@ Gaps: levels are self-declared, not earned from results
 - Coaches cannot see or manage the classes they teach, or take attendance:
   classes and coaching are separate.
 - No messages between players.
-- The staff dashboard is English only (Malay and Chinese planned).
+- On the staff dashboard, text the server composes is English in every language.
 
 **Not driven in a browser** (journeys covered by route and unit tests only):
 a venue's set-up from sign-up to the first booking; changing a booking's time;

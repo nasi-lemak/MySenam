@@ -46,7 +46,7 @@ applies too; these are the items where something is missing today.
 | Off-site backups have never been written to a real bucket ([backup and restore](#production-readiness)) | Without an off-site copy, losing the server loses every booking and balance | Backups may be held abroad (the owner, 24 October 2026): open the Backblaze B2 bucket (US West), do and record the transfer steps in [privacy](../architecture/privacy.md#backups-held-abroad) with a lawyer's answers to its open points, then set `OFFSITE_DATA_LOCATION=US` and `OFFSITE_TRANSFER_APPROVED=US`, pass `npm run verify-offsite -- --go` and the drill on an isolated server ([backups](../operations/backups.md#verifying-a-real-bucket)) |
 | `/terms` and `/privacy` are unreviewed drafts ([gaps](#gaps-in-verification-and-documentation)) | Legal exposure from the first customer | A Malaysian lawyer reviews both and their translations; set `OPERATOR_NAME` and `OPERATOR_EMAIL` |
 | The breach-notification rules are not confirmed, and nobody is named to lead an incident ([gaps](#gaps-in-verification-and-documentation)) | A breach could be reported late, or to the wrong party | A lawyer confirms the Malaysian rules in [incident response](../operations/incident-response.md#a-suspected-breach-of-personal-data); the owner names the incident lead |
-| Customer pages, messages and invoices in Malay, Chinese and Tamil are machine-assisted, partly never reviewed by a native speaker ([languages](#languages)) | The launch promises all four languages (the owner, 24 October 2026): a wrong phrase in a booking, refund or invoice misleads the customer who relies on it | A native speaker of each reviews what [languages](#languages) lists, Tamil first; or the owner accepts the risk for a language here |
+| Customer pages, messages and invoices in Malay, Chinese and Tamil, and the staff dashboard in Malay and Chinese, are machine-assisted, partly never reviewed by a native speaker ([languages](#languages)) | The launch promises all four languages (the owner, 24 October 2026): a wrong phrase in a booking, refund or invoice misleads the customer who relies on it | A native speaker of each reviews what [languages](#languages) lists, Tamil first; or the owner accepts the risk for a language here |
 | The operating company and where the data is hosted are not decided ([launch providers](../integrations/launch-providers.md#operating-company-and-jurisdictions)) | The privacy notice, the provider contracts and the gateway accounts all name them | The owner decides the entity, its tax registration and the hosting country, and has them written into the privacy notice and venue agreement |
 
 ### Blockers only where a feature is switched on
@@ -96,8 +96,7 @@ Billplz refunds by hand for a small Malaysian launch
 negative stored credit after a chargeback, reported apart (M14);
 the launch promises customers English, Malay, simplified Chinese and Tamil
 (the owner, 24 October 2026), and the staff dashboard English, Malay and
-Chinese, not Tamil (the owner, 24 October 2026; Malay and Chinese
-[planned](roadmap.md));
+Chinese, not Tamil (the owner, 24 October 2026; [languages](#languages));
 off-site backups may be held abroad (the owner, 24 October 2026), once the
 transfer steps in [privacy](../architecture/privacy.md#backups-held-abroad)
 are done.
@@ -146,7 +145,7 @@ changes; 6 to 8 name what they wait for. As of 24 October 2026: no defect
 | [Native review](#languages) of Tamil, of activity names in Malay and Chinese, and of programme emails and company-account invoices in Malay, Chinese and Tamil; the four languages are promised | 6 | Customers reading those languages | A native speaker of each reviews ([launch blocker](#blockers-for-any-launch)) |
 | [Defaults for review](#decisions-the-owner-has-to-make): adjacent buffers add up, eight places a booking, a first lesson needing a sign-off at the counter | 7 | Venues with buffers, fleets, sign-offs | The owner accepts or changes each |
 | [The terms](#languages) in English | 7 | Customers reading other languages | Translated after the lawyer's review |
-| [Staff dashboard](#languages) in English | 2 | Staff | Malay and Chinese, [planned](roadmap.md) (the owner's decision) |
+| [Staff screens](#languages): what the server writes (summaries, lists of changes, reasons) stays English | 2 | Staff reading Malay or Chinese | Each server message moved to a code or phrase, as refusals were |
 | [Browser tests](#gaps-in-verification-and-documentation) cover some journeys only | 4 | Everyone, as regressions found late | The journeys named in [users and journeys](../product/users-and-journeys.md#what-the-journeys-show) |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
 | [Ways some activities are sold](#activities): bowling by the game, gym entry without a session, day passes, launch windows, range officers, heats | 8 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
@@ -166,14 +165,16 @@ two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **78 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, and S12–S14,
 found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (21
+[resolved without a number](#resolved-limitations-without-a-number) (22
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, kinds of kit, clock changes), and two were added: the
 access list matching a typed number, split out when member identity was
 fixed, and the native review of the newly translated emails. The owner's
 two decisions of 24 October 2026 (the launch languages, backups abroad)
 moved a decision into the launch blockers rather than closing it: native
-review is now required, and the transfer steps remain. In the table above,
+review is now required, and the transfer steps remain. The staff
+dashboard's own languages, decided the next day, were built; what is left of
+that entry is the text the server composes. In the table above,
 no row is a defect; four are of kinds 2 to 4.
 
 ## Suspected defects
@@ -340,16 +341,22 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   staff typed stay as written (P3).
 - **Not reviewed by a native speaker:** the Malay, Chinese and Tamil wording
   of game, tournament, league and group emails and of company-account
-  invoices (machine-assisted) (P2).
-- **The staff dashboard** is English only; Malay and Chinese are
-  [planned](roadmap.md), Tamil is not (the owner, 24 October 2026) (P2).
+  invoices, and the staff dashboard's Malay and Chinese (machine-assisted)
+  (P2).
+- **On the staff dashboard**, text the server composes stays English: a
+  court's summary, the lists of changes a tournament correction previews,
+  reasons a pass or code cannot be used, delivery errors, backup problems,
+  gateway field help, catalogue notes, holiday names. Refusals are translated
+  (by their code, or by their English sentence in `src/lib/staff-i18n/refusals-*.ts`);
+  one sent without either reads in English (P2).
 - **Not reviewed by a native speaker:** the Tamil dictionary, and the
   built-in activity names in Malay and Chinese (machine-assisted) (P2).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
-[launch blocker](#blockers-for-any-launch). The staff dashboard is to be in
-English, Malay and Chinese, not Tamil (the owner, the same day).
+[launch blocker](#blockers-for-any-launch). The staff dashboard is in
+English, Malay and Chinese, not Tamil (the owner, the same day), and its
+review is part of the same blocker.
 
 ### Money (M)
 
@@ -471,6 +478,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Daylight saving was not supported: a booking at a wall-clock time skipped or repeated had no defined meaning | Skipped and repeated minutes are found from the runtime's zone database; a booking touching a change is refused (`CLOCK_CHANGE`) and not offered; either side, an hour on the clock is an hour held ([booking time model](../architecture/booking-time-model.md#time)) | `tests/clock-changes.test.ts` (London, New York, Sydney, 2026) |
 | No multipart uploads off-site: a backup part over about 5 GB (a photos archive) was refused | Parts over one PUT go up in 100 MiB parts, each signed and MD5-checked, by the same upload-only key; unfinished ones are dropped by a lifecycle rule ([backups](../operations/backups.md)) | `tests/offsite.test.ts` ("sends a file larger than one upload in parts…", "stops at a part that arrives damaged…"); against the B2 stand-in, not a real bucket |
 | A company account's invoice email and printable invoice were in English whatever the account's language | The venue picks one of the site's languages for the account (`venue_accounts.locale`, migration 0113); the email and the invoice are written in it, whoever opens the link ([payments and credit](../features/payments-and-credit.md#company-and-school-accounts)) | `tests/accounts.test.ts` ("an account's invoices in its language") |
+| The staff dashboard was English only | Every staff screen reads its text from staff dictionaries in English, Malay and Chinese (`src/lib/staff-i18n`), the dashboard's language switch offers those three, and the server's English refusals are translated; a scan fails on any staff screen text outside the dictionaries ([regions](../product/regions-and-tax.md)) | `tests/staff-i18n.test.ts`, `tests/uat/staff-language.uat.ts` (Staff 1) |
 | Untested paths: the two-year prune of the staff activity log, the daily venue order | Tests added: an entry past two years goes, one inside stays; the order is the same all day, another the next, never by name, each venue once across its pages | `tests/privacy.test.ts` ("keeps the staff activity log two years…"), `tests/browse.test.ts` ("is in a fair order…") |
 | No browser test on a phone-sized screen; a venue's change of a game's time from the staff screen not driven in a browser | Acceptance actors on a phone (390 × 844) or tablet (820 × 1180), each page checked to fit without scrolling sideways; Phone 1 books on a phone, Tablet 1 has a manager move an open game while its player confirms on a phone ([testing](../development/testing.md#visual-acceptance-scenarios)) | `tests/uat/devices.uat.ts`, run against the production build on PGlite, 2 of 2 |
 

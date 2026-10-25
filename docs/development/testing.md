@@ -227,9 +227,10 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Matchmaking H | A host moves a game with two players: the new time previewed with who is in it, proposed and held; one keeps their place, the other leaves, and only then does the game move |
 | Phone 1 | On a phone: the home and venue pages fit the screen; a court booked with a tap and found on the account page |
 | Tablet 1 | A venue's manager on a tablet finds an open game's booking on its day, changes its time and gives the reason; the player, on a phone, is told why and confirms; the host sees the game at its new time |
+| Staff 1 | A manager is offered English, Malay and Chinese on the dashboard (not Tamil), picks Malay, is refused a wrong password in Malay, signs in to Malay tabs, and switches to Chinese still signed in |
 
-Last run: Phone 1 and Tablet 1, 2 of 2, against the production build on
-PGlite (24 October 2026); the other 15 of 15 the same day; 14 of 14, before
+Last run: all 18 of 18, Staff 1 among them, against the production build on
+PGlite (25 October 2026); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from
 a browser: an invitation or held place running out by itself, which needs the
@@ -434,3 +435,26 @@ messages is proven against its provider; the load benchmark is from one
 machine; Postgres runs print `pg`'s deprecation warning about overlapping
 `client.query()` calls on one client, which does not fail a test and is not
 yet traced.
+
+#### 25 October 2026, commit `a9b66af`
+
+The staff dashboard in English, Malay and Chinese, and company-account
+invoices in the account's language. Not a launch. Run on one cloud
+container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 96 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 197 files; 2243 passed, 1 skipped (a Postgres-only test) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 197 files; 2244 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Staff 1 among them | 6 files; 18 passed |
+| CI | Not run (deferred, above) |
+| Real services | None checked |
+
+Gaps: the Malay and Chinese of the staff dashboard are machine-assisted and
+not reviewed by a native speaker; text the server composes on staff screens
+stays English ([known limitations](../roadmap/known-limitations.md#languages));
+no live integration has passed its check.

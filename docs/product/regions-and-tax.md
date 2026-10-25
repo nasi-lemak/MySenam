@@ -52,6 +52,18 @@ table in `src/lib/region.ts`:
   against the English, so a phrase missing from any does not compile, and the
   tests check each fills the same placeholders. Dates are formatted for
   `zh-Hans`; WhatsApp templates go to Meta as `zh_CN` and `ta`.
+- **The staff dashboard** is in English, Malay and Chinese, not Tamil (the
+  owner's decision of 24 October 2026): the install's languages less Tamil,
+  and the language switch on the dashboard offers only those. Its phrases are
+  in their own dictionaries, one file per area of the dashboard
+  (`src/lib/staff-i18n`), apart from the customer dictionaries so customers'
+  pages do not carry them; the types refuse a missing translation.
+  `tests/staff-i18n.test.ts` checks the placeholders and the simplified
+  characters, and parses every staff screen to fail on any text a person
+  would read that bypasses the dictionaries. Refusals the server sends are
+  shown in the staff language by their code, or by their English sentence
+  (`src/lib/staff-i18n/refusals-*.ts`); what the server composes otherwise
+  stays English ([known limitations](../roadmap/known-limitations.md#languages)).
 - **The Tamil is a machine translation awaiting a native speaker's review**
   before a venue relies on it: in particular the words chosen for venue
   (மையம்) and court (கோர்ட்), sports terms such as walkover and bye, and the
