@@ -1744,6 +1744,19 @@ export const TA: Record<Phrase, string> = {
   "err.PROMO_ALREADY_USED": "இந்த முன்பதிவில் ஏற்கெனவே ஒரு குறியீடு பயன்படுத்தப்பட்டுவிட்டது.",
   "err.PROMO_TOO_LATE": "இந்த முன்பதிவு ஏற்கெனவே செலுத்தப்பட்டுவிட்டது; இப்போது குறியீட்டைச் சேர்க்க முடியாது.",
   "passes.counterNote": "கவுண்டரில் பாஸ் அல்லது உறுப்பினர் சந்தா வாங்கினீர்களா? அதில் உங்கள் கணக்கு மின்னஞ்சலைச் சேர்க்க மையத்திடம் கேளுங்கள், அது இங்கே தோன்றும். அவர்கள் நீங்கள் யார் என்பதை நேரில் சரிபார்ப்பார்கள், இந்தப் பக்கத்தால் அது முடியாது.",
+  // Built-in texts a venue used unchanged, in the customer's language (pre.)
+  "pre.why": "காரணம்: {reason}",
+  "pre.rainedOff": "மழையால் ரத்து",
+  "pre.con.student": "மாணவர்",
+  "pre.con.student.proof": "உங்கள் மாணவர் அட்டை",
+  "pre.con.senior": "மூத்த குடிமக்கள் (60+)",
+  "pre.con.senior.proof": "உங்கள் அடையாள அட்டை (IC)",
+  "pre.con.child": "குழந்தை (12 வயதுக்குட்பட்டோர்)",
+  "pre.con.child.proof": "உங்கள் குழந்தையின் MyKid அல்லது பிறப்புச் சான்றிதழ்",
+  "pre.con.oku": "OKU",
+  "pre.con.oku.proof": "உங்கள் OKU அட்டை",
+  "pre.enquiryReply": "உங்கள் தனியார் வாடகை விசாரணை — {venue}",
+  "pre.alsoKindsOf": "ஒரே நேரத்தில் பிற {heading} வகைகளையும் சேர்க்கவும்",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

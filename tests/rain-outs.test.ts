@@ -6,6 +6,7 @@ import { getDb } from "../src/lib/db";
 import { rainOut } from "../src/lib/rain-outs";
 import { createBooking, createClassSessions, createCourt, createVenue, enrolInClass, findBooking, getAvailability, getClass, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
+import { rememberLocale } from "../src/lib/notify";
 
 /**
  * Rained off: every booking and class on the chosen courts in those hours
@@ -87,5 +88,55 @@ describe("calling off a rained-off afternoon", () => {
     expect(await rainOut({ venueId, courtIds: [outdoor], date, fromHour: 16, untilHour: 14 })).toMatchObject({ ok: false });
     expect(await rainOut({ venueId, courtIds: [outdoor], date, fromHour: 2, untilHour: 30 })).toMatchObject({ ok: false });
     expect(await rainOut({ venueId, courtIds: [], date, fromHour: 14, untilHour: 16 })).toMatchObject({ ok: false });
+  });
+});
+
+describe("the reason each customer is told", () => {
+  const day = addDays(todayISO(), 3);
+  const bookWith = async (hour: number, phone: string, email: string, locale: "en" | "ms") => {
+    const made = await createBooking({ courtId: outdoor, date: day, hours: [hour], name: "Siti", phone, email });
+    if (!made.ok) throw new Error(made.error);
+    await rememberLocale([made.booking.id], locale);
+    return made.booking;
+  };
+  const toldTo = async (email: string) =>
+    (await getDb()
+      .prepare("SELECT body, params FROM messages WHERE recipient = ? AND kind = 'booking_cancelled_by_venue'")
+      .get(email)) as { body: string; params: string } | undefined;
+
+  it("gives the built-in reason in each customer's own language when staff leave it", async () => {
+    const malay = await bookWith(10, "0123000101", "siti.ms@example.test", "ms");
+    await bookWith(11, "0123000102", "sam.en@example.test", "en");
+    // The panel sends the staff's own language for the schedule's label, and the preset for customers.
+    const done = await rainOut({ venueId, courtIds: [outdoor], date: day, fromHour: 10, untilHour: 12, reason: "因雨取消", reasonPreset: "rained_off" });
+    expect(done).toMatchObject({ ok: true });
+    expect((await findBooking(malay.code, "0123000101"))?.status).toBe("cancelled");
+    const ms = await toldTo("siti.ms@example.test");
+    const en = await toldTo("sam.en@example.test");
+    expect(ms?.body).toContain("Sebab: Dibatalkan kerana hujan");
+    expect(ms?.body).not.toContain("因雨取消");
+    expect(en?.body).toContain("Reason: Rained off");
+    // On WhatsApp it rides in the same parameter as what is owed: the template is unchanged.
+    expect(Object.keys(JSON.parse(ms!.params)).sort()).toEqual(["ack", "code", "money", "name", "venue", "when", "where"]);
+    // The schedule shows staff what the panel showed them.
+    const label = (await getDb()
+      .prepare("SELECT reason FROM blocks WHERE court_id = ? AND date = ? AND start_min <= 600 AND end_min > 600")
+      .get(outdoor, day)) as { reason: string } | undefined;
+    expect(label?.reason).toBe("因雨取消");
+  });
+
+  it("gives what staff typed as typed, whatever the customer's language", async () => {
+    const malay = await bookWith(14, "0123000103", "aina.ms@example.test", "ms");
+    expect(await rainOut({ venueId, courtIds: [outdoor], date: day, fromHour: 14, untilHour: 15, reason: "Court flooded after the storm" })).toMatchObject({ ok: true });
+    expect((await findBooking(malay.code, "0123000103"))?.status).toBe("cancelled");
+    const ms = await toldTo("aina.ms@example.test");
+    expect(ms?.body).toContain("Sebab: Court flooded after the storm");
+    expect(ms?.body).not.toContain("hujan");
+  });
+
+  it("gives the built-in reason when none is given at all", async () => {
+    await bookWith(16, "0123000104", "hana.ms@example.test", "ms");
+    expect(await rainOut({ venueId, courtIds: [outdoor], date: day, fromHour: 16, untilHour: 17 })).toMatchObject({ ok: true });
+    expect((await toldTo("hana.ms@example.test"))?.body).toContain("Sebab: Dibatalkan kerana hujan");
   });
 });

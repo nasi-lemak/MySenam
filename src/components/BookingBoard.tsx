@@ -6,6 +6,7 @@ import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Booking, busyness, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure } from "@/lib/types";
 import { placesPerBooking } from "@/lib/court-activities";
+import { concessionWords } from "@/lib/concessions-shared";
 import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
 import { isPastSlot } from "@/lib/time";
@@ -85,7 +86,7 @@ interface Confirmation {
   /** Courts booked together: each one's name, by id. */
   courtNames?: Record<number, string>;
   /** The concession price that went on, and what to bring for it; or why it did not. */
-  concession?: { name: string; proof: string } | null;
+  concession?: { name: string; proof: string; preset?: string | null } | null;
   concessionError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
   /** Charged to a company or school account, on its monthly invoice. */
   account?: { name: string } | null;
@@ -99,6 +100,8 @@ interface Concession {
   proof: string;
   sport: Sport | null;
   offPeakOnly: boolean;
+  /** Built in and unchanged: its name and proof in the reader's language (lib/concessions-shared.ts). */
+  preset?: string | null;
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -1026,12 +1029,12 @@ function BookingForm({
               <option value="">{t("form.standardPrice")}</option>
               {concessions.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {t("form.concessionOption", { name: c.name, pct: c.percent })}
+                  {t("form.concessionOption", { name: concessionWords(t, c).name, pct: c.percent })}
                 </option>
               ))}
             </select>
           </label>
-          {concession && <p className="mt-1 font-medium text-amber-800">{t("form.concessionProof", { proof: concession.proof })}</p>}
+          {concession && <p className="mt-1 font-medium text-amber-800">{t("form.concessionProof", { proof: concessionWords(t, concession).proof })}</p>}
         </div>
       )}
       {alsoFree.length > 0 && weeks === 1 && !hasExtras && (
@@ -1414,7 +1417,7 @@ function ConfirmationModal({
         )}
         {confirmation.concession && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
-            {t("done.concession", { name: confirmation.concession.name, proof: confirmation.concession.proof })}
+            {t("done.concession", concessionWords(t, confirmation.concession))}
           </p>
         )}
         {confirmation.concessionError && (

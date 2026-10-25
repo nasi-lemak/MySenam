@@ -2,9 +2,11 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
+// The language the page is in, as its cookie says: none unless a test sets one.
+const page = vi.hoisted(() => ({ locale: undefined as string | undefined }));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ host: "localhost:3000" }),
-  cookies: async () => ({ get: () => undefined }),
+  cookies: async () => ({ get: (name: string) => (name === "ms_lang" && page.locale ? { value: page.locale } : undefined) }),
 }));
 
 import { NextRequest } from "next/server";
@@ -17,6 +19,7 @@ import { listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as ask } from "../src/app/api/venues/[id]/enquiry/route";
 import { GET as list, POST as answer } from "../src/app/api/admin/enquiries/route";
+import { replySubject } from "../src/components/admin/EnquiriesPanel";
 
 /** Private hire enquiries: asked from the venue's page, answered by its staff. */
 
@@ -103,5 +106,52 @@ describe("answering them", () => {
     const due = (await retentionDue()).find((l) => l.what === "Private hire enquiries");
     expect(due?.affected).toBe(1);
     expect((await listEnquiries([venueId])).every((e) => e.venueId === venueId)).toBe(true);
+  });
+});
+
+describe("the subject of a reply", () => {
+  let from = 0;
+  const enquire = async (phone: string, email: string, locale: string | undefined) => {
+    page.locale = locale;
+    try {
+      // Each from an address of its own, past the limit the tests above used up.
+      const res = await ask(
+        new NextRequest(`http://localhost/api/venues/${venueId}/enquiry`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `203.0.113.${++from}` },
+          body: JSON.stringify({ ...good, phone, email }),
+        }),
+        { params: Promise.resolve({ id: String(venueId) }) }
+      );
+      expect(res.status).toBe(201);
+    } finally {
+      page.locale = undefined;
+    }
+    return (await listEnquiries([venueId])).find((e) => e.phone === phone)!;
+  };
+
+  it("is in the language the enquiry was made in", async () => {
+    const e = await enquire("0197770001", "aminah@example.my", "ms");
+    expect(e.replyLocale).toBe("ms");
+    expect(replySubject(e, "Your private hire enquiry")).toBe(`Pertanyaan sewaan persendirian anda — ${e.venueName}`);
+  });
+
+  it("is in the language of the customer's account where the platform knows it", async () => {
+    await getDb().prepare("INSERT INTO users (name, email, phone, password_hash, locale) VALUES (?, ?, ?, '', 'zh')").run("Tan Wei", "Wei@Example.my", "0197770002");
+    const e = await enquire("0197770002", "wei@example.my", "en");
+    expect(e.replyLocale).toBe("zh");
+    expect(replySubject(e, "x")).toBe(`您的包场询问 — ${e.venueName}`);
+  });
+
+  it("is in the staff member's language where neither is known", async () => {
+    const e = await enquire("0197770003", "old@example.my", "ms");
+    // Made before the language was kept.
+    await getDb().prepare("UPDATE hire_enquiries SET locale = NULL WHERE id = ?").run(e.id);
+    const old = (await listEnquiries([venueId])).find((x) => x.id === e.id)!;
+    expect(old.replyLocale).toBeNull();
+    expect(replySubject(old, "Pertanyaan sewaan persendirian anda")).toBe("Pertanyaan sewaan persendirian anda");
+    // A language the install does not offer is not one to answer in.
+    await getDb().prepare("UPDATE hire_enquiries SET locale = 'xx' WHERE id = ?").run(e.id);
+    expect((await listEnquiries([venueId])).find((x) => x.id === e.id)!.replyLocale).toBeNull();
   });
 });

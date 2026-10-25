@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Enquiry, EnquiryStatus } from "@/lib/enquiries";
 import { internationalNumber } from "@/lib/phone";
+import { translator } from "@/lib/i18n";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 
@@ -21,6 +22,14 @@ const STATUS: Record<EnquiryStatus, StaffPhrase> = {
   booked: "enq.status.booked",
   declined: "enq.status.declined",
 };
+
+/**
+ * The subject of a reply: in the customer's language where the platform knows
+ * it (their account's, or the one they asked in), else the staff member's.
+ */
+export function replySubject(e: Pick<Enquiry, "replyLocale" | "venueName">, staffSubject: string): string {
+  return e.replyLocale ? translator(e.replyLocale)("pre.enquiryReply", { venue: e.venueName }) : staffSubject;
+}
 
 /**
  * Private hire enquiries from the venue's page (lib/enquiries.ts): who asked,
@@ -87,7 +96,7 @@ export function EnquiriesPanel() {
                   WhatsApp
                 </a>
                 {e.email && (
-                  <a href={`mailto:${e.email}?subject=${encodeURIComponent(t("enq.mailSubject"))}`} className="text-teal-700 underline">
+                  <a href={`mailto:${e.email}?subject=${encodeURIComponent(replySubject(e, t("enq.mailSubject")))}`} className="text-teal-700 underline">
                     ✉ {e.email}
                   </a>
                 )}

@@ -5,6 +5,8 @@ import { adminCancelBooking, blockSlots, getCourt, venueHours } from "./store";
 import { isValidDateString, todayISO } from "./time";
 import { hoursOf, instantOf, minutesOf } from "./interval";
 import type { Booking } from "./types";
+import type { Phrase } from "./i18n";
+import type { CancelReason } from "./notify";
 
 /**
  * Rained off: one action for outdoor courts when the weather turns. Every
@@ -25,9 +27,22 @@ export interface RainOut {
   untilMin?: number;
   fromHour?: number;
   untilHour?: number;
+  /**
+   * What staff typed, sent to each customer as typed. Blank or left out, or
+   * with `reasonPreset`, the built-in reason goes instead, each customer
+   * reading it in their own language; `reason` is then only the label on
+   * the blocks, for the staff's schedule.
+   */
   reason?: string;
+  /** Staff left the built-in reason as it was (`RAIN_PRESETS`). */
+  reasonPreset?: string;
   preview?: boolean;
 }
+
+/** The built-in reasons, by the customer phrase each is written from. */
+export const RAIN_PRESETS = { rained_off: "pre.rainedOff" } as const satisfies Record<string, Phrase>;
+export type RainPreset = keyof typeof RAIN_PRESETS;
+export const isRainPreset = (v: unknown): v is RainPreset => typeof v === "string" && Object.hasOwn(RAIN_PRESETS, v);
 
 export type RainOutResult =
   | { ok: true; bookings: Booking[] | { code: string; name: string; startMin: number; startHour: number }[]; classes: number; blocked: number }
@@ -72,21 +87,27 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
   if (input.preview)
     return { ok: true, bookings: live.map((b) => ({ code: b.code, name: b.name, startMin: b.start_min, startHour: hoursOf(b.start_min) })), classes: classes.length, blocked: 0 };
 
+  // What each customer is told: what staff typed, as typed; else the built-in
+  // reason, in each customer's own language (the outbox writes in it).
+  const typed = (input.reason ?? "").trim().slice(0, 80);
+  const preset: RainPreset | null = isRainPreset(input.reasonPreset) ? input.reasonPreset : typed === "" ? "rained_off" : null;
+  const why: CancelReason = preset ? { phrase: RAIN_PRESETS[preset] } : { text: typed };
   const cancelled: Booking[] = [];
   let classesOff = 0;
-  for (const cl of classes) if ((await cancelClassAndTell(cl.id)).ok) classesOff++;
+  for (const cl of classes) if ((await cancelClassAndTell(cl.id, why)).ok) classesOff++;
   for (const b of live) {
     const done = await adminCancelBooking(b.code);
     if (!done.ok) continue;
     await refundCancelled([done.booking.id], { byVenue: true });
-    await notifyVenueCancelled(done.booking);
+    await notifyVenueCancelled(done.booking, undefined, why);
     cancelled.push(done.booking);
   }
   // Nobody books what is left of that time meanwhile: from the next minute, or the start.
   const nowMinute = Math.ceil((now - instantOf(input.date, 0, zone).getTime()) / 60_000);
   const start = Math.max(from, nowMinute);
   let blocked = 0;
-  const reason = (input.reason ?? "").trim().slice(0, 80) || "Rained off";
+  // The blocks' label on the staff's schedule: what the panel showed them.
+  const reason = typed || "Rained off";
   if (start < until)
     for (const id of courtIds) if ((await blockSlots(id, input.date, { start, end: until }, reason)).ok) blocked++;
   await tickOutbox();

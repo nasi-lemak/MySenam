@@ -4,6 +4,7 @@ import { activityKeys } from "@/lib/activity-registry";
 import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { type Sport } from "@/lib/types";
+import { CONCESSION_PRESETS, type ConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffT } from "./StaffLanguage";
 import { withMarks } from "./ResourcesEditor";
 
@@ -14,6 +15,8 @@ interface Concession {
   proof: string;
   sport: Sport | null;
   offPeakOnly: boolean;
+  /** A built-in one used unchanged: customers read it in their own language. */
+  preset: ConcessionPreset | null;
 }
 
 /**
@@ -23,15 +26,17 @@ interface Concession {
  */
 export function ConcessionsEditor({ venueId }: { venueId: number }) {
   const t = useStaffT();
-  // Suggestions to start from, in the staff's language; what is offered is the name and proof as saved.
-  const presets: { name: string; percent: number; proof: string }[] = [
-    { name: t("con.preset.student"), percent: 20, proof: t("con.proof.student") },
-    { name: t("con.preset.senior"), percent: 30, proof: t("con.proof.senior") },
-    { name: t("con.preset.child"), percent: 50, proof: t("con.proof.child") },
-    { name: t("con.preset.oku"), percent: 50, proof: t("con.proof.oku") },
-  ];
+  // Suggestions to start from, shown in the staff's language. One saved as it
+  // is keeps its key, and each customer reads it in their own language; once
+  // its name or proof is changed, it is the venue's own text, shown as typed.
+  const PERCENT: Record<ConcessionPreset, number> = { student: 20, senior: 30, child: 50, oku: 50 };
+  const presets = CONCESSION_PRESETS.map((key) => ({ key, name: t(`con.preset.${key}`), percent: PERCENT[key], proof: t(`con.proof.${key}`) }));
+  const nameOf = (c: Concession) => (c.preset ? t(`con.preset.${c.preset}`) : c.name);
+  const proofOf = (c: Concession) => (c.preset ? t(`con.proof.${c.preset}`) : c.proof);
   const [list, setList] = useState<Concession[] | null>(null);
-  const [form, setForm] = useState({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false });
+  const [form, setForm] = useState<{ name: string; percent: string; proof: string; sport: string; offPeakOnly: boolean; preset: ConcessionPreset | null }>(
+    { name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null }
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -47,15 +52,18 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
   async function add() {
     setBusy(true);
     setError(null);
+    // Still the built-in one word for word? Then customers read it in their own language.
+    const p = form.preset;
+    const unchanged = p && form.name.trim() === t(`con.preset.${p}`) && form.proof.trim() === t(`con.proof.${p}`) ? p : null;
     try {
       const res = await fetch("/api/admin/concessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, ...form, percent: Number(form.percent), sport: form.sport || null }),
+        body: JSON.stringify({ venueId, ...form, percent: Number(form.percent), sport: form.sport || null, preset: unchanged }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data));
-      setForm({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false });
+      setForm({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
@@ -65,7 +73,7 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
   }
 
   async function withdraw(c: Concession) {
-    if (!window.confirm(t("con.withdrawConfirm", { name: c.name }))) return;
+    if (!window.confirm(t("con.withdrawConfirm", { name: nameOf(c) }))) return;
     const res = await fetch(`/api/admin/concessions?venueId=${venueId}&id=${c.id}`, { method: "DELETE" });
     if (!res.ok) setError(t.err(await res.json()));
     await load();
@@ -82,11 +90,11 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
         <ul className="mt-3 space-y-1">
           {list.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{c.name}</span>
+              <span className="font-medium">{nameOf(c)}</span>
               <span className="text-slate-600">
                 {t("con.percentOff", { percent: c.percent })}
                 {c.sport ? `, ${t("con.sportOnly", { sport: sportLabel(t.customer, c.sport) })}` : ""}
-                {c.offPeakOnly ? `, ${t("con.offPeakOnly")}` : ""} · {t("con.bring", { proof: c.proof })}
+                {c.offPeakOnly ? `, ${t("con.offPeakOnly")}` : ""} · {t("con.bring", { proof: proofOf(c) })}
               </span>
               <button onClick={() => void withdraw(c)} className="text-xs font-semibold text-red-600 underline">
                 {t("con.withdraw")}
@@ -96,10 +104,10 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
         </ul>
       )}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {presets.filter((p) => !list.some((c) => c.name === p.name)).map((p) => (
+        {presets.filter((p) => !list.some((c) => c.preset === p.key || c.name === p.name)).map((p) => (
           <button
-            key={p.name}
-            onClick={() => setForm({ ...form, name: p.name, percent: String(p.percent), proof: p.proof })}
+            key={p.key}
+            onClick={() => setForm({ ...form, name: p.name, percent: String(p.percent), proof: p.proof, preset: p.key })}
             className="rounded-full border border-slate-300 px-2.5 py-0.5 text-xs"
           >
             + {p.name}

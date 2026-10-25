@@ -312,6 +312,15 @@ way is called off too; one that has finished is left alone. Bookings on a
 linked court that hold the chosen court's hours are found as well. Front-desk
 staff can do it; it is in the activity log.
 
+Each customer's message gives the reason, on the line above what is owed
+(*Reason: Rained off*). The panel fills in a built-in reason in the staff
+member's language; left as it is, it is sent as a key (`reasonPreset`) and
+each customer reads it in their own language, the language their booking was
+made in. Anything staff type instead goes to everybody as typed. The blocks
+carry what the panel showed, for the schedule. On WhatsApp the reason travels
+in the same parameter as what is owed, so the approved template is unchanged
+([WhatsApp templates](../integrations/whatsapp-templates.md)).
+
 ### Every week
 
 A school's PE lessons on Tuesday mornings, cleaning on Monday evenings, the

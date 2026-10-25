@@ -8,9 +8,11 @@ import { readMinute } from "@/lib/api";
 export const dynamic = "force-dynamic";
 
 /**
- * `{ venueId, courtIds, date, fromMin, untilMin, reason?, preview? }` (minutes
- * of the day or HH:MM; `fromHour`/`untilHour` the older form):
- * rained off (lib/rain-outs.ts). With `preview`, only what it would call off.
+ * `{ venueId, courtIds, date, fromMin, untilMin, reason?, reasonPreset?, preview? }`
+ * (minutes of the day or HH:MM; `fromHour`/`untilHour` the older form):
+ * rained off (lib/rain-outs.ts). `reasonPreset: "rained_off"` (or no reason)
+ * tells each customer the built-in reason in their own language; a `reason`
+ * without it is sent as typed. With `preview`, only what it would call off.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -27,6 +29,7 @@ export async function POST(req: NextRequest) {
     fromMin: readMinute(body, "fromMin", "fromHour"),
     untilMin: readMinute(body, "untilMin", "untilHour"),
     reason: typeof body.reason === "string" ? body.reason : undefined,
+    reasonPreset: typeof body.reasonPreset === "string" ? body.reasonPreset : undefined,
     preview: body.preview === true,
   });
   if (!result.ok) return NextResponse.json(result, { status: 400 });

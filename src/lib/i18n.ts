@@ -1901,6 +1901,19 @@ const EN = {
   "err.PROMO_TOO_LATE": "This booking is already paid; a code cannot be added now.",
   "passes.counterNote":
     "Bought a pass or membership at the counter? Ask the venue to put your account email on it and it will appear here. They check who you are in person, which this page cannot.",
+  // Built-in texts a venue used unchanged, in the customer's language (pre.)
+  "pre.why": "Reason: {reason}",
+  "pre.rainedOff": "Rained off",
+  "pre.con.student": "Student",
+  "pre.con.student.proof": "your student card",
+  "pre.con.senior": "Senior (60+)",
+  "pre.con.senior.proof": "your IC",
+  "pre.con.child": "Child (under 12)",
+  "pre.con.child.proof": "your child's MyKid or birth certificate",
+  "pre.con.oku": "OKU",
+  "pre.con.oku.proof": "your OKU card",
+  "pre.enquiryReply": "Your private hire enquiry — {venue}",
+  "pre.alsoKindsOf": "Add other kinds of {heading} at the same time",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -3755,6 +3768,19 @@ const MS: Record<Phrase, string> = {
   "err.PROMO_TOO_LATE": "Tempahan ini sudah dibayar; kod tidak boleh ditambah sekarang.",
   "passes.counterNote":
     "Beli pas atau keahlian di kaunter? Minta pusat berkenaan letakkan e-mel akaun anda padanya dan ia akan muncul di sini. Mereka mengesahkan siapa anda secara bersemuka, sesuatu yang halaman ini tidak mampu buat.",
+  // Built-in texts a venue used unchanged, in the customer's language (pre.)
+  "pre.why": "Sebab: {reason}",
+  "pre.rainedOff": "Dibatalkan kerana hujan",
+  "pre.con.student": "Pelajar",
+  "pre.con.student.proof": "kad pelajar anda",
+  "pre.con.senior": "Warga emas (60+)",
+  "pre.con.senior.proof": "IC anda",
+  "pre.con.child": "Kanak-kanak (bawah 12)",
+  "pre.con.child.proof": "MyKid atau sijil kelahiran anak anda",
+  "pre.con.oku": "OKU",
+  "pre.con.oku.proof": "kad OKU anda",
+  "pre.enquiryReply": "Pertanyaan sewaan persendirian anda — {venue}",
+  "pre.alsoKindsOf": "Tambah jenis {heading} lain pada masa yang sama",
 };
 
 /** Exported so a test can hold the two languages against each other. */

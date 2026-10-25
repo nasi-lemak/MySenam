@@ -6,7 +6,7 @@ import type { CancelRefund } from "./payments";
 import { getDb } from "./db";
 import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue } from "./store";
 import { Booking } from "./types";
-import { isLocale, Locale, offeredLocales, translator } from "./i18n";
+import { isLocale, Locale, offeredLocales, translator, type Phrase } from "./i18n";
 import { drainOutbox, enqueue, hourRange } from "./outbox";
 import type { Channel, Compose } from "./outbox";
 import { icsCalendar } from "./booking-links";
@@ -509,8 +509,12 @@ export async function rememberLocale(bookingIds: number[], locale: Locale): Prom
  * on everything that reaches them, with a link to say they have seen it, and
  * the notice stays on the staff's list until they have (lib/urgent.ts). With
  * nothing to reach them on, the notice is there all the same, for a call.
+ *
+ * With `why`, the message says why, above what is owed (in the same
+ * parameter, so the WhatsApp template stays as Meta approved it): a built-in
+ * reason in the customer's own language, or what staff typed, as typed.
  */
-export async function notifyVenueCancelled(booking: Booking, what?: string): Promise<number | null> {
+export async function notifyVenueCancelled(booking: Booking, what?: string, why?: CancelReason): Promise<number | null> {
   const court = await getCourt(booking.courtId);
   if (!court) return null;
   const venue = await getVenue(court.venueId);
@@ -519,6 +523,8 @@ export async function notifyVenueCancelled(booking: Booking, what?: string): Pro
   const t = translator(locale);
   const place = what ? `${what} (${court.name})` : court.name;
   const { where, when } = slot(locale, place, venue.name, booking);
+  const reason = why ? ("phrase" in why ? t(why.phrase) : why.text.trim()) : "";
+  const owed = t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed");
   const notice = await createNotice({
     venueId: venue.id,
     bookingId: booking.id,
@@ -545,12 +551,18 @@ export async function notifyVenueCancelled(booking: Booking, what?: string): Pro
       code: booking.code,
       where,
       when,
-      money: t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed"),
+      money: reason ? `${t("pre.why", { reason })}\n${owed}` : owed,
       ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
     },
   });
   return notice.id;
 }
+
+/**
+ * Why the venue cancelled, for the customer's message: a built-in reason by
+ * its phrase, written in each customer's language, or what staff typed.
+ */
+export type CancelReason = { phrase: Phrase } | { text: string };
 
 /** The venue moved a booking to another court: same time, same price. */
 export async function notifyMoved(booking: Booking): Promise<number | null> {
@@ -788,12 +800,12 @@ export async function notifyReminders(now = new Date()): Promise<number> {
 }
 
 /** Call off a class and tell everybody enrolled in it, as a venue cancellation each. */
-export async function cancelClassAndTell(classId: number): Promise<{ ok: boolean; released: number; error?: string }> {
+export async function cancelClassAndTell(classId: number, why?: CancelReason): Promise<{ ok: boolean; released: number; error?: string }> {
   const session = await getClass(classId);
   const enrolled = (await getClassRoster(classId)).filter((b) => b.status === "confirmed");
   const result = await cancelClassSession(classId);
   if (!result.ok || !session) return result;
-  for (const b of enrolled) await notifyVenueCancelled({ ...b, status: "cancelled" }, session.name);
+  for (const b of enrolled) await notifyVenueCancelled({ ...b, status: "cancelled" }, session.name, why);
   return result;
 }
 

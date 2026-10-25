@@ -278,6 +278,11 @@ Tamil (`ta`) — {{1}} name, {{2}} instructor, {{3}} what, {{4}} code, {{5}} ven
 
 ### `mysenam_booking_cancelled_by_venue`
 
+When the venue gives a reason (a [rain-out](../features/booking.md#rained-off)),
+{{6}} carries it before what is owed, as *Reason: Rained off · Anything you
+paid will be refunded by the venue.*, in the customer's language; the template
+itself is the same.
+
 English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
 
 ```text

@@ -10,6 +10,8 @@ vi.mock("next/headers", () => ({
 import { NextRequest } from "next/server";
 import { checkConcession, listConcessions, rememberUntil, retireConcession, saveConcession } from "../src/lib/concessions";
 import { getDb } from "../src/lib/db";
+import { concessionWords } from "../src/lib/concessions-shared";
+import { translator } from "../src/lib/i18n";
 import { exportPhoneData } from "../src/lib/privacy";
 import { applyPromo, createCourt, createVenue, findBooking, setPaymentStatus } from "../src/lib/store";
 import { addDays, dayOfWeek, todayISO } from "../src/lib/time";
@@ -147,5 +149,62 @@ describe("checking proof at the counter", () => {
     expect(rememberUntil("month", "2026-12-10")).toBe("2026-12-31");
     expect(rememberUntil("year", "2026-10-22")).toBe("2026-12-31");
     expect(rememberUntil("twelve", "2026-10-22")).toBe("2027-10-22");
+  });
+});
+
+describe("a built-in concession, in each customer's language", () => {
+  let otherVenue: number;
+  let otherCourt: number;
+  beforeAll(async () => {
+    const made = await createVenue({ name: "Dewan Serbaguna", area: "Klang", address: "x", phone: "0355552222" });
+    if (!made.ok) throw new Error("venue");
+    otherVenue = made.venue.id;
+    const c = await createCourt({ venueId: otherVenue, name: "Gelanggang 1", sport: "badminton", offPeakRate: 20, peakRate: 30 });
+    if (!c.ok) throw new Error("court");
+    otherCourt = c.court.id;
+  });
+
+  it("saved unchanged from a quick-pick, in whatever language staff saw it, is kept by its key", async () => {
+    // A member of staff reading Malay picked "Pelajar" and left it.
+    const s = await saveConcession(otherVenue, { name: "Pelajar", percent: 20, proof: "kad pelajar anda", preset: "student" });
+    if (!s.ok) throw new Error(s.error);
+    expect(s.concession.preset).toBe("student");
+    // A customer reading Malay, English or Chinese sees its name and proof in their own language.
+    expect(concessionWords(translator("ms"), s.concession)).toEqual({ name: "Pelajar", proof: "kad pelajar anda" });
+    expect(concessionWords(translator("en"), s.concession)).toEqual({ name: "Student", proof: "your student card" });
+    expect(concessionWords(translator("zh"), s.concession).name).toBe("学生");
+  });
+
+  it("edited by staff, is the venue's own text, shown as typed", async () => {
+    const o = await saveConcession(otherVenue, { name: "Senior (65+)", percent: 30, proof: "your IC", preset: "senior" });
+    if (!o.ok) throw new Error(o.error);
+    expect(o.concession.preset).toBeNull();
+    expect(concessionWords(translator("ms"), o.concession)).toEqual({ name: "Senior (65+)", proof: "your IC" });
+    // A preset named without its words, or a key that is not one, keeps nothing either.
+    const typed = await saveConcession(otherVenue, { name: "Pelajar IPT", percent: 25, proof: "kad matrik", preset: "student" });
+    const odd = await saveConcession(otherVenue, { name: "Veteran", percent: 25, proof: "your card", preset: "veteran" });
+    expect(typed.ok && typed.concession.preset).toBeNull();
+    expect(odd.ok && odd.concession.preset).toBeNull();
+    // Changing a preset's words later makes it the venue's own.
+    const s = (await listConcessions(otherVenue)).find((c) => c.preset === "student")!;
+    const changed = await saveConcession(otherVenue, { id: s.id, name: "Pelajar sekolah", percent: 20, proof: "kad pelajar anda", preset: "student" });
+    expect(changed.ok && changed.concession.preset).toBeNull();
+    const back = await saveConcession(otherVenue, { id: s.id, name: "Student", percent: 20, proof: "your student card", preset: "student" });
+    expect(back.ok && back.concession.preset).toBe("student");
+  });
+
+  it("goes on the booking by its key, so the booking reads in the customer's language too", async () => {
+    const s = (await listConcessions(otherVenue)).find((c) => c.preset === "student")!;
+    const { status, body } = await post({ courtId: otherCourt, hours: [9], phone: phone(), concessionId: s.id });
+    expect(status).toBe(201);
+    expect(body.booking).toMatchObject({ concessionPreset: "student", concessionName: "Student" });
+    expect(body.concession).toMatchObject({ preset: "student" });
+    expect(concessionWords(translator("ms"), { name: body.booking.concessionName, preset: body.booking.concessionPreset }).name).toBe("Pelajar");
+    expect(concessionWords(translator("ms"), body.concession)).toEqual({ name: "Pelajar", proof: "kad pelajar anda" });
+    // One typed by the venue stays as typed on the booking.
+    const own = (await listConcessions(otherVenue)).find((c) => c.name === "Senior (65+)")!;
+    const typed = await post({ courtId: otherCourt, hours: [10], phone: phone(), concessionId: own.id });
+    expect(typed.body.booking).toMatchObject({ concessionPreset: null, concessionName: "Senior (65+)" });
+    expect(concessionWords(translator("ms"), { name: typed.body.booking.concessionName, preset: typed.body.booking.concessionPreset }).name).toBe("Senior (65+)");
   });
 });

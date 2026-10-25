@@ -355,7 +355,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/businesses` | `{ name, venueIds, managerIds? }` — a new business from these venues. `{ businessId, venueIds, managerIds? }` — more branches or managers for one |
 | GET | `/api/admin/coach-payouts` | `?venueId=&from=&to=[&format=csv]` → each coach's lessons in the period and the fees on them |
 | GET | `/api/admin/concessions` | `?venueId` → the concession prices offered here |
-| POST | `/api/admin/concessions` | `{ venueId, id?, name, percent, proof, sport?, offPeakOnly? }`: offer one, or change it (managers) |
+| POST | `/api/admin/concessions` | `{ venueId, id?, name, percent, proof, sport?, offPeakOnly?, preset? }`: offer one, or change it (managers). `preset` (`student`, `senior`, `child`, `oku`) is kept only while the name and proof are that built-in one's words, so customers read it in their own language |
 | DELETE | `/api/admin/concessions` | `?venueId&id`: no longer offered (managers) |
 | POST | `/api/admin/concessions/check` | `{ bookingId, outcome: "seen" \| "refused", remember?, via? }`: the desk has looked at the proof for a concession price. Seen, it is remembered for the time chosen (the fact only); not shown, the full price is charged |
 | GET | `/api/admin/counter-sales` | `?venueId=&date=` → that day's counter sales, newest first, with the totals by how they were paid |
@@ -367,7 +367,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/customer-notes` | `{ venueId, phone, note }`: write it; an empty note takes it away |
 | GET | `/api/admin/einvoicing` | `?venueId=` → the venue's MyInvois settings and its recent e-invoices |
 | POST | `/api/admin/einvoicing` | `{ venueId, action }`: - `save` with the settings' fields; - `test`: sign in to MyInvois with them; - `consolidate`: send last month now, rather than waiting for the scheduler; - `retry` with `id`: send one that failed or was invalid again; - `check`: ask LHDN about those sent and not yet decided |
-| GET | `/api/admin/enquiries` | The private hire enquiries at the venues this account runs, open ones first |
+| GET | `/api/admin/enquiries` | The private hire enquiries at the venues this account runs, open ones first, each with `replyLocale` (the language to answer in where known, else null) |
 | POST | `/api/admin/enquiries` | `{ venueId, id, status }`: replied, booked or declined |
 | GET | `/api/admin/errors` | `?resolved=1` for those marked fixed: errors by kind, latest first, for the platform owner |
 | POST | `/api/admin/errors` | `{ id }`: fixed. It comes back on the list if it happens again |
@@ -408,7 +408,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/admin/peak-rules` | `?venueId` → when the venue's peak rates apply, and its holidays from today |
 | POST | `/api/admin/peak-rules` | `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }` (times to the minute), or `{ venueId, lastMinute: { hours, percent, offPeakOnly } \| { off: true } }` |
 | GET | `/api/admin/photos` | Photos venues added in the last fortnight, for the platform owner to look over |
-| POST | `/api/admin/rain-out` | `{ venueId, courtIds, date, fromMin, untilMin, reason?, preview? }`: rained off. With `preview`, only what it would call off |
+| POST | `/api/admin/rain-out` | `{ venueId, courtIds, date, fromMin, untilMin, reason?, reasonPreset?, preview? }`: rained off. `reasonPreset: "rained_off"` (or no reason) gives each customer the built-in reason in their own language, `reason` then labelling the blocks; a `reason` alone is sent as typed. With `preview`, only what it would call off |
 | GET | `/api/admin/receipts` | `?venueId` → the venue's latest receipts and credit notes, each with its link to print |
 | GET | `/api/admin/repeat-blocks` | `?venueId` → the venue's repeating blocks with weeks still to come |
 | POST | `/api/admin/repeat-blocks` | `{ venueId, courtIds, from, days, fromMin, untilMin, weeks, reason }`: block that time every week |

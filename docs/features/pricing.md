@@ -132,6 +132,18 @@ A student, senior, child or OKU price, under *Courts → Concession prices*
 (`src/lib/concessions.ts`): a name, a share off (5–100%), what to bring ("your
 student card"), and optionally one sport or off-peak hours only.
 
+- **Built-in quick-picks** (*Student*, *Senior (60+)*, *Child (under 12)*,
+  *OKU*, each with its proof) are shown to staff in the dashboard's language.
+  One saved as it is keeps its key (`concessions.preset`, migration 0122), and
+  every customer reads its name and proof in their own language, on the
+  booking form, the confirmation and `/my-booking`; staff screens show it in
+  the staff member's language. Once staff change its name or proof it is the
+  venue's own text, shown to everybody as typed. The server keeps the key only
+  while the name and proof are word for word the preset's in one of the
+  dashboard's or the site's languages (`saveConcession`,
+  `src/lib/concessions-shared.ts`). A booking keeps the key it was made at,
+  beside the name.
+
 - **Booking:** the customer picks it from *Price* on the booking form and gets
   the lower price at once. The form, the confirmation and `/my-booking` say what
   to bring, and that without it the full price is charged at the counter. It is

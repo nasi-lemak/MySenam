@@ -1741,6 +1741,19 @@ export const ZH: Record<Phrase, string> = {
   "err.PROMO_ALREADY_USED": "此预订已使用过优惠码。",
   "err.PROMO_TOO_LATE": "此预订已付款，现在无法再使用优惠码。",
   "passes.counterNote": "在柜台购买了次卡或会员？请场馆将您的账号电子邮件登记在上面，它就会显示在这里。场馆会当面核实您的身份，本页面无法做到。",
+  // Built-in texts a venue used unchanged, in the customer's language (pre.)
+  "pre.why": "原因：{reason}",
+  "pre.rainedOff": "因雨取消",
+  "pre.con.student": "学生",
+  "pre.con.student.proof": "学生证",
+  "pre.con.senior": "乐龄人士（60岁以上）",
+  "pre.con.senior.proof": "身份证（IC）",
+  "pre.con.child": "儿童（12岁以下）",
+  "pre.con.child.proof": "孩子的 MyKid 或出生证明",
+  "pre.con.oku": "OKU",
+  "pre.con.oku.proof": "OKU 卡",
+  "pre.enquiryReply": "您的包场询问 — {venue}",
+  "pre.alsoKindsOf": "同时加订其他类型的{heading}",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

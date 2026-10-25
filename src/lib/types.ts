@@ -294,6 +294,8 @@ export interface Booking {
   players?: number;
   /** A concession price (lib/concessions.ts): which, what it took off, and whether proof was seen. */
   concessionName?: string | null;
+  /** The built-in one it was, used unchanged: its name is shown in the reader's language (lib/concessions-shared.ts). */
+  concessionPreset?: string | null;
   concessionOff?: number;
   concessionCheck?: "due" | "seen" | "refused" | null;
   paymentStatus: PaymentStatus;

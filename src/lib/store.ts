@@ -393,6 +393,7 @@ interface BookingRow {
   group_code?: string | null;
   players?: number;
   concession_name?: string | null;
+  concession_preset?: string | null;
   concession_off?: number | string;
   concession_check?: "due" | "seen" | "refused" | null;
   coach_id?: number | null;
@@ -494,6 +495,7 @@ function toBooking(r: BookingRow): Booking {
     groupCode: r.group_code ?? null,
     players: r.players ?? 1,
     concessionName: r.concession_name ?? null,
+    concessionPreset: r.concession_preset ?? null,
     concessionOff: Number(r.concession_off ?? 0),
     concessionCheck: r.concession_check ?? null,
     coachId: r.coach_id ?? null,

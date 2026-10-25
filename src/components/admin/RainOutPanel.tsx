@@ -34,7 +34,10 @@ export function RainOutPanel({
   const [chosen, setChosen] = useState<number[]>([]);
   const [from, setFrom] = useState(hours[0] ?? 16);
   const [until, setUntil] = useState((hours[hours.length - 1] ?? 22) + 1);
-  const [reason, setReason] = useState(() => t("rain.defaultReason"));
+  // null: the built-in reason, untouched, which each customer reads in their
+  // own language; once staff type, their words go to everybody as typed.
+  const [typed, setTyped] = useState<string | null>(null);
+  const reason = typed ?? t("rain.defaultReason");
   const [preview, setPreview] = useState<{ bookings: { code: string; name: string; startHour: number }[]; classes: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +53,16 @@ export function RainOutPanel({
     const res = await fetch("/api/admin/rain-out", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ venueId, courtIds: chosen, date, fromHour: from, untilHour: until, reason, preview: isPreview }),
+      body: JSON.stringify({
+        venueId,
+        courtIds: chosen,
+        date,
+        fromHour: from,
+        untilHour: until,
+        reason,
+        ...(typed === null || ["", t("rain.defaultReason")].includes(typed.trim()) ? { reasonPreset: "rained_off" } : {}),
+        preview: isPreview,
+      }),
     });
     const data = await res.json();
     if (!res.ok) return setError(t.err(data, t("rain.failed")));
@@ -110,7 +122,7 @@ export function RainOutPanel({
             </select>
           ),
         })}
-        <input value={reason} onChange={(e) => setReason(e.target.value)} className={`w-40 ${select}`} />
+        <input value={reason} onChange={(e) => setTyped(e.target.value)} className={`w-40 ${select}`} />
       </div>
       {preview ? (
         <div className="mt-3 rounded-lg bg-white p-3">

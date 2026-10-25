@@ -8,7 +8,9 @@ import { getBookingById as bookingById, getCourt } from "./store";
 import { addDays, forSport, isValidDateString, todayISO } from "./time";
 import { touchesPeak } from "./pricing";
 import { type Booking, type Refusal, type Sport } from "./types";
-import { errorText, translator, type ErrorCode } from "./i18n";
+import { DICTIONARIES, errorText, translator, type ErrorCode, type Phrase } from "./i18n";
+import { STAFF_DICTIONARIES, type StaffPhrase } from "./staff-i18n";
+import { isConcessionPreset, type ConcessionPreset } from "./concessions-shared";
 
 /**
  * Concession prices: a student, senior, child or OKU price, as a share off.
@@ -36,6 +38,12 @@ export interface Concession {
   /** One sport, or null for every sport here. */
   sport: Sport | null;
   offPeakOnly: boolean;
+  /**
+   * A built-in one used unchanged (lib/concessions-shared.ts): customers read
+   * its name and proof in their own language. null: the venue's own words,
+   * which `name` and `proof` are, shown as typed.
+   */
+  preset: ConcessionPreset | null;
 }
 
 export type ConcessionCheck = "due" | "seen" | "refused";
@@ -48,6 +56,7 @@ interface Row {
   proof: string;
   sport: Sport | null;
   off_peak_only: number;
+  preset: string | null;
 }
 
 const toConcession = (r: Row): Concession => ({
@@ -58,7 +67,20 @@ const toConcession = (r: Row): Concession => ({
   proof: r.proof,
   sport: r.sport,
   offPeakOnly: r.off_peak_only === 1,
+  preset: isConcessionPreset(r.preset) ? r.preset : null,
 });
+
+/**
+ * Is this the built-in one, word for word, as any staff language or any
+ * customer language writes it? Then it is kept by its key. Anything else
+ * staff typed is the venue's own text.
+ */
+function unchangedPreset(preset: unknown, name: string, proof: string): ConcessionPreset | null {
+  if (!isConcessionPreset(preset)) return null;
+  const staff = Object.values(STAFF_DICTIONARIES).map((d) => [d[`con.preset.${preset}` as StaffPhrase], d[`con.proof.${preset}` as StaffPhrase]]);
+  const customer = Object.values(DICTIONARIES).map((d) => [d[`pre.con.${preset}` as Phrase], d[`pre.con.${preset}.proof` as Phrase]]);
+  return [...staff, ...customer].some(([n, p]) => n === name && p === proof) ? preset : null;
+}
 
 const ENGLISH = translator("en");
 function refuse(code: ErrorCode, vars: Record<string, string | number> = {}): Refusal {
@@ -78,10 +100,14 @@ export async function concessionById(id: number): Promise<Concession | null> {
   return row ? toConcession(row) : null;
 }
 
-/** Offer one, or change one: `id` to change. */
+/**
+ * Offer one, or change one: `id` to change. `preset` names the built-in one
+ * it was started from; it is kept only while the name and proof are still
+ * that preset's own words.
+ */
 export async function saveConcession(
   venueId: number,
-  input: { id?: unknown; name?: unknown; percent?: unknown; proof?: unknown; sport?: unknown; offPeakOnly?: unknown }
+  input: { id?: unknown; name?: unknown; percent?: unknown; proof?: unknown; sport?: unknown; offPeakOnly?: unknown; preset?: unknown }
 ): Promise<{ ok: true; concession: Concession } | { ok: false; error: string }> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 40) return { ok: false, error: "Name it, as customers will see it: Student, Senior (60+)." };
@@ -92,19 +118,20 @@ export async function saveConcession(
   const sport = input.sport === null || input.sport === undefined || input.sport === "" ? null : (input.sport as Sport);
   if (sport !== null && !(await isActivity(sport))) return { ok: false, error: "Unknown sport." };
   const offPeak = input.offPeakOnly === true ? 1 : 0;
+  const preset = unchangedPreset(input.preset, name, proof);
   const db = getDb();
   if (input.id !== undefined && input.id !== null) {
     const done = await db
       .prepare(
-        "UPDATE concessions SET name = ?, percent = ?, proof = ?, sport = ?, off_peak_only = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL RETURNING *"
+        "UPDATE concessions SET name = ?, percent = ?, proof = ?, sport = ?, off_peak_only = ?, preset = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL RETURNING *"
       )
-      .get(name, percent, proof, sport, offPeak, input.id, venueId);
+      .get(name, percent, proof, sport, offPeak, preset, input.id, venueId);
     if (!done) return { ok: false, error: "That concession is not offered here." };
     return { ok: true, concession: toConcession(done as Row) };
   }
   const row = (await db
-    .prepare("INSERT INTO concessions (venue_id, name, percent, proof, sport, off_peak_only) VALUES (?, ?, ?, ?, ?, ?) RETURNING *")
-    .get(venueId, name, percent, proof, sport, offPeak)) as Row;
+    .prepare("INSERT INTO concessions (venue_id, name, percent, proof, sport, off_peak_only, preset) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *")
+    .get(venueId, name, percent, proof, sport, offPeak, preset)) as Row;
   return { ok: true, concession: toConcession(row) };
 }
 
@@ -155,10 +182,10 @@ export async function applyConcession(
   const check: ConcessionCheck = (await proofOnFile(court.venueId, booking.phone, concession.id, booking.date)) ? "seen" : "due";
   await db
     .prepare(
-      `UPDATE bookings SET total_price = total_price - ?, concession_id = ?, concession_name = ?, concession_off = ?, concession_check = ?
+      `UPDATE bookings SET total_price = total_price - ?, concession_id = ?, concession_name = ?, concession_preset = ?, concession_off = ?, concession_check = ?
         WHERE id = ? AND concession_id IS NULL`
     )
-    .run(off, concession.id, concession.name, off, check, bookingId);
+    .run(off, concession.id, concession.name, concession.preset, off, check, bookingId);
   return { ok: true, off, check };
 }
 
