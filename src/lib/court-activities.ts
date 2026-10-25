@@ -66,6 +66,38 @@ export function mostPerBookingAllowed(capacity: number): number {
   return capacity > 1 ? capacity : MAX_PLAYERS;
 }
 
+/**
+ * Items listed with kinds of the same thing under one heading (lib/resources.ts
+ * `setCourtHeading`): those sharing a heading (whatever its capitals) together,
+ * where the first of them comes; the rest each on their own, in their order.
+ */
+export function groupByHeading<T>(items: T[], headingOf: (item: T) => string | null | undefined): { heading: string | null; items: T[] }[] {
+  const groups: { heading: string | null; items: T[] }[] = [];
+  const byKey = new Map<string, { heading: string | null; items: T[] }>();
+  for (const item of items) {
+    const heading = headingOf(item)?.trim() || null;
+    if (heading === null) {
+      groups.push({ heading: null, items: [item] });
+      continue;
+    }
+    const group = byKey.get(heading.toLowerCase());
+    if (group) group.items.push(item);
+    else {
+      const made = { heading, items: [item] };
+      byKey.set(heading.toLowerCase(), made);
+      groups.push(made);
+    }
+  }
+  return groups;
+}
+
+/** A day's rows as shown: grouped by heading, `heading` on the first of each group, `under` on all of one. */
+export function headedRows<R extends { court: Pick<Court, "heading"> }>(rows: R[]): (R & { heading: string | null; under: boolean })[] {
+  return groupByHeading(rows, (r) => r.court.heading).flatMap((g) =>
+    g.items.map((r, i) => ({ ...r, heading: i === 0 ? g.heading : null, under: g.heading !== null }))
+  );
+}
+
 /** Players an open game looks for, at most, unless the court lets one booking take more. */
 export const OPEN_GAME_SPOTS = 10;
 

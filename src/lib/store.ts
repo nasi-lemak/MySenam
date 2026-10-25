@@ -124,6 +124,7 @@ interface CourtRow {
   /** JSON, kept by the database from court_activities (migration 0092). */
   activities?: string | null;
   noun?: string | null;
+  heading?: string | null;
 }
 
 /** A court's activities as its row lists them, the main one first. */
@@ -443,6 +444,7 @@ function toCourt(r: CourtRow): Court {
     quantityPrices: readStoredBands(r.quantity_prices),
     activities: courtActivitiesOf(r),
     noun: r.noun ?? null,
+    heading: r.heading ?? null,
   };
 }
 

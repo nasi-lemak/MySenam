@@ -3,9 +3,9 @@
 import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Booking, busyness, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure } from "@/lib/types";
-import { placesPerBooking } from "@/lib/court-activities";
+import { headedRows, placesPerBooking } from "@/lib/court-activities";
 import { concessionWords } from "@/lib/concessions-shared";
 import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
@@ -254,6 +254,12 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     [availability]
   );
 
+  /**
+   * The rows in the order shown: kinds of the same thing under one heading
+   * together, where the first of them was, the heading on the first of each.
+   */
+  const headed = useMemo(() => headedRows(availability ?? []), [availability]);
+
   /** The width of a column, in minutes: a way of showing the day, not what may be booked. */
   const grid = availability?.[0]?.grid ?? 60;
 
@@ -316,17 +322,21 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   /**
    * Others free for the same start and length, to book with it as one: other
    * whole courts beside a whole court, or other shared resources beside a
-   * shared one (another kind of kit, each a fleet of its own).
+   * shared one (another kind of kit, each a fleet of its own). The other kinds
+   * under the same heading as the one picked come first.
    */
   const alsoFree = useMemo(() => {
     if (!selection || !availability || selection.courtId === ANY_COURT) return [];
-    const shared = (availability.find((a) => a.court.id === selection.courtId)?.court.capacity ?? 1) > 1;
-    return availability
+    const picked = availability.find((a) => a.court.id === selection.courtId)?.court;
+    const shared = (picked?.capacity ?? 1) > 1;
+    const sameHeading = (c: Court) => !!picked?.heading && c.heading?.toLowerCase() === picked.heading.toLowerCase();
+    const free = headed
       .filter((a) => a.court.id !== selection.courtId && (a.court.capacity > 1) === shared)
       .filter((a) => lengthsUpTo(a.policy, selection.length).includes(selection.length))
       .filter((a) => (a.starts.find((s) => s.minute === selection.start)?.maxLength ?? 0) >= selection.length)
       .map((a) => a.court);
-  }, [selection, availability]);
+    return [...free.filter(sameHeading), ...free.filter((c) => !sameHeading(c))];
+  }, [selection, availability, headed]);
 
   /** The columns the selection covers, for showing it, and for what they say (peak, last-minute). */
   const coveredCells = useCallback(
@@ -503,9 +513,18 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                   })}
                 </tr>
               )}
-              {availability.map(({ court, slots }) => (
-                <tr key={court.id} className="border-b border-slate-100 last:border-0">
-                  <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 font-medium">
+              {headed.map(({ court, slots, heading, under }) => (
+                <Fragment key={court.id}>
+                {heading && (
+                  // Kinds of the same thing under one heading: "Kayaks", then each kind.
+                  <tr className="border-b border-slate-100 bg-slate-50/60" data-testid={`heading-${court.id}`}>
+                    <th scope="rowgroup" colSpan={slots.length + 1} className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      {heading}
+                    </th>
+                  </tr>
+                )}
+                <tr className="border-b border-slate-100 last:border-0">
+                  <td className={`sticky left-0 z-10 whitespace-nowrap bg-white py-2 pr-3 font-medium ${under ? "pl-6" : "pl-3"}`}>
                     {court.name}
                     <div className="text-xs font-normal text-slate-400">
                       {court.offPeakRate === 0 && court.peakRate === 0
@@ -590,6 +609,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                     );
                   })}
                 </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -732,6 +752,8 @@ function BookingForm({
     setMoreCount({});
   }, [court.id, start, length, date]);
   const moreChosen = alsoFree.filter((c) => more.includes(c.id));
+  // Other kinds under the same heading as this one ("Kayaks"): offered first, and the list opens on them.
+  const kindsUnderHeading = !!court.heading && alsoFree.some((c) => c.heading?.toLowerCase() === court.heading!.toLowerCase());
   const countOf = (c: Court) => moreCount[c.id] ?? 1;
   // A manager booking outside the court's rules: any start, any length; what holds the court still decides.
   const [override, setOverride] = useState(false);
@@ -904,7 +926,7 @@ function BookingForm({
     >
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[12rem] flex-1">
-          <div className="font-semibold text-teal-700">{court.name}</div>
+          <div className="font-semibold text-teal-700">{court.heading ? `${court.heading} · ${court.name}` : court.name}</div>
           <div className="text-sm text-slate-600">
             {date} · {formatMinute(start)} – {formatMinute(end)} · {lengthLabel(t, length)} ·{" "}
             <span className="font-semibold text-slate-900">
@@ -1059,8 +1081,12 @@ function BookingForm({
         </div>
       )}
       {alsoFree.length > 0 && weeks === 1 && !hasExtras && (
-        <details className="mt-2 text-xs text-slate-600" open={more.length > 0}>
-          <summary className="cursor-pointer font-medium text-teal-700">{t(shared ? "form.alsoBookKinds" : "form.alsoBook")}</summary>
+        <details className="mt-2 text-xs text-slate-600" open={more.length > 0 || kindsUnderHeading}>
+          <summary className="cursor-pointer font-medium text-teal-700">
+            {kindsUnderHeading && court.heading
+              ? t("pre.alsoKindsOf", { heading: court.heading })
+              : t(shared ? "form.alsoBookKinds" : "form.alsoBook")}
+          </summary>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
             {alsoFree.map((c) => {
               const price = quote?.others.find((o) => o.courtId === c.id)?.total;

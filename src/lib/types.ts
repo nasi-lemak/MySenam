@@ -142,6 +142,12 @@ export interface Court extends CourtFeatures {
   activities: CourtActivity[];
   /** What one of it is called ("lane", "bay"); null: what its activity's are. */
   noun: string | null;
+  /**
+   * The heading it is listed under with other kinds of the same thing
+   * ("Kayaks" over "Single kayak" and "Double kayak"); null: on its own.
+   * Only how it is shown: it is booked and counted as itself.
+   */
+  heading?: string | null;
   offPeakRate: number;
   peakRate: number;
   /** What a member pays instead. null means members pay the public rate here. */

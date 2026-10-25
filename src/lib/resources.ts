@@ -187,3 +187,26 @@ export async function setCourtActivities(
 export async function setCourtNoun(courtId: number, noun: string | null): Promise<void> {
   await getDb().prepare("UPDATE courts SET noun = ? WHERE id = ?").run(noun, courtId);
 }
+
+/**
+ * The heading a resource is listed under, with the other kinds of the same
+ * thing at its venue that carry it ("Kayaks" over "Single kayak" and "Double
+ * kayak"); blank or null takes it out from under one. Only how it is shown:
+ * each kind is still booked, priced and counted as itself.
+ */
+export async function setCourtHeading(courtId: number, heading: unknown): Promise<{ ok: true; court: Court } | { ok: false; error: string }> {
+  if (heading !== null && typeof heading !== "string") return { ok: false, error: "heading must be text, or null." };
+  const text = typeof heading === "string" ? heading.trim().replace(/\s+/g, " ") : "";
+  if (text !== "" && (text.length < 2 || text.length > 40)) return { ok: false, error: "A heading is 2 to 40 characters." };
+  const court = await getCourt(courtId);
+  if (!court) return { ok: false, error: "Court not found." };
+  // One spelling per venue: a heading typed again in other capitals joins the one already there.
+  const same =
+    text === ""
+      ? null
+      : ((await getDb()
+          .prepare("SELECT heading FROM courts WHERE venue_id = ? AND id <> ? AND lower(heading) = lower(?) LIMIT 1")
+          .get(court.venueId, courtId, text)) as { heading: string } | undefined);
+  await getDb().prepare("UPDATE courts SET heading = ? WHERE id = ?").run(text === "" ? null : (same?.heading ?? text), courtId);
+  return { ok: true, court: (await getCourt(courtId))! };
+}

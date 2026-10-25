@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { courtAccess, getCourt, setCourtFeatures, updateCourt } from "@/lib/store";
-import { setCourtActivities, setCourtNoun } from "@/lib/resources";
+import { setCourtActivities, setCourtHeading, setCourtNoun } from "@/lib/resources";
 import { RESOURCE_NOUNS } from "@/lib/activity-catalogue";
 import { isSurface, type CourtFeatures } from "@/lib/facilities";
 import { MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT, MIN_ACCESS_CODE } from "@/lib/types";
@@ -210,6 +210,13 @@ export async function PATCH(
     if (input.noun !== null && (typeof input.noun !== "string" || !(RESOURCE_NOUNS as readonly string[]).includes(input.noun)))
       return NextResponse.json({ error: "Choose what it is called from the list." }, { status: 400 });
     await setCourtNoun(courtId, input.noun as string | null);
+    other = true;
+  }
+  // The heading it is listed under with other kinds of the same thing ("Kayaks"); null or blank: on its own.
+  if (input.heading !== undefined) {
+    const set = await setCourtHeading(courtId, input.heading);
+    if (!set.ok) return NextResponse.json({ error: set.error }, { status: 400 });
+    await logAction(admin, { venueId: court.venueId, action: "court.changed", detail: `${court.name}: listed under ${set.court.heading ?? "no heading"}` });
     other = true;
   }
 

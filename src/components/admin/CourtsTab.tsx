@@ -8,6 +8,7 @@ import { BookingPolicyEditor } from "./BookingPolicyEditor";
 import { OutagesPanel } from "./OutagesPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
+import { ResourceHeadings } from "./ResourceHeadings";
 import { SportRulesEditor } from "./SportRulesEditor";
 import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT } from "@/lib/types";
 import type { Court, Induction, Venue } from "@/lib/types";
@@ -289,6 +290,8 @@ export function CourtsTab({
           sports={sportsOf(venue.courts)}
         />
       )}
+
+      {venue && <ResourceHeadings key={`headings-${venue.id}`} courts={venue.courts} onSaved={refreshVenues} />}
 
       {venue && <ConcessionsEditor key={`concessions-${venue.id}`} venueId={venue.id} />}
 

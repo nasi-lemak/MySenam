@@ -217,7 +217,8 @@ one of those hours (and that take a booking that long), with what each costs.
   time (*Add other kinds at the same time*: double kayaks, boards), each with
   how many, up to what one booking may take. Each kind is its own booking at
   its own price; all or none are kept. Whole courts and shared resources are
-  not mixed in one.
+  not mixed in one. Kinds the venue put under one heading are listed together
+  under it and offered first ([activities](activities.md#pricing-a-booking-with-places)).
 
 ## Operating hours and closed days
 
