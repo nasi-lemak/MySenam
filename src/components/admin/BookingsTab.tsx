@@ -14,6 +14,7 @@ import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductio
 import type { StaffT } from "@/lib/staff-i18n";
 import { localTime, todayLocal } from "./shared";
 import { money } from "@/lib/region";
+import { isConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffT } from "./StaffLanguage";
 
 /* ---------------- Bookings tab ---------------- */
@@ -1015,7 +1016,8 @@ function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
   const [step, setStep] = useState<"seen" | "refused" | null>(null);
   if (!b.concessionName || !b.concessionCheck) return null;
   const off = money(b.concessionOff ?? 0);
-  const name = b.concessionName;
+  // A built-in one used unchanged reads in the staff's language.
+  const name = isConcessionPreset(b.concessionPreset) ? t(`con.preset.${b.concessionPreset}`) : b.concessionName;
   if (b.concessionCheck === "seen") return <div className="mt-1 text-xs text-emerald-700">🎫 {t("bk.concSeen", { name })}</div>;
   if (b.concessionCheck === "refused") return <div className="mt-1 text-xs text-slate-500">🎫 {t("bk.concRefused", { name })}</div>;
   return (

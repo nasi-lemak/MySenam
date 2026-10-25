@@ -116,7 +116,7 @@ Account endpoints (session cookie):
 | POST   | `/api/auth/reset`         | `{token, password}` → new password + signed in  |
 | GET    | `/api/my/password`        | `{hasPassword}` (Google accounts may have none) |
 | POST   | `/api/my/password`        | `{current, next}` → change it; others signed out |
-| GET    | `/api/my/bookings`        | The signed-in user's bookings, and refunds owed or made on them (`refunds`) |
+| GET    | `/api/my/bookings`        | The signed-in user's bookings (each with `mostSpots`, the most players an open game on it can look for), and refunds owed or made on them (`refunds`) |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
 | POST   | `/api/my/wallet`          | `{venueId, amount}` → the page to pay on; the credit lands once it is paid |
 | POST   | `/api/my/vouchers`        | `{code}` → a gift voucher, as credit            |
@@ -196,7 +196,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/reports`          | `?venueId=&from=&to=` → the period report            |
 | POST   | `/api/admin/courts`           | `{venueId, name \| count, sport, offPeakRate, peakRate, capacity?, deposit?, noun?, perPlayer?, maxPlayers?, setting?, also?}`: one resource, or `count` (1–20) numbered after `noun` (Lane 1…), filled in from the activity's template; `also` lists more activities it offers → `{court, courts}` |
 | GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
-| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?, noun?, activities?}`; `activities` is `[{sport, offPeakRate?, peakRate?}]` besides its main one (refused while one taken off has bookings to come); `flatRate`, `quantityPrices` (`[{from, percent}]`) and `classesOnly` say how a booking is priced and sold |
+| PATCH  | `/api/admin/courts/:id`       | `{name?, offPeakRate?, peakRate?, memberOffPeakRate?, memberPeakRate?, capacity?, deposit?, unmanned?, accessCode?, noun?, heading?, activities?}`; `heading` (2–40 characters, or null) lists it under one heading with the venue's other kinds of the same thing; `activities` is `[{sport, offPeakRate?, peakRate?}]` besides its main one (refused while one taken off has bookings to come); `flatRate`, `quantityPrices` (`[{from, percent}]`) and `classesOnly` say how a booking is priced and sold |
 | POST   | `/api/admin/venues`           | `{name, area, address, phone}` — **owner only**      |
 | PATCH  | `/api/admin/venues/:id`       | `{name?, area?, address?, phone?, cancelCutoffHours?, openMin?, closeMin?, staffedFrom?, staffedTo?, partlyUnstaffed?, emergencyPhone?, emergencyInfo?}`; `partlyUnstaffed` is `code` or `counter`: a booking staffed for only part of its time gets the door code, or somebody stays on the desk |
 | GET    | `/api/admin/venues/:id/closures` | Upcoming closed days for one venue                |
@@ -227,7 +227,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/classes/term` | `?classId` → the sessions left in this weekly class that can still be joined, and what the term costs |
 | GET | `/api/coaching/slots` | `?coachId&date&sport?` → when a lesson with that coach can start that day (`starts`: minute and longest length), and the lengths the sport's courts allow (`policy`) |
 | GET | `/api/games` | Public open games with room (or a waiting list), soonest first: `?sport=&date=&area=&level=&who=women`, or `?near=lat,lng&km=` for nearest. Signed in, each says where you stand in it. Private games are never listed |
-| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players |
+| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players; `spots` up to ten, or the court's most per booking less the host where that is more |
 | GET | `/api/games/recommended` | Signed in: open games suggested for you, best first, each with its score and reasons; `?sport=&offset=&limit=` ([matchmaking](../features/matchmaking.md#suggested-games-and-players)) |
 | GET | `/api/games/:id` | One game as you may see it; a private one only to its host, its players and invitees, or with `?link=` |
 | POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`), "unlink" and, on a weekly game, "inviteRegulars"; "keepPlace" for a player keeping their place at the new time it is moving to (or confirming the venue's change) |
@@ -355,7 +355,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/businesses` | `{ name, venueIds, managerIds? }` — a new business from these venues. `{ businessId, venueIds, managerIds? }` — more branches or managers for one |
 | GET | `/api/admin/coach-payouts` | `?venueId=&from=&to=[&format=csv]` → each coach's lessons in the period and the fees on them |
 | GET | `/api/admin/concessions` | `?venueId` → the concession prices offered here |
-| POST | `/api/admin/concessions` | `{ venueId, id?, name, percent, proof, sport?, offPeakOnly? }`: offer one, or change it (managers) |
+| POST | `/api/admin/concessions` | `{ venueId, id?, name, percent, proof, sport?, offPeakOnly?, preset? }`: offer one, or change it (managers). `preset` (`student`, `senior`, `child`, `oku`) is kept only while the name and proof are that built-in one's words, so customers read it in their own language |
 | DELETE | `/api/admin/concessions` | `?venueId&id`: no longer offered (managers) |
 | POST | `/api/admin/concessions/check` | `{ bookingId, outcome: "seen" \| "refused", remember?, via? }`: the desk has looked at the proof for a concession price. Seen, it is remembered for the time chosen (the fact only); not shown, the full price is charged |
 | GET | `/api/admin/counter-sales` | `?venueId=&date=` → that day's counter sales, newest first, with the totals by how they were paid |
@@ -367,7 +367,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/customer-notes` | `{ venueId, phone, note }`: write it; an empty note takes it away |
 | GET | `/api/admin/einvoicing` | `?venueId=` → the venue's MyInvois settings and its recent e-invoices |
 | POST | `/api/admin/einvoicing` | `{ venueId, action }`: - `save` with the settings' fields; - `test`: sign in to MyInvois with them; - `consolidate`: send last month now, rather than waiting for the scheduler; - `retry` with `id`: send one that failed or was invalid again; - `check`: ask LHDN about those sent and not yet decided |
-| GET | `/api/admin/enquiries` | The private hire enquiries at the venues this account runs, open ones first |
+| GET | `/api/admin/enquiries` | The private hire enquiries at the venues this account runs, open ones first, each with `replyLocale` (the language to answer in where known, else null) |
 | POST | `/api/admin/enquiries` | `{ venueId, id, status }`: replied, booked or declined |
 | GET | `/api/admin/errors` | `?resolved=1` for those marked fixed: errors by kind, latest first, for the platform owner |
 | POST | `/api/admin/errors` | `{ id }`: fixed. It comes back on the list if it happens again |
@@ -402,13 +402,14 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/notices/:id` | Taken down: by the venue's staff, or the platform owner |
 | GET | `/api/admin/online-payments` | `?venueId=` → the venue's recent online payments, what it owes back (each with how long it has been owed and whether it is overdue), and its refund workload. `?workload=all` → the workload across every venue (the platform's owner) |
 | POST | `/api/admin/online-payments` | `{ venueId, paymentId, note? }` → staff have refunded it themselves, with the reference they wrote down. `{ venueId, paymentId, through: "gateway" }` → refund it now, through the gateway's API with the venue's account |
-| GET | `/api/admin/outages` | `?venueId=` — its courts' outages, now and to come |
+| GET | `/api/admin/outages` | `?venueId=` — its courts' outages, now and to come, and `lateHoursOpen`: the ids of those whose last night's late hours, after midnight, are not closed (from before migration 0090) |
 | POST | `/api/admin/outages` | `{ courtId, startsOn, endsOn: string \| null, reason?, cancelAffected? }` — take a court out. 409 with `affected` when something is booked in the stretch and `cancelAffected` was not given |
+| PATCH | `/api/admin/outages` | `{ venueId, id? }` — close the late hours of the last night of the venue's outages (or one) where they are free → `repairs`, each with what it `claimed` (minutes of that day) and the bookings and classes there (`collisions`), left as they are ([legacy installs](../archive/migrations/legacy-installs.md#outages-from-before-migration-0090)) |
 | DELETE | `/api/admin/outages` | `?id=` — back in service from today |
 | GET | `/api/admin/peak-rules` | `?venueId` → when the venue's peak rates apply, and its holidays from today |
 | POST | `/api/admin/peak-rules` | `{ venueId, weekdayFrom, weekdayUntil, weekendDays, weekendFrom, weekendUntil }` (times to the minute), or `{ venueId, lastMinute: { hours, percent, offPeakOnly } \| { off: true } }` |
 | GET | `/api/admin/photos` | Photos venues added in the last fortnight, for the platform owner to look over |
-| POST | `/api/admin/rain-out` | `{ venueId, courtIds, date, fromMin, untilMin, reason?, preview? }`: rained off. With `preview`, only what it would call off |
+| POST | `/api/admin/rain-out` | `{ venueId, courtIds, date, fromMin, untilMin, reason?, reasonPreset?, preview? }`: rained off. `reasonPreset: "rained_off"` (or no reason) gives each customer the built-in reason in their own language, `reason` then labelling the blocks; a `reason` alone is sent as typed. With `preview`, only what it would call off |
 | GET | `/api/admin/receipts` | `?venueId` → the venue's latest receipts and credit notes, each with its link to print |
 | GET | `/api/admin/repeat-blocks` | `?venueId` → the venue's repeating blocks with weeks still to come |
 | POST | `/api/admin/repeat-blocks` | `{ venueId, courtIds, from, days, fromMin, untilMin, weeks, reason }`: block that time every week |

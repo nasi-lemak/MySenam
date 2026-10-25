@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { offeredLocales } from "./i18n";
+import { isLocale, offeredLocales, type Locale } from "./i18n";
 import { enqueue } from "./outbox";
 import { bookingAlerts } from "./notify";
 import { addDays, isValidDateString, todayISO } from "./time";
@@ -37,6 +37,13 @@ export interface Enquiry {
   handledBy: string | null;
   createdAt: string;
   venueName: string;
+  /**
+   * The language to answer in, where the platform knows it: the language of
+   * the customer's account (one with the enquiry's email), else the language
+   * the enquiry was made in; either only if this install still offers it.
+   * null: not known, so staff write in their own.
+   */
+  replyLocale: Locale | null;
 }
 
 interface Row {
@@ -53,6 +60,14 @@ interface Row {
   handler: string | null;
   created_at: string;
   venue_name: string;
+  locale: string | null;
+  account_locale: string | null;
+}
+
+/** The first of these languages this install offers, if any. */
+function offered(...locales: (string | null)[]): Locale | null {
+  const here = offeredLocales();
+  return locales.find((l): l is Locale => isLocale(l) && here.includes(l)) ?? null;
 }
 
 const toEnquiry = (r: Row): Enquiry => ({
@@ -69,12 +84,16 @@ const toEnquiry = (r: Row): Enquiry => ({
   handledBy: r.handler,
   createdAt: r.created_at,
   venueName: r.venue_name,
+  replyLocale: offered(r.account_locale, r.locale),
 });
 
 export type EnquiryResult = { ok: true; enquiry: Enquiry } | { ok: false; error: string; code?: string };
 
-/** From the venue's page. The caller has checked the venue may be shown. */
-export async function submitEnquiry(venueId: number, input: Record<string, unknown>): Promise<EnquiryResult> {
+/**
+ * From the venue's page. The caller has checked the venue may be shown, and
+ * says which language the page was in, so a reply can be written in it.
+ */
+export async function submitEnquiry(venueId: number, input: Record<string, unknown>, locale?: Locale): Promise<EnquiryResult> {
   const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
   const name = str(input.name, 80);
   const phone = str(input.phone, 30);
@@ -100,10 +119,10 @@ export async function submitEnquiry(venueId: number, input: Record<string, unkno
 
   const row = (await db
     .prepare(
-      `INSERT INTO hire_enquiries (venue_id, name, phone, email, kind, wanted_on, people, message)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO hire_enquiries (venue_id, name, phone, email, kind, wanted_on, people, message, locale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(venueId, name, phone, email || null, input.kind, wantedOn, people, message)) as { id: number };
+    .get(venueId, name, phone, email || null, input.kind, wantedOn, people, message, locale && isLocale(locale) ? locale : null)) as { id: number };
   const enquiry = (await enquiryById(row.id))!;
   await tellVenue(enquiry);
   return { ok: true, enquiry };
@@ -136,7 +155,9 @@ async function tellVenue(e: Enquiry): Promise<void> {
   });
 }
 
-const SELECT = `SELECT e.*, a.name AS handler, v.name AS venue_name
+// The account's language: an account with the address the reply goes to.
+const SELECT = `SELECT e.*, a.name AS handler, v.name AS venue_name,
+    (SELECT u.locale FROM users u WHERE e.email IS NOT NULL AND lower(u.email) = lower(e.email) AND u.locale IS NOT NULL LIMIT 1) AS account_locale
   FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id LEFT JOIN admins a ON a.id = e.handled_by`;
 
 export async function enquiryById(id: number): Promise<Enquiry | null> {

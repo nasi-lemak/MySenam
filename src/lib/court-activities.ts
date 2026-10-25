@@ -1,5 +1,5 @@
 import { activityKeys } from "./activity-registry";
-import { DEFAULT_MAX_PLAYERS, type Court, type Sport } from "./types";
+import { DEFAULT_MAX_PLAYERS, MAX_PLAYERS, type Court, type Sport } from "./types";
 
 /**
  * What a court can be booked for (ADR 0011): one or more activities, each at
@@ -54,4 +54,57 @@ export function placesPerBooking(court: Pick<Court, "capacity" | "perPlayer" | "
   const most = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
   if (court.capacity > 1) return Math.min(most, court.capacity);
   return court.perPlayer ? most : 1;
+}
+
+/**
+ * The most a venue may let one booking take here: every place of a resource
+ * with places (a fleet of 20 kayaks may go to one group), or MAX_PLAYERS on a
+ * court priced per player. Unset, it is DEFAULT_MAX_PLAYERS (or the places,
+ * if fewer).
+ */
+export function mostPerBookingAllowed(capacity: number): number {
+  return capacity > 1 ? capacity : MAX_PLAYERS;
+}
+
+/**
+ * Items listed with kinds of the same thing under one heading (lib/resources.ts
+ * `setCourtHeading`): those sharing a heading (whatever its capitals) together,
+ * where the first of them comes; the rest each on their own, in their order.
+ */
+export function groupByHeading<T>(items: T[], headingOf: (item: T) => string | null | undefined): { heading: string | null; items: T[] }[] {
+  const groups: { heading: string | null; items: T[] }[] = [];
+  const byKey = new Map<string, { heading: string | null; items: T[] }>();
+  for (const item of items) {
+    const heading = headingOf(item)?.trim() || null;
+    if (heading === null) {
+      groups.push({ heading: null, items: [item] });
+      continue;
+    }
+    const group = byKey.get(heading.toLowerCase());
+    if (group) group.items.push(item);
+    else {
+      const made = { heading, items: [item] };
+      byKey.set(heading.toLowerCase(), made);
+      groups.push(made);
+    }
+  }
+  return groups;
+}
+
+/** A day's rows as shown: grouped by heading, `heading` on the first of each group, `under` on all of one. */
+export function headedRows<R extends { court: Pick<Court, "heading"> }>(rows: R[]): (R & { heading: string | null; under: boolean })[] {
+  return groupByHeading(rows, (r) => r.court.heading).flatMap((g) =>
+    g.items.map((r, i) => ({ ...r, heading: i === 0 ? g.heading : null, under: g.heading !== null }))
+  );
+}
+
+/** Players an open game looks for, at most, unless the court lets one booking take more. */
+export const OPEN_GAME_SPOTS = 10;
+
+/**
+ * The most players an open game on a booking here can look for: ten, or as
+ * many more as the venue lets one booking take, less the host, who plays too.
+ */
+export function mostSpots(court: Pick<Court, "capacity" | "perPlayer" | "maxPlayers">): number {
+  return Math.max(OPEN_GAME_SPOTS, placesPerBooking(court) - 1);
 }

@@ -1,6 +1,6 @@
 # Upgrading an install from before Postgres or before the rename
 
-Still needed by any install created before MySenam moved to Postgres, or before it was renamed from MudahTempah. Not needed for new installs.
+Still needed by any install created before MySenam moved to Postgres, or before it was renamed from MudahTempah, and by one upgraded across migration 0090 with courts out of service at a venue open past midnight. Not needed for new installs.
 
 ## Moving from SQLite
 
@@ -43,3 +43,31 @@ install:
 - The bootstrap owner's default email is now `admin@mysenam.my`. That default
   only applies to a *fresh* database — an install created before the rename
   keeps the account it already has at `admin@mudahtempah.my`.
+
+## Outages from before migration 0090
+
+Migration 0090 turned each court's outage into a claim on whole calendar days
+of its dates. An outage made since covers every minute of each business day,
+the hours after midnight included (`claimOutage` in `src/lib/outages.ts`). So
+at a venue open past midnight, an outage carried over from the half-hour diary
+leaves the late hours of its last night (after midnight) bookable.
+
+The repair is an explicit step, not part of the migration or of start-up: a
+booking may have been sold in those hours since, and nothing should be
+cancelled or overlapped without staff seeing it. After upgrading:
+
+1. Open *Courts → Out of service* at each venue that stays open past midnight.
+   An outage missing those hours says *The late hours of its last night, after
+   midnight, can still be booked.*
+2. Press *Close those hours too* (`PATCH /api/admin/outages`,
+   `repairLateHours`). It claims whatever of those hours is free, the way a
+   court taken out now would (a staff block there gives way, as it does when a
+   court is taken out), and lists any booking or class sold there since. Those
+   are left exactly as they are, and the outage does not cover their time.
+3. Move the bookings listed, or let them be. Pressing it again later, once they
+   are over, moved or cancelled, closes their hours too; it never takes the same
+   time twice. Each repair is in the activity log.
+
+Outages that are over, that have no last day (*until further notice*), or at
+venues that close by midnight need nothing. The same step serves an outage
+whose venue came to stay open past midnight after it was made.

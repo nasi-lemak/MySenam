@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Court } from "@/lib/types";
 import { offsetMs } from "@/lib/region";
+import { formatMinute } from "@/lib/interval";
 import { useStaffT } from "./StaffLanguage";
 
 interface Outage {
@@ -18,6 +19,7 @@ interface Affected {
   kind: "booking" | "class";
   ref: string;
   date: string;
+  startMin: number;
   startHour: number;
   name: string;
 }
@@ -38,10 +40,52 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Outages whose last night's late hours, after midnight, are still open (from before migration 0090).
+  const [lateOpen, setLateOpen] = useState<number[]>([]);
+  const [lateLeft, setLateLeft] = useState<Affected[]>([]);
+
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/outages?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setOutages((await res.json()).outages);
+    if (res.ok) {
+      const data = await res.json();
+      setOutages(data.outages);
+      setLateOpen(data.lateHoursOpen ?? []);
+    }
   }, [venueId]);
+
+  /** Close the late hours of its last night where they are free; list what is booked there, untouched. */
+  async function closeLate(o: Outage) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/outages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, id: o.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("out.couldNotDo")));
+      const repairs = (data.repairs ?? []) as { courtName: string; date: string; claimed: { start: number; end: number }[]; collisions: Affected[]; busy?: boolean }[];
+      setNotice(
+        repairs
+          .map((r) =>
+            r.busy
+              ? t("out.lateBusy", { court: r.courtName })
+              : r.claimed.length > 0
+                ? t("out.lateClosed", { court: r.courtName, date: r.date, hours: r.claimed.map((s) => `${formatMinute(s.start)}–${formatMinute(s.end)}`).join(", ") })
+                : t("out.lateNothing", { court: r.courtName })
+          )
+          .join(" ") || t("out.lateNothing", { court: o.courtName })
+      );
+      setLateLeft(repairs.flatMap((r) => r.collisions));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("out.couldNotDo"));
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     void load();
   }, [load]);
@@ -110,6 +154,14 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
                     ? o.startsOn
                     : t("out.rangeTo", { from: o.startsOn, to: o.endsOn })}
                 {o.reason && <span className="text-slate-600"> · {o.reason}</span>}
+                {lateOpen.includes(o.id) && (
+                  <span className="mt-1 block text-xs text-amber-900">
+                    {t("out.lateOpen")}{" "}
+                    <button disabled={busy} onClick={() => void closeLate(o)} className="font-semibold text-teal-700 underline disabled:opacity-50">
+                      {t("out.lateClose")}
+                    </button>
+                  </span>
+                )}
               </span>
               <button onClick={() => end(o)} className="text-sm font-medium text-teal-700 underline">
                 {o.startsOn > today() ? t("out.callOff") : t("out.backInService")}
@@ -167,6 +219,15 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
       </div>
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-sm font-medium text-emerald-700">{notice}</p>}
+      {lateLeft.length > 0 && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {t("out.lateLeft", {
+            list: lateLeft
+              .map((a) => `${a.date} ${formatMinute(a.startMin)} · ${a.kind === "class" ? t("out.classItem", { name: a.name }) : `${a.name} (${a.ref})`}`)
+              .join("; "),
+          })}
+        </p>
+      )}
       {affected && affected.length > 0 && (
         <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
           <ul className="space-y-0.5">

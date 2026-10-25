@@ -500,4 +500,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "{0}: open before you close, and close by {1} the next morning at the latest.": { ms: "{0}: buka sebelum anda tutup, dan tutup paling lewat {1} pagi keesokannya.", zh: "{0}：开门时间须早于关门时间，且最迟于次日早上 {1} 关门。" },
   "{0}: the monthly fee must be {1}–100,000.": { ms: "{0}: yuran bulanan mesti {1}–100,000.", zh: "{0}：月费须为 {1}–100,000。" },
   "{0}: the usual hours, its own, or closed.": { ms: "{0}: waktu biasa, waktunya sendiri, atau tutup.", zh: "{0}：沿用一般营业时间、自定时间，或休息。" },
+  "A heading is 2 to 40 characters.": { ms: "Tajuk mestilah 2 hingga 40 aksara.", zh: "标题须为 2 至 40 个字符。" },
 };

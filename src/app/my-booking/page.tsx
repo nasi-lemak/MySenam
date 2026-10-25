@@ -13,6 +13,7 @@ import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
 import { money, intlTag, region } from "@/lib/region";
+import { concessionWords } from "@/lib/concessions-shared";
 import type { RefundStatus } from "@/lib/payments";
 
 interface Result {
@@ -314,7 +315,7 @@ export default function MyBookingPage() {
               {b.concessionName && b.concessionCheck !== "refused" && (
                 <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   {t(b.concessionCheck === "seen" ? "mine.concessionSeen" : "mine.concession", {
-                    name: b.concessionName,
+                    name: concessionWords(t, { name: b.concessionName, preset: b.concessionPreset }).name,
                     amount: money(b.concessionOff ?? 0),
                   })}
                 </p>

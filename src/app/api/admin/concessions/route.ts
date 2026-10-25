@@ -20,7 +20,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ concessions: await listConcessions(venueId) }, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** `{ venueId, id?, name, percent, proof, sport?, offPeakOnly? }`: offer one, or change it (managers). */
+/**
+ * `{ venueId, id?, name, percent, proof, sport?, offPeakOnly?, preset? }`: offer one, or
+ * change it (managers). `preset` (student, senior, child, oku) is kept while the name
+ * and proof are that preset's own words, so customers read it in their language.
+ */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });

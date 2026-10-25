@@ -259,6 +259,14 @@ booked or declined (and by whom). Where the venue gave an address for new
 bookings, it is emailed there too. Staff then book the courts themselves,
 blocking them or booking them in the customer's name.
 
+The email button fills in a subject in the customer's language where the
+platform knows it: the language of an account with the enquiry's email
+address, else the language the venue page was in when they asked
+(`hire_enquiries.locale`, migration 0122), as long as the site still offers
+it; otherwise the staff member's own. Enquiries made before the language was
+kept have none, so their subject is in the staff member's language. Only the
+subject is filled in: what staff write is their own.
+
 A number can send three a day to one venue, the form has a field only scripts
 fill in, and the route is rate-limited. An enquiry goes out with what the venue
 holds against the number and with the customer's own data, is erased with

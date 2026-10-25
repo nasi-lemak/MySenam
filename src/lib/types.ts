@@ -142,6 +142,12 @@ export interface Court extends CourtFeatures {
   activities: CourtActivity[];
   /** What one of it is called ("lane", "bay"); null: what its activity's are. */
   noun: string | null;
+  /**
+   * The heading it is listed under with other kinds of the same thing
+   * ("Kayaks" over "Single kayak" and "Double kayak"); null: on its own.
+   * Only how it is shown: it is booked and counted as itself.
+   */
+  heading?: string | null;
   offPeakRate: number;
   peakRate: number;
   /** What a member pays instead. null means members pay the public rate here. */
@@ -294,6 +300,8 @@ export interface Booking {
   players?: number;
   /** A concession price (lib/concessions.ts): which, what it took off, and whether proof was seen. */
   concessionName?: string | null;
+  /** The built-in one it was, used unchanged: its name is shown in the reader's language (lib/concessions-shared.ts). */
+  concessionPreset?: string | null;
   concessionOff?: number;
   concessionCheck?: "due" | "seen" | "refused" | null;
   paymentStatus: PaymentStatus;

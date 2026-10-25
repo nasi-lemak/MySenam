@@ -268,6 +268,55 @@ describe("kinds of kit", () => {
   });
 });
 
+describe("kinds of kit under one heading", () => {
+  it("shows the heading with its kinds beneath it, together, and offers the other kinds first", async () => {
+    const SINGLES = { ...COURT, id: 21, name: "Single kayak", sport: "kayak" as const, capacity: 6, heading: "Kayaks" };
+    const DOUBLES = { ...COURT, id: 22, name: "Double kayak", sport: "kayak" as const, capacity: 3, heading: "Kayaks" };
+    const BOARDS = { ...COURT, id: 23, name: "Paddleboards", sport: "kayak" as const, capacity: 4 };
+    const shared = (court: { capacity: number }) => row({ court, slots: slots(HOURS, true, { capacity: court.capacity, booked: 0 }) });
+    // As the server lists them, by id: a kind of something else between the two kayaks.
+    availability = [shared(SINGLES), shared(BOARDS), shared(DOUBLES)];
+    await act(async () => void board());
+    const table = screen.getByRole("table");
+    const names = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => r.textContent ?? "");
+    // The heading, then each kind under it, then what is not under it.
+    const at = (text: string) => names.findIndex((n) => n.startsWith(text));
+    expect(names.some((n) => n === "Kayaks")).toBe(true);
+    expect(at("Kayaks")).toBeLessThan(at("Single kayak"));
+    expect(at("Single kayak") + 1).toBe(at("Double kayak"));
+    expect(at("Double kayak")).toBeLessThan(at("Paddleboards"));
+    expect(screen.getByTestId("heading-21").textContent).toBe("Kayaks");
+    // Picking the singles' first hour (after "any court"), the doubles come first among the others, by the heading.
+    await tap(HOURS.length);
+    await priced();
+    expect(screen.getByText("Kayaks · Single kayak")).toBeTruthy();
+    expect(screen.getByText("Add other kinds of Kayaks at the same time")).toBeTruthy();
+    const offered = screen.getAllByRole("checkbox").map((b) => b.closest("label")?.textContent ?? "");
+    expect(offered.findIndex((l) => l.startsWith("Double kayak"))).toBeLessThan(offered.findIndex((l) => l.startsWith("Paddleboards")));
+  });
+});
+
+describe("a built-in concession", () => {
+  it("reads in the customer's language; one the venue typed reads as typed", async () => {
+    extra = {
+      concessions: [
+        { id: 1, name: "Student", percent: 20, proof: "your student card", sport: null, offPeakOnly: false, preset: "student" },
+        { id: 2, name: "Warga emas 65+", percent: 30, proof: "your IC", sport: null, offPeakOnly: false, preset: null },
+      ],
+    };
+    await act(async () => void board(undefined, "ms"));
+    await tap(0);
+    await priced();
+    const options = screen.getAllByRole("option").map((o) => o.textContent ?? "");
+    expect(options.some((o) => o.includes("Pelajar"))).toBe(true);
+    expect(options.some((o) => o.includes("Student"))).toBe(false);
+    expect(options.some((o) => o.includes("Warga emas 65+"))).toBe(true);
+  });
+});
+
 describe("the day the venue is shut", () => {
   it("says so instead of showing an empty grid", async () => {
     availability = [row({ slots: slots(HOURS, false), starts: [] })];

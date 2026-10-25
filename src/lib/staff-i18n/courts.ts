@@ -315,6 +315,12 @@ const en = {
   "add.with": "With",
   "add.anySport": "Any sport",
   "add.saveChanges": "Save changes",
+  // Kinds of kit under one heading (res.)
+  "res.headingsTitle": "Under one heading",
+  "res.headingsIntro": "Kinds of the same thing (single and double kayaks, adult and child bikes) can sit under one heading, so customers see \"Kayaks\" with the kinds beneath it. Each kind keeps its own price and count, and a booking can still take some of several. Leave it blank for one listed on its own.",
+  "res.headingAria": "Heading for {name}",
+  "res.headingPlaceholder": "e.g. Kayaks",
+  "res.headingSaved": "{name} saved.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -625,6 +631,12 @@ const ms: Record<keyof typeof en, string> = {
   "add.with": "Bersama",
   "add.anySport": "Mana-mana sukan",
   "add.saveChanges": "Simpan perubahan",
+  // Kinds of kit under one heading (res.)
+  "res.headingsTitle": "Di bawah satu tajuk",
+  "res.headingsIntro": "Jenis-jenis bagi benda yang sama (kayak tunggal dan berkembar, basikal dewasa dan kanak-kanak) boleh diletakkan di bawah satu tajuk, supaya pelanggan melihat \"Kayak\" dengan jenis-jenisnya di bawahnya. Setiap jenis mengekalkan harga dan bilangannya sendiri, dan satu tempahan masih boleh mengambil beberapa jenis. Biarkan kosong untuk yang disenaraikan secara berasingan.",
+  "res.headingAria": "Tajuk untuk {name}",
+  "res.headingPlaceholder": "cth. Kayak",
+  "res.headingSaved": "{name} disimpan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -935,6 +947,12 @@ const zh: Record<keyof typeof en, string> = {
   "add.with": "适用于",
   "add.anySport": "所有运动",
   "add.saveChanges": "保存修改",
+  // Kinds of kit under one heading (res.)
+  "res.headingsTitle": "归入同一标题",
+  "res.headingsIntro": "同类物品的不同类型（单人和双人皮划艇、成人和儿童自行车）可以归入同一标题，顾客会看到“皮划艇”及其下的各个类型。每个类型保留各自的价格和数量，一次预订仍可同时选取多个类型。留空则单独列出。",
+  "res.headingAria": "{name} 的标题",
+  "res.headingPlaceholder": "例如：皮划艇",
+  "res.headingSaved": "已保存 {name}。",
 };
 
 const area = { en, ms, zh };

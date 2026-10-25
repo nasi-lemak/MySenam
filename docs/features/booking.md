@@ -217,7 +217,8 @@ one of those hours (and that take a booking that long), with what each costs.
   time (*Add other kinds at the same time*: double kayaks, boards), each with
   how many, up to what one booking may take. Each kind is its own booking at
   its own price; all or none are kept. Whole courts and shared resources are
-  not mixed in one.
+  not mixed in one. Kinds the venue put under one heading are listed together
+  under it and offered first ([activities](activities.md#pricing-a-booking-with-places)).
 
 ## Operating hours and closed days
 
@@ -297,6 +298,13 @@ Availability, search, booking, moving a booking, the waitlist, the schedule
 and the reports read it with every other claim, so they close the court
 without knowing outages exist, and the database refuses a booking into it.
 
+An outage whose last night's late hours are not in its claim (one carried
+over from before migration 0090, or one made before its venue came to stay
+open past midnight) says so on *Out of service*; *Close those hours too*
+claims what of them is free and lists any booking or class there, which it
+leaves as it is (`repairLateHours`;
+[legacy installs](../archive/migrations/legacy-installs.md#outages-from-before-migration-0090)).
+
 ### Rained off
 
 Outdoor courts lose an afternoon at a time to the weather. *Schedule →
@@ -311,6 +319,15 @@ meanwhile (`rainOut` in `src/lib/rain-outs.ts`). A booking already under
 way is called off too; one that has finished is left alone. Bookings on a
 linked court that hold the chosen court's hours are found as well. Front-desk
 staff can do it; it is in the activity log.
+
+Each customer's message gives the reason, on the line above what is owed
+(*Reason: Rained off*). The panel fills in a built-in reason in the staff
+member's language; left as it is, it is sent as a key (`reasonPreset`) and
+each customer reads it in their own language, the language their booking was
+made in. Anything staff type instead goes to everybody as typed. The blocks
+carry what the panel showed, for the schedule. On WhatsApp the reason travels
+in the same parameter as what is owed, so the approved template is unchanged
+([WhatsApp templates](../integrations/whatsapp-templates.md)).
 
 ### Every week
 

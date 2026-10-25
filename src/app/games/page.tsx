@@ -37,6 +37,8 @@ interface MyBooking {
   sport: Sport;
   /** Set on a weekly booking (from /api/my/bookings). */
   seriesCode?: string | null;
+  /** The most players a game on it can look for: ten, or more where the venue lets one booking take more. */
+  mostSpots?: number;
 }
 
 /**
@@ -603,7 +605,7 @@ function OpenOne({
           </label>
           <label className="flex flex-col text-xs text-slate-500">
             {t("games.spots")}
-            <input type="number" min={1} max={10} value={spots} onChange={(e) => setSpots(Number(e.target.value))} className={`w-20 ${input}`} />
+            <input type="number" min={1} max={chosen?.mostSpots ?? 10} value={spots} onChange={(e) => setSpots(Number(e.target.value))} className={`w-20 ${input}`} />
           </label>
           <label className="flex flex-col text-xs text-slate-500">
             {t("games.levelWanted")}

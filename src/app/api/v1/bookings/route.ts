@@ -21,10 +21,12 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ courtId, date, start, end, name, phone, email? }` → a booking, as the
+ * `{ courtId, date, start, end, name, phone, email?, players? }` → a booking, as the
  * venue's own system makes it (write keys). `start` and `end` are minutes of
  * the business day or HH:MM (`minutes` may stand for `end`; `hours`, a list
- * of grid times, is the older form). The court's booking policy applies as
+ * of grid times, is the older form). `players` is how many places it takes
+ * on a resource with places, or how many play on a court priced per player,
+ * up to the most the venue lets one booking take. The court's booking policy applies as
  * to any customer. The customer is sent the usual confirmation. Unpaid; the
  * venue settles it as any other.
  */
@@ -40,6 +42,9 @@ export async function POST(req: NextRequest) {
   if (!time.ok) return NextResponse.json({ error: time.error }, { status: 400 });
   if (typeof body.name !== "string" || body.name.trim().length < 2 || typeof body.phone !== "string" || body.phone.trim().length < 7)
     return NextResponse.json({ error: "name and phone are required." }, { status: 400 });
+  // How many places (or players, on a court priced per player), up to the most the venue lets one booking take: checked there.
+  if (body.players !== undefined && !Number.isInteger(body.players))
+    return NextResponse.json({ error: "players must be a whole number." }, { status: 400 });
   const made = await createBooking({
     // The venue's own system answers for who it books, as its counter does (lib/sign-offs.ts).
     by: "api",
@@ -49,6 +54,7 @@ export async function POST(req: NextRequest) {
     name: body.name.trim(),
     phone: body.phone.trim(),
     email: typeof body.email === "string" && body.email.trim() ? body.email.trim() : undefined,
+    ...(body.players !== undefined ? { players: body.players as number } : {}),
   });
   if (!made.ok) return NextResponse.json({ error: made.error, code: made.code }, { status: 409 });
   await notifyBookingConfirmed([made.booking], "en", null);

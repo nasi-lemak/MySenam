@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitEnquiry } from "@/lib/enquiries";
+import { currentLocale } from "@/lib/locale";
 import { mayShowVenue } from "@/lib/listing";
 import { tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
@@ -20,7 +21,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (typeof body.website === "string" && body.website !== "") return NextResponse.json({ ok: true }, { status: 201 });
   const limited = await rateLimit(req, "enquiry");
   if (limited) return limited;
-  const done = await submitEnquiry(venueId, body);
+  // The language the page was in, so staff can answer in it.
+  const done = await submitEnquiry(venueId, body, await currentLocale());
   if (!done.ok) return NextResponse.json(done, { status: 400 });
   await tickOutbox();
   return NextResponse.json({ ok: true }, { status: 201 });

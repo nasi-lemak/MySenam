@@ -124,17 +124,41 @@ are still separate resources sharing a floor
 
 On a resource with places (a gym floor, a wall, a fleet of boards), a booking
 says how many it takes — four kayaks, three climbers — up to the venue's
-most per booking (eight unless set; one for a gym that sells a session
-each). The database holds the sum of places at every moment within the
-capacity, so the last two boards cannot be hired twice. How it is priced is
-the venue's choice, per resource (`src/lib/pricing.ts`):
+most per booking (eight unless set, or the places if fewer; one for a gym
+that sells a session each). The venue sets it per resource (*Courts →
+How it is sold*, or when the resources are made, or on an activity's
+template) anywhere from one to every place the resource has, so a fleet of
+30 kayaks can go to one school trip of 30; it cannot be set above the
+places, and when the places are cut below it, it comes down with them. A
+court priced per player takes 2 to 50 players. Every way of booking reads
+the same limit (`placesPerBooking` in `src/lib/court-activities.ts`): the
+booking form, the desk, the venue's own system through the API
+(`players`), several kinds of kit booked together (each kind up to its own),
+*any court* (the lowest limit among the courts it may pick), and an open
+game on the booking, which can look for that many players less the host
+(at least ten). The database holds the sum of places at every moment within
+the capacity, so the last two boards cannot be hired twice. How it is priced
+is the venue's choice, per resource (`src/lib/pricing.ts`):
 
 | Model | Price | For |
 | ----- | ----- | --- |
 | Per place (the default) | The rate for each place booked | Kayaks, boards, bikes, a lane swim, a climbing session |
 | One price for the booking (`flatRate`) | The rate once, however many places it takes | A party room, a group package, a lane hired whole |
 | Quantity prices (`quantityPrices`) | From so many places, each at a percent of the rate (up to five bands, each larger booking cheaper) | Four boards or more at 90% each |
-| Kinds of kit | Each kind is a resource of its own under the activity, with its own price and count | Single kayaks at RM25 and double kayaks at RM40 |
+| Kinds of kit | Each kind is a resource of its own under the activity, with its own price and count, optionally under one heading | Single kayaks at RM25 and double kayaks at RM40, under *Kayaks* |
+
+**Under one heading.** Kinds of the same thing can be listed under one
+heading (*Courts → Under one heading*, or `heading` on the resource;
+`courts.heading`, migration 0123): customers then see *Kayaks* on the venue
+page's grid with *Single kayak* and *Double kayak* beneath it, together
+wherever the first of them comes, the booking form names the heading
+(*Kayaks · Single kayak*) and offers the other kinds under it first (*Add
+other kinds of Kayaks at the same time*). A heading typed again in other
+capitals joins the one already at the venue; a blank takes the resource out
+from under it. It is only how they are shown: each kind is still booked,
+priced, counted and found in search as itself, several kinds still go in one
+booking all or nothing, and availability is each kind's own
+(`groupByHeading` and `headedRows` in `src/lib/court-activities.ts`).
 
 Quantity prices apply equally to a court priced per player. A court booked
 whole cannot be priced flat (it already is one booking) and a resource with
