@@ -3,17 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Enquiry, EnquiryStatus } from "@/lib/enquiries";
 import { internationalNumber } from "@/lib/phone";
+import type { StaffPhrase } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
-const KIND: Record<Enquiry["kind"], string> = {
-  event: "An event",
-  tournament: "A tournament",
-  corporate: "A company day",
-  party: "A party",
-  school: "A school or club",
-  other: "Something else",
+const KIND: Record<Enquiry["kind"], StaffPhrase> = {
+  event: "enq.kind.event",
+  tournament: "enq.kind.tournament",
+  corporate: "enq.kind.corporate",
+  party: "enq.kind.party",
+  school: "enq.kind.school",
+  other: "enq.kind.other",
 };
 
-const STATUS: Record<EnquiryStatus, string> = { new: "New", replied: "Replied", booked: "Booked", declined: "Declined" };
+const STATUS: Record<EnquiryStatus, StaffPhrase> = {
+  new: "enq.status.new",
+  replied: "enq.status.replied",
+  booked: "enq.status.booked",
+  declined: "enq.status.declined",
+};
 
 /**
  * Private hire enquiries from the venue's page (lib/enquiries.ts): who asked,
@@ -21,6 +28,7 @@ const STATUS: Record<EnquiryStatus, string> = { new: "New", replied: "Replied", 
  * there is one.
  */
 export function EnquiriesPanel() {
+  const t = useStaffT();
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +48,7 @@ export function EnquiriesPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId: e.venueId, id: e.id, status }),
     });
-    if (!res.ok) setError((await res.json()).error ?? "Could not save");
+    if (!res.ok) setError(t.err(await res.json(), t("enq.saveFailed")));
     await load();
   }
 
@@ -49,7 +57,8 @@ export function EnquiriesPanel() {
   return (
     <details open={open > 0} className="rounded-xl border border-violet-200 bg-violet-50/50 px-4 py-3 text-sm">
       <summary className="cursor-pointer font-semibold text-violet-900">
-        🎉 Private hire enquiries{open > 0 ? ` · ${open} new` : ""}
+        🎉 {t("enq.title")}
+        {open > 0 ? ` · ${t("enq.newCount", { n: open })}` : ""}
       </summary>
       {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
       <ul className="mt-2 divide-y divide-violet-100">
@@ -58,14 +67,15 @@ export function EnquiriesPanel() {
             <li key={e.id} className="py-2">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span>
-                  <strong>{e.name}</strong> · {KIND[e.kind]}
+                  <strong>{e.name}</strong> · {t(KIND[e.kind])}
                   {e.wantedOn ? ` · ${e.wantedOn}` : ""}
-                  {e.people ? ` · ${e.people} people` : ""}
-                  <span className="text-slate-500"> · {e.venueName} · asked {e.createdAt.slice(0, 10)}</span>
+                  {e.people ? ` · ${t("enq.people", { n: e.people })}` : ""}
+                  <span className="text-slate-500"> · {e.venueName} · {t("enq.asked", { date: e.createdAt.slice(0, 10) })}</span>
                 </span>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${e.status === "new" ? "bg-violet-200 text-violet-900" : "bg-slate-100 text-slate-600"}`}>
-                  {STATUS[e.status]}
-                  {e.handledBy && e.status !== "new" ? ` by ${e.handledBy}` : ""}
+                  {e.handledBy && e.status !== "new"
+                    ? t("enq.statusBy", { status: t(STATUS[e.status]), name: e.handledBy })
+                    : t(STATUS[e.status])}
                 </span>
               </div>
               <p className="mt-1 whitespace-pre-line text-slate-700">{e.message}</p>
@@ -77,7 +87,7 @@ export function EnquiriesPanel() {
                   WhatsApp
                 </a>
                 {e.email && (
-                  <a href={`mailto:${e.email}?subject=${encodeURIComponent("Your private hire enquiry")}`} className="text-teal-700 underline">
+                  <a href={`mailto:${e.email}?subject=${encodeURIComponent(t("enq.mailSubject"))}`} className="text-teal-700 underline">
                     ✉ {e.email}
                   </a>
                 )}
@@ -86,7 +96,7 @@ export function EnquiriesPanel() {
                   .filter((s) => s !== e.status)
                   .map((s) => (
                     <button key={s} type="button" onClick={() => mark(e, s)} className="font-medium text-violet-800 underline">
-                      {STATUS[s]}
+                      {t(STATUS[s])}
                     </button>
                   ))}
               </div>

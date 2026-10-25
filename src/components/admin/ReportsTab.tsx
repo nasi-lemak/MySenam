@@ -1,13 +1,15 @@
 "use client";
 
-import { activityName, activityIcon } from "@/lib/activity-registry";
+import { activityIcon } from "@/lib/activity-registry";
 import type { CreditPosition } from "@/lib/reports";
 import { useCallback, useEffect, useState } from "react";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
 import { CustomerReportPanel } from "./CustomerReportPanel";
 import { formatHour } from "@/lib/time";
 import { PAID_VIA_LABELS } from "@/lib/types";
-import type { PaidVia } from "@/lib/types";
+import { sportLabel } from "@/lib/i18n";
+import type { StaffPhrase, StaffT } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 import type { VenueReport } from "@/lib/reports";
 import { percent, todayLocal } from "./shared";
 import { ActivityPanel } from "./ActivityPanel";
@@ -36,10 +38,10 @@ function daysAgo(back: number): string {
  * down to nothing, which reads as "this venue is dead" on the first screen
  * anybody opens.
  */
-const RANGES: [string, () => { from: string; to: string }][] = [
-  ["Last 30 days", () => ({ from: daysAgo(29), to: todayLocal() })],
-  ["This month", () => ({ from: monthStart(0), to: todayLocal() })],
-  ["Last 3 months", () => ({ from: monthStart(2), to: todayLocal() })],
+const RANGES: [StaffPhrase, () => { from: string; to: string }][] = [
+  ["rpt.range.last30", () => ({ from: daysAgo(29), to: todayLocal() })],
+  ["rpt.range.thisMonth", () => ({ from: monthStart(0), to: todayLocal() })],
+  ["rpt.range.last3", () => ({ from: monthStart(2), to: todayLocal() })],
 ];
 
 const ringgit = (n: number) => {
@@ -47,6 +49,12 @@ const ringgit = (n: number) => {
   const cents = Number.isInteger(r) ? 0 : 2;
   return money(r.toLocaleString(intlTag("en"), { minimumFractionDigits: cents, maximumFractionDigits: cents }));
 };
+
+/** A phrase split around one placeholder, so a value can be set in its own element wherever the language puts it. */
+function around(t: StaffT, phrase: StaffPhrase, name: string): [string, string] {
+  const [before, after = ""] = t(phrase, { [name]: "\u0000" }).split("\u0000");
+  return [before, after];
+}
 
 /**
  * What the owner asks at the end of a month.
@@ -56,6 +64,7 @@ const ringgit = (n: number) => {
  * so nothing here is readable only by colour.
  */
 export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [range, setRange] = useState(() => RANGES[0][1]());
   const [data, setData] = useState<{
@@ -75,15 +84,15 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
         { cache: "no-store" }
       );
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Could not build the report");
+      if (!res.ok) throw new Error(t.err(body, t("rpt.failed")));
       setData(body);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not build the report");
+      setError(err instanceof Error ? err.message : t("rpt.failed"));
       setData(null);
     } finally {
       setBusy(false);
     }
-  }, [venueId, range]);
+  }, [venueId, range, t]);
 
   useEffect(() => {
     load();
@@ -95,6 +104,8 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
     : null;
   const monthPeak = report ? Math.max(1, ...report.byMonth.map((m) => m.expected)) : 1;
   const hourPeak = report ? Math.max(1, ...report.byHour.map((h) => h.hours)) : 1;
+  const perHour = around(t, "rpt.perHour", "amount");
+  const sharedFloors = around(t, "rpt.sharedFloors", "pct");
 
   return (
     <div className="space-y-5">
@@ -129,7 +140,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
             onClick={() => setRange(make())}
             className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
@@ -142,7 +153,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
 
       {busy && !report ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          Working it out…
+          {t("rpt.working")}
         </div>
       ) : report ? (
         <>
@@ -150,24 +161,24 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Collected
+                {t("rpt.collected")}
               </div>
               <div className="mt-1 text-3xl font-bold tracking-tight text-teal-700">
                 {ringgit(report.revenue.collected)}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                of {ringgit(report.revenue.expected)} booked
+                {t("rpt.ofBooked", { amount: ringgit(report.revenue.expected) })}
               </div>
               {report.revenue.tax && (
                 <div className="mt-0.5 text-xs text-slate-600">
-                  including {report.revenue.tax.name} of {ringgit(report.revenue.tax.amount)}
+                  {t("rpt.includingTax", { tax: report.revenue.tax.name, amount: ringgit(report.revenue.tax.amount) })}
                 </div>
               )}
               {report.collectedBy.length > 0 && (
                 <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
                   {report.collectedBy.map((c) => (
                     <li key={c.via} className="flex justify-between gap-2">
-                      <span>{c.via in PAID_VIA_LABELS ? PAID_VIA_LABELS[c.via as PaidVia] : "Not recorded"}</span>
+                      <span>{c.via in PAID_VIA_LABELS ? t(`c.via.${c.via as keyof typeof PAID_VIA_LABELS}`) : t("rpt.notRecorded")}</span>
                       <span className="font-medium">{ringgit(c.amount)}</span>
                     </li>
                   ))}
@@ -175,13 +186,13 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               )}
               {report.counterSales.sales > 0 && (
                 <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-600">
-                  Plus counter sales: <span className="font-medium">{ringgit(report.counterSales.total)}</span> ({report.counterSales.sales})
+                  {t("rpt.counterSales")} <span className="font-medium">{ringgit(report.counterSales.total)}</span> ({report.counterSales.sales})
                 </div>
               )}
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Still owed
+                {t("rpt.stillOwed")}
               </div>
               <div
                 className={`mt-1 text-3xl font-bold tracking-tight ${
@@ -191,46 +202,48 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 {ringgit(report.revenue.outstanding)}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                across {report.bookings.confirmed} bookings
+                {t("rpt.acrossBookings", { n: report.bookings.confirmed })}
               </div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                How full
+                {t("rpt.howFull")}
               </div>
               <div className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
                 {percent(report.utilisation.courts.percent)}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                of the courts&apos; floor —{" "}
-                {report.utilisation.courts.soldHours.toLocaleString(intlTag("en"))} of{" "}
-                {report.utilisation.courts.sellableHours.toLocaleString(intlTag("en"))} hours, a pitch and the courts
-                under it counted once
+                {t("rpt.floor", {
+                  sold: report.utilisation.courts.soldHours.toLocaleString(intlTag("en")),
+                  sellable: report.utilisation.courts.sellableHours.toLocaleString(intlTag("en")),
+                })}
               </div>
               {report.utilisation.courts.sellableHours > 0 && (
                 <div className="mt-1 text-xs text-slate-500">
-                  <span className="font-semibold text-slate-700">{ringgit(report.utilisation.revenuePerHour)}</span> taken per
-                  hour of floor
+                  {perHour[0]}
+                  <span className="font-semibold text-slate-700">{ringgit(report.utilisation.revenuePerHour)}</span>
+                  {perHour[1]}
                 </div>
               )}
               {report.utilisation.shared.sellableHours > 0 && (
                 <div className="mt-1 text-xs text-slate-500">
+                  {sharedFloors[0]}
                   <span className="font-semibold text-slate-700">
                     {percent(report.utilisation.shared.percent)}
-                  </span>{" "}
-                  of the shared floors and pools
+                  </span>
+                  {sharedFloors[1]}
                 </div>
               )}
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Cancelled &amp; no-shows
+                {t("rpt.cancelledNoShows")}
               </div>
               <div className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
                 {report.bookings.cancelled + report.bookings.noShows}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                {report.bookings.cancelled} cancelled · {report.bookings.noShows} never turned up
+                {t("rpt.cancelledBreakdown", { cancelled: report.bookings.cancelled, noShows: report.bookings.noShows })}
               </div>
             </div>
           </div>
@@ -239,13 +252,13 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
           {report.byMonth.length > 1 && (
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-sm font-semibold">Taken by month</h3>
+                <h3 className="text-sm font-semibold">{t("rpt.takenByMonth")}</h3>
                 <div className="flex items-center gap-3 text-xs text-slate-600">
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-teal-600" /> Collected
+                    <span className="h-2.5 w-2.5 rounded-sm bg-teal-600" /> {t("rpt.collected")}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-600" /> Still owed
+                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-600" /> {t("rpt.stillOwed")}
                   </span>
                 </div>
               </div>
@@ -262,7 +275,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                       <div
                         className="mt-1 flex w-full flex-col justify-end"
                         style={{ height: 140 }}
-                        title={`${m.month}: ${ringgit(m.collected)} collected, ${ringgit(owed)} owed, ${m.hours} hours`}
+                        title={t("rpt.monthTitle", { month: m.month, collected: ringgit(m.collected), owed: ringgit(owed), hours: m.hours })}
                       >
                         {owed > 0 && (
                           <div
@@ -291,9 +304,9 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
           <div className="grid gap-4 lg:grid-cols-2">
             {/* When the place is actually busy. One hue; the peak is the point. */}
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-sm font-semibold">Hours sold, by time of day</h3>
+              <h3 className="text-sm font-semibold">{t("rpt.hoursByTime")}</h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                Where peak really is — worth checking your peak rate against.
+                {t("rpt.wherePeak")}
               </p>
               <div className="mt-4 flex h-32 items-end gap-0.5">
                 {report.byHour.map((h) => (
@@ -301,7 +314,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                     key={h.hour}
                     className="group relative flex flex-1 flex-col justify-end"
                     style={{ height: "100%" }}
-                    title={`${formatHour(h.hour)} — ${h.hours} hours sold`}
+                    title={t("rpt.hourTitle", { hour: formatHour(h.hour), n: h.hours })}
                   >
                     <div
                       className={`w-full rounded-t ${
@@ -323,7 +336,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 <span>{formatHour(report.byHour[0]?.hour ?? 0)}</span>
                 {peakHour && peakHour.hours > 0 && (
                   <span className="font-medium text-teal-700">
-                    busiest {formatHour(peakHour.hour)} · {peakHour.hours} hrs
+                    {t("rpt.busiest", { hour: formatHour(peakHour.hour), n: peakHour.hours })}
                   </span>
                 )}
                 <span>{formatHour(report.byHour[report.byHour.length - 1]?.hour ?? 0)}</span>
@@ -332,45 +345,45 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
 
             {/* What the venue still owes people. Numbers, not a chart. */}
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-sm font-semibold">What you still owe</h3>
+              <h3 className="text-sm font-semibold">{t("rpt.stillOwe")}</h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                Sold and not yet used. These are hours and visits people can still come and take.
+                {t("rpt.stillOweIntro")}
               </p>
               <dl className="mt-3 space-y-2 text-sm">
                 {[
                   [
-                    "Unspent pass entries",
-                    `${report.liabilities.passEntriesUnspent} hours`,
-                    `across ${report.liabilities.passesLive} live passes`,
+                    t("rpt.passEntries"),
+                    t("rpt.passHours", { n: report.liabilities.passEntriesUnspent }),
+                    t("rpt.acrossPasses", { n: report.liabilities.passesLive }),
                   ],
                   [
-                    "Memberships running",
+                    t("rpt.memberships"),
                     `${report.liabilities.membershipsActive}`,
-                    `${report.liabilities.membershipsExpiringSoon} lapse within a month`,
+                    t("rpt.lapsing", { n: report.liabilities.membershipsExpiringSoon }),
                   ],
                   ...(data?.venueCredit
                     ? ([
                         [
-                          "Stored credit sold here",
+                          t("rpt.venueCredit"),
                           ringgit(data.venueCredit.balance),
-                          `held by ${data.venueCredit.customers} customers, spendable only here`,
+                          t("rpt.venueCreditNote", { n: data.venueCredit.customers }),
                         ],
                       ] as [string, string, string][])
                     : ([] as [string, string, string][])),
                   ...(data?.wallet
                     ? ([
                         [
-                          data.venueCredit ? "Stored credit (any venue, owed by the platform)" : "Stored credit (all venues)",
+                          data.venueCredit ? t("rpt.walletAny") : t("rpt.walletAll"),
                           ringgit(data.wallet.balance),
-                          `held by ${data.wallet.customers} customers`,
+                          t("rpt.heldBy", { n: data.wallet.customers }),
                         ],
                       ] as [string, string, string][])
                     : ([] as [string, string, string][])),
                   // Customers below nothing after a chargeback: what they owe, kept apart, never netted or counted as income.
                   ...(
                     [
-                      [data?.venueCredit, "Credit owed by customers, here"],
-                      [data?.wallet, data?.venueCredit ? "Credit owed by customers, any venue" : "Credit owed by customers"],
+                      [data?.venueCredit, t("rpt.owedHere")],
+                      [data?.wallet, data?.venueCredit ? t("rpt.owedAny") : t("rpt.owed")],
                     ] as [CreditPosition | null | undefined, string][]
                   )
                     .filter(([c]) => !!c && c.overdrawn.customers > 0)
@@ -379,7 +392,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                         [
                           label,
                           ringgit(c!.overdrawn.owing),
-                          `${c!.overdrawn.customers} below nothing after a chargeback; not income, and may never be paid`,
+                          t("rpt.overdrawnNote", { n: c!.overdrawn.customers }),
                         ] as [string, string, string]
                     ),
                 ].map(([label, value, note]) => (
@@ -397,10 +410,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               </dl>
               {report.closedDays > 0 && (
                 <p className="mt-3 text-xs text-slate-500">
-                  {report.closedDays === 1
-                    ? "1 closed day in this period is"
-                    : `${report.closedDays} closed days in this period are`}{" "}
-                  left out of the sellable hours.
+                  {t.plural("rpt.closedDays", report.closedDays)}
                 </p>
               )}
             </div>
@@ -408,7 +418,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
 
           {/* Per court: a ratio against a limit, so a meter each. */}
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold">How hard each court worked</h3>
+            <h3 className="text-sm font-semibold">{t("rpt.courtWork")}</h3>
             <div className="mt-3 space-y-2.5">
               {report.byCourt.map((c) => (
                 <div key={c.courtId} className="flex flex-wrap items-center gap-3 text-sm">
@@ -417,7 +427,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                   </div>
                   <div
                     className="h-3 min-w-[8rem] flex-1 overflow-hidden rounded-full bg-slate-100"
-                    title={`${c.hours} of ${c.sellableHours} sellable hours`}
+                    title={t("rpt.courtTitle", { hours: c.hours, sellable: c.sellableHours })}
                   >
                     <div
                       className="h-full rounded-full bg-teal-600"
@@ -435,9 +445,9 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                   {c.inUseHours > c.hours && c.sellableHours > 0 && (
                     <div
                       className="w-24 shrink-0 text-right text-xs text-slate-500 tabular-nums"
-                      title="Not free to sell: booked itself, or as part of a court sharing its floor"
+                      title={t("rpt.inUseTitle")}
                     >
-                      in use {percent(Math.min(1, c.inUseHours / c.sellableHours))}
+                      {t("rpt.inUse", { pct: percent(Math.min(1, c.inUseHours / c.sellableHours)) })}
                     </div>
                   )}
                   <div className="w-24 shrink-0 text-right text-slate-500 tabular-nums">
@@ -446,7 +456,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 </div>
               ))}
               {report.byCourt.length === 0 && (
-                <p className="text-sm text-slate-500">This venue has no courts yet.</p>
+                <p className="text-sm text-slate-500">{t("rpt.noCourts")}</p>
               )}
             </div>
           </div>
@@ -456,9 +466,9 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
             <table className="w-full min-w-[520px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  {["Sport", "Bookings", "Hours", "Booked", "Collected"].map((h) => (
+                  {(["rpt.col.sport", "rpt.col.bookings", "rpt.col.hours", "rpt.col.booked", "rpt.col.collected"] as const).map((h) => (
                     <th key={h} className="px-3 py-2 font-semibold">
-                      {h}
+                      {t(h)}
                     </th>
                   ))}
                 </tr>
@@ -467,7 +477,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 {report.bySport.map((s) => (
                   <tr key={s.sport} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2">
-                      {activityIcon(s.sport)} {activityName(s.sport)}
+                      {activityIcon(s.sport)} {sportLabel(t.customer, s.sport)}
                     </td>
                     <td className="px-3 py-2 tabular-nums">{s.bookings}</td>
                     <td className="px-3 py-2 tabular-nums">{s.hours}</td>
@@ -480,8 +490,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 {report.bySport.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                      Nothing was booked at {report.venueName} between {report.from} and{" "}
-                      {report.to}.
+                      {t("rpt.nothingBooked", { venue: report.venueName, from: report.from, to: report.to })}
                     </td>
                   </tr>
                 )}
@@ -492,21 +501,14 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
       ) : null}
       {/* For the accountant: every booking, and every payment taken online, as a spreadsheet. */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
-        <span className="font-semibold">Download for your accountant ({range.from} to {range.to}):</span>
+        <span className="font-semibold">{t("rpt.download", { from: range.from, to: range.to })}</span>
         {(["bookings", "payments", "journal", "summary"] as const).map((kind) => (
           <a
             key={kind}
             href={`/api/admin/export?venueId=${venueId}&from=${range.from}&to=${range.to}&kind=${kind}`}
             className="rounded-md border border-slate-300 px-3 py-1 font-medium text-teal-700 hover:border-teal-500"
           >
-            {
-              {
-                bookings: "Bookings (CSV)",
-                payments: "Online payments (CSV)",
-                journal: "Sales journal: every receipt and credit note (CSV)",
-                summary: "Sales summary by category and payment (CSV)",
-              }[kind]
-            }
+            {t(`rpt.export.${kind}`)}
           </a>
         ))}
       </div>

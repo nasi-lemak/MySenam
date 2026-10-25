@@ -1,7 +1,6 @@
 "use client";
 
 import { sportsOf } from "@/lib/court-activities";
-import { activityName } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import type { Coach, CoachHours } from "@/lib/coaching";
 import type { CoachContact } from "@/lib/coach-schedule";
@@ -10,8 +9,11 @@ import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { money } from "@/lib/region";
 import type { ManagedVenue } from "./shared";
+import { sportLabel } from "@/lib/i18n";
+import type { StaffPhrase } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS: StaffPhrase[] = ["coach.day.0", "coach.day.1", "coach.day.2", "coach.day.3", "coach.day.4", "coach.day.5", "coach.day.6"];
 
 interface Draft {
   id?: number;
@@ -32,6 +34,7 @@ const blank = (sports: Sport[]): Draft => ({ name: "", bio: "", sports: sports.s
  * them from the venue's page; a lesson is a booking like any other.
  */
 export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
+  const t = useStaffT();
   const sports = sportsOf(venue.courts);
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [contacts, setContacts] = useState<Record<number, CoachContact>>({});
@@ -55,7 +58,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       body: JSON.stringify({ venueId: venue.id, id, ...body }),
     });
     const data = await res.json();
-    if (!res.ok) return setError(data.error ?? "Could not save");
+    if (!res.ok) return setError(t.err(data, t("coach.saveFailed")));
     setCoaches(data.coaches);
     setContacts(data.contacts ?? {});
   }
@@ -95,13 +98,13 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       }),
     });
     const data = await res.json();
-    if (!res.ok) return setError(data.error ?? "Could not save");
+    if (!res.ok) return setError(t.err(data, t("coach.saveFailed")));
     setCoaches(data.coaches);
     setDraft(null);
   }
 
   async function retire(c: Coach) {
-    if (!confirm(`Stop taking lessons with ${c.name}? Lessons already booked stand.`)) return;
+    if (!confirm(t("coach.stopConfirm", { name: c.name }))) return;
     const res = await fetch(`/api/admin/coaches?venueId=${venue.id}&id=${c.id}`, { method: "DELETE" });
     if (res.ok) setCoaches((await res.json()).coaches);
   }
@@ -110,60 +113,62 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   const toggle = (on: boolean) => `rounded-md border px-2 py-1 text-xs font-medium ${on ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-300 text-slate-600"}`;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
-      <h3 className="font-semibold">Coaches: one-to-one lessons</h3>
+      <h3 className="font-semibold">{t("coach.title")}</h3>
       <p className="mt-1 text-xs text-slate-500">
-        Customers book a lesson from your venue page: a free court is picked for them, and the coach&apos;s fee goes on top of
-        its price. A coach can only be booked once at a time. A coach&apos;s schedule link shows their lessons and
-        students&apos; numbers to whoever has it: give it to the coach alone, and withdraw it when they leave. There the
-        coach can also set their own weekly hours and time off; changing a coach&apos;s days here replaces the hours they set.
+        {t("coach.intro")}
       </p>
       <ul className="mt-2 divide-y divide-slate-100">
         {coaches.map((c) => (
           <li key={c.id} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${c.active ? "" : "opacity-50"}`}>
             <span>
-              <span className="font-medium">{c.name}</span> · {c.sports.map((s) => activityName(s)).join(", ")} · {money(c.rate)}/hr
+              <span className="font-medium">{c.name}</span> · {c.sports.map((s) => sportLabel(t.customer, s)).join(", ")} ·{" "}
+              {t("coach.perHour", { amount: money(c.rate) })}
               <span className="block text-xs text-slate-500">
                 {c.active
-                  ? c.hours.map((h) => `${DAYS[h.weekday]} ${formatMinute(h.from)}–${formatMinute(h.until)}`).join(", ") || "No hours set"
-                  : "Not taking lessons"}
+                  ? c.hours
+                      .map((h) => t("coach.hoursSpan", { day: t(DAYS[h.weekday]), from: formatMinute(h.from), until: formatMinute(h.until) }))
+                      .join(", ") || t("coach.noHours")
+                  : t("coach.notTaking")}
               </span>
               {/* Set by the coach at their own link (lib/coaching.ts): days off, when nobody can book them. */}
               {c.active && c.timeOff.length > 0 && (
                 <span className="block text-xs text-amber-800">
-                  Away: {c.timeOff.map((o) => (o.from === o.until ? o.from : `${o.from} – ${o.until}`) + (o.reason ? ` (${o.reason})` : "")).join(", ")}
+                  {t("coach.away", {
+                    list: c.timeOff.map((o) => (o.from === o.until ? o.from : `${o.from} – ${o.until}`) + (o.reason ? ` (${o.reason})` : "")).join(", "),
+                  })}
                 </span>
               )}
               {c.active && (
                 <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                   <input
-                    aria-label={`${c.name}'s email`}
+                    aria-label={t("coach.emailLabel", { name: c.name })}
                     type="email"
-                    placeholder="Email for lesson alerts"
+                    placeholder={t("coach.emailPh")}
                     value={emails[c.id] ?? contacts[c.id]?.email ?? ""}
                     onChange={(e) => setEmails({ ...emails, [c.id]: e.target.value })}
                     className={`w-52 ${input}`}
                   />
                   <button type="button" className="font-medium text-teal-700 underline" onClick={() => void contact(c.id, { action: "email", email: emails[c.id] ?? contacts[c.id]?.email ?? "" })}>
-                    Save email
+                    {t("coach.saveEmail")}
                   </button>
                   {contacts[c.id]?.pageUrl ? (
                     <>
                       <button type="button" className="font-medium text-teal-700 underline" onClick={() => void navigator.clipboard?.writeText(contacts[c.id]!.pageUrl!)}>
-                        Copy schedule link
+                        {t("coach.copyLink")}
                       </button>
                       <button
                         type="button"
                         className="font-medium text-red-700 underline"
                         onClick={() => {
-                          if (confirm(`Withdraw ${c.name}'s schedule link? It stops working at once.`)) void contact(c.id, { action: "link", on: false });
+                          if (confirm(t("coach.withdrawConfirm", { name: c.name }))) void contact(c.id, { action: "link", on: false });
                         }}
                       >
-                        Withdraw link
+                        {t("coach.withdrawLink")}
                       </button>
                     </>
                   ) : (
                     <button type="button" className="font-medium text-teal-700 underline" onClick={() => void contact(c.id, { action: "link", on: true })}>
-                      Make a schedule link
+                      {t("coach.makeLink")}
                     </button>
                   )}
                 </span>
@@ -171,11 +176,11 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
             </span>
             <span className="flex gap-3 text-xs font-medium">
               <button onClick={() => edit(c)} className="text-teal-700 underline">
-                {c.active ? "Change" : "Bring back"}
+                {c.active ? t("c.change") : t("coach.bringBack")}
               </button>
               {c.active && (
                 <button onClick={() => retire(c)} className="text-red-700 underline">
-                  Stop
+                  {t("coach.stop")}
                 </button>
               )}
             </span>
@@ -185,42 +190,42 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       {draft ? (
         <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3">
           <div className="flex flex-wrap gap-2">
-            <input aria-label="Coach's name" placeholder="Coach's name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={input} />
-            <input aria-label="Fee an hour" type="number" min={0} step={0.01} value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value })} className={`w-24 ${input}`} />
+            <input aria-label={t("coach.namePh")} placeholder={t("coach.namePh")} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={input} />
+            <input aria-label={t("coach.fee")} type="number" min={0} step={0.01} value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value })} className={`w-24 ${input}`} />
           </div>
-          <textarea aria-label="About them" placeholder="About them (optional): level, certification, languages" rows={2} value={draft.bio} onChange={(e) => setDraft({ ...draft, bio: e.target.value })} className={`w-full ${input}`} />
+          <textarea aria-label={t("coach.about")} placeholder={t("coach.aboutPh")} rows={2} value={draft.bio} onChange={(e) => setDraft({ ...draft, bio: e.target.value })} className={`w-full ${input}`} />
           <div className="flex flex-wrap items-center gap-1">
-            <span className="mr-1 text-xs text-slate-600">Coaches</span>
+            <span className="mr-1 text-xs text-slate-600">{t("coach.coaches")}</span>
             {sports.map((s) => (
               <button key={s} type="button" onClick={() => setDraft({ ...draft, sports: draft.sports.includes(s) ? draft.sports.filter((x) => x !== s) : [...draft.sports, s] })} className={toggle(draft.sports.includes(s))}>
-                {activityName(s)}
+                {sportLabel(t.customer, s)}
               </button>
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-1">
-            <span className="mr-1 text-xs text-slate-600">Takes lessons</span>
+            <span className="mr-1 text-xs text-slate-600">{t("coach.takesLessons")}</span>
             {DAYS.map((d, i) => (
               <button key={d} type="button" onClick={() => setDraft({ ...draft, days: draft.days.includes(i) ? draft.days.filter((x) => x !== i) : [...draft.days, i] })} className={toggle(draft.days.includes(i))}>
-                {d}
+                {t(d)}
               </button>
             ))}
-            <ClockField label="From" value={draft.from} onChange={(m) => setDraft({ ...draft, from: m })} className={input} />
-            to
-            <ClockField label="Until" value={draft.until} after={draft.from} onChange={(m) => setDraft({ ...draft, until: m })} className={input} />
+            <ClockField label={t("c.from")} value={draft.from} onChange={(m) => setDraft({ ...draft, from: m })} className={input} />
+            {t("coach.to")}
+            <ClockField label={t("c.until")} value={draft.until} after={draft.from} onChange={(m) => setDraft({ ...draft, until: m })} className={input} />
           </div>
           <div className="flex gap-2">
             <button onClick={save} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white">
-              Save coach
+              {t("coach.save")}
             </button>
             <button onClick={() => setDraft(null)} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700">
-              Cancel
+              {t("c.cancel")}
             </button>
           </div>
           {error && <p className="text-xs font-medium text-red-700">{error}</p>}
         </div>
       ) : (
         <button onClick={() => setDraft(blank(sports))} className="mt-2 rounded-md border border-teal-300 px-3 py-1.5 text-xs font-semibold text-teal-700">
-          Add a coach
+          {t("coach.add")}
         </button>
       )}
     </section>

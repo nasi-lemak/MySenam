@@ -9,11 +9,18 @@ import { MAX_CLASS_WEEKS } from "@/lib/types";
 import type { Booking, ClassSession } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
-import { money, currencySymbol } from "@/lib/region";
+import { money } from "@/lib/region";
+import type { ClassStatus } from "@/lib/types";
+import type { StaffPhrase } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
+
+const STATUS: Record<ClassStatus, StaffPhrase> = { scheduled: "cls.status.scheduled", cancelled: "cls.status.cancelled" };
+const ONLY: Record<string, StaffPhrase> = { women: "cls.onlyWomen", men: "cls.onlyMen" };
 
 /* ---------------- Classes tab ---------------- */
 
 export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [classes, setClasses] = useState<ClassSession[] | null>(null);
   const [roster, setRoster] = useState<{
@@ -48,14 +55,14 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     try {
       const res = await fetch(`/api/admin/classes?venueId=${venueId}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load classes");
+      if (!res.ok) throw new Error(t.err(data, t("cls.loadFailed")));
       setClasses(data.classes);
       setWaiting(data.waiting ?? {});
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load classes");
+      setError(err instanceof Error ? err.message : t("cls.loadFailed"));
       setClasses(null);
     }
-  }, [venueId]);
+  }, [venueId, t]);
 
   useEffect(() => {
     load();
@@ -84,36 +91,31 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not schedule the class");
+      if (!res.ok) throw new Error(t.err(data, t("cls.scheduleFailed")));
       setNotice(
         data.classes.length > 1
-          ? `Scheduled ${data.classes.length} weekly sessions (${data.seriesCode}).`
-          : `Scheduled ${form.name}.`
+          ? t("cls.scheduledSeries", { n: data.classes.length, code: data.seriesCode })
+          : t("cls.scheduledOne", { name: form.name })
       );
       setForm({ ...form, name: "", instructor: "" });
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not schedule the class");
+      setError(err instanceof Error ? err.message : t("cls.scheduleFailed"));
     }
   }
 
   async function cancelClass(session: ClassSession) {
-    if (
-      !window.confirm(
-        `Cancel ${session.name} on ${session.date}? ${session.enrolled} enrolment(s) will be released.`
-      )
-    )
-      return;
+    if (!window.confirm(t("cls.cancelConfirm", { name: session.name, date: session.date, n: session.enrolled }))) return;
     setError(null);
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/classes/${session.id}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
-      setNotice(`Cancelled — ${data.released} enrolment(s) released.`);
+      if (!res.ok) throw new Error(t.err(data, t("cls.cancelFailed")));
+      setNotice(t("cls.cancelled", { n: data.released }));
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancellation failed");
+      setError(err instanceof Error ? err.message : t("cls.cancelFailed"));
     }
   }
 
@@ -122,15 +124,28 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     try {
       const res = await fetch(`/api/admin/classes/${session.id}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load roster");
+      if (!res.ok) throw new Error(t.err(data, t("cls.rosterFailed")));
       setRoster(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load roster");
+      setError(err instanceof Error ? err.message : t("cls.rosterFailed"));
     }
   }
 
   const inputClass =
     "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+  // The sentence around the link-like name, so each language can put it where it reads naturally.
+  const [needsBefore, needsAfter] = t("cls.needsShared", { place: "\u0000" }).split("\u0000");
+  const headings: (StaffPhrase | null)[] = [
+    "cls.col.class",
+    "cls.col.instructor",
+    "cls.col.where",
+    "cls.col.when",
+    "cls.col.enrolled",
+    "cls.col.waiting",
+    "cls.col.price",
+    null,
+    null,
+  ];
 
   return (
     <div className="space-y-4">
@@ -162,13 +177,11 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           <table className="w-full min-w-[820px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {["Class", "Instructor", "Where", "When", "Enrolled", "Waiting", "Price", "", ""].map(
-                  (h, i) => (
-                    <th key={i} className="px-3 py-2 font-semibold">
-                      {h}
-                    </th>
-                  )
-                )}
+                {headings.map((h, i) => (
+                  <th key={i} className="px-3 py-2 font-semibold">
+                    {h ? t(h) : ""}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -208,7 +221,9 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                   </td>
                   <td className="px-3 py-2">
                     {money(session.price)}
-                    {session.who !== "anyone" && <span className="ml-1 text-xs text-fuchsia-700">{session.who} only</span>}
+                    {session.who !== "anyone" && (
+                      <span className="ml-1 text-xs text-fuchsia-700">{ONLY[session.who] ? t(ONLY[session.who]) : session.who}</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <span
@@ -218,7 +233,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                           : "bg-slate-100 text-slate-500"
                       }`}
                     >
-                      {session.status}
+                      {STATUS[session.status] ? t(STATUS[session.status]) : session.status}
                     </span>
                   </td>
                   <td className="px-3 py-2">
@@ -227,7 +242,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                         onClick={() => cancelClass(session)}
                         className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                       >
-                        Cancel
+                        {t("c.cancel")}
                       </button>
                     )}
                   </td>
@@ -238,28 +253,29 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
-          No classes scheduled here yet.
+          {t("cls.none")}
         </div>
       )}
 
       {hostable.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-          Classes need a shared facility to run in. Give a resource a capacity above 1 in{" "}
-          <span className="font-medium">Courts &amp; rates</span> first.
+          {needsBefore}
+          <span className="font-medium">{t("cls.courtsRates")}</span>
+          {needsAfter}
         </p>
       ) : (
         <form
           onSubmit={schedule}
           className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
         >
-          <div className="w-full text-sm font-semibold text-slate-700">Schedule a class</div>
+          <div className="w-full text-sm font-semibold text-slate-700">{t("cls.scheduleTitle")}</div>
           <input
-            required minLength={2} placeholder="Class name" value={form.name}
+            required minLength={2} placeholder={t("cls.namePh")} value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className={`w-40 ${inputClass}`}
           />
           <input
-            required minLength={2} placeholder="Instructor" value={form.instructor}
+            required minLength={2} placeholder={t("cls.col.instructor")} value={form.instructor}
             onChange={(e) => setForm({ ...form, instructor: e.target.value })}
             className={`w-36 ${inputClass}`}
           />
@@ -268,7 +284,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             onChange={(e) => setForm({ ...form, courtId: e.target.value })}
             className={inputClass}
           >
-            <option value="">Where…</option>
+            <option value="">{t("cls.wherePh")}</option>
             {hostable.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.capacity})
@@ -280,38 +296,38 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             onChange={(e) => setForm({ ...form, date: e.target.value })}
             className={inputClass}
           />
-          <ClockField label="Starts" value={form.start} onChange={(m) => setForm({ ...form, start: m })} className={`w-28 ${inputClass}`} />
-          <ClockField label="Ends" value={form.end} after={form.start} onChange={(m) => setForm({ ...form, end: m })} className={`w-28 ${inputClass}`} />
+          <ClockField label={t("cls.starts")} value={form.start} onChange={(m) => setForm({ ...form, start: m })} className={`w-28 ${inputClass}`} />
+          <ClockField label={t("cls.ends")} value={form.end} after={form.start} onChange={(m) => setForm({ ...form, end: m })} className={`w-28 ${inputClass}`} />
           <input
             required type="number" min={1} value={form.capacity}
             onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-            title="Seats" className={`w-20 ${inputClass}`}
+            title={t("cls.seats")} className={`w-20 ${inputClass}`}
           />
           <input
             required type="number"
             step={0.01} min={0} value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })}
-            title={`Price per person (${currencySymbol()})`} className={`w-20 ${inputClass}`}
+            title={t("cls.pricePer")} className={`w-20 ${inputClass}`}
           />
           <select
             value={form.who}
             onChange={(e) => setForm({ ...form, who: e.target.value })}
-            title="Who can enrol"
+            title={t("cls.whoCan")}
             className={inputClass}
           >
-            <option value="anyone">Anyone</option>
-            <option value="women">Women only</option>
-            <option value="men">Men only</option>
+            <option value="anyone">{t("cls.anyone")}</option>
+            <option value="women">{t("cls.womenOnly")}</option>
+            <option value="men">{t("cls.menOnly")}</option>
           </select>
           <select
             value={form.weeks}
             onChange={(e) => setForm({ ...form, weeks: e.target.value })}
-            title="Repeat weekly"
+            title={t("cls.repeat")}
             className={inputClass}
           >
             {Array.from({ length: MAX_CLASS_WEEKS }, (_, i) => i + 1).map((w) => (
               <option key={w} value={w}>
-                {w === 1 ? "Once" : `${w} weeks`}
+                {w === 1 ? t("cls.once") : t("cls.nWeeks", { n: w })}
               </option>
             ))}
           </select>
@@ -319,12 +335,12 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             <select
               value={form.termOff}
               onChange={(e) => setForm({ ...form, termOff: e.target.value })}
-              title="A share off each session for joining the whole term at once"
+              title={t("cls.termOffTitle")}
               className={inputClass}
             >
               {[0, 5, 10, 15, 20, 25, 30].map((p) => (
                 <option key={p} value={p}>
-                  {p === 0 ? "No term discount" : `${p}% off for the whole term`}
+                  {p === 0 ? t("cls.noTermDiscount") : t("cls.termOff", { p })}
                 </option>
               ))}
             </select>
@@ -333,7 +349,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             type="submit"
             className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
           >
-            Schedule
+            {t("cls.schedule")}
           </button>
         </form>
       )}
@@ -343,13 +359,17 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           <div className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
             <h3 className="text-lg font-bold">{roster.session.name}</h3>
             <p className="mt-1 text-sm text-slate-600">
-              {roster.session.date} · {formatHour(roster.session.startHour)}–
-              {formatHour(roster.session.endHour)} with {roster.session.instructor}
+              {t("cls.sessionWhen", {
+                date: roster.session.date,
+                start: formatHour(roster.session.startHour),
+                end: formatHour(roster.session.endHour),
+                instructor: roster.session.instructor,
+              })}
             </p>
             {roster.waitlist && roster.waitlist.length > 0 && (
               <div className="mt-4 rounded-lg bg-amber-50 p-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                  Waiting ({roster.waitlist.length})
+                  {t("cls.waitingN", { n: roster.waitlist.length })}
                 </div>
                 <ul className="mt-1 space-y-1 text-sm text-amber-900">
                   {roster.waitlist.map((w) => (
@@ -360,7 +380,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                       </span>
                       {w.status === "offered" && (
                         <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold">
-                          offered
+                          {t("cls.offered")}
                         </span>
                       )}
                     </li>
@@ -369,7 +389,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
               </div>
             )}
             {roster.roster.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-500">Nobody has enrolled yet.</p>
+              <p className="mt-4 text-sm text-slate-500">{t("cls.nobody")}</p>
             ) : (
               <ul className="mt-4 space-y-1.5 text-sm">
                 {roster.roster.map((b) => (
@@ -386,7 +406,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                             : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {b.checkedInAt ? "checked in" : "expected"}
+                        {b.checkedInAt ? t("cls.checkedIn") : t("cls.expected")}
                       </span>
                     )}
                   </li>
@@ -397,7 +417,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
               onClick={() => setRoster(null)}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2 font-semibold text-white hover:bg-teal-700"
             >
-              Close
+              {t("c.close")}
             </button>
           </div>
         </div>

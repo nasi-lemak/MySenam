@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CustomerReport } from "@/lib/customer-report";
 import { money } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 /**
  * Who the customers were in the period (lib/customer-report.ts): how many,
@@ -10,6 +11,7 @@ import { money } from "@/lib/region";
  * often people did not turn up.
  */
 export function CustomerReportPanel({ venueId, from, to }: { venueId: number; from: string; to: string }) {
+  const t = useStaffT();
   const [report, setReport] = useState<CustomerReport | null>(null);
 
   useEffect(() => {
@@ -27,40 +29,40 @@ export function CustomerReportPanel({ venueId, from, to }: { venueId: number; fr
   const tile = "rounded-lg border border-slate-200 bg-white px-3 py-2";
   return (
     <section className="space-y-3">
-      <h3 className="text-base font-bold">Customers</h3>
+      <h3 className="text-base font-bold">{t("cust.title")}</h3>
       <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
         <div className={tile}>
-          <div className="text-xs text-slate-500">Customers</div>
+          <div className="text-xs text-slate-500">{t("cust.title")}</div>
           <div className="text-xl font-bold tabular-nums">{report.customers}</div>
-          <div className="text-xs text-slate-500">{report.perCustomer} bookings each</div>
+          <div className="text-xs text-slate-500">{t("cust.each", { n: report.perCustomer })}</div>
         </div>
         <div className={tile}>
-          <div className="text-xs text-slate-500">New here</div>
+          <div className="text-xs text-slate-500">{t("cust.newHere")}</div>
           <div className="text-xl font-bold tabular-nums">{report.newCustomers}</div>
-          <div className="text-xs text-slate-500">{report.returning} came back</div>
+          <div className="text-xs text-slate-500">{t("cust.cameBack", { n: report.returning })}</div>
         </div>
         <div className={tile}>
-          <div className="text-xs text-slate-500">No-shows</div>
+          <div className="text-xs text-slate-500">{t("cust.noShows")}</div>
           <div className="text-xl font-bold tabular-nums">{report.noShowRate}%</div>
-          <div className="text-xs text-slate-500">{report.noShows} of the bookings played</div>
+          <div className="text-xs text-slate-500">{t("cust.ofPlayed", { n: report.noShows })}</div>
         </div>
         <div className={tile}>
-          <div className="text-xs text-slate-500">Late cancellations</div>
+          <div className="text-xs text-slate-500">{t("cust.lateCancels")}</div>
           <div className="text-xl font-bold tabular-nums">{report.lateCancels}</div>
         </div>
       </div>
 
       {report.top.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Best customers</h4>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("cust.best")}</h4>
           <table className="mt-1 w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-1 pr-2 font-medium">Customer</th>
-                <th className="py-1 pr-2 text-right font-medium">Bookings</th>
-                <th className="py-1 pr-2 text-right font-medium">Hours</th>
-                <th className="py-1 pr-2 text-right font-medium">Spent</th>
-                <th className="py-1 font-medium">Since</th>
+                <th className="py-1 pr-2 font-medium">{t("cust.col.customer")}</th>
+                <th className="py-1 pr-2 text-right font-medium">{t("cust.col.bookings")}</th>
+                <th className="py-1 pr-2 text-right font-medium">{t("cust.col.hours")}</th>
+                <th className="py-1 pr-2 text-right font-medium">{t("cust.col.spent")}</th>
+                <th className="py-1 font-medium">{t("cust.col.since")}</th>
               </tr>
             </thead>
             <tbody>
@@ -81,13 +83,13 @@ export function CustomerReportPanel({ venueId, from, to }: { venueId: number; fr
       )}
 
       <div>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Regulars who have stopped coming</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("cust.lapsedTitle")}</h4>
         {report.lapsed.length === 0 ? (
-          <p className="mt-1 text-sm text-slate-500">Nobody who came often has been away since {report.lapsedSince}.</p>
+          <p className="mt-1 text-sm text-slate-500">{t("cust.noneLapsed", { date: report.lapsedSince })}</p>
         ) : (
           <>
             <p className="mt-1 text-xs text-slate-500">
-              Four or more bookings in the six months before, none since {report.lapsedSince} and none coming. Worth a call.
+              {t("cust.lapsedIntro", { date: report.lapsedSince })}
             </p>
             <ul className="mt-1 divide-y divide-slate-100 text-sm">
               {report.lapsed.map((c) => (
@@ -99,7 +101,7 @@ export function CustomerReportPanel({ venueId, from, to }: { venueId: number; fr
                     </a>
                   </span>
                   <span className="text-slate-500">
-                    {c.bookings} bookings, last {c.last}
+                    {t("cust.lapsedRow", { n: c.bookings, date: c.last })}
                   </span>
                 </li>
               ))}

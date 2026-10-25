@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { OutboxMessage, OutboxSummary } from "@/lib/outbox";
 import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
+import type { StaffPhrase } from "@/lib/staff-i18n";
+import { useStaffT } from "./StaffLanguage";
 
 const STATUS_STYLES: Record<string, string> = {
   sent: "bg-emerald-50 text-emerald-700",
@@ -12,12 +14,19 @@ const STATUS_STYLES: Record<string, string> = {
   abandoned: "bg-red-50 text-red-700",
 };
 
-const KIND_LABELS: Record<string, string> = {
-  booking_confirmed: "Booking confirmed",
-  booking_series_confirmed: "Weekly series booked",
-  booking_cancelled: "Booking cancelled",
-  waitlist_offer: "Waitlist offer",
-  class_enrolled: "Class enrolment",
+const KIND_LABELS: Record<string, StaffPhrase> = {
+  booking_confirmed: "msg.kind.bookingConfirmed",
+  booking_series_confirmed: "msg.kind.seriesConfirmed",
+  booking_cancelled: "msg.kind.bookingCancelled",
+  waitlist_offer: "msg.kind.waitlistOffer",
+  class_enrolled: "msg.kind.classEnrolled",
+};
+
+const STATE_LABELS: Record<string, StaffPhrase> = {
+  sent: "msg.state.sent",
+  queued: "msg.state.queued",
+  failed: "msg.state.failed",
+  abandoned: "msg.state.abandoned",
 };
 
 /**
@@ -33,6 +42,7 @@ const KIND_LABELS: Record<string, string> = {
 const PLATFORM = 0;
 
 export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenue[]; isOwner?: boolean }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [messages, setMessages] = useState<OutboxMessage[] | null>(null);
   const [summary, setSummary] = useState<OutboxSummary | null>(null);
@@ -48,14 +58,14 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
         cache: "no-store",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not load messages");
+      if (!res.ok) throw new Error(t.err(data, t("msg.loadFailed")));
       setMessages(data.messages);
       setSummary(data.summary);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load messages");
+      setError(err instanceof Error ? err.message : t("msg.loadFailed"));
       setMessages(null);
     }
-  }, [venueId]);
+  }, [venueId, t]);
 
   useEffect(() => {
     load();
@@ -71,19 +81,19 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
         body: JSON.stringify({ id, recipient }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not put it back in the queue");
-      setNotice("Back in the queue.");
+      if (!res.ok) throw new Error(t.err(data, t("msg.requeueFailed")));
+      setNotice(t("msg.requeued"));
       setFixing(null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not put it back in the queue");
+      setError(err instanceof Error ? err.message : t("msg.requeueFailed"));
     }
   }
 
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold">Messages to customers</h2>
+        <h2 className="text-lg font-bold">{t("msg.title")}</h2>
         {(venues.length > 1 || isOwner) && (
           <select
             value={venueId}
@@ -95,21 +105,17 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                 {v.name}
               </option>
             ))}
-            {isOwner && <option value={PLATFORM}>Platform emails (applicants, resets, alerts)</option>}
+            {isOwner && <option value={PLATFORM}>{t("msg.platform")}</option>}
           </select>
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        Confirmations, cancellations and waitlist offers, in whichever language the customer was
-        reading. Written down first and sent after, so a booking is never lost to a message that
-        would not go.
+        {t("msg.intro")}
       </p>
 
       {summary && summary.transport === null && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <strong>Nothing is being sent yet.</strong> No WhatsApp or email account is configured,
-          so messages are written down and queued — {summary.queued} of them so far. They will go
-          out in order once one is set up; nothing is lost in the meantime.
+          <strong>{t("msg.nothingSent")}</strong> {t("msg.queuedNote", { n: summary.queued })}
         </div>
       )}
 
@@ -117,22 +123,23 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
         <div className="mt-3 flex flex-wrap gap-2 text-sm">
           {(
             [
-              ["Sent", summary.sent, "bg-emerald-50 text-emerald-800"],
-              ["Waiting", summary.queued, "bg-slate-100 text-slate-700"],
-              ["Retrying", summary.failed, "bg-amber-50 text-amber-800"],
-              ["Given up", summary.abandoned, "bg-red-50 text-red-700"],
-            ] as [string, number, string][]
+              ["msg.sum.sent", summary.sent, "bg-emerald-50 text-emerald-800"],
+              ["msg.sum.waiting", summary.queued, "bg-slate-100 text-slate-700"],
+              ["msg.sum.retrying", summary.failed, "bg-amber-50 text-amber-800"],
+              ["msg.sum.givenUp", summary.abandoned, "bg-red-50 text-red-700"],
+            ] as [StaffPhrase, number, string][]
           ).map(([label, n, style]) => (
             <span key={label} className={`rounded-lg px-3 py-1.5 font-medium ${style}`}>
-              {label}: <strong>{n}</strong>
+              {t(label)}: <strong>{n}</strong>
             </span>
           ))}
           <span className="rounded-lg px-3 py-1.5 text-slate-500">
-            via{" "}
-            {summary.transport
-              .split("+")
-              .map((name) => (name === "whatsapp" ? "WhatsApp" : name))
-              .join(" and ")}
+            {t("msg.via", {
+              channels: summary.transport
+                .split("+")
+                .map((name) => (name === "whatsapp" ? "WhatsApp" : name))
+                .reduce((a, b) => t("msg.listAnd", { a, b })),
+            })}
           </span>
         </div>
       )}
@@ -142,18 +149,18 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
 
       <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         {messages === null ? (
-          <p className="p-8 text-center text-slate-500">Loading…</p>
+          <p className="p-8 text-center text-slate-500">{t("c.loading")}</p>
         ) : messages.length === 0 ? (
           <p className="p-8 text-center text-slate-500">
-            Nothing has been sent from this venue yet.
+            {t("msg.none")}
           </p>
         ) : (
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                {["When", "What", "To", "Language", "State", ""].map((h) => (
-                  <th key={h} className="px-3 py-2 font-semibold">
-                    {h}
+                {(["msg.col.when", "msg.col.what", "msg.col.to", "msg.col.language", "msg.col.state", null] as const).map((h) => (
+                  <th key={h ?? "actions"} className="px-3 py-2 font-semibold">
+                    {h ? t(h) : ""}
                   </th>
                 ))}
               </tr>
@@ -169,11 +176,11 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                       onClick={() => setOpen(open === m.id ? null : m.id)}
                       className="font-medium text-teal-700 hover:underline"
                     >
-                      {KIND_LABELS[m.kind] ?? m.kind}
+                      {KIND_LABELS[m.kind] ? t(KIND_LABELS[m.kind]) : m.kind}
                     </button>
                     {m.free && (
-                      <span title="Sent as a reply in a chat the customer opened, instead of a template" className="ml-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        reply in chat
+                      <span title={t("msg.freeTitle")} className="ml-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        {t("msg.replyInChat")}
                       </span>
                     )}
                     {open === m.id && (
@@ -196,14 +203,16 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                     >
                       {m.status === "sent" && m.channel === "whatsapp"
                         ? m.readAt
-                          ? "read"
+                          ? t("msg.state.read")
                           : m.deliveredAt
-                            ? "delivered"
+                            ? t("msg.state.delivered")
                             : m.deliveryError
-                              ? "not delivered"
-                              : "sent"
-                        : m.status}
-                      {m.attempts > 0 && m.status !== "sent" && ` · ${m.attempts} tries`}
+                              ? t("msg.state.notDelivered")
+                              : t("msg.state.sent")
+                        : STATE_LABELS[m.status]
+                          ? t(STATE_LABELS[m.status])
+                          : m.status}
+                      {m.attempts > 0 && m.status !== "sent" && ` · ${t("msg.tries", { n: m.attempts })}`}
                     </span>
                     {m.deliveryError && <div className="mt-1 text-xs text-red-600">{m.deliveryError}</div>}
                   </td>
@@ -220,7 +229,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                             onClick={() => resend(m.id, fixing.recipient)}
                             className="rounded-md bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-700"
                           >
-                            Send there
+                            {t("msg.sendThere")}
                           </button>
                           <button
                             onClick={() => setFixing(null)}
@@ -235,13 +244,13 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                             onClick={() => resend(m.id)}
                             className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-teal-500 hover:text-teal-700"
                           >
-                            Try again
+                            {t("msg.tryAgain")}
                           </button>
                           <button
                             onClick={() => setFixing({ id: m.id, recipient: m.recipient })}
                             className="text-xs text-slate-500 underline hover:text-teal-700"
                           >
-                            wrong number?
+                            {t("msg.wrongNumber")}
                           </button>
                         </div>
                       ))}

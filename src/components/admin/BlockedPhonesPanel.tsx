@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
 import { region } from "@/lib/region";
+import { useStaffT } from "./StaffLanguage";
 
 interface Blocked {
   phone: string;
@@ -18,12 +19,16 @@ interface Blocked {
  * cannot hold its courts from a phone without anybody speaking to them.
  */
 export function BlockedPhonesPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
+  // The sentence around the button's name, which is set in italics.
+  const [before, after] = t("blk.intro", { action: "\u0000" }).split("\u0000");
   return (
     <section>
-      <h2 className="text-lg font-bold">Blocked numbers</h2>
+      <h2 className="text-lg font-bold">{t("blk.title")}</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Phone numbers that cannot book or join a waitlist here online. Staff can still book them at the counter.
-        Block one from its booking with <em>Block number</em>, or here.
+        {before}
+        <em>{t("blk.blockNumber")}</em>
+        {after}
       </p>
       <div className="mt-3 space-y-3">
         {venues.map((venue) => (
@@ -35,6 +40,7 @@ export function BlockedPhonesPanel({ venues }: { venues: ManagedVenue[] }) {
 }
 
 function VenueBlocks({ venue }: { venue: ManagedVenue }) {
+  const t = useStaffT();
   const [blocked, setBlocked] = useState<Blocked[]>([]);
   const [phone, setPhone] = useState("");
   const [reason, setReason] = useState("");
@@ -53,7 +59,7 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
     setError(null);
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json();
-    if (!res.ok) return setError(data.error ?? "That did not work.");
+    if (!res.ok) return setError(t.err(data));
     setBlocked(data.blocked);
     if (method === "POST") {
       setPhone("");
@@ -65,7 +71,7 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="font-semibold">{venue.name}</div>
       {blocked.length === 0 ? (
-        <p className="mt-1 text-sm text-slate-500">No numbers blocked.</p>
+        <p className="mt-1 text-sm text-slate-500">{t("blk.none")}</p>
       ) : (
         <ul className="mt-2 divide-y divide-slate-100 text-sm">
           {blocked.map((b) => (
@@ -78,7 +84,7 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
                 onClick={() => send("DELETE", { phone: b.phone })}
                 className="text-xs text-slate-500 underline hover:text-teal-700"
               >
-                Unblock
+                {t("blk.unblock")}
               </button>
             </li>
           ))}
@@ -95,19 +101,19 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           placeholder={region().phone.example}
-          aria-label="Phone number to block"
+          aria-label={t("blk.phoneLabel")}
           className="w-40 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
           required
         />
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Why (only staff see it)"
-          aria-label="Reason"
+          placeholder={t("blk.whyPh")}
+          aria-label={t("c.reason")}
           className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         />
         <button className="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900">
-          Block
+          {t("blk.block")}
         </button>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
