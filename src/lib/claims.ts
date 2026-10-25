@@ -8,9 +8,10 @@ import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, ran
  * around a booking are lib/store.ts.
  *
  * The database is what refuses a double booking: the exclusion constraint
- * on spaces, and the capacity trigger on shared facilities, raise `23P01`
- * however the claim was written. Everything here that reads is for showing
- * and choosing; nothing that reads is trusted to have kept a conflict out.
+ * on spaces, the separation constraint on spaces, and the capacity trigger on
+ * shared facilities, raise `23P01` however the claim was written. Everything
+ * here that reads is for showing and choosing; nothing that reads is trusted
+ * to have kept a conflict out.
  */
 
 export type ClaimKind = "booking" | "offer" | "class" | "block" | "outage" | "move";
@@ -24,6 +25,21 @@ export type ClaimSource =
   | { kind: "outage"; outageId: number }
   /** A proposed new time for an open game's booking, held while its players answer (lib/game-moves.ts). */
   | { kind: "move"; moveId: number };
+
+/**
+ * What a claim keeps around its time (docs/architecture/booking-time-model.md#buffers-separation-and-operational-time).
+ * `before`/`after`: operational time (setting up, cleaning), held as part of
+ * the claim and adding up with a neighbour's. `sepBefore`/`sepAfter`: minimum
+ * separation, which does not add up: two neighbours need the larger of the two
+ * that face each other. On a shared facility, whose places are not told
+ * apart, separation is held as places like operational time.
+ */
+export interface Buffers {
+  before: number;
+  after: number;
+  sepBefore?: number;
+  sepAfter?: number;
+}
 
 /** A court as claims need it. */
 export interface ClaimCourt {
@@ -118,8 +134,12 @@ export async function claim(input: {
   date: string;
   span: Span;
   zone: string;
+  /** Operational time before and after: held with the claim, adding up with its neighbours'. */
   bufferBefore?: number;
   bufferAfter?: number;
+  /** Minimum separation before and after: the larger of two facing ones applies (on a shared facility, held as places). */
+  separationBefore?: number;
+  separationAfter?: number;
   /** For a shared facility: how many places (a booking takes one; a class or a whole block, all). */
   places?: number;
   expiresAt?: Date | null;
@@ -129,8 +149,12 @@ export async function claim(input: {
   onlySpaces?: number[];
 }): Promise<void> {
   const db = getDb();
-  const before = input.bufferBefore ?? 0;
-  const after = input.bufferAfter ?? 0;
+  const sepBefore = input.separationBefore ?? 0;
+  const sepAfter = input.separationAfter ?? 0;
+  // A shared facility's places are not told apart, so its separation is held as places, adding up.
+  const shared = input.court.capacity > 1;
+  const before = (input.bufferBefore ?? 0) + (shared ? sepBefore : 0);
+  const after = (input.bufferAfter ?? 0) + (shared ? sepAfter : 0);
   const during = input.openEnded
     ? `[${instantOf(input.date, input.span.start, input.zone).toISOString()},)`
     : rangeLiteral(input.date, input.span.start, input.span.end, input.zone);
@@ -148,10 +172,11 @@ export async function claim(input: {
       for (const space of spaces)
         await db
           .prepare(
-            `INSERT INTO claims (venue_id, court_id, space_id, kind, ${column}, during, occupied, buffer_before, buffer_after, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?)`
+            `INSERT INTO claims (venue_id, court_id, space_id, kind, ${column}, during, occupied, buffer_before, buffer_after,
+                                 separation_before, separation_after, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?, ?, ?)`
           )
-          .run(input.court.venueId, input.court.id, space, input.source.kind, sourceId(input.source), during, occupied, before, after, expires);
+          .run(input.court.venueId, input.court.id, space, input.source.kind, sourceId(input.source), during, occupied, before, after, sepBefore, sepAfter, expires);
     };
     // The constraint cannot see the clock, so an offer (or a proposed move)
     // past its time can still be in the way: only then are such holds let go,
@@ -167,8 +192,9 @@ export async function claim(input: {
     // The capacity check already ignores offers past their time.
     await db
       .prepare(
-        `INSERT INTO claims (venue_id, court_id, places, kind, ${column}, during, occupied, buffer_before, buffer_after, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?)`
+        `INSERT INTO claims (venue_id, court_id, places, kind, ${column}, during, occupied, buffer_before, buffer_after,
+                             separation_before, separation_after, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?, ?, ?)`
       )
       .run(
         input.court.venueId,
@@ -180,6 +206,8 @@ export async function claim(input: {
         occupied,
         before,
         after,
+        sepBefore,
+        sepAfter,
         expires
       );
   }
@@ -231,10 +259,20 @@ export interface Occupant {
   places: number;
   /** The time sold or held. */
   span: Span;
-  /** That time with its buffers: what keeps the court from anybody else. */
+  /** That time with what it holds around it (operational time; on a shared facility, separation too): no other claim's `occupied` may overlap it. */
   occupied: Span;
+  /** How far `occupied` reaches either side of `span`. */
   bufferBefore: number;
   bufferAfter: number;
+  /** Minimum separation it keeps (on a court of one place; 0 on a shared facility, where it is in `occupied`). */
+  sepBefore: number;
+  sepAfter: number;
+  /**
+   * The time no other claim's time may be in: `span` widened by the larger of
+   * its operational time and its separation, each side (on a shared facility,
+   * `occupied`). What screens show as held.
+   */
+  kept: Span;
 }
 
 /**
@@ -279,12 +317,14 @@ export async function occupantsOn(
     ohi: number | null;
     buffer_before: number;
     buffer_after: number;
+    separation_before: number;
+    separation_after: number;
   };
   // Moments as epoch milliseconds: numbers are much quicker to read than timestamps.
   const ms = (e: string) => `(extract(epoch FROM ${e}) * 1000)::float8`;
   const cols = `c.kind, c.court_id, c.booking_id, c.class_id, c.block_id, c.outage_id, c.waitlist_id, c.move_id, c.places,
     ${ms("lower(c.during)")} AS lo, ${ms("upper(c.during)")} AS hi, ${ms("lower(c.occupied)")} AS olo, ${ms("upper(c.occupied)")} AS ohi,
-    c.buffer_before, c.buffer_after`;
+    c.buffer_before, c.buffer_after, c.separation_before, c.separation_after`;
   const live = "c.active AND (c.expires_at IS NULL OR c.expires_at > now())";
   const rows: Row[] = [];
   // Two queries whatever the number of courts or venues: each court asked
@@ -332,6 +372,11 @@ export async function occupantsOn(
     seen.add(key);
     const z = zoneOf(court.venueId);
     const m = (at: number | null, open: number) => (at === null ? open : minuteOfDay(new Date(at), date, z));
+    const span = { start: m(r.lo, -Infinity), end: m(r.hi, Infinity) };
+    const occupied = { start: m(r.olo, -Infinity), end: m(r.ohi, Infinity) };
+    // Separation is held as places on a shared facility (already in `occupied`); on a space it is checked between neighbours.
+    const sepBefore = court.capacity === 1 ? Number(r.separation_before) : 0;
+    const sepAfter = court.capacity === 1 ? Number(r.separation_after) : 0;
     out.get(r.for_court)!.push({
       kind: r.kind,
       bookingId: r.booking_id,
@@ -342,10 +387,13 @@ export async function occupantsOn(
       moveId: r.move_id,
       viaCourt: r.court_id,
       places: court.capacity === 1 ? 1 : (r.places ?? 1),
-      span: { start: m(r.lo, -Infinity), end: m(r.hi, Infinity) },
-      occupied: { start: m(r.olo, -Infinity), end: m(r.ohi, Infinity) },
+      span,
+      occupied,
       bufferBefore: Number(r.buffer_before),
       bufferAfter: Number(r.buffer_after),
+      sepBefore,
+      sepAfter,
+      kept: { start: Math.min(occupied.start, span.start - sepBefore), end: Math.max(occupied.end, span.end + sepAfter) },
     });
   }
   for (const list of out.values()) list.sort((a, b) => a.occupied.start - b.occupied.start);
@@ -370,24 +418,68 @@ export function peakPlaces(occupants: Occupant[], span: Span, ignore?: (o: Occup
 }
 
 /**
+ * Is occupant `o` far enough from a new claim of `span` with these
+ * separations? On a space, the gap between the two times must be at least
+ * the larger of the two separations that face each other (the database's
+ * claim_gaps_apart, migration 0119). Time that overlaps never is.
+ */
+export function separated(o: Occupant, span: Span, sepBefore: number, sepAfter: number): boolean {
+  if (o.span.end <= span.start) return span.start - o.span.end >= Math.max(o.sepAfter, sepBefore);
+  if (o.span.start >= span.end) return o.span.start - span.end >= Math.max(o.sepBefore, sepAfter);
+  return false;
+}
+
+/** What a new claim of `span` would hold: its operational time, and on a shared facility its separation too (as `claim` stores it). */
+export function occupiedFor(capacity: number, span: Span, buffers: Buffers): Span {
+  const shared = capacity > 1;
+  return {
+    start: span.start - buffers.before - (shared ? (buffers.sepBefore ?? 0) : 0),
+    end: span.end + buffers.after + (shared ? (buffers.sepAfter ?? 0) : 0),
+  };
+}
+
+/**
+ * The occupants a new claim of `span` with these buffers would meet: on a
+ * court of one place, each whose `occupied` overlaps its own or that is not
+ * `separated` from it; on a shared facility, each whose `occupied` overlaps
+ * its own (whether they leave room is a count of places).
+ */
+export function inTheWayOf(occupants: Occupant[], capacity: number, span: Span, buffers: Buffers, ignore?: (o: Occupant) => boolean): Occupant[] {
+  const occupied = occupiedFor(capacity, span, buffers);
+  if (capacity > 1) return occupants.filter((o) => !ignore?.(o) && overlaps(o.occupied, occupied));
+  const sepBefore = buffers.sepBefore ?? 0;
+  const sepAfter = buffers.sepAfter ?? 0;
+  return occupants.filter((o) => !ignore?.(o) && (overlaps(o.occupied, occupied) || !separated(o, span, sepBefore, sepAfter)));
+}
+
+/**
  * Would a booking from `span.start` to `span.end`, with its buffers, fit
  * among these occupants on a court of `capacity`? The same question the
  * database answers when it is written; asked here to show and to choose.
+ * On a court of one place: nothing's `occupied` overlaps the new one's
+ * (operational time adds up), and every neighbour is `separated` from it
+ * (the larger separation applies). On a shared facility: the places held
+ * over the new claim's `occupied`, separation included, leave room.
  */
 export function fits(
   occupants: Occupant[],
   capacity: number,
   span: Span,
-  buffers: { before: number; after: number },
+  buffers: Buffers,
   ignore?: (o: Occupant) => boolean,
   /** Places the new claim takes on a shared facility: several kayaks, several people on a floor. A court held whole takes itself, however many play. */
   places = 1
 ): boolean {
-  const occupied = { start: span.start - buffers.before, end: span.end + buffers.after };
-  return peakPlaces(occupants, occupied, ignore) + (capacity > 1 ? places : 1) <= capacity;
+  if (capacity > 1) return peakPlaces(occupants, occupiedFor(capacity, span, buffers), ignore) + places <= capacity;
+  return inTheWayOf(occupants, capacity, span, buffers, ignore).length === 0;
 }
 
-/** The stretches of `within` nothing occupies at all (for a court of one place). */
+/** The stretches of `within` nothing keeps at all (for a court of one place): where time with no buffers of its own could go. */
 export function freeStretches(occupants: Occupant[], within: Span): Span[] {
-  return freeWithin(within, merge(occupants.map((o) => o.occupied)));
+  return freeWithin(within, merge(occupants.map((o) => o.kept)));
+}
+
+/** Occupants as screens show them and as time without buffers of its own fits among them: held for what they keep, separation included. */
+export function asShown(occupants: Occupant[]): Occupant[] {
+  return occupants.map((o) => ({ ...o, occupied: o.kept }));
 }

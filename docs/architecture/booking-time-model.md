@@ -13,8 +13,9 @@ what holds under concurrent requests is
 Every reservation is an exact interval to the minute. What occupies a court
 (a booking, a held booking, a waiting-list offer, a class, a block, a
 tournament's hold, an outage) is a **claim** on it. The database refuses two
-claims that overlap on the same **space** (an exclusion constraint) and more
-claims than a shared facility has **places** (a trigger). Which intervals a
+claims that overlap on the same **space** (an exclusion constraint), two
+closer than the larger of the **separations** they keep (a second one), and
+more claims than a shared facility has **places** (a trigger). Which intervals a
 customer may pick is a **booking policy**, inherited from the most specific
 level that sets each rule. The booking board's grid is a way of showing
 time, not of storing it.
@@ -76,7 +77,8 @@ time, not of storing it.
 | `court_id`, `venue_id` | What was claimed; a trigger (`claims_belong`) refuses a court of another venue, a space the court does not cover, places on an exclusive court and spaces on a shared one |
 | `space_id` or `places` | One claim per space for an exclusive court; one claim with a number of places for a shared facility |
 | `during` | The time sold or held |
-| `occupied` | `during` widened by the buffers before and after, as they were when the claim was made |
+| `occupied` | `during` widened by `buffer_before`/`buffer_after`: the operational time (setup, cleaning) as it was when the claim was made; on a shared facility its separation too ([buffers](#buffers-separation-and-operational-time)). Claims made before migration 0118 keep the buffers they were made with here |
+| `separation_before`, `separation_after` | The minimum separation the claim keeps, as it was when made (0 to 240 minutes; 0 for claims made before migration 0118) |
 | `active` | Cancelling, releasing or expiring a claim sets it false; the row stays for history |
 | `expires_at` | When a waiting-list offer lapses |
 
@@ -85,6 +87,19 @@ time, not of storing it.
   `int4range(id, id, '[]') &&` is equality, so no extension is needed on
   Postgres or PGlite. A refused claim raises `23P01`, which `isConflict`
   recognises and each path turns into "taken".
+- **Separation on a space**: triggers on `claims` (migration 0119) write
+  each claim on a space into `claim_gaps` as its time (`during`, role
+  `[0,0]`) and the separation it keeps before and after (role `[1,1]`), and
+  `claim_gaps_apart` (`EXCLUDE USING gist (int4range(space_id, space_id,
+  '[]') WITH &&, role WITH -|-, zone WITH &&) WHERE (active)`) refuses a time
+  and a separation that overlap on one space. `-|-` holds only between
+  `[0,0]` and `[1,1]`, so two separations may overlap (they do not add up)
+  and two times are left to `claims_no_overlap`. A gap shorter than the
+  larger of two facing separations is shorter than one of them, so this is
+  exactly the rule in [buffers](#buffers-separation-and-operational-time). It
+  raises `23P01` like the other, waits on a concurrent writer as the other
+  does, and reads nothing, so it takes no serializable predicate locks; a
+  claim's rows are released, moved and deleted with it by the same triggers.
 - **Shared capacity**: `claims_capacity` locks the court row
   (`FOR NO KEY UPDATE`, which does not wait on the key-share locks the
   foreign keys of the rows being written take), sweeps the places held over
@@ -101,7 +116,12 @@ time, not of storing it.
   courts (and the courts sharing their spaces) for a business day, with its
   minutes, kind, reason and places. Availability, search, waiting lists,
   moving, rescheduling, the staff schedule and the reports all read it;
-  `fits`, `peakPlaces` and `freeStretches` answer "is this free" in memory.
+  `fits`, `peakPlaces` and `freeStretches` answer "is this free" in memory,
+  by the same rules the database applies (`fits` on a space: no `occupied`
+  overlaps, and every neighbour `separated`; on a shared facility, places
+  over `occupied`). Each occupant's `kept` (its time widened by the larger of
+  its operational time and its separation) is what the board's cells, the
+  staff schedule's buffers and a block's placement treat as held.
 
 ## Booking policies
 
@@ -115,7 +135,8 @@ What may be booked is kept apart from what can be stored
 | Starts every / first start past the hour | 60 / 0 | Or only at listed times (18:00, 19:30, 21:00) |
 | Lengths go up by / shortest / longest | 60 / 60 / 240 | Or only listed lengths (60, 90, 120) |
 | Length offered first | 60, or the shortest | What the board picks on a tap |
-| Kept free before / after | 0 / 0 | Buffers: time no customer can book, not charged |
+| Minimum separation before / after (`bufferBefore`, `bufferAfter`) | 0 / 0 | Time kept free that two neighbours share: the larger of the two facing ones applies ([buffers](#buffers-separation-and-operational-time)) |
+| Operational time before / after (`operationalBefore`, `operationalAfter`) | 0 / 0 | Setup and cleaning that need the court: adds up with the neighbour's |
 | Court's own hours by weekday | the venue's | Within the venue's day |
 | Book at least this far ahead | 0 minutes | Notice |
 | Each part at its own rate, or all at the rate when it starts | each part | `rateMode` |
@@ -148,6 +169,61 @@ What may be booked is kept apart from what can be stored
   A cell is free, partly held or held. Availability also gives each court's
   `starts`: every minute a booking may start and the longest it may run from
   there.
+
+## Buffers: separation and operational time
+
+Two kinds of time are kept around a booking, set apart in a booking policy
+and stored apart on each claim:
+
+| | Minimum separation | Operational time |
+| - | ------------------ | ---------------- |
+| What it is for | A gap between bookings: changeover, players leaving and arriving | Work that needs the court: setting up or preparing before, cleaning or turnover after |
+| Policy settings | `bufferBefore`, `bufferAfter` (the editor's *Minimum gap before / after*) | `operationalBefore`, `operationalAfter` (*Setup before*, *Cleaning after*) |
+| Two neighbours | Share it: they need the **larger** of the two that face each other. 10 after one and 10 before the next: 10 apart; 10 and 25: 25 | Add up: 10 minutes of cleaning after one and 10 of setup before the next: 20 apart |
+| On the claim | `separation_before`, `separation_after` | In `occupied` (`buffer_before`, `buffer_after`) |
+| Enforced by | `claim_gaps_apart` ([claims](#claims)) | `claims_no_overlap` |
+
+So between the end of one booking's time and the start of the next's, a
+court of one place needs the larger of: the operational time after the first
+plus the operational time before the second; the first's separation after;
+the second's separation before. 5 minutes' cleaning inside a 15-minute
+separation needs 15; 10 + 10 of setup and cleaning with 15 of separation
+needs 20. Separation is measured between the times sold, so operational time
+on either side counts towards it.
+
+- **Against anything.** A booking's separation keeps every other claim's time
+  away, blocks, classes, outages, offers and held moves included; those keep
+  none of their own (classes and waiting-list offers keep their court's, as a
+  booking would).
+- **Linked courts.** Checked per space: a pitch keeping 25 minutes after it
+  keeps them on every court under it.
+- **Shared facilities.** Places are not told apart, so there is no
+  neighbour to share a gap with: a claim with places holds its separation as
+  places, inside `occupied`, the same as operational time, and it adds up
+  there (two places taken until 11:00 with 10 minutes' separation after, a
+  newcomer keeping 10 before starts at 11:20). The capacity trigger counts it.
+  This never lets anyone closer than the rules ask; it can refuse a time an
+  assignment of places would have allowed.
+- **A game's proposed move** (lib/store.ts) holds its new time with its
+  operational time, and its separation on its outer edges less the
+  operational time it already holds there; beside its own booking it holds
+  only what that booking does not already keep, so the booking's separation
+  never refuses its own move.
+- **Changing the rules** changes new claims only. Each claim keeps the
+  separation and operational time it was made with.
+- **Before migration 0118** there was one kind of buffer, *kept free*, held
+  in `occupied`, so two bookings with 10 minutes each on the side they met
+  were 20 apart. The policy settings (`booking_policies.buffer_before`,
+  `buffer_after`) kept their values and are minimum separation from then on;
+  claims made before keep their buffers in `occupied` (nothing stored was
+  shrunk or rewritten) with no separation of their own, so each still keeps
+  free what it kept, and a claim made since may start 10 minutes after one
+  that keeps 10 and itself keeps 10 before. Migration 0119 writes each
+  existing claim on a space into `claim_gaps` as its time alone, which cannot
+  conflict (`tests/separation-migration.test.ts`).
+- **Where the clocks change**, the database measures a gap in real minutes
+  and the board in minutes on the clock; across a change they differ, and
+  the database decides (no country MySenam is sold in changes its clocks).
 
 ## Prices from minutes
 
@@ -270,6 +346,13 @@ The owner decided (October 2026):
    bookings.
 7. **Drop the old tables** once migration, integrity and regression checks,
    and backup and rollback, are in place.
+8. **Minimum separation does not add up; operational time does** (decided
+   later in October 2026, replacing the default that buffers side by side add
+   up): two neighbours need the larger of the separations that face each
+   other, while setup and cleaning are set apart and add up; existing
+   *kept free* settings became minimum separation; existing claims keep the
+   protection they were made with; the database still refuses every
+   violation ([buffers](#buffers-separation-and-operational-time)).
 
 Where those left a rule open, these defaults were chosen; each is a setting
 or a single place in the code if the owner wants it otherwise:
@@ -277,8 +360,9 @@ or a single place in the code if the owner wants it otherwise:
 | Question | Default |
 | -------- | ------- |
 | Who may go past the rules | Managers of the venue (not front-desk staff, not the API); each booking marked, the activity log naming the rules passed |
-| The platform's rules | On the hour, 60 to 240 minutes in hours, 60 first, no buffers, no notice; padel from any half hour, in half hours, 90 first |
-| Two buffers side by side | Each booking keeps its own: 10 minutes after one and 10 before the next leave 20 minutes |
+| The platform's rules | On the hour, 60 to 240 minutes in hours, 60 first, no separation or operational time, no notice; padel from any half hour, in half hours, 90 first |
+| Two buffers side by side | Decided (8 above): minimum separations share, the larger applies (10 after one and 10 before the next leave 10 minutes; 10 and 25 leave 25); operational time adds up (10 of cleaning and 10 of setup leave 20) |
+| Separation on a shared facility | Held as places, adding up like operational time: places are not told apart, so there is no neighbour to share it with |
 | Billing steps and minimum minutes | The extra minutes are priced at the rate in force then, as if booked |
 | A fixed-length price at peak | Its peak price applies when the booking starts at peak |
 | A minimum charge on a per-player court | Applies to the whole booking, after multiplying by the players |
@@ -297,6 +381,8 @@ or a single place in the code if the owner wants it otherwise:
 | The database refuses on its own: raw SQL inserts of an overlapping claim and of a place past capacity | `tests/capacity.test.ts` "is still the database that prevents overbooking" |
 | Races on Postgres: the last court, a shared floor's places, a class, a pitch against a court, an outage and a block against bookings | `tests/concurrency.test.ts`, `tests/court-links.test.ts`, `tests/outages.test.ts`, `tests/move.test.ts` |
 | Any minute, buffers, staff past the rules, several courts, weekly series, waiting lists, passes | `tests/intervals.test.ts` |
+| Separation and operational time: 10 and 10 leave 10 (9 refused), cleaning and setup add up, the two combined, 10 against 25, linked courts, a shared floor, rescheduling, weekly series, a manager's override, a game's proposed move, rules changed between bookings, raw SQL, the board's starts against the database's answer minute by minute, races through the app and between two raw writers on Postgres | `tests/separation.test.ts` |
+| Migrations 0118–0119 on claims and settings made under buffers that added up: nothing stored changes, the settings become separation, new claims follow the new rule | `tests/separation-migration.test.ts` |
 | Policies: starts, lengths, grid, breaches, validation, inheritance, the route | `tests/booking-policies.test.ts` |
 | Pricing to the minute, peak boundaries, rounding, fixed prices, steps, minimums, fees, last-minute | `tests/pricing.test.ts` |
 | The migration: a diary seeded on the old schema migrates to the same occupancy and is dropped; a mismatch stops it | `tests/interval-migration.test.ts` |

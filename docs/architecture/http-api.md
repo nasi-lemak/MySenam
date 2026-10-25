@@ -421,7 +421,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/admin/sport-rules` | `?venueId` → each sport's own rules here, over the venue's |
 | POST | `/api/admin/sport-rules` | `{ venueId, sport, cutoffHours, lateKeep, peak }`, each null for the venue's (managers); starts and lengths are booking rules |
 | GET | `/api/admin/booking-policies` | `?venueId` → each level's own booking rules (business, venue, sport at the venue, court, an activity on a court) and what each court, sport and activity on a court (`products`) ends up with, with a summary |
-| POST | `/api/admin/booking-policies` | `{ venueId, level: "business" \| "venue" \| "sport" \| "court", sport?, courtId?, settings }` (a court with `sport` is that activity on that court; settings include `signOff`): set or clear (null) rules at that level (managers; the business level needs the owner or a manager of the business); recorded |
+| POST | `/api/admin/booking-policies` | `{ venueId, level: "business" \| "venue" \| "sport" \| "court", sport?, courtId?, settings }` (a court with `sport` is that activity on that court; settings include `signOff`, minimum separation `bufferBefore`/`bufferAfter` and operational time `operationalBefore`/`operationalAfter`, 0–240 minutes each, [buffers](booking-time-model.md#buffers-separation-and-operational-time)): set or clear (null) rules at that level (managers; the business level needs the owner or a manager of the business); recorded |
 | GET | `/api/admin/storefronts` | Every storefront: domain, name, look and venues (platform owner) |
 | POST | `/api/admin/storefronts` | Create, or with `id` update: `{ id?, hostname, name, tagline?, accentColor?, logoUrl?, venueIds }` |
 | DELETE | `/api/admin/storefronts` | `?id=` |

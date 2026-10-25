@@ -59,16 +59,20 @@ import {
   type Span,
 } from "./interval";
 import {
+  asShown,
   claim,
   fits,
+  inTheWayOf,
   isConflict,
   lockCourts,
   occupantsOn,
+  occupiedFor,
   peakPlaces,
   release,
   releaseBooking,
   spacesOf,
   unclaim,
+  type Buffers,
   type Occupant,
 } from "./claims";
 export { releaseBooking } from "./claims";
@@ -76,9 +80,11 @@ import { passCost } from "./pass-rules";
 export { passCost } from "./pass-rules";
 import {
   breachMessage,
+  claimBuffers,
   gridMinutes,
   lengthAllowed,
   policiesFor,
+  policyBuffers,
   policyBreaches,
   policyFor,
   policyHoursOn,
@@ -665,19 +671,20 @@ function whyTaken(
   occupants: Occupant[],
   court: Court,
   span: Span,
-  buffers: { before: number; after: number },
+  buffers: Buffers,
   ignore?: (o: Occupant) => boolean,
   /** Places the booking takes on a shared facility (several kayaks, several people on a floor); a court held whole takes itself. */
   places = 1
 ): { why: "class"; name: string; classId: number } | { why: "blocked" | "full" } | null {
-  const occupied = { start: span.start - buffers.before, end: span.end + buffers.after };
-  const inWay = occupants.filter((o) => !ignore?.(o) && overlaps(o.occupied, occupied));
-  if (peakPlaces(inWay, occupied) + (court.capacity > 1 ? places : 1) <= court.capacity) return null;
+  if (fits(occupants, court.capacity, span, buffers, ignore, places)) return null;
+  // What overlaps it, or (on a court of one place) is closer than the separation allows.
+  const inWay = inTheWayOf(occupants, court.capacity, span, buffers, ignore);
   const session = inWay.find((o) => o.kind === "class");
   if (session) return { why: "class", name: "", classId: session.classId! };
   const blocks = inWay.filter((o) => o.kind === "block" || o.kind === "outage");
   const booked = inWay.filter((o) => o.kind !== "block" && o.kind !== "outage");
-  return { why: blocks.length > 0 && peakPlaces(booked, occupied) < court.capacity ? "blocked" : "full" };
+  const roomLeft = court.capacity > 1 ? peakPlaces(booked, occupiedFor(court.capacity, span, buffers)) < court.capacity : booked.length === 0;
+  return { why: blocks.length > 0 && roomLeft ? "blocked" : "full" };
 }
 
 /**
@@ -707,7 +714,7 @@ export async function courtsForAnyBooking(input: { venueId: number; sport: Sport
     const span = asked.span;
     if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, zone)).length > 0) continue;
     if (minutesUntil(date, span.start, zone) <= 0) continue;
-    if (!fits(held.get(court.id)!, court.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter })) continue;
+    if (!fits(held.get(court.id)!, court.capacity, span, policyBuffers(day.policy))) continue;
     priced.push({ court, price: priceBooking({ court, date, span, rules, pricing: day.policy.pricing, at: Date.now() }).total });
   }
   return priced.sort((a, b) => a.price - b.price || a.court.id - b.court.id).map((p) => p.court);
@@ -894,7 +901,7 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
   if (day.closed) return [];
   const { policy, court } = day;
   const out: StartOption[] = [];
-  const buffers = { before: policy.bufferBefore, after: policy.bufferAfter };
+  const buffers = policyBuffers(policy);
   const lengths = policy.lengths ?? null;
   for (const start of startsWithin(policy, day.openMin, day.closeMin)) {
     const ahead = minutesUntil(date, start, day.zone);
@@ -966,6 +973,8 @@ export async function getAvailability(
   return courts.map((court) => {
     const day = days.get(court.id)!;
     const occupants = held.get(court.id)!;
+    // Cells show what each holds and keeps free around it, separation included; starts are worked out exactly (startOptions).
+    const shown = asShown(occupants);
     const own = forSport(rules, court.sport);
     // The rate of a column of time, without fixed prices or minimum charges, which belong to whole bookings.
     const timeOnly = { ...day.policy.pricing, fixedPrices: null, minCharge: null, minBilled: null, billStep: null, setupFee: 0, cleanupFee: 0 };
@@ -976,7 +985,7 @@ export async function getAvailability(
         slots.push({ minute, hour: hoursOf(minute), rate: 0, booked: 0, capacity: court.capacity, available: false, outside: true });
         continue;
       }
-      const inCell = occupants.filter((o) => overlaps(o.occupied, cell));
+      const inCell = shown.filter((o) => overlaps(o.occupied, cell));
       const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move"), cell);
       const out = peakPlaces(inCell.filter((o) => o.kind === "block" || o.kind === "outage"), cell);
       const load = peakPlaces(inCell, cell);
@@ -1514,7 +1523,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       if (distanceKm > input.near.km) continue;
     }
     const occupants = held.get(court.id)!;
-    const buffers = { before: day.policy.bufferBefore, after: day.policy.bufferAfter };
+    const buffers = policyBuffers(day.policy);
     // A booking of `length` must still finish by the court's close.
     let shownUpTo = -Infinity;
     for (const start of startsWithin(day.policy, Math.max(wantFrom, day.openMin), Math.min(wantTo, day.closeMin - length) + 1)) {
@@ -1889,7 +1898,7 @@ export async function createBookingSeries(
         .get(court.venueId, date, phone)
     : undefined;
   const bookedAt = cancelledHere ? undefined : Date.now();
-  const buffers = { before: policy.bufferBefore, after: policy.bufferAfter };
+  const buffers = policyBuffers(policy);
   const offer = input.waitlistId;
 
   /** What holds the court that week, said as the customer is told. */
@@ -1936,7 +1945,7 @@ export async function createBookingSeries(
                 )) as { id: number };
               // An enrolment holds a place in its class; the class holds the court.
               if (!input.classId)
-                await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, bufferBefore: buffers.before, bufferAfter: buffers.after });
+                await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, ...claimBuffers(policy) });
               return id.id;
             });
           } catch (err) {
@@ -2354,7 +2363,8 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
     o.blockId !== null ? (blockReasons.get(o.blockId) ?? "") : o.outageId !== null ? (outageReasons.get(o.outageId) ?? "") : undefined;
 
   return courts.map((court) => {
-    const occupants = held.get(court.id)!;
+    // As held, separation included: what each keeps free around it reads as a buffer.
+    const occupants = asShown(held.get(court.id)!);
     const entries: ScheduleEntry[] = [];
     for (const o of occupants) {
       const clip = (n: number) => Math.min(Math.max(n, 0), LATEST_MINUTE);
@@ -2559,7 +2569,8 @@ export async function blockSlots(
     // simply not the tournament's.
     if (!details.tournamentId && !details.competitionId)
       for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.tournament_id === null && b.competition_id === null);
-    const occupants = (await occupantsOn([court], date, zone)).get(court.id)!;
+    // A block keeps no buffers of its own, so it may go wherever nothing holds or keeps the time (separation included).
+    const occupants = asShown((await occupantsOn([court], date, zone)).get(court.id)!);
     for (const span of spans) {
       // Where the time asked for can take this block: between what holds it, and where enough places are free.
       const edges = [...new Set([span.start, span.end, ...occupants.flatMap((o) => [o.occupied.start, o.occupied.end])])]
@@ -2748,8 +2759,7 @@ async function reclaimBooking(booking: Booking, court: Court, date: string, span
     span,
     zone,
     places: booking.players ?? 1,
-    bufferBefore: policy.bufferBefore,
-    bufferAfter: policy.bufferAfter,
+    ...claimBuffers(policy),
   });
   await getDb()
     .prepare("UPDATE bookings SET court_id = ?, date = ?, start_min = ?, end_min = ?, starts_at = ?, ends_at = ? WHERE id = ?")
@@ -2958,8 +2968,23 @@ async function rescheduleBookingOnce(
           // a court sharing its floor: a pitch over it, a court under it), only the
           // part outside the booking's time is held there; the rest of the new
           // court's floor is held for all of it.
-          const ownSpan = { start: booking.startMin - fromPolicy.bufferBefore, end: booking.endMin + fromPolicy.bufferAfter };
-          const newSpan = { start: span.start - day.policy.bufferBefore, end: span.end + day.policy.bufferAfter };
+          // What the booking keeps now, as its claims were made, not as the rules are today: its `occupied`,
+          // and the separation it keeps, which nothing else's time may enter (the hold included).
+          const kept = (await db
+            .prepare("SELECT buffer_before, buffer_after, separation_before, separation_after FROM claims WHERE booking_id = ? AND active LIMIT 1")
+            .get(booking.id)) as { buffer_before: number; buffer_after: number; separation_before: number; separation_after: number } | undefined;
+          const ownSpan = {
+            start: booking.startMin - Math.max(Number(kept?.buffer_before ?? 0), Number(kept?.separation_before ?? 0)),
+            end: booking.endMin + Math.max(Number(kept?.buffer_after ?? 0), Number(kept?.separation_after ?? 0)),
+          };
+          // The new time with its operational time; separation, on a court of one place, is kept by the hold's
+          // outer edges (less what the operational time already keeps), and on a shared facility held as places.
+          const p = policyBuffers(day.policy);
+          const newSpan = occupiedFor(court.capacity, span, p);
+          const edge = (part: Span) => ({
+            separationBefore: part.start === newSpan.start ? Math.max(0, p.sepBefore - p.before) : 0,
+            separationAfter: part.end === newSpan.end ? Math.max(0, p.sepAfter - p.after) : 0,
+          });
           const source = { kind: "move" as const, moveId: to.hold.moveId };
           const sameDay = to.date === booking.date;
           if (court.capacity === 1 && fromCourt.capacity === 1 && sameDay) {
@@ -2967,10 +2992,13 @@ async function rescheduleBookingOnce(
             const mine = await spacesOf(court.id);
             const shared = mine.filter((s) => own.has(s));
             const rest = mine.filter((s) => !own.has(s));
-            if (rest.length > 0) await claim({ court, source, date: to.date, span: newSpan, zone, expiresAt: to.hold.expiresAt, onlySpaces: rest });
+            if (rest.length > 0) await claim({ court, source, date: to.date, span: newSpan, zone, expiresAt: to.hold.expiresAt, onlySpaces: rest, ...edge(newSpan) });
             if (shared.length > 0)
               for (const part of outside(newSpan, ownSpan))
-                await claim({ court, source, date: to.date, span: part, zone, expiresAt: to.hold.expiresAt, onlySpaces: shared });
+                await claim({ court, source, date: to.date, span: part, zone, expiresAt: to.hold.expiresAt, onlySpaces: shared, ...edge(part) });
+          } else if (court.capacity === 1) {
+            const parts = court.id === fromCourt.id && sameDay ? outside(newSpan, ownSpan) : [newSpan];
+            for (const part of parts) await claim({ court, source, date: to.date, span: part, zone, expiresAt: to.hold.expiresAt, ...edge(part) });
           } else {
             const parts = court.id === fromCourt.id && sameDay ? outside(newSpan, ownSpan) : [newSpan];
             for (const part of parts) await claim({ court, source, date: to.date, span: part, zone, places: players, expiresAt: to.hold.expiresAt });
@@ -3060,7 +3088,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
       if (minutesUntil(date, start, zone) <= 0) continue;
       const span = { start, end: start + length };
       if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).length > 0) continue;
-      if (!fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter }, own, players)) continue;
+      if (!fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), own, players)) continue;
       const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players).total;
       options.set(start, {
         startMin: start,
@@ -3111,7 +3139,7 @@ export async function bookAgainLink(code: string): Promise<string | null> {
     for (const c of courts) {
       const day = days2.get(c.id)!;
       if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, day.zone)).length > 0) continue;
-      if (fits(held.get(c.id)!, c.capacity, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter }, undefined, booking.players ?? 1)) return link(date, c.id);
+      if (fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), undefined, booking.players ?? 1)) return link(date, c.id);
     }
   }
   return `/venue/${court.venueId}?sport=${booking.sport}`;
@@ -3125,7 +3153,7 @@ export type MoveResult =
 async function inTheWay(booking: Booking, court: Court, policy: BookingPolicy, zone: string): Promise<string> {
   const held = (await occupantsOn([court], booking.date, zone)).get(court.id)!;
   const span = { start: booking.startMin, end: booking.endMin };
-  const why = whyTaken(held, court, span, { before: policy.bufferBefore, after: policy.bufferAfter }, (o) => o.bookingId === booking.id, booking.players ?? 1);
+  const why = whyTaken(held, court, span, policyBuffers(policy), (o) => o.bookingId === booking.id, booking.players ?? 1);
   if (why?.why === "class") return `${court.name} is running ${(await classNamesFor([why.classId])).get(why.classId) ?? "a class"} at that time.`;
   if (why?.why === "blocked") return `${court.name} is blocked off for part of that time.`;
   return `${court.name} is already taken at ${formatMinute(span.start)}.`;
@@ -3217,7 +3245,7 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
   // Booked, blocked, a class, or offered to somebody on the waiting list, as the move itself counts; its own time is free.
   return candidates.filter((c) => {
     const p = days.get(c.id)!.policy;
-    return fits(held.get(c.id)!, c.capacity, span, { before: p.bufferBefore, after: p.bufferAfter }, (o) => o.bookingId === booking.id, booking.players ?? 1);
+    return fits(held.get(c.id)!, c.capacity, span, policyBuffers(p), (o) => o.bookingId === booking.id, booking.players ?? 1);
   });
 }
 
@@ -4893,14 +4921,13 @@ export async function createClassSessions(input: {
               span,
               zone: day.zone,
               places: court.capacity,
-              bufferBefore: day.policy.bufferBefore,
-              bufferAfter: day.policy.bufferAfter,
+              ...claimBuffers(day.policy),
             })
           );
         } catch (err) {
           if (!isConflict(err)) throw err;
           const held = (await occupantsOn([court], weekDate, day.zone)).get(court.id)!;
-          const why = whyTaken(held, court, span, { before: day.policy.bufferBefore, after: day.policy.bufferAfter });
+          const why = whyTaken(held, court, span, policyBuffers(day.policy));
           throw new Error(`${why?.why === "class" ? "CLASH" : "BOOKED"}:${weekDate}`);
         }
         sessions.push((await getClass(row.id))!);
@@ -6757,7 +6784,7 @@ async function listWaitlist(where: string, params: unknown[]): Promise<WaitlistE
 /** Is this time free on this resource right now, with its buffers, for one more? */
 async function slotTimeFree(court: Court, date: string, span: Span, policy: BookingPolicy, zone: string): Promise<boolean> {
   const held = (await occupantsOn([court], date, zone)).get(court.id)!;
-  return fits(held, court.capacity, span, { before: policy.bufferBefore, after: policy.bufferAfter });
+  return fits(held, court.capacity, span, policyBuffers(policy));
 }
 
 /** Queue for court or facility time that is currently taken. */
@@ -6873,8 +6900,7 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
             date,
             span,
             zone: day.zone,
-            bufferBefore: day.policy.bufferBefore,
-            bufferAfter: day.policy.bufferAfter,
+            ...claimBuffers(day.policy),
             expiresAt: new Date(Date.now() + WAITLIST_OFFER_MINUTES * 60_000),
           });
         });

@@ -21,6 +21,11 @@ import { useStaffT } from "./StaffLanguage";
  *
  * The usual settings show; the rest (buffers, notice, pricing rules) are
  * behind "More". Bookings already made keep their time and price.
+ *
+ * Two kinds of time kept around a booking, side by side: the minimum gap
+ * (separation), shared with the neighbour's so only the larger counts, and
+ * setup and cleaning (operational time), which add up with the neighbour's
+ * (docs/architecture/booking-time-model.md#buffers-separation-and-operational-time).
  */
 
 type Level =
@@ -57,6 +62,8 @@ const NUMBER_KEYS = [
   "defaultLength",
   "bufferBefore",
   "bufferAfter",
+  "operationalBefore",
+  "operationalAfter",
   "noticeMinutes",
   "billStep",
   "minBilled",
@@ -285,6 +292,8 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
             {field("noticeMinutes", t("pol.notice"))}
             {field("bufferBefore", t("pol.bufferBefore"), t("pol.bufferBeforeNote"))}
             {field("bufferAfter", t("pol.bufferAfter"), t("pol.bufferAfterNote"))}
+            {field("operationalBefore", t("pol.operationalBefore"), t("pol.operationalBeforeNote"))}
+            {field("operationalAfter", t("pol.operationalAfter"), t("pol.operationalAfterNote"))}
             <label className="block text-xs font-medium text-slate-600">
               {t("pol.rateMode")}
               <select value={form.rateMode} onChange={(e) => setForm({ ...form, rateMode: e.target.value })} className={input}>
@@ -349,7 +358,12 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
           </button>
           {now && (
             <span className="text-xs text-slate-500">
-              {t("pol.buffersNow", { before: minutesText(now.bufferBefore), after: minutesText(now.bufferAfter) })}
+              {t("pol.buffersNow", {
+                before: minutesText(now.bufferBefore),
+                after: minutesText(now.bufferAfter),
+                setup: minutesText(now.operationalBefore),
+                cleaning: minutesText(now.operationalAfter),
+              })}
             </span>
           )}
         </div>
