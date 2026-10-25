@@ -3,6 +3,7 @@ import { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale } from "../s
 import { region } from "../region";
 import { siteName } from "../site";
 import common from "./common";
+import approvals from "./approvals";
 import bookings from "./bookings";
 import competitions from "./competitions";
 import courts from "./courts";
@@ -28,10 +29,11 @@ import { REFUSALS as REFUSALS_2 } from "./refusals-2";
  */
 export { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale };
 
-export const STAFF_AREAS = { common, bookings, competitions, courts, credit, platform, reports, settings, shell, venues };
+export const STAFF_AREAS = { common, approvals, bookings, competitions, courts, credit, platform, reports, settings, shell, venues };
 
 const EN = {
   ...common.en,
+  ...approvals.en,
   ...bookings.en,
   ...competitions.en,
   ...courts.en,
@@ -47,6 +49,7 @@ export type StaffPhrase = keyof typeof EN;
 
 const merged = (l: "ms" | "zh"): Record<StaffPhrase, string> => ({
   ...common[l],
+  ...approvals[l],
   ...bookings[l],
   ...competitions[l],
   ...courts[l],
