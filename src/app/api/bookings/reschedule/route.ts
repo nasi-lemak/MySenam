@@ -3,12 +3,12 @@ import { isMinute, parseClock } from "@/lib/interval";
 import { refusal } from "@/lib/api";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
-import { findBooking, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
+import { customerChangeRefusal, findBooking, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
 import { houseRuleRefusal } from "@/lib/house-rules";
 
 export const dynamic = "force-dynamic";
 
-/** `?code&phone&date` → the start times this booking could change to that day. */
+/** `?code&phone&date` → the start times this booking could change to that day; refused, saying why, once it is too late to change. */
 export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;
   const code = p.get("code") ?? "";
@@ -20,6 +20,9 @@ export async function GET(req: NextRequest) {
   if (limited) return limited;
   const booking = await findBooking(code, phone);
   if (!booking) return NextResponse.json({ error: "Booking not found. Check the code and phone number.", code: "BOOKING_NOT_FOUND_CODE" }, { status: 404 });
+  // Offer nothing that choosing would be refused for.
+  const tooLate = await customerChangeRefusal(booking);
+  if (tooLate) return refusal(tooLate);
   return NextResponse.json({ options: await rescheduleOptions(booking.code, date) });
 }
 

@@ -34,13 +34,21 @@ export function GoLiveBanner({
   const [status, setStatus] = useState<GoLiveStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped when something is saved under Venue details ("setup:refresh"): a pin put down is no longer missing.
+  const [saved, setSaved] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setSaved((n) => n + 1);
+    window.addEventListener("setup:refresh", bump);
+    return () => window.removeEventListener("setup:refresh", bump);
+  }, []);
 
   useEffect(() => {
     fetch(`/api/admin/go-live?venueId=${venueId}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(setStatus)
       .catch(() => setStatus(null));
-  }, [venueId, refreshKey]);
+  }, [venueId, refreshKey, saved]);
 
   async function ask() {
     setBusy(true);
