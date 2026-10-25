@@ -5,8 +5,13 @@ import type { TestProject } from "vitest/node";
 /**
  * Where this run's evidence goes: UAT_ARTIFACTS, or artifacts/uat/<time>,
  * one folder per scenario inside it, and a summary of every scenario run.
+ *
+ * Runs before the app starts (tests/e2e/server.ts), so it also says how the
+ * app runs: as the marketplace (MYSENAM_MARKETPLACE=on), the way MySenam
+ * itself is deployed, so a venue can sign itself up at /list-your-venue.
  */
 export default function setup(project: TestProject) {
+  process.env.MYSENAM_MARKETPLACE ??= "on";
   const root = path.join(import.meta.dirname, "..", "..");
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   const dir = path.resolve(process.env.UAT_ARTIFACTS ?? path.join(root, "artifacts", "uat", stamp));

@@ -427,7 +427,8 @@ the time goes while the customer rebooks.
   with the code and phone number, up to the venue's cancellation cutoff and
   within the booking window, to a start and length the target court's
   booking rules allow: a 60-minute booking cannot be moved onto a court that
-  sells 90 minutes at least.
+  sells 90 minutes at least. Inside the cutoff no time is offered: the
+  panel says why and to call the venue.
   **Staff** use *Change time* on any booking in the Bookings tab, at any
   time before it has finished; a manager may also choose any minute, outside
   the rules ([staff booking outside the rules](#staff-booking-outside-the-rules)).

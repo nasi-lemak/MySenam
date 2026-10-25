@@ -95,6 +95,8 @@ export function VenuesTab({
       if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
       setNotice(okMessage);
       await onChange();
+      // The set-up checklist and the go-live banner tick off what was just saved (hours, pin, facilities).
+      window.dispatchEvent(new Event("setup:refresh"));
       after?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vn.requestFailed"));

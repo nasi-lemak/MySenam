@@ -44,13 +44,21 @@ export function SetupChecklist({
   const t = useStaffT();
   const [setup, setSetup] = useState<VenueSetup | null>(null);
   const [open, setOpen] = useState(startOpen);
+  // Bumped when something is saved under Venue details ("setup:refresh"), which changes no tab or court count.
+  const [saved, setSaved] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setSaved((n) => n + 1);
+    window.addEventListener("setup:refresh", bump);
+    return () => window.removeEventListener("setup:refresh", bump);
+  }, []);
 
   useEffect(() => {
     fetch(`/api/admin/setup?venueId=${venueId}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(setSetup)
       .catch(() => setSetup(null));
-  }, [venueId, refreshKey]);
+  }, [venueId, refreshKey, saved]);
 
   async function act(action: "detailsChecked" | "dismiss") {
     const res = await fetch("/api/admin/setup", {

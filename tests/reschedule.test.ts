@@ -241,6 +241,29 @@ describe("the endpoints", () => {
     );
     expect(anonymous.status).toBe(401);
   });
+
+  it("offer a customer no times once the booking is inside the cutoff, and say why", async () => {
+    // Found by the Change time 2 acceptance scenario: times were offered, and
+    // only refused once one had been chosen and confirmed.
+    const date = addDays(todayISO(), 1);
+    const c1 = (await badminton()).at(-1)!;
+    const who = phone();
+    const b = await book(c1.id, [9], date, who);
+    const list = () =>
+      customerGet(new NextRequest(`http://localhost/api/bookings/reschedule?code=${b.code}&phone=${who}&date=${date}`));
+    expect((await (await list()).json()).options.length).toBeGreaterThan(0);
+
+    await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 72 WHERE id = ?").run(c1.venueId);
+    try {
+      const late = await list();
+      expect(late.status).toBe(409);
+      expect(await late.json()).toMatchObject({ code: "RESCHEDULE_CUTOFF", vars: { n: 72 } });
+      // Staff still see where it could go.
+      expect((await rescheduleOptions(b.code, date)).length).toBeGreaterThan(0);
+    } finally {
+      await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 2 WHERE id = ?").run(c1.venueId);
+    }
+  });
 });
 
 describe("a manager moving a booking past the rules", () => {

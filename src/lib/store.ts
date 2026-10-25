@@ -2189,6 +2189,18 @@ async function cancelCutoffForBooking(bookingId: number): Promise<number> {
   return row?.hours ?? 0;
 }
 
+/**
+ * Why a customer may no longer change this booking's time, if they may not:
+ * it is inside the venue's cancellation cutoff, or has started. Asked before
+ * any time is offered, and again when one is chosen.
+ */
+export async function customerChangeRefusal(booking: Booking): Promise<Refusal | null> {
+  const cutoff = await cancelCutoffForBooking(booking.id);
+  const { zone } = await courtVenueHours(booking.courtId);
+  if (isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone)) return null;
+  return cutoff === 0 ? refuse("RESCHEDULE_STARTED") : refuse("RESCHEDULE_CUTOFF", { n: cutoff });
+}
+
 /** The last moment a booking's customer may still change it: its start, less the venue's cancellation cutoff. */
 export async function changeDeadline(bookingId: number): Promise<Date | null> {
   const row = (await getDb().prepare("SELECT starts_at FROM bookings WHERE id = ?").get(bookingId)) as { starts_at: string | Date | null } | undefined;
@@ -2844,9 +2856,8 @@ async function rescheduleBookingOnce(
   const span = { start, end: start + length };
   const { zone } = await courtVenueHours(booking.courtId);
   if (by === "customer") {
-    const cutoff = await cancelCutoffForBooking(booking.id);
-    if (!isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone))
-      return cutoff === 0 ? refuse("RESCHEDULE_STARTED") : refuse("RESCHEDULE_CUTOFF", { n: cutoff });
+    const tooLate = await customerChangeRefusal(booking);
+    if (tooLate) return tooLate;
   } else if (minutesUntil(booking.date, booking.endMin, zone) <= 0) {
     return { ok: false, error: "That booking has already finished." };
   }

@@ -50,7 +50,7 @@ export interface Actor {
   phone: string;
   id?: number;
   /** A request from this person's browser: their cookies, their address, this site as the origin. */
-  api(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }>;
+  api(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }>;
 }
 
 interface Step {
