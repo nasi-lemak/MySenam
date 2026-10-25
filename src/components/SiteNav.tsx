@@ -40,7 +40,7 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
   if (onDashboard)
     return (
       <nav className="flex items-center text-sm font-medium text-slate-600">
-        <LanguageToggle />
+        <LanguageToggle staff />
       </nav>
     );
 

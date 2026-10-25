@@ -4,6 +4,7 @@ import { createContext, useContext, useMemo } from "react";
 import { setBrowserCountry } from "@/lib/region";
 import { setActivities, type Activity } from "@/lib/activity-registry";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_NAMES, LOCALE_SHORT, Locale, offeredLocales, translator, T } from "@/lib/i18n";
+import { staffLocale, staffLocales } from "@/lib/staff-locales";
 
 const LanguageContext = createContext<Locale>(DEFAULT_LOCALE);
 
@@ -55,13 +56,17 @@ export function useT(): T {
   return useContext(TContext);
 }
 
-/** Switch language. Sets the cookie, then reloads so the server agrees. */
-export function LanguageToggle() {
+/**
+ * Switch language. Sets the cookie, then reloads so the server agrees. On the
+ * staff dashboard (`staff`), only the languages staff screens are in.
+ */
+export function LanguageToggle({ staff = false }: { staff?: boolean }) {
   const locale = useContext(LanguageContext);
+  const current: Locale = staff ? staffLocale(locale) : locale;
   const t = translator(locale);
 
   function choose(next: Locale) {
-    if (next === locale) return;
+    if (next === current) return;
     // A year, site-wide, and Lax so it survives arriving from a venue's link.
     document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
     // A full reload rather than router.refresh(): the <html lang> and the
@@ -69,7 +74,7 @@ export function LanguageToggle() {
     window.location.reload();
   }
 
-  const offered = offeredLocales();
+  const offered: Locale[] = staff ? staffLocales() : offeredLocales();
   // One language: nothing to switch between.
   if (offered.length < 2) return null;
   return (
@@ -79,11 +84,11 @@ export function LanguageToggle() {
           key={code}
           type="button"
           onClick={() => choose(code)}
-          aria-current={code === locale ? "true" : undefined}
+          aria-current={code === current ? "true" : undefined}
           title={LOCALE_NAMES[code]}
           // Comfortably over the 24×24 minimum a tap target needs.
           className={`inline-flex min-h-7 min-w-10 items-center justify-center rounded-full px-2 text-xs font-semibold uppercase transition ${
-            code === locale
+            code === current
               ? "bg-slate-900 text-white"
               : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
           }`}

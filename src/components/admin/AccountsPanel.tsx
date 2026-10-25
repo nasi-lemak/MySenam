@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Account, AccountInvoice } from "@/lib/accounts";
-import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
+import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
 import { LOCALE_NAMES, type Locale } from "@/lib/i18n";
 import { todayLocal } from "./shared";
+import { useStaffT } from "./StaffLanguage";
 
 const BLANK = { name: "", contact: "", email: "", address: "", taxNo: "", termsDays: "30", creditLimit: "", locale: "" };
 
@@ -16,6 +17,7 @@ const BLANK = { name: "", contact: "", email: "", address: "", taxNo: "", termsD
  * the start of each month; mark an invoice paid when the money comes in.
  */
 export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
+  const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [invoices, setInvoices] = useState<AccountInvoice[]>([]);
@@ -50,7 +52,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
     });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error ?? "That did not work");
+      setError(t.err(data));
       return null;
     }
     await load();
@@ -66,7 +68,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
       creditLimit: form.creditLimit === "" ? null : Number(form.creditLimit),
     });
     if (done) {
-      setNotice(form.id ? `Saved ${form.name}.` : `Opened an account for ${form.name}. Add the numbers that may book on it.`);
+      setNotice(form.id ? t("acc.saved", { name: form.name }) : t("acc.opened", { name: form.name }));
       setForm(BLANK);
     }
   }
@@ -79,12 +81,8 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
   const input = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">Company and school accounts</h2>
-      <p className="mt-1 text-sm text-slate-600">
-        For an organisation that books through the month and pays once, on an invoice. The people you list book in their
-        own names, signed in with their number checked, and choose the account as they book; the desk can also put any
-        unpaid booking on one. On the first of each month, what was played on each account is invoiced and emailed to it.
-      </p>
+      <h2 className="text-lg font-bold">{t("acc.title")}</h2>
+      <p className="mt-1 text-sm text-slate-600">{t("acc.intro")}</p>
       {venues.length > 1 && (
         <select value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} className={`mt-3 ${input}`}>
           {venues.map((v) => (
@@ -105,12 +103,13 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
               <div>
                 <span className="font-semibold">{a.name}</span>{" "}
                 <span className="text-slate-500">
-                  · {a.email} · {a.termsDays} days to pay{a.creditLimit !== null ? ` · limit ${money(a.creditLimit)}` : ""}
-                  {languages.length > 1 ? ` · invoices in ${LOCALE_NAMES[a.locale]}` : ""}
+                  · {a.email} · {t.plural("acc.termsDays", a.termsDays)}
+                  {a.creditLimit !== null ? ` · ${t("acc.limit", { amount: money(a.creditLimit) })}` : ""}
+                  {languages.length > 1 ? ` · ${t("acc.invoicesIn", { language: LOCALE_NAMES[a.locale] })}` : ""}
                 </span>
               </div>
               <div className="text-slate-700">
-                Not yet invoiced <strong>{money(a.uninvoiced)}</strong> · owing on invoices <strong>{money(a.owing)}</strong>
+                {t("acc.uninvoiced")} <strong>{money(a.uninvoiced)}</strong> · {t("acc.owing")} <strong>{money(a.owing)}</strong>
               </div>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -119,7 +118,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                   {b.name} · {b.phone}
                   <button
                     type="button"
-                    aria-label={`Take ${b.name} off`}
+                    aria-label={t("acc.takeOff", { name: b.name })}
                     onClick={() =>
                       send(`/api/admin/accounts/bookers?venueId=${venueId}&accountId=${a.id}&phone=${encodeURIComponent(b.phone)}`, "DELETE")
                     }
@@ -139,18 +138,18 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 }}
               >
                 <input
-                  placeholder="Who may book"
+                  placeholder={t("acc.whoMayBook")}
                   value={booker[a.id]?.name ?? ""}
                   onChange={(e) => setBooker({ ...booker, [a.id]: { phone: booker[a.id]?.phone ?? "", name: e.target.value } })}
                   className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs"
                 />
                 <input
-                  placeholder="Their phone"
+                  placeholder={t("acc.theirPhone")}
                   value={booker[a.id]?.phone ?? ""}
                   onChange={(e) => setBooker({ ...booker, [a.id]: { name: booker[a.id]?.name ?? "", phone: e.target.value } })}
                   className="w-28 rounded-md border border-slate-300 px-2 py-1 text-xs"
                 />
-                <button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:border-teal-500">Add</button>
+                <button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:border-teal-500">{t("c.add")}</button>
               </form>
             </div>
             <div className="mt-2 flex flex-wrap gap-3 text-xs">
@@ -159,20 +158,20 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 className="font-medium text-teal-700 underline"
                 onClick={async () => {
                   const done = await send("/api/admin/accounts/invoices", "POST", { accountId: a.id, period: lastMonth });
-                  if (done) setNotice(`Invoiced ${a.name} for ${lastMonth} and emailed it.`);
+                  if (done) setNotice(t("acc.invoiced", { name: a.name, month: lastMonth }));
                 }}
               >
-                Invoice {lastMonth} now
+                {t("acc.invoiceNow", { month: lastMonth })}
               </button>
               <button
                 type="button"
                 className="font-medium text-teal-700 underline"
                 onClick={async () => {
                   const done = await send("/api/admin/accounts/invoices", "POST", { accountId: a.id, period: thisMonth });
-                  if (done) setNotice(`Invoiced ${a.name} for ${thisMonth} so far and emailed it.`);
+                  if (done) setNotice(t("acc.invoicedSoFar", { name: a.name, month: thisMonth }));
                 }}
               >
-                Invoice this month so far
+                {t("acc.invoiceSoFar")}
               </button>
               <button
                 type="button"
@@ -191,17 +190,17 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                   })
                 }
               >
-                Change
+                {t("c.change")}
               </button>
               <button
                 type="button"
                 className="text-red-600 underline"
                 onClick={() => {
-                  if (confirm(`Close ${a.name}'s account? Nobody can book on it after this; what is on it is still invoiced.`))
+                  if (confirm(t("acc.closeConfirm", { name: a.name })))
                     void send(`/api/admin/accounts?venueId=${venueId}&id=${a.id}`, "DELETE");
                 }}
               >
-                Close
+                {t("c.close")}
               </button>
             </div>
           </li>
@@ -209,24 +208,24 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
       </ul>
 
       <form onSubmit={save} className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
-        <p className="text-sm font-semibold sm:col-span-3">{form.id ? `Change ${form.name}` : "Open an account"}</p>
-        <input required placeholder="Company or school" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
-        <input placeholder="Contact person" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} className={input} />
-        <input required type="email" placeholder="Invoices go to (email)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
-        <input placeholder="Address, for the invoice" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={input} />
-        <input placeholder="Registration or tax no." value={form.taxNo} onChange={(e) => setForm({ ...form, taxNo: e.target.value })} className={input} />
+        <p className="text-sm font-semibold sm:col-span-3">{form.id ? t("acc.changeName", { name: form.name }) : t("acc.open")}</p>
+        <input required placeholder={t("acc.org")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
+        <input placeholder={t("acc.contact")} value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} className={input} />
+        <input required type="email" placeholder={t("acc.email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
+        <input placeholder={t("acc.address")} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={input} />
+        <input placeholder={t("acc.taxNo")} value={form.taxNo} onChange={(e) => setForm({ ...form, taxNo: e.target.value })} className={input} />
         <div className="flex gap-2">
           <label className="flex flex-1 flex-col text-xs text-slate-500">
-            Days to pay
+            {t("acc.daysToPay")}
             <input type="number" min={0} max={90} value={form.termsDays} onChange={(e) => setForm({ ...form, termsDays: e.target.value })} className={input} />
           </label>
           <label className="flex flex-1 flex-col text-xs text-slate-500">
-            Limit (blank: none)
+            {t("acc.limitField")}
             <input type="number" min={1} step="0.01" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} className={input} />
           </label>
           {languages.length > 1 && (
             <label className="flex flex-1 flex-col text-xs text-slate-500">
-              Invoices in
+              {t("acc.invoicesInField")}
               <select value={form.locale || languages[0]} onChange={(e) => setForm({ ...form, locale: e.target.value })} className={input}>
                 {languages.map((l) => (
                   <option key={l} value={l}>
@@ -238,10 +237,10 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
           )}
         </div>
         <div className="flex gap-2 sm:col-span-3">
-          <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{form.id ? "Save" : "Open account"}</button>
+          <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{form.id ? t("c.save") : t("acc.openButton")}</button>
           {form.id && (
             <button type="button" onClick={() => setForm(BLANK)} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-              Never mind
+              {t("c.neverMind")}
             </button>
           )}
         </div>
@@ -251,10 +250,10 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
         <table className="mt-4 w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 pr-2 font-medium">Invoice</th>
-              <th className="py-2 pr-2 font-medium">Account</th>
-              <th className="py-2 pr-2 font-medium">Due</th>
-              <th className="py-2 pr-2 text-right font-medium">Total</th>
+              <th className="py-2 pr-2 font-medium">{t("acc.colInvoice")}</th>
+              <th className="py-2 pr-2 font-medium">{t("acc.colAccount")}</th>
+              <th className="py-2 pr-2 font-medium">{t("acc.colDue")}</th>
+              <th className="py-2 pr-2 text-right font-medium">{t("c.total")}</th>
               <th className="py-2 font-medium" />
             </tr>
           </thead>
@@ -272,8 +271,8 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="py-2 text-right text-xs">
                   {i.paidOn ? (
                     <span className="text-emerald-700">
-                      ✓ paid {i.paidOn}
-                      {i.paidVia ? `, ${PAID_VIA_LABELS[i.paidVia].toLowerCase()}` : ""}
+                      {t("acc.paidOn", { date: i.paidOn })}
+                      {i.paidVia ? `, ${t(`c.via.${i.paidVia}`)}` : ""}
                     </span>
                   ) : paying === i.id ? (
                     <span className="inline-flex flex-wrap gap-1">
@@ -286,24 +285,24 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                           }}
                           className="rounded border border-slate-300 px-2 py-0.5 hover:border-teal-500"
                         >
-                          {PAID_VIA_LABELS[via]}
+                          {t(`c.via.${via}`)}
                         </button>
                       ))}
                     </span>
                   ) : (
                     <span className="inline-flex gap-2">
                       <button type="button" onClick={() => setPaying(i.id)} className="font-medium text-teal-700 underline">
-                        Mark paid
+                        {t("acc.markPaid")}
                       </button>
                       <button
                         type="button"
                         onClick={() => {
-                          if (confirm(`Withdraw ${i.number}? Its bookings will go on the next invoice.`))
+                          if (confirm(t("acc.withdrawConfirm", { number: i.number })))
                             void send(`/api/admin/accounts/invoices/${i.id}`, "DELETE");
                         }}
                         className="text-slate-500 underline"
                       >
-                        Withdraw
+                        {t("acc.withdraw")}
                       </button>
                     </span>
                   )}

@@ -3762,7 +3762,7 @@ export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms
 
 export type Vars = Record<string, string | number>;
 
-function fill(text: string, vars?: Vars): string {
+export function fill(text: string, vars?: Vars): string {
   if (!vars) return text;
   return text
     // An amount after the currency is written as money() writes it: 4.80, not 4.8.
@@ -3793,6 +3793,27 @@ type ErrPhrase<P> = P extends `err.${infer C}` ? C : never;
 type Stem<C> = C extends `${infer S}_one` ? S : C extends `${infer S}_other` ? S : C;
 export type ErrorCode = Stem<ErrPhrase<Phrase>>;
 
+/**
+ * Filled into any phrase that names them: the site, the install's currency,
+ * how a phone number is written there, the gateway venues pay through and how
+ * customers pay with it, a place to search near, and the data law. The staff
+ * dictionaries (lib/staff-i18n) are filled with the same.
+ */
+export function phraseVars(locale: Locale, site: string): Vars {
+  const dict = DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
+  const r = region();
+  return {
+    site,
+    cur: currencySymbol(),
+    phoneEx: r.phone.example,
+    gateway: GATEWAY_NAMES[r.gateway],
+    payMethods: dict[`gw.${r.gateway}.methods` as Phrase] ?? "",
+    placeEx: r.placeExample,
+    tagline: r.tagline,
+    dataAct: r.legal.dataAct,
+  };
+}
+
 /** Whether the dictionary has this phrase at all. */
 export function hasPhrase(key: string): key is Phrase {
   return key in DICTIONARIES.en;
@@ -3806,20 +3827,7 @@ export function hasPhrase(key: string): key is Phrase {
  */
 export function translator(locale: Locale, site: string = siteName()): T {
   const dict = DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
-  // Filled into any phrase that names them: the site, the install's currency,
-  // how a phone number is written there, the gateway venues pay through and
-  // how customers pay with it, a place to search near, and the data law.
-  const r = region();
-  const base = {
-    site,
-    cur: currencySymbol(),
-    phoneEx: r.phone.example,
-    gateway: GATEWAY_NAMES[r.gateway],
-    payMethods: dict[`gw.${r.gateway}.methods` as Phrase] ?? "",
-    placeEx: r.placeExample,
-    tagline: r.tagline,
-    dataAct: r.legal.dataAct,
-  };
+  const base = phraseVars(locale, site);
   const t = ((phrase: Phrase, vars?: Vars) =>
     fill(dict[phrase] ?? String(phrase), { ...base, ...vars })) as T;
   t.plural = (stem: string, n: number, vars?: Vars) =>
