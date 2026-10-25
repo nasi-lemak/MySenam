@@ -1,6 +1,6 @@
 "use client";
 
-import { sportsOf } from "@/lib/court-activities";
+import { mostPerBookingAllowed, placesPerBooking, sportsOf } from "@/lib/court-activities";
 import { activity, activityIcon } from "@/lib/activity-registry";
 import { PeakHoursEditor } from "./PeakHoursEditor";
 import { AddResourcesForm, CourtActivitiesEditor, SignOffsPanel, withMarks } from "./ResourcesEditor";
@@ -23,6 +23,18 @@ const surfaceLabel = (t: T, x: string) => {
   const key = `surface.${x}`;
   return hasPhrase(key) ? t(key) : x;
 };
+
+/**
+ * The choices for the most one booking may take: up to every place a resource
+ * with places has, or up to MAX_PLAYERS on a court priced per player; with
+ * the current setting always among them.
+ */
+function mostChoices(court: Court): number[] {
+  const most = mostPerBookingAllowed(court.capacity);
+  const steps = [1, 2, 4, 6, 10, 12, 16, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500].filter((n) => n <= most && (court.capacity > 1 || n >= 2));
+  const all = new Set([...steps, ...(court.capacity > 1 ? [court.capacity] : []), ...(court.maxPlayers ? [court.maxPlayers] : [])]);
+  return [...all].sort((a, b) => a - b);
+}
 
 /** What one row of the courts table can change in a save. */
 interface CourtEdits {
@@ -342,8 +354,8 @@ export function CourtsTab({
                           onChange={(e) => saveLengths(court, { maxPlayers: e.target.value === "" ? null : Number(e.target.value) })}
                           className="rounded-md border border-slate-300 px-1.5 py-1 text-sm"
                         >
-                          <option value="">{t("ct.upTo", { n: 8 })}</option>
-                          {(court.capacity > 1 ? [1, 2, 4, 6, 10, 12, 16, 20, 30] : [2, 4, 6, 10, 12, 16, 20, 30]).map((n) => (
+                          <option value="">{t("ct.upTo", { n: placesPerBooking({ ...court, maxPlayers: null }) })}</option>
+                          {mostChoices(court).map((n) => (
                             <option key={n} value={n}>
                               {t("ct.upTo", { n })}
                             </option>

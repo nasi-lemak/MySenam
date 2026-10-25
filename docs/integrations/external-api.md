@@ -23,7 +23,7 @@ are limited to 120 a minute per key.
 | `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
 | `GET /bookings?from=&to=` | read | Bookings in up to 31 days, cancelled ones too |
 | `GET /bookings/<code>` | read | One booking |
-| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation |
+| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it) |
 | `POST /bookings/<code>/cancel` | write | Cancels as staff would; the customer is told |
 
 Times of day are minutes from the venue's midnight on the booking's date
@@ -32,7 +32,7 @@ keep to the court's booking rules (start times, lengths, notice), as on the
 venue's page; the refusal says which rule. A booking reads `{ code, status,
 paymentStatus, date, startMin, endMin, startsAt, endsAt, startHour, endHour,
 courtId, courtName, sport, name, phone, email, totalPrice, paidByOthers,
-depositPaid, coachId, noShow, createdAt }`: `startsAt` and `endsAt` are the
+depositPaid, coachId, noShow, createdAt, players }`: `startsAt` and `endsAt` are the
 moments themselves (ISO 8601, UTC); `startHour` and `endHour` are the same
 times in hours, kept for clients written before minutes. A key only ever
 sees its own venue: another venue's court or booking is *not found*.

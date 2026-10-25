@@ -25,7 +25,9 @@ and for moving a game, [ADR 0018](../architecture/decisions/0018-moving-open-gam
 ## Hosting and joining
 
 A player who has booked a court can open it to others at `/games` (*Games* in
-the menu): how many players they want, at what level, casual or competitive,
+the menu): how many players they want (up to ten, or as many as the venue
+lets one booking on that court take, less the host: `mostSpots` in
+`src/lib/court-activities.ts`), at what level, casual or competitive,
 what each pays towards the court (split evenly unless they say otherwise),
 whether a full game keeps a waiting list, whether it is adults only, and
 whether it is public or private. Others find public games by sport, day,

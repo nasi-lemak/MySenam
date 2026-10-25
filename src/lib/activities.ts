@@ -233,9 +233,12 @@ function readInput(input: ActivityInput): { ok: true; value: Omit<ActivityDefini
   const capacity = input.capacity ?? (shared ? 20 : 1);
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) return { ok: false, error: "Places are 1 to 500." };
   if (!shared && capacity !== 1) return { ok: false, error: "A resource booked whole has one place." };
+  // Up to every place, where it has them; up to 50 (MAX_PLAYERS) on a court
+  // priced per player: as `mostPerBookingAllowed` (lib/court-activities.ts).
   const maxPlayers = input.maxPlayers ?? null;
-  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 1 || maxPlayers > 50))
-    return { ok: false, error: "At most 1 to 50 in one booking." };
+  const most = capacity > 1 ? capacity : 50;
+  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 1 || maxPlayers > most))
+    return { ok: false, error: `Up to 1 to ${most} in one booking.` };
   const aliases = (input.aliases ?? [])
     .filter((x): x is string => typeof x === "string")
     .map((x) => x.trim())

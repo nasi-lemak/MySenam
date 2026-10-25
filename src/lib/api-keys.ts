@@ -146,5 +146,7 @@ export function apiBooking(b: Booking & { courtName?: string; sport?: string }):
     coachId: b.coachId ?? null,
     noShow: b.noShow,
     createdAt: b.createdAt,
+    // Places it takes (or players, on a court priced per player); 1 for a court booked whole.
+    players: b.players ?? 1,
   };
 }

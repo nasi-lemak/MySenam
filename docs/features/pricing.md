@@ -112,7 +112,7 @@ otherwise (`priceBooking` in `src/lib/pricing.ts`).
   the staff list all follow it.
 - A shared facility (a gym floor, a wall, a fleet of kayaks) takes as many
   places as a booking says, up to the most one booking may take (eight
-  unless set). By default each place pays the rate; the venue can instead
+  unless the venue sets more, up to every place it has). By default each place pays the rate; the venue can instead
   make the rate one price for the whole booking, or set quantity prices
   (from four places, each at 90%), which apply to courts priced per player
   too ([activities](activities.md#pricing-a-booking-with-places)). It cannot

@@ -1,5 +1,5 @@
 import { activity, activityName, activityKeys } from "./activity-registry";
-import { courtFor, courtOffers, placesPerBooking } from "./court-activities";
+import { courtFor, courtOffers, mostPerBookingAllowed, mostSpots, placesPerBooking } from "./court-activities";
 import { signOffHolds, type SignOffChannel } from "./sign-offs";
 export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
@@ -27,7 +27,7 @@ import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
-import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, MAX_PLAYERS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -3527,6 +3527,8 @@ export interface UserBookingRow extends Booking {
   venueStrikeLimit: number | null;
   /** Where to rate the visit, once it has been played (lib/reviews.ts); null otherwise. */
   reviewUrl: string | null;
+  /** The most players an open game on it can look for (lib/court-activities.ts `mostSpots`). */
+  mostSpots: number;
 }
 
 export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
@@ -3534,6 +3536,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
   const rows = await db
     .prepare(`
       SELECT b.*, c.name AS court_name, b.sport AS court_sport,
+             c.capacity AS court_capacity, c.per_player AS court_per_player, c.max_players AS court_max_players,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
              COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
@@ -3551,6 +3554,9 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     .all(userId) as (BookingRow & {
     court_name: string;
     court_sport: Sport;
+    court_capacity: number;
+    court_per_player: number;
+    court_max_players: number | null;
     venue_name: string;
     venue_area: string;
     venue_address: string;
@@ -3573,6 +3579,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venueLateCancelKeep: r.venue_late_keep,
     venueStrikeLimit: r.venue_strike_limit,
     reviewUrl: mayReviewByDate(r, venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng })) ? reviewPath(r.code) : null,
+    mostSpots: mostSpots({ capacity: r.court_capacity, perPlayer: r.court_per_player === 1, maxPlayers: r.court_max_players }),
   }));
 }
 
@@ -4545,11 +4552,17 @@ export async function updateCourt(
 
   const perPlayer = changes.perPlayer ?? court.perPlayer ?? false;
   const capacity = changes.capacity ?? court.capacity;
-  const maxPlayers = changes.maxPlayers !== undefined ? changes.maxPlayers : court.maxPlayers ?? null;
   // A facility with places may take one a booking (a gym session each); a court priced per player at least two.
   const fewest = capacity > 1 ? 1 : 2;
-  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < fewest || maxPlayers > MAX_PLAYERS))
-    return { ok: false, error: `Up to ${fewest} to ${MAX_PLAYERS} in one booking.` };
+  // As many as the venue likes, up to every place it has; a court priced per player up to MAX_PLAYERS.
+  const most = mostPerBookingAllowed(capacity);
+  let maxPlayers = changes.maxPlayers !== undefined ? changes.maxPlayers : court.maxPlayers ?? null;
+  // Places changed under a limit set before: the limit follows them down, as
+  // it already did for every booking (`placesPerBooking`), rather than refuse.
+  if (changes.maxPlayers === undefined && maxPlayers !== null && (maxPlayers > most || maxPlayers < fewest))
+    maxPlayers = maxPlayers > most ? most : null;
+  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < fewest || maxPlayers > most))
+    return { ok: false, error: `Up to ${fewest} to ${most} in one booking.` };
   // A shared facility already sells places, one per person.
   if (perPlayer && capacity > 1)
     return { ok: false, error: "This sells places already, one per person: price it per place instead." };

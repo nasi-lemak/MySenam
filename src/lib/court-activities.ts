@@ -1,5 +1,5 @@
 import { activityKeys } from "./activity-registry";
-import { DEFAULT_MAX_PLAYERS, type Court, type Sport } from "./types";
+import { DEFAULT_MAX_PLAYERS, MAX_PLAYERS, type Court, type Sport } from "./types";
 
 /**
  * What a court can be booked for (ADR 0011): one or more activities, each at
@@ -54,4 +54,25 @@ export function placesPerBooking(court: Pick<Court, "capacity" | "perPlayer" | "
   const most = court.maxPlayers ?? DEFAULT_MAX_PLAYERS;
   if (court.capacity > 1) return Math.min(most, court.capacity);
   return court.perPlayer ? most : 1;
+}
+
+/**
+ * The most a venue may let one booking take here: every place of a resource
+ * with places (a fleet of 20 kayaks may go to one group), or MAX_PLAYERS on a
+ * court priced per player. Unset, it is DEFAULT_MAX_PLAYERS (or the places,
+ * if fewer).
+ */
+export function mostPerBookingAllowed(capacity: number): number {
+  return capacity > 1 ? capacity : MAX_PLAYERS;
+}
+
+/** Players an open game looks for, at most, unless the court lets one booking take more. */
+export const OPEN_GAME_SPOTS = 10;
+
+/**
+ * The most players an open game on a booking here can look for: ten, or as
+ * many more as the venue lets one booking take, less the host, who plays too.
+ */
+export function mostSpots(court: Pick<Court, "capacity" | "perPlayer" | "maxPlayers">): number {
+  return Math.max(OPEN_GAME_SPOTS, placesPerBooking(court) - 1);
 }

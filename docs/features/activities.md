@@ -124,10 +124,21 @@ are still separate resources sharing a floor
 
 On a resource with places (a gym floor, a wall, a fleet of boards), a booking
 says how many it takes — four kayaks, three climbers — up to the venue's
-most per booking (eight unless set; one for a gym that sells a session
-each). The database holds the sum of places at every moment within the
-capacity, so the last two boards cannot be hired twice. How it is priced is
-the venue's choice, per resource (`src/lib/pricing.ts`):
+most per booking (eight unless set, or the places if fewer; one for a gym
+that sells a session each). The venue sets it per resource (*Courts →
+How it is sold*, or when the resources are made, or on an activity's
+template) anywhere from one to every place the resource has, so a fleet of
+30 kayaks can go to one school trip of 30; it cannot be set above the
+places, and when the places are cut below it, it comes down with them. A
+court priced per player takes 2 to 50 players. Every way of booking reads
+the same limit (`placesPerBooking` in `src/lib/court-activities.ts`): the
+booking form, the desk, the venue's own system through the API
+(`players`), several kinds of kit booked together (each kind up to its own),
+*any court* (the lowest limit among the courts it may pick), and an open
+game on the booking, which can look for that many players less the host
+(at least ten). The database holds the sum of places at every moment within
+the capacity, so the last two boards cannot be hired twice. How it is priced
+is the venue's choice, per resource (`src/lib/pricing.ts`):
 
 | Model | Price | For |
 | ----- | ----- | --- |

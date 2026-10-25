@@ -116,7 +116,7 @@ Account endpoints (session cookie):
 | POST   | `/api/auth/reset`         | `{token, password}` → new password + signed in  |
 | GET    | `/api/my/password`        | `{hasPassword}` (Google accounts may have none) |
 | POST   | `/api/my/password`        | `{current, next}` → change it; others signed out |
-| GET    | `/api/my/bookings`        | The signed-in user's bookings, and refunds owed or made on them (`refunds`) |
+| GET    | `/api/my/bookings`        | The signed-in user's bookings (each with `mostSpots`, the most players an open game on it can look for), and refunds owed or made on them (`refunds`) |
 | GET    | `/api/my/wallet`          | Credit balance and recent movements             |
 | POST   | `/api/my/wallet`          | `{venueId, amount}` → the page to pay on; the credit lands once it is paid |
 | POST   | `/api/my/vouchers`        | `{code}` → a gift voucher, as credit            |
@@ -227,7 +227,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/classes/term` | `?classId` → the sessions left in this weekly class that can still be joined, and what the term costs |
 | GET | `/api/coaching/slots` | `?coachId&date&sport?` → when a lesson with that coach can start that day (`starts`: minute and longest length), and the lengths the sport's courts allow (`policy`) |
 | GET | `/api/games` | Public open games with room (or a waiting list), soonest first: `?sport=&date=&area=&level=&who=women`, or `?near=lat,lng&km=` for nearest. Signed in, each says where you stand in it. Private games are never listed |
-| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players |
+| POST | `/api/games` | `{ bookingCode, spots, level, share, autoAccept, note?, who?, visibility?, waitlist?, intensity?, adultsOnly? }` — open one of your bookings to other players; `spots` up to ten, or the court's most per booking less the host where that is more |
 | GET | `/api/games/recommended` | Signed in: open games suggested for you, best first, each with its score and reasons; `?sport=&offset=&limit=` ([matchmaking](../features/matchmaking.md#suggested-games-and-players)) |
 | GET | `/api/games/:id` | One game as you may see it; a private one only to its host, its players and invitees, or with `?link=` |
 | POST | `/api/games/:id` | `{ action }` on one game, by the signed-in player: "join" (ask, join outright where the host lets everybody in, join the waiting list, or take up an invitation or a held place; `link` for a private game), "leave" (also turns down an invitation or held place), "pay" (your share, online, to the venue — answers with where to pay), "invite" (`userId` or `email`); for its host, "close", "cancel", "link" (`hours`), "unlink" and, on a weekly game, "inviteRegulars"; "keepPlace" for a player keeping their place at the new time it is moving to (or confirming the venue's change) |

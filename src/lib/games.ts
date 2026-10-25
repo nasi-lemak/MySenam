@@ -16,6 +16,7 @@ import { money } from "./region";
 import { signOffHolds } from "./sign-offs";
 import { blockedBetween, blockedInGame, related } from "./player-safety";
 import { declaredAdult, type Intensity } from "./player-profiles";
+import { mostSpots, OPEN_GAME_SPOTS } from "./court-activities";
 
 /**
  * Player matching: open games.
@@ -62,7 +63,8 @@ import { declaredAdult, type Intensity } from "./player-profiles";
 
 export const LEVELS = ["beginner", "intermediate", "advanced", "competitive"] as const;
 export type Level = (typeof LEVELS)[number];
-export const MAX_SPOTS = 10;
+/** Players a game can look for, unless the court lets one booking take more (`mostSpots`). */
+export const MAX_SPOTS = OPEN_GAME_SPOTS;
 /** Joining stops after this many no-shows in NO_SHOW_DAYS. */
 export const MAX_NO_SHOWS = 3;
 export const NO_SHOW_DAYS = 90;
@@ -326,7 +328,8 @@ export async function openGame(
   const booking = (await db
     .prepare(
       `SELECT b.id, b.user_id, b.date, b.start_min, b.status, b.class_id, b.total_price::float AS total_price,
-              b.hold_until, b.payment_status, v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open
+              b.hold_until, b.payment_status, v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open,
+              c.capacity, c.per_player, c.max_players
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE UPPER(b.code) = UPPER(?)`
     )
@@ -335,6 +338,7 @@ export async function openGame(
         id: number; user_id: number | null; date: string; start_min: number; status: string; class_id: number | null;
         total_price: number; open: boolean; time_zone: string | null; lat: number | null; lng: number | null;
         hold_until: string | null; payment_status: string;
+        capacity: number; per_player: number; max_players: number | null;
       }
     | undefined;
   if (!booking || booking.user_id !== hostId) return { ok: false, error: "That is not one of your bookings.", status: 404 };
@@ -345,8 +349,10 @@ export async function openGame(
   // Held only until paid: players' shares could arrive after it was let go.
   if (booking.hold_until && booking.payment_status === "unpaid")
     return { ok: false, error: "Pay for the court first: this venue holds it only until it is paid." };
-  if (!Number.isInteger(input.spots) || input.spots < 1 || input.spots > MAX_SPOTS)
-    return { ok: false, error: `Look for 1 to ${MAX_SPOTS} players.` };
+  // Ten, or more where the venue lets one booking here take more.
+  const most = mostSpots({ capacity: booking.capacity, perPlayer: booking.per_player === 1, maxPlayers: booking.max_players });
+  if (!Number.isInteger(input.spots) || input.spots < 1 || input.spots > most)
+    return { ok: false, error: `Look for 1 to ${most} players.` };
   if (input.level !== null && !LEVELS.includes(input.level)) return { ok: false, error: "Unknown level." };
   if (!Number.isFinite(input.share) || input.share < 0 || input.share > booking.total_price)
     return { ok: false, error: `Each share must be between ${money(0)} and the court's ${money(booking.total_price)}.` };

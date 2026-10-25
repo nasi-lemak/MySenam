@@ -291,6 +291,13 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       // sends venue + sport instead of this id.
       const first = availability?.[0]?.court;
       if (!first) return null;
+      // How many it can be for: what every one of them allows, so whichever is
+      // picked takes it (players on courts all priced per player, places on
+      // resources that all have them), never a number one of them refuses.
+      const courts = (availability ?? []).map((a) => a.court);
+      const everyShared = courts.every((c) => c.capacity > 1);
+      const everyPerPlayer = courts.every((c) => c.capacity === 1 && c.perPlayer);
+      const fewestMost = Math.min(...courts.map((c) => placesPerBooking(c)));
       return {
         id: ANY_COURT,
         venueId: first.venueId,
@@ -298,7 +305,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         sport: first.sport,
         offPeakRate: 0,
         peakRate: 0,
-        capacity: 1,
+        capacity: everyShared ? Math.min(...courts.map((c) => c.capacity)) : 1,
+        perPlayer: everyPerPlayer,
+        maxPlayers: everyShared || everyPerPlayer ? fewestMost : null,
       } as Court;
     }
     return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
@@ -1000,17 +1009,29 @@ function BookingForm({
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <label className="flex items-center gap-2">
             {t(shared ? "form.places" : "form.players")}
-            <select
-              value={players}
-              onChange={(e) => setPlayers(Number(e.target.value))}
-              className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
-            >
-              {Array.from({ length: mostPlayers }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            {mostPlayers > 30 ? (
+              // A venue that lets one booking take dozens: a number, not a list of them.
+              <input
+                type="number"
+                min={1}
+                max={mostPlayers}
+                value={players}
+                onChange={(e) => setPlayers(Math.max(1, Math.min(mostPlayers, Math.floor(Number(e.target.value)) || 1)))}
+                className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+              />
+            ) : (
+              <select
+                value={players}
+                onChange={(e) => setPlayers(Number(e.target.value))}
+                className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+              >
+                {Array.from({ length: mostPlayers }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
           {quote && pricedByQuantity(court) && (
             <span className="text-slate-500">{t(shared ? "form.placesNote" : "form.playersNote", { n: players, price: money(quote.court / players) })}</span>

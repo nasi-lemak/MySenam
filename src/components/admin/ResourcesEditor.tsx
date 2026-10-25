@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ACTIVITY_CATEGORIES, RESOURCE_MODELS, RESOURCE_NOUNS } from "@/lib/activity-catalogue";
 import { activityIcon, type Activity } from "@/lib/activity-registry";
-import { courtSports } from "@/lib/court-activities";
+import { courtSports, mostPerBookingAllowed } from "@/lib/court-activities";
 import { sportLabel } from "@/lib/i18n";
 import { region } from "@/lib/region";
 import { MAX_CAPACITY, MAX_DEPOSIT, type Court } from "@/lib/types";
@@ -210,7 +210,7 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("res.mostInBooking")}
-          <input type="number" min={1} max={50} placeholder={t("res.any")} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: e.target.value })} className={`mt-1 w-20 ${input}`} />
+          <input type="number" min={1} max={mostPerBookingAllowed(Number(form.capacity) || 1)} placeholder={t("res.any")} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         <button type="submit" className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
           {t("c.add")}

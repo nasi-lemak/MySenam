@@ -1,11 +1,11 @@
 import { venueMayOffer } from "./activities";
 import { activity, activityName } from "./activity-registry";
 import { RESOURCE_NOUNS, type ActivityTemplate } from "./activity-catalogue";
-import { courtSports } from "./court-activities";
+import { courtSports, mostPerBookingAllowed } from "./court-activities";
 import { getDb, withTransaction } from "./db";
 import { isAmount } from "./region";
 import { createCourt, getCourt } from "./store";
-import { MAX_CAPACITY, MAX_DEPOSIT, MAX_PLAYERS, type Court, type Sport } from "./types";
+import { MAX_CAPACITY, MAX_DEPOSIT, type Court, type Sport } from "./types";
 
 /**
  * Resources and what they are booked for (ADR 0011): making them from an
@@ -61,9 +61,11 @@ export async function createResources(input: NewResources): Promise<{ ok: true; 
   const capacity = input.capacity ?? 1;
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_CAPACITY) return { ok: false, error: `Capacity must be 1–${MAX_CAPACITY}.` };
   if (input.deposit !== undefined && !isAmount(input.deposit, 0, MAX_DEPOSIT)) return { ok: false, error: `A deposit must be 0–${MAX_DEPOSIT}.` };
+  // Up to every place a resource with places has (a fleet hired whole), or MAX_PLAYERS on a court priced per player.
   const maxPlayers = input.maxPlayers ?? null;
-  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 1 || maxPlayers > MAX_PLAYERS))
-    return { ok: false, error: `Up to 1 to ${MAX_PLAYERS} in one booking.` };
+  const most = mostPerBookingAllowed(capacity);
+  if (maxPlayers !== null && (!Number.isInteger(maxPlayers) || maxPlayers < 1 || maxPlayers > most))
+    return { ok: false, error: `Up to 1 to ${most} in one booking.` };
   const setting = input.setting === undefined ? a.template.setting : input.setting;
   if (setting !== null && setting !== "indoor" && setting !== "outdoor") return { ok: false, error: "Indoor, outdoor or neither." };
   const also = input.also ?? [];
