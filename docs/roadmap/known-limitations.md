@@ -79,7 +79,6 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | ---------- | ------------------ | -------------- |
 | Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs and company accounts work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
-| Defaults marked *for review*: adjacent buffers add up; at most eight places per booking unless the venue sets more; a first lesson needing a sign-off is booked at the counter ([booking time model](#booking-and-availability-b), [activities](#activities)) | As described | Accept as the launch defaults |
 
 ### Accepted
 
@@ -94,6 +93,12 @@ the commit to be launched is judged by;
 Billplz refunds by hand for a small Malaysian launch
 ([launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide));
 negative stored credit after a chargeback, reported apart (M14);
+the booking defaults put for review (the owner, 25 October 2026): minimum
+separation between neighbours no longer adds up while setup and cleaning
+time does ([booking time model](../architecture/booking-time-model.md)),
+eight places per booking unless the venue allows more, up to every place,
+and first lessons and registrations applied for online and approved remotely
+([activities](../features/activities.md#registering-online-for-approval));
 the launch promises customers English, Malay, simplified Chinese and Tamil
 (the owner, 24 October 2026), and the staff dashboard English, Malay and
 Chinese, not Tamil (the owner, 24 October 2026; [languages](#languages));
@@ -113,9 +118,9 @@ promise. The P2 items among them:
   on a schedule once CI does.
 - Ways basic and specialised activities are commonly sold ([activities](#activities)):
   roadmap rows; operators see the note as they pick one.
-- Browser tests cover a few journeys ([gaps](#gaps-in-verification-and-documentation)):
-  [users and journeys](../product/users-and-journeys.md#what-the-journeys-show)
-  names the two to add first.
+- Browser tests drive most journeys; not a tournament's set-up and draw,
+  corrections, or following an emailed confirmation link
+  ([gaps](#gaps-in-verification-and-documentation)).
 
 ## Every open limitation, by kind
 
@@ -143,39 +148,41 @@ changes; 6 to 8 name what they wait for. As of 24 October 2026: no defect
 | [Tax on money kept from deposits](#money-m) provisional | 7 | Venues that deduct from deposits | Each venue's adviser's review, recorded |
 | [Charging venues](#blockers-only-where-a-feature-is-switched-on): price and terms undecided | 7 | Venues | The owner decides |
 | [Native review](#languages) of Tamil, of activity names in Malay and Chinese, and of programme emails and company-account invoices in Malay, Chinese and Tamil; the four languages are promised | 6 | Customers reading those languages | A native speaker of each reviews ([launch blocker](#blockers-for-any-launch)) |
-| [Defaults for review](#decisions-the-owner-has-to-make): adjacent buffers add up, eight places a booking, a first lesson needing a sign-off at the counter | 7 | Venues with buffers, fleets, sign-offs | The owner accepts or changes each |
 | [The terms](#languages) in English | 7 | Customers reading other languages | Translated after the lawyer's review |
-| [Staff screens](#languages): what the server writes (summaries, lists of changes, reasons) stays English | 2 | Staff reading Malay or Chinese | Each server message moved to a code or phrase, as refusals were |
-| [Browser tests](#gaps-in-verification-and-documentation) cover some journeys only | 4 | Everyone, as regressions found late | The journeys named in [users and journeys](../product/users-and-journeys.md#what-the-journeys-show) |
+| [Staff screens](#languages): records written before migration 0120, and what people, providers and gateways wrote, stay as stored | 5 | Staff reading Malay or Chinese | Kept: data is shown as written |
+| [Browser tests](#gaps-in-verification-and-documentation): a tournament's set-up and draw, and corrections, are not driven in a browser | 4 | Organisers, as regressions found late | Scenarios for them in the acceptance suite |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
 | [Ways some activities are sold](#activities): bowling by the game, gym entry without a session, day passes, launch windows, range officers, heats | 8 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
-| [Counted performances](#booking-and-availability-b) (bouldering tops and zones); [kinds of kit](#activities) under one heading | 8 / 3 | Climbing competitions; hire venues | [Roadmap](roadmap.md) |
+| [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
+| [Separation on a shared facility adds up](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept; checked again when such a country is added |
+| [Preset concession names on receipts](#activities); [headings over kinds of kit](#activities) not in search results | 3 | Customers reading other languages; hire venues | Receipts naming a preset by its key; headings in search results |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
-| [Legacy outages](#booking-and-availability-b) from before migration 0090 | 3 | Installs older than 0090 (none in production) | End and recreate their running outages if one is upgraded |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
 | [An operator's own activity](#activities) named in English unless given; [catalogue changes](#activities) take a minute; [`sport` column name](#activities); [integrity check](#activities) window | 5 | Operators | Kept |
-| [Sign-offs online rest on the account](#activities) | 5 / 7 | Climbing and archery venues | For review with the defaults above |
+| [Sign-offs online rest on the account](#activities); [approval applications](#activities): documents images only, retention periods provisional, a parent cannot apply for a child, approval bookings not held for payment | 5 / 7 / 2 | Climbing, archery and hire venues | Retention periods for the owner to confirm; a parent applying for a child is a next step |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **78 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, and S12–S14,
+began on 24 October 2026, **79 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17, and S12–S15,
 found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (22
+[resolved without a number](#resolved-limitations-without-a-number) (30
 rows). Others were narrowed rather than closed (staffed hours, phone
-identity, languages, kinds of kit, clock changes), and two were added: the
-access list matching a typed number, split out when member identity was
-fixed, and the native review of the newly translated emails. The owner's
-two decisions of 24 October 2026 (the launch languages, backups abroad)
-moved a decision into the launch blockers rather than closing it: native
-review is now required, and the transfer steps remain. The staff
-dashboard's own languages, decided the next day, were built; what is left of
-that entry is the text the server composes. In the table above,
-no row is a defect; four are of kinds 2 to 4.
+identity, languages, clock changes, browser coverage). Some were added, each
+narrower than what it replaced: the access list matching a typed number,
+split out when member identity was fixed; the native review of the newly
+translated text; and what the owner's decisions of 25 October 2026 left
+when built (separation on a shared facility adds up, gaps across a change
+of the clocks, the limits of approval applications, preset concession names
+on receipts, headings shown on the grid but not in search). The owner's
+decisions of 24 October 2026 (the launch languages, backups abroad) moved
+a decision into the launch blockers rather than closing it: native review
+is now required, and the transfer steps remain. In the table above, no row
+is a defect; three are of kinds 2 to 4.
 
 ## Suspected defects
 
@@ -273,19 +280,17 @@ there):
   No country MySenam is sold in changes its clocks, and
   `tests/time-zones.test.ts` fails if one is added to the region table:
   adding such a country is a decision of its own (P3, by design).
-- **Outages migrated from the half-hour diary** cover whole calendar days of
-  their dates, so at a venue open past midnight their last night's late
-  hours stay bookable. Outages made since take those hours too
-  (`claimOutage`; `tests/outages.test.ts`, "takes the late hours of its last
-  night too"). Only data written before migration 0090 is affected, so no
-  install created since can have it, and no production install exists yet.
-  Not repaired in place: a migration extending those claims could collide
-  with bookings since sold in the late hours. Next action, if an install from
-  before 0090 is ever upgraded: end and recreate its running outages, which
-  claims them the new way (P3, legacy data only).
-- **Adjacent buffers add up**: two bookings each with a 10-minute buffer on
-  the side they meet are 20 minutes apart, not 10 (by design, for review; a
-  [decision for the owner](#decisions-the-owner-has-to-make)).
+- **Separation on a shared facility adds up**: places are not told apart,
+  so a claim with places holds its minimum separation as places, like
+  setup and cleaning time (two places taken until 11:00 with 10 minutes
+  after, a newcomer keeping 10 before starts at 11:20). Never closer than the
+  rules ask; it can refuse a time a per-place assignment would allow
+  (`tests/separation.test.ts`, "is held as places on a shared floor") (P3,
+  by design).
+- **Gaps across a change of the clocks**: the database measures separation
+  in real minutes, the board in minutes on the clock; across a change a
+  start could be offered and then refused (P3; no country sold in changes
+  its clocks).
 - **The old tables are gone** (migration 0091): rolling back the upgrade is
   restoring the backup taken before it
   ([deployment](../operations/deployment.md#upgrading)).
@@ -308,16 +313,27 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   number; where an install has neither WhatsApp nor SMS to prove numbers
   with, only linked sign-offs work online. At the counter and through the
   venue's API key the number is taken on the staff's or the venue's word.
-  Bookings with a coach are held to the rule like any other, so a first
-  lesson on a wall that needs a sign-off is booked at the counter (P3, for
-  review; a [decision for the owner](#decisions-the-owner-has-to-make)). A group of places on such an activity is booked at the counter,
-  since one sign-off covers one person.
-- **One booking takes at most eight places** unless the venue sets the most
-  per booking, even on a fleet of twenty (by design, for review; a
-  [decision for the owner](#decisions-the-owner-has-to-make)).
-- **Kinds of kit** are resources of their own, listed side by side rather
-  than under one heading; one booking takes some of several (P3, deferred in
-  the [roadmap](roadmap.md)).
+  A first lesson or registration no longer needs the counter where the
+  venue takes applications online ([registering online](../features/activities.md#registering-online-for-approval));
+  a coach's lesson is not held with an application (court time is), and is
+  booked once approved (P3). A group of places on such an activity is booked
+  at the counter, since one sign-off covers one person.
+- **Approval applications**: documents are images only (JPEG, PNG or WebP,
+  redrawn; no PDFs), at most three, kept in the database (so in backups)
+  until 90 days after the decision; the 90-day and 365-day retention periods
+  are provisional, for the owner to confirm (P3). A parent cannot apply for
+  a child from the parent's own account: a minor applies from their own,
+  with the guardian's name and declaration, recorded as declared (P3).
+- **A booking made on approval is not held for payment** at a venue that
+  asks payment to hold (the customer was not there to pay when it was
+  approved), and a booking a manager makes past the rules for an activity
+  needing a sign-off no longer gets an unmanned door's code without one (by
+  design, for review).
+- **Receipts and the off-peak refusal name a preset concession** by the
+  name stored, in the language staff saw when they saved it; the booking
+  form, confirmation and *My booking* show it in the customer's (P3).
+- **Kinds of kit under one heading** show as one heading on the venue's
+  grid and booking form, not in search results (P3).
 - **A catalogue change** made on one instance reaches the others within a
   minute (the cache), and the browser on its next page (P3).
 - **Country names exist for countries the app is not yet sold in** (sepak
@@ -343,12 +359,13 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   of game, tournament, league and group emails and of company-account
   invoices, and the staff dashboard's Malay and Chinese (machine-assisted)
   (P2).
-- **On the staff dashboard**, text the server composes stays English: a
-  court's summary, the lists of changes a tournament correction previews,
-  reasons a pass or code cannot be used, delivery errors, backup problems,
-  gateway field help, catalogue notes, holiday names. Refusals are translated
-  (by their code, or by their English sentence in `src/lib/staff-i18n/refusals-*.ts`);
-  one sent without either reads in English (P2).
+- **On the staff dashboard**, what the server composes is said in the staff
+  language (`src/lib/staff-text.ts`, `srv.` phrases), and refusals by their
+  code or their English sentence (`src/lib/staff-i18n/refusals-*.ts`). What
+  stays as stored: what people typed, provider, gateway and LHDN errors, raw
+  exception text, the activity log, records from before migration 0120
+  (alerts, credit lines, receipt lines, urgent notices, tournament
+  corrections), printed receipts, and holiday names (P3).
 - **Not reviewed by a native speaker:** the Tamil dictionary, and the
   built-in activity names in Malay and Chinese (machine-assisted) (P2).
 
@@ -441,6 +458,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B13 | Independent bookings no longer read each other's claims, expired offers are let go only when a claim conflicts, and retries back off; a booking that still cannot finish is refused as busy (503), never a 500 | `tests/contention.test.ts`, `tests/db.test.ts` |
 | B15 | The admin route passes who enters a tournament's results; before, one set up for the players' results from the dashboard was saved as staff's. Found and fixed in the same change | `tests/fixtures.test.ts` |
 | B16 | Joining an open game, and a host accepting a player, counted the places and then wrote, with nothing between: on Postgres six people joining a one-place game at once were all let in. Every change that takes or frees a place now runs in one transaction that locks the game's row first. Found and fixed in the same change | `tests/matchmaking.test.ts` ("lets exactly one of many people joining at once") |
+| B17 | *My booking* offered free times for a booking already inside the venue's change cut-off, then refused only once the customer picked one; now no time is offered and it says why (`customerChangeRefusal`, `GET /api/bookings/reschedule` answers 409). Found by the browser scenario *Change time 2* | `tests/reschedule.test.ts` ("offer a customer no times once the booking is inside the cutoff"), `tests/uat/change-time.uat.ts` |
 | B14 | A booking takes advisory locks on its spaces, shared courts and coach, in one order, before claiming, so racing bookings queue rather than deadlock | `tests/contention.test.ts`, `tests/concurrency.test.ts` |
 | B11 | Utilisation measures the courts' floor once: each piece sellable on its own is a unit, in use whenever any booking covers it (as the court or the pitch over it) and out where a block or outage covers it; the pitch's own space is not more floor. Each court also shows its hours in use; takings per hour of floor are given beside ([reporting](../features/reporting.md)) | `tests/reports-floor.test.ts`, `tests/court-links.test.ts` |
 | M12 | A fee paid online for something already paid (a tournament entry, a WhatsApp pack, a platform invoice) is recorded as owed back, with no second receipt or revenue, and refunded once through the gateway or marked refunded | `tests/tournaments.test.ts`, `tests/billing.test.ts`, `tests/whatsapp-usage.test.ts` |
@@ -451,6 +469,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | S12 | An account's *My waiting lists* listed every place queued on the account's phone number, proved or only typed in, so registering with somebody's number showed where and when they were queuing. Now the places the account joined, or on its proved number. Found and fixed in the same change | `tests/member-identity.test.ts` ("a number on an account's own lists") |
 | S13 | A members-only venue or tournament let in any account whose typed number matched a member's. Now only the account the membership is linked to, or whose number it is, proved. Found and fixed in the same change | `tests/member-identity.test.ts` |
 | S14 | A password reset or address-confirmation email was marked sent, and its link wiped, in two statements: a server stopping between them (and, for a moment, any reader) kept a sent message with a working link in the database and its backups. Found by a full run on Postgres; now one statement | `tests/platform-messages.test.ts` |
+| S15 | Saving a venue's details left the set-up checklist and the go-live banner showing what was missing until the tab changed; both now refresh on save. Found by the browser scenario *Venue 1* | `tests/components/setup-checklist.test.tsx`, `tests/uat/venue-setup.uat.ts` |
 
 ### Resolved limitations without a number
 
@@ -479,6 +498,14 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | No multipart uploads off-site: a backup part over about 5 GB (a photos archive) was refused | Parts over one PUT go up in 100 MiB parts, each signed and MD5-checked, by the same upload-only key; unfinished ones are dropped by a lifecycle rule ([backups](../operations/backups.md)) | `tests/offsite.test.ts` ("sends a file larger than one upload in parts…", "stops at a part that arrives damaged…"); against the B2 stand-in, not a real bucket |
 | A company account's invoice email and printable invoice were in English whatever the account's language | The venue picks one of the site's languages for the account (`venue_accounts.locale`, migration 0113); the email and the invoice are written in it, whoever opens the link ([payments and credit](../features/payments-and-credit.md#company-and-school-accounts)) | `tests/accounts.test.ts` ("an account's invoices in its language") |
 | The staff dashboard was English only | Every staff screen reads its text from staff dictionaries in English, Malay and Chinese (`src/lib/staff-i18n`), the dashboard's language switch offers those three, and the server's English refusals are translated; a scan fails on any staff screen text outside the dictionaries ([regions](../product/regions-and-tax.md)) | `tests/staff-i18n.test.ts`, `tests/uat/staff-language.uat.ts` (Staff 1) |
+| Adjacent buffers added up: two bookings each keeping 10 minutes free on the side they meet were 20 minutes apart | Minimum separation is shared (the larger of the two facing ones counts), kept apart from setup and cleaning time, which adds up; the database enforces both (`claim_gaps_apart`, migrations 0118–0119) and the board offers exactly what it accepts ([booking time model](../architecture/booking-time-model.md)) | `tests/separation.test.ts`, `tests/separation-migration.test.ts` |
+| A first lesson or registration on an activity needing a sign-off had to be done at the counter | Customers apply online (questions, declarations, documents, a video briefing, the waiver, a guardian's declaration); staff or an authorised coach approve remotely; an in-person step stays required where set; a slot asked for is held by an expiring claim and booked through the ordinary path on approval; pending grants no booking, no door code ([activities](../features/activities.md#registering-online-for-approval), [ADR 0019](../architecture/decisions/0019-approval-requests-apart-from-bookings.md)) | `tests/approvals.test.ts` |
+| One booking stopped at eight places or fifty whatever the venue allowed; *any court*, the public API and open games took fewer | Eight unless the venue sets more, up to every place of the resource, on every path | `tests/places-per-booking.test.ts` |
+| Kinds of kit were listed side by side, with no heading over them | A venue groups resources under one heading on its grid and booking form; kinds are still booked together, all or nothing | `tests/resource-headings.test.ts`, `tests/components/booking-board.test.tsx` |
+| Outages migrated from the half-hour diary left their last night's late hours bookable | Staff close those hours from *Out of service* where they are free; bookings sold there since are listed and left alone ([legacy installs](../archive/migrations/legacy-installs.md)) | `tests/outages.test.ts` |
+| Texts a venue left as built (the rain-out reason, concession presets, the enquiry reply's subject) reached customers in the staff member's language | Each customer gets them in their own language; anything staff typed stays as typed | `tests/rain-outs.test.ts`, `tests/concessions.test.ts`, `tests/enquiries.test.ts` |
+| Text the server composed for the staff dashboard stayed English | Said in the staff language through `srv.` phrases; new records keep the phrase beside their English (migration 0120) | `tests/staff-server-text.test.ts`, `tests/tournaments.test.ts` |
+| On Postgres, a new connection's `SET jit = off` overlapped the caller's first query (a pg deprecation warning, refused by pg 9) | JIT is turned off before the pool hands a connection out | `tests/postgres-pool.test.ts` |
 | Untested paths: the two-year prune of the staff activity log, the daily venue order | Tests added: an entry past two years goes, one inside stays; the order is the same all day, another the next, never by name, each venue once across its pages | `tests/privacy.test.ts` ("keeps the staff activity log two years…"), `tests/browse.test.ts` ("is in a fair order…") |
 | No browser test on a phone-sized screen; a venue's change of a game's time from the staff screen not driven in a browser | Acceptance actors on a phone (390 × 844) or tablet (820 × 1180), each page checked to fit without scrolling sideways; Phone 1 books on a phone, Tablet 1 has a manager move an open game while its player confirms on a phone ([testing](../development/testing.md#visual-acceptance-scenarios)) | `tests/uat/devices.uat.ts`, run against the production build on PGlite, 2 of 2 |
 
@@ -558,6 +585,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| Browser tests cover a few journeys only: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and seventeen acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), two of them on a phone and a tablet | Most pages are checked by route and component tests, not a browser; on phones and tablets only booking, the games page and the staff bookings screen are driven. [Users and journeys](../product/users-and-journeys.md#what-the-journeys-show) names the journeys to add first | P2 |
+| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and twenty-two acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking and changing a booking's time; not a tournament's set-up and draw, corrections, or following an emailed confirmation link | Those are checked by route and unit tests, not a browser | P2 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |

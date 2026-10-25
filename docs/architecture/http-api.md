@@ -138,7 +138,7 @@ Account endpoints (session cookie):
 | GET    | `/api/my/data`            | Everything held against this account, as a file |
 | POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account        |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
-| GET    | `/api/bookings/reschedule` | `?code&phone&date` → free start times that day |
+| GET    | `/api/bookings/reschedule` | `?code&phone&date` → free start times that day; `409` (`RESCHEDULE_CUTOFF`, `RESCHEDULE_STARTED`) with no times once the booking may no longer be changed |
 | POST   | `/api/bookings/reschedule` | `{code, phone, date, start}` → change it   |
 | GET    | `/api/my/venues`          | Private and members-only venues this account is on the list of |
 | GET    | `/api/bookings/again`     | `?code` (own, signed in) or `?code&phone` → `{url}` |

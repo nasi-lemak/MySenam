@@ -228,9 +228,17 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Phone 1 | On a phone: the home and venue pages fit the screen; a court booked with a tap and found on the account page |
 | Tablet 1 | A venue's manager on a tablet finds an open game's booking on its day, changes its time and gives the reason; the player, on a phone, is told why and confirms; the host sees the game at its new time |
 | Staff 1 | A manager is offered English, Malay and Chinese on the dashboard (not Tamil), picks Malay, is refused a wrong password in Malay, signs in to Malay tabs, and switches to Chinese still signed in |
+| Venue 1 | A venue signs up at `/list-your-venue` (an install that sends no email opens the account at once), follows the set-up checklist (a court and its rates, its hours), asks to go live; the owner ticks the checks and approves; a customer books through the booking link; the operator finds it on its day. Runs only where the install is a marketplace |
+| Change time 1 | A customer changes their booking's time from *My booking* (same code, a free hour); the account page and the venue's day list show the new time |
+| Change time 2 | A time taken meanwhile by someone else is refused and the booking stays; inside the venue's cut-off no time is offered and the panel says why |
+| Change time 3 | The venue's manager changes a customer's booking time from the dashboard, through the preview; the customer's account shows the new time |
 
-Last run: all 18 of 18, Staff 1 among them, against the production build on
-PGlite (25 October 2026); 14 of 14, before
+The acceptance server runs as a marketplace (`MYSENAM_MARKETPLACE=on`, in
+`tests/uat/setup.ts`), since only a marketplace has `/list-your-venue`; a
+staging deployment that is not one skips *Venue 1*.
+
+Last run: all 22 of 22 against the production build on PGlite (25 October
+2026); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from
 a browser: an invitation or held place running out by itself, which needs the
@@ -458,3 +466,32 @@ Gaps: the Malay and Chinese of the staff dashboard are machine-assisted and
 not reviewed by a native speaker; text the server composes on staff screens
 stays English ([known limitations](../roadmap/known-limitations.md#languages));
 no live integration has passed its check.
+
+#### 25 October 2026, commit `d941850`
+
+The owner's decisions on the booking defaults (minimum separation that does
+not add up, places per booking up to every place, first lessons applied for
+online and approved remotely), the server's text on staff screens in the
+staff language, built-in texts in each customer's language, kinds of kit
+under one heading, old outages' late hours, two browser journeys and the
+Postgres pool. Not a launch. Run on one cloud container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 97 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 205 files; 2338 passed, 3 skipped (Postgres-only tests) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 205 files; 2341 passed, no overlapping-query warning |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Venue 1 and Change time 1–3 among them | 8 files; 22 passed |
+| CI | Not run (deferred, above) |
+| Real services | None checked |
+
+Gaps: no live integration has passed its check (approval emails go through
+the same email integration as every other); machine-assisted Malay, Chinese
+and Tamil await native review; the approval retention periods (90 and 365
+days) await the owner; `tests/contention.test.ts`'s retry bound has been
+seen exceeded under heavy parallel load on the base commit as well, once in
+about a dozen runs, and passed here.
+
