@@ -1,4 +1,5 @@
 import { getDb, withTransaction } from "./db";
+import type { Turnover } from "./booking-rules";
 import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, rangeLiteral, type Span } from "./interval";
 
 /**
@@ -8,8 +9,9 @@ import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, ran
  * around a booking are lib/store.ts.
  *
  * The database is what refuses a double booking: the exclusion constraint
- * on spaces, the separation constraint on spaces, and the capacity trigger on
- * shared facilities, raise `23P01` however the claim was written. Everything
+ * on spaces, the separation constraint on spaces, the capacity trigger on
+ * shared facilities and the constraints keeping a facility clear while it is
+ * turned over, raise `23P01` however the claim was written. Everything
  * here that reads is for showing and choosing; nothing that reads is trusted
  * to have kept a conflict out.
  */
@@ -33,14 +35,40 @@ export type ClaimSource =
  * `before`/`after`: operational time (setting up, cleaning), held as part of
  * the claim and adding up with a neighbour's. `sepBefore`/`sepAfter`: minimum
  * separation, which does not add up: two neighbours need the larger of the two
- * that face each other. On a shared facility, whose places are not told
- * apart, separation is held as places like operational time.
+ * that face each other. On a shared facility, `turnover` says what both
+ * apply to: each place a booking takes ("place": held as places, added
+ * together; "unit": held as places, the longer of the two each side), or the
+ * whole facility ("facility": kept clear of everybody, the larger separation
+ * and the operational time added up, as on a court of one place).
  */
 export interface Buffers {
   before: number;
   after: number;
   sepBefore?: number;
   sepAfter?: number;
+  turnover?: Turnover;
+}
+
+/**
+ * How far a claim with these buffers holds its places either side of its
+ * time (its `occupied`): on a court of one place, its operational time; on a
+ * shared facility, by its turnover (docs/architecture/booking-time-model.md#shared-facilities-how-they-are-turned-over).
+ * Separation on a court of one place, and everything on a facility turned
+ * over whole, is kept apart from `occupied`, by the database's gap constraints.
+ */
+export function placesHeld(capacity: number, b: Buffers): { before: number; after: number } {
+  if (capacity === 1) return { before: b.before, after: b.after };
+  const sepBefore = b.sepBefore ?? 0;
+  const sepAfter = b.sepAfter ?? 0;
+  switch (b.turnover ?? "place") {
+    case "facility":
+      return { before: 0, after: 0 };
+    case "unit":
+      // The least a count of places can hold and still keep every neighbour as far as both of them ask.
+      return { before: Math.max(b.before, sepBefore), after: Math.max(b.after, sepAfter) };
+    default:
+      return { before: b.before + sepBefore, after: b.after + sepAfter };
+  }
 }
 
 /** A court as claims need it. */
@@ -142,9 +170,11 @@ export async function claim(input: {
   /** Operational time before and after: held with the claim, adding up with its neighbours'. */
   bufferBefore?: number;
   bufferAfter?: number;
-  /** Minimum separation before and after: the larger of two facing ones applies (on a shared facility, held as places). */
+  /** Minimum separation before and after: the larger of two facing ones applies (on a shared facility, by its turnover). */
   separationBefore?: number;
   separationAfter?: number;
+  /** On a shared facility, what the buffers apply to (`placesHeld`); "place" unless said. */
+  turnover?: Turnover;
   /** For a shared facility: how many places (a booking takes one; a class or a whole block, all). */
   places?: number;
   expiresAt?: Date | null;
@@ -156,10 +186,10 @@ export async function claim(input: {
   const db = getDb();
   const sepBefore = input.separationBefore ?? 0;
   const sepAfter = input.separationAfter ?? 0;
-  // A shared facility's places are not told apart, so its separation is held as places, adding up.
-  const shared = input.court.capacity > 1;
-  const before = (input.bufferBefore ?? 0) + (shared ? sepBefore : 0);
-  const after = (input.bufferAfter ?? 0) + (shared ? sepAfter : 0);
+  const operational = { before: input.bufferBefore ?? 0, after: input.bufferAfter ?? 0 };
+  // A facility turned over whole holds places for its time only, and keeps the facility clear around it (facility_gaps).
+  const wide = input.court.capacity > 1 && input.turnover === "facility";
+  const { before, after } = placesHeld(input.court.capacity, { ...operational, sepBefore, sepAfter, turnover: input.turnover });
   const during = input.openEnded
     ? `[${instantOf(input.date, input.span.start, input.zone).toISOString()},)`
     : rangeLiteral(input.date, input.span.start, input.span.end, input.zone);
@@ -183,38 +213,49 @@ export async function claim(input: {
           )
           .run(input.court.venueId, input.court.id, space, input.source.kind, sourceId(input.source), during, occupied, before, after, sepBefore, sepAfter, expires);
     };
-    // The constraint cannot see the clock, so an offer (or a proposed move, or
-    // an approval request's hold) past its time can still be in the way: only
-    // then are such holds let go, and the claim tried once more. Reading for them on every claim made
-    // bookings conflict (B13).
-    try {
-      await withTransaction(insert);
-    } catch (err) {
-      if (!isConflict(err) || (await releaseExpiredOffers(input.court.id)) === 0) throw err;
-      await insert();
-    }
+    await tryTwice(insert, input.court.id);
   } else {
-    // The capacity check already ignores offers past their time.
-    await db
-      .prepare(
-        `INSERT INTO claims (venue_id, court_id, places, kind, ${column}, during, occupied, buffer_before, buffer_after,
-                             separation_before, separation_after, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        input.court.venueId,
-        input.court.id,
-        Math.min(input.places ?? 1, input.court.capacity),
-        input.source.kind,
-        sourceId(input.source),
-        during,
-        occupied,
-        before,
-        after,
-        sepBefore,
-        sepAfter,
-        expires
-      );
+    // The capacity check already ignores offers past their time; the facility's gaps cannot (tryTwice). On a
+    // facility turned over whole, buffer_before/after are the setup and cleaning the whole of it needs.
+    const insert = () =>
+      db
+        .prepare(
+          `INSERT INTO claims (venue_id, court_id, places, kind, ${column}, during, occupied, buffer_before, buffer_after,
+                               separation_before, separation_after, facility_wide, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?::tstzrange, ?::tstzrange, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          input.court.venueId,
+          input.court.id,
+          Math.min(input.places ?? 1, input.court.capacity),
+          input.source.kind,
+          sourceId(input.source),
+          during,
+          occupied,
+          wide ? operational.before : before,
+          wide ? operational.after : after,
+          sepBefore,
+          sepAfter,
+          wide,
+          expires
+        );
+    await tryTwice(insert, input.court.id);
+  }
+}
+
+/**
+ * Write a claim; refused, let go of holds past their time on the court and
+ * try once more. The constraints cannot see the clock, so an offer (or a
+ * proposed move, or an approval request's hold) past its time can still be
+ * in the way: only then are such holds let go. Reading for them on every
+ * claim made bookings conflict (B13).
+ */
+async function tryTwice(insert: () => Promise<unknown>, courtId: number): Promise<void> {
+  try {
+    await withTransaction(insert);
+  } catch (err) {
+    if (!isConflict(err) || (await releaseExpiredOffers(courtId)) === 0) throw err;
+    await insert();
   }
 }
 
@@ -263,20 +304,26 @@ export interface Occupant {
   viaCourt: number;
   /** Places it holds of a shared facility; 1 for space. */
   places: number;
+  /**
+   * On a shared facility turned over whole: it keeps the whole facility clear
+   * for its separation and operational time (`sepBefore`/`sepAfter`,
+   * `bufferBefore`/`bufferAfter`), and holds places for its time alone.
+   */
+  wide: boolean;
   /** The time sold or held. */
   span: Span;
-  /** That time with what it holds around it (operational time; on a shared facility, separation too): no other claim's `occupied` may overlap it. */
+  /** That time with what it holds around it (operational time; on a shared facility, separation too, by its turnover): no other claim's `occupied` may overlap it. */
   occupied: Span;
-  /** How far `occupied` reaches either side of `span`. */
+  /** How far `occupied` reaches either side of `span` (when `wide`, the operational time the whole facility needs instead). */
   bufferBefore: number;
   bufferAfter: number;
-  /** Minimum separation it keeps (on a court of one place; 0 on a shared facility, where it is in `occupied`). */
+  /** Minimum separation it keeps (on a court of one place, or `wide`; 0 otherwise on a shared facility, where it is in `occupied`). */
   sepBefore: number;
   sepAfter: number;
   /**
    * The time no other claim's time may be in: `span` widened by the larger of
-   * its operational time and its separation, each side (on a shared facility,
-   * `occupied`). What screens show as held.
+   * its operational time and its separation, each side (on a shared facility
+   * turned over per place, `occupied`). What screens show as held.
    */
   kept: Span;
 }
@@ -326,12 +373,13 @@ export async function occupantsOn(
     buffer_after: number;
     separation_before: number;
     separation_after: number;
+    facility_wide: boolean;
   };
   // Moments as epoch milliseconds: numbers are much quicker to read than timestamps.
   const ms = (e: string) => `(extract(epoch FROM ${e}) * 1000)::float8`;
   const cols = `c.kind, c.court_id, c.booking_id, c.class_id, c.block_id, c.outage_id, c.waitlist_id, c.move_id, c.approval_id, c.places,
     ${ms("lower(c.during)")} AS lo, ${ms("upper(c.during)")} AS hi, ${ms("lower(c.occupied)")} AS olo, ${ms("upper(c.occupied)")} AS ohi,
-    c.buffer_before, c.buffer_after, c.separation_before, c.separation_after`;
+    c.buffer_before, c.buffer_after, c.separation_before, c.separation_after, c.facility_wide`;
   const live = "c.active AND (c.expires_at IS NULL OR c.expires_at > now())";
   const rows: Row[] = [];
   // Two queries whatever the number of courts or venues: each court asked
@@ -381,9 +429,13 @@ export async function occupantsOn(
     const m = (at: number | null, open: number) => (at === null ? open : minuteOfDay(new Date(at), date, z));
     const span = { start: m(r.lo, -Infinity), end: m(r.hi, Infinity) };
     const occupied = { start: m(r.olo, -Infinity), end: m(r.ohi, Infinity) };
-    // Separation is held as places on a shared facility (already in `occupied`); on a space it is checked between neighbours.
-    const sepBefore = court.capacity === 1 ? Number(r.separation_before) : 0;
-    const sepAfter = court.capacity === 1 ? Number(r.separation_after) : 0;
+    // Separation is held as places on a shared facility turned over per place (already in `occupied`); on a space,
+    // and on a facility turned over whole, it is kept apart and checked between neighbours.
+    const wide = court.capacity > 1 && r.facility_wide === true;
+    const sepBefore = court.capacity === 1 || wide ? Number(r.separation_before) : 0;
+    const sepAfter = court.capacity === 1 || wide ? Number(r.separation_after) : 0;
+    const bufferBefore = Number(r.buffer_before);
+    const bufferAfter = Number(r.buffer_after);
     out.get(r.for_court)!.push({
       kind: r.kind,
       bookingId: r.booking_id,
@@ -395,13 +447,17 @@ export async function occupantsOn(
       approvalId: r.approval_id,
       viaCourt: r.court_id,
       places: court.capacity === 1 ? 1 : (r.places ?? 1),
+      wide,
       span,
       occupied,
-      bufferBefore: Number(r.buffer_before),
-      bufferAfter: Number(r.buffer_after),
+      bufferBefore,
+      bufferAfter,
       sepBefore,
       sepAfter,
-      kept: { start: Math.min(occupied.start, span.start - sepBefore), end: Math.max(occupied.end, span.end + sepAfter) },
+      kept: {
+        start: Math.min(occupied.start, span.start - sepBefore, span.start - (wide ? bufferBefore : 0)),
+        end: Math.max(occupied.end, span.end + sepAfter, span.end + (wide ? bufferAfter : 0)),
+      },
     });
   }
   for (const list of out.values()) list.sort((a, b) => a.occupied.start - b.occupied.start);
@@ -437,24 +493,59 @@ export function separated(o: Occupant, span: Span, sepBefore: number, sepAfter: 
   return false;
 }
 
-/** What a new claim of `span` would hold: its operational time, and on a shared facility its separation too (as `claim` stores it). */
+/** What a new claim of `span` would hold: its operational time, and on a shared facility what its turnover holds as places (as `claim` stores it). */
 export function occupiedFor(capacity: number, span: Span, buffers: Buffers): Span {
-  const shared = capacity > 1;
-  return {
-    start: span.start - buffers.before - (shared ? (buffers.sepBefore ?? 0) : 0),
-    end: span.end + buffers.after + (shared ? (buffers.sepAfter ?? 0) : 0),
-  };
+  const held = placesHeld(capacity, buffers);
+  return { start: span.start - held.before, end: span.end + held.after };
+}
+
+/** The time an occupant keeps a facility turned over whole clear of everybody: its setup or separation before, its cleaning or separation after. */
+export function clearZones(o: Occupant): Span[] {
+  if (!o.wide) return [];
+  return [
+    { start: o.kept.start, end: o.span.start },
+    { start: o.span.end, end: o.kept.end },
+  ].filter((z) => z.end > z.start);
+}
+
+/**
+ * On a shared facility, would occupant `o` and a new claim of `span` break
+ * the rules of a facility turned over whole (the database's facility_gaps,
+ * migration 0131)? Where either is turned over whole: neither's time may be
+ * where the other keeps the whole facility clear, and setup and cleaning add
+ * up between one and the next (what a per-place claim holds around its time
+ * counting as its setup and cleaning). Places held side by side are a count,
+ * not a clash, and two claims turned over per place are only a count.
+ */
+function facilityClash(o: Occupant, capacity: number, span: Span, b: Buffers): boolean {
+  const wide = b.turnover === "facility";
+  if (!wide && !o.wide) return false;
+  if (clearZones(o).some((z) => overlaps(z, span))) return true;
+  if (wide) {
+    const mine = [
+      { start: span.start - Math.max(b.before, b.sepBefore ?? 0), end: span.start },
+      { start: span.end, end: span.end + Math.max(b.after, b.sepAfter ?? 0) },
+    ];
+    if (mine.some((z) => overlaps(z, o.span))) return true;
+  }
+  const held = occupiedFor(capacity, span, b);
+  const setup = wide ? { start: span.start - b.before, end: span.start } : { start: held.start, end: span.start };
+  const cleaning = wide ? { start: span.end, end: span.end + b.after } : { start: span.end, end: held.end };
+  const theirSetup = o.wide ? { start: o.span.start - o.bufferBefore, end: o.span.start } : { start: o.occupied.start, end: o.span.start };
+  const theirCleaning = o.wide ? { start: o.span.end, end: o.span.end + o.bufferAfter } : { start: o.span.end, end: o.occupied.end };
+  return overlaps(setup, theirCleaning) || overlaps(cleaning, theirSetup);
 }
 
 /**
  * The occupants a new claim of `span` with these buffers would meet: on a
  * court of one place, each whose `occupied` overlaps its own or that is not
  * `separated` from it; on a shared facility, each whose `occupied` overlaps
- * its own (whether they leave room is a count of places).
+ * its own (whether they leave room is a count of places), and each it would
+ * meet while one of the two keeps the whole facility clear.
  */
 export function inTheWayOf(occupants: Occupant[], capacity: number, span: Span, buffers: Buffers, ignore?: (o: Occupant) => boolean): Occupant[] {
   const occupied = occupiedFor(capacity, span, buffers);
-  if (capacity > 1) return occupants.filter((o) => !ignore?.(o) && overlaps(o.occupied, occupied));
+  if (capacity > 1) return occupants.filter((o) => !ignore?.(o) && (overlaps(o.occupied, occupied) || facilityClash(o, capacity, span, buffers)));
   const sepBefore = buffers.sepBefore ?? 0;
   const sepAfter = buffers.sepAfter ?? 0;
   return occupants.filter((o) => !ignore?.(o) && (overlaps(o.occupied, occupied) || !separated(o, span, sepBefore, sepAfter)));
@@ -467,7 +558,8 @@ export function inTheWayOf(occupants: Occupant[], capacity: number, span: Span, 
  * On a court of one place: nothing's `occupied` overlaps the new one's
  * (operational time adds up), and every neighbour is `separated` from it
  * (the larger separation applies). On a shared facility: the places held
- * over the new claim's `occupied`, separation included, leave room.
+ * over the new claim's `occupied` leave room, and nothing holds places where
+ * the new claim or an occupant keeps the whole facility clear.
  */
 export function fits(
   occupants: Occupant[],
@@ -478,7 +570,11 @@ export function fits(
   /** Places the new claim takes on a shared facility: several kayaks, several people on a floor. A court held whole takes itself, however many play. */
   places = 1
 ): boolean {
-  if (capacity > 1) return peakPlaces(occupants, occupiedFor(capacity, span, buffers), ignore) + places <= capacity;
+  if (capacity > 1)
+    return (
+      peakPlaces(occupants, occupiedFor(capacity, span, buffers), ignore) + places <= capacity &&
+      !occupants.some((o) => !ignore?.(o) && facilityClash(o, capacity, span, buffers))
+    );
   return inTheWayOf(occupants, capacity, span, buffers, ignore).length === 0;
 }
 

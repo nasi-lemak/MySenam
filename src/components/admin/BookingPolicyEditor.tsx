@@ -78,6 +78,7 @@ function toForm(s: PolicySettings): Form {
   form.startTimes = s.startTimes ? s.startTimes.map(clockOf).join(", ") : "";
   form.lengths = s.lengths ? s.lengths.join(", ") : "";
   form.rateMode = s.rateMode ?? "";
+  form.turnover = s.turnover ?? "";
   form.fixedPrices = s.fixedPrices
     ? s.fixedPrices.map((f) => `${f.minutes} = ${f.price}${f.peakPrice !== null ? ` / ${f.peakPrice}` : ""}`).join("\n")
     : "";
@@ -102,6 +103,7 @@ function fromForm(form: Form, t: StaffT): Record<string, unknown> {
         });
   out.lengths = form.lengths.trim() === "" ? null : form.lengths.split(/[,\s]+/).filter(Boolean).map(Number);
   out.rateMode = form.rateMode === "" ? null : form.rateMode;
+  out.turnover = form.turnover === "" ? null : form.turnover;
   out.fixedPrices =
     form.fixedPrices.trim() === ""
       ? null
@@ -180,6 +182,10 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
     if (Array.isArray(value)) return value.join(", ");
     return String(value);
   };
+
+  /** A turnover said as the choices are (docs/architecture/booking-time-model.md#shared-facilities-how-they-are-turned-over). */
+  const turnoverName = (mode: string) =>
+    mode === "facility" ? t("pol.turnoverFacility") : mode === "unit" ? t("pol.turnoverUnit") : t("pol.turnoverPlace");
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -295,6 +301,16 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
             {field("bufferAfter", t("pol.bufferAfter"), t("pol.bufferAfterNote"))}
             {field("operationalBefore", t("pol.operationalBefore"), t("pol.operationalBeforeNote"))}
             {field("operationalAfter", t("pol.operationalAfter"), t("pol.operationalAfterNote"))}
+            <label className="block text-xs font-medium text-slate-600">
+              {t("pol.turnover")}
+              <select value={form.turnover} onChange={(e) => setForm({ ...form, turnover: e.target.value })} className={input}>
+                <option value="">{t("pol.inheritsTurnover", { mode: turnoverName(hint("turnover")) })}</option>
+                <option value="place">{t("pol.turnoverPlace")}</option>
+                <option value="unit">{t("pol.turnoverUnit")}</option>
+                <option value="facility">{t("pol.turnoverFacility")}</option>
+              </select>
+              <span className="mt-0.5 block font-normal text-slate-400">{t("pol.turnoverNote")}</span>
+            </label>
             <label className="block text-xs font-medium text-slate-600">
               {t("pol.rateMode")}
               <select value={form.rateMode} onChange={(e) => setForm({ ...form, rateMode: e.target.value })} className={input}>

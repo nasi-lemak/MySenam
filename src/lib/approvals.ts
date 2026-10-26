@@ -3,7 +3,7 @@ import { logAction } from "./activity";
 import { activityName } from "./activity-registry";
 import { venueMayOffer } from "./activities";
 import type { Admin } from "./admin-auth";
-import { policyBreaches } from "./booking-policy";
+import { claimBuffers, policyBreaches } from "./booking-policy";
 import { claim, isConflict, release } from "./claims";
 import { courtFor, courtOffers } from "./court-activities";
 import { getDb, withTransaction } from "./db";
@@ -710,8 +710,8 @@ async function holdSlot(requestId: number, venueId: number, sport: Sport, slot: 
         span,
         zone: day.zone,
         places: 1,
-        bufferBefore: day.policy.bufferBefore,
-        bufferAfter: day.policy.bufferAfter,
+        // Held as the booking it may become will be: separation, operational time and turnover by the court's rules.
+        ...claimBuffers(day.policy),
         expiresAt: until,
       })
     );

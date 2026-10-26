@@ -14,8 +14,9 @@ Every reservation is an exact interval to the minute. What occupies a court
 (a booking, a held booking, a waiting-list offer, a class, a block, a
 tournament's hold, an outage) is a **claim** on it. The database refuses two
 claims that overlap on the same **space** (an exclusion constraint), two
-closer than the larger of the **separations** they keep (a second one), and
-more claims than a shared facility has **places** (a trigger). Which intervals a
+closer than the larger of the **separations** they keep (a second one),
+more claims than a shared facility has **places** (a trigger), and anyone in a
+facility while it is **turned over** whole (two more). Which intervals a
 customer may pick is a **booking policy**, inherited from the most specific
 level that sets each rule. The booking board's grid is a way of showing
 time, not of storing it.
@@ -77,8 +78,9 @@ time, not of storing it.
 | `court_id`, `venue_id` | What was claimed; a trigger (`claims_belong`) refuses a court of another venue, a space the court does not cover, places on an exclusive court and spaces on a shared one |
 | `space_id` or `places` | One claim per space for an exclusive court; one claim with a number of places for a shared facility |
 | `during` | The time sold or held |
-| `occupied` | `during` widened by `buffer_before`/`buffer_after`: the operational time (setup, cleaning) as it was when the claim was made; on a shared facility its separation too ([buffers](#buffers-separation-and-operational-time)). Claims made before migration 0118 keep the buffers they were made with here |
+| `occupied` | `during` widened by `buffer_before`/`buffer_after`: the operational time (setup, cleaning) as it was when the claim was made; on a shared facility turned over per place, its separation too, by its turnover ([shared facilities](#shared-facilities-how-they-are-turned-over)). Claims made before migration 0118 keep the buffers they were made with here |
 | `separation_before`, `separation_after` | The minimum separation the claim keeps, as it was when made (0 to 240 minutes; 0 for claims made before migration 0118) |
+| `facility_wide` | Made on a shared facility turned over whole (migration 0131): `occupied` is `during`, `buffer_before`/`buffer_after` are the setup and cleaning the whole facility needs, and the separation is kept by the whole facility; false for every claim made before |
 | `active` | Cancelling, releasing or expiring a claim sets it false; the row stays for history |
 | `expires_at` | When a waiting-list offer, a proposed move or an approval application's hold lapses (an `approval` claim always has one) |
 
@@ -106,6 +108,11 @@ time, not of storing it.
   the new claim's `occupied` range, and raises `23P01` if the peak would pass
   the court's capacity. A partly blocked facility is a block claim of some
   places. The lock serialises writers on one facility only.
+- **A facility turned over whole**: triggers on `claims` (migration 0131)
+  write each claim with places into `facility_gaps`, and two exclusion
+  constraints keyed by the court, like `claim_gaps_apart`, refuse anyone's
+  time where a facility-wide claim keeps the facility clear, and setup on top
+  of cleaning ([shared facilities](#shared-facilities-how-they-are-turned-over)).
 - **Coaches**: `coach_claims(coach_id, booking_id, during)` with the same
   exclusion on `coach_id`, so a coach is never in two lessons at once.
 - **Outages** claim whole business days: from the end of the previous day's
@@ -119,9 +126,11 @@ time, not of storing it.
   `fits`, `peakPlaces` and `freeStretches` answer "is this free" in memory,
   by the same rules the database applies (`fits` on a space: no `occupied`
   overlaps, and every neighbour `separated`; on a shared facility, places
-  over `occupied`). Each occupant's `kept` (its time widened by the larger of
-  its operational time and its separation) is what the board's cells, the
-  staff schedule's buffers and a block's placement treat as held.
+  over `occupied`, and nothing in a facility while it is turned over whole).
+  Each occupant's `kept` (its time widened by the larger of its operational
+  time and its separation) is what the board's cells, the staff schedule's
+  buffers and a block's placement treat as held; `clearZones` is the time a
+  facility turned over whole is closed to everybody.
 
 ## Booking policies
 
@@ -137,6 +146,7 @@ What may be booked is kept apart from what can be stored
 | Length offered first | 60, or the shortest | What the board picks on a tap |
 | Minimum separation before / after (`bufferBefore`, `bufferAfter`) | 0 / 0 | Time kept free that two neighbours share: the larger of the two facing ones applies ([buffers](#buffers-separation-and-operational-time)) |
 | Operational time before / after (`operationalBefore`, `operationalAfter`) | 0 / 0 | Setup and cleaning that need the court: adds up with the neighbour's |
+| What a shared facility's buffers apply to (`turnover`) | `place` | Each place a booking takes, added together (`place`) or the longer (`unit`), or the whole facility (`facility`); ignored on a court of one place ([shared facilities](#shared-facilities-how-they-are-turned-over)) |
 | Court's own hours by weekday | the venue's | Within the venue's day |
 | Book at least this far ahead | 0 minutes | Notice |
 | Each part at its own rate, or all at the rate when it starts | each part | `rateMode` |
@@ -168,7 +178,9 @@ What may be booked is kept apart from what can be stored
   largest such that divides it), at the finest any court of the sport needs.
   A cell is free, partly held or held. Availability also gives each court's
   `starts`: every minute a booking may start and the longest it may run from
-  there.
+  there, with the `lengths` that fit where not every length up to the
+  longest does (joining a session on a facility turned over whole:
+  `startLengths`, `startTakes`).
 
 ## Buffers: separation and operational time
 
@@ -197,18 +209,16 @@ on either side counts towards it.
   booking would).
 - **Linked courts.** Checked per space: a pitch keeping 25 minutes after it
   keeps them on every court under it.
-- **Shared facilities.** Places are not told apart, so there is no
-  neighbour to share a gap with: a claim with places holds its separation as
-  places, inside `occupied`, the same as operational time, and it adds up
-  there (two places taken until 11:00 with 10 minutes' separation after, a
-  newcomer keeping 10 before starts at 11:20). The capacity trigger counts it.
-  This never lets anyone closer than the rules ask; it can refuse a time an
-  assignment of places would have allowed.
+- **Shared facilities.** What the two apply to is the facility's turnover:
+  each place a booking takes, or the whole facility
+  ([below](#shared-facilities-how-they-are-turned-over)).
 - **A game's proposed move** (lib/store.ts) holds its new time with its
   operational time, and its separation on its outer edges less the
   operational time it already holds there; beside its own booking it holds
   only what that booking does not already keep, so the booking's separation
-  never refuses its own move.
+  never refuses its own move. On a facility turned over whole, it keeps the
+  facility clear on its outer edges as a session would, less what its own
+  booking already keeps.
 - **Changing the rules** changes new claims only. Each claim keeps the
   separation and operational time it was made with.
 - **Before migration 0118** there was one kind of buffer, *kept free*, held
@@ -224,6 +234,86 @@ on either side counts towards it.
 - **Where the clocks change**, the database measures a gap in real minutes
   and the board in minutes on the clock; across a change they differ, and
   the database decides (no country MySenam is sold in changes its clocks).
+
+## Shared facilities: how they are turned over
+
+Resources hold bookings in different ways, and their buffers are not forced
+into one rule:
+
+| Capacity model | What it is | How it is held |
+| -------------- | ---------- | -------------- |
+| Exclusive resource | One booking at a time: a court, a lane, a room | Spaces; separation shared, operational time added up ([buffers](#buffers-separation-and-operational-time)) |
+| Shared-capacity facility | Many customers at once on fungible places: a gym floor, a climbing area | Places, by the turnover the venue chooses (below) |
+| Fleet or equipment inventory | Separate units of a kind: single and double kayaks | Each kind a resource with places, under one heading ([kinds of kit](../features/activities.md#pricing-a-booking-with-places)); the units of a kind are fungible places, turned over per place |
+| Per-unit turnover | Each unit needs its own turnaround: a kayak rinsed and checked | `place` or `unit`: the places a booking takes are held over it; the others stay sellable |
+| Facility-wide turnover | The whole facility is cleared or prepared between sessions | `facility`: nobody is in it while it is |
+
+A booking policy's `turnover` (inherited like every setting; *On a shared
+facility, setup, cleaning and gaps are for* in the editor) says which, for a
+resource with places:
+
+| `turnover` | Held | Between two bookings on one place, or two sessions | Exact? |
+| ---------- | ---- | -------------------------------------------------- | ------ |
+| `place` (default) | Each booking's places, over its operational time **plus** its separation each side (`occupied`) | The sum of all four: 10 minutes' gap either side and 10 of cleaning after make 30 | Conservative: as every claim with places was held before migration 0131, so nothing became more sellable unless a venue chose |
+| `unit` | Each booking's places, over the **longer** of its operational time and its separation each side | The longer each side, added: the same rules make 20; operational time alone (a kayak rinsed for 10 minutes: out until 11:10, the others sellable) is exact | Exact for operational time alone; with separation, the least any count of places can hold (below) |
+| `facility` | The places for its time only; the whole facility clear for its separation, setup and cleaning (`facility_gaps`) | As on a court of one place: separations shared, the larger counts; setup and cleaning add up. 15 of cleaning and 5 of setup with a 10-minute gap: 20 | Exact |
+
+**Facility-wide turnover.** A claim made under `facility` is `facility_wide`:
+it holds places for its time only, and keeps the whole facility clear before
+and after it for the longer of its setup and its separation, and of its
+cleaning and its separation. Bookings in the same session share the
+facility's places (counted by the capacity trigger); nobody's time may be
+where any of them keeps it clear, so a session's cleaning keeps everyone out,
+a booking that runs on past the end of a session is refused, and joining a
+session under way is refused where it needs the facility set up first. Two
+cleanings after one session overlap (one task, the longer counts), as do two
+setups. In the database, `facility_gaps` holds each claim with places as its
+time (`side [0,0]`) and each facility-wide claim's zones kept clear
+(`side [1,1]`); `facility_gaps_clear` refuses a time and a zone that overlap
+on one court, and `facility_gaps_work` refuses cleaning and the next one's
+setup that overlap (roles `work [1,1]` and `[2,2]`). Constraints that read
+nothing, like `claim_gaps_apart`: `23P01` whatever writes the claim, a
+concurrent writer waited on, no serializable predicate locks.
+
+**Sessions and cohorts.** A scheduled session is `facility` with the
+policy's listed start times and lengths: everyone in it starts and ends
+together and the facility turns over between sessions. A cohort (a group in
+one booking: four kayaks, a school's thirty climbers) is the booking's places,
+turned over together, per place. Joining a session on the board is offered
+for the lengths that end with it: `starts` lists the `lengths` that fit where
+a shorter booking, cleaned while the session runs on, would not.
+
+**Why per place is not exact with separation.** Places are fungible, so
+nothing says which booking follows which on a unit. Separation measured
+between two bookings on one unit would need the database to find an
+assignment of bookings to units, a scheduling question no count of places
+answers. A count can only hold each booking's own time around it; for every
+pair (a block keeping nothing included) to be at least as far apart as both
+ask, each side must hold at least the larger of its operational time and its
+separation, which is `unit`. Counting a gap only once between overlapping
+zones does not do it either: of three bookings of one place on two units,
+each pair can be too close to share a unit (the first ends at 10:00 keeping
+30 minutes after; the second starts at 10:25 keeping 15 before; the third
+starts at 10:35 keeping 40 before) while no moment has more than two places
+held, or held and kept, so such a count would sell three where two units
+cannot take them. Exact shared separation on
+fungible places stays out; venues that need it exact use `facility`, or set
+the turnaround as operational time with `unit`.
+
+**Mixing.** A facility whose turnover changes, or whose activities' policies
+differ, holds claims of both kinds. A per-place claim's time keeps out of
+every facility-wide zone, and what it holds around its time counts as setup
+before and cleaning after against the whole facility's cleaning and setup
+(roles `work [0,0]` and `[3,3]`), though part of it may be a gap: never closer
+than either asks. Blocks, outages and claims made before keep nothing of
+their own beyond their time and what they hold. Each claim keeps what it was
+made with when the setting changes.
+
+**Showing it.** The board's cells read held for the time a facility is kept
+clear (partly held where it covers part of a cell), with no reason given to
+customers; staff see it as *Kept free* with the booking it belongs to; blocks
+are placed either side of it, and an outage's late hours are claimed around
+what each claim keeps (`kept`), not only what it holds.
 
 ## Prices from minutes
 
@@ -356,6 +446,15 @@ The owner decided (October 2026):
    *kept free* settings became minimum separation; existing claims keep the
    protection they were made with; the database still refuses every
    violation ([buffers](#buffers-separation-and-operational-time)).
+9. **Shared facilities by their capacity model** (decided later in October
+   2026): exclusive resources keep rule 8; a shared facility's turnover
+   applies to each place a booking takes or to the whole facility, as the
+   venue says in its booking rules (inherited, defaulting to what was done
+   before so nothing becomes more sellable without the venue choosing);
+   separation is not added where it need not be, operational time that needs
+   its own duration is kept; units are not invented for fungible places;
+   modes the database cannot enforce exactly stay conservative and say why
+   ([shared facilities](#shared-facilities-how-they-are-turned-over)).
 
 Where those left a rule open, these defaults were chosen; each is a setting
 or a single place in the code if the owner wants it otherwise:
@@ -365,7 +464,7 @@ or a single place in the code if the owner wants it otherwise:
 | Who may go past the rules | Managers of the venue (not front-desk staff, not the API); each booking marked, the activity log naming the rules passed |
 | The platform's rules | On the hour, 60 to 240 minutes in hours, 60 first, no separation or operational time, no notice; padel from any half hour, in half hours, 90 first |
 | Two buffers side by side | Decided (8 above): minimum separations share, the larger applies (10 after one and 10 before the next leave 10 minutes; 10 and 25 leave 25); operational time adds up (10 of cleaning and 10 of setup leave 20) |
-| Separation on a shared facility | Held as places, adding up like operational time: places are not told apart, so there is no neighbour to share it with |
+| Separation on a shared facility | By its turnover (9 above); unset, each place a booking takes is held over its separation and operational time added together, as before |
 | Billing steps and minimum minutes | The extra minutes are priced at the rate in force then, as if booked |
 | A fixed-length price at peak | Its peak price applies when the booking starts at peak |
 | A minimum charge on a per-player court | Applies to the whole booking, after multiplying by the players |
@@ -386,6 +485,8 @@ or a single place in the code if the owner wants it otherwise:
 | Any minute, buffers, staff past the rules, several courts, weekly series, waiting lists, passes | `tests/intervals.test.ts` |
 | Separation and operational time: 10 and 10 leave 10 (9 refused), cleaning and setup add up, the two combined, 10 against 25, linked courts, a shared floor, rescheduling, weekly series, a manager's override, a game's proposed move, rules changed between bookings, raw SQL, the board's starts against the database's answer minute by minute, races through the app and between two raw writers on Postgres | `tests/separation.test.ts` |
 | Migrations 0118–0119 on claims and settings made under buffers that added up: nothing stored changes, the settings become separation, new claims follow the new rule | `tests/separation-migration.test.ts` |
+| Shared facilities' turnover: the setting and its inheritance, per place added up (as before), per place the longer, a fleet's own turnaround, the whole facility (sessions sharing places, cleaning and setup added up, the larger gap, nobody in it while cleared, joining a session), a facility changed from one to the other, the board's cells and the staff schedule, blocks placed around it, a game's proposed move, raw SQL refusals, the board's starts against the database's answer minute by minute in every mode, a crowded sequence of requests audited from the table (never past capacity, never in a turnover), races through the app and between two raw writers on Postgres | `tests/shared-turnover.test.ts` |
+| Migration 0131 on shared facilities already booked: nothing stored changes, no turnover set, every claim written into `facility_gaps` without conflict, new facility-wide claims kept clear of the old | `tests/shared-turnover-migration.test.ts` |
 | Policies: starts, lengths, grid, breaches, validation, inheritance, the route | `tests/booking-policies.test.ts` |
 | Pricing to the minute, peak boundaries, rounding, fixed prices, steps, minimums, fees, last-minute | `tests/pricing.test.ts` |
 | The migration: a diary seeded on the old schema migrates to the same occupancy and is dropped; a mismatch stops it | `tests/interval-migration.test.ts` |

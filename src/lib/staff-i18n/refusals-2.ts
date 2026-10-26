@@ -521,4 +521,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "This activity has no in-person step to record.": { ms: "Aktiviti ini tiada langkah bersemuka untuk direkodkan.", zh: "此活动没有需要记录的现场环节。" },
   "action is approve, reject, ask or in_person.": { ms: "action ialah approve, reject, ask atau in_person.", zh: "action 须为 approve、reject、ask 或 in_person。" },
   "venueId and sport are required.": { ms: "venueId dan sport diperlukan.", zh: "需要 venueId 和 sport。" },
+  "turnover is place, unit or facility.": { ms: "turnover ialah place, unit atau facility.", zh: "turnover 须为 place、unit 或 facility。" },
 };

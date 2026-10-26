@@ -1,5 +1,6 @@
 import { offeredCourts, sportsOf } from "./court-activities";
 import { activityName } from "./activity-registry";
+import { startTakes } from "./booking-rules";
 import { getDb } from "./db";
 import { region } from "./region";
 import { siteOrigin, venueIsListed } from "./seo";
@@ -119,7 +120,7 @@ export async function availabilityFeed(days = FEED_DAYS): Promise<Record<string,
         const length = (await policyForSport(v.id, sport)).defaultLength;
         const starts = [...new Set(grid.flatMap((g) => g.starts.map((s) => s.minute)))].sort((a, b) => a - b);
         for (const minute of starts) {
-          const open = grid.filter((g) => g.starts.some((s) => s.minute === minute && s.maxLength >= length)).length;
+          const open = grid.filter((g) => g.starts.some((s) => s.minute === minute && startTakes(s, length))).length;
           if (open === 0) continue;
           availability.push({
             merchant_id: merchantId(v.id),

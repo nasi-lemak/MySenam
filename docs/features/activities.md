@@ -160,6 +160,18 @@ priced, counted and found in search as itself, several kinds still go in one
 booking all or nothing, and availability is each kind's own
 (`groupByHeading` and `headedRows` in `src/lib/court-activities.ts`).
 
+**Turning kit and floors over.** A kind of kit's units are fungible: a
+booking takes so many single kayaks, not kayak number 3, and nothing invents
+a number for them. Each kind's booking rules say what its setup, cleaning
+and gap are for: each place booked (a kayak rinsed for 10 minutes after it
+comes back is out until then, the rest of the fleet sellable; *each place,
+the longer* holds the longer of its cleaning and its gap, *each place, added
+together*, the default, both) or the whole facility, cleared between
+sessions (a climbing area or a trampoline floor: everyone in a session
+together, nobody let in while it is reset). What is exact and what stays
+conservative is in the
+[booking time model](../architecture/booking-time-model.md#shared-facilities-how-they-are-turned-over).
+
 Quantity prices apply equally to a court priced per player. A court booked
 whole cannot be priced flat (it already is one booking) and a resource with
 places cannot be per player (it already counts each place): the database
