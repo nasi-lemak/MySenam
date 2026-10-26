@@ -83,6 +83,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "staff.role": "act.a.staffRole",
   "settings.changed": "act.a.settingsChanged",
   export: "act.a.export",
+  "approval.hold": "apr.ret.act.hold",
+  "approval.hold_released": "apr.ret.act.released",
 };
 
 /**

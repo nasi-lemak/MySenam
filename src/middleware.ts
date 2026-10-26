@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { crossSiteRefusal } from "./lib/same-origin";
-import { contentSecurityPolicy, newNonce } from "./lib/security-headers";
+import { contentSecurityPolicy, DOCUMENT_PATH, DOCUMENT_POLICY, newNonce } from "./lib/security-headers";
 
 /**
  * Every request but static files: a fresh nonce and the content security
@@ -18,7 +18,8 @@ export function middleware(req: NextRequest) {
     });
     if (refusal) return withPolicy(NextResponse.json({ error: "That request came from another site, so it was refused." }, { status: 403 }), contentSecurityPolicy(newNonce()));
   }
-  const policy = contentSecurityPolicy(newNonce());
+  // A supporting document gets the document policy, never the pages' one (lib/security-headers.ts).
+  const policy = DOCUMENT_PATH.test(req.nextUrl.pathname) ? DOCUMENT_POLICY : contentSecurityPolicy(newNonce());
   const headers = new Headers(req.headers);
   headers.set("Content-Security-Policy", policy);
   return withPolicy(NextResponse.next({ request: { headers } }), policy);

@@ -1857,7 +1857,7 @@ export const ZH: Record<Phrase, string> = {
   "apr.err.APR_GUARDIAN_NEEDED": "未满 18 岁：请提供父母或监护人姓名，以及其同意此申请的声明。",
   "apr.err.APR_CERT_NEEDED": "请提供证书号码、签发机构及到期日（今天或之后）。",
   "apr.err.APR_DOCUMENT_NEEDED": "请添加场馆要求的文件。",
-  "apr.err.APR_DOCUMENT_BAD": "请以照片或扫描件提交文件：JPEG、PNG 或 WebP，不超过 10 MB。",
+  "apr.err.APR_DOCUMENT_BAD": "请以 PDF，或照片或扫描件（JPEG、PNG 或 WebP）提交文件，不超过 10 MB。",
   "apr.err.APR_NO_DOCUMENTS": "此场馆不要求这项活动提交文件。",
   "apr.err.APR_TOO_MANY_DOCUMENTS": "最多 3 份文件。",
   "apr.err.APR_WAIVER_NEEDED": "请同意场馆的免责声明后继续。",
@@ -1976,6 +1976,16 @@ export const ZH: Record<Phrase, string> = {
   "apr.mail.latePaymentBooked": "您的付款在付款期限过后才到达 {venue}，但该时段仍然空着，因此已为您重新预订并已付款：预订 {code}。确认通知随后发出。",
   "apr.mail.latePaymentRefundSubject": "{venue} 须退还您的付款",
   "apr.mail.latePaymentRefund": "您为 {venue} 的 {activity} 所付的款项在付款期限过后才到达，而该时段已无法再为您预订。场馆须将款项退还给您。",
+  "aprdoc.why": "场馆需要它的原因：{why}",
+  "aprdoc.note": "PDF，或照片或扫描件（JPEG、PNG 或 WebP），每份不超过 10 MB，最多 3 份。只有您和场馆的审核人员可以打开，不再需要时即会删除。切勿发送身份证或护照。",
+  "aprdoc.privacyHow": "文件在决定后最多保留 {n} 天，在拒绝、撤回或批准结束后保留 {review} 天；您的回答和记录在申请结束后最多保留 {m} 天。批准本身在有效期内保留。仅在有记录的法律、安全或纠纷保留下才会更久",
+  "aprdoc.err.APRDOC_TOO_BIG": "该文件超过 10 MB。请发送较小的文件。",
+  "aprdoc.err.APRDOC_MISMATCH": "该文件与其名称或类型不符。请发送 PDF，或 JPEG、PNG 或 WebP 格式的照片或扫描件。",
+  "aprdoc.err.APRDOC_PDF_BROKEN": "无法检查该 PDF。请重新另存或打印为普通 PDF，或发送其照片。",
+  "aprdoc.err.APRDOC_PDF_ENCRYPTED": "该 PDF 设有密码或已加密。请发送无密码的 PDF，或其照片。",
+  "aprdoc.err.APRDOC_PDF_ACTIVE": "该 PDF 含有脚本、附件、动作或交互式表单，不予接受。请打印为普通 PDF，或发送其照片。",
+  "aprdoc.err.APRDOC_PDF_PAGES": "该 PDF 超过 20 页。请只发送场馆要求的页面。",
+  "aprdoc.err.APRDOC_NO_PURPOSE": "场馆尚未说明为何需要此文件，因此暂时无法接收。请询问场馆。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */
@@ -2031,4 +2041,5 @@ export const CUSTOMER_ERRORS_ZH: Record<string, string> = {
   "Password must be at least 8 characters.": "密码至少需要 8 个字符。",
   "email and password are required.": "请填写电子邮件和密码。",
   "code and phone are required.": "请填写代码和电话号码。",
+  "One of your applications to a venue is being kept under a legal, safety or dispute hold, so the account cannot be closed yet. Ask the venue about it; the account can be closed once the hold ends.": "您向某场馆提交的一份申请正因法律、安全或纠纷原因被保留，因此账户暂时无法关闭。请向该场馆查询；保留结束后即可关闭账户。",
 };

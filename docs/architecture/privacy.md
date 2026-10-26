@@ -56,7 +56,8 @@ against the account: bookings, credit, passes and memberships sold to it,
 games, the playing profile, people blocked, reports made and community
 groups, leagues, tournaments, receipts and credit notes, waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
-declarations, history and the documents still held), and the messages still
+declarations, history, the documents still held with who opened them, and
+what is kept of those already deleted), and the messages still
 kept about its bookings or sent to its address. Its file says what it leaves out: anything filed against a phone
 number at a counter.
 
@@ -87,8 +88,10 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
   made stay with the reporter's name removed;
 - deletes the account and its sessions;
 - deletes its applications to be approved for an activity, with their
-  answers, documents and any slot they held; a sign-off already given stays,
-  as the venue's record, no longer linked to anybody's account;
+  answers, documents and any slot they held, keeping only the bare facts of
+  each, linked to nobody ([below](#applications-to-be-approved-for-an-activity));
+  a sign-off already given stays, as the venue's record, no longer linked to
+  anybody's account;
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
@@ -97,6 +100,8 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 It refuses while the customer is owed something — stored credit, a live pass, a
 running membership — because `wallet_entries` cascades from `users`, so erasing
 the account would destroy the only record of whose money the venue is holding.
+It also waits while a hold keeps one of the account's applications for a legal,
+safety or dispute reason ([below](#holds)), and says so.
 
 ## Retention
 
@@ -111,9 +116,10 @@ the account would destroy the only record of whose money the venue is holding.
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
-| Documents sent with an application to be approved for an activity, once it is decided | 90 days | deleted; what was seen stays on the sign-off it wrote |
-| Applications refused, withdrawn or lapsed (answers, declarations, history) | 365 days after the decision | deleted |
-| Approved applications whose approval has run out | 365 days after its last day | deleted |
+| Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision | deleted; what was seen stays on the sign-off it wrote |
+| An approved application's answers, declarations and history detail, its approval still standing | 365 days after the decision | removed; the approval and the bare facts stay |
+| Applications to be approved for an activity, once closed (refused, withdrawn, lapsed, or the approval ended) | 365 days after closing | deleted; the bare facts kept |
+| The bare facts of a deleted application, and who opened its documents | 730 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
 | Private hire enquiries | 365 days | deleted |
 | Draft venues never live, nobody signed in | 90 days | deleted, unless they hold a customer's pass, membership, credit or payment |
@@ -126,6 +132,79 @@ incident window has passed.
 The scheduler applies the policy once a day; where it is turned off, it
 applies itself the first time anyone opens the dashboard each day. An owner can see what is due, when it last ran, and
 run it early, under *Venues & staff → Keeping nothing too long*.
+
+### Applications to be approved for an activity
+
+An application to be approved for an activity
+([registering online for approval](../features/activities.md#registering-online-for-approval))
+is kept by purpose (`src/lib/approval-retention.ts`;
+[ADR 0021](decisions/0021-approval-retention-and-pdf-documents.md)). **The
+periods below are provisional defaults the owner accepted, not statutory
+periods: they remain subject to professional legal review**, and the code
+treats them as the most an activity may set, not as settled law.
+
+| Part | Its purpose | Kept |
+| ---- | ----------- | ---- |
+| The approval: the sign-off or certification it wrote (who, venue and activity, sign-off or certification with its number and issuer, its last day, who gave it) | Whether the person may do the activity today: the booking rules check it | While it is valid; once taken back, under the sign-offs' own rule above. Never removed because its application is |
+| Supporting documents | Deciding, and answering a review, appeal or dispute about the decision | Refused, withdrawn or lapsed: until the review window (30 days) has passed. Approved: at most 90 days after the decision, or the review window after the approval ended (lapsed, taken back or replaced), whichever is first |
+| Answers, declarations, a minor's guardian's name, the slot asked for, and the reasons written in its history | The record of how it was decided | 365 days after the application closed (decided other than approved, or its approval ended), then deleted. On an approval still standing, 365 days after the decision, then removed from it: the approval, its dates and the bare facts of its history stay, so the customer still sees it and is reminded to renew |
+| The bare facts: that it existed, where, for what, how it ended, when, and who decided | Evidence the venue decided, and when, without what anybody wrote or sent | 730 days, as the staff activity log; linked to the account only while the account exists |
+| Who opened which document, and when | Accountability for access to personal documents | 730 days |
+
+**Shorter, never longer.** A venue's manager may set, per activity, a shorter
+review window (1–90 days), a shorter time for documents after the decision
+(1–90) and a shorter time for a closed application (30–365); the database
+refuses anything longer. Documents also go as soon as the application's
+answers do. The privacy notice states the defaults.
+
+**Asking only for what is needed.** A venue that asks for a document must say
+which document and why, and the applicant sees both; it may never ask for an
+identity document. A venue whose setting has no reason cannot take documents
+until it gives one.
+
+#### Holds
+
+Where an actual legal claim or obligation, safety incident, dispute or
+incident under investigation needs an application kept past its time, a
+**hold** keeps all of it (documents, answers, history) from every rule above:
+
+- **Who:** the platform owner, for up to a year at a time; or a manager of the
+  venue (a branch manager or the business's manager), for up to 90 days at a
+  time and 180 days in all for one application, after which only the platform
+  owner can keep it longer. Front desk and coaches cannot place one.
+- **What is recorded:** the basis (legal, safety, dispute or incident), what
+  it concerns, who placed it and in what role, when, and the review date;
+  release records who and why. Each placement and release goes in the staff
+  activity log.
+- **How it ends:** on its review date, unless renewed by a new hold recorded
+  the same way, or when released. The next daily run then applies the
+  ordinary periods, so anything already past them goes at once.
+- **Erasure** waits while a hold is in force: the account page says an
+  application is kept under a hold and to ask the venue.
+
+Holds are managed under *Courts & rates → Keeping an application past its
+time* (`/api/admin/approvals/holds`).
+
+#### What deletion reaches
+
+The daily run deletes, per the table: documents; the application's record,
+history and holds; answers and declarations on an approval still standing;
+the bare facts and the record of who opened documents after their own
+period; and any document left without an application holding its details.
+Documents live only in the database: there are no files or storage objects
+to orphan, and uploads are checked in memory, so no temporary file is ever
+written.
+
+**Backups are not reached by deleting a row.** A row deleted today is still
+in the database snapshots and off-site copies taken before today, encrypted
+off-site, until those age out with their normal cycle: the newest 14 nightly
+snapshots are kept on the server ([backups](../operations/backups.md#backups))
+and off-site copies are deleted by the bucket's lifecycle rule about 15 days
+after upload, and cannot be removed earlier while their Object Lock lasts
+([keys and Object Lock](../operations/backups.md#keys-and-object-lock)). A
+restore from such a copy brings back what it held: what the periods above
+had deleted goes again at the next daily run, but an erasure made since the
+copy was taken must be made again. The privacy notice should say so.
 
 **`/privacy` is not legal advice.** It describes what the software actually
 does, which is the hard part, in each of the site's languages (Bahasa Malaysia,

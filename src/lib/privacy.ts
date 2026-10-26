@@ -70,15 +70,36 @@ export const RETENTION = {
    * Only the last day's count matters (the daily caps).
    */
   phoneCodeDays: 1,
+  /*
+   * Applications to be approved for an activity (lib/approval-retention.ts;
+   * docs/architecture/privacy.md#applications-to-be-approved-for-an-activity).
+   * Provisional defaults the owner accepted, each by its purpose, and each the
+   * most an activity's own setting may be: longer only under a recorded hold.
+   * Not statutory periods; subject to legal review.
+   */
   /**
-   * A supporting document sent with an application to be approved for an
-   * activity (a certificate, lib/approvals.ts), once the application is
-   * decided: long enough to answer a question about the decision; what was
-   * seen stays on the sign-off it wrote.
+   * A supporting document (a certificate), after the decision: long enough to
+   * answer a question about it. What was seen stays on the sign-off it wrote.
    */
   approvalDocumentDays: 90,
-  /** An application refused, withdrawn or lapsed, or an approval that has run out: its answers and history. */
+  /**
+   * The review or appeal window: a refused, withdrawn or lapsed application's
+   * documents, or those of an approval that has ended, go this long after.
+   */
+  approvalReviewDays: 30,
+  /**
+   * An application's answers, declarations and history, after it closed
+   * (refused, withdrawn, lapsed, or its approval ended); on an approval still
+   * standing, after the decision, leaving the approval itself.
+   */
   approvalRequestDays: 365,
+  /** What is left of a deleted application (that it existed, how it ended, who decided), and who opened its documents. */
+  approvalAuditDays: 730,
+  /** A hold placed by a manager lasts at most this long, and a manager may keep one application at most the second figure in all. */
+  approvalManagerHoldDays: 90,
+  approvalManagerHoldTotalDays: 180,
+  /** A hold placed by the platform owner lasts at most a year at a time. */
+  approvalOwnerHoldDays: 365,
 } as const;
 
 export interface RetentionLine {
@@ -202,27 +223,6 @@ const RULES: Rule[] = [
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
   },
   {
-    what: said("srv.ret.approvalDocuments"),
-    days: RETENTION.approvalDocumentDays,
-    action: "deleted",
-    table: "approval_documents",
-    where: "request_id IN (SELECT id FROM approval_requests WHERE decided_at IS NOT NULL AND decided_at < ?::timestamptz)",
-  },
-  {
-    what: said("srv.ret.approvalsClosed"),
-    days: RETENTION.approvalRequestDays,
-    action: "deleted",
-    table: "approval_requests",
-    where: "status IN ('rejected', 'withdrawn', 'expired') AND decided_at < ?::timestamptz",
-  },
-  {
-    what: said("srv.ret.approvalsEnded"),
-    days: RETENTION.approvalRequestDays,
-    action: "deleted",
-    table: "approval_requests",
-    where: "status = 'approved' AND valid_until IS NOT NULL AND valid_until < ?",
-  },
-  {
     what: said("srv.ret.applications"),
     days: RETENTION.unconfirmedApplicationDays,
     action: "deleted",
@@ -247,6 +247,8 @@ export async function retentionDue(): Promise<RetentionLine[]> {
       action: rule.action,
       affected: await count(`SELECT COUNT(*) AS n FROM ${rule.table} WHERE ${rule.where}`, addDays(today, -rule.days)),
     });
+  // Applications to be approved for an activity: by purpose, per activity, and never while held.
+  lines.push(...(await (await import("./approval-retention")).approvalRetentionDue()));
   const drafts = said("srv.ret.drafts", { n: STALE_DRAFT_DAYS });
   const sessions = said("srv.ret.sessions");
   lines.push({
@@ -286,8 +288,11 @@ export async function pruneOldData(): Promise<PruneResult> {
   const lines = await retentionDue();
   let photoKeys: string[] = [];
 
+  const approvals = await import("./approval-retention");
   await db.transaction(async () => {
     photoKeys = [];
+    // Applications first, so an approval's end is noted before the sign-off it rests on can go.
+    await approvals.pruneApprovals();
     for (const rule of RULES) {
       const cutoff = addDays(today, -rule.days);
       await db
@@ -766,6 +771,10 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
   };
 }
 
+/** Why an account cannot be closed while a hold keeps one of its applications (in the customer's language: lib/i18n.ts). */
+export const APPLICATION_HELD =
+  "One of your applications to a venue is being kept under a legal, safety or dispute hold, so the account cannot be closed yet. Ask the venue about it; the account can be closed once the hold ends.";
+
 export type EraseResult =
   | { ok: true; bookingsAnonymised: number; cancelled: number }
   | { ok: false; error: string };
@@ -822,6 +831,10 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       error:
         "You still hold a pass or membership that has not expired. Use it up, or ask the venue to cancel it, and then close the account.",
     };
+
+  // A hold for an actual legal, safety or dispute reason keeps an application, and so the account, until it ends.
+  if (await (await import("./approval-retention")).heldUntilFor(userId))
+    return { ok: false, error: APPLICATION_HELD };
 
   let cancelled = 0;
   let bookingsAnonymised = 0;

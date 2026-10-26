@@ -54,3 +54,15 @@ export function securityHeaders(): { key: string; value: string }[] {
     { key: "Strict-Transport-Security", value: "max-age=31536000" },
   ];
 }
+
+/**
+ * The policy on a supporting document handed out by the app (an approval
+ * application's PDF or image; lib/approval-documents.ts): nothing may load or
+ * run, the document is sandboxed as if from another origin, and nothing may
+ * frame it. A PDF is sent as an attachment besides, so the browser saves it
+ * rather than opening it in this site's origin.
+ */
+export const DOCUMENT_POLICY = "default-src 'none'; img-src 'self'; sandbox; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+/** Where those documents are served (the customer's, the dashboard's and a coach's link). */
+export const DOCUMENT_PATH = /^\/api\/(my\/approvals|admin\/approvals|my\/reviews)\/document$/;

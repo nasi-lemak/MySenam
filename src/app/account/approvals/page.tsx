@@ -10,6 +10,7 @@ import { ApprovalForm, SlotFields, explainApproval, slotBody, type ApplyInfo } f
 import { History, StatusBadge, slotText, when, type Say } from "@/components/ApprovalReview";
 import CoachApprovals from "@/components/CoachApprovals";
 import PayOnline from "@/components/PayOnline";
+import { DocumentLink } from "@/components/ApprovalDocumentLink";
 
 /**
  * The customer's applications to be approved for an activity, and where they
@@ -169,7 +170,7 @@ function RequestCard({
           </p>
           <textarea rows={3} maxLength={2000} value={answer} onChange={(e) => setAnswer(e.target.value)} className="block w-full rounded-md border border-slate-300 px-2 py-1.5" />
           {r.documents.length < 3 && (
-            <input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 3))} className="block text-xs" />
+            <input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 3))} className="block text-xs" />
           )}
           <button type="button" disabled={busy} onClick={() => send({ action: "answer", answer }, t("apr.answerSent"), true)} className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
             {t("apr.sendAnswer")}
@@ -227,10 +228,8 @@ function RequestCard({
       {r.documents.length > 0 && (
         <div className="flex flex-wrap gap-2 text-xs">
           <span className="text-slate-500">{t("apr.yourDocuments")}</span>
-          {r.documents.map((d, i) => (
-            <a key={d.id} href={`/api/my/approvals/document?id=${d.id}`} target="_blank" rel="noreferrer" className="text-teal-700 underline">
-              {t("apr.r.document", { n: i + 1 })}
-            </a>
+          {r.documents.map((d) => (
+            <DocumentLink key={d.id} href={`/api/my/approvals/document?id=${d.id}`} document={d} />
           ))}
         </div>
       )}

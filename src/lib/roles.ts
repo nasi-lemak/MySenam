@@ -64,6 +64,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/venues\/\d+\/photos(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/whatsapp$/, methods: ["POST"] },
   { path: /^\/api\/admin\/storefronts$/, methods: ["POST", "DELETE"] },
+  // Keeping an application past its retention period: a manager's, or the platform owner's, never the desk's.
+  { path: /^\/api\/admin\/approvals\/holds$/, methods: "all" },
 ];
 
 export type StaffRole = "manager" | "desk";

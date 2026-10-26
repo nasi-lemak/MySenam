@@ -5,6 +5,7 @@ import type { ApprovalRequest, Decision } from "@/lib/approvals";
 import { activityIcon } from "@/lib/activity-registry";
 import { formatMinute } from "@/lib/interval";
 import { intlTag, region } from "@/lib/region";
+import { DocumentLink } from "@/components/ApprovalDocumentLink";
 
 /**
  * Reviewing applications to be approved for an activity (lib/approvals.ts):
@@ -324,10 +325,8 @@ export function ApprovalReview({
               {r.documents.length > 0 && (
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className="text-slate-500">{say("apr.r.documents")}</span>
-                  {r.documents.map((d, i) => (
-                    <a key={d.id} href={documentUrl(d.id)} target="_blank" rel="noreferrer" className="font-medium text-teal-700 underline">
-                      {say("apr.r.document", { n: i + 1 })}
-                    </a>
+                  {r.documents.map((d) => (
+                    <DocumentLink key={d.id} href={documentUrl(d.id)} document={d} />
                   ))}
                 </div>
               )}
