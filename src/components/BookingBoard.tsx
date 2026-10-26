@@ -821,6 +821,19 @@ function BookingForm({
   const mostPlayers = placesPerBooking(court);
   const counted = mostPlayers > 1;
 
+  // People the signed-in adult manages, booked for by them (lib/participant-bookings.ts; ADR 0023):
+  // each ticked takes a place, and the adult one too where they take part.
+  const [people, setPeople] = useState<{ id: number; displayName: string }[]>([]);
+  const [forIds, setForIds] = useState<number[]>([]);
+  const [meToo, setMeToo] = useState(true);
+  // At the counter: children the venue knows with a guardian on this number, chosen by staff.
+  const [counterPeople, setCounterPeople] = useState<PickedParticipant[]>([]);
+  const [holderToo, setHolderToo] = useState(false);
+  const named = atCounter ? counterPeople.map((p) => p.id) : forIds;
+  const customerTakesPart = atCounter ? holderToo : meToo;
+  const persons = named.length + (named.length === 0 || customerTakesPart ? 1 : 0);
+  // Booked only for others: a membership does not price it (docs/features/pricing.md#memberships-and-member-rates).
+  const forOthers = named.length > 0 && !customerTakesPart;
   // The price, as the server will charge it: worked out there, shown before booking.
   const [quote, setQuote] = useState<Quote | null>(null);
   const moreKey = moreChosen.map((c) => (c.capacity > 1 ? `${c.id}:${countOf(c)}` : String(c.id))).join(",");
@@ -831,7 +844,7 @@ function BookingForm({
     const where = court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}&sport=${court.sport}`;
     const timer = setTimeout(() => {
       fetch(
-        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}`,
+        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}${forOthers ? "&forOthers=1" : ""}`,
         { cache: "no-store" }
       )
         .then((res) => res.json())
@@ -842,7 +855,7 @@ function BookingForm({
       live = false;
       clearTimeout(timer);
     };
-  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey]);
+  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey, forOthers]);
   const othersTotal = (quote?.others ?? []).filter((o) => more.includes(o.courtId)).reduce((sum, o) => sum + o.total, 0);
   const off = (concession?.percent ?? 0) / 100;
   // A concession is off the court time, not a setup or cleanup fee.
@@ -863,17 +876,6 @@ function BookingForm({
   const [chargeTo, setChargeTo] = useState<number | null>(null);
   // The venue's waiver, where it has one (lib/waivers.ts).
   const [agreeWaiver, setAgreeWaiver] = useState(false);
-  // People the signed-in adult manages, booked for by them (lib/participant-bookings.ts; ADR 0023):
-  // each ticked takes a place, and the adult one too where they take part.
-  const [people, setPeople] = useState<{ id: number; displayName: string }[]>([]);
-  const [forIds, setForIds] = useState<number[]>([]);
-  const [meToo, setMeToo] = useState(true);
-  // At the counter: children the venue knows with a guardian on this number, chosen by staff.
-  const [counterPeople, setCounterPeople] = useState<PickedParticipant[]>([]);
-  const [holderToo, setHolderToo] = useState(false);
-  const named = atCounter ? counterPeople.map((p) => p.id) : forIds;
-  const customerTakesPart = atCounter ? holderToo : meToo;
-  const persons = named.length + (named.length === 0 || customerTakesPart ? 1 : 0);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);

@@ -64,6 +64,7 @@ import * as claimRoute from "../src/app/api/waitlist/claim/route";
 import * as apiBookingsRoute from "../src/app/api/v1/bookings/route";
 import * as apiBookingRoute from "../src/app/api/v1/bookings/[code]/route";
 import * as checkInRoute from "../src/app/api/admin/check-in/route";
+import * as quoteRoute from "../src/app/api/quote/route";
 import * as participantsRoute from "../src/app/api/admin/participants/route";
 
 /**
@@ -250,6 +251,11 @@ describe("online: myself, a child I act for, or several people", () => {
       booking: { totalPrice: number };
     };
     expect(together.booking.totalPrice).toBe(5);
+    // The price shown before booking says the same.
+    const quote = async (extra: string) =>
+      ((await (await quoteRoute.GET(req(`http://localhost/api/quote?courtId=${hall2}&date=${day(6)}&start=${at(13)}&end=${at(14)}${extra}`, "GET", mum.cookie))).json()) as { total: number }).total;
+    expect(await quote("")).toBe(5);
+    expect(await quote("&forOthers=1")).toBe(20);
   });
 
   it("the confirmation goes to the guardian and names who it is for", async () => {
