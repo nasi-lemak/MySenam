@@ -125,8 +125,14 @@ Gaps: levels are self-declared, not earned from results
 - On the staff dashboard, text the server composes is English in every language.
 
 **Not driven in a browser** (journeys covered by route and unit tests only):
-setting up and drawing a tournament; corrections; following the emailed link
-that confirms a venue's sign-up. A venue's set-up from sign-up to its first
-booking, changing a booking's time (by the customer and by the venue's staff)
-and a venue's change of an open game's time are driven by acceptance
-scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)).
+following the emailed link that confirms a venue's sign-up; a tournament's
+replay of matches after a correction, moving a fixture, taking an entrant out
+after the draw, and performance events (heats and finals). A venue's set-up
+from sign-up to its first booking, changing a booking's time (by the customer
+and by the venue's staff), a venue's change of an open game's time, and a
+tournament's whole run — a competition and its divisions set up from a
+sport's template, entries, closing them and the draw, results by the front
+desk and an official, the final and the third-place match, and a correction
+that opens a progression issue resolved by letting the results stand — are
+driven by acceptance scenarios
+([testing](../development/testing.md#visual-acceptance-scenarios)).

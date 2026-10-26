@@ -122,7 +122,9 @@ who may enter, fee, entries and draw (`src/lib/competitions.ts`).
 - Each division's draw is scheduled into the competition's time around the
   matches the other divisions already have, whatever their lengths: never two
   matches on one court, and a player (by account) in two divisions never on
-  court in both at once. Divisions are added before any draw.
+  court in both at once — counting a match still to be decided (a final, a
+  third-place match, a knockout filled from the groups) as one for everybody
+  who could still reach it. Divisions are added before any draw.
 - The competition can limit how many divisions one player enters.
 - Held time no division will use goes back on sale once every division still
   running has made its draw, and more as results come in. Calling off one
@@ -178,7 +180,8 @@ replay's does:
 
 - the court is the venue's for the sport, open, in the future, and not used
   by another match of the tournament or of another division;
-- neither side plays elsewhere then;
+- neither side plays elsewhere then (for a side still to be decided,
+  nobody who could reach it plays in another division then);
 - the time is held already or free to hold, and a booking is never moved;
 - the match starts after every match feeding it ends, and ends before every
   match it feeds begins.
@@ -501,7 +504,7 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 | Results by players and officials | `src/lib/match-reports.ts` | `tests/match-reports.test.ts`, `tests/components/official-page.test.tsx` |
 | Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts` |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
-| Visual acceptance | | `tests/uat/tournament.uat.ts` |
+| Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in
 [feature status](../product/feature-status.md#tournaments-and-leagues).

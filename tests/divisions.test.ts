@@ -12,7 +12,7 @@ import { createBookingSeries, listVenues, sellMembership } from "../src/lib/stor
 import { addDays, todayISO } from "../src/lib/time";
 import { parseRules } from "../src/lib/tournament-rules";
 import { eraseCustomer, exportCustomerData } from "../src/lib/privacy";
-import { ageOn, cancelTournament, closeDueEntries, createTournament, enter, makeDraw, tournamentDetail, type TournamentInput } from "../src/lib/tournaments";
+import { ageOn, cancelTournament, closeDueEntries, createTournament, enter, makeDraw, moveMatch, setEntry, tournamentDetail, type TournamentInput } from "../src/lib/tournaments";
 
 /**
  * Competitions with divisions: one event holds the courts once, and each
@@ -159,6 +159,53 @@ describe("a competition", () => {
     const [m2] = (await tournamentDetail(second.id))!.matches;
     // The other court was free at 9:00; the player was not.
     expect([m1.minute, m2.minute]).toEqual([540, 570]);
+  });
+
+  it.each([
+    ["knockout first", true, 30],
+    ["round robin first", false, 60],
+  ])("keeps a player in two divisions off court elsewhere while a knockout match they could reach is played (%s)", async (_, knockoutFirst, veteransMinutes) => {
+    const c = await event();
+    const open = await division(c.id, { name: "Open", format: "knockout" });
+    // Lengths that, before it was fixed, put a veterans' match beside the final whichever division was drawn first.
+    const veterans = await division(c.id, { name: "Veterans", format: "round_robin", matchMinutes: veteransMinutes });
+    const [h, k] = [await player("Hafiz Both"), await player("Kumar Both")];
+    for (const p of [h, k, await player(), await player()]) expect(await enter(p, open.id)).toMatchObject({ ok: true });
+    for (const p of [h, k, await player()]) expect(await enter(p, veterans.id)).toMatchObject({ ok: true });
+    // Seeded apart: each in a semi-final of their own, so either may reach the final.
+    const seeded = (await tournamentDetail(open.id, { forStaff: true }))!.entries;
+    for (const [user, seed] of [[h, 1], [k, 2]] as const) expect(await setEntry(seeded.find((e) => e.userId === user.id)!.id, { seed })).toMatchObject({ ok: true });
+    for (const d of knockoutFirst ? [open, veterans] : [veterans, open]) expect(await makeDraw(d.id, () => 0.4)).toMatchObject({ ok: true });
+
+    const ko = (await tournamentDetail(open.id, { forStaff: true }))!;
+    const rr = (await tournamentDetail(veterans.id, { forStaff: true }))!;
+    const userOf = (d: typeof ko, entry: number | null) => d.entries.find((e) => e.id === entry)?.userId ?? null;
+    const end = (m: (typeof ko.matches)[number]) => m.minute! + m.minutes;
+    for (const x of ko.matches.filter((m) => m.status === "scheduled")) {
+      // A match still to be decided may be played by anybody who could reach it.
+      const could = x.a === null || x.b === null ? ko.entries.map((e) => e.userId) : [userOf(ko, x.a), userOf(ko, x.b)];
+      for (const y of rr.matches) {
+        if (x.date !== y.date || !(x.minute! < end(y) && y.minute! < end(x))) continue;
+        expect([userOf(rr, y.a), userOf(rr, y.b)].filter((u) => could.includes(u)), `${x.round}/${x.position} and a veterans match at ${y.minute}`).toEqual([]);
+      }
+    }
+  });
+
+  it("refuses to move a knockout match still to be decided beside another division's match of a player who could reach it", async () => {
+    const c = await event();
+    const open = await division(c.id, { name: "Open", format: "knockout" });
+    const veterans = await division(c.id, { name: "Veterans", format: "round_robin" });
+    const both = await player("Both Divisions");
+    for (const p of [both, await player(), await player(), await player()]) expect(await enter(p, open.id)).toMatchObject({ ok: true });
+    for (const p of [both, await player()]) expect(await enter(p, veterans.id)).toMatchObject({ ok: true });
+    expect(await makeDraw(open.id, () => 0.4)).toMatchObject({ ok: true });
+    expect(await makeDraw(veterans.id, () => 0.4)).toMatchObject({ ok: true });
+    const final = (await tournamentDetail(open.id))!.matches.find((m) => m.round === 2)!;
+    const [theirs] = (await tournamentDetail(veterans.id))!.matches;
+    expect(final).toMatchObject({ a: null, b: null });
+    // The other court is free then; the player who may reach the final is not.
+    const court = courtIds.find((id) => id !== theirs.courtId)!;
+    expect(await moveMatch(final.id, { courtId: court, date: theirs.date!, startMin: theirs.minute! })).toMatchObject({ ok: false, error: expect.stringMatching(/another division/) });
   });
 
   it("called off, calls off every division and gives its courts back", async () => {

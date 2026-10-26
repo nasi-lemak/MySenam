@@ -435,6 +435,12 @@ export interface Window {
 /** A match to place, with how long it is given on court. */
 export interface TimedMatch extends ToSchedule {
   minutes: number;
+  /**
+   * Sides that may yet play it, where who plays is still to be decided:
+   * kept clear of `sideBusy` (another division's matches), not of this
+   * draw's own matches, which the bracket already keeps apart.
+   */
+  could?: string[];
 }
 
 /** Something already on a court, or a side already playing, then. */
@@ -459,7 +465,7 @@ export function startStep(minutes: number[]): number {
  * minutes counted from `origin` (the tournament's first minute of the day).
  * `occupied` is what else is on the courts then (another division's
  * matches); `sideBusy` is when sides are playing elsewhere, keyed as
- * `ToSchedule.sides` are. `allowed` says whether a start may be used (not
+ * `ToSchedule.sides` are, and a match's `could` sides are kept clear of it too. `allowed` says whether a start may be used (not
  * in the past). With every match one length this places them exactly where
  * `scheduleMatches` does.
  */
@@ -474,7 +480,8 @@ export function scheduleTimed(
     const k = `${o.courtId}:${o.date}`;
     onCourt.set(k, [...(onCourt.get(k) ?? []), o]);
   }
-  const busy = new Map<string, Taken[]>([...(opts.sideBusy ?? new Map<string, Taken[]>())].map(([k, v]) => [k, [...v]]));
+  const elsewhere = opts.sideBusy ?? new Map<string, Taken[]>();
+  const busy = new Map<string, Taken[]>([...elsewhere].map(([k, v]) => [k, [...v]]));
   const overlaps = (list: Taken[] | undefined, date: string, start: number, end: number) => !!list?.some((o) => o.date === date && o.start < end && start < o.end);
   const placed = new Map<string, Slot & { end: number }>();
   let unplaced = 0;
@@ -506,6 +513,7 @@ export function scheduleTimed(
         if (opts.allowed && !opts.allowed(w.date, s)) continue;
         if (overlaps(onCourt.get(`${w.courtId}:${w.date}`), w.date, s, end)) continue;
         if (match.sides.some((side) => overlaps(busy.get(side), w.date, s, end))) continue;
+        if (match.could?.some((side) => overlaps(elsewhere.get(side), w.date, s, end))) continue;
         best = { courtId: w.courtId, date: w.date, minute: s, end };
         break;
       }
