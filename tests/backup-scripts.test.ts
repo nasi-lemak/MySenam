@@ -94,7 +94,8 @@ describe("the backup and restore scripts", () => {
     if (!added.ok) throw new Error(added.error);
     const before = await fingerprint();
     expect(Object.keys(before.photos).length).toBeGreaterThan(0);
-    expect(before.balances.find((b) => b.user_id === reg.user.id)?.balance).toBe(35);
+    // What is left of the 50 depends on the day four days on falls (peak or not), so read the price off the booking.
+    expect(before.balances.find((b) => b.user_id === reg.user.id)?.balance).toBe(50 - made.booking.totalPrice);
 
     const dir = path.join(work, "backups");
     const backup = await script("backup.mjs", ["--app-stopped", "--dir", dir]);
@@ -127,7 +128,7 @@ describe("the backup and restore scripts", () => {
     expect(after.photos).toEqual(before.photos);
     // And the app reads it back as it was.
     expect((await store.findBookingByCode(made.booking.code))?.status).toBe("confirmed");
-    expect(await store.getWalletBalance(reg.user.id)).toBe(35);
+    expect(await store.getWalletBalance(reg.user.id)).toBe(50 - made.booking.totalPrice);
     expect((await store.listVenues()).find((v) => v.id === venue.id)?.name).toBe("Restored Arena");
     expect((await venuePhotos(venue.id))[0].caption).toBe("Court one");
     const { getDb } = await import("../src/lib/db");

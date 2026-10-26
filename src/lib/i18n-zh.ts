@@ -1965,7 +1965,7 @@ export const ZH: Record<Phrase, string> = {
   "apr.ev.late_payment_refund": "逾时付款：须退还",
   "apr.payToConfirm": "您的时段已预订，但尚未确认：请在 {date} 前付款以确认，否则将被释放。无论如何，您的批准依然有效。",
   "apr.revokedWhy": "场馆已撤销您的批准：{reason}",
-  "apr.coachSignIn": "要审核场馆指定给您的申请？请登录场馆为您关联的本人 MySenam 账户，然后打开",
+  "apr.coachSignIn": "要审核场馆指定给您的申请？请登录场馆为您关联的本人 {site} 账户，然后打开",
   "apr.coachSignInLink": "待审核的申请",
   "apr.mail.payBy": "您的预订 {code} 已建立但尚未确认：请在 {time}（场馆当地时间）前通过您的账户付款，否则将被释放。无论如何，您的批准依然有效。",
   "apr.mail.revokedSubject": "您在 {venue} 的 {activity} 批准已被撤销",
