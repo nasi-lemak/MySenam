@@ -499,3 +499,34 @@ days) await the owner; `tests/contention.test.ts`'s retry bound has been
 seen exceeded under heavy parallel load on the base commit as well, once in
 about a dozen runs, and passed here.
 
+#### 26 October 2026, commit `17d2747`
+
+The owner's approval-workflow decisions of 26 October 2026: approval
+followed by payment, door codes that never bypass eligibility, who may grant
+a safety approval and revoking it, applications kept by purpose with holds,
+PDFs checked and never rendered, and a child applied for, booked and agreed
+for from an adult's account; shared facilities turned over per place or
+whole; receipts and the off-peak refusal in the customer's language; kinds
+of kit under their heading in search; coach links kept as a hash; and a
+tournament's whole run driven in a browser. Not a launch. Run on one cloud
+container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 100 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 215 files; 2465 passed, 4 skipped (Postgres-only tests) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 215 files; 2469 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Tournament 3–6 among them | 9 files; 26 passed |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments on approval were tested against the fake gateways only |
+
+Gaps: no live integration has passed its check; machine-assisted Malay,
+Chinese and Tamil (the new approval, retention and guardian text among them)
+await native review; the retention periods are provisional defaults awaiting
+legal review; `tests/backup-scripts.test.ts` assumed the booking it makes
+four days ahead was off-peak and failed on days it was not, on the base
+commit too; it now reads the booking's price.
+
