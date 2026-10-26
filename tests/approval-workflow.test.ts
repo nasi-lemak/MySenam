@@ -269,6 +269,18 @@ describe("approval followed by payment, at a venue asking payment to hold", () =
     expect((await requestById(done.request.id))!.slot).toMatchObject({ status: "booked" });
   });
 
+  it("never lets go a held booking with a deposit paid, even before its hold is cleared", async () => {
+    const me = await customer();
+    const done = await approvedWithSlot(me, day(1), 20);
+    // The deposit is counted and the hold not yet cleared (lib/payments.ts clears it just after): it stands.
+    await getDb().prepare("UPDATE bookings SET shares_paid = 9, deposit_paid = 9 WHERE id = ?").run(done.booking!.id);
+    await holdPast(done.booking!.id);
+    await releaseExpiredHolds();
+    expect(await findBooking(done.booking!.code, me.phone)).toMatchObject({ status: "confirmed" });
+    await expireApprovals();
+    expect((await requestById(done.request.id))!.slot).toMatchObject({ status: "booked" });
+  });
+
   it("a payment after the hold was let go becomes the booking again while the slot is free; told twice, it counts once", async () => {
     const me = await customer();
     const date = day(9);
