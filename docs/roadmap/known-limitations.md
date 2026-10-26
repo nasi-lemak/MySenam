@@ -167,7 +167,7 @@ changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
 | [An operator's own activity](#activities) named in English unless given; [catalogue changes](#activities) take a minute; [`sport` column name](#activities); [integrity check](#activities) window | 5 | Operators | Kept |
-| [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional, PDFs checked not scanned, a parent cannot apply for a child | 5 / 7 / 2 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction; a parent applying for a child is a next step |
+| [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional, PDFs checked not scanned; booking for a child on the waiting list, the counter, the API key and several courts | 5 / 7 / 2 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction; the other booking paths for a child when a venue needs them |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
@@ -177,7 +177,7 @@ two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **79 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17, B18 and
 S12–S16, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (38
+[resolved without a number](#resolved-limitations-without-a-number) (39
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications). Some were added, each narrower than
@@ -186,11 +186,12 @@ member identity was fixed; the native review of the newly translated text;
 and what the owner's decisions of 25 and 26 October 2026 left when built
 (exact shared separation on fungible places, gaps across a change of the
 clocks, the provisional retention periods, PDFs checked rather than
-scanned, search not telling a customer they already hold a sign-off). The
+scanned, search not telling a customer they already hold a sign-off,
+booking for a child on paths other than the approval's slot and one court). The
 owner's decisions of 24 October 2026 (the launch languages, backups abroad)
 moved a decision into the launch blockers rather than closing it: native
 review is now required, and the transfer steps remain. In the table above,
-no row is a defect; one is of kinds 2 to 4 (a parent applying for a child).
+no row is a defect; one is of kinds 2 to 4 (booking for a child on the remaining paths).
 
 ## Suspected defects
 
@@ -339,9 +340,15 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   malware**: scripts, actions, attachments, rich media, XFA and encryption
   are refused and it is never rendered, but a flaw in a reviewer's own PDF
   reader is not caught ([security](../architecture/security.md#supporting-documents)) (P3, deliberate: no paid scanning service).
-- **A parent cannot apply for a child** from the parent's own account: a
-  minor applies from their own, with the guardian's name and declaration,
-  recorded as declared (P3).
+- **Booking for a child works on the approval's slot and on one court
+  online**: a parent, legal guardian or other person with authority applies,
+  books and agrees to waivers for a child from their own account
+  ([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage)),
+  but the waiting list, the counter, the venue's API key and bookings of
+  several courts at once book for the adult only, and a child's unstaffed
+  access rests on the adult's induction (P3). The relationship and authority
+  are the adult's declaration, reviewed by staff only where an activity asks
+  it, never verified (by design).
 - **Search and the venue's grid say a resource needs a sign-off or
   certification** whether or not the signed-in customer already holds one;
   the booking checks it (P3, deliberate: checking per customer would cost a
@@ -530,6 +537,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Receipts and the off-peak refusal named a built-in concession in the language staff saved it in | The receipt and the refusal say it in the customer's language by its key; the line as stored, the amounts and the books are unchanged; older receipts where it can be told for certain | `tests/receipt-languages.test.ts` |
 | A heading over kinds of kit showed on the grid but not in search | Search lists each kind under its heading as itself (price, places left, sign-off need), links to the venue's grid with the heading marked, with no extra queries | `tests/search-groups.test.ts`, `tests/components/search-groups.test.tsx` |
 | A tournament's set-up and draw, and corrections, were not driven in a browser | Acceptance scenarios *Tournament 3–6*: set-up from a template with divisions (refused to another venue's manager), entries and draws with the public fixtures checked, results by the desk and an official through the final and third place, and a correction after the third-place match held under review until the organiser lets it stand | `tests/uat/competition.uat.ts` |
+| A parent could not apply for a child from their own account: a minor applied from their own, typing a guardian's name | People an adult manages, held minimally under the adult's account; applications, sign-offs, bookings, door codes and waivers per person, the child's eligibility never the parent's or a sibling's, nor the parent's the child's ([ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md)) | `tests/guardian-applications.test.ts` |
 
 ## Production readiness
 
