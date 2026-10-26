@@ -1596,7 +1596,11 @@ function knockout(size: number, firstPairs: [number | null, number | null][], fe
  * Make the draw: seeds first in seed order, everybody else by lot; the
  * matches; and a court and an hour for each. All or nothing.
  */
-/** A match another division of the same competition has on court: where, when, for how long, and whose accounts play. */
+/**
+ * A match another division of the same competition has on court: where,
+ * when, for how long, and whose accounts play — or may yet play, for a side
+ * still to be decided: everybody who could still reach it.
+ */
 interface SiblingMatch {
   id: number;
   courtId: number;
@@ -1606,35 +1610,73 @@ interface SiblingMatch {
   userIds: number[];
 }
 
-async function siblingMatches(competitionId: number, exceptTournamentId: number): Promise<SiblingMatch[]> {
+async function siblingMatches(competitionId: number, exceptTournamentId: number, own = false): Promise<SiblingMatch[]> {
+  // `own`: this division's matches instead, with who could play each.
+  const which = own ? "d.id = ?" : "d.id <> ?";
   const rows = (await getDb()
     .prepare(
-      `SELECT m.id, m.court_id, m.date, m.start_min, COALESCE(m.minutes, d.match_minutes) AS match_minutes,
+      `SELECT m.id, m.tournament_id, m.status, m.court_id, m.date, m.start_min, COALESCE(m.minutes, d.match_minutes) AS match_minutes,
+              m.next_match_id, m.next_slot, m.loser_next_match_id, m.loser_next_slot,
               (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_a) AS user_a,
               (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_b) AS user_b,
+              m.entry_a IS NULL AS open_a, m.entry_b IS NULL AS open_b, m.stage,
               ARRAY(SELECT e.user_id FROM tournament_performances p JOIN tournament_entries e ON e.id = p.entry_id
                      WHERE p.match_id = m.id AND e.user_id IS NOT NULL) AS lane_users
          FROM tournament_matches m JOIN tournaments d ON d.id = m.tournament_id
-        WHERE d.competition_id = ? AND d.id <> ? AND d.status <> 'cancelled' AND m.status = 'scheduled' AND m.court_id IS NOT NULL`
+        WHERE d.competition_id = ? AND ${which} AND d.status <> 'cancelled'`
     )
     .all(competitionId, exceptTournamentId)) as {
     id: number;
-    court_id: number;
-    date: string;
-    start_min: number;
+    tournament_id: number;
+    status: string;
+    court_id: number | null;
+    date: string | null;
+    start_min: number | null;
     match_minutes: number;
+    next_match_id: number | null;
+    next_slot: "a" | "b" | null;
+    loser_next_match_id: number | null;
+    loser_next_slot: "a" | "b" | null;
     user_a: number | null;
     user_b: number | null;
+    open_a: boolean;
+    open_b: boolean;
+    stage: string;
     lane_users: number[] | null;
   }[];
-  return rows.map((r) => ({
-    id: r.id,
-    courtId: r.court_id,
-    date: r.date,
-    minute: r.start_min,
-    minutes: r.match_minutes,
-    userIds: [r.user_a, r.user_b, ...(r.lane_users ?? []).map(Number)].filter((u): u is number => u !== null),
-  }));
+  // Everybody entered in each division: who could fill a place nothing feeds yet (a knockout filled from the groups).
+  const entered = new Map<number, number[]>();
+  for (const e of (await getDb()
+    .prepare(
+      `SELECT e.tournament_id, e.user_id FROM tournament_entries e JOIN tournaments d ON d.id = e.tournament_id
+        WHERE d.competition_id = ? AND ${which} AND e.status = 'entered' AND e.user_id IS NOT NULL`
+    )
+    .all(competitionId, exceptTournamentId)) as { tournament_id: number; user_id: number }[])
+    entered.set(e.tournament_id, [...(entered.get(e.tournament_id) ?? []), e.user_id]);
+  const known = (r: (typeof rows)[number]) => [r.user_a, r.user_b, ...(r.lane_users ?? []).map(Number)].filter((u): u is number => u !== null);
+  /** Who could still come to one side of a match: through the matches feeding it, else anybody in the division. */
+  const reach = (r: (typeof rows)[number], slot: "a" | "b", seen: Set<number>): number[] => {
+    const feeders = rows.filter((f) => (f.next_match_id === r.id && f.next_slot === slot) || (f.loser_next_match_id === r.id && f.loser_next_slot === slot));
+    if (feeders.length === 0) return entered.get(r.tournament_id) ?? [];
+    return feeders.flatMap((f) => (f.status !== "scheduled" || seen.has(f.id) ? [] : couldPlay(f, new Set([...seen, f.id]))));
+  };
+  const couldPlay = (r: (typeof rows)[number], seen: Set<number>): number[] =>
+    r.stage === "group" || r.stage === "knockout"
+      ? [...known(r), ...(r.open_a ? reach(r, "a", seen) : []), ...(r.open_b ? reach(r, "b", seen) : [])]
+      : // A performance final filled only once the heats are in: anybody in the heats may swim it.
+        r.stage === "final" && known(r).length === 0
+        ? (entered.get(r.tournament_id) ?? [])
+        : known(r);
+  return rows
+    .filter((r) => r.status === "scheduled" && r.court_id !== null && r.date !== null && r.start_min !== null)
+    .map((r) => ({
+      id: r.id,
+      courtId: r.court_id!,
+      date: r.date!,
+      minute: r.start_min!,
+      minutes: r.match_minutes,
+      userIds: [...new Set(couldPlay(r, new Set([r.id])))],
+    }));
 }
 
 export async function makeDraw(tournamentId: number, random: () => number = Math.random): Promise<Result<TournamentDetail>> {
@@ -1732,11 +1774,21 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
   // A player is also known by their account, so a division does not put them on court while they play in another.
   const person = new Map(entries.filter((e) => e.user_id !== null).map((e) => [e.id, `u${e.user_id}`]));
   const sidesOf = (ids: (number | null)[]) => ids.flatMap((id) => (id === null ? [] : [`e${id}`, ...(person.has(id) ? [person.get(id)!] : [])]));
+  // Who could yet play a match whose sides are still to be decided: everybody in the matches feeding it.
+  const byKey = new Map(matches.map((m) => [m.key, m]));
+  const fedBy = (m: NewMatch, seen = new Set<string>()): number[] =>
+    m.after.flatMap((k) => {
+      const f = byKey.get(k);
+      if (!f || seen.has(k)) return [];
+      seen.add(k);
+      return [f.a, f.b, ...(f.lanes ?? []).map((l) => l.entryId), ...fedBy(f, seen)].filter((x): x is number => x !== null);
+    });
   const toPlay: TimedMatch[] = matches
     .filter((m) => !m.bye)
     .map((m) => ({
       key: m.key,
       minutes: lengthOf.get(m.key)!,
+      ...(m.stage !== "heat" && (m.a === null || m.b === null) ? { could: sidesOf([...new Set(fedBy(m))]) } : {}),
       sides: m.lanes
         ? sidesOf(m.lanes.map((l) => l.entryId))
         : m.stage === "final"
@@ -2468,10 +2520,12 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
   if (t.competition) {
     const elsewhere = (await siblingMatches(t.competition.id, t.id)).filter((o) => o.date === slot.date && o.minute < end && slot.startMin < o.minute + o.minutes);
     if (elsewhere.some((o) => o.courtId === slot.courtId)) return `A match of another division is on ${court.name} then.`;
-    const players = (await getDb()
+    // Its sides, and for a side still to be decided everybody who could reach it.
+    const sides = (await getDb()
       .prepare(`SELECT user_id FROM tournament_entries WHERE id IN (${[match.a ?? 0, match.b ?? 0].join(",")}) AND user_id IS NOT NULL`)
       .all()) as { user_id: number }[];
-    if (elsewhere.some((o) => o.userIds.some((u) => players.some((p) => p.user_id === u)))) return "One of the sides plays in another division then.";
+    const players = [...sides.map((p) => p.user_id), ...((await siblingMatches(t.competition.id, t.id, true)).find((o) => o.id === match.id)?.userIds ?? [])];
+    if (elsewhere.some((o) => o.userIds.some((u) => players.includes(u)))) return "One of the sides plays in another division then.";
   }
   const sides = [match.a, match.b].filter((x): x is number => x !== null);
   if (live.some((o) => sides.includes(o.entry_a ?? -1) || sides.includes(o.entry_b ?? -1))) return "One of the sides plays another match then.";
