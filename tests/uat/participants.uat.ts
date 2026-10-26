@@ -134,7 +134,7 @@ describe("participants: children apart from the account that books for them", ()
       await page.getByRole("button", { name: /^Book · RM/ }).waitFor();
       await takingPart(page, { me: false, children: ["Bilal"], all: ["Alya", "Bilal"] });
       await page.getByRole("button", { name: /^Book · RM/ }).click();
-      await page.getByText(/Archery here needs a sign-off from the venue's staff first/).waitFor();
+      await page.getByText(/Bilal needs the venue's own sign-off for Archery first/).waitFor();
       await takingPart(page, { me: false, children: ["Alya"], all: ["Alya", "Bilal"] });
       await page.getByRole("button", { name: /^Book · RM/ }).click();
       return confirmedCode(page);
@@ -322,7 +322,7 @@ describe("participants: children apart from the account that books for them", ()
 
     await s.step(desk, "books the lane for Mei and is refused: she has no sign-off of her own, and the guardian's number is not hers", async () => {
       await page.getByRole("button", { name: /^Book · RM/ }).click();
-      await page.getByText(/Archery here needs a sign-off from the venue's staff first/).waitFor();
+      await page.getByText(/Mei needs the venue's own sign-off for Archery first/).waitFor();
     });
 
     const signOff = async (who: Actor) => {
