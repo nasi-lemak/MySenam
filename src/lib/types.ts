@@ -239,6 +239,18 @@ export interface Induction {
   note: string | null;
   createdAt: string;
   revokedAt: string | null;
+  /**
+   * A participant's own (lib/participants.ts), the number being a guardian's
+   * to reach them; null and `forParticipant: false` for the number holder's own.
+   */
+  participantId?: number | null;
+  forParticipant?: boolean;
+  /** An older number-keyed induction flagged for staff to check whose it is (migration 0140). */
+  needsReview?: boolean;
+  reviewedBy?: string | null;
+  reviewNote?: string | null;
+  /** Given to a participant by staff: the name it was filed under before. */
+  assignedFromName?: string | null;
 }
 
 export function isShared(court: Pick<Court, "capacity">): boolean {
@@ -296,9 +308,11 @@ export interface Booking {
   phone: string;
   email: string | null;
   /**
-   * Who takes part, where the account's adult booked for somebody they manage
-   * (lib/managed-people.ts): the booking rules and door codes use that
-   * person's eligibility; `name` is the adult who booked.
+   * Who takes part, where the booking names participants (lib/participants.ts;
+   * `booking_participants` is the record): the first one, and everybody's
+   * names, as the database summarises them for one line per booking. The
+   * booking rules and door codes check each person taking part on their own
+   * eligibility; `name` is the customer who booked.
    */
   participantId?: number | null;
   participantName?: string | null;

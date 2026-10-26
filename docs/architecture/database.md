@@ -58,6 +58,17 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   written by the application at every start. Checks on `courts` refuse a
   resource with places priced per player and a court booked whole priced
   flat (migration 0093).
+- **People are ids, never contact details.** A participant (somebody who
+  takes part other than the account holder) is a row in `participants`;
+  who may act for them is `participant_guardians` (migration 0138). Who takes
+  a place on a booking is `booking_participants` (migration 0139):
+  `bookings.participant_id` and `participant_name` are a summary a trigger
+  keeps in step with it, never written by code. Inductions, sign-offs and
+  waiver signatures name a participant by id, a flag keeping a participant's
+  record a participant's when their row goes (migration 0140). A phone number
+  finds the number holder's own records, or candidates for staff to choose
+  from; it never merges people or moves a record between them
+  ([ADR 0023](decisions/0023-participants-apart-from-accounts.md)).
 - **Migration steps.** Where a migration needs the application (a venue's
   time zone from its pin, checking a conversion), a step in
   `src/lib/db-steps.ts` runs straight after that migration's SQL in the same

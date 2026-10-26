@@ -202,11 +202,18 @@ describe("people an adult manages", () => {
     expect(added).toMatchObject({ ok: true, person: { displayName: "Aisyah", birthYear: 2016, relationship: "parent", archivedAt: null } });
     if (!added.ok) return;
     expect(added.person.authorityDeclaredAt).toBeTruthy();
-    // Exactly the columns held, and no contact details.
-    const row = (await getDb().prepare("SELECT * FROM managed_people WHERE id = ?").get(added.person.id)) as Record<string, unknown>;
+    // Exactly the columns held, and no contact details: the participant (ADR 0023), and the adult's relationship to them.
+    const row = (await getDb().prepare("SELECT * FROM participants WHERE id = ?").get(added.person.id)) as Record<string, unknown>;
     expect(Object.keys(row).sort()).toEqual(
-      ["archived_at", "authority_declared_at", "birth_year", "created_at", "display_name", "id", "relationship", "updated_at", "user_id"].sort()
+      ["birth_year", "created_at", "created_by_admin_id", "created_by_user_id", "display_name", "id", "linked_at", "linked_user_id", "origin", "updated_at", "venue_id"].sort()
     );
+    expect(await getDb().prepare("SELECT user_id, relationship, provenance, contact_name, contact_phone FROM participant_guardians WHERE participant_id = ?").get(added.person.id)).toEqual({
+      user_id: me.id,
+      relationship: "parent",
+      provenance: "online",
+      contact_name: null,
+      contact_phone: null,
+    });
     // No login of their own: no user row was made.
     expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM users WHERE name LIKE '%Aisyah%'").get()) as { n: number }).toEqual({ n: 0 });
   });
@@ -433,6 +440,8 @@ describe("eligibility belongs to the child", () => {
     await recordInduction({ venueId: doorVenue, phone: me.phone, name: me.name });
     const sibling = await child(me, "Sibling Three");
     const { kid, request } = await approvedChild(me, "Umar");
+    // Each inducted on their own (ADR 0023): the parent's induction is not the children's.
+    for (const p of [kid, sibling]) await recordInduction({ venueId: doorVenue, phone: me.phone, name: p.displayName, participant: { id: p.id, name: p.displayName } });
     const date = day(4);
     const mine = await laneBooking(me, date, 8, undefined, "staff");
     expect(mine).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED" });
@@ -550,7 +559,7 @@ describe("export, erasure and retention", () => {
     const signOffId = ((await getDb().prepare("SELECT sign_off_id FROM approval_requests WHERE id = ?").get(request.id)) as { sign_off_id: number }).sign_off_id;
 
     expect((await eraseCustomer(me.id)).ok).toBe(true);
-    expect(await getDb().prepare("SELECT 1 FROM managed_people WHERE id = ?").get(kid.id)).toBeUndefined();
+    expect(await getDb().prepare("SELECT 1 FROM participants WHERE id = ?").get(kid.id)).toBeUndefined();
     expect(await getDb().prepare("SELECT 1 FROM approval_requests WHERE id = ?").get(request.id)).toBeUndefined();
     // The sign-off stays the venue's record, taken back: nothing can count on it once nobody manages them.
     const so = (await getDb().prepare("SELECT revoked_at, revoke_reason, managed_person_id FROM sign_offs WHERE id = ?").get(signOffId)) as {
@@ -570,9 +579,9 @@ describe("export, erasure and retention", () => {
     const kept = await child(me, "Old Two");
     await applied(me, archeryAt(doorVenue, { forPerson: kept.id, authority: true }));
     for (const p of [gone, kept]) await editManaged(me.id, p.id, { archived: true });
-    await getDb().prepare("UPDATE managed_people SET archived_at = now() - interval '400 days' WHERE id IN (?, ?)").run(gone.id, kept.id);
+    await getDb().prepare("UPDATE participant_guardians SET archived_at = now() - interval '400 days' WHERE participant_id IN (?, ?)").run(gone.id, kept.id);
     await pruneOldData();
-    expect(await getDb().prepare("SELECT 1 FROM managed_people WHERE id = ?").get(gone.id)).toBeUndefined();
-    expect(await getDb().prepare("SELECT 1 FROM managed_people WHERE id = ?").get(kept.id)).toBeTruthy();
+    expect(await getDb().prepare("SELECT 1 FROM participants WHERE id = ?").get(gone.id)).toBeUndefined();
+    expect(await getDb().prepare("SELECT 1 FROM participants WHERE id = ?").get(kept.id)).toBeTruthy();
   });
 });

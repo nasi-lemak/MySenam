@@ -18,7 +18,7 @@ import type { Refusal } from "./types";
  * erases their account (like the money on their bookings), and goes out with
  * their data when they ask.
  *
- * An adult may agree on behalf of somebody they manage (lib/managed-people.ts):
+ * An adult may agree on behalf of a participant they act for (lib/participants.ts):
  * the adult signs (their name and number), the person takes part, and that
  * agreement is the person's alone, apart from the adult's own.
  */
@@ -74,11 +74,22 @@ export async function waiverSigned(venueId: number, phone: string): Promise<bool
     .get(waiver.id, phoneKey(phone)));
 }
 
-/** Has an adult agreed to the venue's waiver as it stands on behalf of this person they manage? True where there is none. */
+/**
+ * Has the venue's waiver as it stands been agreed for this participant
+ * (lib/participants.ts): by a guardian on their behalf, or, once linked to
+ * their own login, by that account for itself? Never a guardian's own
+ * agreement or a sibling's. True where there is none.
+ */
 export async function waiverSignedFor(venueId: number, managedPersonId: number): Promise<boolean> {
   const waiver = await currentWaiver(venueId);
   if (!waiver) return true;
-  return !!(await getDb().prepare("SELECT 1 FROM waiver_signatures WHERE waiver_id = ? AND managed_person_id = ?").get(waiver.id, managedPersonId));
+  return !!(await getDb()
+    .prepare(
+      `SELECT 1 FROM waiver_signatures s WHERE s.waiver_id = ? AND (s.managed_person_id = ?
+          OR (s.participant_name IS NULL AND s.phone_key = (SELECT phone_key(u.phone) FROM participants p JOIN users u ON u.id = p.linked_user_id
+                                                             WHERE p.id = ? AND u.phone_verified_at IS NOT NULL)))`
+    )
+    .get(waiver.id, managedPersonId, managedPersonId));
 }
 
 /**

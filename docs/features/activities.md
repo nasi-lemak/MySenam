@@ -207,9 +207,14 @@ the booking is where it is enforced.
 where one is linked), the activity (or anything there), its scope (this
 branch, or every branch of the business, which only whoever runs the
 business may give or take back), who gave it and when, when it runs out,
-and, once taken back, who did it and why. A sign-off an approval wrote for
-somebody an adult manages also names that person, and counts for them alone
-([applying for somebody you manage](#applying-for-somebody-you-manage)). Every
+and, once taken back, who did it and why. A sign-off or certification for a
+participant (a child on a parent's number; [ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md))
+names that participant and counts for them alone: written by an approval
+([applying for somebody you manage](#applying-for-somebody-you-manage)), or
+recorded by staff choosing them under *for somebody on this number* among
+the participants the venue knows whose guardian is on that number (the
+number is the guardian's, to reach them; the name is the participant's).
+Recording one again replaces that participant's only. Every
 change is in the activity log. Front desk cannot record one for an activity whose approval the venue
 set as a safety assessment unless a manager delegated them for it
 ([who may grant](#registering-online-for-approval)); taking back one an
@@ -220,13 +225,16 @@ approval wrote revokes that approval.
 | Who is booking | A sign-off counts when |
 | -------------- | ---------------------- |
 | The customer online (booking, any court, weekly series, waiting list, open games, rescheduling) | They are signed in, and the record is linked to their account (staff named it by email), or names a number their account has proved ([phone checks](../architecture/authentication.md#checking-a-customers-phone-number)). A guest, or an account whose number is only typed, is refused. |
-| The venue's staff at the counter, or the venue's own system with its API key | The record names the number booked for: staff answer for who is in front of them. |
+| The venue's staff at the counter, or the venue's own system with its API key | The record names the number booked for and is the number holder's own (never one recorded for a participant on that number): staff answer for who is in front of them. |
+| Anybody, for a booking that names participants | Each participant's own counts for them, and nobody else's; online, only for an account that acts for them (a guardian whose relationship stands, or their own linked login). A participant's own linked login counts their sign-offs as its own, and its own count for them. |
 | A manager going past the rules | Not asked; recorded in the activity log as an override. The booking stands, but gets no door code without a sign-off in force ([door codes](venue-operations.md#resources-nobody-is-standing-next-to)). |
 
 It must hold on the last day booked (the last week of a series; the new day
-of a reschedule). One person's sign-off covers one person: online, a
-customer books one place on an activity that asks for one (`SIGN_OFF_EACH`),
-and everyone joining an open game needs their own. Classes are not held to
+of a reschedule), for everybody taking part: the customer, where they take
+a place, and each participant the booking names. One person's sign-off covers
+one person: online, a customer books no more places on an activity that asks
+for one than the people checked (`SIGN_OFF_EACH`), and everyone joining an
+open game needs their own. Classes are not held to
 it: they are led by an instructor. Refused bookings say why
 (`SIGN_OFF_NEEDED`, `CERTIFICATION_NEEDED`) and point to the counter; where
 the venue takes applications online, its page offers that instead
@@ -234,7 +242,18 @@ the venue takes applications online, its page offers that instead
 Sign-offs are personal data: they appear in a phone number's export, and
 withdrawn ones are deleted after a year ([privacy](../architecture/privacy.md)).
 
-A sign-off is not an [induction](venue-operations.md): an induction clears
+**Where it is recognised.** A sign-off counts at the branch that gave it, or,
+given for every branch of a business, at all of that business's branches;
+never at another venue. Each venue decides for itself whom it clears: a
+sign-off, certification or induction from one venue is not accepted by
+another, and an application approved at one venue writes a sign-off for that
+venue alone. The record keeps who it is for (the number holder, or a
+participant), the activity, the issuing branch or business, when it starts
+and runs out, its revocation and who gave it: an approval is the
+application, the review and the sign-off it wrote, kept apart
+([registering online for approval](#registering-online-for-approval)).
+
+A sign-off is not an [induction](venue-operations.md#inductions): an induction clears
 somebody to use the venue when nobody is staffing it; a sign-off clears them
 to book one activity. On an unmanned resource the door code also waits for a
 sign-off where the activity asks for one
@@ -428,8 +447,11 @@ a manager or the platform owner can keep one longer under a recorded hold
 A parent, legal guardian or other person with authority applies, books,
 agrees to waivers and is told for a child (or anybody else they act for)
 from their own account, without the child needing a login, email or phone
-(`src/lib/managed-people.ts`;
-[ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md)).
+(`src/lib/managed-people.ts`, on participants in `src/lib/participants.ts`;
+[ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md),
+[ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)).
+The person is a participant: the one who takes part, apart from the
+account that books, pays or is told.
 
 **People you manage** (`/account`, `/api/my/people`). The adult adds each
 person with a first name or what the family calls them, a birth year only if
@@ -440,10 +462,27 @@ email, phone, photo, school or identity number sent is refused. All of it
 is the adult's word, recorded as declared and never verified; MySenam makes
 no claim about the age at which a guardian is needed, which is the
 activity's own configuration. The adult can change a person (a changed
-relationship needs the declaration again), stop managing them (nothing is
-deleted: an application under review, a hold, an approval or a booking
-stays, and can still be withdrawn or cancelled) and bring them back. No
-other account can see or act on them.
+relationship needs the declaration again, and is kept as a correction: the
+old declaration ended, a new one made), stop managing them for now (nothing
+is deleted: an application under review, a hold, an approval or a booking
+stays, and can still be withdrawn or cancelled) and bring them back.
+
+**A second guardian, and their own login.** *Share with another guardian*
+gives a code (good once, for a week; only its hash is kept) that another
+adult enters under *Have a code?* on their own account, declaring their own
+relationship and authority: both then manage the child, each with their own
+relationship. *Hand over to their own login* gives a code the person enters
+on their own account: from then on that account is theirs (one participant
+per account), keeping every booking, sign-off, induction and waiver they
+had, and its own eligibility includes theirs; their guardians carry on
+until they stop. A venue's manager can also link a participant it knows to
+the account named by its email, with a reason. **Stop being their guardian**
+ends the adult's relationship for good, with an optional reason: their
+applications for the person still waiting are withdrawn and they make
+nothing new for them; what was made stays. A manager can revoke a guardian's
+relationship to a participant the venue knows, with a reason
+(`PATCH /api/admin/participants/[id]`). No other account can see or act on
+them, and every change is in the participant's history.
 
 **Applying.** The application form asks *who is this application for*: the
 adult, or one of their people. For a person, the adult declares that they
@@ -474,11 +513,20 @@ the child's bookings for staff, not the parent's.
 **Booking and attendance.** A slot asked for with the application is booked
 for the person on approval. Later, the booking form asks *who is taking
 part* where the signed-in adult manages anybody (one court at a time): the
-booking records the participant, whose sign-off the booking rules,
-rescheduling and the door code check, and whose waiver the adult agrees to
-on their behalf. Staff see the child's name, *booked by* the adult, on the
-day's bookings and at check-in. A booking for a managed person cannot be
-opened as an open game.
+booking records the participant (`booking_participants`), whose sign-off the
+booking rules, rescheduling and the door code check, and whose waiver the
+adult agrees to on their behalf. A booking may name several participants
+(a parent booking two children takes two places, each checked on their
+own; the parent takes a place only when booked as taking part); the online
+form books one person at a time. Staff see the participants' names, *booked
+by* the adult, on the day's bookings and at check-in. A booking that names a
+participant cannot be opened as an open game.
+
+**Inductions are theirs too.** Staff record a child's induction for
+unstaffed hours under the child, on the guardian's number
+([inductions](venue-operations.md#inductions)); the door code for a booking
+asks for the induction of each person taking part, so a child rides on
+neither a parent's nor a sibling's.
 
 **Never discovered.** A managed person has no user record, so player search,
 suggestions, profiles and invitations cannot reach them
@@ -486,10 +534,12 @@ suggestions, profiles and invitations cannot reach them
 
 Not built: a coach's lesson asked for with an application (a slot is court
 time; a lesson is booked once approved); previews of PDFs (a PDF is
-downloaded, never shown in the app); booking for a managed person on the
-waiting list, at the counter, through the venue's API key, or on several
-courts at once (those book for the adult); an induction of the person's own
-for unstaffed use (inductions are filed against the adult's number).
+downloaded, never shown in the app); booking for a participant on the
+waiting list, at the counter, through the venue's API key, on several
+courts at once, or for several participants online (those book for the
+adult, or need the library's `participants` on `createBookingSeries`);
+another guardian seeing an application the first one made (each guardian
+sees their own).
 
 ## Countries and languages
 

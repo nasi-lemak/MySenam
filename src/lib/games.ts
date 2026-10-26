@@ -14,6 +14,7 @@ import { isWho, whoRefusal, type Who } from "./who";
 import type { Sport } from "./types";
 import { money } from "./region";
 import { signOffHolds } from "./sign-offs";
+import { NAMES_PARTICIPANTS } from "./participants";
 import { blockedBetween, blockedInGame, related } from "./player-safety";
 import { declaredAdult, type Intensity } from "./player-profiles";
 import { mostSpots, OPEN_GAME_SPOTS } from "./court-activities";
@@ -328,7 +329,8 @@ export async function openGame(
   const booking = (await db
     .prepare(
       `SELECT b.id, b.user_id, b.date, b.start_min, b.status, b.class_id, b.total_price::float AS total_price,
-              b.hold_until, b.payment_status, v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open, b.participant_id,
+              b.hold_until, b.payment_status, v.time_zone, v.lat, v.lng, (${OPEN_TO_CUSTOMERS}) AS open,
+              CASE WHEN ${NAMES_PARTICIPANTS("b")} THEN 1 END AS participant_id,
               c.capacity, c.per_player, c.max_players
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE UPPER(b.code) = UPPER(?)`
@@ -342,7 +344,7 @@ export async function openGame(
       }
     | undefined;
   if (!booking || booking.user_id !== hostId) return { ok: false, error: "That is not one of your bookings.", status: 404 };
-  // Booked for somebody the host manages (a child): never opened to strangers (ADR 0016, 0022).
+  // Booked for somebody other than the host (a child, a participant): never opened to strangers (ADR 0016, 0022, 0023).
   if (booking.participant_id !== null && booking.participant_id !== undefined)
     return { ok: false, error: "A booking for somebody you manage is not opened to other players.", code: "GUARD_NO_OPEN_GAME", status: 403 };
   if (booking.status !== "confirmed") return { ok: false, error: "That booking is cancelled." };

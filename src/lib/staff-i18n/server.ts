@@ -351,6 +351,8 @@ const en = {
   // Supporting documents the malware scan refused or could not scan, and the erasure ledger (ADR 0024)
   "srv.retx.quarantined": "Documents the malware scan refused, or could not scan (what is left of them)",
   "srv.retx.erasureLedger": "Records of erased accounts kept so a restore cannot bring them back (an account number and when it was made)",
+  "ptc.ret.participants": "Participants nobody acts for any more, or a venue added and nobody has used, once no application, sign-off or induction in force, or recent booking rests on them",
+  "ptc.ret.placeNames": "Names of who took each place on a booking",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -700,6 +702,8 @@ const ms: Record<keyof typeof en, string> = {
   // Supporting documents the malware scan refused or could not scan, and the erasure ledger (ADR 0024)
   "srv.retx.quarantined": "Dokumen yang ditolak oleh imbasan perisian hasad, atau yang tidak dapat diimbas (apa yang tinggal daripadanya)",
   "srv.retx.erasureLedger": "Rekod akaun yang dipadam, disimpan supaya pemulihan tidak membawanya kembali (nombor akaun dan bila ia dibuat)",
+  "ptc.ret.participants": "Peserta yang tiada sesiapa lagi bertindak bagi pihaknya, atau yang ditambah oleh pusat dan tidak digunakan, apabila tiada permohonan, pengesahan atau taklimat yang berkuat kuasa, atau tempahan baru-baru ini bergantung padanya",
+  "ptc.ret.placeNames": "Nama orang yang mengambil setiap tempat dalam tempahan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1049,6 +1053,8 @@ const zh: Record<keyof typeof en, string> = {
   // Supporting documents the malware scan refused or could not scan, and the erasure ledger (ADR 0024)
   "srv.retx.quarantined": "被恶意软件扫描拒绝或无法扫描的文件（其剩余部分）",
   "srv.retx.erasureLedger": "已删除账户的记录，保留以防恢复备份时将其带回（账户编号及创建时间）",
+  "ptc.ret.participants": "已无人代为行事的参与者，或场馆添加后无人使用的参与者（在没有申请、有效的确认或入场说明、或近期预订依赖于他们之后）",
+  "ptc.ret.placeNames": "预订中每个名额参与者的姓名",
 };
 
 const area = { en, ms, zh };

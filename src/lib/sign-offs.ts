@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { ACTS_FOR } from "./participants";
 import { isValidDateString, todayISO } from "./time";
 import type { Sport } from "./types";
 
@@ -35,7 +36,7 @@ export interface SignOff {
   name: string;
   /** The customer's account it is for, where one is linked. */
   userId: number | null;
-  /** For somebody that account's adult manages (lib/managed-people.ts): theirs alone, never the adult's. */
+  /** For a participant (lib/participants.ts): theirs alone, never the adult's or the number's. */
   managedPersonId: number | null;
   kind: SignOffKind;
   /** For a certification: what was seen (its number and who issued it). */
@@ -104,12 +105,15 @@ async function businessOf(venueId: number): Promise<number | null> {
  * a certification) for this activity at this venue, good until `until` (the
  * last day booked)?
  *
- * `participant`: the booking is for somebody the account's adult manages
- * (lib/managed-people.ts). Then only a sign-off written for that person
- * counts (online, one the adult's account holds for them); without it, only
- * the person's own, never one written for somebody they manage. A child's
+ * `participant`: the booking is for a participant (lib/participants.ts):
+ * then only a sign-off written for that participant counts, or, once they
+ * are linked to their own login, that account's own; online, only for an
+ * account that acts for them (a guardian whose relationship is not revoked,
+ * or their own login). Without one: the customer's own, never one written
+ * for a participant on their number or account, except the participant
+ * their account is linked to as its own login (the same person). A child's
  * eligibility never counts for the parent or a sibling, nor the parent's for
- * the child.
+ * the child, whatever number or account they share.
  */
 export async function signOffHolds(input: {
   venueId: number;
@@ -125,23 +129,27 @@ export async function signOffHolds(input: {
   if (input.channel === "customer" && !input.userId) return false;
   const business = await businessOf(input.venueId);
   const participant = input.participant ?? null;
+  // A participant's own, or their linked login's own (managed_person_id NULL, on that account).
+  const theirs = `(s.managed_person_id = ? OR (s.managed_person_id IS NULL AND s.user_id IS NOT NULL AND s.user_id = (SELECT pl.linked_user_id FROM participants pl WHERE pl.id = ?)))`;
+  // The participant whose own login this account is: theirs count for it.
+  const asOwnLogin = `s.managed_person_id IN (SELECT po.id FROM participants po WHERE po.linked_user_id = ?)`;
   const who =
     participant !== null
       ? input.channel === "customer"
-        ? `(s.managed_person_id = ? AND s.user_id = ? AND EXISTS (SELECT 1 FROM managed_people m WHERE m.id = s.managed_person_id AND m.user_id = ?))`
-        : `s.managed_person_id = ?`
+        ? `EXISTS (SELECT 1 FROM participants p WHERE p.id = ? AND ${ACTS_FOR("p")}) AND ${theirs}`
+        : theirs
       : input.channel === "customer"
-        ? `s.managed_person_id IS NULL AND (s.user_id = ? OR (s.user_id IS NULL AND EXISTS (
-            SELECT 1 FROM users u WHERE u.id = ? AND u.phone_verified_at IS NOT NULL AND phone_key(u.phone) = phone_key(s.phone))))`
-        : `s.managed_person_id IS NULL AND (phone_key(s.phone) = phone_key(?) OR s.user_id = ?)`;
+        ? `((s.managed_person_id IS NULL AND (s.user_id = ? OR (s.user_id IS NULL AND EXISTS (
+            SELECT 1 FROM users u WHERE u.id = ? AND u.phone_verified_at IS NOT NULL AND phone_key(u.phone) = phone_key(s.phone))))) OR ${asOwnLogin})`
+        : `((s.managed_person_id IS NULL AND (phone_key(s.phone) = phone_key(?) OR s.user_id = ?)) OR ${asOwnLogin})`;
   const whoArgs =
     participant !== null
       ? input.channel === "customer"
-        ? [participant, input.userId, input.userId]
-        : [participant]
+        ? [participant, input.userId, input.userId, participant, participant]
+        : [participant, participant]
       : input.channel === "customer"
-        ? [input.userId, input.userId]
-        : [input.phone, input.userId ?? -1];
+        ? [input.userId, input.userId, input.userId]
+        : [input.phone, input.userId ?? -1, input.userId ?? -1];
   return !!(await getDb()
     .prepare(
       `SELECT 1 FROM sign_offs s
@@ -187,7 +195,11 @@ export async function addSignOff(input: {
   note?: string | null;
   expiresOn?: string | null;
   adminId: number | null;
-  /** For somebody the account named by `email` manages (lib/managed-people.ts): replaces only theirs. */
+  /**
+   * For a participant (lib/participants.ts): theirs alone, whatever number it
+   * is recorded on (a guardian's, to reach them); replaces only theirs.
+   * Callers check the participant is one this venue may act for.
+   */
   managedPersonId?: number | null;
 }): Promise<{ ok: true; signOff: SignOff } | { ok: false; error: string }> {
   const phone = input.phone.trim();
@@ -205,30 +217,30 @@ export async function addSignOff(input: {
   const business = input.wholeBusiness ? await businessOf(input.venueId) : null;
   if (input.wholeBusiness && business === null) return { ok: false, error: "This venue is not part of a business." };
   const db = getDb();
-  // The account it is for: named by email (staff were shown it), else the one that has proved this number.
+  const managed = input.managedPersonId ?? null;
+  // The account it is filed with: named by email (staff were shown it; an approval's applicant), else, for the
+  // number holder's own, the one that has proved this number. A participant's is never filed with an account by number.
   let userId: number | null = null;
   if (input.email?.trim()) {
     const named = (await db.prepare("SELECT id FROM users WHERE email = ?").get(input.email.trim())) as { id: number } | undefined;
     if (!named) return { ok: false, error: "No account has that email." };
     userId = named.id;
-  } else {
+  } else if (managed === null) {
     const proved = (await db
       .prepare("SELECT id FROM users WHERE phone_verified_at IS NOT NULL AND phone_key(phone) = phone_key(?) ORDER BY id LIMIT 1")
       .get(phone)) as { id: number } | undefined;
     userId = proved?.id ?? null;
   }
   const scope = business !== null ? { venue: null, business } : { venue: input.venueId, business: null };
-  const managed = input.managedPersonId ?? null;
-  if (managed !== null && userId === null) return { ok: false, error: "No account has that email." };
   return db.transaction(async () => {
     await db
       .prepare(
         `UPDATE sign_offs SET revoked_at = datetime('now'), revoked_by = ?, revoke_reason = 'Replaced'
           WHERE COALESCE(venue_id, 0) = COALESCE(?, 0) AND COALESCE(business_id, 0) = COALESCE(?, 0)
-            AND phone_key(phone) = phone_key(?) AND COALESCE(sport, '') = COALESCE(?, '') AND kind = ? AND revoked_at IS NULL
-            AND managed_person_id IS NOT DISTINCT FROM ?`
+            AND COALESCE(sport, '') = COALESCE(?, '') AND kind = ? AND revoked_at IS NULL
+            AND (managed_person_id = ? OR (?::integer IS NULL AND managed_person_id IS NULL AND phone_key(phone) = phone_key(?)))`
       )
-      .run(input.adminId, scope.venue, scope.business, phone, input.sport, kind, managed);
+      .run(input.adminId, scope.venue, scope.business, input.sport, kind, managed, managed, phone);
     const row = (await db
       .prepare(
         `INSERT INTO sign_offs (venue_id, business_id, sport, phone, name, user_id, kind, reference, admin_id, note, expires_on, managed_person_id)

@@ -34,8 +34,8 @@ function heldRows(t: T, policy: RetentionPolicy) {
         policy.review ? t("scan.privacyReviewed", { date: policy.review.reviewedOn, by: policy.review.reviewedBy }) : t("scan.privacyProvisional")
       }`,
     },
-    // People an adult manages from their account (lib/managed-people.ts).
-    { what: t("guard.privacyWhat"), why: t("guard.privacyWhy"), how: t("guard.privacyHow", { n: RETENTION.archivedManagedDays }) },
+    // People an adult manages from their account, participants apart from accounts (lib/participants.ts).
+    { what: t("guard.privacyWhat"), why: t("guard.privacyWhy"), how: t("ptc.privacyHow", { n: RETENTION.archivedManagedDays }) },
   ];
 }
 

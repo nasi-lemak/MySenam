@@ -66,6 +66,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/storefronts$/, methods: ["POST", "DELETE"] },
   // Keeping an application past its retention period: a manager's, or the platform owner's, never the desk's.
   { path: /^\/api\/admin\/approvals\/holds$/, methods: "all" },
+  // Revoking a participant's guardian, linking their own login, and deciding whose an older induction is: a manager's, with a reason (ADR 0023).
+  { path: /^\/api\/admin\/participants\/\d+$/, methods: ["PATCH"] },
+  { path: /^\/api\/admin\/inductions\/\d+$/, methods: ["PATCH"] },
 ];
 
 export type StaffRole = "manager" | "desk";

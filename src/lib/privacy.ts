@@ -8,6 +8,7 @@ import { forgetLeaguePlayer } from "./leagues";
 import { removeVenuePhotoFiles } from "./photos";
 import { money } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
+import { participantsExport, unusedParticipantsWhere } from "./participants";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -59,9 +60,11 @@ export const RETENTION = {
   /** Withdrawn out-of-hours access, kept a while in case it is disputed. */
   revokedInductionDays: 365,
   /**
-   * Somebody an adult no longer manages from their account (archived), once
-   * nothing still rests on them: no application, no sign-off in force and no
-   * booking to come (lib/managed-people.ts).
+   * A participant nobody acts for any more (every guardian account's
+   * relationship ended or archived this long ago; no linked login), or one a
+   * venue added and nobody has used this long, once nothing still rests on
+   * them: no application, no sign-off or induction in force and no booking
+   * in that time or to come (lib/participants.ts).
    */
   archivedManagedDays: 365,
   /**
@@ -206,6 +209,15 @@ const RULES: Rule[] = [
     set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL, participant_name = NULL`,
   },
   {
+    what: said("ptc.ret.placeNames"),
+    days: RETENTION.bookingIdentityDays,
+    action: "anonymised",
+    table: "booking_participants",
+    // Who took each place, by name, goes with the booking's names; the participant link stays theirs.
+    where: "name IS NOT NULL AND booking_id IN (SELECT id FROM bookings WHERE date < ?)",
+    set: "name = NULL",
+  },
+  {
     what: said("srv.ret.receiptNames"),
     days: RETENTION.bookingIdentityDays,
     action: "anonymised",
@@ -229,14 +241,11 @@ const RULES: Rule[] = [
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
   },
   {
-    what: said("srv.ret.managedPeople"),
+    what: said("ptc.ret.participants"),
     days: RETENTION.archivedManagedDays,
     action: "deleted",
-    table: "managed_people",
-    where: `archived_at IS NOT NULL AND archived_at < ?
-      AND NOT EXISTS (SELECT 1 FROM approval_requests r WHERE r.managed_person_id = managed_people.id)
-      AND NOT EXISTS (SELECT 1 FROM sign_offs s WHERE s.managed_person_id = managed_people.id AND s.revoked_at IS NULL)
-      AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.participant_id = managed_people.id AND b.status = 'confirmed' AND b.date >= to_char(now() - interval '1 day', 'YYYY-MM-DD'))`,
+    table: "participants",
+    where: unusedParticipantsWhere(RETENTION.archivedManagedDays),
   },
   {
     what: said("srv.ret.applications"),
@@ -425,8 +434,16 @@ export interface CustomerExport {
   messages: unknown[];
   /** Applications to be approved for an activity: answers, declarations, history and documents still held (lib/approvals.ts). */
   approvals: unknown[];
-  /** People this account manages (lib/managed-people.ts): what is held of each, and the sign-offs written for them. */
+  /**
+   * Participants this account manages (lib/participants.ts): what is held of
+   * each, this account's relationship, and their record (sign-offs,
+   * inductions, places on bookings, waivers agreed for them).
+   */
   managedPeople: unknown[];
+  /** Relationships to participants this account ended, or that were revoked: the relationship alone. */
+  guardianshipsEnded: unknown[];
+  /** Where this account is a participant's own login: that participant's record, which is theirs. */
+  asParticipant: unknown | null;
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -614,7 +631,10 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       account.email
     ),
     approvals: await (await import("./approvals")).approvalsExport(userId),
-    managedPeople: await (await import("./managed-people")).managedExport(userId),
+    ...(await (async () => {
+      const people = await participantsExport(userId);
+      return { managedPeople: people.managed, guardianshipsEnded: people.ended, asParticipant: people.asParticipant };
+    })()),
     heldAtACounter:
       "A pass, membership, waiting-list place, induction, sign-off or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
   };
@@ -708,7 +728,7 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       phone
     ),
     inductions: await all(
-      `SELECT name, phone, note, created_at, revoked_at FROM inductions
+      `SELECT name, phone, for_participant, note, created_at, revoked_at FROM inductions
         WHERE venue_id IN (${marks}) AND phone_key(phone) = phone_key(?) ORDER BY id`,
       ...venueIds,
       phone
@@ -918,7 +938,7 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     await forgetLeaguePlayer(userId, ANONYMOUS);
     // Their applications to be approved for an activity: answers, documents and any slot held. A sign-off already given stays the venue's record.
     await (await import("./approvals")).eraseApprovals(userId);
-    // The people they managed go with the account; a sign-off still in force for one of them is taken back first.
+    // Their relationships to participants go; one nobody else acts for goes too, a sign-off or induction in force taken back first.
     await (await import("./managed-people")).eraseManaged(userId);
     // Nor a concession proof remembered against the account's number.
     await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);

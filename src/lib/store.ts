@@ -1,6 +1,7 @@
 import { activity, activityName, activityKeys } from "./activity-registry";
 import { courtFor, courtOffers, groupByHeading, mostPerBookingAllowed, mostSpots, needsOf, placesPerBooking, type KindNeeds } from "./court-activities";
 import { signOffHolds, type SignOffChannel } from "./sign-offs";
+import { bookingPlaces, placeParticipants, placesInducted } from "./participants";
 export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
 import { randomBytes, randomInt } from "crypto";
@@ -1907,8 +1908,21 @@ export async function createBookingSeries(
      * Who takes part, where the signed-in adult books for somebody they
      * manage (lib/managed-people.ts): the sign-off checked is that person's
      * alone. Set by callers that checked the person is the account's own.
+     * The same as `participants` with one.
      */
     participant?: { id: number; name: string };
+    /**
+     * Who takes part, where that is not (only) the customer: each a
+     * participant (lib/participants.ts) the caller checked may be booked for
+     * by whoever is booking (a guardian online, the venue's staff for one it
+     * knows). Each takes a place and is checked on their own eligibility;
+     * the customer takes one too only with `customerTakesPart`. Recorded in
+     * `booking_participants`, the one record of who takes part.
+     */
+    participants?: { id: number; name: string }[];
+    customerTakesPart?: boolean;
+    /** Who put the participants on it, for the record: the account, or staff. */
+    addedBy?: { userId?: number | null; adminId?: number | null };
     /**
      * How many: players on a court priced per player, or places on a shared
      * facility (people on a gym floor, kayaks from a fleet).
@@ -1929,6 +1943,11 @@ export async function createBookingSeries(
   const { courtId, date, weeks, name, phone, email, userId } = input;
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
   const override = input.staff?.override === true;
+  // Who takes part: the participants named, and the customer where they take a place too (or nobody else is named).
+  const named = input.participants ?? (input.participant ? [input.participant] : []);
+  if (new Set(named.map((p) => p.id)).size !== named.length) return refuse("PLAYERS_RANGE", { max: named.length });
+  const customerPlays = named.length === 0 || input.customerTakesPart === true;
+  const persons = named.length + (customerPlays && named.length > 0 ? 1 : 0);
 
   const found = await getCourt(courtId);
   if (!found) return refuse("COURT_NOT_FOUND");
@@ -1937,8 +1956,10 @@ export async function createBookingSeries(
   const court = courtFor(found, input.sport ?? found.sport);
   // How many: places on a shared facility, players on a court priced per player; else one booking, whoever plays.
   const mostPlayers = placesPerBooking(court);
-  const players = mostPlayers > 1 && !input.classId ? (input.players ?? 1) : 1;
+  // Places sold one by one: each person named takes one.
+  const players = mostPlayers > 1 && !input.classId ? (input.players ?? Math.max(1, persons)) : 1;
   if (!Number.isInteger(players) || players < 1 || players > mostPlayers) return refuse("PLAYERS_RANGE", { max: mostPlayers });
+  if (mostPlayers > 1 && !input.classId && players < persons) return refuse("PLAYERS_RANGE", { max: mostPlayers });
   // As many weeks as the venue allows (eight unless it says), staff too.
   const weeksAllowed = await seriesWeeks(court.venueId);
   if (!Number.isInteger(weeks) || weeks < 1 || weeks > weeksAllowed)
@@ -1970,21 +1991,26 @@ export async function createBookingSeries(
   const signOffNeed = input.classId || input.approval?.assessment ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
   if (signOffNeed) {
     const channel = input.by ?? "customer";
-    const held = await signOffHolds({
-      venueId: court.venueId,
-      sport: court.sport,
-      until: addDays(date, 7 * (weeks - 1)),
-      phone,
-      userId,
-      channel,
-      need: signOffNeed,
-      participant: input.participant?.id ?? null,
-    });
+    // Everybody taking part, each on their own: the customer's own, and each participant's.
+    let held = true;
+    for (const who of [...(customerPlays ? [null] : []), ...named.map((p) => p.id)])
+      held =
+        held &&
+        (await signOffHolds({
+          venueId: court.venueId,
+          sport: court.sport,
+          until: addDays(date, 7 * (weeks - 1)),
+          phone,
+          userId,
+          channel,
+          need: signOffNeed,
+          participant: who,
+        }));
     if (!held && !override)
       return refuse(signOffNeed === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(court.sport) });
     if (!held) breaches.push("SIGN_OFF");
     // One person's sign-off is for one person: places for others are booked where staff see them.
-    if (held && channel === "customer" && players > 1 && !override) return refuse("SIGN_OFF_EACH", { sport: activityName(court.sport) });
+    if (held && channel === "customer" && players > Math.max(1, persons) && !override) return refuse("SIGN_OFF_EACH", { sport: activityName(court.sport) });
   }
 
   const db = getDb();
@@ -2060,9 +2086,13 @@ export async function createBookingSeries(
                   input.classId ?? null, players, breaches.length > 0,
                   quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0
                 )) as { id: number };
-              // Who takes part, where an adult booked for somebody they manage.
-              if (input.participant)
-                await db.prepare("UPDATE bookings SET participant_id = ?, participant_name = ? WHERE id = ?").run(input.participant.id, input.participant.name, id.id);
+              // Who takes part, where that is somebody other than (or as well as) the customer.
+              await placeParticipants(id.id, {
+                participants: named,
+                customerTakesPart: customerPlays,
+                customerName: name,
+                addedBy: input.addedBy ?? { userId: userId ?? null },
+              });
               // An enrolment holds a place in its class; the class holds the court.
               if (!input.classId)
                 await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, ...claimBuffers(policy) });
@@ -3097,17 +3127,23 @@ async function rescheduleBookingOnce(
     // A sign-off the activity asks for there must still hold on the new date, and be the customer's own.
     const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
     if (need) {
-      const held = await signOffHolds({
-        venueId: court.venueId,
-        sport: booking.sport,
-        until: to.date,
-        phone: booking.phone,
-        userId: ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id,
-        channel: by,
-        need,
-        // Booked for somebody an adult manages: still theirs alone.
-        participant: booking.participantId ?? null,
-      });
+      const bookedBy = ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id;
+      // Everybody taking part, each still on their own (lib/participants.ts).
+      let held = true;
+      for (const place of await bookingPlaces(booking.id))
+        held =
+          held &&
+          place.customer !== (place.participantId !== null) &&
+          (await signOffHolds({
+            venueId: court.venueId,
+            sport: booking.sport,
+            until: to.date,
+            phone: booking.phone,
+            userId: bookedBy,
+            channel: by,
+            need,
+            participant: place.customer ? null : place.participantId,
+          }));
       if (!held && !(by === "staff" && to.override === true)) {
         firstRefusal ??= refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(booking.sport) });
         continue;
@@ -3995,6 +4031,13 @@ interface InductionRow {
   created_at: string;
   revoked_at: string | null;
   admin_name: string | null;
+  participant_id: number | null;
+  for_participant: boolean;
+  review_reason: string | null;
+  reviewed_at: unknown;
+  reviewed_by_name: string | null;
+  review_note: string | null;
+  assigned_from_name: string | null;
 }
 
 function toInduction(r: InductionRow): Induction {
@@ -4007,6 +4050,12 @@ function toInduction(r: InductionRow): Induction {
     note: r.note,
     createdAt: r.created_at,
     revokedAt: r.revoked_at,
+    participantId: r.participant_id,
+    forParticipant: r.for_participant === true,
+    needsReview: r.review_reason !== null && (r.reviewed_at === null || r.reviewed_at === undefined),
+    reviewedBy: r.reviewed_by_name,
+    reviewNote: r.review_note,
+    assignedFromName: r.assigned_from_name,
   };
 }
 
@@ -4016,11 +4065,15 @@ const INDUCTION_SELECT = `
   LEFT JOIN admins a ON a.id = i.admin_id
 `;
 
-/** Has this person been shown round, and not since been withdrawn? */
+/**
+ * Has the holder of this number been shown round themself, and not since
+ * been withdrawn? Never by an induction recorded for a participant on it
+ * (lib/participants.ts participantInducted is theirs).
+ */
 export async function isInducted(venueId: number, phone: string): Promise<boolean> {
   const row = await getDb()
     .prepare(
-      "SELECT 1 AS n FROM inductions WHERE venue_id = ? AND phone_key(phone) = phone_key(?) AND revoked_at IS NULL"
+      "SELECT 1 AS n FROM inductions WHERE venue_id = ? AND phone_key(phone) = phone_key(?) AND revoked_at IS NULL AND NOT for_participant"
     )
     .get(venueId, normalisePhone(phone)) as { n: number } | undefined;
   return row !== undefined;
@@ -4031,7 +4084,10 @@ export type InductionResult =
   | Refusal;
 
 /**
- * Record that an operator has shown somebody round.
+ * Record that an operator has shown somebody round: the holder of this
+ * number themself, or (`participant`) a participant this venue knows, whose
+ * induction is theirs alone and keeps the number (a guardian's) only to
+ * reach them. Callers check the participant is one the venue may act for.
  *
  * Re-inducting a person who was withdrawn revives the same row rather than
  * adding a second one, so the venue keeps one line per person and the history
@@ -4043,7 +4099,9 @@ export async function recordInduction(input: {
   name: string;
   adminId?: number;
   note?: string;
+  participant?: { id: number; name: string } | null;
 }): Promise<InductionResult> {
+  if (input.participant) return recordParticipantInduction({ ...input, participant: input.participant });
   return withTransaction(async () => {
     const db = getDb();
     if (!await getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
@@ -4054,7 +4112,7 @@ export async function recordInduction(input: {
     const note = nullIfBlank(input.note ?? null);
 
     const existing = await db
-      .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone_key(phone) = phone_key(?)")
+      .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND phone_key(phone) = phone_key(?) AND NOT for_participant")
       .get(input.venueId, phone) as { id: number; revoked_at: string | null } | undefined;
 
     if (existing && existing.revoked_at === null)
@@ -4074,6 +4132,38 @@ export async function recordInduction(input: {
         "INSERT INTO inductions (venue_id, phone, name, admin_id, note) VALUES (?, ?, ?, ?, ?)"
       )
       .run(input.venueId, phone, name, input.adminId ?? null, note);
+    return { ok: true, induction: (await inductionById(info.lastInsertRowid as number))! };
+  });
+}
+
+/** A participant's own induction: one line per participant and venue, revived when re-inducted. */
+async function recordParticipantInduction(input: {
+  venueId: number;
+  phone: string;
+  adminId?: number;
+  note?: string;
+  participant: { id: number; name: string };
+}): Promise<InductionResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    if (!await getVenue(input.venueId)) return refuse("VENUE_NOT_FOUND");
+    const phone = normalisePhone(input.phone);
+    if (phone.length < 7) return { ok: false, error: "Please give a valid phone number." };
+    const note = nullIfBlank(input.note ?? null);
+    const existing = await db
+      .prepare("SELECT id, revoked_at FROM inductions WHERE venue_id = ? AND participant_id = ?")
+      .get(input.venueId, input.participant.id) as { id: number; revoked_at: string | null } | undefined;
+    if (existing && existing.revoked_at === null)
+      return { ok: false, error: `${input.participant.name} has already been inducted here.` };
+    if (existing) {
+      await db
+        .prepare("UPDATE inductions SET name = ?, phone = ?, admin_id = ?, note = ?, created_at = datetime('now'), revoked_at = NULL WHERE id = ?")
+        .run(input.participant.name, phone, input.adminId ?? null, note, existing.id);
+      return { ok: true, induction: (await inductionById(existing.id))! };
+    }
+    const info = await db
+      .prepare("INSERT INTO inductions (venue_id, phone, name, admin_id, note, participant_id, for_participant) VALUES (?, ?, ?, ?, ?, ?, true)")
+      .run(input.venueId, phone, input.participant.name, input.adminId ?? null, note, input.participant.id);
     return { ok: true, induction: (await inductionById(info.lastInsertRowid as number))! };
   });
 }
@@ -4208,8 +4298,12 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
     };
 
   // Nobody is here to show a stranger where the emergency button is, so that
-  // has to have happened already, in person, while somebody could check it.
-  if (!await isInducted(venue.id, booking.phone))
+  // has to have happened already, in person, while somebody could check it:
+  // to everybody taking part, each by their own induction (never a
+  // guardian's, a sibling's or the number's when the booking is for somebody
+  // else; lib/participants.ts).
+  const bookedBy = ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null } | undefined)?.user_id ?? null;
+  if (!(await placesInducted(venue.id, { id: booking.id, phone: booking.phone, userId: bookedBy })))
     return {
       ok: false,
       reason: "no-induction",
@@ -4241,8 +4335,24 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
     .get(venue.id, booking.sport)) as { kind: string } | undefined;
   const need =
     rules.certification || asked?.kind === "certification" ? "certification" : rules.signOff || asked ? "any" : null;
-  // Booked for somebody an adult manages: their own sign-off, never the adult's or a sibling's.
-  if (need && !(await signOffHolds({ venueId: venue.id, sport: booking.sport, until: booking.date, phone: booking.phone, channel: "staff", need, participant: booking.participantId ?? null })))
+  // Each taking part on their own sign-off: for somebody booked for, theirs, never the adult's or a sibling's.
+  let signedOff = true;
+  if (need)
+    for (const place of await bookingPlaces(booking.id))
+      signedOff =
+        signedOff &&
+        place.customer !== (place.participantId !== null) &&
+        (await signOffHolds({
+          venueId: venue.id,
+          sport: booking.sport,
+          until: booking.date,
+          phone: booking.phone,
+          userId: bookedBy,
+          channel: "staff",
+          need,
+          participant: place.customer ? null : place.participantId,
+        }));
+  if (!signedOff)
     return {
       ok: false,
       reason: "approval-needed",
@@ -4918,7 +5028,20 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   }
   const extras = await addonsFor(rows.map((r) => r.id));
   const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
-  const waivers = await signaturesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone, participant: r.participant_id ?? null })));
+  // Each person taking part: the customer's own agreement, or each participant's (lib/participants.ts).
+  const places = new Map<number, (number | null)[]>();
+  if (rows.length > 0) {
+    const named = (await db
+      .prepare(
+        `SELECT booking_id, takes_part_as, participant_id FROM booking_participants WHERE booking_id IN (${rows.map(() => "?").join(",")}) ORDER BY id`
+      )
+      .all(...rows.map((r) => r.id))) as { booking_id: number; takes_part_as: string; participant_id: number | null }[];
+    for (const n of named) places.set(n.booking_id, [...(places.get(n.booking_id) ?? []), n.takes_part_as === "customer" ? null : (n.participant_id ?? -1)]);
+  }
+  const placesOf = (r: { id: number }) => places.get(r.id) ?? [null];
+  const waivers = await signaturesFor(
+    rows.flatMap((r) => placesOf(r).map((p) => ({ venueId: r.venue_id, phone: r.phone, participant: p })))
+  );
   const policies = new Map<number, Awaited<ReturnType<typeof cancelPolicy>>>();
   for (const r of rows) if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
 
@@ -4981,7 +5104,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       accountName: r.account_name,
       invoiced: r.account_invoice_id !== null,
       staffNote: notes.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? null,
-      waiverSigned: waivers.get(r.participant_id ? `${r.venue_id}:p${r.participant_id}` : `${r.venue_id}:${phoneKey(booking.phone)}`) ?? true,
+      waiverSigned: placesOf(r).every((p) => waivers.get(p !== null ? `${r.venue_id}:p${p}` : `${r.venue_id}:${phoneKey(booking.phone)}`) ?? true),
     });
   }
   return list;
