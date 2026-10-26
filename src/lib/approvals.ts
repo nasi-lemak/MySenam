@@ -15,7 +15,7 @@ import { accountLocale, emailPlain, emailPlayer } from "./outbox";
 import { phoneRefusal } from "./phone-check";
 import { MAX_PIXELS, sniff } from "./photos";
 import { addSignOff, revokeSignOff, signOffHolds, type SignOffKind } from "./sign-offs";
-import { courtDay, createBookingSeries, getBookingById, getCourt, settleCancelled, spanFor } from "./store";
+import { courtDay, createBookingSeries, getBookingById, getCourt, offerSlotPlace, settleCancelled, spanFor } from "./store";
 import { venueBaseUrl } from "./storefront";
 import { addDays, isBookableDate, isValidDateString, todayISO } from "./time";
 import { GUARDIAN_AGE } from "./tournaments";
@@ -1485,6 +1485,7 @@ export async function decide(
   if (m) await tellCustomer(request, m.kind, m.extra);
   // Held for payment: confirmed when paid (lib/payments.ts), as any held booking.
   if (booked && !(booked as Booking).holdUntil) await confirmBooking(booked as Booking, request.userId);
+  if (action === "revoke") await offerFreedSlot(request);
   return { ok: true, request, booking: booked };
 }
 
@@ -1585,7 +1586,20 @@ export async function signOffRevoked(signOffId: number, admin: Pick<Admin, "id" 
     await afterRevocation(id, r);
   });
   const request = await requestById(id);
-  if (request) await tellCustomer(request, "revoked", { reason: reason ?? "" });
+  if (request) {
+    await tellCustomer(request, "revoked", { reason: reason ?? "" });
+    await offerFreedSlot(request);
+  }
+}
+
+/** A booking let go on revocation frees its slot: offered to whoever waits for it, as a hold let go is. */
+async function offerFreedSlot(request: ApprovalRequest): Promise<void> {
+  if (request.slot?.status !== "released" || !request.events.some((e) => e.action === "booking_released")) return;
+  try {
+    await offerSlotPlace(request.slot.courtId, request.slot.date);
+  } catch (err) {
+    console.error(`[mysenam] could not offer the place freed by application ${request.id}:`, err);
+  }
 }
 
 // ------------------------------------------------------------ bookings flagged after a revocation
