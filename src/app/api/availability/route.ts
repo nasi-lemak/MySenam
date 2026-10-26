@@ -56,7 +56,8 @@ export async function GET(req: NextRequest) {
 
   // A tier with its own price level prices the grid at that.
   // Rooms run as classes are the venue's own staff's to hire out; customers book their classes.
-  const availability: CourtAvailability[] = await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false, await (async () => { const staff = await getSessionAdmin(req); return staff !== null && canAccessVenue(staff, venueId); })());
+  const staff = await getSessionAdmin(req);
+  const availability: CourtAvailability[] = await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false, staff !== null && canAccessVenue(staff, venueId));
   // Who is taking part (`taking=self,12`, as search was asked): each one's
   // status for what a court here asks for first, informational (lib/eligibility.ts).
   // That answer is the account's own: kept by no shared cache.
@@ -81,9 +82,8 @@ export async function GET(req: NextRequest) {
     // Concession prices offered here, chosen at booking and shown at the counter.
     concessions: await listConcessions(venueId),
     // A manager of this venue may book outside its booking rules (recorded).
-    mayOverride: await (async () => {
-      const admin = await getSessionAdmin(req);
-      return !!admin && admin.role !== "desk" && canAccessVenue(admin, venueId);
-    })(),
-  }, asked !== null ? { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } } : undefined);
+    mayOverride: !!staff && staff.role !== "desk" && canAccessVenue(staff, venueId),
+    // What a session sees (member rates, staff-only rooms, a manager's override, who is taking part) is its own:
+    // never kept by a shared cache; anybody signed out gets the same public answer as before.
+  }, user || staff || asked !== null ? { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } } : { headers: { Vary: "Cookie" } });
 }

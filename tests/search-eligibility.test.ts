@@ -417,4 +417,16 @@ describe("the routes", () => {
     const anon = await get(availabilityRoute, `${url}&taking=self,${kid}`);
     expect(await anon.text()).not.toContain("eligibility");
   });
+
+  it("keeps any signed-in answer out of shared caches, with or without who is taking part", async () => {
+    // A signed-in account's grid can carry its member rates; a shared cache must never hand it to somebody else.
+    const mum = await adult("Mum");
+    const url = `http://localhost/api/availability?venueId=${X}&date=${date}&sport=archery`;
+    const signedIn = await get(availabilityRoute, url, mum.cookie);
+    expect(signedIn.headers.get("cache-control")).toBe("private, no-store");
+    expect(signedIn.headers.get("vary")).toContain("Cookie");
+    const signedOut = await get(availabilityRoute, url);
+    expect(signedOut.headers.get("cache-control")).not.toBe("private, no-store");
+    expect(signedOut.headers.get("vary")).toContain("Cookie");
+  });
 });
