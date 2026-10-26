@@ -4,7 +4,7 @@ import { activityIcon } from "@/lib/activity-registry";
 import { AttentionPanel } from "./AttentionPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import { COUNTER_METHODS, HIRE_CONDITIONS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS } from "@/lib/types";
 import type { BookingStatus, CounterMethod, PaidVia } from "@/lib/types";
@@ -85,7 +85,11 @@ export function BookingsTab() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The latest day asked for: an answer for a day asked for earlier that arrives later is dropped,
+  // so the list never shows one day's bookings under another day's heading.
+  const asked = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++asked.current;
     setBusy(true);
     setError(null);
     try {
@@ -93,16 +97,18 @@ export function BookingsTab() {
         cache: "no-store",
       });
       const data = await res.json();
+      if (mine !== asked.current) return;
       if (!res.ok) throw new Error(t.err(data, t("bk.loadFailed")));
       setBookings(data.bookings);
       setRevenue(data.revenue);
       setCollected(data.collected);
       setOutstanding(data.outstanding);
     } catch (err) {
+      if (mine !== asked.current) return;
       setError(err instanceof Error ? err.message : t("bk.loadFailed"));
       setBookings(null);
     } finally {
-      setBusy(false);
+      if (mine === asked.current) setBusy(false);
     }
   }, [date, t]);
 

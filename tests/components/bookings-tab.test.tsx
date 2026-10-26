@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { BookingsTab } from "../../src/components/admin/BookingsTab";
 
@@ -34,6 +34,8 @@ const booking = {
   priorNoShows: 0,
   hire: null,
   classId: null,
+  // Who takes part (lib/participant-bookings.ts): nobody named, the customer alone.
+  people: [],
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -113,5 +115,28 @@ describe("a booking at the counter", () => {
   it("gives the date picker a name a screen reader can say", async () => {
     await show();
     expect(screen.getByLabelText("Day to show")).toBeTruthy();
+  });
+
+  // Found by the acceptance scenarios: the list for the day the dashboard opened on, answering
+  // after the day chosen, showed "No bookings on <the chosen day>" over that day's bookings.
+  it("never shows a day asked for earlier under the day chosen, whichever answer arrives last", async () => {
+    const answers: ((bookings: unknown[]) => void)[] = [];
+    fetchMock.mockImplementation(
+      (url: string) =>
+        new Promise((resolve) => {
+          if (!url.startsWith("/api/admin/bookings?date=")) return resolve({ ok: true, json: async () => ({}) });
+          answers.push((bookings) => resolve({ ok: true, json: async () => ({ bookings, revenue: 0, collected: 0, outstanding: 0 }) }));
+        })
+    );
+    render(<BookingsTab />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Day to show"), { target: { value: "2026-10-02" } });
+    await act(async () => {});
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.startsWith("/api/admin/bookings?date="))).toHaveLength(2);
+    // The chosen day answers first, the opening day's late.
+    await act(async () => answers[1]([booking]));
+    await act(async () => answers[0]([]));
+    expect(screen.queryByText(/No bookings on/)).toBeNull();
+    expect(screen.getAllByText("MS-59FNSZ").length).toBeGreaterThan(0);
   });
 });

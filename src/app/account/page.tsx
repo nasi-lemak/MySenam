@@ -556,6 +556,8 @@ function BookingCard({
         <div className="font-semibold">
           {activityIcon(b.sport)} {b.courtName}
         </div>
+        {/* Who takes part, where that is somebody the account books for (a child; ADR 0023). */}
+        {b.participantName && <div className="font-medium text-slate-700">{t("guard.forLine", { name: b.participantName })}</div>}
         <div className="text-slate-600">
           {b.venueName} ({b.venueArea})
         </div>

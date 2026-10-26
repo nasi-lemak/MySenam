@@ -98,4 +98,6 @@ export const ACTION_LABELS: Record<string, string> = {
   "participant.linked": "Linked a participant to their own login",
   "induction.assigned": "Gave an induction to the participant it was for",
   "induction.kept": "Confirmed an induction is the number holder's own",
+  "booking.for_participant": "Booked for a participant at the counter",
+  "class.enrol_participant": "Enrolled a participant in a class at the counter",
 };

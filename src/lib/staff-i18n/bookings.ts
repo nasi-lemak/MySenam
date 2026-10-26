@@ -353,6 +353,8 @@ const en = {
   "pbk.pp.linkEmail": "The email of {name}'s own account",
   "pbk.pp.linkReason": "Why link it now? (kept on record)",
   "pbk.pp.done": "Done, and recorded.",
+  "pua.act.bookedFor": "Booked for a participant at the counter",
+  "pua.act.enrolledFor": "Enrolled a participant in a class at the counter",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -690,6 +692,8 @@ const ms: Record<keyof typeof en, string> = {
   "pbk.pp.linkEmail": "E-mel akaun {name} sendiri",
   "pbk.pp.linkReason": "Mengapa dipautkan sekarang? (disimpan dalam rekod)",
   "pbk.pp.done": "Selesai, dan direkodkan.",
+  "pua.act.bookedFor": "Menempah untuk peserta di kaunter",
+  "pua.act.enrolledFor": "Mendaftarkan peserta ke kelas di kaunter",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1027,6 +1031,8 @@ const zh: Record<keyof typeof en, string> = {
   "pbk.pp.linkEmail": "{name} 本人账户的电子邮箱",
   "pbk.pp.linkReason": "为何现在关联？（将被记录）",
   "pbk.pp.done": "已完成并记录。",
+  "pua.act.bookedFor": "在柜台为参与者预订",
+  "pua.act.enrolledFor": "在柜台为参与者报名课程",
 };
 
 const area = { en, ms, zh };
