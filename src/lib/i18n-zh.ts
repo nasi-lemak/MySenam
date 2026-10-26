@@ -2043,6 +2043,24 @@ export const ZH: Record<Phrase, string> = {
   "guard.privacyWhat": "您通过账户管理的人（孩子）：名字、（如有提供）出生年份、您声明的关系和代表权限，以及您为其申请、同意和预订的内容",
   "guard.privacyWhy": "用于代其申请、同意免责声明和预订，并确保其资格只属于其本人",
   "guard.privacyHow": "在您的账户管理期间保存；停止管理后，在不再有任何内容依赖于其 {n} 天后删除。随您的账户一并删除",
+  // Supporting documents scanned for malware before release; retention provisional until reviewed; backups (ADR 0024)
+  "scan.pending": "正在进行恶意软件检查",
+  "scan.rejected": "未通过恶意软件检查：请发送其他文件",
+  "scan.failed": "无法进行恶意软件检查：如场馆要求，请重新发送",
+  "scan.not_scanned": "未经恶意软件检查",
+  "scan.rv.pending": "正在进行恶意软件检查：通过后即可打开",
+  "scan.rv.rejected": "未通过恶意软件检查：无法打开",
+  "scan.rv.failed": "无法进行恶意软件检查：无法打开",
+  "scan.rv.not_scanned": "未经恶意软件检查（本站已关闭扫描）",
+  "scan.rv.ev.scan_rejected": "一份文件未通过恶意软件检查",
+  "scan.rv.ev.scan_failed": "一份文件无法进行恶意软件检查",
+  "scan.err.SCAN_UNAVAILABLE": "目前无法接收文件：文件无法进行恶意软件检查。请稍后再试，或询问场馆。",
+  "scan.err.SCAN_NOT_RELEASED": "此文件尚未通过恶意软件检查，因此无法打开。",
+  "scan.err.SCAN_NOT_CLEAN": "此活动所需的文件尚未通过恶意软件检查，因此暂时无法批准。请等待检查完成，或请申请人发送其他文件。",
+  "scan.privacyProvisional": "以上期限为暂定：尚未经律师审核。",
+  "scan.privacyReviewed": "以上期限已于 {date} 由 {by} 审核。",
+  "scan.privacyBackupsLead": "备份中的副本。",
+  "scan.privacyBackupsBody": "已删除或抹除的内容可能仍保留在之前制作的备份副本中，直至这些副本到期。如果日后恢复备份，自该备份制作以来抹除的内容会在网站重新开放前再次抹除，保留期限也会重新执行。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

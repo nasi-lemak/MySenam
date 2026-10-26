@@ -2203,6 +2203,24 @@ const EN = {
   "guard.privacyWhat": "People you manage from your account (a child): a name, a birth year if you gave one, the relationship and authority you declared, and what you applied for, agreed to and booked for them",
   "guard.privacyWhy": "To apply, agree to waivers and book on their behalf, and to keep their eligibility theirs alone",
   "guard.privacyHow": "While your account manages them; once you stop, {n} days after nothing still rests on them. Erased with your account",
+  // Supporting documents scanned for malware before release; retention provisional until reviewed; backups (ADR 0024)
+  "scan.pending": "Being checked for malware",
+  "scan.rejected": "Refused by the malware check: send another file",
+  "scan.failed": "Could not be checked for malware: send it again if the venue asks",
+  "scan.not_scanned": "Not checked for malware",
+  "scan.rv.pending": "Being checked for malware: it can be opened once it passes",
+  "scan.rv.rejected": "Refused by the malware check: it cannot be opened",
+  "scan.rv.failed": "Could not be checked for malware: it cannot be opened",
+  "scan.rv.not_scanned": "Not checked for malware (scanning is turned off on this site)",
+  "scan.rv.ev.scan_rejected": "a document was refused by the malware check",
+  "scan.rv.ev.scan_failed": "a document could not be checked for malware",
+  "scan.err.SCAN_UNAVAILABLE": "Documents cannot be taken just now: they could not be checked for malware. Try again later, or ask the venue.",
+  "scan.err.SCAN_NOT_RELEASED": "This document has not passed its malware check, so it cannot be opened.",
+  "scan.err.SCAN_NOT_CLEAN": "The document this activity needs has not passed its malware check, so this cannot be approved yet. Wait for the check, or ask the applicant for another file.",
+  "scan.privacyProvisional": "These periods are provisional: they have not yet been reviewed by a lawyer.",
+  "scan.privacyReviewed": "These periods were reviewed on {date} by {by}.",
+  "scan.privacyBackupsLead": "Copies in backups.",
+  "scan.privacyBackupsBody": "Something deleted or erased can stay in backup copies taken before, until those copies expire. If a backup is ever restored, whatever was erased since it was taken is erased again, and the retention periods applied again, before the site reopens.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4359,6 +4377,24 @@ const MS: Record<Phrase, string> = {
   "guard.privacyWhat": "Orang yang anda urus dari akaun anda (anak): nama, tahun lahir jika diberi, hubungan dan kuasa yang anda akui, serta apa yang anda mohon, persetujui dan tempah untuknya",
   "guard.privacyWhy": "Untuk memohon, bersetuju dengan penepian dan menempah bagi pihaknya, dan memastikan kelayakannya hanya miliknya",
   "guard.privacyHow": "Selagi akaun anda mengurusnya; selepas anda berhenti, {n} hari selepas tiada lagi yang bergantung padanya. Dipadam bersama akaun anda",
+  // Supporting documents scanned for malware before release; retention provisional until reviewed; backups (ADR 0024)
+  "scan.pending": "Sedang disemak untuk perisian hasad",
+  "scan.rejected": "Ditolak oleh semakan perisian hasad: hantar fail lain",
+  "scan.failed": "Tidak dapat disemak untuk perisian hasad: hantar semula jika pusat meminta",
+  "scan.not_scanned": "Tidak disemak untuk perisian hasad",
+  "scan.rv.pending": "Sedang disemak untuk perisian hasad: boleh dibuka setelah lulus",
+  "scan.rv.rejected": "Ditolak oleh semakan perisian hasad: tidak boleh dibuka",
+  "scan.rv.failed": "Tidak dapat disemak untuk perisian hasad: tidak boleh dibuka",
+  "scan.rv.not_scanned": "Tidak disemak untuk perisian hasad (imbasan dimatikan di laman ini)",
+  "scan.rv.ev.scan_rejected": "satu dokumen ditolak oleh semakan perisian hasad",
+  "scan.rv.ev.scan_failed": "satu dokumen tidak dapat disemak untuk perisian hasad",
+  "scan.err.SCAN_UNAVAILABLE": "Dokumen tidak dapat diterima buat masa ini: ia tidak dapat disemak untuk perisian hasad. Cuba lagi kemudian, atau tanya pusat.",
+  "scan.err.SCAN_NOT_RELEASED": "Dokumen ini belum lulus semakan perisian hasad, jadi ia tidak boleh dibuka.",
+  "scan.err.SCAN_NOT_CLEAN": "Dokumen yang diperlukan untuk aktiviti ini belum lulus semakan perisian hasad, jadi permohonan ini belum boleh diluluskan. Tunggu semakan selesai, atau minta fail lain daripada pemohon.",
+  "scan.privacyProvisional": "Tempoh ini adalah sementara: ia belum disemak oleh peguam.",
+  "scan.privacyReviewed": "Tempoh ini telah disemak pada {date} oleh {by}.",
+  "scan.privacyBackupsLead": "Salinan dalam sandaran.",
+  "scan.privacyBackupsBody": "Sesuatu yang dipadam boleh kekal dalam salinan sandaran yang diambil sebelumnya, sehingga salinan itu tamat tempoh. Jika sandaran dipulihkan, apa sahaja yang dipadam sejak sandaran itu diambil akan dipadam semula, dan tempoh penyimpanan digunakan semula, sebelum laman dibuka semula.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

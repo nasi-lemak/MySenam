@@ -22,6 +22,11 @@
  * (it renews the scheduler's lease every minute) nothing is replaced unless
  * --app-stopped says it has really stopped.
  *
+ * A snapshot holds accounts erased and records retention removed since it was
+ * taken. The restored database is marked, and the app, when it next starts and
+ * before it serves anything, erases again the accounts in the erasure ledger
+ * beside the backups and runs the retention policy (src/lib/erasure-ledger.ts).
+ *
  *   node scripts/restore.mjs <backup> --drill
  *
  * restores it somewhere it can do no harm instead — a database of its own on
@@ -31,6 +36,7 @@
  */
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { backupDir, createBackup, pgEnvironment, restoreDrill, restorePhotos, verifyBackup, verifyBackupSet } from "../src/lib/backup.ts";
 import { databaseLabel, databaseTarget, getDb } from "../src/lib/db.ts";
@@ -178,5 +184,16 @@ if (photos.keptAside) console.log(`The photos that were there are kept in ${phot
 // Read it back through the app's own layer, which also brings an older
 // snapshot's schema up to date.
 const { n } = await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get();
+// What retention and erasure removed since this backup must not come back:
+// the app applies the erasures recorded since (lib/erasure-ledger.ts) and the
+// retention policy again when it next starts, before it serves anything.
+await getDb()
+  .prepare("INSERT INTO settings (key, value) VALUES ('restore_reapply_due', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+  .run(path.basename(source));
+const ledger = path.join(backupDir(), "erasure-ledger.jsonl");
+const erasures = fs.existsSync(ledger) ? fs.readFileSync(ledger, "utf8").split("\n").filter((l) => l.trim()).length : 0;
 await getDb().close();
 console.log(`Restored: ${n} bookings, ${photos.photos} photos. Start the app and check the Bookings tab for today.`);
+console.log(
+  `When it starts, the app applies again the ${erasures} erasure(s) in the ledger beside the backups and the retention policy, before it serves anything.`
+);

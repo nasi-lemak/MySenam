@@ -1,7 +1,10 @@
 # ADR 0021: Approval applications are kept by purpose; PDFs are checked, never rendered, and only downloaded
 
 - **Status:** current, decided 2026-10-26 by the product owner. Builds on
-  [ADR 0019](0019-approval-requests-apart-from-bookings.md). The rules people
+  [ADR 0019](0019-approval-requests-apart-from-bookings.md). Amended by
+  [ADR 0024](0024-documents-scanned-before-release-retention-by-purpose.md):
+  documents are now also scanned for malware before release, and the install
+  may set its own periods; everything else here stands. The rules people
   meet are in [privacy](../privacy.md#applications-to-be-approved-for-an-activity),
   [registering online for approval](../../features/activities.md#registering-online-for-approval)
   and [security](../security.md#supporting-documents).

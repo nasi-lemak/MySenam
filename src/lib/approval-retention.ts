@@ -2,6 +2,7 @@ import { logAction } from "./activity";
 import { canAccessVenue, isOwner, type Admin } from "./admin-auth";
 import { getDb } from "./db";
 import { ANONYMOUS, RETENTION, type RetentionLine } from "./privacy";
+import { retentionPolicy, type RetentionPolicy } from "./retention-policy";
 import { englishOf, said, type ServerPhrase } from "./staff-text";
 import { addDays, isValidDateString, todayISO } from "./time";
 
@@ -31,6 +32,12 @@ import { addDays, isValidDateString, todayISO } from "./time";
  *   when, and who decided: no answers, documents, name or number), and the
  *   record of who opened its documents, 730 days, as the staff activity log.
  *
+ * The periods above are the defaults; the platform owner may set the
+ * install's own (lib/retention-policy.ts), still provisional until a review
+ * is recorded. A supporting document the malware scan refused, or could not
+ * scan (lib/document-scanning.ts), goes the install's quarantine period (7
+ * days by default) after that was settled, whatever else applies.
+ *
  * An activity may set shorter periods (approval_requirements), never longer.
  * Only a hold keeps an application longer: placed for an actual legal,
  * safety or dispute reason by the platform owner (a year at a time at most)
@@ -54,13 +61,23 @@ function dayLiteral(today: string): string {
   return `'${today}'`;
 }
 
-/** An activity's own period, or the install's default, never past the documented maximum. */
-const period = (column: "review_days" | "document_days" | "record_days", fallback: number, max: number) =>
-  `make_interval(days => LEAST(COALESCE(q.${column}, ${fallback}), ${max}))`;
+/** A whole number of days, as a literal for the queries below (the install's policy, checked when set). */
+function daysLiteral(n: number): number {
+  if (!Number.isInteger(n) || n < 0) throw new Error(`not a number of days: ${n}`);
+  return n;
+}
 
-const REVIEW = () => period("review_days", RETENTION.approvalReviewDays, RETENTION.approvalDocumentDays);
-const DOCUMENTS = () => period("document_days", RETENTION.approvalDocumentDays, RETENTION.approvalDocumentDays);
-const RECORD = () => period("record_days", RETENTION.approvalRequestDays, RETENTION.approvalRequestDays);
+/** An activity's own period, or the install's, never past the install's. */
+const period = (column: "review_days" | "document_days" | "record_days", install: number, max: number) =>
+  `make_interval(days => LEAST(COALESCE(q.${column}, ${daysLiteral(install)}), ${daysLiteral(max)}))`;
+
+/** The install's periods, as the queries below use them. */
+type Periods = Pick<RetentionPolicy, "documentDays" | "reviewDays" | "recordDays" | "quarantineDays">;
+
+// As before the install could set its own: an activity's review window may be anything up to the documents' period.
+const REVIEW = (p: Periods) => period("review_days", p.reviewDays, p.documentDays);
+const DOCUMENTS = (p: Periods) => period("document_days", p.documentDays, p.documentDays);
+const RECORD = (p: Periods) => period("record_days", p.recordDays, p.recordDays);
 
 /** Every application, with what its activity says and the sign-off it wrote. */
 const FROM = `approval_requests r
@@ -85,23 +102,33 @@ const held = (today: string) =>
   `EXISTS (SELECT 1 FROM approval_holds h WHERE h.request_id = r.id AND h.released_at IS NULL AND h.review_by >= ${dayLiteral(today)})`;
 
 /** Applications whose documents are no longer needed. */
-const documentsDue = (today: string) => `r.status NOT IN ${LIVE} AND r.decided_at IS NOT NULL AND NOT ${held(today)} AND (
+const documentsDue = (today: string, p: Periods) => `r.status NOT IN ${LIVE} AND r.decided_at IS NOT NULL AND NOT ${held(today)} AND (
     r.minimised_at IS NOT NULL
-    OR r.decided_at < now() - ${DOCUMENTS()}
-    OR ${closedAt(today)} < now() - ${REVIEW()}
+    OR r.decided_at < now() - ${DOCUMENTS(p)}
+    OR ${closedAt(today)} < now() - ${REVIEW(p)}
   )`;
 
 /** Approved applications whose answers and history detail are due to go, the approval staying. */
-const minimiseDue = (today: string) =>
-  `r.status = 'approved' AND r.minimised_at IS NULL AND r.decided_at < now() - ${RECORD()} AND NOT ${held(today)}`;
+const minimiseDue = (today: string, p: Periods) =>
+  `r.status = 'approved' AND r.minimised_at IS NULL AND r.decided_at < now() - ${RECORD(p)} AND NOT ${held(today)}`;
 
 /** Closed applications whose record is due to be deleted. */
-const recordDue = (today: string) => `r.status NOT IN ${LIVE} AND ${closedAt(today)} < now() - ${RECORD()} AND NOT ${held(today)}`;
+const recordDue = (today: string, p: Periods) => `r.status NOT IN ${LIVE} AND ${closedAt(today)} < now() - ${RECORD(p)} AND NOT ${held(today)}`;
 
 /** Documents due, and any not tied to an application still holding its record (an orphan). */
-const documentRows = (today: string) =>
-  `request_id IN (SELECT r.id FROM ${FROM} WHERE ${documentsDue(today)})
+const documentRows = (today: string, p: Periods) =>
+  `request_id IN (SELECT r.id FROM ${FROM} WHERE ${documentsDue(today, p)})
    OR NOT EXISTS (SELECT 1 FROM approval_requests x WHERE x.id = approval_documents.request_id)`;
+
+/**
+ * Documents the malware scan refused (their bytes already gone) or could not
+ * scan (their bytes still in quarantine, never released): what is left goes
+ * the quarantine period after the scan settled, unless a hold keeps the
+ * application.
+ */
+const quarantineRows = (today: string, p: Periods) =>
+  `scan_status IN ('rejected', 'failed') AND scanned_at < now() - make_interval(days => ${daysLiteral(p.quarantineDays)})
+   AND request_id IN (SELECT r.id FROM approval_requests r WHERE NOT ${held(today)})`;
 
 const auditDue = `COALESCE(closed_at, removed_at) < now() - make_interval(days => ${RETENTION.approvalAuditDays})`;
 const accessDue = `at < now() - make_interval(days => ${RETENTION.approvalAuditDays})`;
@@ -117,10 +144,12 @@ const line = (key: ServerPhrase, days: number, action: RetentionLine["action"], 
 
 /** What the next run would do to applications, without doing it (lib/privacy.ts retentionDue). */
 export async function approvalRetentionDue(today = todayISO()): Promise<RetentionLine[]> {
+  const p = await retentionPolicy();
   return [
-    line("srv.ret.approvalDocuments", RETENTION.approvalDocumentDays, "deleted", await count(`SELECT COUNT(*)::int AS n FROM approval_documents WHERE ${documentRows(today)}`)),
-    line("srv.ret.approvalsMinimised", RETENTION.approvalRequestDays, "anonymised", await count(`SELECT COUNT(*)::int AS n FROM ${FROM} WHERE ${minimiseDue(today)}`)),
-    line("srv.ret.approvalsClosed", RETENTION.approvalRequestDays, "deleted", await count(`SELECT COUNT(*)::int AS n FROM ${FROM} WHERE ${recordDue(today)}`)),
+    line("srv.ret.approvalDocuments", p.documentDays, "deleted", await count(`SELECT COUNT(*)::int AS n FROM approval_documents WHERE ${documentRows(today, p)}`)),
+    line("srv.retx.quarantined", p.quarantineDays, "deleted", await count(`SELECT COUNT(*)::int AS n FROM approval_documents WHERE ${quarantineRows(today, p)}`)),
+    line("srv.ret.approvalsMinimised", p.recordDays, "anonymised", await count(`SELECT COUNT(*)::int AS n FROM ${FROM} WHERE ${minimiseDue(today, p)}`)),
+    line("srv.ret.approvalsClosed", p.recordDays, "deleted", await count(`SELECT COUNT(*)::int AS n FROM ${FROM} WHERE ${recordDue(today, p)}`)),
     line(
       "srv.ret.approvalsAudit",
       RETENTION.approvalAuditDays,
@@ -148,6 +177,7 @@ const AUDIT_INSERT =
  */
 export async function pruneApprovals(today = todayISO()): Promise<void> {
   const db = getDb();
+  const p = await retentionPolicy();
   // Note when each application closed, once, so it does not move later.
   await db
     .prepare(
@@ -157,9 +187,11 @@ export async function pruneApprovals(today = todayISO()): Promise<void> {
     )
     .run();
   // Documents no longer needed, and any left without an application to hold them.
-  await db.prepare(`DELETE FROM approval_documents WHERE ${documentRows(today)}`).run();
+  await db.prepare(`DELETE FROM approval_documents WHERE ${documentRows(today, p)}`).run();
+  // What is left of documents the malware scan refused or could not scan, after the quarantine period.
+  await db.prepare(`DELETE FROM approval_documents WHERE ${quarantineRows(today, p)}`).run();
   // An approval still standing keeps its bare facts; the answers, declarations and slot go.
-  const minimise = `SELECT r.id FROM ${FROM} WHERE ${minimiseDue(today)}`;
+  const minimise = `SELECT r.id FROM ${FROM} WHERE ${minimiseDue(today, p)}`;
   await db.prepare(`DELETE FROM approval_documents WHERE request_id IN (${minimise})`).run();
   await db
     .prepare(
@@ -175,8 +207,8 @@ export async function pruneApprovals(today = todayISO()): Promise<void> {
     .prepare("UPDATE approval_events SET reason = NULL WHERE reason IS NOT NULL AND request_id IN (SELECT id FROM approval_requests WHERE minimised_at IS NOT NULL)")
     .run();
   // Closed applications past their time: the bare facts kept, the rest deleted (documents, history and holds with it).
-  await db.prepare(`${AUDIT_INSERT} ${AUDIT_SELECT(today, "retention", true)} WHERE ${recordDue(today)}`).run();
-  await db.prepare(`DELETE FROM approval_requests WHERE id IN (SELECT r.id FROM ${FROM} WHERE ${recordDue(today)})`).run();
+  await db.prepare(`${AUDIT_INSERT} ${AUDIT_SELECT(today, "retention", true)} WHERE ${recordDue(today, p)}`).run();
+  await db.prepare(`DELETE FROM approval_requests WHERE id IN (SELECT r.id FROM ${FROM} WHERE ${recordDue(today, p)})`).run();
   // And those bare facts, and who opened which document, after their own period.
   await db.prepare(`DELETE FROM approval_audit WHERE ${auditDue}`).run();
   await db.prepare(`DELETE FROM approval_document_access WHERE ${accessDue}`).run();

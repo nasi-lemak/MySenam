@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 process.env.MYSENAM_URL = "https://book.example.my";
@@ -29,6 +29,13 @@ import * as adminRoute from "../src/app/api/admin/approvals/route";
 import * as bookingsRoute from "../src/app/api/bookings/route";
 import * as myApprovalsRoute from "../src/app/api/my/approvals/route";
 import * as peopleRoute from "../src/app/api/my/people/route";
+import { setDocumentScanner } from "../src/lib/document-scanner";
+import { passingScanner } from "./helpers/scanner";
+
+// Documents are released only once the malware scan passes them (ADR 0024): a stand-in that passes everything,
+// so these tests are about what happens around a released document. The scan itself: tests/document-scanning.test.ts.
+beforeAll(() => setDocumentScanner(passingScanner()));
+afterAll(() => setDocumentScanner(null));
 
 /**
  * A parent or guardian applying for a child from their own account (ADR 0022;

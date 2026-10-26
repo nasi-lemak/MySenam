@@ -40,6 +40,7 @@ import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
+import DocumentPolicy from "./DocumentPolicy";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -183,6 +184,8 @@ export function VenuesTab({
       {isOwner && <BackupsPanel />}
 
       {isOwner && <RetentionPanel />}
+
+      {isOwner && <DocumentPolicy />}
 
       {isOwner && <BusinessesPanel venues={venues} onChange={() => void onChange()} />}
 

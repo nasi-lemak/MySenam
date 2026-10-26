@@ -121,7 +121,9 @@ safety or dispute reason ([below](#holds)), and says so.
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
 | Somebody an adult no longer manages (archived), once no application, sign-off in force or booking to come rests on them | 365 days after archiving | deleted |
-| Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision | deleted; what was seen stays on the sign-off it wrote |
+| Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision (the install's periods: [below](#applications-to-be-approved-for-an-activity)) | deleted; what was seen stays on the sign-off it wrote |
+| What is left of a document the malware scan refused (the fact; its bytes were wiped at once) or could not scan (its quarantined bytes) | 7 days after the scan settled (the install's quarantine period) | deleted; the application's history says a document was refused or could not be checked |
+| The erasure ledger: an erased account's number and the moment it was created | 400 days | deleted ([backups](../operations/backups.md#after-a-restore)) |
 | An approved application's answers, declarations and history detail, its approval still standing | 365 days after the decision | removed; the approval and the bare facts stay |
 | Applications to be approved for an activity, once closed (refused, withdrawn, lapsed, or the approval ended) | 365 days after closing | deleted; the bare facts kept |
 | The bare facts of a deleted application, and who opened its documents | 730 days | deleted |
@@ -143,10 +145,30 @@ run it early, under *Venues & staff → Keeping nothing too long*.
 An application to be approved for an activity
 ([registering online for approval](../features/activities.md#registering-online-for-approval))
 is kept by purpose (`src/lib/approval-retention.ts`;
-[ADR 0021](decisions/0021-approval-retention-and-pdf-documents.md)). **The
-periods below are provisional defaults the owner accepted, not statutory
-periods: they remain subject to professional legal review**, and the code
-treats them as the most an activity may set, not as settled law.
+[ADR 0021](decisions/0021-approval-retention-and-pdf-documents.md),
+[ADR 0024](decisions/0024-documents-scanned-before-release-retention-by-purpose.md)).
+**The periods below (90 days for documents after the decision, a 30-day
+review window, 365 days for a closed application's record) are product-policy
+defaults the owner provisionally accepted, not legal requirements: they remain
+subject to professional legal review under Malaysia's and Singapore's PDPA,
+and nothing here says they satisfy either.** The code treats them as the most
+an activity may set, not as settled law.
+
+**The install's own periods.** The platform owner may set the install's
+periods (`src/lib/retention-policy.ts`, `retention_policy`, migration 0143)
+under *Venues & staff → Supporting documents*, within bounds wide enough that
+no country's answer is assumed: documents 7–365 days after the decision, the
+review window 1 day up to the documents' period, a closed application 30–2190
+days, what is left of a refused or unscannable document 1–30 days (7 by
+default). **Provisional until reviewed:** until somebody records a review (who
+reviewed the periods, name and firm; on what day; on what basis), the
+dashboard, the activity settings and the privacy notice say the periods are
+provisional; once recorded, the notice says when and by whom. Changing any
+period lapses the review. Every change and review, with who recorded it, is
+kept and never pruned (`retention_policy_events`), as the deposit-tax review
+is ([venue operations](../features/venue-operations.md)). The review is the
+reviewer's view, recorded; the app does not judge whether a period meets any
+law.
 
 | Part | Its purpose | Kept |
 | ---- | ----------- | ---- |
@@ -156,11 +178,22 @@ treats them as the most an activity may set, not as settled law.
 | The bare facts: that it existed, where, for what, how it ended, when, and who decided | Evidence the venue decided, and when, without what anybody wrote or sent | 730 days, as the staff activity log; linked to the account only while the account exists |
 | Who opened which document, and when | Accountability for access to personal documents | 730 days |
 
-**Shorter, never longer.** A venue's manager may set, per activity, a shorter
-review window (1–90 days), a shorter time for documents after the decision
-(1–90) and a shorter time for a closed application (30–365); the database
-refuses anything longer. Documents also go as soon as the application's
-answers do. The privacy notice states the defaults.
+**Shorter, never longer.** A venue's manager may set, per activity, a review
+window and a time for documents after the decision of 1 day up to the
+install's period for documents, and a time for a closed application of 30
+days up to the install's; the code refuses anything longer, and the retention
+run never applies more than the install's period whatever is stored (the
+database keeps outer bounds of 365 and 2190 days). Documents also go as soon
+as the application's answers do. The privacy notice states the install's
+periods.
+
+**Documents refused or not checked.** A supporting document waits in
+quarantine until the malware scan passes it
+([security](security.md#malware-scanning)). One the scan refused has its
+bytes wiped at once; one that could not be scanned after every try keeps its
+bytes in quarantine, never opened. What is left of either goes after the
+install's quarantine period (7 days by default) from the scan's result,
+under the same holds as the rest of the application.
 
 **Asking only for what is needed.** A venue that asks for a document must say
 which document and why, and the applicant sees both; it may never ask for an
@@ -186,6 +219,9 @@ incident under investigation needs an application kept past its time, a
   ordinary periods, so anything already past them goes at once.
 - **Erasure** waits while a hold is in force: the account page says an
   application is kept under a hold and to ask the venue.
+- **Every state of a document:** a hold keeps documents waiting for their
+  scan, refused by it or not checkable as it keeps released ones: the
+  quarantine period does not run while a hold on the application is in force.
 
 Holds are managed under *Courts & rates → Keeping an application past its
 time* (`/api/admin/approvals/holds`).
@@ -200,16 +236,28 @@ Documents live only in the database: there are no files or storage objects
 to orphan, and uploads are checked in memory, so no temporary file is ever
 written.
 
-**Backups are not reached by deleting a row.** A row deleted today is still
-in the database snapshots and off-site copies taken before today, encrypted
-off-site, until those age out with their normal cycle: the newest 14 nightly
-snapshots are kept on the server ([backups](../operations/backups.md#backups))
-and off-site copies are deleted by the bucket's lifecycle rule about 15 days
-after upload, and cannot be removed earlier while their Object Lock lasts
-([keys and Object Lock](../operations/backups.md#keys-and-object-lock)). A
-restore from such a copy brings back what it held: what the periods above
-had deleted goes again at the next daily run, but an erasure made since the
-copy was taken must be made again. The privacy notice should say so.
+**Backups are not reached by deleting a row.** A row deleted or erased today
+is still in the database snapshots and off-site copies taken before today
+(encrypted off-site where encryption is set up), until those age out with
+their normal cycle: the newest 14 nightly snapshots are kept on the server
+([backups](../operations/backups.md#backups)) and off-site copies are deleted
+by the bucket's lifecycle rule about 15 days after upload, and cannot be
+removed earlier while their Object Lock lasts
+([keys and Object Lock](../operations/backups.md#keys-and-object-lock)).
+
+**A restore does not bring them back for good.** Every erasure is recorded in
+an erasure ledger (an account's number and the moment it was created, nothing
+else), in the database and in a file beside the backup sets that a restore
+does not overwrite. After a restore the app, before it serves anything,
+erases again every account in the ledger that came back with the same
+creation moment, and runs the retention policy again, so what had aged out
+since the backup goes again ([backups](../operations/backups.md#after-a-restore)).
+What it cannot do: an erasure recorded after the ledger file last left the
+server is lost with the server (the file is not copied off-site), and an
+account the restored copy shows holding credit, a live pass or a membership,
+or under a hold, is not erased again by itself: the owners are told, to
+settle it and erase it by hand. The privacy notice says that deleted data can
+stay in backups until they expire and is erased again after a restore.
 
 **`/privacy` is not legal advice.** It describes what the software actually
 does, which is the hard part, in each of the site's languages (Bahasa Malaysia,
@@ -407,6 +455,36 @@ them within that window; the privacy notice should say so.
 8. Each party's role for venue data and account data, and what that means for
    registration, a data protection officer and breach notices; the exact
    Malaysian breach-notice deadlines and thresholds.
+
+### Open questions for professional review: retention and documents
+
+None of these is settled by the code; each is recorded here for a lawyer in
+each country an install serves (and, for the documents, the venue's adviser):
+
+1. Whether 90 days for supporting documents after the decision, the 30-day
+   review window and 365 days for a closed application's record are
+   proportionate under Malaysia's PDPA retention principle (s10) and
+   Singapore's PDPA retention obligation (s25), for each kind of activity;
+   and whether any venue's own obligations (insurance, a sport's governing
+   body, safety law) require a longer period for some records.
+2. Whether keeping the bare facts of a deleted application and the record
+   of who opened its documents for 730 days is justified.
+3. Whether erasure that leaves copies in backups until they expire (about 15
+   days off-site, two weeks on the server), with a re-erasure after any
+   restore, meets each country's expectations for withdrawal of consent and
+   erasure, and what the privacy notice must say about it.
+4. Whether a certificate (a qualification card, a medical or fitness
+   declaration a venue may ask for) is sensitive personal data in either
+   country, and what that means for consent and safeguards.
+5. Whether recording a minor's guardian's name and declaration, as declared
+   and never verified, is enough consent for each country, and for which
+   ages.
+6. Whether the legal, safety, dispute and incident bases for a hold, and who
+   may place one for how long, match each country's rules on retaining data
+   for legal claims.
+7. Whether keeping an unscannable document's bytes in quarantine for the
+   quarantine period, never opened, is justified, or whether it should go at
+   once.
 
 How much data an install accumulates, and why bookings stay in plain Postgres
 rather than TimescaleDB, is in

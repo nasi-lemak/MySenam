@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { RETENTION } from "@/lib/privacy";
+import { retentionPolicy, type RetentionPolicy } from "@/lib/retention-policy";
 import { serverT } from "@/lib/locale";
 import type { Phrase, T } from "@/lib/i18n";
 
@@ -18,18 +19,20 @@ const HOW_LONG_VARS: Record<number, { n: number }> = {
   8: { n: RETENTION.messageDays },
 };
 
-function heldRows(t: T) {
+function heldRows(t: T, policy: RetentionPolicy) {
   return [
     ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({
       what: t(`privacy.held${i}What` as Phrase),
       why: t(`privacy.held${i}Why` as Phrase),
       how: t(`privacy.held${i}How` as Phrase, HOW_LONG_VARS[i]),
     })),
-    // Applications to be approved for an activity (lib/approvals.ts).
+    // Applications to be approved for an activity (lib/approvals.ts): the install's periods (lib/retention-policy.ts), provisional until reviewed.
     {
       what: t("apr.privacyWhat"),
       why: t("apr.privacyWhy"),
-      how: t("aprdoc.privacyHow", { n: RETENTION.approvalDocumentDays, review: RETENTION.approvalReviewDays, m: RETENTION.approvalRequestDays }),
+      how: `${t("aprdoc.privacyHow", { n: policy.documentDays, review: policy.reviewDays, m: policy.recordDays })}. ${
+        policy.review ? t("scan.privacyReviewed", { date: policy.review.reviewedOn, by: policy.review.reviewedBy }) : t("scan.privacyProvisional")
+      }`,
     },
     // People an adult manages from their account (lib/managed-people.ts).
     { what: t("guard.privacyWhat"), why: t("guard.privacyWhy"), how: t("guard.privacyHow", { n: RETENTION.archivedManagedDays }) },
@@ -46,6 +49,7 @@ function dataUser(): { name: string; address: string | null; email: string } | n
 export default async function PrivacyPage() {
   const t = await serverT();
   const contact = dataUser();
+  const policy = await retentionPolicy();
 
   return (
     <div className="mx-auto max-w-2xl space-y-8 py-2">
@@ -68,7 +72,7 @@ export default async function PrivacyPage() {
               </tr>
             </thead>
             <tbody>
-              {heldRows(t).map((row) => (
+              {heldRows(t, policy).map((row) => (
                 <tr key={row.what} className="border-b border-slate-100 last:border-0 align-top">
                   <td className="px-3 py-2 font-medium">{row.what}</td>
                   <td className="px-3 py-2 text-slate-600">{row.why}</td>
@@ -118,6 +122,9 @@ export default async function PrivacyPage() {
           </li>
           <li>
             <strong>{t("privacy.doGuestLead")}</strong> {t("privacy.doGuestBody")}
+          </li>
+          <li>
+            <strong>{t("scan.privacyBackupsLead")}</strong> {t("scan.privacyBackupsBody")}
           </li>
         </ul>
       </section>

@@ -228,6 +228,95 @@ describe("the backup and restore scripts", () => {
     }
   }, 240_000);
 
+  it("a restore does not bring back what was erased or aged out since the backup: both are applied again before the app serves", async () => {
+    const { getDb } = await import("../src/lib/db");
+    const store = await import("../src/lib/store");
+    const { registerUser } = await import("../src/lib/auth");
+    const { eraseCustomer, pruneOldData } = await import("../src/lib/privacy");
+    const { readLedgerFile, reapplyIfRestored } = await import("../src/lib/erasure-ledger");
+    const { apply, decide, saveRequirement } = await import("../src/lib/approvals");
+    const { uploaded } = await import("../src/lib/approval-documents");
+    const { listAdmins } = await import("../src/lib/admin-auth");
+    const { setDocumentScanner } = await import("../src/lib/document-scanner");
+    const { passingScanner } = await import("./helpers/scanner");
+    setDocumentScanner(passingScanner());
+    const db = getDb();
+    const count = async (sql: string, ...args: unknown[]) => Number(((await getDb().prepare(sql).get(...args)) as { n: number }).n);
+
+    // Somebody who will close their account, and an application whose document is due to go but has not gone yet.
+    const leaving = await registerUser({ name: "Leaving Customer", email: "leaving@restore.my", phone: "0175550202", password: "a long enough password" });
+    const staying = await registerUser({ name: "Staying Customer", email: "staying@restore.my", phone: "0175550303", password: "a long enough password" });
+    if (!leaving.ok || !staying.ok) throw new Error("users");
+    await db.prepare("UPDATE users SET phone_verified_at = datetime('now') WHERE id = ?").run(staying.user.id);
+    const venue = (await store.listVenues())[0];
+    const sport = venue.courts[0].sport;
+    const saved = await saveRequirement(venue.id, {
+      sport,
+      documentLabel: "Your coaching certificate",
+      documentPurpose: "Playing here unsupervised needs a coaching certificate.",
+      declaration: "The certificate I send is my own.",
+    });
+    if (!saved.ok) throw new Error(saved.error);
+    const pdf = Buffer.from(
+      "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+      "latin1"
+    );
+    const made = await apply(staying.user, { venueId: venue.id, sport, declaration: true, adult: true }, [uploaded(pdf, "cert.pdf", "application/pdf")]);
+    if (!made.ok) throw new Error(made.error);
+    const owner = (await listAdmins())[0];
+    expect((await decide({ kind: "staff", admin: { id: owner.id, name: owner.name } }, made.request.id, "reject", { venueId: venue.id, reason: "Not a recognised certificate." })).ok).toBe(true);
+    // Refused 40 days ago: past the 30-day review window, so its document is due.
+    await db.prepare("UPDATE approval_requests SET decided_at = now() - interval '40 days' WHERE id = ?").run(made.request.id);
+    const documents = () => count("SELECT COUNT(*)::int AS n FROM approval_documents WHERE request_id = ?", made.request.id);
+    expect(await documents()).toBe(1);
+    await db.close();
+
+    const dir = path.join(work, "backups");
+    for (const f of fs.readdirSync(dir)) if (/^mysenam-/.test(f)) fs.rmSync(path.join(dir, f));
+    const backup = await script("backup.mjs", ["--app-stopped", "--dir", dir]);
+    expect(backup.code, backup.out).toBe(0);
+    const snapshot = fs.readdirSync(dir).find((f) => /^mysenam-[\d-]+\.(dump|tar\.gz)$/.test(f))!;
+
+    // After the backup: the account is closed, and the retention run removes the document.
+    expect((await eraseCustomer(leaving.user.id)).ok).toBe(true);
+    await pruneOldData();
+    expect(await documents()).toBe(0);
+    // The erasure is in the ledger beside the backups: the account's number and when it was made, nothing else.
+    const ledger = readLedgerFile();
+    expect(ledger).toEqual([expect.objectContaining({ kind: "customer", subjectId: leaving.user.id })]);
+    expect(JSON.stringify(ledger)).not.toMatch(/Leaving|leaving@|0175550202/);
+    await getDb().close();
+
+    const restore = await script("restore.mjs", [path.join(dir, snapshot), "--force", "--app-stopped"]);
+    expect(restore.code, restore.out).toBe(0);
+    expect(restore.out).toContain("applies again the 1 erasure(s)");
+    // The restored copy has both back: as the backup had them.
+    expect(await count("SELECT COUNT(*)::int AS n FROM users WHERE id = ?", leaving.user.id)).toBe(1);
+    expect(await documents()).toBe(1);
+
+    // The app's start: both applied again, before anything is served.
+    const result = await reapplyIfRestored();
+    expect(result).toMatchObject({ erasedAgain: 1, refused: [] });
+    expect(result!.retention).toBeGreaterThan(0);
+    expect(await count("SELECT COUNT(*)::int AS n FROM users WHERE id = ?", leaving.user.id)).toBe(0);
+    expect(await documents()).toBe(0);
+    expect(await count("SELECT COUNT(*)::int AS n FROM users WHERE id = ?", staying.user.id)).toBe(1);
+    // Done once: the next start has nothing to do.
+    expect(await reapplyIfRestored()).toBeNull();
+
+    // A restore done another way (no mark, the ledger table without the entry) is caught by the file; and an
+    // account that has the erased one's number but was made at another moment is never touched.
+    await getDb().prepare("DELETE FROM erasure_ledger").run();
+    await getDb()
+      .prepare("INSERT INTO users (id, name, email, phone, password_hash, created_at) VALUES (?, 'Someone Else', 'someone@restore.my', '0175550404', 'x', '2031-01-01 00:00:00')")
+      .run(leaving.user.id);
+    expect(await reapplyIfRestored()).toMatchObject({ erasedAgain: 0, refused: [] });
+    expect(await count("SELECT COUNT(*)::int AS n FROM users WHERE id = ?", leaving.user.id)).toBe(1);
+    expect(await count("SELECT COUNT(*)::int AS n FROM erasure_ledger")).toBe(1);
+    setDocumentScanner(null);
+    await getDb().close();
+  }, 240_000);
+
   it("the SQLite import starts", async () => {
     // No file named: it should explain itself, not fail to load.
     const imported = await script("import-sqlite.mjs", []);

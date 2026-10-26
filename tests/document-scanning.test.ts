@@ -1,0 +1,584 @@
+import fs from "fs";
+import net from "net";
+import os from "os";
+import path from "path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+process.env.MYSENAM_DB = ":memory:";
+// Any temporary file the upload or the scan wrote would land here: it must stay empty.
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "docscan-"));
+const SCRATCH = fs.mkdtempSync(path.join(TMP, "x-"));
+process.env.TMPDIR = SCRATCH;
+process.env.TMP = SCRATCH;
+process.env.TEMP = SCRATCH;
+
+import { NextRequest } from "next/server";
+import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/lib/admin-auth";
+import { uploaded } from "../src/lib/approval-documents";
+import { placeRetentionHold } from "../src/lib/approval-retention";
+import { apply, customerAct, decide, linkCoachAccount, openDocument, requestById, saveRequirement, type ApplyInput } from "../src/lib/approvals";
+import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
+import { saveCoach } from "../src/lib/coaching";
+import { getDb } from "../src/lib/db";
+import { ClamdScanner, parseClamdAddress, readReply, scanMode, setDocumentScanner, signaturesDate } from "../src/lib/document-scanner";
+import { checkScanner, MAX_SCAN_ATTEMPTS, RETRY_MINUTES, scanDocument, scanDueDocuments, scannerHealth } from "../src/lib/document-scanning";
+import { exportCustomerData, pruneOldData } from "../src/lib/privacy";
+import { createResources } from "../src/lib/resources";
+import { createVenue } from "../src/lib/store";
+import { addDays, todayISO } from "../src/lib/time";
+import * as myRoute from "../src/app/api/my/approvals/route";
+import * as myDocRoute from "../src/app/api/my/approvals/document/route";
+import * as adminDocRoute from "../src/app/api/admin/approvals/document/route";
+import * as coachDocRoute from "../src/app/api/my/reviews/document/route";
+import { fakeScanner, type FakeScanner } from "./helpers/scanner";
+
+/**
+ * Supporting documents are scanned for malware before anybody can open them
+ * (lib/document-scanning.ts; docs/architecture/security.md#supporting-documents;
+ * ADR 0024), against a stand-in scanner here, and clamd's protocol against
+ * stand-in sockets. The real engine: tests/document-scanning-engine.test.ts.
+ *
+ * Stored in quarantine, `pending`, never handed out; released (`clean`) only
+ * by the server's own call to the scanner; `rejected` when it finds
+ * something (the bytes wiped at once); `failed` after a bounded number of
+ * tries; never clean by default. An approval that needs a document waits for
+ * a clean one. Nobody outside the application's own people learns anything
+ * of a document in any state.
+ */
+
+const ZONE = "Asia/Kuala_Lumpur";
+const EICAR = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+const PDF = Buffer.from(
+  "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+  "latin1"
+);
+/** A PDF that passes the structural checks and carries the EICAR test string in a comment. */
+const EICAR_PDF = Buffer.concat([PDF.subarray(0, 9), Buffer.from(`% ${EICAR}\n`, "latin1"), PDF.subarray(9)]);
+const doc = (bytes = PDF) => uploaded(Buffer.from(bytes), "certificate.pdf", "application/pdf");
+
+let n = 0;
+let venueA: number;
+let venueB: number;
+let staffA: { id: number; name: string; cookie: string };
+let staffB: { id: number; name: string; cookie: string };
+let coachOk: { id: number; cookie: string };
+let coachOther: { id: number; cookie: string };
+let scanner: FakeScanner;
+
+async function customer() {
+  const made = await registerUser({ name: `Scan ${++n}`, email: `docscan${n}@scan.test`, phone: `0178${String(n).padStart(6, "0")}`, password: "a long enough password" });
+  if (!made.ok) throw new Error(made.error);
+  await getDb().prepare("UPDATE users SET phone_verified_at = datetime('now') WHERE id = ?").run(made.user.id);
+  return { ...made.user, cookie: `${SESSION_COOKIE}=${(await createSession(made.user.id)).token}` };
+}
+
+async function staffMember(venueId: number | null, name: string) {
+  const made = await createAdmin({ name, email: `${name.toLowerCase().replace(/\W/g, "")}@scan.test`, password: "a long enough password", venueId });
+  if (!made.ok) throw new Error(made.error);
+  return { id: made.admin.id, name, cookie: `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(made.admin.id)).token}`, admin: made.admin };
+}
+
+async function coach(venueId: number, name: string) {
+  const made = await saveCoach(venueId, { name, sports: ["kayak"], rate: 50, hours: [] });
+  if (!made.ok) throw new Error(made.error);
+  const account = await customer();
+  const linked = await linkCoachAccount(venueId, made.coach.id, account.email);
+  if (!linked.ok) throw new Error(linked.error);
+  return { id: made.coach.id, cookie: account.cookie };
+}
+
+const diving = (extra: Partial<ApplyInput> = {}): ApplyInput => ({
+  venueId: venueA,
+  sport: "kayak",
+  declaration: true,
+  adult: true,
+  certReference: "PADI Open Water 12345, PADI",
+  certExpiresOn: addDays(todayISO(ZONE), 300),
+  ...extra,
+});
+
+const get = (url: string, cookie: string | null) =>
+  new NextRequest(url, { method: "GET", headers: { "x-forwarded-for": `10.88.${++n % 250}.${n % 200}`, ...(cookie ? { cookie } : {}) } });
+
+const db = () => getDb();
+const docRow = async (id: number) =>
+  (await db().prepare("SELECT scan_status, scan_attempts, scan_next_at, scan_finding, scan_error, scan_engine, octet_length(content) AS bytes FROM approval_documents WHERE id = ?").get(id)) as {
+    scan_status: string;
+    scan_attempts: number;
+    scan_next_at: Date | null;
+    scan_finding: string | null;
+    scan_error: string | null;
+    scan_engine: string | null;
+    bytes: number;
+  };
+/** As if its next try were due now. */
+const dueNow = (id: number) => db().prepare("UPDATE approval_documents SET scan_next_at = now() - interval '1 second' WHERE id = ?").run(id);
+const staff = () => ({ kind: "staff" as const, admin: { id: staffA.id, name: staffA.name } });
+
+async function applied(bytes = PDF) {
+  const me = await customer();
+  const made = await apply(me, diving(), [doc(bytes)]);
+  if (!made.ok) throw new Error(`${made.code}: ${made.error}`);
+  return { me, requestId: made.request.id, docId: made.request.documents[0].id };
+}
+
+beforeAll(async () => {
+  const make = async (name: string, phone: string) => {
+    const v = await createVenue({ name, area: "Puchong", address: "x", phone, openMin: 7 * 60, closeMin: 23 * 60 });
+    if (!v.ok) throw new Error("venue");
+    return v.venue.id;
+  };
+  venueA = await make("Scan Pool Puchong", "0312349401");
+  venueB = await make("Scan Pool Cheras", "0312349402");
+  for (const v of [venueA, venueB]) {
+    const r = await createResources({ venueId: v, sport: "kayak", name: "Dive pool", offPeakRate: 30, peakRate: 30, capacity: 10 });
+    if (!r.ok) throw new Error(r.error);
+  }
+  staffA = await staffMember(venueA, "Sara Scan");
+  staffB = await staffMember(venueB, "Sam Elsewhere");
+  coachOk = await coach(venueA, "Cleo Coach");
+  coachOther = await coach(venueA, "Dev Coach");
+  for (const venueId of [venueA, venueB]) {
+    const saved = await saveRequirement(venueId, {
+      sport: "kayak",
+      kind: "certification",
+      documentLabel: "Your diving certification card",
+      documentPurpose: "Diving here needs proof of an open-water certification.",
+      declaration: "The certification I send is my own and in force.",
+      validDays: 365,
+      coachIds: venueId === venueA ? [coachOk.id] : [],
+    });
+    if (!saved.ok) throw new Error(saved.error);
+  }
+});
+
+beforeEach(() => {
+  scanner = fakeScanner();
+  setDocumentScanner(scanner);
+});
+afterEach(() => vi.restoreAllMocks());
+afterAll(() => setDocumentScanner(null));
+
+
+describe("quarantine until the scan passes", () => {
+  it("keeps a document unopenable, and its application unapprovable, while the scanner is away; releases it once the scan passes", async () => {
+    scanner.answer = { kind: "error", error: "unavailable", detail: "ECONNREFUSED" };
+    const { me, requestId, docId } = await applied();
+    const first = await docRow(docId);
+    expect(first).toMatchObject({ scan_status: "pending", scan_attempts: 1 });
+    expect((await requestById(requestId))!.documents[0].scan).toBe("pending");
+    // Nobody opens it: not the applicant, not the venue, not its coach.
+    expect(await openDocument(docId, { kind: "customer", userId: me.id, name: me.name })).toEqual({ withheld: "pending" });
+    const res = await adminDocRoute.GET(get(`http://localhost/api/admin/approvals/document?venueId=${venueA}&id=${docId}`, staffA.cookie));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "SCAN_NOT_RELEASED", scan: "pending" });
+    expect((await coachDocRoute.GET(get(`http://localhost/api/my/reviews/document?id=${docId}`, coachOk.cookie))).status).toBe(409);
+    // Withheld openings are not recorded as openings.
+    expect(((await db().prepare("SELECT COUNT(*)::int AS n FROM approval_document_access WHERE document_id = ?").get(docId)) as { n: number }).n).toBe(0);
+    // A review that needs the document cannot be completed.
+    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: false, code: "SCAN_NOT_CLEAN", status: 409 });
+    // Its next try is not due yet: the scheduler leaves it.
+    await scanDueDocuments();
+    expect((await docRow(docId)).scan_attempts).toBe(1);
+    // The scanner is back; the next try is due.
+    scanner.answer = { kind: "clean", engine: "FakeScan 1.0/2/Mon Oct 26 07:00:00 2026" };
+    await dueNow(docId);
+    await scanDueDocuments();
+    expect(await docRow(docId)).toMatchObject({ scan_status: "clean", scan_attempts: 2, scan_next_at: null, scan_engine: "FakeScan 1.0/2/Mon Oct 26 07:00:00 2026" });
+    const opened = await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, me.cookie));
+    expect(opened.status).toBe(200);
+    expect(Buffer.from(await opened.arrayBuffer()).equals(PDF)).toBe(true);
+    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: true, request: { status: "approved" } });
+  });
+
+  it("scans at once when the scanner answers, so a document sent is usually released straight away", async () => {
+    const { docId, requestId } = await applied();
+    expect((await docRow(docId)).scan_status).toBe("clean");
+    expect(scanner.calls).toBe(1);
+    expect((await requestById(requestId))!.documents[0].scan).toBe("clean");
+  });
+
+  it("holds the review while a second document sent in answer is still being checked", async () => {
+    const { me, requestId } = await applied();
+    expect((await decide(staff(), requestId, "ask", { venueId: venueA, reason: "The card is blurred; send a clearer one." })).ok).toBe(true);
+    scanner.answer = { kind: "error", error: "timeout", detail: "no answer" };
+    const answered = await customerAct(me, requestId, "answer", { answer: "A clearer scan" }, [doc()]);
+    expect(answered).toMatchObject({ ok: true });
+    expect((answered as { request: { documents: { scan: string }[] } }).request.documents.map((d) => d.scan)).toEqual(["clean", "pending"]);
+    // One clean is not enough while another sent for the review is still being checked.
+    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: false, code: "SCAN_NOT_CLEAN" });
+  });
+});
+
+describe("what the scanner says", () => {
+  it("found something: refused at once, its bytes wiped, recorded in the history, never opened; logs name no contents", async () => {
+    const logged: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => void logged.push(a.map(String).join(" ")));
+    vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => void logged.push(a.map(String).join(" ")));
+    scanner.answer = (content) => (content.includes(Buffer.from("EICAR-STANDARD")) ? { kind: "found", finding: "Eicar-Test-Signature", engine: "FakeScan" } : { kind: "clean", engine: "FakeScan" });
+    const { me, requestId, docId } = await applied(EICAR_PDF);
+    expect(await docRow(docId)).toMatchObject({ scan_status: "rejected", scan_finding: "Eicar-Test-Signature", bytes: 0, scan_next_at: null });
+    const request = (await requestById(requestId))!;
+    expect(request.documents[0]).toMatchObject({ scan: "rejected", size: EICAR_PDF.length });
+    expect(request.events.map((e) => e.action)).toContain("scan_rejected");
+    expect(await openDocument(docId, { kind: "staff", adminId: staffA.id, name: staffA.name, venueId: venueA })).toEqual({ withheld: "rejected" });
+    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: false, code: "SCAN_NOT_CLEAN" });
+    // The applicant's export lists it, without bytes.
+    const exported = (await exportCustomerData(me.id))!.approvals as { documents: { malwareScan: string; base64: string | null }[] }[];
+    expect(exported.flatMap((a) => a.documents)).toEqual([expect.objectContaining({ malwareScan: "rejected", base64: null })]);
+    // The log says which document and which signature, never the contents or whose it is.
+    expect(logged.join("\n")).toContain(`supporting document ${docId}`);
+    expect(logged.join("\n")).not.toContain("EICAR-STANDARD");
+    expect(logged.join("\n")).not.toContain(me.name);
+    // A late, repeated result changes nothing.
+    scanner.answer = { kind: "clean", engine: "FakeScan" };
+    expect(await scanDocument(docId)).toBe("rejected");
+  });
+
+  it("unavailable, timed out or inconclusive: tried again on a bounded schedule, then failed for good, never clean", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const errors = [
+      { kind: "error" as const, error: "unavailable" as const, detail: "ECONNREFUSED" },
+      { kind: "error" as const, error: "timeout" as const, detail: "no answer" },
+      { kind: "error" as const, error: "inconclusive" as const, detail: "Can't allocate memory ERROR" },
+    ];
+    let i = 0;
+    scanner.answer = () => errors[i++ % errors.length];
+    const { requestId, docId } = await applied();
+    for (let attempt = 1; attempt < MAX_SCAN_ATTEMPTS; attempt++) {
+      const row = await docRow(docId);
+      expect(row.scan_status).toBe("pending");
+      expect(row.scan_attempts).toBe(attempt);
+      // The next try is that many minutes on.
+      const wait = (new Date(row.scan_next_at!).getTime() - Date.now()) / 60_000;
+      expect(wait).toBeGreaterThan(RETRY_MINUTES[attempt - 1] - 1);
+      expect(wait).toBeLessThanOrEqual(RETRY_MINUTES[attempt - 1]);
+      await dueNow(docId);
+      await scanDueDocuments();
+    }
+    const failed = await docRow(docId);
+    expect(failed).toMatchObject({ scan_status: "failed", scan_attempts: MAX_SCAN_ATTEMPTS, scan_next_at: null });
+    expect(failed.scan_error).toMatch(/^(unavailable|timeout|inconclusive):/);
+    expect(scanner.calls).toBe(MAX_SCAN_ATTEMPTS);
+    // No more tries, whatever is asked.
+    await dueNow(docId).catch(() => undefined);
+    await scanDueDocuments();
+    expect(await scanDocument(docId)).toBe("failed");
+    expect(scanner.calls).toBe(MAX_SCAN_ATTEMPTS);
+    expect((await requestById(requestId))!.events.map((e) => e.action)).toContain("scan_failed");
+    expect(await openDocument(docId, { kind: "staff", adminId: staffA.id, name: staffA.name, venueId: venueA })).toEqual({ withheld: "failed" });
+    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: false, code: "SCAN_NOT_CLEAN" });
+    // Asking for more, or refusing, is still open to the reviewer.
+    expect((await decide(staff(), requestId, "ask", { venueId: venueA, reason: "Please send the card again." })).ok).toBe(true);
+  });
+
+  it("too large for the scanner's limits fails at once; a scanner that throws is a failed try", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    scanner.answer = { kind: "error", error: "too_large", detail: "size limit exceeded" };
+    const big = await applied();
+    expect(await docRow(big.docId)).toMatchObject({ scan_status: "failed", scan_attempts: 1 });
+    scanner.answer = () => {
+      throw new Error("boom");
+    };
+    const thrown = await applied();
+    expect(await docRow(thrown.docId)).toMatchObject({ scan_status: "pending", scan_attempts: 1 });
+  });
+
+  it("repeated and concurrent scans of one document scan it once and settle it once", async () => {
+    let release: () => void = () => undefined;
+    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
+    const { docId } = await applied();
+    expect(scanner.calls).toBe(1);
+    scanner.answer = () => new Promise((resolve) => (release = () => resolve({ kind: "clean", engine: "FakeScan" })));
+    await dueNow(docId);
+    const first = scanDocument(docId);
+    await vi.waitFor(() => expect(scanner.calls).toBe(2));
+    // Claimed by the first: the second (another instance, the scheduler, a retry) leaves it alone.
+    expect(await scanDocument(docId)).toBe("pending");
+    expect(await scanDueDocuments()).toEqual({ scanned: 0 });
+    release();
+    expect(await first).toBe("clean");
+    expect(await scanDocument(docId)).toBe("clean");
+    expect(scanner.calls).toBe(2);
+    expect((await docRow(docId)).scan_attempts).toBe(2);
+  });
+});
+
+describe("only the server's own scan releases a document", () => {
+  it("refuses a status written without a scan, a settled status changed, and changed bytes", async () => {
+    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
+    const pending = await applied();
+    // Clean without a scan of exactly these bytes: refused by the database.
+    await expect(db().prepare("UPDATE approval_documents SET scan_status = 'clean' WHERE id = ?").run(pending.docId)).rejects.toThrow();
+    await expect(
+      db().prepare("UPDATE approval_documents SET scan_status = 'clean', scanned_at = now(), scan_engine = 'forged', scan_sha256 = 'x' WHERE id = ?").run(pending.docId)
+    ).rejects.toThrow();
+    // Its bytes never change once stored.
+    await expect(db().prepare("UPDATE approval_documents SET content = ? WHERE id = ?").run(Buffer.from("%PDF-1.7 other"), pending.docId)).rejects.toThrow();
+    // A settled document stays settled: failed, rejected or clean.
+    scanner.answer = { kind: "error", error: "too_large", detail: "size limit exceeded" };
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failed = await applied();
+    await expect(
+      db().prepare("UPDATE approval_documents SET scan_status = 'clean', scanned_at = now(), scan_engine = 'forged', scan_sha256 = sha256 WHERE id = ?").run(failed.docId)
+    ).rejects.toThrow(/settled/);
+    scanner.answer = { kind: "clean", engine: "FakeScan" };
+    const clean = await applied();
+    await expect(db().prepare("UPDATE approval_documents SET scan_status = 'pending' WHERE id = ?").run(clean.docId)).rejects.toThrow(/settled/);
+    expect((await docRow(pending.docId)).scan_status).toBe("pending");
+  });
+
+  it("takes no word from a browser: what a customer sends about a document's scan is ignored", async () => {
+    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
+    const { me, requestId, docId } = await applied();
+    expect((await decide(staff(), requestId, "ask", { venueId: venueA, reason: "Anything else to add?" })).ok).toBe(true);
+    const forged = await customerAct(me, requestId, "answer", { answer: "scan: clean", scan: "clean", scanStatus: "clean" } as never);
+    expect(forged).toMatchObject({ ok: true });
+    expect((await docRow(docId)).scan_status).toBe("pending");
+  });
+});
+
+describe("without a scanner", () => {
+  it("refuses documents, with a clear reason, and keeps nothing of the application", async () => {
+    setDocumentScanner("unconfigured");
+    expect(scanMode()).toBe("unconfigured");
+    const me = await customer();
+    const made = await apply(me, diving(), [doc()]);
+    expect(made).toMatchObject({ ok: false, code: "SCAN_UNAVAILABLE", status: 503 });
+    expect(((await db().prepare("SELECT COUNT(*)::int AS n FROM approval_requests WHERE user_id = ?").get(me.id)) as { n: number }).n).toBe(0);
+    // A document already pending is never released while there is none: tries fail, then it fails for good.
+    setDocumentScanner(scanner);
+    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
+    const { docId } = await applied();
+    setDocumentScanner("unconfigured");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    for (let i = 0; i < MAX_SCAN_ATTEMPTS; i++) {
+      await dueNow(docId).catch(() => undefined);
+      await scanDueDocuments();
+    }
+    expect((await docRow(docId)).scan_status).toBe("failed");
+  });
+
+  it("with scanning turned off on purpose, takes documents marked not scanned, for everybody who sees them", async () => {
+    setDocumentScanner("off");
+    const { me, requestId, docId } = await applied();
+    expect(await docRow(docId)).toMatchObject({ scan_status: "not_scanned", scan_engine: null });
+    expect((await requestById(requestId))!.documents[0].scan).toBe("not_scanned");
+    expect((await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, me.cookie))).status).toBe(200);
+    // The operator chose it, and reviewers see it: the review can be completed.
+    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: true });
+    // And it never becomes clean by a later scan.
+    setDocumentScanner(scanner);
+    expect(await scanDocument(docId)).toBe("not_scanned");
+    expect(scanner.calls).toBe(0);
+  });
+});
+
+describe("who can see a document, in every state", () => {
+  it("only the applicant, the venue's staff and its named coach; to everybody else it does not exist", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const docs: Record<string, { me: Awaited<ReturnType<typeof customer>>; docId: number }> = {};
+    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
+    docs.pending = await applied();
+    scanner.answer = { kind: "clean", engine: "FakeScan" };
+    docs.clean = await applied();
+    scanner.answer = { kind: "found", finding: "Eicar-Test-Signature", engine: "FakeScan" };
+    docs.rejected = await applied(EICAR_PDF);
+    scanner.answer = { kind: "error", error: "too_large", detail: "size limit exceeded" };
+    docs.failed = await applied();
+    const stranger = await customer();
+    const missing = 999_999;
+    const notFound = await (await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${missing}`, stranger.cookie))).json();
+    for (const [state, { me, docId }] of Object.entries(docs)) {
+      const entitled = state === "clean" ? 200 : 409;
+      expect((await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, me.cookie))).status, state).toBe(entitled);
+      expect((await adminDocRoute.GET(get(`http://localhost/api/admin/approvals/document?venueId=${venueA}&id=${docId}`, staffA.cookie))).status, state).toBe(entitled);
+      expect((await coachDocRoute.GET(get(`http://localhost/api/my/reviews/document?id=${docId}`, coachOk.cookie))).status, state).toBe(entitled);
+      // Nobody signed in.
+      expect((await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, null))).status, state).toBe(401);
+      expect((await adminDocRoute.GET(get(`http://localhost/api/admin/approvals/document?venueId=${venueA}&id=${docId}`, null))).status, state).toBe(401);
+      // Another customer, another venue's staff, a coach not named: the same answer as a document that does not exist.
+      const strangers = [
+        await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, stranger.cookie)),
+        await adminDocRoute.GET(get(`http://localhost/api/admin/approvals/document?venueId=${venueB}&id=${docId}`, staffB.cookie)),
+        await coachDocRoute.GET(get(`http://localhost/api/my/reviews/document?id=${docId}`, coachOther.cookie)),
+      ];
+      for (const res of strangers) {
+        expect(res.status, state).toBe(404);
+        expect(await res.json(), state).toEqual(notFound);
+      }
+      // Venue B's staff cannot ask as venue A.
+      expect((await adminDocRoute.GET(get(`http://localhost/api/admin/approvals/document?venueId=${venueA}&id=${docId}`, staffB.cookie))).status, state).toBe(403);
+    }
+  });
+});
+
+describe("the quarantine period", () => {
+  it("removes what is left of refused and unscannable documents after it, unless a hold keeps the application", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    scanner.answer = { kind: "found", finding: "Eicar-Test-Signature", engine: "FakeScan" };
+    const rejected = await applied(EICAR_PDF);
+    scanner.answer = { kind: "error", error: "too_large", detail: "size limit exceeded" };
+    const failed = await applied();
+    const held = await applied();
+    const owner = await staffMember(null, "Oona Owner");
+    const hold = await placeRetentionHold(owner.admin, {
+      venueId: venueA,
+      requestId: held.requestId,
+      basis: "dispute",
+      reason: "The applicant disputes the refusal of their document.",
+      reviewBy: addDays(todayISO(), 30),
+    });
+    expect(hold.ok).toBe(true);
+    await db().prepare("UPDATE approval_documents SET scanned_at = now() - interval '6 days' WHERE id IN (?, ?, ?)").run(rejected.docId, failed.docId, held.docId);
+    await pruneOldData();
+    expect(await docRow(rejected.docId)).toBeDefined();
+    await db().prepare("UPDATE approval_documents SET scanned_at = now() - interval '8 days' WHERE id IN (?, ?, ?)").run(rejected.docId, failed.docId, held.docId);
+    await pruneOldData();
+    expect(await docRow(rejected.docId)).toBeUndefined();
+    expect(await docRow(failed.docId)).toBeUndefined();
+    expect((await docRow(held.docId)).scan_status).toBe("failed");
+    // The fact stays in the application's history.
+    expect((await requestById(rejected.requestId))!.events.map((e) => e.action)).toContain("scan_rejected");
+  });
+});
+
+describe("the scanner's health", () => {
+  it("reports reachability, signature age and stuck documents, and tells the owners", async () => {
+    scanner.state = { reachable: true, engine: "FakeScan 1.0/27800/Mon Oct 19 07:00:00 2026", signaturesAt: new Date(Date.now() - 72 * 3_600_000).toISOString(), error: null };
+    let health = await scannerHealth();
+    expect(health).toMatchObject({ mode: "scanner", reachable: true });
+    expect(health.signatureAgeHours).toBeGreaterThan(71);
+    expect(health.problems).toContain("signatures_old");
+    scanner.state = { reachable: false, engine: null, signaturesAt: null, error: "unavailable: ECONNREFUSED" };
+    health = await checkScanner();
+    expect(health.problems).toContain("unreachable");
+    const alert = (await db().prepare("SELECT subject, last_detail FROM system_alerts WHERE key = 'document-scanner'").get()) as { subject: string; last_detail: string };
+    expect(alert.last_detail).toContain("does not answer");
+    scanner.state = { reachable: true, engine: "FakeScan 1.0", signaturesAt: null, error: null };
+    expect((await scannerHealth()).problems).toContain("signatures_unknown");
+    setDocumentScanner("unconfigured");
+    expect((await scannerHealth()).problems).toContain("unconfigured");
+  });
+});
+
+describe("clamd's protocol", () => {
+  it("reads its answers: clean, found, a size limit, anything else inconclusive, never clean", () => {
+    expect(readReply("stream: OK", "ClamAV")).toEqual({ kind: "clean", engine: "ClamAV" });
+    expect(readReply("stream: Eicar-Test-Signature FOUND\0", "ClamAV")).toEqual({ kind: "found", finding: "Eicar-Test-Signature", engine: "ClamAV" });
+    expect(readReply("INSTREAM size limit exceeded. ERROR", "ClamAV")).toMatchObject({ kind: "error", error: "too_large" });
+    for (const odd of ["", "stream: OK but not quite", "lstat() failed: ERROR", "OK"]) expect(readReply(odd, "ClamAV")).toMatchObject({ kind: "error", error: "inconclusive" });
+    expect(signaturesDate("ClamAV 1.5.4/27800/Sun Oct 26 07:23:01 2026")).toBe("2026-10-26T07:23:01.000Z");
+    expect(signaturesDate("ClamAV 1.5.4")).toBeNull();
+    expect(parseClamdAddress("127.0.0.1:3310")).toEqual({ host: "127.0.0.1", port: 3310 });
+    expect(parseClamdAddress("tcp://clamav")).toEqual({ host: "clamav", port: 3310 });
+    expect(parseClamdAddress("clamav:99999")).toBeNull();
+  });
+
+  /** A stand-in clamd on a local port, answering each connection with `reply` (or not at all). */
+  async function standIn(reply: ((command: string) => string | null) | null) {
+    const received: Buffer[] = [];
+    const server = net.createServer((socket) => {
+      const chunks: Buffer[] = [];
+      socket.on("data", (d) => {
+        chunks.push(d);
+        const all = Buffer.concat(chunks);
+        const nul = all.indexOf(0);
+        if (nul < 0 || !reply) return;
+        const command = all.subarray(1, nul).toString();
+        if (command === "INSTREAM") {
+          // Wait for the terminating zero-length chunk.
+          if (all.length < nul + 1 + 4 || all.readUInt32BE(all.length - 4) !== 0) return;
+          received.push(all.subarray(nul + 1));
+        }
+        const answer = reply(command);
+        if (answer !== null) socket.end(`${answer}\0`);
+      });
+      socket.on("error", () => undefined);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as net.AddressInfo).port;
+    return { port, received, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  }
+
+  it("streams the bytes in chunks and reads clean and found", async () => {
+    const body = Buffer.alloc(200 * 1024, 7);
+    const server = await standIn((c) => (c === "VERSION" ? "ClamAV 1.5.4/27800/Sun Oct 26 07:23:01 2026" : c === "PING" ? "PONG" : "stream: OK"));
+    try {
+      const clamd = new ClamdScanner("127.0.0.1", server.port);
+      expect(await clamd.scan(body)).toEqual({ kind: "clean", engine: "ClamAV 1.5.4/27800/Sun Oct 26 07:23:01 2026" });
+      // Length-prefixed chunks, then a zero length: the bytes as sent.
+      const stream = server.received[0];
+      const parts: Buffer[] = [];
+      for (let at = 0; ; ) {
+        const len = stream.readUInt32BE(at);
+        if (len === 0) break;
+        parts.push(stream.subarray(at + 4, at + 4 + len));
+        at += 4 + len;
+      }
+      expect(Buffer.concat(parts).equals(body)).toBe(true);
+      expect(await clamd.status()).toMatchObject({ reachable: true, signaturesAt: "2026-10-26T07:23:01.000Z" });
+    } finally {
+      await server.close();
+    }
+    const found = await standIn((c) => (c === "VERSION" ? "ClamAV 1.5.4" : "stream: Eicar-Test-Signature FOUND"));
+    try {
+      expect(await new ClamdScanner("127.0.0.1", found.port).scan(Buffer.from(EICAR))).toMatchObject({ kind: "found", finding: "Eicar-Test-Signature" });
+    } finally {
+      await found.close();
+    }
+  });
+
+  it("is unavailable when nothing listens, times out when nothing answers, and is inconclusive on nonsense", async () => {
+    const closed = await standIn(null);
+    const port = closed.port;
+    await closed.close();
+    expect(await new ClamdScanner("127.0.0.1", port).scan(PDF)).toMatchObject({ kind: "error", error: "unavailable" });
+    expect(await new ClamdScanner("127.0.0.1", port).status()).toMatchObject({ reachable: false });
+    const silent = await standIn(() => null);
+    try {
+      expect(await new ClamdScanner("127.0.0.1", silent.port, 300).scan(PDF)).toMatchObject({ kind: "error", error: "timeout" });
+    } finally {
+      await silent.close();
+    }
+    const nonsense = await standIn((c) => (c === "VERSION" ? "ClamAV 1.5.4" : "stream: maybe"));
+    try {
+      expect(await new ClamdScanner("127.0.0.1", nonsense.port).scan(PDF)).toMatchObject({ kind: "error", error: "inconclusive" });
+    } finally {
+      await nonsense.close();
+    }
+  });
+});
+
+describe("memory", () => {
+  it("refuses an upload past the limit even when it declares no length, reading no further than the limit", async () => {
+    const me = await customer();
+    let pulled = 0;
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (++pulled > 100) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const res = await myRoute.POST(
+      new NextRequest("http://localhost/api/my/approvals", {
+        method: "POST",
+        body,
+        duplex: "half",
+        headers: { cookie: me.cookie, "content-type": "multipart/form-data; boundary=x", "x-forwarded-for": "10.89.1.1" },
+      } as ConstructorParameters<typeof NextRequest>[1])
+    );
+    expect(res.status).toBe(413);
+    // About 30 MB (three documents of 10 MB and the form) was read, not the 100 MB sent.
+    expect(pulled).toBeLessThan(40);
+  });
+});
+
+describe("temporary files", () => {
+  it("none are written by uploading, checking or scanning", () => {
+    expect(fs.readdirSync(SCRATCH)).toEqual([]);
+  });
+});

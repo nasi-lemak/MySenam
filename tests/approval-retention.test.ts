@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -15,6 +15,13 @@ import { signOffHolds } from "../src/lib/sign-offs";
 import { createVenue } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import * as holdsRoute from "../src/app/api/admin/approvals/holds/route";
+import { setDocumentScanner } from "../src/lib/document-scanner";
+import { passingScanner } from "./helpers/scanner";
+
+// Documents are released only once the malware scan passes them (ADR 0024): a stand-in that passes everything,
+// so these tests are about what happens around a released document. The scan itself: tests/document-scanning.test.ts.
+beforeAll(() => setDocumentScanner(passingScanner()));
+afterAll(() => setDocumentScanner(null));
 
 /**
  * Purpose-based retention for applications to be approved for an activity
@@ -140,8 +147,9 @@ describe("what an activity may set", () => {
     expect(await saveRequirement(venueA, { ...base, documentDays: 0 })).toMatchObject({ ok: false });
     expect(await saveRequirement(venueA, { ...base, recordDays: 366 })).toMatchObject({ ok: false });
     expect(await saveRequirement(venueA, { ...base, recordDays: 20 })).toMatchObject({ ok: false });
-    // Nor past the database's own limits, whatever writes it.
-    await expect(db().prepare("UPDATE approval_requirements SET record_days = 400 WHERE venue_id = ? AND sport = 'canoe'").run(venueA)).rejects.toThrow();
+    // Nor past the database's own limits, whatever writes it. Since the install may set its own periods
+    // (migration 0143, ADR 0024), the database keeps the outer bounds and the code the install's.
+    await expect(db().prepare("UPDATE approval_requirements SET record_days = 2191 WHERE venue_id = ? AND sport = 'canoe'").run(venueA)).rejects.toThrow();
   });
 });
 

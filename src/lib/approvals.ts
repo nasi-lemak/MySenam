@@ -1,6 +1,8 @@
 import { logAction } from "./activity";
 import { activityName } from "./activity-registry";
 import { MAX_DOCUMENT_BYTES, prepareDocument, uploaded, type DocumentDownload, type UploadedFile } from "./approval-documents";
+import { initialScanStatus, RELEASED, scanDocuments, type ScanStatus } from "./document-scanning";
+import { retentionPolicy, type RetentionPolicy } from "./retention-policy";
 import { forgetApplicant, removedApplications } from "./approval-retention";
 import { venueMayOffer } from "./activities";
 import type { Admin } from "./admin-auth";
@@ -140,6 +142,11 @@ export interface ApprovalDocumentInfo {
   /** A PDF's page count; null for an image. */
   pages: number | null;
   createdAt: string;
+  /**
+   * Where its malware scan stands (lib/document-scanning.ts): only `clean`,
+   * or `not_scanned` where the operator turned scanning off, can be opened.
+   */
+  scan: ScanStatus;
 }
 
 export interface ApprovalRequest {
@@ -366,7 +373,7 @@ export async function saveRequirement(
   if (!declaration && !documentLabel && !videoUrl && !inPerson)
     return { ok: false, error: "Questions alone are not a check: add a declaration, a document, a briefing video or an in-person step." };
   if (kind === "certification" && !documentLabel) return { ok: false, error: "A certification is checked against a document: say which one to send." };
-  const documentRules = readDocumentRules(input, documentLabel);
+  const documentRules = readDocumentRules(input, documentLabel, await retentionPolicy());
   if (!documentRules.ok) return documentRules;
   const num = (v: unknown, fallback: number | null, min: number, max: number): number | null | "bad" => {
     if (v === undefined || v === "") return fallback;
@@ -520,8 +527,17 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
     .prepare(`SELECT request_id, at, actor, actor_name, action, reason FROM approval_events WHERE request_id IN (${marks}) ORDER BY id`)
     .all(...ids)) as { request_id: number; at: unknown; actor: ApprovalEvent["actor"]; actor_name: string; action: string; reason: string | null }[];
   const docs = (await db
-    .prepare(`SELECT id, request_id, content_type, size, file_name, pages, created_at FROM approval_documents WHERE request_id IN (${marks}) ORDER BY id`)
-    .all(...ids)) as { id: number; request_id: number; content_type: string; size: number; file_name: string | null; pages: number | null; created_at: unknown }[];
+    .prepare(`SELECT id, request_id, content_type, size, file_name, pages, created_at, scan_status FROM approval_documents WHERE request_id IN (${marks}) ORDER BY id`)
+    .all(...ids)) as {
+    id: number;
+    request_id: number;
+    content_type: string;
+    size: number;
+    file_name: string | null;
+    pages: number | null;
+    created_at: unknown;
+    scan_status: ScanStatus;
+  }[];
   const today = todayISO();
   return rows.map((r) => {
     let answers: Record<string, string> = {};
@@ -582,7 +598,15 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
       bookingCode: r.booking_code,
       documents: docs
         .filter((d) => d.request_id === r.id)
-        .map((d) => ({ id: d.id, contentType: d.content_type, size: d.size, fileName: documentName(d), pages: d.pages, createdAt: isoOf(d.created_at) })),
+        .map((d) => ({
+          id: d.id,
+          contentType: d.content_type,
+          size: d.size,
+          fileName: documentName(d),
+          pages: d.pages,
+          createdAt: isoOf(d.created_at),
+          scan: d.scan_status,
+        })),
       events: events
         .filter((e) => e.request_id === r.id)
         .map((e) => ({ at: isoOf(e.at), actor: e.actor, actorName: e.actor_name, action: e.action, reason: e.reason })),
@@ -760,7 +784,7 @@ export async function waitingCount(venueId: number): Promise<number> {
  */
 type DocumentRules = { ok: true; purpose: string | null; reviewDays: number | null; documentDays: number | null; recordDays: number | null };
 
-function readDocumentRules(input: Record<string, unknown>, documentLabel: string | null): DocumentRules | { ok: false; error: string } {
+function readDocumentRules(input: Record<string, unknown>, documentLabel: string | null, install: RetentionPolicy): DocumentRules | { ok: false; error: string } {
   const purpose = documentLabel ? text(input.documentPurpose, 300) : null;
   // Nothing is collected merely because an upload exists: what is asked for, and why.
   if (documentLabel && (!purpose || purpose.length < 10)) return { ok: false, error: "Say why you need the document, in a sentence applicants will read." };
@@ -771,12 +795,13 @@ function readDocumentRules(input: Record<string, unknown>, documentLabel: string
     const n = Number(v);
     return Number.isInteger(n) && n >= min && n <= max ? n : "bad";
   };
-  const reviewDays = days(input.reviewDays, 1, 90);
-  if (reviewDays === "bad") return { ok: false, error: "Documents of a refused, withdrawn or lapsed application are kept 1 to 90 days." };
-  const documentDays = days(input.documentDays, 1, 90);
-  if (documentDays === "bad") return { ok: false, error: "Documents are kept 1 to 90 days after the decision." };
-  const recordDays = days(input.recordDays, 30, 365);
-  if (recordDays === "bad") return { ok: false, error: "A closed application is kept 30 to 365 days." };
+  // Up to the install's own periods (lib/retention-policy.ts): an activity keeps less, never more.
+  const reviewDays = days(input.reviewDays, 1, install.documentDays);
+  if (reviewDays === "bad") return { ok: false, error: `Documents of a refused, withdrawn or lapsed application are kept 1 to ${install.documentDays} days.` };
+  const documentDays = days(input.documentDays, 1, install.documentDays);
+  if (documentDays === "bad") return { ok: false, error: `Documents are kept 1 to ${install.documentDays} days after the decision.` };
+  const recordDays = days(input.recordDays, Math.min(30, install.recordDays), install.recordDays);
+  if (recordDays === "bad") return { ok: false, error: `A closed application is kept 30 to ${install.recordDays} days.` };
   return { ok: true, purpose, reviewDays, documentDays, recordDays };
 }
 
@@ -791,13 +816,22 @@ function documentName(d: { id: number; file_name: string | null; content_type: s
   return d.file_name ?? `document-${d.id}.${d.content_type === "application/pdf" ? "pdf" : "webp"}`;
 }
 
+/** Documents cannot be taken without a malware scanner, unless the operator turned scanning off on purpose (ADR 0024). */
+export const SCAN_UNAVAILABLE =
+  "Documents cannot be taken just now: they could not be checked for malware. Try again later, or ask the venue.";
+
 /**
  * Check uploads and store them with an application (lib/approval-documents.ts):
  * images redrawn, PDFs checked and kept as sent, only where the venue has
- * said what it needs and why.
+ * said what it needs and why. Stored in quarantine (`pending`) for the
+ * malware scan (lib/document-scanning.ts), which runs once the transaction
+ * has committed; returns their ids for it. Refused, never stored unscanned,
+ * when there is no scanner and scanning was not turned off on purpose.
  */
-async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refused | null> {
-  if (files.length === 0) return null;
+async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refused | number[]> {
+  if (files.length === 0) return [];
+  const scan = initialScanStatus();
+  if (!scan) return refused("SCAN_UNAVAILABLE", SCAN_UNAVAILABLE, 503);
   const db = getDb();
   const asked = (await db
     .prepare("SELECT q.document_label, q.document_purpose FROM approval_requests r JOIN approval_requirements q ON q.id = r.requirement_id WHERE r.id = ?")
@@ -813,12 +847,20 @@ async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refus
   }
   const held = ((await db.prepare("SELECT COUNT(*)::int AS n FROM approval_documents WHERE request_id = ?").get(requestId)) as { n: number }).n;
   if (held + prepared.length > MAX_DOCUMENTS) return refused("APR_TOO_MANY_DOCUMENTS", `Up to ${MAX_DOCUMENTS} documents.`);
-  for (const d of prepared)
-    await db
-      .prepare("INSERT INTO approval_documents (request_id, content_type, size, content, file_name, pages, sha256) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(requestId, d.contentType, d.content.length, d.content, d.fileName, d.pages, d.sha256);
-  return null;
+  const ids: number[] = [];
+  for (const d of prepared) {
+    const row = (await db
+      .prepare(
+        `INSERT INTO approval_documents (request_id, content_type, size, content, file_name, pages, sha256, scan_status, scanned_at, scan_next_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${scan === "pending" ? "NULL, now()" : "now(), NULL"}) RETURNING id`
+      )
+      .get(requestId, d.contentType, d.content.length, d.content, d.fileName, d.pages, d.sha256, scan)) as { id: number };
+    ids.push(row.id);
+  }
+  return ids;
 }
+
+const isRefusal = (v: Refused | number[]): v is Refused => !Array.isArray(v);
 
 /**
  * A document, for whoever may see it: the customer it belongs to, the venue's
@@ -827,18 +869,21 @@ async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refus
 export async function documentFor(
   documentId: number,
   who: { userId: number } | { venueId: number } | { coachId: number }
-): Promise<{ contentType: string; content: Buffer } | null> {
+): Promise<{ contentType: string; content: Buffer; scan: ScanStatus } | null> {
   const row = (await getDb()
     .prepare(
-      `SELECT d.content_type, d.content, r.user_id, r.venue_id, r.requirement_id FROM approval_documents d
+      `SELECT d.content_type, d.scan_status, r.user_id, r.venue_id, r.requirement_id FROM approval_documents d
          JOIN approval_requests r ON r.id = d.request_id WHERE d.id = ?`
     )
-    .get(documentId)) as { content_type: string; content: Uint8Array; user_id: number; venue_id: number; requirement_id: number } | undefined;
+    .get(documentId)) as { content_type: string; scan_status: ScanStatus; user_id: number; venue_id: number; requirement_id: number } | undefined;
   if (!row) return null;
   if ("userId" in who && row.user_id !== who.userId) return null;
   if ("venueId" in who && row.venue_id !== who.venueId) return null;
   if ("coachId" in who && !(await coachMayReview(who.coachId, row.requirement_id, row.venue_id))) return null;
-  return { contentType: row.content_type, content: Buffer.from(row.content) };
+  // Not released (still in quarantine, refused or unscannable): not handed to anybody, its bytes not even read.
+  if (!RELEASED.includes(row.scan_status)) return { contentType: row.content_type, content: Buffer.alloc(0), scan: row.scan_status };
+  const content = (await getDb().prepare("SELECT content FROM approval_documents WHERE id = ?").get(documentId)) as { content: Uint8Array };
+  return { contentType: row.content_type, content: Buffer.from(content.content), scan: row.scan_status };
 }
 
 /** Who is opening a document, as the record of accesses names them. */
@@ -847,15 +892,22 @@ export type DocumentViewer =
   | { kind: "staff"; adminId: number; name: string; venueId: number }
   | { kind: "coach"; coachId: number; name: string };
 
+/** Why an entitled viewer cannot open a document (yet): where its malware scan stands. */
+export const NOT_RELEASED = "This document has not passed its malware scan, so it cannot be opened.";
+
 /**
  * A document handed to somebody entitled to it (documentFor decides who is),
  * with its name, and the access recorded: who, which document, when. Served
- * by the routes with lib/approval-documents.ts downloadHeaders.
+ * by the routes with lib/approval-documents.ts downloadHeaders. Null for
+ * somebody not entitled, as for a document that does not exist; for somebody
+ * entitled, a document not released by its malware scan is withheld, and
+ * the routes say so.
  */
-export async function openDocument(documentId: number, viewer: DocumentViewer): Promise<DocumentDownload | null> {
+export async function openDocument(documentId: number, viewer: DocumentViewer): Promise<DocumentDownload | { withheld: ScanStatus } | null> {
   const who = viewer.kind === "customer" ? { userId: viewer.userId } : viewer.kind === "staff" ? { venueId: viewer.venueId } : { coachId: viewer.coachId };
   const doc = await documentFor(documentId, who);
   if (!doc) return null;
+  if (!RELEASED.includes(doc.scan)) return { withheld: doc.scan };
   const db = getDb();
   const meta = (await db
     .prepare("SELECT d.id, d.file_name, d.content_type, d.request_id, r.venue_id FROM approval_documents d JOIN approval_requests r ON r.id = d.request_id WHERE d.id = ?")
@@ -1309,7 +1361,10 @@ export async function apply(
     )
     .get(user.id, req.venueId, req.sport, forId)) as { id: number } | undefined;
 
+  // Documents stored in quarantine, scanned once the application has committed.
+  let stored: number[] = [];
   const outcome = await withTransaction(async (): Promise<{ ok: true; id: number } | Refused> => {
+    stored = [];
     const row = (await db
       .prepare(
         `INSERT INTO approval_requests (requirement_id, venue_id, sport, user_id, name, phone, status, renewal_of, answers, declared_at, video_watched_at,
@@ -1326,7 +1381,8 @@ export async function apply(
         forId, person?.relationship ?? null
       )) as { id: number };
     const docs = await storeDocuments(row.id, files);
-    if (docs) throw docs;
+    if (isRefusal(docs)) throw docs;
+    stored = docs;
     // The adult signs; for somebody they manage, on that person's behalf.
     if (waiver) await signWaiver(req.venueId, { phone: user.phone, name: user.name, participant: person ? { id: person.id, name: person.displayName } : null });
     await addEvent(row.id, { kind: "customer", name: user.name }, previous ? "renewal_submitted" : "submitted");
@@ -1343,6 +1399,8 @@ export async function apply(
     throw err;
   });
   if (!outcome.ok) return outcome;
+  // Scanned now, by the server's own call to the scanner; whatever cannot be scanned now is retried by the scheduler.
+  await scanDocuments(stored);
   const request = (await requestById(outcome.id))!;
   await tellCustomer(request, "submitted", {}, `approval:${request.id}:submitted`);
   await tellReviewers(request, "new");
@@ -1377,7 +1435,9 @@ export async function customerAct(
   const db = getDb();
   let tell: (() => Promise<void>) | null = null;
   let booked: Booking | null = null;
+  let stored: number[] = [];
   const outcome = await withTransaction(async (): Promise<{ ok: true } | Refused> => {
+    stored = [];
     const row = await lockRequest(id);
     if (!row || row.user_id !== user.id) return notFound();
     const req = (await requirementById(row.requirement_id))!;
@@ -1388,7 +1448,8 @@ export async function customerAct(
       if (files.length > 0) {
         if (!req.documentLabel) return refused("APR_NO_DOCUMENTS", "This venue asks for no documents for this activity.");
         const docs = await storeDocuments(id, files);
-        if (docs) throw docs;
+        if (isRefusal(docs)) throw docs;
+        stored = docs;
       }
       await db.prepare("UPDATE approval_requests SET status = 'pending', expires_at = ? WHERE id = ?").run(later(req.pendingDays * DAY), id);
       await addEvent(id, { kind: "customer", name: user.name }, "answered", answer || null);
@@ -1429,6 +1490,7 @@ export async function customerAct(
     throw err;
   });
   if (!outcome.ok) return outcome;
+  await scanDocuments(stored);
   if (tell) await (tell as () => Promise<void>)();
   // Held for payment: confirmed when paid (lib/payments.ts), as any held booking.
   if (booked && !(booked as Booking).holdUntil) await confirmBooking(booked as Booking, user.id);
@@ -1588,6 +1650,16 @@ export async function decide(
     // The venue asks staff to review an adult's authority before approving somebody they manage: never skipped.
     if (GRANTS.includes(action) && forPerson && req.guardianCheck && r.authority_reviewed_at === null)
       return refused("APR_CHILD_AUTHORITY_UNREVIEWED", "Record that you reviewed the authority of the adult who applied before approving.", 409);
+    // A document the activity asks for must have passed its malware scan, and none may still be waiting for it (ADR 0024).
+    if (GRANTS.includes(action) && req.documentLabel) {
+      const scans = (await db.prepare("SELECT scan_status FROM approval_documents WHERE request_id = ?").all(id)) as { scan_status: ScanStatus }[];
+      if (scans.some((d) => d.scan_status === "pending") || !scans.some((d) => RELEASED.includes(d.scan_status)))
+        return refused(
+          "SCAN_NOT_CLEAN",
+          "The document this activity needs has not passed its malware scan, so this cannot be approved yet. Wait for the scan, or ask the applicant for another file.",
+          409
+        );
+    }
 
     if (action === "ask") {
       if (row.status !== "pending" && row.status !== "info_requested") return wrongStatus();
@@ -2223,13 +2295,19 @@ export async function approvalsExport(userId: number): Promise<unknown[]> {
   const list = await customerApprovals(userId);
   const out: unknown[] = [];
   for (const r of list) {
-    const docs = (await getDb().prepare("SELECT id, content_type, content, file_name, pages, created_at FROM approval_documents WHERE request_id = ? ORDER BY id").all(r.id)) as {
+    // A document's bytes only once its malware scan released it: one in quarantine, refused or unscannable is listed, not copied.
+    const docs = (await getDb()
+      .prepare(
+        "SELECT id, content_type, CASE WHEN scan_status IN ('clean', 'not_scanned') THEN content END AS content, file_name, pages, created_at, scan_status FROM approval_documents WHERE request_id = ? ORDER BY id"
+      )
+      .all(r.id)) as {
       id: number;
       content_type: string;
-      content: Uint8Array;
+      content: Uint8Array | null;
       file_name: string | null;
       pages: number | null;
       created_at: unknown;
+      scan_status: ScanStatus;
     }[];
     out.push({
       venue: r.venueName,
@@ -2260,7 +2338,8 @@ export async function approvalsExport(userId: number): Promise<unknown[]> {
         fileName: documentName(d),
         contentType: d.content_type,
         pages: d.pages,
-        base64: Buffer.from(d.content).toString("base64"),
+        malwareScan: d.scan_status,
+        base64: d.content === null ? null : Buffer.from(d.content).toString("base64"),
       })),
       documentsOpened: await documentAccesses(r.id),
     });
@@ -2317,11 +2396,15 @@ export async function readSubmission(req: Request): Promise<{ ok: true; body: Re
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
     return body && typeof body === "object" ? { ok: true, body, files: [] } : { ok: false, error: "Invalid JSON body.", status: 400 };
   }
-  if (Number(req.headers.get("content-length") ?? 0) > MAX_DOCUMENTS * MAX_DOCUMENT_BYTES + 256 * 1024)
-    return { ok: false, error: "That file is over 10 MB. Send a smaller one.", status: 413 };
+  const limit = MAX_DOCUMENTS * MAX_DOCUMENT_BYTES + 256 * 1024;
+  if (Number(req.headers.get("content-length") ?? 0) > limit) return { ok: false, error: "That file is over 10 MB. Send a smaller one.", status: 413 };
   let form: FormData;
   try {
-    form = await req.formData();
+    // Read at most the limit, whatever the request declared (a body sent without a length, or longer than it said),
+    // so an upload cannot exhaust memory before its size is known (ADR 0024).
+    const raw = await readCapped(req, limit);
+    if (raw === null) return { ok: false, error: "That file is over 10 MB. Send a smaller one.", status: 413 };
+    form = await new Response(new Uint8Array(raw), { headers: { "content-type": type } }).formData();
   } catch {
     return { ok: false, error: "Send the application as a form upload.", status: 400 };
   }
@@ -2343,6 +2426,25 @@ export async function readSubmission(req: Request): Promise<{ ok: true; body: Re
   }
   if (files.length > MAX_DOCUMENTS) return { ok: false, error: `Up to ${MAX_DOCUMENTS} documents.`, status: 400 };
   return { ok: true, body: body && typeof body === "object" ? body : {}, files };
+}
+
+/** A request's body, read up to `limit` bytes; null as soon as it goes past. In memory, never to disk. */
+async function readCapped(req: Request, limit: number): Promise<Buffer | null> {
+  if (!req.body) return Buffer.alloc(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
 }
 
 /** A refusal as a route answers it. */

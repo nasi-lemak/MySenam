@@ -348,6 +348,9 @@ const en = {
   "srv.tn.replay.next": "{match} is to be replayed, with the winner of the replay before.",
   "srv.tn.replay.nextAt": "{match} is to be replayed, with the winner of the replay before on {date} at {time}.",
   "srv.ret.managedPeople": "People an adult no longer manages from their account, once no application, sign-off in force or booking to come rests on them",
+  // Supporting documents the malware scan refused or could not scan, and the erasure ledger (ADR 0024)
+  "srv.retx.quarantined": "Documents the malware scan refused, or could not scan (what is left of them)",
+  "srv.retx.erasureLedger": "Records of erased accounts kept so a restore cannot bring them back (an account number and when it was made)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -694,6 +697,9 @@ const ms: Record<keyof typeof en, string> = {
   "srv.tn.replay.next": "{match} akan dimainkan semula, dengan pemenang perlawanan ulangan sebelumnya.",
   "srv.tn.replay.nextAt": "{match} akan dimainkan semula, dengan pemenang perlawanan ulangan sebelumnya, pada {date} jam {time}.",
   "srv.ret.managedPeople": "Orang yang tidak lagi diurus oleh orang dewasa dari akaunnya, apabila tiada permohonan, pengesahan yang berkuat kuasa atau tempahan akan datang bergantung padanya",
+  // Supporting documents the malware scan refused or could not scan, and the erasure ledger (ADR 0024)
+  "srv.retx.quarantined": "Dokumen yang ditolak oleh imbasan perisian hasad, atau yang tidak dapat diimbas (apa yang tinggal daripadanya)",
+  "srv.retx.erasureLedger": "Rekod akaun yang dipadam, disimpan supaya pemulihan tidak membawanya kembali (nombor akaun dan bila ia dibuat)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1040,6 +1046,9 @@ const zh: Record<keyof typeof en, string> = {
   "srv.tn.replay.next": "{match} 将重赛，由上一场重赛的胜者参赛。",
   "srv.tn.replay.nextAt": "{match} 将于 {date} {time} 重赛，由上一场重赛的胜者参赛。",
   "srv.ret.managedPeople": "成年人已不再通过其账户管理的人员（在没有申请、有效的确认或待进行的预订依赖于他们之后）",
+  // Supporting documents the malware scan refused or could not scan, and the erasure ledger (ADR 0024)
+  "srv.retx.quarantined": "被恶意软件扫描拒绝或无法扫描的文件（其剩余部分）",
+  "srv.retx.erasureLedger": "已删除账户的记录，保留以防恢复备份时将其带回（账户编号及创建时间）",
 };
 
 const area = { en, ms, zh };

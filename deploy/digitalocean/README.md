@@ -7,6 +7,8 @@ visited. One script sets the machine up; another deploys each new version.
 ```
 visitors ──https──▶ Caddy :443 ──▶ app 127.0.0.1:3000 ──▶ Postgres (localhost only)
                      (certificates)    (systemd: mysenam)      (nightly pg_dump → off-site)
+                                              │
+                                              └──▶ clamd 127.0.0.1:3310 (supporting documents; freshclam updates it)
 ```
 
 ## What it costs
@@ -21,6 +23,14 @@ The app uses about 250 MB and Postgres is set up to use about 300 MB, so 2 GB
 leaves the operating system room to cache the database. Move to 4 GB
 (USD 24) when the database outgrows a few gigabytes, or when pages that list
 a lot start to feel slow. DigitalOcean resizes a Droplet in place, with a reboot.
+
+**The malware scanner needs 4 GB.** ClamAV, which checks the documents
+customers send with applications, holds its signatures in memory (about
+1.2 GiB; ClamAV recommends 3 to 4 GiB of RAM for the machine) and a few hundred megabytes
+of disk for them. With it, choose the **4 GB / 2 vCPU** Droplet (USD 24 a
+month, USD 12 more than without it). Without it (`--no-scanner`), the app
+refuses supporting documents, or takes them unscanned if
+`MYSENAM_DOCUMENT_SCAN=off` ([deployment](../../docs/operations/deployment.md#the-malware-scanner)).
 
 ## Setting it up
 
@@ -78,6 +88,7 @@ Caddy gets the certificate. Sign in at `/admin`.
 | Take a backup now | `mysenam-run npm run backup` |
 | Look inside the database | `sudo -u postgres psql mysenam` |
 | See Caddy's side | `journalctl -u caddy -f` |
+| Check the malware scanner and its signature updates | `systemctl status clamav-daemon`, `journalctl -u clamav-freshclam` (the owner's *Supporting documents* panel shows the same) |
 
 **Deploying** builds the new version beside the live one, so the site stays up
 while it builds. It takes a backup with the live version, switches, and checks
@@ -171,4 +182,6 @@ go; nothing reads it again.
 | `/var/lib/mysenam/backups` | Nightly and pre-deploy backups |
 | `/etc/caddy/Caddyfile` | Caddy's configuration |
 | `/etc/postgresql/16/main/conf.d/mysenam.conf` | Postgres sized for this machine |
+| `/etc/clamav/clamd.conf`, `/etc/systemd/system/clamav-daemon.socket.d/mysenam.conf` | The malware scanner, listening on 127.0.0.1:3310; signatures in `/var/lib/clamav` |
+| `/var/lib/mysenam/backups/erasure-ledger.jsonl` | Erasures, applied again after a restore |
 | `/etc/systemd/system/mysenam.service` | How the app is run |

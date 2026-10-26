@@ -256,7 +256,7 @@ may be left blank); and one or more verification methods:
 | Method | What the customer does | What it records |
 | ------ | ---------------------- | --------------- |
 | Online declaration | Ticks the venue's words | When it was ticked |
-| Documents staff review | Uploads a PDF, or a photo or scan, up to three of 10 MB each: the document the venue names, and says why it needs (a certificate, never an identity document: a label or reason naming one is refused) | A photo redrawn as for venue photos, or a PDF checked and kept as sent ([supporting documents](../architecture/security.md#supporting-documents)); private to the customer and the venue's reviewers, shown by name, kind and size, downloaded rather than shown in the app, each opening recorded |
+| Documents staff review | Uploads a PDF, or a photo or scan, up to three of 10 MB each: the document the venue names, and says why it needs (a certificate, never an identity document: a label or reason naming one is refused) | A photo redrawn as for venue photos, or a PDF checked and kept as sent ([supporting documents](../architecture/security.md#supporting-documents)); scanned for malware before anybody can open it, shown as *being checked*, *refused by the malware check* or *could not be checked* until then ([malware scanning](../architecture/security.md#malware-scanning)); private to the customer and the venue's reviewers, shown by name, kind and size, downloaded rather than shown in the app, each opening recorded |
 | Video briefing | Watches a link and confirms having watched it | When it was confirmed |
 | In-person briefing or assessment | Comes in (and may book the session online) | Who recorded it and when |
 
@@ -322,7 +322,11 @@ and they can do nothing else of a manager's. The coach's private schedule
 link decides nothing. A reviewer can approve, refuse (with a reason the
 customer is told), ask for more (the customer answers and it comes back),
 record the administrative check, record the in-person step, and revoke an
-approval. Where an in-person step is set, approving accepts only the online
+approval. Where the activity asks for a document, approving (or recording
+the in-person step) waits until at least one document has passed its malware
+scan and none is still being checked (`SCAN_NOT_CLEAN`): a document refused or
+not checkable never counts, and the reviewer can ask for another file or
+refuse. Where an in-person step is set, approving accepts only the online
 part: the application is complete only once staff (or the coach) record the
 in-person step, in either order; an online declaration never stands in for
 it. Every decision records who made it: the member of staff, or the coach and

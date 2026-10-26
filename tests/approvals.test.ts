@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -45,6 +45,13 @@ import * as settingsRoute from "../src/app/api/admin/approvals/settings/route";
 import * as reviewsRoute from "../src/app/api/my/reviews/route";
 import * as myRoute from "../src/app/api/my/approvals/route";
 import * as myOneRoute from "../src/app/api/my/approvals/[id]/route";
+import { setDocumentScanner } from "../src/lib/document-scanner";
+import { passingScanner } from "./helpers/scanner";
+
+// Documents are released only once the malware scan passes them (ADR 0024): a stand-in that passes everything,
+// so these tests are about what happens around a released document. The scan itself: tests/document-scanning.test.ts.
+beforeAll(() => setDocumentScanner(passingScanner()));
+afterAll(() => setDocumentScanner(null));
 
 /**
  * Registering online for an activity that needs approval (lib/approvals.ts;

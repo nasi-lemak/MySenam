@@ -217,6 +217,17 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Supporting documents waiting in quarantine: scanned when their next try is due (lib/document-scanning.ts).
+    const scanning = await import("./document-scanning");
+    await scanning.scanDueDocuments();
+    // Once an hour: is the scanner there, are its signatures fresh, is anything stuck?
+    if (now.getUTCMinutes() === 0) await scanning.checkScanner(now.getTime());
+  } catch (err) {
+    console.error("[mysenam] scanning supporting documents failed:", err);
+    await raiseAlert("scheduler:document-scanning-failed", "Scheduled work failed: scanning supporting documents", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Weekly games: dates added to the host's weekly booking get their games.
     await extendSeriesIfDue(now);
     // Players who asked hear of games suggested for them, each game once.

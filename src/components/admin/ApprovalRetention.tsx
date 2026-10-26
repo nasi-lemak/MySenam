@@ -51,6 +51,14 @@ export function DocumentPurposeField({ value, onChange }: { value: RetentionForm
 /** The activity's own, shorter retention periods; blank for the install's. */
 export function RetentionFields({ value, onChange }: { value: RetentionForm; onChange: (f: RetentionForm) => void }) {
   const t = useStaffT();
+  // The install's own periods (lib/retention-policy.ts), and whether a review of them is recorded.
+  const [install, setInstall] = useState<{ documentDays: number; reviewDays: number; recordDays: number; review: { reviewedOn: string } | null } | null>(null);
+  useEffect(() => {
+    fetch("/api/admin/document-policy", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data && setInstall(data.policy))
+      .catch(() => undefined);
+  }, []);
   const field = (key: "reviewDays" | "documentDays" | "recordDays", words: "apr.ret.reviewDays" | "apr.ret.documentDays" | "apr.ret.recordDays") => (
     <label className={label}>
       {t(words)}
@@ -65,7 +73,10 @@ export function RetentionFields({ value, onChange }: { value: RetentionForm; onC
         {field("documentDays", "apr.ret.documentDays")}
         {field("recordDays", "apr.ret.recordDays")}
       </div>
-      <p className="text-xs text-slate-400">{t("apr.ret.hint", { review: 30, docs: 90, record: 365 })}</p>
+      <p className="text-xs text-slate-400">
+        {t("apr.ret.hint", { review: install?.reviewDays ?? 30, docs: install?.documentDays ?? 90, record: install?.recordDays ?? 365 })}{" "}
+        {install && (install.review ? t("apr.retx.hintReviewed", { date: install.review.reviewedOn }) : t("apr.retx.hintProvisional"))}
+      </p>
     </fieldset>
   );
 }

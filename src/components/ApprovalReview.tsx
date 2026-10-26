@@ -111,11 +111,23 @@ export type ReviewKey =
   | "apr.child.authorityPrompt"
   | "apr.child.authorityReviewed"
   | "apr.child.authorityNeeded"
-  | "apr.child.evReviewed";
+  | "apr.child.evReviewed"
+  | "apr.scan.pending"
+  | "apr.scan.rejected"
+  | "apr.scan.failed"
+  | "apr.scan.not_scanned"
+  | "apr.scan.ev.scan_rejected"
+  | "apr.scan.ev.scan_failed";
 
-/** A review key as the customer dictionary has it: those about somebody managed are `guard.rv.*` there. */
+/** A review key as the customer dictionary has it: those about somebody managed are `guard.rv.*` there, a document's malware scan `scan.rv.*`. */
 export function customerKey(key: string): string {
+  if (key.startsWith("apr.scan.")) return `scan.rv.${key.slice("apr.scan.".length)}`;
   return key.startsWith("apr.child.") ? `guard.rv.${key.slice("apr.child.".length)}` : key;
+}
+
+/** Where a document's malware scan stands, for the reader; nothing for one that passed. */
+export function scanText(say: Say, d: Pick<ApprovalRequest["documents"][number], "scan">): string | null {
+  return d.scan === "clean" ? null : say(`apr.scan.${d.scan}` as ReviewKey);
 }
 
 export type Say = (key: ReviewKey, vars?: Record<string, string | number>) => string;
@@ -163,6 +175,7 @@ export function statusOf(say: Say, r: Pick<ApprovalRequest, "status" | "lapsed" 
 
 export function eventText(say: Say, action: string): string {
   if (action === "authority_reviewed") return say("apr.child.evReviewed");
+  if (action === "scan_rejected" || action === "scan_failed") return say(`apr.scan.ev.${action}` as ReviewKey);
   return EVENT_KEYS.has(action) ? say(`apr.ev.${action}` as ReviewKey) : action;
 }
 
@@ -374,7 +387,7 @@ export function ApprovalReview({
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className="text-slate-500">{say("apr.r.documents")}</span>
                   {r.documents.map((d) => (
-                    <DocumentLink key={d.id} href={documentUrl(d.id)} document={d} />
+                    <DocumentLink key={d.id} href={documentUrl(d.id)} document={d} status={scanText(say, d)} />
                   ))}
                 </div>
               )}

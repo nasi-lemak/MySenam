@@ -39,6 +39,68 @@ Two things depend on the proxy being configured properly:
 `503` when it is not. It deliberately says nothing else — anything reachable by
 the load balancer is reachable by everyone else too.
 
+## The malware scanner
+
+Supporting documents sent with applications are scanned by ClamAV's daemon,
+clamd, before anybody can open them
+([security](../architecture/security.md#malware-scanning);
+[ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)).
+The app talks to it over TCP at `MYSENAM_CLAMD` (`127.0.0.1:3310`); it needs no
+npm package and no paid service, and no document leaves the machine.
+
+- **Installing it.** The DigitalOcean kit's `setup.sh` installs Ubuntu's
+  `clamav-daemon` and `clamav-freshclam`, has clamd listen on the loopback
+  only (a systemd socket drop-in) beside its local socket, sets
+  `ConcurrentDatabaseReload no`, `StreamMaxLength 12M` and `MaxThreads 2`,
+  and writes `MYSENAM_CLAMD=127.0.0.1:3310` into `/etc/mysenam/env` on a new
+  machine (add it by hand on one set up before). `--no-scanner` leaves it out.
+  Elsewhere, any clamd the app can reach works, including the official
+  `clamav/clamav` container image, which runs clamd and freshclam together.
+- **Memory and disk.** ClamAV's own documentation gives "upwards of 1.2 GiB
+  of RAM simply to load the signature definitions", recommends a minimum of
+  3 GiB and preferably 4 GiB for the machine, and puts its container with the
+  signature database at about 300 MB compressed, 456 MB uncompressed
+  ([ClamAV: Docker](https://docs.clamav.net/manual/Installing/Docker.html)).
+  With the app (about 250 MB) and Postgres (about 300 MB) beside it, the 2 GB
+  Droplet is too small: use the 4 GB one (USD 24 a month instead of USD 12;
+  [kit](../../deploy/digitalocean/README.md#what-it-costs)). Reloading
+  signatures in place, rather than beside the old ones, keeps it to one copy
+  in memory at the price of scans pausing during a reload: documents wait in
+  quarantine and are retried.
+- **Signatures.** `clamav-freshclam` fetches the official signatures from
+  ClamAV's mirrors and checks for new ones every hour (Ubuntu's default
+  `Checks 24`); clamd reloads them by itself. A signature database more than
+  48 hours old, or one that does not say its date, is raised to the owners.
+  clamd does not start until freshclam has the first signatures, a few
+  minutes on a new machine; until then documents wait in quarantine.
+- **Health.** The owner's *Supporting documents* panel shows whether clamd
+  answers, its engine and signature version and age, and documents waiting,
+  refused or failed; the scheduler raises `document-scanner` every hour while
+  something is wrong ([monitoring](monitoring.md)). systemd restarts clamd if
+  it stops. `/api/health` does not include it: a scanner that is down holds
+  documents back, it does not take the site down.
+- **Failure and recovery.** While clamd is away, documents stay `pending`
+  (never openable) and are retried after 1, 5, 30, 120, 360 and 720 minutes;
+  after the seventh try, about 20 hours on, they are `failed` and the
+  applicant is asked to send them again. Nothing needs restoring: the
+  scanner holds no data of the app's, and its signatures are fetched again.
+- **Without a scanner** documents are refused, with a message saying they
+  cannot be checked now. `MYSENAM_DOCUMENT_SCAN=off` is the operator's
+  explicit opt-out: documents are then taken and marked *not checked for
+  malware* to the applicant and reviewers. A production start warns about
+  either.
+- **Upgrading to migration 0142.** Documents stored before it were never
+  scanned: they become `pending` and are scanned by the scheduler. Configure
+  the scanner before upgrading, or they fail after their tries (and go after
+  the quarantine period) and their applicants are asked again.
+
+What this deployment has **not** verified: clamd against the official
+signatures (in the development container freshclam could not reach ClamAV's
+mirrors, so the engine was tested with a locally generated test signature for
+the EICAR test file), the kit's scanner set-up on a real Droplet, and scan
+latency, start-up time and memory with the official signatures. Each is a
+launch check below.
+
 ## Upgrading
 
 Migrations run when the app starts, so a deploy is build, restart, done.
@@ -115,6 +177,16 @@ these once with a real account, in its sandbox where it has one:
       agreement ([launch providers](../integrations/launch-providers.md#operating-company-and-jurisdictions)).
 - [ ] **The scheduler**: `/api/health` shows its heartbeat a minute old at
       most, so holds, reminders, offers and backups happen on time.
+- [ ] **The malware scanner**: on the 4 GB Droplet, `clamav-freshclam` has
+      fetched the official signatures, the *Supporting documents* panel shows
+      clamd answering with signatures under a day old, an application sent
+      with the EICAR test file inside a PDF is refused by the scan, a plain
+      PDF is released, and the memory clamd takes and the time a 10 MB PDF
+      takes are noted ([the malware scanner](#the-malware-scanner)).
+- [ ] **Retention periods reviewed**: a lawyer in each country has answered
+      the [open questions](../architecture/privacy.md#open-questions-for-professional-review-retention-and-documents),
+      the install's periods are set accordingly, and the review is recorded
+      under *Supporting documents*; until then they show as provisional.
 - [ ] **Terms and privacy**: `OPERATOR_NAME`, `OPERATOR_EMAIL` (and
       `OPERATOR_ADDRESS`, `OPERATOR_REG_NO`) set, so `/terms` names the
       operator and `/privacy` says who to write to; a lawyer has read both,
@@ -149,6 +221,7 @@ the result is recorded there with the date.
 | Legal review | A lawyer in each country | The open points in [privacy](../architecture/privacy.md#backups-held-abroad) answered before `OFFSITE_TRANSFER_APPROVED` is set (Backblaze's terms as the transfer contract, the TIA, roles, breach notice); the terms, privacy notice and venue agreement reviewed; whether a venue's refund period meets consumer law; what guardian consent the law asks for | Nothing: the app refuses the transfer until it is declared, and records consent as declared |
 | Continuous integration | GitHub Actions able to start runners on the repository (the account's billing or spending limit) | A CI and a Docs run on the commit being launched start, run every step and pass | Every run since 16 October 2026 ended before a runner was assigned ([known limitations](../roadmap/known-limitations.md)); the suites have been run by hand only |
 | Staging on DigitalOcean (optional) | A DigitalOcean team used for nothing else, a custom-scoped token (droplets, tags, registry read), a read-only registry credential, and an agreed spend per run | `scripts/stage-remote.mjs up --approve-usd …` serves the image on `sslip.io`, its tests pass, `down` leaves nothing billable | `tests/stage-remote.test.ts` (stand-in API) |
+| Malware scanner (ClamAV) | The 4 GB Droplet (the owner's decision: USD 12 a month more) and outbound access to ClamAV's signature mirrors | freshclam fetches the official signatures; the EICAR test file is refused and a plain PDF released through the app; the hourly check stays quiet; clamd's memory and scan time measured | `tests/document-scanning.test.ts` (stand-in scanner and stand-in sockets), `tests/document-scanning-engine.test.ts` (real clamd 1.5.4 with a locally generated test signature, not the official ones) |
 | Performance under production-like conditions | A managed database across a real network, a production-size pool, two or more app instances | The [benchmark](../development/testing.md#results) re-run there, with the targets in the roadmap | One machine, database beside the app |
 | Monitoring and alerts | An error-tracking DSN (`SENTRY_DSN`) and an owner email that receives alerts | A deliberate error reaches the tracker; a failed backup or off-site copy, and a `refund_failed` integrity problem, email the owners; `/api/health` is polled by an uptime monitor | `tests/alerts.test.ts`, `tests/integrity.test.ts` |
 

@@ -37,9 +37,11 @@ export function explainApproval(t: T, body: { error?: string; code?: string } | 
   const key = code
     ? code.startsWith("APRDOC_")
       ? `aprdoc.err.${code}`
-      : code.startsWith("GUARD_") || code.startsWith("APR_CHILD_")
-        ? `guard.err.${code}`
-        : `apr.err.${code}`
+      : code.startsWith("SCAN_")
+        ? `scan.err.${code}`
+        : code.startsWith("GUARD_") || code.startsWith("APR_CHILD_")
+          ? `guard.err.${code}`
+          : `apr.err.${code}`
     : "";
   if (key && hasPhrase(key)) return t(key as Phrase);
   return translateError(t, body) || t("apr.failed");

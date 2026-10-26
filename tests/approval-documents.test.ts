@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { deflateSync } from "zlib";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 // Any temporary file the upload path wrote would land here: it must stay empty.
@@ -30,6 +30,13 @@ import * as myRoute from "../src/app/api/my/approvals/route";
 import * as myDocRoute from "../src/app/api/my/approvals/document/route";
 import * as adminDocRoute from "../src/app/api/admin/approvals/document/route";
 import * as coachDocRoute from "../src/app/api/my/reviews/document/route";
+import { setDocumentScanner } from "../src/lib/document-scanner";
+import { passingScanner } from "./helpers/scanner";
+
+// Documents are released only once the malware scan passes them (ADR 0024): a stand-in that passes everything,
+// so these tests are about what happens around a released document. The scan itself: tests/document-scanning.test.ts.
+beforeAll(() => setDocumentScanner(passingScanner()));
+afterAll(() => setDocumentScanner(null));
 
 /**
  * Supporting documents as PDFs, handled as documents that may hold sensitive

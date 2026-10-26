@@ -21,13 +21,16 @@
 # ADMIN_PASSWORD in /etc/mysenam/env, and run deploy.sh.
 set -euo pipefail
 
-DOMAIN="" EMAIL="" REPO="" BRANCH="main"
+DOMAIN="" EMAIL="" REPO="" BRANCH="main" SCANNER="yes"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
+    # Leave out the malware scanner for supporting documents (ClamAV). Without
+    # it the app refuses documents unless MYSENAM_DOCUMENT_SCAN=off is set.
+    --no-scanner) SCANNER="no"; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -80,6 +83,38 @@ if ! command -v caddy >/dev/null; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -q
   apt-get install -yq caddy
+fi
+
+step "Malware scanner for supporting documents (ClamAV)"
+# clamd scans the documents customers send with applications before anybody
+# can open them (docs/operations/deployment.md#the-malware-scanner). It loads
+# its signatures into memory: about 1.2 GiB, and ClamAV recommends 3 to 4 GiB
+# of RAM for the machine. Reloading new signatures is done in place
+# (ConcurrentDatabaseReload no), which pauses scans for a minute instead of
+# holding two copies in memory; documents wait in quarantine meanwhile.
+# freshclam fetches the official signatures, and keeps them fresh, on its own.
+if [[ "$SCANNER" == "yes" ]]; then
+  MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+  if (( MEM_MB < 3500 )); then
+    echo "Warning: this machine has ${MEM_MB} MB of memory. ClamAV needs about 1.2 GiB for itself and recommends 3-4 GiB in all;" >&2
+    echo "         resize the Droplet to 4 GB before taking documents, or run setup with --no-scanner." >&2
+  fi
+  apt-get install -yq clamav-daemon clamav-freshclam
+  set_clamd() { if grep -q "^$1 " /etc/clamav/clamd.conf; then sed -i "s|^$1 .*|$1 $2|" /etc/clamav/clamd.conf; else echo "$1 $2" >> /etc/clamav/clamd.conf; fi; }
+  set_clamd ConcurrentDatabaseReload no
+  set_clamd StreamMaxLength 12M
+  set_clamd MaxThreads 2
+  # Listen on this machine's loopback only, beside the local socket.
+  install -d /etc/systemd/system/clamav-daemon.socket.d
+  cat > /etc/systemd/system/clamav-daemon.socket.d/mysenam.conf <<'EOF'
+[Socket]
+ListenStream=127.0.0.1:3310
+EOF
+  systemctl daemon-reload
+  systemctl enable --now clamav-freshclam >/dev/null
+  # clamd starts once freshclam has the first signatures (a few minutes on a new machine).
+  systemctl enable clamav-daemon.socket clamav-daemon >/dev/null
+  systemctl restart clamav-daemon.socket || true
 fi
 
 step "Security updates, applied on their own"
@@ -148,6 +183,12 @@ ADMIN_PASSWORD=
 # OFFSITE_S3_BUCKET=
 # OFFSITE_S3_ACCESS_KEY_ID=
 # OFFSITE_S3_SECRET_ACCESS_KEY=
+
+# The malware scanner supporting documents are checked with before anybody
+# can open them (ClamAV, installed by setup unless --no-scanner). Without it,
+# documents are refused; MYSENAM_DOCUMENT_SCAN=off takes them unscanned,
+# marked so for reviewers.
+$( [[ "$SCANNER" == "yes" ]] && echo "MYSENAM_CLAMD=127.0.0.1:3310" || echo "# MYSENAM_CLAMD=127.0.0.1:3310" )
 
 # Messages to customers.
 # WHATSAPP_TOKEN=

@@ -422,7 +422,44 @@ wrong file.
 The photos that went with the snapshot are put back too: the photos folder
 there now is moved aside (`photos.replaced-<time>`) and the archive unpacked
 in its place. The script ends by counting the bookings and photos it brought
-back.
+back, and marks the database so the app re-applies erasures and retention
+when it next starts (below).
+
+### After a restore
+
+A snapshot holds what was in the database when it was taken, including
+accounts closed and records the retention policy removed since. So that a
+restore cannot bring them back for good
+(`src/lib/erasure-ledger.ts`; [ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)):
+
+- **Every erasure is recorded** in an erasure ledger: in the database
+  (`erasure_ledger`, migration 0144) and, outside it, appended to
+  `erasure-ledger.jsonl` in the backup folder (`MYSENAM_BACKUP_DIR`, readable
+  by the app's user only), which a restore does not overwrite. An entry is an
+  account's number and the moment it was created, and when it was erased: no
+  name, email or phone. Entries are kept 400 days, longer than any backup
+  set is.
+- **When the app next starts after a restore**, before it serves anything
+  (`src/instrumentation-node.ts`), it erases again every account in the ledger
+  (the file's entries and the restored table's together) that came back with
+  the same creation moment, never a later account that happens to have the
+  same number, and then runs the retention policy at once, so documents and
+  records that had aged out since the snapshot go again. It does this when
+  the restore script marked the database, and also when the ledger file has
+  entries the database lacks (a restore done by hand). The log says how many
+  accounts were erased again and how many records the retention run removed.
+- **When an erasure cannot be applied again** because the restored copy shows
+  the account holding credit, a live pass or membership, or an application
+  under a hold, it is not forced: the owners are told (alert
+  `erasure-reapply`), to settle what the copy says and erase it from the
+  dashboard.
+
+What this does not cover: the ledger file is not copied off-site, so after
+losing the server, erasures made since the last off-site set are not in any
+surviving ledger and must be made again from the requests' own record; and
+the copies inside backups themselves stay until those backups expire
+([privacy](../architecture/privacy.md#what-deletion-reaches)). A drill
+(`--drill`) restores aside and touches nothing live, so it re-applies nothing.
 
 ### A restore drill
 

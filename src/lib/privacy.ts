@@ -265,6 +265,10 @@ export async function retentionDue(): Promise<RetentionLine[]> {
     });
   // Applications to be approved for an activity: by purpose, per activity, and never while held.
   lines.push(...(await (await import("./approval-retention")).approvalRetentionDue()));
+  // The erasure ledger, once no backup that could be restored is old enough to need it (lib/erasure-ledger.ts).
+  const ledger = await import("./erasure-ledger");
+  const erased = said("srv.retx.erasureLedger");
+  lines.push({ what: englishOf(erased), whatPhrase: erased, days: ledger.ERASURE_LEDGER_DAYS, action: "deleted", affected: await ledger.ledgerDue() });
   const drafts = said("srv.ret.drafts", { n: STALE_DRAFT_DAYS });
   const sessions = said("srv.ret.sessions");
   lines.push({
@@ -305,10 +309,12 @@ export async function pruneOldData(): Promise<PruneResult> {
   let photoKeys: string[] = [];
 
   const approvals = await import("./approval-retention");
+  const ledger = await import("./erasure-ledger");
   await db.transaction(async () => {
     photoKeys = [];
     // Applications first, so an approval's end is noted before the sign-off it rests on can go.
     await approvals.pruneApprovals();
+    await ledger.pruneErasureLedger();
     for (const rule of RULES) {
       const cutoff = addDays(today, -rule.days);
       await db
@@ -337,6 +343,12 @@ export async function pruneOldData(): Promise<PruneResult> {
   })();
   // The photo files of drafts deleted, now the deletion has stuck.
   await removeVenuePhotoFiles(photoKeys);
+  // And the erasure ledger's copy beside the backups, the same entries gone.
+  try {
+    ledger.pruneLedgerFile();
+  } catch (err) {
+    console.error("[mysenam] could not prune the erasure ledger beside the backups:", err instanceof Error ? err.message : err);
+  }
 
   return {
     ranAt: new Date().toISOString(),
@@ -817,10 +829,10 @@ export type EraseResult =
  * the counter. Cancelling a stranger's court because they once used the same
  * number would be far worse than leaving a guest booking named.
  */
-export async function eraseCustomer(userId: number): Promise<EraseResult> {
+export async function eraseCustomer(userId: number, opts: { reapplying?: boolean } = {}): Promise<EraseResult> {
   const db = getDb();
-  const account = await db.prepare("SELECT id, email FROM users WHERE id = ?").get(userId) as
-    | { id: number; email: string }
+  const account = await db.prepare("SELECT id, email, created_at FROM users WHERE id = ?").get(userId) as
+    | { id: number; email: string; created_at: string }
     | undefined;
   if (!account) return { ok: false, error: "Account not found." };
 
@@ -857,8 +869,12 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
 
   let cancelled = 0;
   let bookingsAnonymised = 0;
+  // Recorded with the erasure, so a restore from an earlier backup erases it again (lib/erasure-ledger.ts).
+  const ledger = await import("./erasure-ledger");
+  let entry: Awaited<ReturnType<typeof ledger.recordErasure>> | null = null;
 
   await db.transaction(async () => {
+    entry = null;
     // Nothing should still be held for somebody who is leaving. Only what is
     // provably theirs: a booking that merely shares a phone number may belong
     // to the person who used the counter before them.
@@ -952,7 +968,10 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
       "UPDATE receipts SET customer_name = ?, customer_phone = NULL, user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
     await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    // Applied again after a restore, it is the same erasure: no second entry.
+    if (!opts.reapplying) entry = await ledger.recordErasure(userId, String(account.created_at));
   })();
+  if (entry) await ledger.appendToLedgerFile(entry);
 
   return { ok: true, bookingsAnonymised, cancelled };
 }
