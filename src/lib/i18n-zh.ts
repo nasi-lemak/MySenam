@@ -2115,6 +2115,8 @@ export const ZH: Record<Phrase, string> = {
   "pbk2.note": "每人只在一个场地：大家同时进行。",
   "pbk2.me": "您",
   "pbk2.holder": "该号码的持有人",
+  "err.SIGN_OFF_NEEDED_FOR": "{name}需先获得场馆工作人员对{sport}的确认（例如安全检查）。请从您的账户为其申请，或到柜台询问。其他已勾选的人仍可不含其预订。",
+  "err.CERTIFICATION_NEEDED_FOR": "{name}在此进行{sport}前，需要场馆为其登记的证书（例如执照）。请从您的账户凭该证书为其申请，或到柜台询问。其他已勾选的人仍可不含其预订。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

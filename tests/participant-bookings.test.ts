@@ -220,7 +220,8 @@ describe("online: myself, a child I act for, or several people", () => {
     await addSignOff({ venueId: venue, sport: "archery", phone: dad.phone, name: "Arif", adminId: manager.id, managedPersonId: a.id });
     const both = await book(dad, { courtId: lane, date: day(3), start: at(9), end: at(10), participantIds: [a.id, b.id] });
     expect(both.status).toBe(409);
-    expect(((await both.json()) as { code: string }).code).toBe("SIGN_OFF_NEEDED");
+    // The refusal names who lacks one, so the guardian knows which child it is for.
+    expect(await both.json()).toMatchObject({ code: "SIGN_OFF_NEEDED_FOR", vars: { name: "Batrisya" } });
     // Arif alone is fine; the father taking part needs his own too.
     expect((await book(dad, { courtId: lane, date: day(3), start: at(9), end: at(10), participantIds: [a.id], customerTakesPart: true })).status).toBe(409);
     expect((await book(dad, { courtId: lane, date: day(3), start: at(9), end: at(10), participantIds: [a.id] })).status).toBe(201);
@@ -628,7 +629,8 @@ describe("the venue's API key: participants the venue knows, with their guardian
     // A safety approval the child does not hold.
     const lanePlay = await api({ courtId: lane, date: day(19), start: at(9), end: at(10), name: "Encik Lee", phone: ph2, participantIds: [known.participant.id] });
     expect(lanePlay.status).toBe(409);
-    expect(((await lanePlay.json()) as { code: string }).code).toBe("SIGN_OFF_NEEDED");
+    // The venue's API sends the code and the English sentence, which names the child.
+    expect(await lanePlay.json()).toMatchObject({ code: "SIGN_OFF_NEEDED_FOR", error: expect.stringContaining("Kamal") });
     // The guardian's agreement to the waiver must be on record: a key cannot give it.
     expect((await setWaiver(venue, "Climbing, paddling and lifting carry risks; follow the staff's instructions at all times.")).ok).toBe(true);
     try {
@@ -899,5 +901,40 @@ describe("at the same moment (real concurrency on Postgres)", () => {
       expect(held).toBe(singlesIn);
       expect(await placesHeld(floor2, date)).toBe(0);
     }
+  });
+});
+
+describe("a refusal for want of a sign-off names whom it is for", () => {
+  it("on the waiting list and when changing a booking's time, as at booking", async () => {
+    const { joinSlotWaitlist, rescheduleBooking } = await import("../src/lib/store");
+    const mum = await adult("Mum");
+    const a = await child(mum, "Aqila");
+    const b = await child(mum, "Basyir");
+    await addSignOff({ venueId: venue, sport: "archery", phone: mum.phone, name: "Aqila", adminId: manager.id, managedPersonId: a.id });
+    // Queuing both: Basyir has no sign-off of his own, and the refusal says so.
+    expect(
+      await joinSlotWaitlist({
+        courtId: lane,
+        date: day(9),
+        start: at(9),
+        end: at(10),
+        name: mum.name,
+        phone: mum.phone,
+        userId: mum.id,
+        people: { participants: [{ id: a.id, name: "Aqila" }, { id: b.id, name: "Basyir" }], customerTakesPart: false },
+      })
+    ).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED_FOR", vars: { name: "Basyir" } });
+    // Aqila's booking, then her sign-off taken back: moving it is refused, naming her.
+    const made = await book(mum, { courtId: lane, date: day(9), start: at(11), end: at(12), participantIds: [a.id] });
+    expect(made.status).toBe(201);
+    const code = ((await made.json()) as { booking: { code: string } }).booking.code;
+    await getDb().prepare("UPDATE sign_offs SET revoked_at = now() WHERE managed_person_id = ?").run(a.id);
+    expect(await rescheduleBooking(code, { date: day(10), start: at(11) }, "customer")).toMatchObject({
+      ok: false,
+      code: "SIGN_OFF_NEEDED_FOR",
+      vars: { name: "Aqila" },
+    });
+    // The parent's own refusal still speaks to the parent.
+    expect(await book(mum, { courtId: lane, date: day(9), start: at(13), end: at(14) }).then((r) => r.json())).toMatchObject({ code: "SIGN_OFF_NEEDED" });
   });
 });

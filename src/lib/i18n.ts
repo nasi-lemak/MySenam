@@ -2275,6 +2275,8 @@ const EN = {
   "pbk2.note": "Each person is on one court: they all play at the same time.",
   "pbk2.me": "You",
   "pbk2.holder": "The number holder",
+  "err.SIGN_OFF_NEEDED_FOR": "{name} needs the venue's own sign-off for {sport} first, such as a safety check. Apply for them from your account, or ask at the counter. Anyone else ticked can still be booked without them.",
+  "err.CERTIFICATION_NEEDED_FOR": "{name} needs a certification the venue has recorded for them before {sport} here, such as a licence. Apply for them from your account with it, or ask at the counter. Anyone else ticked can still be booked without them.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4503,6 +4505,8 @@ const MS: Record<Phrase, string> = {
   "pbk2.note": "Setiap orang berada di satu gelanggang sahaja: semuanya bermain pada masa yang sama.",
   "pbk2.me": "Anda",
   "pbk2.holder": "Pemegang nombor ini",
+  "err.SIGN_OFF_NEEDED_FOR": "{name} memerlukan pengesahan kakitangan pusat untuk {sport} dahulu, seperti pemeriksaan keselamatan. Mohon untuknya dari akaun anda, atau tanya di kaunter. Orang lain yang ditanda masih boleh ditempah tanpanya.",
+  "err.CERTIFICATION_NEEDED_FOR": "{name} memerlukan pensijilan yang direkodkan oleh pusat untuknya sebelum {sport} di sini, seperti lesen. Mohon untuknya dari akaun anda dengan pensijilan itu, atau tanya di kaunter. Orang lain yang ditanda masih boleh ditempah tanpanya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

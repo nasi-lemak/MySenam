@@ -424,7 +424,8 @@ describe("eligibility belongs to the child", () => {
     const forMe = await bookingsRoute.POST(req("http://localhost/api/bookings", "POST", me.cookie, body(day(2), 10)));
     expect(((await forMe.json()) as { code: string }).code).toBe("SIGN_OFF_NEEDED");
     const forSibling = await bookingsRoute.POST(req("http://localhost/api/bookings", "POST", me.cookie, body(day(2), 11, sibling.id)));
-    expect(((await forSibling.json()) as { code: string }).code).toBe("SIGN_OFF_NEEDED");
+    // The refusal names the child it is for, never the parent.
+    expect(await forSibling.json()).toMatchObject({ code: "SIGN_OFF_NEEDED_FOR", vars: { name: "Sibling Two" } });
     // Somebody else's child cannot be named at all.
     const other = await adult();
     const stranger = await bookingsRoute.POST(req("http://localhost/api/bookings", "POST", other.cookie, { ...body(day(2), 12, kid.id), name: other.name, phone: other.phone }));

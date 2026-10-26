@@ -315,6 +315,12 @@ export async function listVenueClosures(venueId: number, from?: string): Promise
  * copy of its own wording. `code` travels to the browser, which says it in
  * whichever language the reader is actually in.
  */
+/** A sign-off or certification missing: naming the participant it is missing for, where it is not the customer's own. */
+function signOffRefusal(need: "certification" | "any", sport: string, name: string | null): Refusal {
+  if (name) return refuse(need === "certification" ? "CERTIFICATION_NEEDED_FOR" : "SIGN_OFF_NEEDED_FOR", { sport, name });
+  return refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport });
+}
+
 function refuse(code: ErrorCode, vars?: Record<string, string | number>): Refusal {
   const refusal: Refusal = { ok: false, error: errorText(ENGLISH, code, vars), code };
   // Left off entirely when there are none, so the shape on the wire stays the
@@ -2057,22 +2063,26 @@ export async function createBookingSeries(
   if (signOffNeed) {
     const channel = input.by ?? "customer";
     // Everybody taking part, each on their own: the customer's own, and each participant's.
-    let held = true;
-    for (const who of [...(customerPlays ? [null] : []), ...named.map((p) => p.id)])
-      held =
-        held &&
-        (await signOffHolds({
-          venueId: court.venueId,
-          sport: court.sport,
-          until: addDays(date, 7 * (weeks - 1)),
-          phone,
-          userId,
-          channel,
-          need: signOffNeed,
-          participant: who,
-        }));
-    if (!held && !override)
-      return refuse(signOffNeed === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(court.sport) });
+    // The first without one is named, so a guardian ticking several knows whom it is for.
+    let lacking: { name: string | null } | null = null;
+    for (const who of [...(customerPlays ? [null] : []), ...named]) {
+      const holds = await signOffHolds({
+        venueId: court.venueId,
+        sport: court.sport,
+        until: addDays(date, 7 * (weeks - 1)),
+        phone,
+        userId,
+        channel,
+        need: signOffNeed,
+        participant: who ? who.id : null,
+      });
+      if (!holds) {
+        lacking = { name: who ? who.name : null };
+        break;
+      }
+    }
+    const held = lacking === null;
+    if (lacking && !override) return signOffRefusal(signOffNeed, activityName(court.sport), lacking.name);
     if (!held) breaches.push("SIGN_OFF");
     // One person's sign-off is for one person: places for others are booked where staff see them.
     if (held && channel === "customer" && players > Math.max(1, persons) && !override) return refuse("SIGN_OFF_EACH", { sport: activityName(court.sport) });
@@ -3197,11 +3207,10 @@ async function rescheduleBookingOnce(
     const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
     if (need) {
       const bookedBy = ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id;
-      // Everybody taking part, each still on their own (lib/participants.ts).
-      let held = true;
-      for (const place of await bookingPlaces(booking.id))
-        held =
-          held &&
+      // Everybody taking part, each still on their own (lib/participants.ts); the first without one named.
+      let lacking: { name: string | null } | null = null;
+      for (const place of await bookingPlaces(booking.id)) {
+        const holds =
           place.customer !== (place.participantId !== null) &&
           (await signOffHolds({
             venueId: court.venueId,
@@ -3213,8 +3222,14 @@ async function rescheduleBookingOnce(
             need,
             participant: place.customer ? null : place.participantId,
           }));
-      if (!held && !(by === "staff" && to.override === true)) {
-        firstRefusal ??= refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(booking.sport) });
+        if (!holds) {
+          lacking = { name: place.customer ? null : place.name };
+          break;
+        }
+      }
+      const held = lacking === null;
+      if (lacking && !(by === "staff" && to.override === true)) {
+        firstRefusal ??= signOffRefusal(need, activityName(booking.sport), lacking.name);
         continue;
       }
       if (!held) breaches.push("SIGN_OFF");
@@ -7651,11 +7666,11 @@ export async function joinSlotWaitlist(input: {
     // Each taking part on their own sign-off: the customer's own where they take part, each participant's.
     const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
     if (need)
-      for (const who of [...(q.customerTakesPart ? [null] : []), ...q.participants.map((p) => p.id)])
+      for (const who of [...(q.customerTakesPart ? [null] : []), ...q.participants])
         if (
-          !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: "customer", need, participant: who }))
+          !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: "customer", need, participant: who ? who.id : null }))
         )
-          return refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(waitCourt.sport) });
+          return signOffRefusal(need, activityName(waitCourt.sport), who ? who.name : null);
 
     if (await slotTimeFree(waitCourt, date, span, day.policy, day.zone, places))
       return refuse("SLOT_FREE_BOOK_IT");

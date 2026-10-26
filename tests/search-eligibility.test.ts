@@ -274,7 +274,7 @@ describe("informational only: booking checks again", () => {
     expect((await at(Z, { userId: mum.id, participants: [kid] })).eligibility).toEqual([{ participant: kid, status: "eligible" }]);
     // Time passes: it ran out yesterday.
     await getDb().prepare("UPDATE sign_offs SET expires_on = ? WHERE id = ?").run(addDays(todayISO(), -1), id);
-    expect(await book(mum, laneZ, [{ id: kid, name: "Dina" }])).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED" });
+    expect(await book(mum, laneZ, [{ id: kid, name: "Dina" }])).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED_FOR", vars: { name: "Dina" } });
   });
 });
 

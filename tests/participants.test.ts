@@ -296,7 +296,7 @@ describe("a parent booking two children: each takes a place, each checked on the
     await addSignOff({ venueId: venue, sport: "climbing", phone: mum.phone, name: "Aina", adminId: manager.id, managedPersonId: a.id });
     const asCustomer = (extra: Record<string, unknown> = {}) =>
       createBookingSeries({ by: "customer", courtId: wall, date: day(4), start: at(10), end: at(11), weeks: 1, name: mum.name, phone: mum.phone, userId: mum.id, participants: both, ...extra });
-    expect(await asCustomer()).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED" });
+    expect(await asCustomer()).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED_FOR", vars: { name: "Bella" } });
     await addSignOff({ venueId: venue, sport: "climbing", phone: mum.phone, name: "Bella", adminId: manager.id, managedPersonId: b.id });
     // The mother taking a place too needs her own.
     expect(await asCustomer({ customerTakesPart: true })).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED" });
