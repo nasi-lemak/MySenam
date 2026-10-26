@@ -92,10 +92,14 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
   each, linked to nobody ([below](#applications-to-be-approved-for-an-activity));
   a sign-off already given stays, as the venue's record, no longer linked to
   anybody's account;
-- deletes the people it managed ([below](#people-an-adult-manages)), first
-  taking back any sign-off still in force for one of them, so nothing left
-  behind counts for anybody; waivers signed on their behalf stay, as every
-  signature does;
+- ends its relationships to the participants it managed
+  ([below](#participants)): a participant another guardian still acts for, or
+  whose own login is linked, stays with everything that is theirs; one left
+  with nobody (and no application resting on them) is deleted, first taking
+  back any sign-off or induction still in force for them, so nothing left
+  behind counts for anybody; their places on bookings, sign-offs, inductions
+  and waivers signed on their behalf stay as the venue's records, linked to
+  nobody;
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
@@ -120,7 +124,8 @@ safety or dispute reason ([below](#holds)), and says so.
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
-| Somebody an adult no longer manages (archived), once no application, sign-off in force or booking to come rests on them | 365 days after archiving | deleted |
+| Names of who took each place on a booking | 730 days | removed, the booking kept |
+| A participant nobody acts for any more (every account's relationship ended or archived, no linked login), or one a venue added that nobody has used, once no application, sign-off or induction in force, or booking in the last 365 days or to come, rests on them | 365 days after the last relationship ended, or after the venue added them | deleted |
 | Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision | deleted; what was seen stays on the sign-off it wrote |
 | An approved application's answers, declarations and history detail, its approval still standing | 365 days after the decision | removed; the approval and the bare facts stay |
 | Applications to be approved for an activity, once closed (refused, withdrawn, lapsed, or the approval ended) | 365 days after closing | deleted; the bare facts kept |
@@ -219,27 +224,67 @@ also expects a named person to write to: with `OPERATOR_NAME` and
 names them under *Who to write to*; without them it says there is nobody yet.
 Have a lawyer read it before taking a real customer's booking.
 
-## People an adult manages
+## Participants
 
-A parent, legal guardian or other person with authority can manage somebody
-(usually a child) from their own account
-([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage);
-[ADR 0022](decisions/0022-children-managed-from-an-adults-account.md)).
+A participant is the person who takes part in a booking, a class, an
+induction or an assessment, where that is somebody other than the account
+holder: a child a parent books for, a person staff book for at the counter
+([ADR 0023](decisions/0023-participants-apart-from-accounts.md);
+`src/lib/participants.ts`). An account holder taking part as themself has no
+participant record: their account and its own records are them.
 
 | What is held | Why | How long |
 | ------------ | --- | -------- |
-| A first name or what the family calls them; a birth year, only if the adult gives one because an activity needs an age; the relationship and the adult's declaration of authority, with its time (`managed_people`) | To apply, agree to waivers and book on their behalf without a login of their own | While the adult's account manages them; archived, 365 days later once nothing rests on them; erased with the adult's account |
-| The person on applications, sign-offs, bookings and waiver signatures made for them | To keep their eligibility theirs alone, and the venue's records straight | As each of those records is kept (above); a booking stops naming them when it stops naming anybody |
+| A first name or what the family calls them; a birth year, only if given because an activity needs an age; where it came from (an account online, or a venue's counter, which venue and which member of staff) (`participants`) | To book, apply, induct, sign off and agree to waivers for somebody without a login of their own, and to keep their eligibility theirs | While anybody acts for them or their own login is linked; then 365 days, once nothing rests on them ([retention](#retention)) |
+| Each guardian's relationship: the account, or (added at a venue's counter) a name and a number to reach them; the relationship and the authority as declared, when, how it was established (online, at the counter to named staff, or reviewed by staff), and when and why it ended (`participant_guardians`) | To know who may act for them, and to keep that history when it is corrected or revoked | With the participant; an account's relationships go with the account |
+| Codes one guardian gave another, or the participant's own login, to accept: their hash, purpose, who gave and who used them (`participant_invites`) | So both sides agree to a second guardian or to a login taking them over | With the participant |
+| Who did what to the record, on whose behalf, at which venue (`participant_events`) | Accountability | With the participant |
+| The participant on bookings (`booking_participants`), applications, sign-offs, inductions and waiver signatures | To keep their eligibility theirs alone, and the venue's records straight | As each of those records is kept (above); a booking's places stop naming anybody when the booking does |
 
-No email, phone, photo, school or identity number is held: the code refuses
-those fields. Everything is the adult's word, recorded as declared and never
-as verified. The person has no user record, so nothing that finds or
-contacts players reaches them. Their data goes out with the adult's export
-(`managedPeople`, the sign-offs written for them, the applications made for
-them and the waivers agreed on their behalf) and is erased with the adult's
-account; an application made for them follows the
+No email, phone, photo, school or identity number of the participant is
+held: the account-side code refuses those fields, and a venue records only a
+guardian's name and number, to reach them. Ages, relationships and authority
+are the declaring adult's word, recorded as declared and never as verified;
+no identity documents are collected. Contact details are never identity:
+two children may share a parent's number and email, unrelated customers may
+share a number, and nothing is merged, matched or moved on them.
+
+Who sees a participant: their guardians whose relationship stands, their
+own linked login, and the venues they have dealings with (the venue that
+added them, or one where they have a booking, application, sign-off,
+induction or waiver, with the other branches of its business, as sign-offs
+are shared). Never other customers, opponents, other parents, coaches or
+venues, and never discovery: a participant has no user record, so player
+search, suggestions, profiles and invitations cannot reach them, and a
+booking that names one is never opened as an open game. A participant later
+linked to their own login is, through that account, as discoverable as that
+account chooses to be (matchmaking stays opt-in and for declared adults,
+[ADR 0016](decisions/0016-matchmaking-on-open-games.md)).
+
+An account's export holds the participants it manages (`managedPeople`: what
+is held, its relationship, and their sign-offs, inductions, places on
+bookings and waivers), the relationships it ended (`guardianshipsEnded`,
+the relationship alone), and, where it is a participant's own login, that
+participant's record (`asParticipant`). A venue's export by phone number
+lists inductions recorded on that number, marking those that are a
+participant's.
+
+### People an adult manages
+
+A parent, legal guardian or other person with authority manages a
+participant (usually a child) from their own account
+([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage);
+[ADR 0022](decisions/0022-children-managed-from-an-adults-account.md)). They
+add them online, declaring the relationship and their authority; another
+adult becomes a guardian too only by accepting a code the first one gave,
+declaring their own; a code also hands the participant over to their own
+login. Ending a relationship (the guardian's own choice, or staff revoking
+it with a reason) stops that adult acting for them, withdraws their
+applications for them still waiting, and deletes nothing. An application
+made for a participant follows the
 [application periods](#applications-to-be-approved-for-an-activity), its
-minimised form dropping the authority declaration.
+minimised form dropping the authority declaration; the participant is never
+deleted while one rests on them.
 
 ## Where personal data is kept
 

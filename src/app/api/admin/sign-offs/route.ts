@@ -5,6 +5,7 @@ import { logAction } from "@/lib/activity";
 import { venueMayOffer } from "@/lib/activities";
 import { addSignOff, listSignOffs, revokeSignOff, signOffAt } from "@/lib/sign-offs";
 import { signOffRevoked, staffMayGrant } from "@/lib/approvals";
+import { participantAtVenue } from "@/lib/participants";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,10 @@ async function forWholeBusiness(admin: Admin, venueId: number): Promise<boolean>
  * linked to an account that has proved the number, if any. `wholeBusiness`
  * (a manager of the business) makes it good at every branch. Who gave it is
  * taken from the session, and it is recorded.
+ *
+ * `participantId`: for a participant this venue knows (lib/participants.ts),
+ * a child on a guardian's number: theirs alone, never the number holder's;
+ * the number is the guardian's to reach them, and their name is theirs.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -52,7 +57,11 @@ export async function POST(req: NextRequest) {
   const sport = body.sport === undefined || body.sport === null || body.sport === "" ? null : body.sport;
   if (sport !== null && (typeof sport !== "string" || !(await venueMayOffer(venueId, sport))))
     return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
-  if (typeof body.phone !== "string" || typeof body.name !== "string")
+  const participant =
+    body.participantId === undefined || body.participantId === null ? null : await participantAtVenue(venueId, body.participantId);
+  if (body.participantId !== undefined && body.participantId !== null && !participant)
+    return NextResponse.json({ error: "No such participant here.", code: "PTC_NOT_FOUND" }, { status: 404 });
+  if (typeof body.phone !== "string" || (!participant && typeof body.name !== "string"))
     return NextResponse.json({ error: "phone and name are required." }, { status: 400 });
   if (body.note !== undefined && body.note !== null && typeof body.note !== "string")
     return NextResponse.json({ error: "note must be text." }, { status: 400 });
@@ -80,8 +89,9 @@ export async function POST(req: NextRequest) {
     wholeBusiness,
     sport,
     phone: body.phone,
-    name: body.name,
-    email: (body.email as string | null | undefined) ?? null,
+    name: participant ? participant.displayName : (body.name as string),
+    email: participant ? null : ((body.email as string | null | undefined) ?? null),
+    managedPersonId: participant?.id ?? null,
     kind: (body.kind as "operational" | "certification" | undefined) ?? "operational",
     reference: (body.reference as string | null | undefined) ?? null,
     note: (body.note as string | null | undefined) ?? null,
@@ -93,7 +103,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId,
     action: "signoff.added",
-    detail: `${so.kind === "certification" ? `Certification ${so.reference}` : "Sign-off"} for ${so.name} (${so.phone}${so.userId ? `, account ${so.userId}` : ", no account linked"}): ${
+    detail: `${so.kind === "certification" ? `Certification ${so.reference}` : "Sign-off"} for ${so.name} (${participant ? `participant ${participant.id}, on ` : ""}${so.phone}${so.userId ? `, account ${so.userId}` : ", no account linked"}): ${
       sport ?? "anything"
     } ${so.businessId ? "at every branch" : "here"}${so.expiresOn ? ` until ${so.expiresOn}` : ""}`,
   });

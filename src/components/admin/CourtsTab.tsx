@@ -20,6 +20,7 @@ import { SURFACES, type CourtFeatures } from "@/lib/facilities";
 import { hasPhrase, sportLabel, type T } from "@/lib/i18n";
 import { region } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
+import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 
 /** A surface's name as customers read it, in the same language. */
 const surfaceLabel = (t: T, x: string) => {
@@ -733,6 +734,9 @@ function InductionsPanel({ venueId }: { venueId: number }) {
   const t = useStaffT();
   const [inductions, setInductions] = useState<Induction[] | null>(null);
   const [form, setForm] = useState({ phone: "", name: "", note: "" });
+  // Who was shown round: the number's holder, or a participant on it (a child; lib/participants.ts).
+  const [who, setWho] = useState<PickedParticipant | null>(null);
+  const [checking, setChecking] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -761,12 +765,13 @@ function InductionsPanel({ venueId }: { venueId: number }) {
       const res = await fetch("/api/admin/inductions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, ...form }),
+        body: JSON.stringify({ venueId, ...form, ...(who ? { participantId: who.id } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("ct.inducted", { name: data.induction.name }));
       setForm({ phone: "", name: "", note: "" });
+      setWho(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
@@ -831,6 +836,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
         >
           {t("ct.recordInduction")}
         </button>
+        <ParticipantPicker venueId={venueId} phone={form.phone} guardianName={form.name} value={who} onChange={setWho} showInducted />
       </form>
 
       {inductions !== null &&
@@ -856,12 +862,38 @@ function InductionsPanel({ venueId }: { venueId: number }) {
                       i.revokedAt ? "text-slate-400" : ""
                     }`}
                   >
-                    <td className="px-3 py-2 font-medium">{i.name}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {i.name}
+                      {i.forParticipant && <span className="ml-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-normal text-sky-700">{t("ptc.ind.participant")}</span>}
+                      {i.assignedFromName && <span className="block text-xs font-normal text-slate-500">{t("ptc.ind.wasFiled", { name: i.assignedFromName })}</span>}
+                      {i.needsReview && !i.revokedAt && (
+                        <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-normal text-amber-700">{t("ptc.ind.check")}</span>
+                      )}
+                      {i.reviewNote && <span className="block text-xs font-normal text-slate-500">{t("ptc.ind.reviewed", { name: i.reviewedBy ?? "—", note: i.reviewNote })}</span>}
+                      {checking === i.id && (
+                        <WhoseInduction
+                          induction={i}
+                          venueId={venueId}
+                          onDone={() => {
+                            setChecking(null);
+                            load();
+                          }}
+                        />
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-3 py-2">{i.phone}</td>
                     <td className="whitespace-nowrap px-3 py-2">{localTime(i.createdAt)}</td>
                     <td className="px-3 py-2">{i.adminName ?? "—"}</td>
                     <td className="px-3 py-2 text-slate-500">{i.note ?? "—"}</td>
                     <td className="px-3 py-2 text-right">
+                      {!i.revokedAt && !i.forParticipant && checking !== i.id && (
+                        <button
+                          onClick={() => setChecking(i.id)}
+                          className="mr-2 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          {t("ptc.ind.whose")}
+                        </button>
+                      )}
                       {i.revokedAt ? (
                         <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold">
                           {t("ct.ind.withdrawn")}
@@ -881,6 +913,57 @@ function InductionsPanel({ venueId }: { venueId: number }) {
             </table>
           </div>
         ))}
+    </div>
+  );
+}
+
+/**
+ * Whose a number-keyed induction is (lib/participants.ts assignInduction): a
+ * manager gives it to the participant it was really for, a child on that
+ * number, or confirms it is the number holder's own; a reason either way,
+ * recorded. Never decided by the number alone.
+ */
+function WhoseInduction({ induction, venueId, onDone }: { induction: Induction; venueId: number; onDone: () => void }) {
+  const t = useStaffT();
+  const [who, setWho] = useState<PickedParticipant | null>(null);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/inductions/${induction.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: who?.id ?? null, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data));
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("c.failed"));
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1 rounded-lg border border-amber-100 bg-amber-50/40 p-2 text-sm font-normal">
+      <p className="text-xs text-slate-600">{t("ptc.ind.whoseIntro")}</p>
+      <ParticipantPicker venueId={venueId} phone={induction.phone} guardianName={induction.name} value={who} onChange={setWho} showInducted />
+      <input
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder={t("ptc.ind.reason")}
+        className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+      />
+      {error && <p className="text-xs text-red-700">{error}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={() => void save()} className="rounded-lg bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700">
+          {who ? t("ptc.ind.give", { name: who.displayName }) : t("ptc.ind.keep")}
+        </button>
+        <button type="button" onClick={onDone} className="rounded-lg border border-slate-300 px-3 py-1 text-xs">
+          {t("ptc.ind.cancel")}
+        </button>
+      </div>
     </div>
   );
 }

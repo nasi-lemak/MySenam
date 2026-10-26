@@ -8,13 +8,14 @@ import { useT } from "@/components/Language";
 const RELATIONSHIPS: Relationship[] = ["parent", "guardian", "other"];
 
 /** A refusal about somebody managed, in the customer's language: by its code where it has one. */
-export function explainGuard(t: T, body: { error?: string; code?: string } | null | undefined): string {
-  const key = body?.code ? `guard.err.${body.code}` : "";
-  if (key && hasPhrase(key)) return t(key as Phrase);
+export function explainGuard(t: T, body: { error?: string; code?: string; vars?: Record<string, string | number> } | null | undefined): string {
+  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`] : [])
+    if (hasPhrase(key)) return t(key as Phrase, body?.vars);
   return body?.error || t("guard.failed");
 }
 
 const EMPTY = { displayName: "", birthYear: "", relationship: "parent" as Relationship, authority: false };
+const EMPTY_CODE = { code: "", relationship: "parent" as Relationship, authority: false };
 
 /**
  * People this account manages (lib/managed-people.ts; ADR 0022): a child, or
@@ -25,17 +26,73 @@ const EMPTY = { displayName: "", birthYear: "", relationship: "parent" as Relati
 export default function ManagedPeople() {
   const t = useT();
   const [people, setPeople] = useState<ManagedPerson[] | null>(null);
+  // The participant this account is the own login of, if any (lib/participants.ts).
+  const [own, setOwn] = useState<{ id: number; displayName: string } | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [codeForm, setCodeForm] = useState(EMPTY_CODE);
 
   const load = useCallback(() => {
     fetch("/api/my/people?archived=1", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => data && setPeople(data.people))
+      .then((data) => {
+        if (!data) return;
+        setPeople(data.people);
+        setOwn(data.own ?? null);
+      })
       .catch(() => {});
   }, []);
+
+  /** A code for another guardian, or for their own login: shown once (lib/participants.ts). */
+  async function invite(p: ManagedPerson, purpose: "guardian" | "link") {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/my/people/invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, purpose }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(explainGuard(t, data));
+      const date = new Date(data.expiresAt).toLocaleDateString();
+      setNotice(purpose === "guardian" ? t("ptc.invite.toGuardian", { code: data.code, date }) : t("ptc.invite.toLogin", { name: p.displayName, code: data.code, date }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("guard.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Stop being their guardian for good: nothing new from this account; what it made stays. */
+  async function end(p: ManagedPerson) {
+    if (!window.confirm(t("ptc.endConfirm", { name: p.displayName }))) return;
+    const reason = window.prompt(t("ptc.endReason")) ?? "";
+    await send("PATCH", { id: p.id, end: true, reason });
+  }
+
+  async function accept(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/my/people/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: codeForm.code, relationship: codeForm.relationship, ...(codeForm.authority ? { authority: true } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(explainGuard(t, data));
+      setNotice(data.as === "guardian" ? t("ptc.accept.doneGuardian", { name: data.person.displayName }) : t("ptc.accept.doneLinked", { name: data.person.displayName }));
+      setCodeForm(EMPTY_CODE);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("guard.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => load(), [load]);
 
   async function send(method: "POST" | "PATCH", body: Record<string, unknown>) {
@@ -77,6 +134,8 @@ export default function ManagedPeople() {
         <p className="mt-1 text-sm text-slate-600">{t("guard.intro")}</p>
       </div>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</div>}
+      {own && <p className="text-sm text-slate-600">{t("ptc.own", { name: own.displayName })}</p>}
       {live.length === 0 && <p className="text-sm text-slate-500">{t("guard.none")}</p>}
       <ul className="divide-y divide-slate-100 text-sm">
         {live.map((p) => (
@@ -84,8 +143,10 @@ export default function ManagedPeople() {
             <span>
               <span className="font-medium">{p.displayName}</span>
               {p.birthYear ? ` · ${t("guard.born", { year: p.birthYear })}` : ""} · {t(`guard.rel.${p.relationship}`)}
+              {p.otherGuardians > 0 ? ` · ${t("ptc.others", { n: p.otherGuardians })}` : ""}
+              {p.linked ? ` · ${t("ptc.linked")}` : ""}
             </span>
-            <span className="flex gap-3 text-xs">
+            <span className="flex flex-wrap gap-3 text-xs">
               <button
                 type="button"
                 className="font-medium text-teal-700 underline"
@@ -103,6 +164,17 @@ export default function ManagedPeople() {
                 onClick={() => window.confirm(t("guard.archiveConfirm", { name: p.displayName })) && void send("PATCH", { id: p.id, archived: true })}
               >
                 {t("guard.archive")}
+              </button>
+              <button type="button" disabled={busy} className="text-teal-700 underline" onClick={() => void invite(p, "guardian")}>
+                {t("ptc.invite.guardian")}
+              </button>
+              {!p.linked && (
+                <button type="button" disabled={busy} className="text-teal-700 underline" onClick={() => void invite(p, "link")}>
+                  {t("ptc.invite.link")}
+                </button>
+              )}
+              <button type="button" disabled={busy} className="text-red-700 underline" onClick={() => void end(p)}>
+                {t("ptc.end")}
               </button>
             </span>
           </li>
@@ -159,6 +231,33 @@ export default function ManagedPeople() {
             </button>
           )}
         </div>
+      </form>
+      <form onSubmit={accept} className="space-y-2 rounded-lg border border-slate-100 p-3">
+        <p className="text-sm font-medium">{t("ptc.accept.title")}</p>
+        <p className="text-xs text-slate-500">{t("ptc.accept.intro")}</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="text-xs text-slate-600">
+            {t("ptc.accept.code")}
+            <input required maxLength={12} autoComplete="off" value={codeForm.code} onChange={(e) => setCodeForm({ ...codeForm, code: e.target.value })} className={field} />
+          </label>
+          <label className="text-xs text-slate-600">
+            {t("ptc.accept.relationship")}
+            <select value={codeForm.relationship} onChange={(e) => setCodeForm({ ...codeForm, relationship: e.target.value as Relationship })} className={field}>
+              {RELATIONSHIPS.map((r) => (
+                <option key={r} value={r}>
+                  {t(`guard.rel.${r}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={codeForm.authority} onChange={(e) => setCodeForm({ ...codeForm, authority: e.target.checked })} className="mt-1" />
+          {t("ptc.accept.authority")}
+        </label>
+        <button type="submit" disabled={busy} className="rounded-lg border border-teal-600 px-3 py-1.5 text-sm font-semibold text-teal-700 disabled:opacity-50">
+          {t("ptc.accept.submit")}
+        </button>
       </form>
       {archived.length > 0 && (
         <details className="text-sm">

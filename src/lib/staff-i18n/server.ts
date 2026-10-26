@@ -348,6 +348,8 @@ const en = {
   "srv.tn.replay.next": "{match} is to be replayed, with the winner of the replay before.",
   "srv.tn.replay.nextAt": "{match} is to be replayed, with the winner of the replay before on {date} at {time}.",
   "srv.ret.managedPeople": "People an adult no longer manages from their account, once no application, sign-off in force or booking to come rests on them",
+  "ptc.ret.participants": "Participants nobody acts for any more, or a venue added and nobody has used, once no application, sign-off or induction in force, or recent booking rests on them",
+  "ptc.ret.placeNames": "Names of who took each place on a booking",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -694,6 +696,8 @@ const ms: Record<keyof typeof en, string> = {
   "srv.tn.replay.next": "{match} akan dimainkan semula, dengan pemenang perlawanan ulangan sebelumnya.",
   "srv.tn.replay.nextAt": "{match} akan dimainkan semula, dengan pemenang perlawanan ulangan sebelumnya, pada {date} jam {time}.",
   "srv.ret.managedPeople": "Orang yang tidak lagi diurus oleh orang dewasa dari akaunnya, apabila tiada permohonan, pengesahan yang berkuat kuasa atau tempahan akan datang bergantung padanya",
+  "ptc.ret.participants": "Peserta yang tiada sesiapa lagi bertindak bagi pihaknya, atau yang ditambah oleh pusat dan tidak digunakan, apabila tiada permohonan, pengesahan atau taklimat yang berkuat kuasa, atau tempahan baru-baru ini bergantung padanya",
+  "ptc.ret.placeNames": "Nama orang yang mengambil setiap tempat dalam tempahan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1040,6 +1044,8 @@ const zh: Record<keyof typeof en, string> = {
   "srv.tn.replay.next": "{match} 将重赛，由上一场重赛的胜者参赛。",
   "srv.tn.replay.nextAt": "{match} 将于 {date} {time} 重赛，由上一场重赛的胜者参赛。",
   "srv.ret.managedPeople": "成年人已不再通过其账户管理的人员（在没有申请、有效的确认或待进行的预订依赖于他们之后）",
+  "ptc.ret.participants": "已无人代为行事的参与者，或场馆添加后无人使用的参与者（在没有申请、有效的确认或入场说明、或近期预订依赖于他们之后）",
+  "ptc.ret.placeNames": "预订中每个名额参与者的姓名",
 };
 
 const area = { en, ms, zh };

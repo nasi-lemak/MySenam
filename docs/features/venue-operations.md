@@ -72,8 +72,8 @@ Who gets the code, and when:
 | --------- | --- |
 | The resource is unmanned and has a code | Otherwise there is nothing to give, and the customer is told someone will let them in |
 | Some of the booking is **unstaffed**, judged by its whole time, past midnight too | During staffed hours the counter does this, and a code handed out then is a code in circulation for no reason. A booking staffed for only part of its time (it starts before the counter shuts and runs on after) gets the code, so nobody is shut in or out at the end, unless the venue says somebody stays on the desk until such bookings end (`partly_unstaffed`: `code`, the default, or `counter`) |
-| The customer has been **inducted** at that venue | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person. An induction is not an activity [sign-off](activities.md#sign-offs), which clears somebody to book one activity at any hour |
-| Where the booked activity's rules ask for a [sign-off](activities.md#sign-offs) or certification, or the venue takes [approval applications](activities.md#registering-online-for-approval) for it, one is in force that day for the number booked | Nobody is there to check. The rules are the activity booked, on a resource that offers several. Eligibility is never bypassed, whoever made the booking: one made past the rules by a manager, at the counter, through the venue's API key, as a coach's lesson, a session booked for an approval's in-person step, or one whose application is pending, refused, lapsed or revoked gets no code (`approval-needed`) ([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md); `tests/approval-workflow.test.ts`, "door codes never bypass eligibility") |
+| Everybody taking part has been **inducted** at that venue, each on their own ([inductions](#inductions)) | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person. An induction is not an activity [sign-off](activities.md#sign-offs), which clears somebody to book one activity at any hour |
+| Where the booked activity's rules ask for a [sign-off](activities.md#sign-offs) or certification, or the venue takes [approval applications](activities.md#registering-online-for-approval) for it, one is in force that day for everybody taking part: the customer's own (for the number booked), and each participant's own | Nobody is there to check. The rules are the activity booked, on a resource that offers several. Eligibility is never bypassed, whoever made the booking: one made past the rules by a manager, at the counter, through the venue's API key, as a coach's lesson, a session booked for an approval's in-person step, or one whose application is pending, refused, lapsed or revoked gets no code (`approval-needed`) ([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md); `tests/approval-workflow.test.ts`, "door codes never bypass eligibility") |
 | The booking is not **staff-supervised** | A manager can arrange staff-supervised attendance for somebody not signed off, where the venue's safety procedures allow (*Courts & rates → Staff-supervised attendance*, saying who supervises under which procedure; recorded in the activity log). Staff meet them and let them in (`supervised`); it is never a door code and signs nobody off for later |
 | The booking is not cancelled | — |
 | **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
@@ -86,13 +86,8 @@ it will be: the door code, the code because the desk shuts during the booking,
 or the counter for all of it (`tests/access.test.ts`, "a booking across the
 staffed boundary").
 
-**Inductions** are the part that turns unstaffed hours from reckless into
-insurable, so they are recorded by a named operator and can never be
-self-declared: `POST /api/admin/inductions` takes the admin from the session,
-not the body. One row per person per venue, revived rather than duplicated if
-access is withdrawn and later restored, matched on a normalised phone number so
-`+60 12-345 6789` and `012-345 6789` are the same person. Withdrawing access
-shuts the door on the next request.
+**Inductions** are recorded by a named operator, never self-declared, and
+belong to the person shown round, each on their own ([below](#inductions)).
 
 Four consequences worth stating plainly:
 
@@ -118,6 +113,47 @@ Four consequences worth stating plainly:
 The customer-facing reveal is rate limited to 10 per 10 minutes per IP, tighter
 than an ordinary booking lookup, because a booking code plus a phone number is
 now a door.
+
+### Inductions
+
+Inductions are the part that turns unstaffed hours from reckless into
+insurable, so they are recorded by a named operator and can never be
+self-declared: `POST /api/admin/inductions` takes the admin from the session,
+not the body (*Courts & rates → Cleared for unstaffed hours*). An induction
+belongs to the person shown round
+([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)):
+
+- **The number holder's own**: the person whose number it is, matched on a
+  normalised phone number so `+60 12-345 6789` and `012-345 6789` are the
+  same person. One per number per venue.
+- **A participant's**: a child (or anybody else) on a guardian's number.
+  Staff type the guardian's number, choose *for somebody on this number*, and
+  pick the participant among those the venue knows whose guardian is on it,
+  or add somebody new with the guardian's declaration made to them
+  (`/api/admin/participants`). The number is kept to reach the guardian, never
+  as the participant's identity: it counts for that participant alone, never
+  for the number holder or a sibling, and the number holder's never for
+  them. One per participant per venue.
+
+Either is revived rather than duplicated if access is withdrawn and later
+restored. Withdrawing access shuts the door on the next request. The door
+asks for the induction of everybody taking part in the booking: the
+customer's own where they take a place (or where the booking names nobody
+else), and each participant's own. A participant linked to their own login
+counts that account's own induction too, and the account theirs.
+
+**Older inductions on a family's number.** Until migration 0140 an induction
+could only be filed against a number, so a child shown round on a parent's
+number was filed as the parent's. Those stay the number holder's: nothing is
+moved on matching contact details. Where the number is that of an account
+managing a participant and the name filed is not the account holder's, the
+row is flagged *Check whose this is*. A manager decides (*Whose is this?*,
+`PATCH /api/admin/inductions/[id]`): gives it to the participant it was for,
+chosen among those the venue knows whose guardian is on that number, keeping
+the name it was filed under; or confirms it is the number holder's own. A
+reason is required either way, and who decided, when and why is kept on the
+induction, in the participant's history and in the activity log. Front desk
+cannot do it.
 
 ## Equipment hire and deposits
 
@@ -246,6 +282,9 @@ An adult booking or applying for somebody they manage agrees on that
 person's behalf: the signature records the adult as signer and the person as
 participant, and counts for that person only, apart from the adult's own
 ([applying for somebody you manage](activities.md#applying-for-somebody-you-manage)).
+A booking naming several participants is flagged until each has one. Once a
+participant is linked to their own login, that account's own agreement counts
+for them too.
 
 A signature is the venue's record of consent, so like the money on a booking
 it is kept when a customer erases their account; it goes out with what the

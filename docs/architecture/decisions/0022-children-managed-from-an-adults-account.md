@@ -1,6 +1,9 @@
 # ADR 0022: Children managed from an adult's account; their eligibility is their own
 
-- **Status:** current, decided 2026-10-26 by the product owner. Builds on
+- **Status:** current, decided 2026-10-26 by the product owner; amended by
+  [ADR 0023](0023-participants-apart-from-accounts.md) (managed people are
+  participants with guardian relationships of their own; inductions belong
+  to the participant, so a child no longer rides on the adult's). Builds on
   [ADR 0019](0019-approval-requests-apart-from-bookings.md) and
   [ADR 0020](0020-approval-to-booking-payment-and-authority.md), and keeps
   [ADR 0016](0016-matchmaking-on-open-games.md)'s rule that minors are found

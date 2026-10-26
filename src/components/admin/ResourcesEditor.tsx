@@ -9,6 +9,7 @@ import { region } from "@/lib/region";
 import { MAX_CAPACITY, MAX_DEPOSIT, type Court } from "@/lib/types";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 
 /**
  * Resources and the activities they are booked for (ADR 0011), as an
@@ -470,6 +471,8 @@ interface SignOffRow {
   phone: string;
   name: string;
   userId: number | null;
+  /** A participant's own (lib/participants.ts), on a guardian's number. */
+  managedPersonId: number | null;
   kind: "operational" | "certification";
   reference: string | null;
   note: string | null;
@@ -489,6 +492,8 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
   const t = useStaffT();
   const [rows, setRows] = useState<SignOffRow[]>([]);
   const [form, setForm] = useState(EMPTY_SIGN_OFF);
+  // For the number's holder, or a participant on it (a child; lib/participants.ts): theirs alone.
+  const [who, setWho] = useState<PickedParticipant | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sports = useMemo(() => [...new Set(courts.flatMap(courtSports))], [courts]);
 
@@ -515,11 +520,13 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             email: form.email || null,
             reference: form.reference || null,
             expiresOn: form.expiresOn || null,
+            ...(who ? { participantId: who.id, email: null } : {}),
           }),
         }),
         t
       );
       setForm({ ...EMPTY_SIGN_OFF, sport: form.sport, kind: form.kind });
+      setWho(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
@@ -601,6 +608,7 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
         <button type="submit" className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
           {t("res.record")}
         </button>
+        <ParticipantPicker venueId={venueId} phone={form.phone} guardianName={form.name} value={who} onChange={setWho} />
       </form>
       {rows.length > 0 && (
         <ul className="divide-y divide-slate-100 text-sm">
@@ -608,7 +616,8 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
               <span>
                 {r.kind === "certification" ? `📜 ${r.reference} · ` : ""}
-                {r.name} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${sportLabel(t.customer, r.sport)}` : t("res.anything")}
+                {r.name}
+                {r.managedPersonId ? ` (${t("ptc.ind.participant")})` : ""} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${sportLabel(t.customer, r.sport)}` : t("res.anything")}
                 {r.businessId ? ` · ${t("res.everyBranchRow")}` : ""}
                 {r.expiresOn ? ` · ${t("res.untilDate", { date: r.expiresOn })}` : ""}
                 {` · ${r.userId ? t("res.accountLinked") : t("res.noAccount")}`}

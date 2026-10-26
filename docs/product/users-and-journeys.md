@@ -25,7 +25,22 @@ those, or through a private link, or not at all.
 | **Customer** | A person who books, with or without an account (`users`) | Book, pay, change and cancel their own bookings; with an account, everything below |
 | **Player** | A customer with an account | Games, tournaments, leagues, groups, a playing profile ([matchmaking](../features/matchmaking.md)) |
 | **Open-game host** | A player who opened a game on their own booking | Decide who joins, invite, move or call off the game ([matchmaking](../features/matchmaking.md#hosting-and-joining)) |
-| **Guardian** | Not an account: a name and a tick on a minor's tournament entry, as the entrant declared them | Nothing in the app ([tournaments](../features/tournaments.md#setting-one-up)) |
+| **Participant** | Not an account: somebody who takes part where that is not the account holder (a child a parent books for, a person staff add at the counter): `participants`, by id ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) | Nothing themself; their eligibility (sign-offs, inductions, waivers) is theirs alone. May later be linked to their own login, which then holds their history and eligibility |
+| **Guardian of a participant** | A customer account with a declared relationship to a participant (`participant_guardians`), or a name and number a venue's staff recorded at the counter | Book, apply, agree to waivers and be told for them; give a second guardian or the participant's own login a code; stop being their guardian ([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage)) |
+| **Guardian on a tournament entry** | Not an account: a name and a tick on a minor's tournament entry, as the entrant declared them | Nothing in the app ([tournaments](../features/tournaments.md#setting-one-up)) |
+
+**The account holder, the booker, the payer and the participant are not
+assumed to be one person.** An adult booking for themself is all four, as
+before. A parent booking two children is the account holder, booker and
+payer; the children are the participants, each taking a place, and the
+parent takes one only if booked as taking part. Staff booking at the
+counter act for whoever is in front of them, and are recorded as acting.
+No separate emergency contact is collected for a participant: a guardian is
+reached on their own number, and the emergency number on the door screen
+is the venue's. Every eligibility check is about the person
+taking part: the account holder's own records when they take part, a
+participant's own when they do, never borrowed through the account, number
+or email used to book ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)).
 
 ## Journeys
 

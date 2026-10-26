@@ -23,6 +23,7 @@ import type { Phrase } from "./i18n";
 import type { Booking, Sport } from "./types";
 import { currentWaiver, signWaiver, waiverSigned, waiverSignedFor } from "./waivers";
 import { managedPerson, type Relationship } from "./managed-people";
+import { CUSTOMER_TAKES_PART, PARTICIPANT_TAKES_PART } from "./participants";
 import { venueZoneOf } from "./zones";
 
 /**
@@ -509,7 +510,7 @@ const REQUEST_SELECT = `
     LEFT JOIN bookings b ON b.id = r.booking_id
     LEFT JOIN sign_offs s ON s.id = r.sign_off_id
     LEFT JOIN users au ON au.id = r.user_id
-    LEFT JOIN managed_people mp ON mp.id = r.managed_person_id`;
+    LEFT JOIN participants mp ON mp.id = r.managed_person_id`;
 
 async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
   if (rows.length === 0) return [];
@@ -1137,7 +1138,7 @@ async function bookSlot(
     .prepare(
       `SELECT r.court_id, r.slot_date, r.slot_start, r.slot_end, r.slot_status, r.booking_id, r.sport, r.user_id, r.venue_id, u.name, u.phone, u.email,
               r.managed_person_id, mp.display_name AS person_name
-         FROM approval_requests r JOIN users u ON u.id = r.user_id LEFT JOIN managed_people mp ON mp.id = r.managed_person_id WHERE r.id = ?`
+         FROM approval_requests r JOIN users u ON u.id = r.user_id LEFT JOIN participants mp ON mp.id = r.managed_person_id WHERE r.id = ?`
     )
     .get(requestId)) as
     | { court_id: number | null; slot_date: string | null; slot_start: number | null; slot_end: number | null; slot_status: SlotStatus | null; booking_id: number | null; sport: Sport; user_id: number; venue_id: number; name: string; phone: string; email: string; managed_person_id: number | null; person_name: string | null }
@@ -1246,11 +1247,13 @@ export async function apply(
     return refused("GUARD_AUTHORITY_NEEDED", "Confirm that you are their parent, legal guardian or another person with authority to apply for them.");
   const forId = person?.id ?? null;
   const db = getDb();
+  // One live application per person: the adult's own, or a participant's whichever of their guardians made it.
   const live = await db
     .prepare(
-      "SELECT 1 FROM approval_requests WHERE user_id = ? AND venue_id = ? AND sport = ? AND managed_person_id IS NOT DISTINCT FROM ? AND status IN ('pending', 'info_requested', 'in_person_due')"
+      `SELECT 1 FROM approval_requests WHERE venue_id = ? AND sport = ? AND status IN ('pending', 'info_requested', 'in_person_due')
+          AND (managed_person_id = ? OR (?::integer IS NULL AND managed_person_id IS NULL AND user_id = ?))`
     )
-    .get(user.id, req.venueId, req.sport, forId);
+    .get(req.venueId, req.sport, forId, forId, user.id);
   if (live) return refused("APR_ALREADY_LIVE", "You already have an application waiting for this activity here.", 409);
   // Already approved for long enough: nothing to apply for until it is close to running out.
   if (
@@ -1305,9 +1308,10 @@ export async function apply(
   // The approval this renews, if it is one.
   const previous = (await db
     .prepare(
-      "SELECT id FROM approval_requests WHERE user_id = ? AND venue_id = ? AND sport = ? AND managed_person_id IS NOT DISTINCT FROM ? AND status = 'approved' ORDER BY id DESC LIMIT 1"
+      `SELECT id FROM approval_requests WHERE venue_id = ? AND sport = ? AND status = 'approved'
+          AND (managed_person_id = ? OR (?::integer IS NULL AND managed_person_id IS NULL AND user_id = ?)) ORDER BY id DESC LIMIT 1`
     )
-    .get(user.id, req.venueId, req.sport, forId)) as { id: number } | undefined;
+    .get(req.venueId, req.sport, forId, forId, user.id)) as { id: number } | undefined;
 
   const outcome = await withTransaction(async (): Promise<{ ok: true; id: number } | Refused> => {
     const row = (await db
@@ -1760,14 +1764,19 @@ async function afterRevocation(id: number, r: RevokedRow): Promise<number> {
     }
   }
   // Confirmed bookings of this activity here, from today on: for staff to decide. The person's own:
-  // for somebody an adult manages, those booked for them; for the adult, none booked for anybody else.
+  // for a participant, every booking they take a place on, whoever booked it; for the adult, their own
+  // bookings that they take part in themself, none taken by somebody else alone (lib/participants.ts).
   const future = (await db
     .prepare(
       `SELECT b.id FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.sport = ? AND b.status = 'confirmed' AND b.date >= ?
-          AND (b.user_id = ? OR b.phone_key = phone_key(?)) AND b.participant_id IS NOT DISTINCT FROM ?`
+          AND ${
+            r.managed_person_id !== null
+              ? PARTICIPANT_TAKES_PART("b")
+              : `(b.user_id = ? OR b.phone_key = phone_key(?)) AND ${CUSTOMER_TAKES_PART("b")}`
+          }`
     )
-    .all(r.venue_id, r.sport, todayISO(), r.user_id, r.phone, r.managed_person_id)) as { id: number }[];
+    .all(r.venue_id, r.sport, todayISO(), ...(r.managed_person_id !== null ? [r.managed_person_id] : [r.user_id, r.phone]))) as { id: number }[];
   for (const b of future)
     await db
       .prepare("INSERT INTO approval_booking_flags (request_id, booking_id, venue_id) VALUES (?, ?, ?) ON CONFLICT (request_id, booking_id) DO NOTHING")
@@ -2094,7 +2103,7 @@ export async function recoverLatePayments(paymentId?: number): Promise<{ booked:
         .prepare(
           `SELECT r.booking_id, r.slot_status, r.slot_assessment, r.court_id, r.slot_date, r.slot_start, r.slot_end, r.sport, r.user_id, r.venue_id,
                   u.name, u.phone, u.email, r.managed_person_id, mp.display_name AS person_name
-             FROM approval_requests r JOIN users u ON u.id = r.user_id LEFT JOIN managed_people mp ON mp.id = r.managed_person_id WHERE r.id = ?`
+             FROM approval_requests r JOIN users u ON u.id = r.user_id LEFT JOIN participants mp ON mp.id = r.managed_person_id WHERE r.id = ?`
         )
         .get(c.request_id)) as {
         booking_id: number;
@@ -2302,6 +2311,28 @@ export async function eraseApprovals(userId: number): Promise<void> {
   await forgetApplicant(userId);
   await db.prepare("UPDATE claims SET active = false WHERE approval_id IN (SELECT id FROM approval_requests WHERE user_id = ?) AND active").run(userId);
   await db.prepare("DELETE FROM approval_requests WHERE user_id = ?").run(userId);
+}
+
+/**
+ * A guardian's relationship to a participant ended or was revoked
+ * (lib/participants.ts): their applications for that participant still
+ * waiting are withdrawn, any slot held let go, so nothing new is made by
+ * them for the participant. Decided ones stay as they are, and their history.
+ */
+export async function guardianEnded(userId: number, participantId: number, by: string): Promise<number> {
+  const db = getDb();
+  const live = (await db
+    .prepare(`SELECT id FROM approval_requests WHERE user_id = ? AND managed_person_id = ? AND status IN (${LIVE_STATUSES.map(() => "?").join(",")})`)
+    .all(userId, participantId, ...LIVE_STATUSES)) as { id: number }[];
+  for (const { id } of live)
+    await withTransaction(async () => {
+      const row = await lockRequest(id);
+      if (!row || !LIVE_STATUSES.includes(row.status)) return;
+      await db.prepare("UPDATE approval_requests SET status = 'withdrawn', decided_at = now() WHERE id = ?").run(id);
+      await releaseHold(id, "released");
+      await addEvent(id, { kind: "system", name: "MySenam" }, "withdrawn", `Guardian relationship ended (${by})`);
+    });
+  return live.length;
 }
 
 // ------------------------------------------------------------ reading a request's body
