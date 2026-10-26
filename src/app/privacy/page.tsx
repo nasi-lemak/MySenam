@@ -29,7 +29,7 @@ function heldRows(t: T) {
     {
       what: t("apr.privacyWhat"),
       why: t("apr.privacyWhy"),
-      how: t("apr.privacyHow", { n: RETENTION.approvalDocumentDays, m: RETENTION.approvalRequestDays }),
+      how: t("aprdoc.privacyHow", { n: RETENTION.approvalDocumentDays, review: RETENTION.approvalReviewDays, m: RETENTION.approvalRequestDays }),
     },
   ];
 }

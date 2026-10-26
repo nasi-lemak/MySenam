@@ -1,6 +1,7 @@
-import sharp from "sharp";
 import { logAction } from "./activity";
 import { activityName } from "./activity-registry";
+import { MAX_DOCUMENT_BYTES, prepareDocument, uploaded, type DocumentDownload, type UploadedFile } from "./approval-documents";
+import { forgetApplicant, removedApplications } from "./approval-retention";
 import { venueMayOffer } from "./activities";
 import type { Admin } from "./admin-auth";
 import { policyBreaches } from "./booking-policy";
@@ -12,7 +13,6 @@ import { instantOf } from "./interval";
 import { customerMayBook } from "./limits";
 import { accountLocale, emailPlain, emailPlayer } from "./outbox";
 import { phoneRefusal } from "./phone-check";
-import { MAX_PIXELS, sniff } from "./photos";
 import { addSignOff, signOffHolds, type SignOffKind } from "./sign-offs";
 import { courtDay, createBookingSeries, getBookingById, getCourt, spanFor } from "./store";
 import { venueBaseUrl } from "./storefront";
@@ -79,6 +79,12 @@ export interface ApprovalRequirement {
   open: boolean;
   /** Coaches the venue lists who may review these applications at their own link. */
   coachIds: number[];
+  /** Why the venue needs the document it asks for, shown to applicants (lib/approval-documents.ts). */
+  documentPurpose: string | null;
+  /** The activity's own, shorter retention periods in days; null: the install's (lib/approval-retention.ts). */
+  reviewDays: number | null;
+  documentDays: number | null;
+  recordDays: number | null;
 }
 
 export interface ApprovalEvent {
@@ -93,6 +99,10 @@ export interface ApprovalDocumentInfo {
   id: number;
   contentType: string;
   size: number;
+  /** As uploaded, made safe; for a redrawn image, ending .webp. */
+  fileName: string;
+  /** A PDF's page count; null for an image. */
+  pages: number | null;
   createdAt: string;
 }
 
@@ -149,7 +159,7 @@ const isRefused = (x: unknown): x is Refused => typeof x === "object" && x !== n
 
 /** At most this many documents on one application, each at most this big as uploaded. */
 export const MAX_DOCUMENTS = 3;
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+export { MAX_DOCUMENT_BYTES };
 /** A renewal may start this many days before an approval runs out. */
 export const RENEW_WITHIN_DAYS = 30;
 /** Customers hear this many days ahead that an approval is about to run out. */
@@ -179,6 +189,10 @@ interface RequirementRow {
   pending_days: number;
   hold_hours: number;
   open: number;
+  document_purpose: string | null;
+  review_days: number | null;
+  document_days: number | null;
+  record_days: number | null;
 }
 
 function parseQuestions(raw: string | null): ApprovalQuestion[] {
@@ -212,6 +226,10 @@ async function toRequirements(rows: RequirementRow[]): Promise<ApprovalRequireme
     holdHours: r.hold_hours,
     open: r.open === 1,
     coachIds: reviewers.filter((x) => x.requirement_id === r.id).map((x) => x.coach_id),
+    documentPurpose: r.document_purpose,
+    reviewDays: r.review_days,
+    documentDays: r.document_days,
+    recordDays: r.record_days,
   }));
 }
 
@@ -268,6 +286,8 @@ export async function saveRequirement(
   if (!declaration && !documentLabel && !videoUrl && !inPerson)
     return { ok: false, error: "Questions alone are not a check: add a declaration, a document, a briefing video or an in-person step." };
   if (kind === "certification" && !documentLabel) return { ok: false, error: "A certification is checked against a document: say which one to send." };
+  const documentRules = readDocumentRules(input, documentLabel);
+  if (!documentRules.ok) return documentRules;
   const num = (v: unknown, fallback: number | null, min: number, max: number): number | null | "bad" => {
     if (v === undefined || v === "") return fallback;
     if (v === null) return null;
@@ -305,6 +325,7 @@ export async function saveRequirement(
       )) as { id: number };
     await db.prepare("DELETE FROM approval_reviewers WHERE requirement_id = ?").run(row.id);
     for (const coach of coachIds) await db.prepare("INSERT INTO approval_reviewers (requirement_id, coach_id) VALUES (?, ?)").run(row.id, coach);
+    await writeDocumentRules(row.id, documentRules);
     return row.id;
   });
   const saved = (await getDb().prepare("SELECT * FROM approval_requirements WHERE id = ?").get(id)) as RequirementRow;
@@ -386,8 +407,8 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
     .prepare(`SELECT request_id, at, actor, actor_name, action, reason FROM approval_events WHERE request_id IN (${marks}) ORDER BY id`)
     .all(...ids)) as { request_id: number; at: unknown; actor: ApprovalEvent["actor"]; actor_name: string; action: string; reason: string | null }[];
   const docs = (await db
-    .prepare(`SELECT id, request_id, content_type, size, created_at FROM approval_documents WHERE request_id IN (${marks}) ORDER BY id`)
-    .all(...ids)) as { id: number; request_id: number; content_type: string; size: number; created_at: unknown }[];
+    .prepare(`SELECT id, request_id, content_type, size, file_name, pages, created_at FROM approval_documents WHERE request_id IN (${marks}) ORDER BY id`)
+    .all(...ids)) as { id: number; request_id: number; content_type: string; size: number; file_name: string | null; pages: number | null; created_at: unknown }[];
   const today = todayISO();
   return rows.map((r) => {
     let answers: Record<string, string> = {};
@@ -443,7 +464,7 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
       bookingCode: r.booking_code,
       documents: docs
         .filter((d) => d.request_id === r.id)
-        .map((d) => ({ id: d.id, contentType: d.content_type, size: d.size, createdAt: isoOf(d.created_at) })),
+        .map((d) => ({ id: d.id, contentType: d.content_type, size: d.size, fileName: documentName(d), pages: d.pages, createdAt: isoOf(d.created_at) })),
       events: events
         .filter((e) => e.request_id === r.id)
         .map((e) => ({ at: isoOf(e.at), actor: e.actor, actorName: e.actor_name, action: e.action, reason: e.reason })),
@@ -497,35 +518,70 @@ export async function waitingCount(venueId: number): Promise<number> {
 
 // ------------------------------------------------------------ documents
 
-/** Check an upload and redraw it, as venue photos are (lib/photos.ts): nothing of the file survives but its pixels. */
-async function processDocument(data: Buffer): Promise<{ ok: true; content: Buffer } | Refused> {
-  const bad = refused("APR_DOCUMENT_BAD", "Send the document as a photo or scan: JPEG, PNG or WebP, up to 10 MB.");
-  if (data.length > MAX_DOCUMENT_BYTES) return bad;
-  const kind = sniff(data);
-  if (!kind) return bad;
-  try {
-    const opts = { limitInputPixels: MAX_PIXELS, failOn: "error" as const };
-    const meta = await sharp(data, opts).metadata();
-    if (meta.format !== kind) return bad;
-    const content = await sharp(data, opts).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
-    return { ok: true, content };
-  } catch {
-    return bad;
-  }
+/**
+ * What a venue that asks for a document must also say, and how long its
+ * applications are kept if shorter than the install's periods
+ * (lib/approval-retention.ts): read with the rest of saveRequirement.
+ */
+type DocumentRules = { ok: true; purpose: string | null; reviewDays: number | null; documentDays: number | null; recordDays: number | null };
+
+function readDocumentRules(input: Record<string, unknown>, documentLabel: string | null): DocumentRules | { ok: false; error: string } {
+  const purpose = documentLabel ? text(input.documentPurpose, 300) : null;
+  // Nothing is collected merely because an upload exists: what is asked for, and why.
+  if (documentLabel && (!purpose || purpose.length < 10)) return { ok: false, error: "Say why you need the document, in a sentence applicants will read." };
+  if (purpose && IDENTITY_DOCUMENT.test(purpose))
+    return { ok: false, error: "Ask only for a document the activity needs, such as a certificate: never an identity document." };
+  const days = (v: unknown, min: number, max: number): number | null | "bad" => {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isInteger(n) && n >= min && n <= max ? n : "bad";
+  };
+  const reviewDays = days(input.reviewDays, 1, 90);
+  if (reviewDays === "bad") return { ok: false, error: "Documents of a refused, withdrawn or lapsed application are kept 1 to 90 days." };
+  const documentDays = days(input.documentDays, 1, 90);
+  if (documentDays === "bad") return { ok: false, error: "Documents are kept 1 to 90 days after the decision." };
+  const recordDays = days(input.recordDays, 30, 365);
+  if (recordDays === "bad") return { ok: false, error: "A closed application is kept 30 to 365 days." };
+  return { ok: true, purpose, reviewDays, documentDays, recordDays };
 }
 
+async function writeDocumentRules(requirementId: number, rules: DocumentRules): Promise<void> {
+  await getDb()
+    .prepare("UPDATE approval_requirements SET document_purpose = ?, review_days = ?, document_days = ?, record_days = ? WHERE id = ?")
+    .run(rules.purpose, rules.reviewDays, rules.documentDays, rules.recordDays, requirementId);
+}
+
+/** A stored document's name, or one made up for those stored before names were kept. */
+function documentName(d: { id: number; file_name: string | null; content_type: string }): string {
+  return d.file_name ?? `document-${d.id}.${d.content_type === "application/pdf" ? "pdf" : "webp"}`;
+}
+
+/**
+ * Check uploads and store them with an application (lib/approval-documents.ts):
+ * images redrawn, PDFs checked and kept as sent, only where the venue has
+ * said what it needs and why.
+ */
 async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refused | null> {
-  const processed: Buffer[] = [];
-  for (const f of files) {
-    const p = await processDocument(f);
-    if (!p.ok) return p;
-    processed.push(p.content);
-  }
+  if (files.length === 0) return null;
   const db = getDb();
+  const asked = (await db
+    .prepare("SELECT q.document_label, q.document_purpose FROM approval_requests r JOIN approval_requirements q ON q.id = r.requirement_id WHERE r.id = ?")
+    .get(requestId)) as { document_label: string | null; document_purpose: string | null } | undefined;
+  if (!asked?.document_label) return refused("APR_NO_DOCUMENTS", "This venue asks for no documents for this activity.");
+  if (!asked.document_purpose)
+    return refused("APRDOC_NO_PURPOSE", "The venue has not said why it needs this document, so it cannot take one yet. Ask the venue.", 409);
+  const prepared = [];
+  for (const f of files) {
+    const p = await prepareDocument(f as UploadedFile);
+    if (!p.ok) return refused(p.code, p.error, p.code === "APRDOC_TOO_BIG" ? 413 : 400);
+    prepared.push(p.document);
+  }
   const held = ((await db.prepare("SELECT COUNT(*)::int AS n FROM approval_documents WHERE request_id = ?").get(requestId)) as { n: number }).n;
-  if (held + processed.length > MAX_DOCUMENTS) return refused("APR_TOO_MANY_DOCUMENTS", `Up to ${MAX_DOCUMENTS} documents.`);
-  for (const content of processed)
-    await db.prepare("INSERT INTO approval_documents (request_id, content_type, size, content) VALUES (?, 'image/webp', ?, ?)").run(requestId, content.length, content);
+  if (held + prepared.length > MAX_DOCUMENTS) return refused("APR_TOO_MANY_DOCUMENTS", `Up to ${MAX_DOCUMENTS} documents.`);
+  for (const d of prepared)
+    await db
+      .prepare("INSERT INTO approval_documents (request_id, content_type, size, content, file_name, pages, sha256) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(requestId, d.contentType, d.content.length, d.content, d.fileName, d.pages, d.sha256);
   return null;
 }
 
@@ -548,6 +604,48 @@ export async function documentFor(
   if ("venueId" in who && row.venue_id !== who.venueId) return null;
   if ("coachId" in who && !(await coachMayReview(who.coachId, row.requirement_id, row.venue_id))) return null;
   return { contentType: row.content_type, content: Buffer.from(row.content) };
+}
+
+/** Who is opening a document, as the record of accesses names them. */
+export type DocumentViewer =
+  | { kind: "customer"; userId: number; name: string }
+  | { kind: "staff"; adminId: number; name: string; venueId: number }
+  | { kind: "coach"; coachId: number; name: string };
+
+/**
+ * A document handed to somebody entitled to it (documentFor decides who is),
+ * with its name, and the access recorded: who, which document, when. Served
+ * by the routes with lib/approval-documents.ts downloadHeaders.
+ */
+export async function openDocument(documentId: number, viewer: DocumentViewer): Promise<DocumentDownload | null> {
+  const who = viewer.kind === "customer" ? { userId: viewer.userId } : viewer.kind === "staff" ? { venueId: viewer.venueId } : { coachId: viewer.coachId };
+  const doc = await documentFor(documentId, who);
+  if (!doc) return null;
+  const db = getDb();
+  const meta = (await db
+    .prepare("SELECT d.id, d.file_name, d.content_type, d.request_id, r.venue_id FROM approval_documents d JOIN approval_requests r ON r.id = d.request_id WHERE d.id = ?")
+    .get(documentId)) as { id: number; file_name: string | null; content_type: string; request_id: number; venue_id: number };
+  await db
+    .prepare("INSERT INTO approval_document_access (document_id, request_id, venue_id, viewer, user_id, admin_id, coach_id, viewer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(
+      documentId,
+      meta.request_id,
+      meta.venue_id,
+      viewer.kind,
+      viewer.kind === "customer" ? viewer.userId : null,
+      viewer.kind === "staff" ? viewer.adminId : null,
+      viewer.kind === "coach" ? viewer.coachId : null,
+      viewer.name.slice(0, 200)
+    );
+  return { contentType: doc.contentType, content: doc.content, fileName: documentName(meta) };
+}
+
+/** Who opened an application's documents, and when (for the customer's export). */
+async function documentAccesses(requestId: number): Promise<{ at: string | null; viewer: string; name: string }[]> {
+  const rows = (await getDb()
+    .prepare("SELECT at, viewer, viewer_name FROM approval_document_access WHERE request_id = ? ORDER BY id")
+    .all(requestId)) as { at: unknown; viewer: string; viewer_name: string }[];
+  return rows.map((a) => ({ at: iso(a.at), viewer: a.viewer, name: a.viewer_name }));
 }
 
 async function coachMayReview(coachId: number, requirementId: number, venueId: number): Promise<boolean> {
@@ -1229,10 +1327,12 @@ export async function approvalsExport(userId: number): Promise<unknown[]> {
   const list = await customerApprovals(userId);
   const out: unknown[] = [];
   for (const r of list) {
-    const docs = (await getDb().prepare("SELECT id, content_type, content, created_at FROM approval_documents WHERE request_id = ? ORDER BY id").all(r.id)) as {
+    const docs = (await getDb().prepare("SELECT id, content_type, content, file_name, pages, created_at FROM approval_documents WHERE request_id = ? ORDER BY id").all(r.id)) as {
       id: number;
       content_type: string;
       content: Uint8Array;
+      file_name: string | null;
+      pages: number | null;
       created_at: unknown;
     }[];
     out.push({
@@ -1255,9 +1355,18 @@ export async function approvalsExport(userId: number): Promise<unknown[]> {
       slot: r.slot ? { court: r.slot.courtName, date: r.slot.date, start: r.slot.start, end: r.slot.end, status: r.slot.status } : null,
       bookingCode: r.bookingCode,
       history: r.events,
-      documents: docs.map((d) => ({ uploadedAt: iso(d.created_at), contentType: d.content_type, base64: Buffer.from(d.content).toString("base64") })),
+      documents: docs.map((d) => ({
+        uploadedAt: iso(d.created_at),
+        fileName: documentName(d),
+        contentType: d.content_type,
+        pages: d.pages,
+        base64: Buffer.from(d.content).toString("base64"),
+      })),
+      documentsOpened: await documentAccesses(r.id),
     });
   }
+  // Applications whose record has gone: what is still kept of each (lib/approval-retention.ts).
+  out.push(...(await removedApplications(userId)));
   return out;
 }
 
@@ -1288,6 +1397,8 @@ export async function approvalsForPhone(venueIds: number[], phone: string): Prom
 /** On erasure: the customer's applications, answers, documents and holds go with the account. */
 export async function eraseApprovals(userId: number): Promise<void> {
   const db = getDb();
+  // The bare facts of each decision stay, linked to nobody (lib/approval-retention.ts).
+  await forgetApplicant(userId);
   await db.prepare("UPDATE claims SET active = false WHERE approval_id IN (SELECT id FROM approval_requests WHERE user_id = ?) AND active").run(userId);
   await db.prepare("DELETE FROM approval_requests WHERE user_id = ?").run(userId);
 }
@@ -1306,7 +1417,7 @@ export async function readSubmission(req: Request): Promise<{ ok: true; body: Re
     return body && typeof body === "object" ? { ok: true, body, files: [] } : { ok: false, error: "Invalid JSON body.", status: 400 };
   }
   if (Number(req.headers.get("content-length") ?? 0) > MAX_DOCUMENTS * MAX_DOCUMENT_BYTES + 256 * 1024)
-    return { ok: false, error: "Send the document as a photo or scan: JPEG, PNG or WebP, up to 10 MB.", status: 413 };
+    return { ok: false, error: "That file is over 10 MB. Send a smaller one.", status: 413 };
   let form: FormData;
   try {
     form = await req.formData();
@@ -1325,8 +1436,9 @@ export async function readSubmission(req: Request): Promise<{ ok: true; body: Re
   const files: Buffer[] = [];
   for (const f of form.getAll("document")) {
     if (!(f instanceof Blob)) continue;
-    if (f.size > MAX_DOCUMENT_BYTES) return { ok: false, error: "Send the document as a photo or scan: JPEG, PNG or WebP, up to 10 MB.", status: 413 };
-    files.push(Buffer.from(await f.arrayBuffer()));
+    if (f.size > MAX_DOCUMENT_BYTES) return { ok: false, error: "That file is over 10 MB. Send a smaller one.", status: 413 };
+    // What the browser said it is, to check against what it is (lib/approval-documents.ts).
+    files.push(uploaded(Buffer.from(await f.arrayBuffer()), f instanceof File ? f.name : null, f.type));
   }
   if (files.length > MAX_DOCUMENTS) return { ok: false, error: `Up to ${MAX_DOCUMENTS} documents.`, status: 400 };
   return { ok: true, body: body && typeof body === "object" ? body : {}, files };

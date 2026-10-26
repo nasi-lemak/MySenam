@@ -540,6 +540,7 @@ describe("documents and certifications", () => {
       sport: "climbing",
       kind: "certification",
       documentLabel: "Your lead-climbing certificate",
+      documentPurpose: "Leading here needs a certificate from a recognised climbing body.",
       declaration: "The certificate I send is my own and in force.",
       validDays: 3000,
     });
@@ -560,7 +561,8 @@ describe("documents and certifications", () => {
   it("asks for the document and the certificate's details, redraws the upload, and shows it only to whom it should", async () => {
     const me = await customer();
     expect(await apply(me, cert())).toMatchObject({ ok: false, code: "APR_DOCUMENT_NEEDED" });
-    expect(await apply(me, cert(), [Buffer.from("%PDF-1.4 not an image")])).toMatchObject({ ok: false, code: "APR_DOCUMENT_BAD" });
+    expect(await apply(me, cert(), [Buffer.from("%PDF-1.4 not a whole PDF")])).toMatchObject({ ok: false, code: "APRDOC_PDF_BROKEN" });
+    expect(await apply(me, cert(), [Buffer.from("not a document at all")])).toMatchObject({ ok: false, code: "APR_DOCUMENT_BAD" });
     expect(await apply(me, cert({ certReference: "" }), [photo])).toMatchObject({ ok: false, code: "APR_CERT_NEEDED" });
     const r = await applied(me, cert(), [photo]);
     expect(r.documents).toHaveLength(1);

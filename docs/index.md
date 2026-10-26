@@ -85,7 +85,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0016 Matchmaking on open games](architecture/decisions/0016-matchmaking-on-open-games.md) ·
 [0017 Staging and verification modes](architecture/decisions/0017-staging-and-verification-modes.md) ·
 [0018 Moving open games by consent](architecture/decisions/0018-moving-open-games-by-consent.md) ·
-[0019 Approval applications apart from bookings](architecture/decisions/0019-approval-requests-apart-from-bookings.md)
+[0019 Approval applications apart from bookings](architecture/decisions/0019-approval-requests-apart-from-bookings.md) ·
+[0021 Approval retention by purpose; PDF documents](architecture/decisions/0021-approval-retention-and-pdf-documents.md)
 
 ## Integrations
 

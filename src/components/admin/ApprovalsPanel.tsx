@@ -9,6 +9,7 @@ import type { StaffT } from "@/lib/staff-i18n";
 import type { Court } from "@/lib/types";
 import { ApprovalReview, type Say } from "@/components/ApprovalReview";
 import { useStaffT } from "./StaffLanguage";
+import { DocumentPurposeField, EMPTY_RETENTION, RetentionFields, retentionBody, retentionFormOf } from "./ApprovalRetention";
 
 /**
  * Online applications to be approved for an activity (lib/approvals.ts):
@@ -71,6 +72,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
   const [requirements, setRequirements] = useState<ApprovalRequirement[]>([]);
   const [coaches, setCoaches] = useState<CoachChoice[]>([]);
   const [form, setForm] = useState(EMPTY);
+  const [kept, setKept] = useState(EMPTY_RETENTION);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const sports = useMemo(() => [...new Set(courts.flatMap(courtSports))], [courts]);
@@ -114,6 +116,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
       holdHours: Number(form.holdHours),
       open: form.open,
       coachIds: form.coachIds,
+      ...retentionBody(kept),
     };
     try {
       const res = await fetch("/api/admin/approvals/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -144,7 +147,14 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
                 {" · "}
                 {r.validDays ? t("apr.set.lasts", { n: r.validDays }) : t("apr.set.untilTakenBack")}
               </span>
-              <button type="button" onClick={() => setForm(formOf(r))} className="text-xs font-medium text-teal-700 hover:underline">
+              <button
+                type="button"
+                onClick={() => {
+                  setForm(formOf(r));
+                  setKept(retentionFormOf(r));
+                }}
+                className="text-xs font-medium text-teal-700 hover:underline"
+              >
                 {t("c.edit")}
               </button>
             </li>
@@ -198,6 +208,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
           <input value={form.documentLabel} onChange={(e) => setForm({ ...form, documentLabel: e.target.value })} className={`mt-1 ${input}`} />
           <span className="mt-0.5 font-normal text-slate-400">{t("apr.set.noIdentity")}</span>
         </label>
+        {form.documentLabel.trim() !== "" && <DocumentPurposeField value={kept} onChange={setKept} />}
         <label className={label}>
           {t("apr.set.videoUrl")}
           <input type="url" value={form.videoUrl} onChange={(e) => setForm({ ...form, videoUrl: e.target.value })} className={`mt-1 ${input}`} />
@@ -234,6 +245,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
             <p className="mt-0.5 text-xs text-slate-400">{t("apr.set.coachesHint")}</p>
           </fieldset>
         )}
+        <RetentionFields value={kept} onChange={setKept} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.open} onChange={(e) => setForm({ ...form, open: e.target.checked })} />
           {t("apr.set.takingApplications")}

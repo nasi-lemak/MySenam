@@ -231,7 +231,7 @@ may be left blank); and one or more verification methods:
 | Method | What the customer does | What it records |
 | ------ | ---------------------- | --------------- |
 | Online declaration | Ticks the venue's words | When it was ticked |
-| Documents staff review | Uploads a photo or scan (a certificate, never an identity document: a label naming one is refused) | The image, redrawn as for venue photos, private to the customer and the venue's reviewers |
+| Documents staff review | Uploads a PDF, or a photo or scan, up to three of 10 MB each: the document the venue names, and says why it needs (a certificate, never an identity document: a label or reason naming one is refused) | A photo redrawn as for venue photos, or a PDF checked and kept as sent ([supporting documents](../architecture/security.md#supporting-documents)); private to the customer and the venue's reviewers, shown by name, kind and size, downloaded rather than shown in the app, each opening recorded |
 | Video briefing | Watches a link and confirms having watched it | When it was confirmed |
 | In-person briefing or assessment | Comes in (and may book the session online) | Who recorded it and when |
 
@@ -241,8 +241,10 @@ approval writes (a sign-off, or a certification, for which the customer gives
 its number, issuer and end date and sends the document), how long an
 approval lasts (days, or until taken back), how many days an application may
 wait unanswered before it lapses (14 unless set), how many hours a slot asked
-for is held (48 unless set), and which of the venue's
-[coaches](programmes.md#one-to-one-coaching) may review these applications at their own link.
+for is held (48 unless set), which of the venue's
+[coaches](programmes.md#one-to-one-coaching) may review these applications at their own link,
+and, if it wants them shorter than the install's, how long documents and
+closed applications are kept ([privacy](../architecture/privacy.md#applications-to-be-approved-for-an-activity)).
 
 **Applying** needs a signed-in account (an approval is personal), with a
 number the venue can reach as for booking. The venue's page lists the
@@ -323,13 +325,17 @@ authorised coaches are emailed when an application arrives or is answered.
 customer, staff member, coach or the system) and every decision also goes in
 the staff [activity log](reporting.md), a coach's under their name. Answers,
 declarations and documents are personal data: they go out with the customer's
-data export, are erased with the account, and documents are deleted 90 days
-after the decision ([privacy](../architecture/privacy.md#retention)).
+data export (with who opened each document), are erased with the account, and
+are kept by purpose: documents only while a decision, review or appeal needs
+them, the answers and history a set time after the application closes, and
+the approval itself while it is valid, whatever happens to the application;
+a manager or the platform owner can keep one longer under a recorded hold
+([privacy](../architecture/privacy.md#applications-to-be-approved-for-an-activity)).
 
 Not built: a parent applying for a child from the parent's own account (a
 minor applies from their own, with the guardian's declaration); a coach's
 lesson asked for with an application (a slot is court time; a lesson is booked
-once approved); PDFs as documents (images only, so they can be redrawn).
+once approved); previews of PDFs (a PDF is downloaded, never shown in the app).
 
 ## Countries and languages
 

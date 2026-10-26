@@ -14,6 +14,8 @@ export interface ApplyInfo {
   intro: string | null;
   declaration: string | null;
   documentLabel: string | null;
+  /** Why the venue needs the document (lib/approvals.ts). */
+  documentPurpose?: string | null;
   videoUrl: string | null;
   inPerson: string | null;
   questions: ApprovalQuestion[];
@@ -26,7 +28,8 @@ export interface ApplyInfo {
 
 /** A refusal about an application, in the customer's language: by its code where it has one. */
 export function explainApproval(t: T, body: { error?: string; code?: string } | null | undefined): string {
-  const key = body?.code ? `apr.err.${body.code}` : "";
+  // Document refusals (lib/approval-documents.ts) have their own words.
+  const key = body?.code ? (body.code.startsWith("APRDOC_") ? `aprdoc.err.${body.code}` : `apr.err.${body.code}`) : "";
   if (key && hasPhrase(key)) return t(key as Phrase);
   return translateError(t, body) || t("apr.failed");
 }
@@ -181,12 +184,13 @@ export function ApprovalForm({ info, onDone }: { info: ApplyInfo; onDone: () => 
               type="file"
               multiple
               required
-              accept="image/jpeg,image/png,image/webp"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
               onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 3))}
               className="mt-1 block text-sm"
             />
           </label>
-          <p className="text-xs text-slate-500">{t("apr.documentNote")}</p>
+          {info.documentPurpose && <p className="text-xs text-slate-600">{t("aprdoc.why", { why: info.documentPurpose })}</p>}
+          <p className="text-xs text-slate-500">{t("aprdoc.note")}</p>
         </div>
       )}
       {info.videoUrl && (

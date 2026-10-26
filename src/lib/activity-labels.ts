@@ -85,4 +85,6 @@ export const ACTION_LABELS: Record<string, string> = {
   "staff.role": "Changed a role",
   "settings.changed": "Changed settings",
   export: "Downloaded a spreadsheet",
+  "approval.hold": "Kept an application past its time (legal, safety or dispute hold)",
+  "approval.hold_released": "Released a hold on an application",
 };

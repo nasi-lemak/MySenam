@@ -2017,7 +2017,7 @@ const EN = {
   "apr.err.APR_GUARDIAN_NEEDED": "Under 18: give a parent or guardian's name, and their declaration that they agree to this application.",
   "apr.err.APR_CERT_NEEDED": "Give the certification's number and issuer, and the day it runs out (today or later).",
   "apr.err.APR_DOCUMENT_NEEDED": "Add the document the venue asks for.",
-  "apr.err.APR_DOCUMENT_BAD": "Send the document as a photo or scan: JPEG, PNG or WebP, up to 10 MB.",
+  "apr.err.APR_DOCUMENT_BAD": "Send the document as a PDF, or a photo or scan (JPEG, PNG or WebP), up to 10 MB.",
   "apr.err.APR_NO_DOCUMENTS": "This venue asks for no documents for this activity.",
   "apr.err.APR_TOO_MANY_DOCUMENTS": "Up to 3 documents.",
   "apr.err.APR_WAIVER_NEEDED": "Agree to the venue's waiver to go on.",
@@ -2094,6 +2094,16 @@ const EN = {
   "apr.privacyWhat": "Applications to be approved for an activity: your answers and declarations, a parent or guardian's name for under-18s, and any document you send",
   "apr.privacyWhy": "So the venue, and the coaches it names, can decide whether you may do the activity, and keep who decided",
   "apr.privacyHow": "Documents {n} days after the decision; the rest {m} days after it is decided or the approval ends",
+  "aprdoc.why": "Why the venue needs it: {why}",
+  "aprdoc.note": "A PDF, or a photo or scan (JPEG, PNG or WebP), up to 10 MB each and 3 in all. Only you and the venue's reviewers can open it, and it is deleted once it is no longer needed. Never send an identity card or passport.",
+  "aprdoc.privacyHow": "Documents at most {n} days after the decision, and {review} days after a refusal, a withdrawal or the approval ending; your answers and history at most {m} days after the application closes. The approval itself is kept while it is valid. Longer only under a recorded legal, safety or dispute hold",
+  "aprdoc.err.APRDOC_TOO_BIG": "That file is over 10 MB. Send a smaller one.",
+  "aprdoc.err.APRDOC_MISMATCH": "That file is not what its name or type says. Send a PDF, or a photo or scan as JPEG, PNG or WebP.",
+  "aprdoc.err.APRDOC_PDF_BROKEN": "That PDF could not be checked. Save or print it again as a plain PDF, or send a photo of it.",
+  "aprdoc.err.APRDOC_PDF_ENCRYPTED": "That PDF is password-protected or encrypted. Send one without a password, or a photo of it.",
+  "aprdoc.err.APRDOC_PDF_ACTIVE": "That PDF contains scripts, attachments, actions or interactive forms, which are not accepted. Print it to a plain PDF, or send a photo of it.",
+  "aprdoc.err.APRDOC_PDF_PAGES": "That PDF has more than 20 pages. Send only the pages the venue asks for.",
+  "aprdoc.err.APRDOC_NO_PURPOSE": "The venue has not said why it needs this document, so it cannot take one yet. Ask the venue.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4064,7 +4074,7 @@ const MS: Record<Phrase, string> = {
   "apr.err.APR_GUARDIAN_NEEDED": "Bawah 18 tahun: berikan nama ibu bapa atau penjaga, dan akuan mereka bahawa mereka bersetuju dengan permohonan ini.",
   "apr.err.APR_CERT_NEEDED": "Berikan nombor dan pengeluar pensijilan, serta tarikh ia tamat (hari ini atau kemudian).",
   "apr.err.APR_DOCUMENT_NEEDED": "Tambah dokumen yang diminta oleh pusat.",
-  "apr.err.APR_DOCUMENT_BAD": "Hantar dokumen sebagai foto atau imbasan: JPEG, PNG atau WebP, sehingga 10 MB.",
+  "apr.err.APR_DOCUMENT_BAD": "Hantar dokumen sebagai PDF, atau foto atau imbasan (JPEG, PNG atau WebP), sehingga 10 MB.",
   "apr.err.APR_NO_DOCUMENTS": "Pusat ini tidak meminta dokumen untuk aktiviti ini.",
   "apr.err.APR_TOO_MANY_DOCUMENTS": "Paling banyak 3 dokumen.",
   "apr.err.APR_WAIVER_NEEDED": "Bersetuju dengan penepian pusat untuk meneruskan.",
@@ -4141,6 +4151,16 @@ const MS: Record<Phrase, string> = {
   "apr.privacyWhat": "Permohonan kelulusan aktiviti: jawapan dan akuan anda, nama ibu bapa atau penjaga bagi bawah 18 tahun, dan sebarang dokumen yang anda hantar",
   "apr.privacyWhy": "Supaya pusat, dan jurulatih yang dinamakannya, boleh memutuskan sama ada anda boleh melakukan aktiviti itu, dan menyimpan rekod siapa yang memutuskan",
   "apr.privacyHow": "Dokumen {n} hari selepas keputusan; selebihnya {m} hari selepas ia diputuskan atau kelulusan tamat",
+  "aprdoc.why": "Mengapa pusat memerlukannya: {why}",
+  "aprdoc.note": "PDF, atau foto atau imbasan (JPEG, PNG atau WebP), sehingga 10 MB setiap satu dan 3 kesemuanya. Hanya anda dan penyemak pusat boleh membukanya, dan ia dipadam apabila tidak lagi diperlukan. Jangan sekali-kali hantar kad pengenalan atau pasport.",
+  "aprdoc.privacyHow": "Dokumen paling lama {n} hari selepas keputusan, dan {review} hari selepas penolakan, penarikan balik atau kelulusan tamat; jawapan dan sejarah anda paling lama {m} hari selepas permohonan ditutup. Kelulusan itu sendiri disimpan selagi ia sah. Lebih lama hanya di bawah tahanan undang-undang, keselamatan atau pertikaian yang direkodkan",
+  "aprdoc.err.APRDOC_TOO_BIG": "Fail itu melebihi 10 MB. Hantar fail yang lebih kecil.",
+  "aprdoc.err.APRDOC_MISMATCH": "Fail itu bukan seperti yang dinyatakan oleh nama atau jenisnya. Hantar PDF, atau foto atau imbasan sebagai JPEG, PNG atau WebP.",
+  "aprdoc.err.APRDOC_PDF_BROKEN": "PDF itu tidak dapat disemak. Simpan atau cetak semula sebagai PDF biasa, atau hantar fotonya.",
+  "aprdoc.err.APRDOC_PDF_ENCRYPTED": "PDF itu dilindungi kata laluan atau disulitkan. Hantar PDF tanpa kata laluan, atau fotonya.",
+  "aprdoc.err.APRDOC_PDF_ACTIVE": "PDF itu mengandungi skrip, lampiran, tindakan atau borang interaktif, yang tidak diterima. Cetak sebagai PDF biasa, atau hantar fotonya.",
+  "aprdoc.err.APRDOC_PDF_PAGES": "PDF itu melebihi 20 halaman. Hantar hanya halaman yang diminta oleh pusat.",
+  "aprdoc.err.APRDOC_NO_PURPOSE": "Pusat belum menyatakan mengapa ia memerlukan dokumen ini, jadi ia belum boleh menerimanya. Tanya pusat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
@@ -4322,6 +4342,7 @@ export const CUSTOMER_ERRORS_MS: Record<string, string> = {
     "Kata laluan mesti sekurang-kurangnya 8 aksara.",
   "email and password are required.": "E-mel dan kata laluan diperlukan.",
   "code and phone are required.": "Kod dan nombor telefon diperlukan.",
+  "One of your applications to a venue is being kept under a legal, safety or dispute hold, so the account cannot be closed yet. Ask the venue about it; the account can be closed once the hold ends.": "Salah satu permohonan anda kepada pusat sedang disimpan di bawah tahanan undang-undang, keselamatan atau pertikaian, jadi akaun belum boleh ditutup. Tanya pusat mengenainya; akaun boleh ditutup apabila tahanan tamat.",
 };
 
 /** What a refused request sends back: the sentence, and the name of the refusal. */

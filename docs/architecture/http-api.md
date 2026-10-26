@@ -291,9 +291,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/my/about` | `{ gender: "woman" \| "man" \| "unsaid" }` |
 | GET | `/api/my/accounts` | `?venueId` → the company and school accounts here the signed-in customer may charge a booking to |
 | GET | `/api/my/approvals` | The signed-in customer's applications to be approved for an activity, with their history; `courts` where a slot can be asked for; with `?venueId&sport`, also what that venue asks (`apply`, or null where it takes none online) ([activities](../features/activities.md#registering-online-for-approval)) |
-| POST | `/api/my/approvals` | Apply: a form upload with `data` (JSON `{ venueId, sport, answers?, declaration?, videoWatched?, waiver?, adult, guardianName?, guardianDeclaration?, certReference?, certExpiresOn?, slot?: { courtId, date, start, end } }`) and up to three `document` images, or the JSON alone. A slot asked for is held, never booked, until approved; nothing is charged |
+| POST | `/api/my/approvals` | Apply: a form upload with `data` (JSON `{ venueId, sport, answers?, declaration?, videoWatched?, waiver?, adult, guardianName?, guardianDeclaration?, certReference?, certExpiresOn?, slot?: { courtId, date, start, end } }`) and up to three `document` files (PDF, JPEG, PNG or WebP, 10 MB each, checked by content: [supporting documents](security.md#supporting-documents)), or the JSON alone. A slot asked for is held, never booked, until approved; nothing is charged |
 | POST | `/api/my/approvals/:id` | The customer's own application: `{ action: "answer", answer }` (documents as a form upload), `{ action: "withdraw" }` (its hold let go), or `{ action: "slot", slot }` (held; booked at once as the in-person session once the online part is accepted) |
-| GET | `/api/my/approvals/document` | `?id` → a document the customer sent with one of their applications (private, never cached) |
+| GET | `/api/my/approvals/document` | `?id` → a document the customer sent with one of their applications: a PDF as an attachment, an image inline, under the document policy, never cached; each opening recorded ([supporting documents](security.md#supporting-documents)) |
 | GET | `/api/my/games` | The signed-in player's games: hosting, with who asked; and playing |
 | GET | `/api/my/guests` | The venues this resident can invite guests to, and their guests there now |
 | POST | `/api/my/guests` | `{ venueId, phone, name, days }`: put a guest on the venue's list |
@@ -318,7 +318,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | ------ | ---- | ----------- |
 | GET | `/api/coach/:token/approvals` | The applications this coach may review: for the activities the venue authorised them for, nothing else ([activities](../features/activities.md#registering-online-for-approval)) |
 | POST | `/api/coach/:token/approvals` | `{ id, action: "approve" \| "reject" \| "ask" \| "in_person", reason? }`: the coach's decision; refused (403) for any application they are not authorised for; recorded under their name |
-| GET | `/api/coach/:token/approvals/document` | `?id` → a document sent with an application this coach may review (private, never cached) |
+| GET | `/api/coach/:token/approvals/document` | `?id` → a document sent with an application this coach may review, as the customer's route serves it; each opening recorded under the coach's name |
 | POST | `/api/coach/:token/hours` | `{ hours: [{ weekday, from, until }] }`: a coach sets the hours they take lessons, at the private link the venue gave them. Lessons already booked stand |
 | POST | `/api/coach/:token/time-off` | `{ from, until?, reason? }`: days off, at the coach's own link. What is already booked then is counted, for the venue to move |
 | DELETE | `/api/coach/:token/time-off` | `?id`: back at work those days |
@@ -358,10 +358,13 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/addons/:id` | Retired, not deleted: bookings that had it still say what they had |
 | GET | `/api/admin/approvals` | `?venueId[&waiting=1]` → applications to be approved for an activity here, those waiting on the venue first, and how many wait ([activities](../features/activities.md#registering-online-for-approval)) |
 | POST | `/api/admin/approvals` | `{ venueId, id, action: "approve" \| "reject" \| "ask" \| "in_person", reason? }`: decide one (manager or front desk). Refusing and asking need a reason; approving accepts the online part where an in-person step is still to come, otherwise writes the sign-off and books a slot asked for if it is still free. Recorded in its history and the activity log |
-| GET | `/api/admin/approvals/document` | `?venueId&id` → a document sent with an application here (private, never cached) |
+| GET | `/api/admin/approvals/document` | `?venueId&id` → a document sent with an application here, as the customer's route serves it; each opening recorded under the staff member's name |
 | GET | `/api/admin/approvals/settings` | `?venueId` → what the venue asks for each activity before approving online, and its coaches who could review |
-| POST | `/api/admin/approvals/settings` | `{ venueId, sport, kind?, intro?, declaration?, documentLabel?, videoUrl?, inPerson?, questions?, waiver?, validDays?, pendingDays?, holdHours?, open?, coachIds? }`: take applications online for an activity, or change what is asked (managers); a document label naming an identity document is refused; recorded |
+| POST | `/api/admin/approvals/settings` | `{ venueId, sport, kind?, intro?, declaration?, documentLabel?, documentPurpose?, videoUrl?, inPerson?, questions?, waiver?, validDays?, pendingDays?, holdHours?, open?, coachIds?, reviewDays?, documentDays?, recordDays? }`: take applications online for an activity, or change what is asked (managers); a document label needs its purpose, and naming an identity document in either is refused; the retention days may only be shorter than the install's ([privacy](privacy.md#applications-to-be-approved-for-an-activity)); recorded |
 | DELETE | `/api/admin/approvals/settings` | `?venueId&sport`: no more applications online for it; those in are still decided (managers); recorded |
+| GET | `/api/admin/approvals/holds` | `?venueId` → holds keeping applications here past their time, those in force first (managers and the platform owner; [holds](privacy.md#holds)) |
+| POST | `/api/admin/approvals/holds` | `{ venueId, requestId, basis: "legal" \| "safety" \| "dispute" \| "incident", reason, reviewBy }`: keep an application past its time until the review date (a manager: at most 90 days, 180 in all for one application; the platform owner: a year at a time); a renewal is a new hold; recorded |
+| PATCH | `/api/admin/approvals/holds` | `{ venueId, id, reason }`: release a hold before its review date; recorded |
 | GET | `/api/admin/attention` | Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told (`refundsOverdue`) |
 | POST | `/api/admin/attention` | `{ id, action: "told" }` — staff told the customer another way |
 | GET | `/api/admin/auth/two-factor` | This account's two-factor sign-in: on or off, and whether the install requires it |
