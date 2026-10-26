@@ -159,7 +159,8 @@ export function NeedsLabel({
   };
   const common = { "data-needs": needs, "data-eligibility": shown ? (all ? "eligible" : "not-all") : undefined };
   return variant === "badge" ? (
-    <span className={`ml-1.5 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${colours[tone][0]}`} {...common}>
+    // Named statuses can run to a few lines on a phone: a softer corner reads better there than a pill.
+    <span className={`ml-1.5 inline-block px-2 py-0.5 text-xs font-semibold ${shown ? "rounded-md" : "rounded-full"} ${colours[tone][0]}`} {...common}>
       {words}
     </span>
   ) : (
