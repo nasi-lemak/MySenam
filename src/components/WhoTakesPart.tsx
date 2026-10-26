@@ -203,13 +203,14 @@ export function WhoTakesPart({
   return (
     <fieldset className="mt-2 text-xs text-slate-600">
       <legend className="font-medium">{t("guard.whoPlays")}</legend>
+      {/* Each row at least 24px high: a tap target on a phone (WCAG 2.2, 2.5.8), not just the 16px of its text. */}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-        <label className="flex items-center gap-1.5">
+        <label className="flex min-h-6 items-center gap-1.5">
           <input type="checkbox" className="accent-teal-600" checked={meToo} onChange={(e) => onChange(ids, e.target.checked)} />
           {t("guard.me")}
         </label>
         {people.map((p) => (
-          <label key={p.id} className="flex items-center gap-1.5">
+          <label key={p.id} className="flex min-h-6 items-center gap-1.5">
             <input
               type="checkbox"
               className="accent-teal-600"

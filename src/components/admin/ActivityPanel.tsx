@@ -92,6 +92,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "participant.linked": "ptc.act.linked",
   "induction.assigned": "ptc.act.inductionAssigned",
   "induction.kept": "ptc.act.inductionKept",
+  "booking.for_participant": "pua.act.bookedFor",
+  "class.enrol_participant": "pua.act.enrolledFor",
 };
 
 /**

@@ -61,6 +61,10 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
             <div className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">
               {result.booking.code}
             </div>
+            {/* Booked for whom the place was waited for: a child, never the adult in their place (ADR 0023). */}
+            {result.booking.participantName && (
+              <p className="mt-2 text-sm font-medium text-slate-700">{t("guard.forLine", { name: result.booking.participantName })}</p>
+            )}
             <p className="mt-2 text-xs text-slate-500">
               {t("claim.payable", { amount: result.booking.totalPrice })}
             </p>

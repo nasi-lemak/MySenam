@@ -371,6 +371,8 @@ const en = {
   "pbk2.pp.reason": "Why add them now? (kept on record)",
   "pbk2.pp.accountNote": "Their account will see {name} and act for them online, as their other guardians do. Recorded as declared, not verified; the other guardians are not told.",
   "pbk2.pp.add": "Add as guardian",
+  "pua.act.bookedFor": "Booked for a participant at the counter",
+  "pua.act.enrolledFor": "Enrolled a participant in a class at the counter",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -726,6 +728,8 @@ const ms: Record<keyof typeof en, string> = {
   "pbk2.pp.reason": "Mengapa menambah mereka sekarang? (disimpan dalam rekod)",
   "pbk2.pp.accountNote": "Akaun mereka akan melihat {name} dan bertindak bagi pihak mereka dalam talian, seperti penjaga lain. Direkodkan seperti yang diakui, tidak disahkan; penjaga lain tidak dimaklumkan.",
   "pbk2.pp.add": "Tambah sebagai penjaga",
+  "pua.act.bookedFor": "Menempah untuk peserta di kaunter",
+  "pua.act.enrolledFor": "Mendaftarkan peserta ke kelas di kaunter",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1081,6 +1085,8 @@ const zh: Record<keyof typeof en, string> = {
   "pbk2.pp.reason": "为何现在添加？（将记录在案）",
   "pbk2.pp.accountNote": "其账户将能看到 {name} 并在网上代其行事，与其他监护人相同。按声明记录，未经核实；其他监护人不会收到通知。",
   "pbk2.pp.add": "添加为监护人",
+  "pua.act.bookedFor": "在柜台为参与者预订",
+  "pua.act.enrolledFor": "在柜台为参与者报名课程",
 };
 
 const area = { en, ms, zh };

@@ -263,7 +263,8 @@ export default function MyBookingPage() {
               ...((b.players ?? 1) > 1 ? [[t("done.players"), String(b.players)]] : []),
               [t("mine.date"), b.date],
               [t("mine.time"), `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
-              [t("mine.bookedBy"), b.name],
+              // Who takes part, where the booking is for somebody else (a child; ADR 0023).
+              [t("mine.bookedBy"), b.participantName ? `${b.name} · ${t("guard.forLine", { name: b.participantName })}` : b.name],
               ...(result.addons?.length
                 ? [[t("done.extras"), result.addons.map((a) => `${a.quantity} × ${a.name} (${money(a.unitPrice)})`).join(", ")]]
                 : []),

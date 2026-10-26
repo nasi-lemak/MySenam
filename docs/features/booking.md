@@ -302,7 +302,10 @@ taking part in the same way, and books them through the same engine
 - **Told.** Confirmations, waiting-list offers and enrolments go to the
   customer (the guardian) through their usual channels and name who it is
   for ("Court 1, for Alya"); a participant needs no email or phone of their
-  own ([messaging](../integrations/messaging.md)).
+  own ([messaging](../integrations/messaging.md)). The customer's own pages
+  say it too: each booking on the account page, *My booking* and a place
+  claimed from the waiting list (*For Alya*); the staff activity log names a
+  counter booking or class enrolment for a participant as such.
 - **Never discoverable.** A booking naming a participant is never opened as
   an open game, and participants never appear in matchmaking
   ([open games](matchmaking.md)).
