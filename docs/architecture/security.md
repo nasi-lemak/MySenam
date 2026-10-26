@@ -35,6 +35,20 @@ cookies (gateway callbacks, WhatsApp's webhook) and the key-authorised public
 API under `/api/v1/` are not checked. A proxy that rewrites `Host` must pass
 the original in `X-Forwarded-Host`, or `MYSENAM_URL` must name the site.
 
+## Private links and who decides approvals
+
+A private link (a coach's schedule, `/coach/<token>`; a tournament official's)
+grants only what its page shows, never a venue-management power. Deciding an
+application to be approved for an activity, where identity matters, needs an
+account: the venue's staff signed in to the dashboard, or a coach signed in to
+their own account that a manager linked to the coach record. Each decision is
+checked against the database (the coach active, at that venue, named for that
+activity, linked to the account deciding; a safety-assessed activity granted
+only by a manager, a named coach or delegated front desk) and recorded with
+the person ([ADR 0020](decisions/0020-approval-to-booking-payment-and-authority.md)).
+Door codes follow eligibility, not the booking's author
+([door codes](../features/venue-operations.md#resources-nobody-is-standing-next-to)).
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited

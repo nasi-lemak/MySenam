@@ -8,9 +8,9 @@ import { intlTag, region } from "@/lib/region";
 
 /**
  * Reviewing applications to be approved for an activity (lib/approvals.ts):
- * the same screen for the venue's staff in the dashboard and for a coach at
- * their own link, each reading it in their own dictionary (the keys below are
- * in both the staff and the customer dictionaries).
+ * the same screen for the venue's staff in the dashboard and for a coach
+ * signed in to their own account, each reading it in their own dictionary
+ * (the keys below are in both the staff and the customer dictionaries).
  */
 
 export type ReviewKey =
@@ -48,6 +48,13 @@ export type ReviewKey =
   | "apr.r.inPersonPrompt"
   | "apr.r.failed"
   | "apr.r.declaredNote"
+  | "apr.r.check"
+  | "apr.r.checked"
+  | "apr.r.revoke"
+  | "apr.r.revokePrompt"
+  | "apr.r.revokedBecause"
+  | "apr.r.payBy"
+  | "apr.r.payLater"
   | "apr.status.pending"
   | "apr.status.info_requested"
   | "apr.status.in_person_due"
@@ -62,6 +69,8 @@ export type ReviewKey =
   | "apr.slot.released"
   | "apr.slot.booked"
   | "apr.slot.taken"
+  | "apr.slot.awaiting_payment"
+  | "apr.slot.payment_lapsed"
   | "apr.ev.submitted"
   | "apr.ev.renewal_submitted"
   | "apr.ev.slot_requested"
@@ -76,7 +85,18 @@ export type ReviewKey =
   | "apr.ev.hold_lapsed"
   | "apr.ev.slot_booked"
   | "apr.ev.session_booked"
-  | "apr.ev.slot_taken";
+  | "apr.ev.slot_taken"
+  | "apr.ev.checked"
+  | "apr.ev.revoked"
+  | "apr.ev.payment_requested"
+  | "apr.ev.pay_exception"
+  | "apr.ev.paid"
+  | "apr.ev.payment_lapsed"
+  | "apr.ev.booking_cancelled"
+  | "apr.ev.booking_released"
+  | "apr.ev.bookings_flagged"
+  | "apr.ev.late_payment_booked"
+  | "apr.ev.late_payment_refund";
 
 export type Say = (key: ReviewKey, vars?: Record<string, string | number>) => string;
 
@@ -96,6 +116,17 @@ const EVENT_KEYS = new Set<string>([
   "slot_booked",
   "session_booked",
   "slot_taken",
+  "checked",
+  "revoked",
+  "payment_requested",
+  "pay_exception",
+  "paid",
+  "payment_lapsed",
+  "booking_cancelled",
+  "booking_released",
+  "bookings_flagged",
+  "late_payment_booked",
+  "late_payment_refund",
 ]);
 
 /** A moment, where the venue is, in the reader's language. */
@@ -164,21 +195,25 @@ export function ApprovalReview({
   hideWhenEmpty,
   onChange,
   explain,
+  payLaterOption,
 }: {
   say: Say;
   locale: string;
   activityLabel: (sport: string) => string;
   listUrl: string;
   decideUrl: string;
-  decideBody: (id: number, action: Decision, reason: string | null) => Record<string, unknown>;
+  decideBody: (id: number, action: Decision, reason: string | null, payLater: boolean) => Record<string, unknown>;
   documentUrl: (documentId: number) => string;
   title?: string;
   hideWhenEmpty?: boolean;
   onChange?: () => void;
   /** A refusal from the server, in the reader's language. */
   explain: (body: unknown) => string;
+  /** Staff: approve without holding the booking for payment, as an exception on record. */
+  payLaterOption?: boolean;
 }) {
   const [requests, setRequests] = useState<ApprovalRequest[] | null>(null);
+  const [payLater, setPayLater] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
 
@@ -195,15 +230,17 @@ export function ApprovalReview({
 
   async function act(r: ApprovalRequest, action: Decision) {
     let reason: string | null = null;
-    if (action === "ask" || action === "reject" || action === "in_person") {
-      reason = window.prompt(say(action === "ask" ? "apr.r.askPrompt" : action === "reject" ? "apr.r.rejectPrompt" : "apr.r.inPersonPrompt", { name: r.name }));
+    if (action === "ask" || action === "reject" || action === "in_person" || action === "revoke") {
+      const prompt: ReviewKey =
+        action === "ask" ? "apr.r.askPrompt" : action === "reject" ? "apr.r.rejectPrompt" : action === "revoke" ? "apr.r.revokePrompt" : "apr.r.inPersonPrompt";
+      reason = window.prompt(say(prompt, { name: r.name }));
       if (reason === null) return;
-      if ((action === "ask" || action === "reject") && reason.trim() === "") return;
+      if ((action === "ask" || action === "reject" || action === "revoke") && reason.trim() === "") return;
     }
     setBusy(r.id);
     setError(null);
     try {
-      const res = await fetch(decideUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decideBody(r.id, action, reason)) });
+      const res = await fetch(decideUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decideBody(r.id, action, reason, payLater)) });
       const data = await res.json();
       if (!res.ok) throw new Error(explain(data));
       load();
@@ -222,6 +259,12 @@ export function ApprovalReview({
       <h3 className="font-semibold">{title ?? say("apr.r.allTitle")}</h3>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {requests.length === 0 && <p className="text-sm text-slate-500">{say("apr.r.none")}</p>}
+      {payLaterOption && requests.some((r) => r.slot && (r.slot.status === "held" || r.slot.status === "lapsed")) && (
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={payLater} onChange={(e) => setPayLater(e.target.checked)} />
+          {say("apr.r.payLater")}
+        </label>
+      )}
       <ul className="divide-y divide-slate-100">
         {requests.map((r) => {
           const live = r.status === "pending" || r.status === "info_requested" || r.status === "in_person_due";
@@ -268,10 +311,13 @@ export function ApprovalReview({
                   </li>
                 )}
                 {r.onlineOkAt && <li>{say("apr.r.onlineAccepted", { name: r.onlineOkBy ?? "", date: when(r.onlineOkAt, locale) })}</li>}
+                {r.adminCheckedAt && <li>✓ {say("apr.r.checked", { name: r.adminCheckedBy ?? "", date: when(r.adminCheckedAt, locale) })}</li>}
+                {r.revoked && r.revokeReason && <li>{say("apr.r.revokedBecause", { reason: r.revokeReason })}</li>}
                 {r.slot && (
                   <li>
                     {say("apr.r.slot")}: {slotText(r)} · {say(`apr.slot.${r.slot.status}` as ReviewKey)}
                     {r.bookingCode ? ` · ${say("apr.r.booked", { code: r.bookingCode })}` : ""}
+                    {r.slot.payBy ? ` · ${say("apr.r.payBy", { date: when(`${r.slot.payBy.replace(" ", "T")}Z`, locale) })}` : ""}
                   </li>
                 )}
               </ul>
@@ -303,8 +349,20 @@ export function ApprovalReview({
                       {say("apr.r.ask")}
                     </button>
                   )}
+                  {!r.adminCheckedAt && (
+                    <button type="button" disabled={busy === r.id} onClick={() => act(r, "check")} className="rounded-md border border-slate-300 px-3 py-1 text-xs disabled:opacity-50">
+                      {say("apr.r.check")}
+                    </button>
+                  )}
                   <button type="button" disabled={busy === r.id} onClick={() => act(r, "reject")} className="rounded-md border border-red-200 px-3 py-1 text-xs text-red-700 disabled:opacity-50">
                     {say("apr.r.reject")}
+                  </button>
+                </div>
+              )}
+              {r.status === "approved" && !r.revoked && !r.lapsed && (
+                <div className="pt-1">
+                  <button type="button" disabled={busy === r.id} onClick={() => act(r, "revoke")} className="rounded-md border border-red-200 px-3 py-1 text-xs text-red-700 disabled:opacity-50">
+                    {say("apr.r.revoke")}
                   </button>
                 </div>
               )}

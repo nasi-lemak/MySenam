@@ -16,7 +16,7 @@ import { LeaguesTab } from "@/components/admin/LeaguesTab";
 import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
-import { ApprovalsReview } from "@/components/admin/ApprovalsPanel";
+import { ApprovalsReview, RevocationFlags } from "@/components/admin/ApprovalsPanel";
 import { SystemHealth } from "@/components/admin/SystemHealth";
 import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { VenuesTab } from "@/components/admin/VenuesTab";
@@ -309,6 +309,8 @@ export default function AdminPage() {
       {!isOwner &&
         tab === "bookings" &&
         venues.map((venue) => <ApprovalsReview key={`approvals-${venue.id}`} venueId={venue.id} venueName={venues.length > 1 ? venue.name : null} waitingOnly />)}
+      {/* Bookings to decide after an approval was taken back: shown only when there are some. */}
+      {!isOwner && tab === "bookings" && venues.map((venue) => <RevocationFlags key={`approval-flags-${venue.id}`} venueId={venue.id} />)}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (

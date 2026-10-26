@@ -19,7 +19,9 @@ These hold for every route below unless its row says otherwise.
   (`/api/admin/auth/*`). A booking made without an account is reached with
   its code and the phone number it was made with, never the code alone. A
   coach and a tournament official have a private link of their own instead of
-  an account (`/api/coach/:token/*`, `/api/officials/:token`); a venue's own
+  an account (`/api/coach/:token/*`, `/api/officials/:token`), which decides
+  no approval: a coach reviews applications signed in to their own account
+  (`/api/my/reviews`); a venue's own
   systems use an API key ([external API](../integrations/external-api.md)).
 - **What staff may do.** Every admin route checks the session (`401` without
   one), then the role: the front desk is refused what only a manager does
@@ -294,6 +296,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/my/approvals` | Apply: a form upload with `data` (JSON `{ venueId, sport, answers?, declaration?, videoWatched?, waiver?, adult, guardianName?, guardianDeclaration?, certReference?, certExpiresOn?, slot?: { courtId, date, start, end } }`) and up to three `document` images, or the JSON alone. A slot asked for is held, never booked, until approved; nothing is charged |
 | POST | `/api/my/approvals/:id` | The customer's own application: `{ action: "answer", answer }` (documents as a form upload), `{ action: "withdraw" }` (its hold let go), or `{ action: "slot", slot }` (held; booked at once as the in-person session once the online part is accepted) |
 | GET | `/api/my/approvals/document` | `?id` → a document the customer sent with one of their applications (private, never cached) |
+| GET | `/api/my/reviews` | A coach signed in to their own account (one a venue linked to its coach record): `coaches` (which records) and the applications they may review, for the activities each venue named them for; empty for everybody else ([ADR 0020](decisions/0020-approval-to-booking-payment-and-authority.md)) |
+| POST | `/api/my/reviews` | `{ id, action: "approve" \| "reject" \| "ask" \| "in_person" \| "check" \| "revoke", reason? }`: the coach's decision, under their name and this account; refused (403, `APR_NOT_REVIEWER`) for any application they are not named for. Rejecting, asking and revoking need a reason |
+| GET | `/api/my/reviews/document` | `?id` → a document sent with an application the signed-in coach may review (private, never cached) |
 | GET | `/api/my/games` | The signed-in player's games: hosting, with who asked; and playing |
 | GET | `/api/my/guests` | The venues this resident can invite guests to, and their guests there now |
 | POST | `/api/my/guests` | `{ venueId, phone, name, days }`: put a guest on the venue's list |
@@ -316,9 +321,6 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/coach/:token/approvals` | The applications this coach may review: for the activities the venue authorised them for, nothing else ([activities](../features/activities.md#registering-online-for-approval)) |
-| POST | `/api/coach/:token/approvals` | `{ id, action: "approve" \| "reject" \| "ask" \| "in_person", reason? }`: the coach's decision; refused (403) for any application they are not authorised for; recorded under their name |
-| GET | `/api/coach/:token/approvals/document` | `?id` → a document sent with an application this coach may review (private, never cached) |
 | POST | `/api/coach/:token/hours` | `{ hours: [{ weekday, from, until }] }`: a coach sets the hours they take lessons, at the private link the venue gave them. Lessons already booked stand |
 | POST | `/api/coach/:token/time-off` | `{ from, until?, reason? }`: days off, at the coach's own link. What is already booked then is counted, for the venue to move |
 | DELETE | `/api/coach/:token/time-off` | `?id`: back at work those days |
@@ -356,11 +358,13 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/addons` | `{ venueId, name, kind: "rental" \| "sale", price, stock?, sport? }` |
 | PATCH | `/api/admin/addons/:id` | Change it, or retire it with `active: false` and bring it back with `true` |
 | DELETE | `/api/admin/addons/:id` | Retired, not deleted: bookings that had it still say what they had |
-| GET | `/api/admin/approvals` | `?venueId[&waiting=1]` → applications to be approved for an activity here, those waiting on the venue first, and how many wait ([activities](../features/activities.md#registering-online-for-approval)) |
-| POST | `/api/admin/approvals` | `{ venueId, id, action: "approve" \| "reject" \| "ask" \| "in_person", reason? }`: decide one (manager or front desk). Refusing and asking need a reason; approving accepts the online part where an in-person step is still to come, otherwise writes the sign-off and books a slot asked for if it is still free. Recorded in its history and the activity log |
+| GET | `/api/admin/approvals` | `?venueId[&waiting=1]` → applications to be approved for an activity here, those waiting on the venue first, how many wait, and `flags`: bookings to decide after an approval was revoked ([activities](../features/activities.md#registering-online-for-approval)) |
+| POST | `/api/admin/approvals` | `{ venueId, id, action: "approve" \| "reject" \| "ask" \| "in_person" \| "check" \| "revoke", reason?, payLater? }`: decide one. Refusing, asking and revoking need a reason; approving accepts the online part where an in-person step is still to come, otherwise writes the sign-off and books a slot asked for if it is still free, held for payment where the venue asks payment to hold (`payLater`: an exception, paid at the counter, on record). A safety-assessed activity is approved, and its in-person step recorded, only by a manager or front desk delegated for it (403 `APR_SAFETY_AUTHORITY`); `check` records the administrative check. `{ venueId, flagId, action: "resolve_flag", note }`: a flagged booking dealt with. Recorded in its history and the activity log |
 | GET | `/api/admin/approvals/document` | `?venueId&id` → a document sent with an application here (private, never cached) |
-| GET | `/api/admin/approvals/settings` | `?venueId` → what the venue asks for each activity before approving online, and its coaches who could review |
-| POST | `/api/admin/approvals/settings` | `{ venueId, sport, kind?, intro?, declaration?, documentLabel?, videoUrl?, inPerson?, questions?, waiver?, validDays?, pendingDays?, holdHours?, open?, coachIds? }`: take applications online for an activity, or change what is asked (managers); a document label naming an identity document is refused; recorded |
+| GET | `/api/admin/approvals/settings` | `?venueId` → what the venue asks for each activity before approving online, its coaches who could review (with the account each is linked to), and its front-desk staff who could be delegated |
+| POST | `/api/admin/approvals/settings` | `{ venueId, sport, kind?, intro?, declaration?, documentLabel?, videoUrl?, inPerson?, questions?, waiver?, validDays?, pendingDays?, holdHours?, payHours?, open?, coachIds?, reviewLevel?: "safety" \| "administrative", delegateIds? }`: take applications online for an activity, or change what is asked and who may grant it (managers); a document label naming an identity document is refused; recorded |
+| POST | `/api/admin/approvals/reviewers` | `{ venueId, coachId, email }`: link a coach to their own MySenam account by its email, or unlink it (`email: null`); a coach reviews only signed in to it (managers); recorded |
+| POST | `/api/admin/approvals/supervised` | `{ venueId, code, supervised, note }`: arrange (or stop) staff-supervised attendance on a booking, saying who supervises under which procedure; never a door code, and no sign-off for later (managers); recorded |
 | DELETE | `/api/admin/approvals/settings` | `?venueId&sport`: no more applications online for it; those in are still decided (managers); recorded |
 | GET | `/api/admin/attention` | Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told (`refundsOverdue`) |
 | POST | `/api/admin/attention` | `{ id, action: "told" }` — staff told the customer another way |
@@ -455,8 +459,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/activities` | `{venueId, names: {en, ms?, zh?, ta?}, category, model, noun, icon?, aliases?, capacity?, perPlayer?, maxPlayers?}`: a venue's or business's own activity (managers; the platform owner adds to the catalogue); recorded |
 | PATCH | `/api/admin/activities` | `{key, …}`: change or retire (`active: false`) one's own activity; built-ins can only be retired, by the platform owner; recorded |
 | GET | `/api/admin/sign-offs` | `?venueId` → sign-offs in force ([activities](../features/activities.md#sign-offs)) |
-| POST | `/api/admin/sign-offs` | `{venueId, sport?, phone, name, email?, kind?: "operational" \| "certification", reference?, note?, expiresOn?, wholeBusiness?}`: record one (replacing one for the same number, activity, kind and scope); a certification needs `reference` and `expiresOn`; `wholeBusiness` needs whoever runs the business; `email` links the customer's account; recorded |
-| DELETE | `/api/admin/sign-offs` | `?venueId&id[&reason]`: take one back, who and why kept; recorded |
+| POST | `/api/admin/sign-offs` | `{venueId, sport?, phone, name, email?, kind?: "operational" \| "certification", reference?, note?, expiresOn?, wholeBusiness?}`: record one (replacing one for the same number, activity, kind and scope); a certification needs `reference` and `expiresOn`; `wholeBusiness` needs whoever runs the business; `email` links the customer's account; front desk is refused one for an activity whose approval is a safety assessment unless delegated for it (403 `APR_SAFETY_AUTHORITY`); recorded |
+| DELETE | `/api/admin/sign-offs` | `?venueId&id[&reason]`: take one back, who and why kept; one an approval wrote revokes that approval, its bookings flagged for staff; recorded |
 | POST | `/api/admin/system` | `{ key }`: dealt with; the next one is news again |
 | GET | `/api/admin/tournaments` | `?venueId=` — a venue's tournaments and competitions, for its staff, with the sport templates and the venue's own |
 | POST | `/api/admin/tournaments` | A new tournament, holding its courts at once; `format` knockout, groups, round_robin or performance; `template` and `rules?` (scoring, ranking, points by set score, somebody leaving); `entryKind` and `roster` for teams; `competitionId?` for a division of a competition (its days, hours and courts; `matchMinutes?` its own match length); `stageMinutes?` (`{ group, knockout, final, heat }`), `thirdPlace?`; `resultsBy?` (`staff` or `players`); who may enter: `entriesCloseOn?`, `ageMin?`, `ageMax?`, `membersOnly?` |

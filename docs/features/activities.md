@@ -189,7 +189,10 @@ where one is linked), the activity (or anything there), its scope (this
 branch, or every branch of the business, which only whoever runs the
 business may give or take back), who gave it and when, when it runs out,
 and, once taken back, who did it and why. Every change is in the activity
-log.
+log. Front desk cannot record one for an activity whose approval the venue
+set as a safety assessment unless a manager delegated them for it
+([who may grant](#registering-online-for-approval)); taking back one an
+approval wrote revokes that approval.
 
 **Who it counts for.** A phone number typed into a form proves nothing, so:
 
@@ -197,7 +200,7 @@ log.
 | -------------- | ---------------------- |
 | The customer online (booking, any court, weekly series, waiting list, open games, rescheduling) | They are signed in, and the record is linked to their account (staff named it by email), or names a number their account has proved ([phone checks](../architecture/authentication.md#checking-a-customers-phone-number)). A guest, or an account whose number is only typed, is refused. |
 | The venue's staff at the counter, or the venue's own system with its API key | The record names the number booked for: staff answer for who is in front of them. |
-| A manager going past the rules | Not asked; recorded in the activity log as an override. |
+| A manager going past the rules | Not asked; recorded in the activity log as an override. The booking stands, but gets no door code without a sign-off in force ([door codes](venue-operations.md#resources-nobody-is-standing-next-to)). |
 
 It must hold on the last day booked (the last week of a series; the new day
 of a reschedule). One person's sign-off covers one person: online, a
@@ -220,7 +223,8 @@ sign-off where the activity asks for one
 
 A customer need not come to the counter just to register for an activity
 that needs a sign-off or certification, or to ask for a first lesson
-(`src/lib/approvals.ts`; [ADR 0019](../architecture/decisions/0019-approval-requests-apart-from-bookings.md)).
+(`src/lib/approvals.ts`; [ADR 0019](../architecture/decisions/0019-approval-requests-apart-from-bookings.md),
+[ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md)).
 The same workflow serves climbing, kayaking, coaching, equipment hire or any
 activity whose rules ask for a sign-off.
 
@@ -241,8 +245,27 @@ approval writes (a sign-off, or a certification, for which the customer gives
 its number, issuer and end date and sends the document), how long an
 approval lasts (days, or until taken back), how many days an application may
 wait unanswered before it lapses (14 unless set), how many hours a slot asked
-for is held (48 unless set), and which of the venue's
-[coaches](programmes.md#one-to-one-coaching) may review these applications at their own link.
+for is held (48 unless set), how many hours an approved customer has to pay
+for the slot booked where the venue asks payment to hold (24 unless set), and
+which of the venue's [coaches](programmes.md#one-to-one-coaching) may review
+these applications, each linked to the coach's own MySenam account.
+
+**Who may grant it** ([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md)).
+The venue says, per activity, whether approving is a **safety assessment**
+(the default: a belay or climbing competency check, an archery safety
+briefing, water-sports competence) or an **administrative check** (that an
+application is complete, a membership held):
+
+| Who | Administrative check | Safety assessment |
+| --- | -------------------- | ----------------- |
+| Manager (or whoever runs the business) | Everything | Everything |
+| Front desk | Everything | Ask for more, record the administrative check, refuse, revoke; approve and record the in-person step only if a manager delegated them by name for this activity |
+| A coach the venue names for this activity, signed in to their own account | Everything for that activity | Everything for that activity |
+
+Asking, the administrative check, refusing and revoking grant nothing, so any
+reviewer may; approving and recording the in-person step grant eligibility.
+The same holds in the Sign-offs tab. MySenam certifies nobody: these are the
+venue's existing roles and the people it names.
 
 **Applying** needs a signed-in account (an approval is personal), with a
 number the venue can reach as for booking. The venue's page lists the
@@ -265,16 +288,20 @@ more than 30 days to run cannot apply again until then.
 | `approved` | Everything asked for is done | — |
 | `rejected`, `withdrawn`, `expired` | Refused with a reason; withdrawn by the customer; lapsed, nobody having acted in time | — |
 
-**Reviewing.** The venue's staff (manager or front desk, as for sign-offs)
-review from the dashboard: the bookings tab shows applications waiting, and
-*Courts & rates* lists them all. A coach the venue named for that
-activity reviews at their private link, sees only those applications, and
-can do nothing else of a manager's. A reviewer can approve, refuse (with a
-reason the customer is told), ask for more (the customer answers and it comes
-back), and record the in-person step. Where an in-person step is set,
-approving accepts only the online part: the application is complete only once
-staff (or the coach) record the in-person step, in either order; an online
-declaration never stands in for it.
+**Reviewing.** The venue's staff review from the dashboard: the bookings tab
+shows applications waiting, and *Courts & rates* lists them all. A coach the
+venue named for that activity reviews signed in to their own MySenam account,
+which a manager links to the coach record (*Courts & rates → Online
+applications*); their account's approvals page lists only those applications,
+and they can do nothing else of a manager's. The coach's private schedule
+link decides nothing. A reviewer can approve, refuse (with a reason the
+customer is told), ask for more (the customer answers and it comes back),
+record the administrative check, record the in-person step, and revoke an
+approval. Where an in-person step is set, approving accepts only the online
+part: the application is complete only once staff (or the coach) record the
+in-person step, in either order; an online declaration never stands in for
+it. Every decision records who made it: the member of staff, or the coach and
+the account they decided from.
 
 **Approved**, the application writes the sign-off or certification the
 booking rules already check, linked to the customer's account, with the
@@ -288,36 +315,73 @@ rules refuse it again.
 **A slot asked for** is held by an expiring claim of its own kind (`approval`),
 which the database counts like any booking while it lasts, until its hours
 are up or the slot starts, and is let go on refusal, withdrawal or lapse. On
-approval it is booked through the ordinary booking path, its hold let go and
-the booking claimed in one transaction under the same constraints; if the
-hold had lapsed and somebody else took the slot, nothing is overbooked: the
-customer is told, and offered the venue's times and its waiting list. Where
-an in-person step is still to come, the slot is booked when the online part
-is accepted, as the session at which it is done; that session is not held to
-the sign-off, and a customer can book one later from their account. A
-pending application never reserves anything beyond its hold.
+approval it is rechecked and booked through the ordinary booking path, its
+hold let go and the booking claimed in one transaction under the same
+constraints; if the hold had lapsed and somebody else took the slot, nothing
+is forced or displaced: the approval stands, the customer is told, and they
+book another time, or join the waiting list, through the ordinary booking
+engine. Where an in-person step is still to come, the slot is booked when the
+online part is accepted, as the session at which it is done; that session is
+not held to the sign-off, and a customer can book one later from their
+account. A pending application never reserves anything beyond its hold.
 
-**Money.** Nothing is charged for applying or while an application waits.
-A booking made on approval is an ordinary booking, unpaid, paid, refunded and
-cancelled the ordinary ways ([payments](payments-and-credit.md)); it is not
-held for payment at a venue that asks for payment to hold, since the customer
-was not there to pay when it was approved. Refusing or lapsing an application
-leaves nothing to refund.
+**Money: approval is eligibility, not payment.** Nothing is charged for
+applying or while an application waits. The booking a slot becomes follows
+the venue's own payment policy ([paying to hold](payments-and-credit.md#paying-online-to-hold-a-booking)):
+where the venue asks payment online to hold a booking, it is held for
+payment by the ordinary booking hold for the activity's hours to pay (the
+slot reads *booked, waiting for payment*, with the deadline and a pay button
+on the customer's approvals page), confirmed when paid, and let go if not
+(*not paid in time*; the approval stands). A payment that lands after it was
+let go becomes the booking again if the slot is still free, or is owed back.
+Where the venue takes payment at the counter, or the booking is free, it
+stands as any booking there does. Staff approving may let it stand unheld,
+paid at the counter, as an exception on record; a coach may not. The
+application's status (`approval_requests.status`) stays apart from the
+booking's: an approved application can have a slot booked, waiting for
+payment, let go or taken. Refusing or lapsing an application leaves nothing
+to refund.
 
-**Access.** A pending application grants nothing: the booking rules refuse
-the activity, and an unmanned resource's door code is not given for an
-activity that needs a sign-off until one is in force for the person booked,
-whoever made the booking ([door codes](venue-operations.md#resources-nobody-is-standing-next-to)).
+**Access.** Four permissions are kept apart: to record or manage a booking
+(staff; a manager past the rules), to take part in the activity (a sign-off
+in force, which an approval writes), to receive unmanned access (that
+sign-off in force on the day, for the activity booked), and to supervise an
+exception (a manager's staff-supervised attendance). A pending, refused,
+lapsed or revoked application grants nothing: the booking rules refuse the
+activity online, and an unmanned resource's door code is not given until a
+sign-off is in force for the person booked, whoever made the booking and
+however: online, at the counter, past the rules, through the venue's API
+key, as a coach's lesson, or before the approval. An activity the venue takes
+applications for needs one at the door even where its booking rules do not
+ask for a sign-off. A manager can arrange staff-supervised attendance where
+the venue's safety procedures allow it; it is recorded, gets no door code,
+and authorises no unmanned use later
+([door codes](venue-operations.md#resources-nobody-is-standing-next-to)).
 Unmanned facilities can approve remotely wherever the activity sets no
 in-person step.
 
+**Revoking.** Staff, or a coach named for the activity, revoke an approval in
+force with a reason the customer is told. Its sign-off is taken back at
+once, which stops online booking of the activity and its door codes; a
+booking it made that is still waiting for payment is let go (a payment after
+that is owed back). The person's confirmed bookings of that activity there,
+from today on, are not cancelled: they are flagged for staff (*Bookings to
+decide* on the bookings tab), who cancel one the ordinary way, arrange
+supervision, or keep it, and say which. Taking the sign-off back in the
+Sign-offs tab does the same. The customer can apply again.
+
 **Telling people.** The customer is emailed in the language their account
 last used when an application is received, asked about, accepted online,
-approved, refused or lapsed, when a held slot is let go, and before an
-approval runs out; their account page (*Approvals for activities*,
-`/account/approvals`) shows each application's status, what is waiting on
-whom, its slot and its history. The venue's booking-alert address and the
-authorised coaches are emailed when an application arrives or is answered.
+approved (with the booking and, where it must be paid, the deadline),
+refused, lapsed or revoked, when a held slot is let go, when a booking made
+on approval was not paid in time, when a late payment became the booking or
+is owed back, and before an approval runs out; their account page
+(*Approvals for activities*, `/account/approvals`) shows each application's
+status, what is waiting on whom, its slot, what to pay by when, why an
+approval was taken back, and its history. Emails go through the outbox,
+which retries a failed delivery; a failure to send never undoes a decision.
+The venue's booking-alert address and the authorised coaches are emailed
+when an application arrives or is answered.
 
 **The record.** Each application keeps its history (who, when, what and why:
 customer, staff member, coach or the system) and every decision also goes in

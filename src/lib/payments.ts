@@ -878,6 +878,8 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
         );
       }
     }
+    // A booking made on approval: its application follows (lib/approvals.ts).
+    await (await import("./approvals")).approvalPaymentSettled(row.id);
     return { payment: await toPayment(fresh), newlyPaid: [] };
   }
   const bookings: Booking[] = [];
@@ -906,7 +908,10 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     bookings.filter((b) => !b.holdUntil),
     "online"
   );
-  return { payment: await toPayment(fresh), newlyPaid: bookings };
+  // A booking made on approval: its application follows, and a payment that came after its hold
+  // was let go becomes the booking again where it still can (lib/approvals.ts).
+  await (await import("./approvals")).approvalPaymentSettled(row.id);
+  return { payment: await reread(row.id), newlyPaid: bookings };
 }
 
 /** Receipt an online payment for something other than court time, as it settles. */

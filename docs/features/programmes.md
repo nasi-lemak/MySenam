@@ -96,7 +96,10 @@ On each coach under *Coaches* (`lib/coach-schedule.ts`):
   name and number (to call), and whether it is paid, plus a calendar feed of
   the same, `/api/coach-calendar/<token>.ics`, for their phone. The page says
   it is private and not to be shared. *Withdraw link* stops it at once; a new
-  link replaces the old. Neither is listed for search engines.
+  link replaces the old. Neither is listed for search engines. The link
+  decides no [approval application](activities.md#registering-online-for-approval):
+  a coach the venue names to review those does so signed in to their own
+  MySenam account, which a manager links to the coach record.
 
 ### What coaches are owed
 

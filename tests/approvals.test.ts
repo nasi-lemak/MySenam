@@ -13,6 +13,7 @@ import {
   decide,
   documentFor,
   expireApprovals,
+  linkCoachAccount,
   requestById,
   saveRequirement,
   type ApplyInput,
@@ -41,7 +42,7 @@ import { addDays, todayISO } from "../src/lib/time";
 import { setWaiver } from "../src/lib/waivers";
 import * as adminRoute from "../src/app/api/admin/approvals/route";
 import * as settingsRoute from "../src/app/api/admin/approvals/settings/route";
-import * as coachRoute from "../src/app/api/coach/[token]/approvals/route";
+import * as reviewsRoute from "../src/app/api/my/reviews/route";
 import * as myRoute from "../src/app/api/my/approvals/route";
 import * as myOneRoute from "../src/app/api/my/approvals/[id]/route";
 
@@ -68,7 +69,7 @@ let laneA: number;
 let laneB: number;
 let staffA: { id: number; name: string; cookie: string };
 let staffB: { id: number; name: string; cookie: string };
-let climbCoach: { id: number; name: string; venueId: number; active: boolean; token: string };
+let climbCoach: { id: number; name: string; venueId: number; active: boolean; token: string; userId: number; cookie: string };
 const staff = (s: { id: number; name: string }): Reviewer => ({ kind: "staff", admin: s });
 
 async function customer(opts: { locale?: string } = {}) {
@@ -146,7 +147,20 @@ beforeAll(async () => {
   if (!coach.ok) throw new Error(coach.error);
   await setCoachLink(coach.coach.id, venueA, true);
   const token = ((await getDb().prepare("SELECT calendar_token FROM coaches WHERE id = ?").get(coach.coach.id)) as { calendar_token: string }).calendar_token;
-  climbCoach = { id: coach.coach.id, name: "Ida Instructor", venueId: venueA, active: true, token };
+  // The coach's own account, linked by a manager: the only way a coach reviews (ADR 0020).
+  const own = await registerUser({ name: "Ida Instructor", email: "ida@apr.test", phone: phone(), password: "a long enough password" });
+  if (!own.ok) throw new Error(own.error);
+  const linked = await linkCoachAccount(venueA, coach.coach.id, "ida@apr.test");
+  if (!linked.ok) throw new Error(linked.error);
+  climbCoach = {
+    id: coach.coach.id,
+    name: "Ida Instructor",
+    venueId: venueA,
+    active: true,
+    token,
+    userId: own.user.id,
+    cookie: `${SESSION_COOKIE}=${(await createSession(own.user.id)).token}`,
+  };
 
   for (const [venueId, input] of [
     [
@@ -367,28 +381,33 @@ describe("deciding", () => {
 });
 
 describe("who may decide", () => {
-  it("an authorised coach reviews what the venue named them for, and nothing else", async () => {
+  it("an authorised coach reviews what the venue named them for, signed in to their own account, and nothing else", async () => {
     const me = await customer();
     const climb = await applied(me, climbing());
     const shoot = await applied(me, archeryA());
-    const coach: Reviewer = { kind: "coach", coach: climbCoach };
+    const coach: Reviewer = { kind: "coach", coach: climbCoach, userId: climbCoach.userId };
     expect(await decide(coach, shoot.id, "approve")).toMatchObject({ ok: false, code: "APR_NOT_REVIEWER", status: 403 });
-    // At their link: their list holds only what they may review.
-    const list = await coachRoute.GET(req(`http://localhost/api/coach/${climbCoach.token}/approvals`, "GET", null), { params: Promise.resolve({ token: climbCoach.token }) });
+    // Signed in: their list holds only what they may review.
+    const list = await reviewsRoute.GET(req("http://localhost/api/my/reviews", "GET", climbCoach.cookie));
     const ids = ((await list.json()) as { requests: { id: number; sport: string }[] }).requests.map((r) => r.sport);
     expect(ids).toContain("climbing");
     expect(ids).not.toContain("archery");
-    const res = await coachRoute.POST(req(`http://localhost/api/coach/${climbCoach.token}/approvals`, "POST", null, { id: climb.id, action: "approve" }), {
-      params: Promise.resolve({ token: climbCoach.token }),
-    });
+    // Another account, or nobody, decides nothing.
+    expect((await reviewsRoute.POST(req("http://localhost/api/my/reviews", "POST", null, { id: climb.id, action: "approve" }))).status).toBe(401);
+    expect((await reviewsRoute.POST(req("http://localhost/api/my/reviews", "POST", me.cookie, { id: climb.id, action: "approve" }))).status).toBe(403);
+    expect((await reviewsRoute.POST(req("http://localhost/api/my/reviews", "POST", climbCoach.cookie, { id: shoot.id, action: "approve" }))).status).toBe(403);
+    const res = await reviewsRoute.POST(req("http://localhost/api/my/reviews", "POST", climbCoach.cookie, { id: climb.id, action: "approve" }));
     expect(res.status).toBe(200);
     const after = (await requestById(climb.id))!;
     expect(after.events.at(-1)).toMatchObject({ actor: "coach", actorName: "Ida Instructor" });
+    // Attributed to the person: the coach record and the account they decided from.
+    const ev = (await getDb().prepare("SELECT coach_id, user_id FROM approval_events WHERE request_id = ? AND action = 'approved'").get(climb.id)) as { coach_id: number; user_id: number };
+    expect(ev).toEqual({ coach_id: climbCoach.id, user_id: climbCoach.userId });
     expect((await listActivity([venueA])).find((a) => a.action === "approval.approved" && a.adminName.includes("Ida"))).toBeDefined();
-    // No manager's powers: the settings are an admin route, closed to a coach link.
-    expect((await settingsRoute.POST(req("http://localhost/api/admin/approvals/settings", "POST", null, { venueId: venueA, sport: "climbing", declaration: "Anything goes now." }))).status).toBe(401);
-    // A coach the venue retires reviews nothing more.
-    expect(await decide({ kind: "coach", coach: { ...climbCoach, active: false } }, shoot.id, "approve")).toMatchObject({ ok: false, status: 403 });
+    // No manager's powers: the settings are an admin route, closed to a customer account.
+    expect((await settingsRoute.POST(req("http://localhost/api/admin/approvals/settings", "POST", climbCoach.cookie, { venueId: venueA, sport: "climbing", declaration: "Anything goes now." }))).status).toBe(401);
+    // A coach the venue retires reviews nothing more, whatever the caller claims.
+    expect(await decide({ kind: "coach", coach: { ...climbCoach, active: false }, userId: climbCoach.userId }, shoot.id, "approve")).toMatchObject({ ok: false, status: 403 });
   });
 
   it("another venue's staff can neither see nor decide", async () => {

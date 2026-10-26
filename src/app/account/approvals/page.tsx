@@ -8,12 +8,16 @@ import { sportLabel, type Phrase, type T } from "@/lib/i18n";
 import { useT } from "@/components/Language";
 import { ApprovalForm, SlotFields, explainApproval, slotBody, type ApplyInfo } from "@/components/ApprovalForm";
 import { History, StatusBadge, slotText, when, type Say } from "@/components/ApprovalReview";
+import CoachApprovals from "@/components/CoachApprovals";
+import PayOnline from "@/components/PayOnline";
 
 /**
  * The customer's applications to be approved for an activity, and where they
  * stand (lib/approvals.ts): what is waiting on whom, a question to answer, a
- * slot held or booked, when an approval runs out; and, from a venue's page,
- * the form to apply.
+ * slot held or booked (and, where the venue asks payment to hold, paying for
+ * it by its deadline), when an approval runs out or why it was taken back;
+ * from a venue's page, the form to apply; and, for a coach a venue linked to
+ * this account, the applications they review.
  */
 export default function ApprovalsPage() {
   const t = useT();
@@ -94,6 +98,7 @@ export default function ApprovalsPage() {
           />
         ))}
       </ul>
+      <CoachApprovals />
       <Link href="/account" className="text-sm text-teal-700 underline">
         {t("apr.backToAccount")}
       </Link>
@@ -172,6 +177,7 @@ function RequestCard({
         </div>
       )}
       {r.status === "rejected" && decision?.reason && <p className="rounded-lg bg-red-50 p-2 text-red-800">{t("apr.why", { reason: decision.reason })}</p>}
+      {r.revoked && r.revokeReason && <p className="rounded-lg bg-red-50 p-2 text-red-800">{t("apr.revokedWhy", { reason: r.revokeReason })}</p>}
       {r.slot && (
         <p className="text-slate-600">
           {t("apr.slotLine", { slot: slotText(r) })} · {slotState(t, r)}
@@ -185,7 +191,13 @@ function RequestCard({
           )}
         </p>
       )}
-      {r.slot && (r.slot.status === "taken" || r.slot.status === "lapsed") && !r.bookingCode && (
+      {r.slot && r.slot.status === "awaiting_payment" && r.slot.payBy && r.bookingCode && r.slot.due !== null && (
+        <div className="rounded-lg bg-amber-50 p-2 text-amber-900">
+          <p>{t("apr.payToConfirm", { date: when(`${r.slot.payBy.replace(" ", "T")}Z`, t.locale) })}</p>
+          <PayOnline codes={[r.bookingCode]} phone={r.phone} amount={r.slot.due} held />
+        </div>
+      )}
+      {r.slot && (r.slot.status === "taken" || r.slot.status === "lapsed" || r.slot.status === "payment_lapsed") && (!r.bookingCode || r.slot.status === "payment_lapsed") && (
         <p className="text-xs text-slate-600">
           {t("apr.slotGoneHelp")}{" "}
           <Link

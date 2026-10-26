@@ -203,6 +203,8 @@ export type AccessDenial =
   | "no-induction"
   /** The activity needs a sign-off or certification (lib/sign-offs.ts) and none is in force: a pending approval is not one. */
   | "approval-needed"
+  /** Attendance a manager arranged under staff supervision: staff let them in (ADR 0020). */
+  | "supervised"
   | "cancelled"
   | "unpaid"
   | "too-early"

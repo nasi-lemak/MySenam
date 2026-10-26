@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { logAction } from "@/lib/activity";
 import { venueMayOffer } from "@/lib/activities";
 import { addSignOff, listSignOffs, revokeSignOff, signOffAt } from "@/lib/sign-offs";
+import { signOffRevoked, staffMayGrant } from "@/lib/approvals";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,15 @@ export async function POST(req: NextRequest) {
   const wholeBusiness = body.wholeBusiness === true;
   if (wholeBusiness && !(await forWholeBusiness(admin, venueId)))
     return NextResponse.json({ error: "Only whoever runs the business records a sign-off for every branch." }, { status: 403 });
+  // Not past who may grant it: a safety-assessed activity's is a manager's, or delegated front desk's (lib/approvals.ts).
+  if (!(await staffMayGrant(admin.id, venueId, sport as string | null)))
+    return NextResponse.json(
+      {
+        error: "This is a safety assessment: a manager, a coach named for this activity, or staff delegated for it decides. You can ask for more, record the administrative check, or refuse.",
+        code: "APR_SAFETY_AUTHORITY",
+      },
+      { status: 403 }
+    );
   const made = await addSignOff({
     venueId,
     wholeBusiness,
@@ -112,5 +122,7 @@ export async function DELETE(req: NextRequest) {
     action: "signoff.revoked",
     detail: `${found.kind === "certification" ? "Certification" : "Sign-off"} for ${found.name} (${found.phone}): ${found.sport ?? "anything"}${reason ? `; ${reason.slice(0, 200)}` : ""}`,
   });
+  // Written by an approval: the approval is revoked with it, its bookings flagged for staff (lib/approvals.ts).
+  await signOffRevoked(id, admin, reason);
   return NextResponse.json({ ok: true });
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ApprovalRequirement } from "@/lib/approvals";
+import type { ApprovalRequirement, FlaggedBooking, ReviewLevel } from "@/lib/approvals";
+import { formatMinute } from "@/lib/interval";
 import { activityIcon } from "@/lib/activity-registry";
 import { courtSports } from "@/lib/court-activities";
 import { sportLabel } from "@/lib/i18n";
@@ -12,8 +13,9 @@ import { useStaffT } from "./StaffLanguage";
 
 /**
  * Online applications to be approved for an activity (lib/approvals.ts):
- * what the venue asks for each activity (managers), and the applications to
- * review (any of its staff, as sign-offs are).
+ * what the venue asks for each activity and who may grant it (managers), and
+ * the applications to review (any of its staff; granting a safety-assessed
+ * activity only a manager or front desk delegated for it; ADR 0020).
  */
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -22,6 +24,8 @@ interface CoachChoice {
   id: number;
   name: string;
   sports: string[];
+  /** The MySenam account linked to the coach record (its email), through which they review; null: none. */
+  account: string | null;
 }
 
 const EMPTY = {
@@ -39,6 +43,9 @@ const EMPTY = {
   holdHours: "48",
   open: true,
   coachIds: [] as number[],
+  reviewLevel: "safety" as ReviewLevel,
+  delegateIds: [] as number[],
+  payHours: "24",
 };
 
 function formOf(r: ApprovalRequirement): typeof EMPTY {
@@ -57,6 +64,9 @@ function formOf(r: ApprovalRequirement): typeof EMPTY {
     holdHours: String(r.holdHours),
     open: r.open,
     coachIds: r.coachIds,
+    reviewLevel: r.reviewLevel,
+    delegateIds: r.delegateIds,
+    payHours: String(r.payHours),
   };
 }
 
@@ -70,6 +80,8 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
   const t = useStaffT();
   const [requirements, setRequirements] = useState<ApprovalRequirement[]>([]);
   const [coaches, setCoaches] = useState<CoachChoice[]>([]);
+  const [desk, setDesk] = useState<{ id: number; name: string }[]>([]);
+  const [emails, setEmails] = useState<Record<number, string>>({});
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -82,6 +94,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
         if (!r.ok) throw new Error(t.err(data));
         setRequirements(data.requirements);
         setCoaches(data.coaches);
+        setDesk(data.desk ?? []);
       })
       .catch((err) => setError(err instanceof Error ? err.message : t("c.failed")));
   }, [venueId, t]);
@@ -114,12 +127,33 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
       holdHours: Number(form.holdHours),
       open: form.open,
       coachIds: form.coachIds,
+      reviewLevel: form.reviewLevel,
+      delegateIds: form.reviewLevel === "safety" ? form.delegateIds : [],
+      payHours: Number(form.payHours),
     };
     try {
       const res = await fetch("/api/admin/approvals/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data));
       setSaved(true);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("c.failed"));
+    }
+  }
+
+  /** Link a coach to their own account (by its email), or unlink it: they review only signed in to it. */
+  async function linkAccount(coachId: number, email: string | null) {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/approvals/reviewers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, coachId, email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data));
+      setEmails({ ...emails, [coachId]: "" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
@@ -143,6 +177,8 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
                   .join(", ")}
                 {" · "}
                 {r.validDays ? t("apr.set.lasts", { n: r.validDays }) : t("apr.set.untilTakenBack")}
+                {" · "}
+                {r.reviewLevel === "safety" ? t("apr.set.mSafety") : t("apr.set.mAdmin")}
               </span>
               <button type="button" onClick={() => setForm(formOf(r))} className="text-xs font-medium text-teal-700 hover:underline">
                 {t("c.edit")}
@@ -183,7 +219,35 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
             {t("apr.set.holdHours")}
             <input inputMode="numeric" required value={form.holdHours} onChange={(e) => setForm({ ...form, holdHours: e.target.value })} className={`mt-1 w-24 ${input}`} />
           </label>
+          <label className={label}>
+            {t("apr.set.payHours")}
+            <input inputMode="numeric" required value={form.payHours} onChange={(e) => setForm({ ...form, payHours: e.target.value })} className={`mt-1 w-24 ${input}`} />
+          </label>
+          <label className={label}>
+            {t("apr.set.reviewLevel")}
+            <select value={form.reviewLevel} onChange={(e) => setForm({ ...form, reviewLevel: e.target.value as ReviewLevel })} className={`mt-1 ${input}`}>
+              <option value="safety">{t("apr.set.safety")}</option>
+              <option value="administrative">{t("apr.set.administrative")}</option>
+            </select>
+          </label>
         </div>
+        {form.reviewLevel === "safety" && desk.length > 0 && (
+          <fieldset className="text-sm">
+            <legend className="text-xs font-medium text-slate-500">{t("apr.set.delegates")}</legend>
+            <div className="mt-1 flex flex-wrap gap-3">
+              {desk.map((d) => (
+                <label key={d.id} className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={form.delegateIds.includes(d.id)}
+                    onChange={(e) => setForm({ ...form, delegateIds: e.target.checked ? [...form.delegateIds, d.id] : form.delegateIds.filter((id) => id !== d.id) })}
+                  />
+                  {d.name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <label className={label}>
           {t("apr.set.introLabel")}
           <textarea rows={2} value={form.intro} onChange={(e) => setForm({ ...form, intro: e.target.value })} className={`mt-1 ${input}`} />
@@ -219,18 +283,42 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
         {coaches.length > 0 && (
           <fieldset className="text-sm">
             <legend className="text-xs font-medium text-slate-500">{t("apr.set.coaches")}</legend>
-            <div className="mt-1 flex flex-wrap gap-3">
+            <ul className="mt-1 space-y-1">
               {coaches.map((c) => (
-                <label key={c.id} className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={form.coachIds.includes(c.id)}
-                    onChange={(e) => setForm({ ...form, coachIds: e.target.checked ? [...form.coachIds, c.id] : form.coachIds.filter((id) => id !== c.id) })}
-                  />
-                  {c.name}
-                </label>
+                <li key={c.id} className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={form.coachIds.includes(c.id)}
+                      onChange={(e) => setForm({ ...form, coachIds: e.target.checked ? [...form.coachIds, c.id] : form.coachIds.filter((id) => id !== c.id) })}
+                    />
+                    {c.name}
+                  </label>
+                  {c.account ? (
+                    <span className="text-xs text-slate-500">
+                      {t("apr.set.account", { email: c.account })}{" "}
+                      <button type="button" onClick={() => void linkAccount(c.id, null)} className="text-teal-700 hover:underline">
+                        {t("apr.set.unlink")}
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs text-amber-700">
+                      {t("apr.set.noAccount")}
+                      <input
+                        type="email"
+                        placeholder={t("apr.set.accountEmail")}
+                        value={emails[c.id] ?? ""}
+                        onChange={(e) => setEmails({ ...emails, [c.id]: e.target.value })}
+                        className={`w-48 ${input}`}
+                      />
+                      <button type="button" disabled={!(emails[c.id] ?? "").trim()} onClick={() => void linkAccount(c.id, emails[c.id] ?? null)} className="text-teal-700 hover:underline disabled:opacity-50">
+                        {t("apr.set.link")}
+                      </button>
+                    </span>
+                  )}
+                </li>
               ))}
-            </div>
+            </ul>
             <p className="mt-0.5 text-xs text-slate-400">{t("apr.set.coachesHint")}</p>
           </fieldset>
         )}
@@ -268,8 +356,124 @@ export function ApprovalsReview({ venueId, venueName, waitingOnly }: { venueId: 
       hideWhenEmpty={waitingOnly}
       listUrl={`/api/admin/approvals?venueId=${venueId}${waitingOnly ? "&waiting=1" : ""}`}
       decideUrl="/api/admin/approvals"
-      decideBody={(id, action, reason) => ({ venueId, id, action, reason })}
+      decideBody={(id, action, reason, payLater) => ({ venueId, id, action, reason, ...(payLater ? { payLater: true } : {}) })}
       documentUrl={(id) => `/api/admin/approvals/document?venueId=${venueId}&id=${id}`}
+      payLaterOption
     />
+  );
+}
+
+/**
+ * Bookings to decide after an approval was taken back: the person's confirmed
+ * bookings of that activity here, flagged rather than cancelled. Staff cancel
+ * one the ordinary way, arrange supervision, or keep it, and say which.
+ */
+export function RevocationFlags({ venueId }: { venueId: number }) {
+  const t = useStaffT();
+  const [flags, setFlags] = useState<FlaggedBooking[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    fetch(`/api/admin/approvals?venueId=${venueId}&waiting=1`, { cache: "no-store" })
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(t.err(data));
+        setFlags(data.flags ?? []);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : t("c.failed")));
+  }, [venueId, t]);
+  useEffect(() => load(), [load]);
+
+  async function resolve(f: FlaggedBooking) {
+    const note = window.prompt(t("apr.flags.resolvePrompt", { code: f.bookingCode }));
+    if (note === null || note.trim() === "") return;
+    try {
+      const res = await fetch("/api/admin/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, flagId: f.id, action: "resolve_flag", note }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data));
+      setFlags(data.flags ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("c.failed"));
+    }
+  }
+
+  if (flags.length === 0 && !error) return null;
+  return (
+    <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+      <h3 className="font-semibold text-amber-900">{t("apr.flags.title")}</h3>
+      <p className="text-xs text-amber-900">{t("apr.flags.intro")}</p>
+      {error && <p className="text-red-700">{error}</p>}
+      <ul className="divide-y divide-amber-100">
+        {flags.map((f) => (
+          <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+            <span>
+              {t("apr.flags.line", { code: f.bookingCode, name: f.name, date: f.date, time: `${formatMinute(f.start)}–${formatMinute(f.end)}`, court: f.courtName })}
+              {f.supervised ? ` · ${t("apr.flags.supervised")}` : ""}
+            </span>
+            <button type="button" onClick={() => void resolve(f)} className="rounded-md border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-900">
+              {t("apr.flags.resolve")}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Staff-supervised attendance (managers): where the venue's safety
+ * procedures allow it, somebody not signed off attends with staff
+ * supervising. On record; the booking gets no door code, and it signs
+ * nobody off for later.
+ */
+export function SupervisedAttendance({ venueId }: { venueId: number }) {
+  const t = useStaffT();
+  const [code, setCode] = useState("");
+  const [note, setNote] = useState("");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function send(on: boolean) {
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/approvals/supervised", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, code, supervised: on, note }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data));
+      setMessage({ ok: true, text: t("apr.sup.done") });
+      setCode("");
+      setNote("");
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : t("c.failed") });
+    }
+  }
+
+  return (
+    <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <h3 className="font-semibold">{t("apr.sup.title")}</h3>
+      <p className="text-xs text-slate-500">{t("apr.sup.intro")}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("apr.sup.code")}
+          <input value={code} onChange={(e) => setCode(e.target.value)} className={`mt-1 w-32 ${input}`} />
+        </label>
+        <label className="flex flex-1 flex-col text-xs font-medium text-slate-500">
+          {t("apr.sup.note")}
+          <input value={note} onChange={(e) => setNote(e.target.value)} className={`mt-1 ${input}`} />
+        </label>
+        <button type="button" disabled={!code.trim() || !note.trim()} onClick={() => void send(true)} className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+          {t("apr.sup.on")}
+        </button>
+        <button type="button" disabled={!code.trim()} onClick={() => void send(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:opacity-50">
+          {t("apr.sup.off")}
+        </button>
+      </div>
+      {message && <p className={message.ok ? "text-emerald-700" : "text-red-700"}>{message.text}</p>}
+    </section>
   );
 }

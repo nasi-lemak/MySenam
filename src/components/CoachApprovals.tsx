@@ -7,11 +7,12 @@ import { ApprovalReview, type Say } from "@/components/ApprovalReview";
 import { explainApproval } from "@/components/ApprovalForm";
 
 /**
- * At a coach's own link: applications to be approved for the activities the
- * venue authorised them to review (lib/approvals.ts). Shown only when there
- * are some; nothing else of the venue's.
+ * A coach's review, signed in to their own account: applications to be
+ * approved for the activities each venue that linked this account to its
+ * coach record named them for (lib/approvals.ts; ADR 0020). Shown only when
+ * there are some; nothing else of the venue's.
  */
-export default function CoachApprovals({ token }: { token: string }) {
+export default function CoachApprovals() {
   const t = useT();
   const say: Say = useCallback((key, vars) => t(key as Phrase, vars), [t]);
   const explain = useCallback((body: unknown) => explainApproval(t, body as { error?: string; code?: string }), [t]);
@@ -24,10 +25,10 @@ export default function CoachApprovals({ token }: { token: string }) {
       explain={explain}
       title={t("apr.coachTitle")}
       hideWhenEmpty
-      listUrl={`/api/coach/${token}/approvals`}
-      decideUrl={`/api/coach/${token}/approvals`}
+      listUrl="/api/my/reviews"
+      decideUrl="/api/my/reviews"
       decideBody={(id, action, reason) => ({ id, action, reason })}
-      documentUrl={(id) => `/api/coach/${token}/approvals/document?id=${id}`}
+      documentUrl={(id) => `/api/my/reviews/document?id=${id}`}
     />
   );
 }
