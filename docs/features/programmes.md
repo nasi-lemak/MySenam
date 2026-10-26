@@ -26,6 +26,23 @@ series code. Cancelling a class releases every enrolment and returns the hours
 to general booking. Staff see a roster per class with each attendee's check-in
 state.
 
+**Enrolling somebody else.** A signed-in adult enrols themself, people they
+manage, or both; staff at the counter enrol a child the venue knows with a
+guardian on the number given ([booking for somebody else](booking.md#booking-for-somebody-else);
+`enrolPeople` in `src/lib/store.ts`). Each person gets a place and an
+enrolment of their own, at the class price, named on the roster, checked in,
+cancelled and refunded as themself; the adult takes a place only when ticked.
+All or none: a class with one place left takes neither of two children
+(`CLASS_FULL`), and the class row is locked while its places are counted so
+two guardians cannot take its last place for different children. Somebody
+already enrolled is refused by who they are: the adult by their own number
+taking part themself, a child by their id, so siblings sharing a parent's
+number are enrolled separately. A women-only or men-only class asks the adult
+to confirm it on behalf of the people they enrol. The confirmation goes to
+the adult and names each child; their [waiver](venue-operations.md#waivers)
+is agreed for each. A full class's waiting list keeps the same people
+([waitlists](booking.md#waitlists)).
+
 
 ### Terms
 
@@ -34,7 +51,9 @@ the classes page: *Every week to the end: 8 sessions, RM216*
 (`enrolInTerm` in `src/lib/store.ts`). Each session is its own enrolment, as
 if joined one by one, sharing a series code so they are confirmed in one
 message and paid in one bill. A session that is full, or that the customer
-is already in, is skipped and named. When scheduling a weekly class, the
+is already in, is skipped and named. Enrolling several people, each session takes all of
+them or is skipped and named: never some of a family in one week. When
+scheduling a weekly class, the
 venue can take a share off each session (up to 50%) for joining the whole
 term. A class in the diary can be joined however far ahead it is: the
 booking window is for courts, while the venue's house rules on how far ahead
@@ -71,6 +90,12 @@ booking is paid.
   is skipped and listed (`skipConflicts`). Nobody can move a lesson to
   another time, staff included (`RESCHEDULE_COACH`): it is cancelled and
   booked again. Staff can move it to another court at the same time.
+- **For somebody else.** A lesson can be booked for people the adult manages
+  (or by staff for a child the venue knows), as any booking
+  ([booking for somebody else](booking.md#booking-for-somebody-else)): the
+  child is the student, checked on their own sign-offs; the adult books, pays
+  and is told. The coach's lessons, link and payouts name the student taking
+  part (the booking's participants), with the adult's number to reach them.
 - Staff see *🎓 Lesson with Ana Lim* on the booking, and the staff calendar
   feed names the coach. *Stop* retires a coach; lessons already booked stand.
 

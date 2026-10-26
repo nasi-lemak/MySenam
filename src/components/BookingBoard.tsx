@@ -14,6 +14,8 @@ import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import { passCost } from "@/lib/pass-rules";
 import WaiverTick from "@/components/WaiverTick";
 import { explainGuard } from "@/components/ManagedPeople";
+import { ParticipantPicker, type PickedParticipant } from "@/components/admin/ParticipantPicker";
+import { useManagedPeople, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -181,6 +183,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   const [concessions, setConcessions] = useState<Concession[]>([]);
   // A manager of this venue, who may book outside its rules.
   const [mayOverride, setMayOverride] = useState(false);
+  // The venue's own staff, booking at the counter (lib/participant-bookings.ts).
+  const [atCounter, setAtCounter] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -244,6 +248,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       setClosure(data.closure ?? null);
       setMemberRates(data.memberRates === true);
       setMayOverride(data.mayOverride === true);
+      setAtCounter(data.atCounter === true);
       if (typeof data.timeZone === "string") setZone(data.timeZone);
       if (Number.isInteger(data.seriesWeeks)) setMaxWeeks(data.seriesWeeks);
       setConcessions(Array.isArray(data.concessions) ? data.concessions : []);
@@ -700,6 +705,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           starts={picked.starts}
           policy={picked.policy}
           mayOverride={mayOverride && selection.courtId !== ANY_COURT}
+          atCounter={atCounter}
           onChange={setSelection}
           maxWeeks={maxWeeks}
           alsoFree={alsoFree}
@@ -749,6 +755,7 @@ function BookingForm({
   starts,
   policy,
   mayOverride = false,
+  atCounter = false,
   onChange,
   maxWeeks = MAX_RECUR_WEEKS,
   alsoFree = [],
@@ -768,6 +775,8 @@ function BookingForm({
   policy: PublicPolicy;
   /** A manager of this venue, who may book outside its rules. */
   mayOverride?: boolean;
+  /** The venue's own staff at the counter, who may book for a child the venue knows (lib/participant-bookings.ts). */
+  atCounter?: boolean;
   onChange: (s: Selection) => void;
   /** The most weeks one weekly booking may run here. */
   maxWeeks?: number;
@@ -854,9 +863,17 @@ function BookingForm({
   const [chargeTo, setChargeTo] = useState<number | null>(null);
   // The venue's waiver, where it has one (lib/waivers.ts).
   const [agreeWaiver, setAgreeWaiver] = useState(false);
-  // Somebody the signed-in adult manages, booked for by them (lib/managed-people.ts; ADR 0022).
+  // People the signed-in adult manages, booked for by them (lib/participant-bookings.ts; ADR 0023):
+  // each ticked takes a place, and the adult one too where they take part.
   const [people, setPeople] = useState<{ id: number; displayName: string }[]>([]);
-  const [participantId, setParticipantId] = useState<number | null>(null);
+  const [forIds, setForIds] = useState<number[]>([]);
+  const [meToo, setMeToo] = useState(true);
+  // At the counter: children the venue knows with a guardian on this number, chosen by staff.
+  const [counterPeople, setCounterPeople] = useState<PickedParticipant[]>([]);
+  const [holderToo, setHolderToo] = useState(false);
+  const named = atCounter ? counterPeople.map((p) => p.id) : forIds;
+  const customerTakesPart = atCounter ? holderToo : meToo;
+  const persons = named.length + (named.length === 0 || customerTakesPart ? 1 : 0);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -917,8 +934,17 @@ function BookingForm({
       .catch(() => {});
   }, [court.venueId, court.sport]);
 
+  // A place for each person named, at least (a place is never shared by two people).
+  useEffect(() => {
+    if (counted && players < persons) setPlayers(Math.min(persons, mostPlayers));
+  }, [counted, persons, players, mostPlayers]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!atCounter && forIds.length === 0 && !meToo) {
+      onError(t("pbk.nobody"));
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/bookings", {
@@ -943,7 +969,7 @@ function BookingForm({
           payWithPass: (chargeTo === null && !hasExtras && passCode.trim()) || undefined,
           ...(chargeTo !== null ? { chargeTo } : {}),
           ...(agreeWaiver ? { agreeWaiver: true } : {}),
-          ...(participantId !== null ? { participantId } : {}),
+          ...(named.length > 0 ? { participantIds: named, customerTakesPart } : {}),
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
@@ -961,7 +987,7 @@ function BookingForm({
       )
         return;
       if (!res.ok && accountDetour(data)) return;
-      if (!res.ok && typeof data?.code === "string" && data.code.startsWith("GUARD_")) throw new Error(explainGuard(t, data));
+      if (!res.ok && typeof data?.code === "string" && (data.code.startsWith("GUARD_") || data.code.startsWith("PBK_"))) throw new Error(explainGuard(t, data));
       if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
       if (!signedIn) rememberGuest({ name, phone, email });
       onBooked(data);
@@ -1190,22 +1216,32 @@ function BookingForm({
         onList={setOffered}
       />
       )}
-      {people.length > 0 && more.length === 0 && (
-        <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-          {t("guard.whoPlays")}
-          <select
-            value={participantId ?? ""}
-            onChange={(e) => setParticipantId(e.target.value === "" ? null : Number(e.target.value))}
-            className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
-          >
-            <option value="">{t("guard.me")}</option>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {t("guard.bookFor", { name: p.displayName })}
-              </option>
-            ))}
-          </select>
-        </label>
+      {!atCounter && more.length === 0 && (
+        <WhoTakesPart
+          t={t}
+          people={people}
+          ids={forIds}
+          meToo={meToo}
+          onChange={(ids, me) => {
+            setForIds(ids);
+            setMeToo(me);
+          }}
+        />
+      )}
+      {atCounter && more.length === 0 && (
+        <ParticipantPicker
+          venueId={court.venueId}
+          phone={phone}
+          guardianName={name}
+          many={{
+            values: counterPeople,
+            holderTakesPart: holderToo,
+            onChange: (values, holder) => {
+              setCounterPeople(values);
+              setHolderToo(holder);
+            },
+          }}
+        />
       )}
       <WaiverTick venueId={court.venueId} venueName={venueName} checked={agreeWaiver} onChange={setAgreeWaiver} />
       {accounts.length > 0 && (
@@ -1651,6 +1687,11 @@ function SlotWaitlistModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState<number | null>(null);
+  // Who the place is for: the entry keeps them, and an offer is booked for them (lib/participant-bookings.ts).
+  const [signedIn, setSignedIn] = useState(false);
+  const people = useManagedPeople(signedIn);
+  const [forIds, setForIds] = useState<number[]>([]);
+  const [meToo, setMeToo] = useState(true);
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
@@ -1665,6 +1706,7 @@ function SlotWaitlistModal({
           }
           return;
         }
+        setSignedIn(true);
         setName((v) => v || data.user.name);
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
@@ -1688,9 +1730,11 @@ function SlotWaitlistModal({
           name,
           phone,
           email,
+          ...whoBody(forIds, meToo),
         }),
       });
       const data = await res.json();
+      if (!res.ok && typeof data?.code === "string" && (data.code.startsWith("GUARD_") || data.code.startsWith("PBK_"))) throw new Error(explainGuard(t, data));
       if (!res.ok) throw new Error(translateError(t, data) || t("queue.failed"));
       setPosition(data.position);
     } catch (err) {
@@ -1749,6 +1793,16 @@ function SlotWaitlistModal({
                 {t("form.emailOptional")}
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
               </label>
+              <WhoTakesPart
+                t={t}
+                people={people}
+                ids={forIds}
+                meToo={meToo}
+                onChange={(ids, me) => {
+                  setForIds(ids);
+                  setMeToo(me);
+                }}
+              />
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2 pt-1">
                 <button

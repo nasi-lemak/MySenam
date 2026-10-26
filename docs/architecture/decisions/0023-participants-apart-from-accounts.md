@@ -9,6 +9,15 @@
   [sign-offs](../../features/activities.md#sign-offs) and
   [inductions](../../features/venue-operations.md#inductions); what is held,
   who sees it and for how long is [privacy](../privacy.md#participants).
+- **Extended by:** every booking path naming participants on this model
+  (2026-10-26, the owner's decision): online for several people, the
+  counter, the venue's API key, several courts, classes and terms, coaching,
+  waiting lists (migration 0146) and attendance per person (0147), as
+  [booking for somebody else](../../features/booking.md#booking-for-somebody-else)
+  describes. Of the consequences below, the waiting list, class enrolment
+  and coaching, equipment hire, check-in and no-shows, booking emails and
+  the counter and API key no longer assume the account is the person;
+  memberships price only a booking their holder takes part in.
 - **Context:** a reported defect: inductions stayed with the adult's phone
   number. The cause was in the model, the staff workflow and the lookup
   together. `inductions` was `UNIQUE (venue_id, phone)` (migration 0001), so a

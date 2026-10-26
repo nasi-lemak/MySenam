@@ -31,17 +31,23 @@ export function ParticipantPicker({
   venueId,
   phone,
   guardianName,
-  value,
-  onChange,
+  value = null,
+  onChange = () => {},
   showInducted = false,
+  many,
 }: {
   venueId: number;
   phone: string;
   /** The name typed for the number holder: the guardian's, when adding somebody new. */
   guardianName: string;
-  value: PickedParticipant | null;
-  onChange: (picked: PickedParticipant | null) => void;
+  value?: PickedParticipant | null;
+  onChange?: (picked: PickedParticipant | null) => void;
   showInducted?: boolean;
+  /**
+   * Several at once, for a booking at the counter (lib/participant-bookings.ts):
+   * who is ticked, and whether the number holder takes a place too.
+   */
+  many?: { values: PickedParticipant[]; holderTakesPart: boolean; onChange: (values: PickedParticipant[], holderTakesPart: boolean) => void };
 }) {
   const t = useStaffT();
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
@@ -83,7 +89,9 @@ export function ParticipantPicker({
       setAdding(false);
       setForm({ displayName: "", birthYear: "", relationship: "parent", authority: false });
       await look();
-      onChange({ id: data.participant.id, displayName: data.participant.displayName });
+      const made = { id: data.participant.id, displayName: data.participant.displayName };
+      if (many) many.onChange([...many.values, made], many.holderTakesPart);
+      else onChange(made);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
     }
@@ -98,13 +106,33 @@ export function ParticipantPicker({
       ) : (
         <fieldset className="space-y-1">
           <legend className="text-xs font-medium text-slate-500">{t("ptc.pick.whoFor")}</legend>
-          <label className="flex items-center gap-2">
-            <input type="radio" checked={value === null} onChange={() => onChange(null)} />
-            {t("ptc.pick.holder")}
-          </label>
+          {many ? (
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={many.holderTakesPart} onChange={(e) => many.onChange(many.values, e.target.checked)} />
+              {t("pbk.counter.holderToo")}
+            </label>
+          ) : (
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={value === null} onChange={() => onChange(null)} />
+              {t("ptc.pick.holder")}
+            </label>
+          )}
           {candidates.map((c) => (
             <label key={c.id} className="flex items-center gap-2">
-              <input type="radio" checked={value?.id === c.id} onChange={() => onChange({ id: c.id, displayName: c.displayName })} />
+              {many ? (
+                <input
+                  type="checkbox"
+                  checked={many.values.some((v) => v.id === c.id)}
+                  onChange={(e) =>
+                    many.onChange(
+                      e.target.checked ? [...many.values, { id: c.id, displayName: c.displayName }] : many.values.filter((v) => v.id !== c.id),
+                      many.holderTakesPart
+                    )
+                  }
+                />
+              ) : (
+                <input type="radio" checked={value?.id === c.id} onChange={() => onChange({ id: c.id, displayName: c.displayName })} />
+              )}
               <span>
                 <span className="font-medium">{c.displayName}</span>
                 {c.birthYear ? ` · ${t("ptc.pick.born", { year: c.birthYear })}` : ""}
@@ -116,6 +144,7 @@ export function ParticipantPicker({
             </label>
           ))}
           {candidates.length === 0 && <p className="text-xs text-slate-500">{t("ptc.pick.none")}</p>}
+          {many && <p className="text-xs text-slate-500">{t("pbk.counter.note")}</p>}
           {!adding ? (
             <button type="button" onClick={() => setAdding(true)} className="text-xs font-medium text-teal-700 underline">
               {t("ptc.pick.addNew")}

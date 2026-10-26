@@ -1,4 +1,4 @@
--- A waiting-list entry keeps who it is for (lib/participant-bookings.ts;
+-- A waiting-list entry keeps who it is for (lib/store.ts waiting lists; lib/participant-bookings.ts;
 -- ADR 0023; docs/features/booking.md#waitlists).
 --
 -- Until now an entry was its customer's: one name and number, one place. A

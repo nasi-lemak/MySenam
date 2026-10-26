@@ -587,4 +587,15 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "action is revokeGuardian or link.": { ms: "action ialah revokeGuardian atau link.", zh: "action 须为 revokeGuardian 或 link。" },
   "guardianId is required.": { ms: "guardianId diperlukan.", zh: "必须提供 guardianId。" },
   "Invalid participant id.": { ms: "Id peserta tidak sah.", zh: "参与者 id 无效。" },
+  "No such person on this booking.": { ms: "Tiada orang sedemikian dalam tempahan ini.", zh: "此预订中没有这个人。" },
+  "They checked in, so they were not a no-show.": { ms: "Mereka telah mendaftar masuk, jadi mereka bukan tidak hadir.", zh: "此人已签到，因此并非未到。" },
+  "Nobody acting for them is on this number. Book with their guardian's number, or record the guardian's declaration first.": {
+    ms: "Tiada sesiapa yang bertindak bagi pihak mereka menggunakan nombor ini. Tempah dengan nombor penjaga mereka, atau rekodkan pengakuan penjaga dahulu.",
+    zh: "此号码下没有代其行事的人。请使用其监护人的号码预订，或先记录监护人的声明。",
+  },
+  "participantIds must be a list of participant ids.": { ms: "participantIds mestilah senarai id peserta.", zh: "participantIds 须为参与者 id 的列表。" },
+  "customerTakesPart must be true or false.": { ms: "customerTakesPart mestilah true atau false.", zh: "customerTakesPart 须为 true 或 false。" },
+  "Name each person once.": { ms: "Namakan setiap orang sekali sahaja.", zh: "每人只需列出一次。" },
+  "Up to {0} people on one booking.": { ms: "Sehingga {0} orang bagi satu tempahan.", zh: "每个预订最多 {0} 人。" },
+  "placeId and mark (arrived, no_show or clear) are required.": { ms: "placeId dan mark (arrived, no_show atau clear) diperlukan.", zh: "必须提供 placeId 和 mark（arrived、no_show 或 clear）。" },
 };

@@ -1,5 +1,6 @@
 "use client";
 
+import { useManagedPeople, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -45,6 +46,10 @@ export default function CoachBooking({
   const [signedIn, setSignedIn] = useState(false);
   const [weeks, setWeeks] = useState(1);
   const [series, setSeries] = useState<{ count: number; skipped: { date: string; reason: string }[] } | null>(null);
+  // A lesson for somebody the adult manages: the coach teaches them, the adult is told and pays (lib/participant-bookings.ts).
+  const people = useManagedPeople(signedIn);
+  const [forIds, setForIds] = useState<number[]>([]);
+  const [meToo, setMeToo] = useState(true);
 
   useEffect(() => {
     void fetch("/api/auth/me", { cache: "no-store" })
@@ -82,7 +87,7 @@ export default function CoachBooking({
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, sport, date, start, minutes: length, coachId: coach.id, ...who, weeks, skipConflicts: weeks > 1 }),
+        body: JSON.stringify({ venueId, sport, date, start, minutes: length, coachId: coach.id, ...who, ...whoBody(forIds, meToo), weeks, skipConflicts: weeks > 1 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
@@ -216,6 +221,16 @@ export default function CoachBooking({
           ) : (
             <p className="text-xs text-slate-500">{t("err.SERIES_NEEDS_ACCOUNT")}</p>
           )}
+          <WhoTakesPart
+            t={t}
+            people={people}
+            ids={forIds}
+            meToo={meToo}
+            onChange={(ids, me) => {
+              setForIds(ids);
+              setMeToo(me);
+            }}
+          />
           <BookingTermsNotice venueId={venueId} sport={sport} />
           <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}

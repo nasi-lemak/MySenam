@@ -48,6 +48,10 @@ export default function MyWaitlist({ phone }: { phone: string }) {
           <li key={entry.id} className="flex flex-wrap items-center gap-3">
             <div className="min-w-[12rem] flex-1 text-sm">
               <div className="font-medium">{entry.label ?? t("wait.aClass")}</div>
+              {entry.participantNames && entry.participantNames.length > 0 && (
+                // Who the entry is for, kept from when it was made: an offer is booked for them.
+                <div className="text-xs text-slate-600">{t("guard.forLine", { name: entry.participantNames.join(", ") })}</div>
+              )}
               <div className="text-xs text-slate-500">
                 {entry.status === "offered"
                   ? t("wait.held", {

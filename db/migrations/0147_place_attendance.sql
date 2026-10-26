@@ -1,5 +1,5 @@
--- Attendance per person taking part (lib/participant-bookings.ts; ADR 0023;
--- docs/features/venue-operations.md#check-in).
+-- Attendance per person taking part (lib/store.ts `markPlace`; ADR 0023;
+-- docs/features/venue-operations.md#check-in-and-live-crowd-levels).
 --
 -- `check_ins` is one row per booking: somebody on it arrived. Where a
 -- booking names the people taking part (`booking_participants`), staff can

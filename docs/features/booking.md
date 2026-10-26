@@ -242,6 +242,65 @@ one of those hours (and that take a booking that long), with what each costs.
   in search as on the grid; arriving from a search result for the heading,
   the grid marks it ([discovery](discovery.md#finding-a-court-from-the-front-page)).
 
+## Booking for somebody else
+
+Who takes part is not assumed to be whoever is signed in, booking or paying
+([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md);
+`src/lib/participant-bookings.ts`). Every booking path names the people
+taking part in the same way, and books them through the same engine
+(`createBookingSeries`), with nothing of its own:
+
+- **Who.** A booking names nobody (its customer takes part alone, as every
+  booking always has), or a list of participants (`participantIds`), with
+  `customerTakesPart` where the customer takes a place alongside them. A
+  participant is never re-entered at each booking: they are chosen from the
+  people the adult manages (online) or the venue knows (at the counter).
+- **Who may name them.** Online, only people the signed-in account acts for
+  now (a live relationship, not archived; anybody else's is refused
+  `GUARD_NOT_FOUND`). At the counter and through the venue's API key, only
+  participants the venue knows (`participantAtVenue`) with a live guardian on
+  the booking's number: the booking is made with, and told to, somebody who
+  acts for them. A number typed in never makes anybody a guardian
+  (`PBK_NOT_GUARDIAN`); somebody new is recorded first with the guardian's
+  declaration to the member of staff ([inductions](venue-operations.md#inductions)).
+- **Places.** Each person takes a place: a parent booking two children on a
+  shared facility takes two, and takes a third only when ticked as taking
+  part; a court booked whole is one booking whoever plays. The same person
+  twice is refused (`PBK_TWICE`); up to 12 people on one booking.
+- **Eligibility, each on their own.** Age rules, sign-offs, certifications
+  and approvals ([sign-offs](activities.md#sign-offs)), inductions and the
+  venue's waiver are checked for each participant, and for the customer only
+  when they take part; one child's never covers a sibling or the adult. A
+  sign-off that ends before the last day booked does not count. The door
+  asks for everybody's ([venue operations](venue-operations.md#resources-nobody-is-standing-next-to)).
+- **Money.** The customer (the guardian) pays, is held to pay where the venue
+  holds bookings until paid, and is refunded on cancelling, as for any
+  booking. A membership prices only a booking its holder takes part in
+  ([pricing](pricing.md#memberships-and-member-rates)). A booking is cancelled whole: one
+  child cannot be taken off a booking of two (book them separately where that
+  matters; class enrolments are already one each).
+- **Several courts.** In a booking of several courts each court has its own
+  people (`moreCourts: [{ courtId, participantIds, customerTakesPart }]`): a
+  child is on one court of the group at most, and the guardian is not on
+  every court because they placed the order. A court nobody is named on is
+  the customer's party, a count of places with nobody assigned. The booking
+  page names people on one court at a time.
+- **On record.** Each participant's history says who made the booking for
+  them, where and how (online, at the counter, through the API, a class, a
+  waiting list); staff bookings for a participant are also in the activity
+  log (`booking.for_participant`), and `booking_participants.added_by_*` says
+  who put each person on it.
+- **Told.** Confirmations, waiting-list offers and enrolments go to the
+  customer (the guardian) through their usual channels and name who it is
+  for ("Court 1, for Alya"); a participant needs no email or phone of their
+  own ([messaging](../integrations/messaging.md)).
+- **Never discoverable.** A booking naming a participant is never opened as
+  an open game, and participants never appear in matchmaking
+  ([open games](matchmaking.md)).
+
+Tests: `tests/participant-bookings.test.ts` (each path, refusals, and races
+on Postgres), `tests/participants.test.ts` (the model).
+
 ## Operating hours and closed days
 
 Hours are a property of the venue, not the platform. Every venue carries an
@@ -426,6 +485,22 @@ If the place is gone anyway (staff booked over it, or blocked the court), the
 claim fails and the waiter is put **back at the front of the queue** rather
 than losing their turn.
 
+**For somebody else.** A signed-in adult can queue for people they manage
+([booking for somebody else](#booking-for-somebody-else)), with or without
+themself. The entry keeps who and how many (`waitlist.places`,
+`waitlist_participants`, migration 0146), and waits for a place for each: an
+entry for two children is offered two places, held together, never one. A
+class place, like court time, goes to the longest waiter it fits; an entry
+too big for what came free waits. Before an offer is made the entry is
+checked again: every participant's record still there and the account still
+acting for each (otherwise the entry leaves the queue and the place goes to
+the next), and, where the activity needs one, each person's sign-off still in
+force (otherwise it waits). Claiming books exactly those people, each checked
+again as any booking is, at the price and payment terms that apply then; the
+customer is never booked in a child's place. The same child, or the adult
+taking part themself, cannot queue twice for the same thing; siblings on one
+number can. The offer goes to the account holder, naming who it is for.
+
 ## Moving a booking
 
 A net breaks, a court floods, a league wants to be side by side — the booking
@@ -517,7 +592,10 @@ are returned by name (`tests/series-cancel.test.ts`).
 
 After a slot has passed, staff can flag it a no-show from the Bookings tab. The
 flag is reversible, never applies to a cancelled booking, and the day list shows
-a ⚠ badge counting that phone number's previous no-shows.
+a ⚠ badge counting that phone number's previous no-shows. Where a booking
+names the people taking part, staff can also say who of them came
+([check-in](venue-operations.md#check-in-and-live-crowd-levels)); the booking is then a no-show
+only when everybody it names was one.
 
 ### Late cancellations and strikes
 

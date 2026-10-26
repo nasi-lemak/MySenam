@@ -55,6 +55,8 @@ import {
 import { addDays, todayISO } from "../src/lib/time";
 import { setWaiver } from "../src/lib/waivers";
 import { setHouseRules } from "../src/lib/house-rules";
+import { saveCoach } from "../src/lib/coaching";
+import { coachLessons } from "../src/lib/coach-schedule";
 import * as bookingsRoute from "../src/app/api/bookings/route";
 import * as enrolRoute from "../src/app/api/classes/enrol/route";
 import * as waitlistRoute from "../src/app/api/waitlist/route";
@@ -267,6 +269,22 @@ describe("online: myself, a child I act for, or several people", () => {
 
 // ---------------------------------------------------------------------------------------------- several courts
 
+describe("coaching: the child is the student; the adult books, pays and is told", () => {
+  it("a lesson for a child names them to the coach", async () => {
+    const hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, from: at(8), until: at(21) }));
+    const coach = await saveCoach(venue, { name: "Coach Ana", sports: ["badminton"], rate: 40, hours });
+    if (!coach.ok) throw new Error(coach.error);
+    const mum = await adult("Mum");
+    const a = await child(mum, "Amani");
+    const res = await book(mum, { courtId: hall2, date: day(29), start: at(15), end: at(16), coachId: coach.coach.id, participantIds: [a.id] });
+    expect(res.status).toBe(201);
+    const { booking } = (await res.json()) as { booking: { code: string; coachId: number; participantName: string; name: string } };
+    expect(booking).toMatchObject({ coachId: coach.coach.id, participantName: "Amani", name: mum.name });
+    const lessons = await coachLessons(coach.coach.id, day(29), day(29));
+    expect(lessons.find((l) => l.code === booking.code)).toMatchObject({ student: "Amani", phone: mum.phone });
+  });
+});
+
 describe("several courts at once: people with the court they are on", () => {
   it("each court its own children; the guardian on none; nobody on two", async () => {
     const mum = await adult("Mum");
@@ -371,7 +389,9 @@ describe("waiting lists keep who they are for", () => {
     const mum = await adult("Mum");
     const a = await child(mum, "Anis");
     const b = await child(mum, "Basyir");
-    const res = await waitlistRoute.POST(req("http://localhost/api/waitlist", "POST", mum.cookie, { classId: cls.id, name: mum.name, phone: mum.phone, participantIds: [a.id, b.id] }));
+    const res = await waitlistRoute.POST(
+      req("http://localhost/api/waitlist", "POST", mum.cookie, { classId: cls.id, name: mum.name, phone: mum.phone, email: mum.email, participantIds: [a.id, b.id] })
+    );
     expect(res.status).toBe(201);
     const { entry } = (await res.json()) as { entry: { id: number; places: number; participantNames: string[]; customerTakesPart: boolean } };
     expect(entry).toMatchObject({ places: 2, participantNames: ["Anis", "Basyir"], customerTakesPart: false });
@@ -392,6 +412,9 @@ describe("waiting lists keep who they are for", () => {
     expect(await enrolPeople({ classId: cls.id, name: stranger.name, phone: stranger.phone, userId: stranger.id, people: [null] })).toMatchObject({ ok: false, code: "CLASS_FULL" });
     // The offer names them, and goes to the guardian.
     await notifyPendingOffers();
+    const told = (await getDb().prepare("SELECT recipient, body FROM messages WHERE dedupe_key = ?").get(`offer:${offer.offer_token}`)) as { recipient: string; body: string } | undefined;
+    expect(told?.recipient).toBe(mum.email);
+    expect(told?.body).toContain("for Anis, Basyir");
     // Claimed: both children, each their own enrolment; the guardian is not enrolled.
     const claimed = await claimRoute.POST(req("http://localhost/api/waitlist/claim", "POST", null, { token: offer.offer_token }));
     expect(claimed.status).toBe(200);

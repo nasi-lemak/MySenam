@@ -2055,7 +2055,7 @@ export async function createBookingSeries(
   // Online (`by: "customer"`, as the booking route says) a member's number counts only when it is the account's own, proved or linked.
   // A membership prices a booking its holder takes part in: one made only for
   // others (a parent booking their children) is at the public rate, whoever's
-  // number it is on (docs/features/pricing.md#memberships).
+  // number it is on (docs/features/pricing.md#memberships-and-member-rates).
   const memberOn = async (weekDate: string): Promise<MemberPricing> =>
     customerPlays ? memberPricing(court.venueId, phone, weekDate, input.by ? { userId, by: input.by } : undefined) : false;
   const rules = await peakRules(court.venueId);

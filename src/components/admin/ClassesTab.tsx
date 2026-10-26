@@ -26,7 +26,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   const [roster, setRoster] = useState<{
     session: ClassSession;
     roster: Booking[];
-    waitlist?: { id: number; name: string; phone: string; status: string }[];
+    waitlist?: { id: number; name: string; phone: string; status: string; participantNames?: string[] }[];
   } | null>(null);
   const [waiting, setWaiting] = useState<Record<number, number>>({});
   const [error, setError] = useState<string | null>(null);
@@ -375,7 +375,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                   {roster.waitlist.map((w) => (
                     <li key={w.id} className="flex items-center justify-between gap-3">
                       <span>
-                        {w.name}
+                        {w.participantNames && w.participantNames.length > 0 ? t("apr.child.bookedFor", { name: w.participantNames.join(", "), adult: w.name }) : w.name}
                         <span className="ml-2 text-xs opacity-70">{w.phone}</span>
                       </span>
                       {w.status === "offered" && (
@@ -395,7 +395,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                 {roster.roster.map((b) => (
                   <li key={b.id} className="flex items-center justify-between gap-3">
                     <span className={b.status === "cancelled" ? "text-slate-400 line-through" : ""}>
-                      {b.name}
+                      {/* The person taking the place, where it is somebody the customer booked for. */}
+                      {b.participantName ? t("apr.child.bookedFor", { name: b.participantName, adult: b.name }) : b.name}
                       <span className="ml-2 text-xs text-slate-400">{b.phone}</span>
                     </span>
                     {b.status === "confirmed" && (

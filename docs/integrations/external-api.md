@@ -23,7 +23,7 @@ are limited to 120 a minute per key.
 | `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`; a start lists the `lengths` that fit where not every one up to its longest does, as when joining a session on a facility turned over whole), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
 | `GET /bookings?from=&to=` | read | Bookings in up to 31 days, cancelled ones too |
 | `GET /bookings/<code>` | read | One booking |
-| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it) |
+| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players?, participantIds?, customerTakesPart? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it). `participantIds`: for people other than the customer (see below) |
 | `POST /bookings/<code>/cancel` | write | Cancels as staff would; the customer is told |
 
 Times of day are minutes from the venue's midnight on the booking's date
@@ -36,6 +36,37 @@ depositPaid, coachId, noShow, createdAt, players }`: `startsAt` and `endsAt` are
 moments themselves (ISO 8601, UTC); `startHour` and `endHour` are the same
 times in hours, kept for clients written before minutes. A key only ever
 sees its own venue: another venue's court or booking is *not found*.
+
+**Booking for somebody else** (added 2026-10-26; additive, nothing existing
+changed, so not versioned). `participantIds` books for people other than the
+customer, a child most often, and `customerTakesPart: true` gives the
+customer a place too ([booking for somebody else](../features/booking.md#booking-for-somebody-else)).
+Each takes a place and is checked on their own sign-offs, certifications and
+approvals, as the venue's own staff would check them. What a key can do is
+bounded so that it never stands in for a guardian:
+
+- Only participants the venue already knows (added at its counter, or with a
+  booking, application, sign-off, induction or waiver there or at another
+  branch of its business); anybody else is *not found* (404). A key creates
+  no participant and reaches no other venue's.
+- `phone` must be a live guardian's of every participant named (their
+  account's number, or the number staff recorded with the guardian's
+  declaration): the booking is made with, and told to, somebody who acts for
+  them. Otherwise `PBK_NOT_GUARDIAN` (409).
+- Where the venue has a waiver, the guardian's agreement to it for each
+  participant must already be on record: a key cannot give it
+  (`WAIVER_NEEDED`, 409). A missing sign-off or approval is refused as for
+  any booking (`SIGN_OFF_NEEDED`, `CERTIFICATION_NEEDED`); eligibility is the
+  participant's own, never the customer's or anybody else's.
+- The booking is recorded as made by the venue's system: in each
+  participant's history as the key (`API key <id>`), and on each place.
+
+Every booking the API returns (`POST`, `GET /bookings`, `GET /bookings/<code>`)
+now also carries `participants`: `[{ participantId, name, customer }]`, each
+person taking a place where the booking names somebody other than its
+customer (with `customer: true` for the customer taking a place alongside
+them), and `[]` for a booking its customer takes alone. Webhooks carry the
+booking as before.
 
 **Webhooks.** Up to 5 HTTPS addresses per venue. Each gets a signing secret,
 shown once. `booking.created`, `booking.paid`, `booking.changed` (date, time

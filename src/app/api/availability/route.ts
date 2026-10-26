@@ -65,6 +65,11 @@ export async function GET(req: NextRequest) {
     seriesWeeks: await seriesWeeks(venueId),
     // Concession prices offered here, chosen at booking and shown at the counter.
     concessions: await listConcessions(venueId),
+    // The venue's own staff at the counter: they may book for a child the venue knows (lib/participant-bookings.ts).
+    atCounter: await (async () => {
+      const admin = await getSessionAdmin(req);
+      return !!admin && canAccessVenue(admin, venueId);
+    })(),
     // A manager of this venue may book outside its booking rules (recorded).
     mayOverride: await (async () => {
       const admin = await getSessionAdmin(req);
