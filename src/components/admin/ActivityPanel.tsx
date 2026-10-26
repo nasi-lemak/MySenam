@@ -9,6 +9,14 @@ import { useStaffT } from "./StaffLanguage";
 /** Each kind of entry's words in the staff dictionary; a kind not listed shows as lib/activity-labels.ts says it. */
 const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "booking.created": "act.a.bookingCreated",
+  "competition.cancelled": "act.a.competitionCancelled",
+  "retention.policy": "act.a.retentionPolicy",
+  "retention.reviewed": "act.a.retentionReviewed",
+  "tournament.knockout_refilled": "act.a.knockoutRefilled",
+  "tournament.match_moved": "act.a.matchMoved",
+  "tournament.official_added": "act.a.officialAdded",
+  "tournament.official_removed": "act.a.officialRemoved",
+  "tournament.performances": "act.a.performances",
   "booking.override": "act.a.bookingOverride",
   "signoff.added": "act.a.signoffAdded",
   "signoff.revoked": "act.a.signoffRevoked",

@@ -403,3 +403,41 @@ describe("when the booking cannot be finished because so many are booking at onc
     expect(posts[1]).toEqual(posts[0]);
   });
 });
+
+describe("the confirmation, for somebody else", () => {
+  it("says whom the booking is for, as the server named them", async () => {
+    const booking = {
+      id: 9,
+      code: "MS-FOR1",
+      courtId: 1,
+      date: DAY,
+      startHour: 8,
+      endHour: 9,
+      startMin: 480,
+      endMin: 540,
+      name: "Mum",
+      phone: "0123456789",
+      totalPrice: 15,
+      paymentStatus: "paid",
+      status: "confirmed",
+      participantName: "Alya, Bilal",
+    };
+    const fallback = fetchMock.getMockImplementation() as (url: string) => Promise<unknown>;
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (String(url).includes("/api/bookings") && init?.method === "POST")
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ booking, bookings: [booking], skipped: [], seriesCode: null, court: COURT, venue: { name: "Hall", area: "PJ" } }),
+        };
+      return fallback(url);
+    });
+    await act(async () => void board());
+    await tap(0);
+    await priced();
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Mum" } }));
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Phone/), { target: { value: "0123456789" } }));
+    await act(async () => void fireEvent.submit(screen.getByRole("button", { name: /^Book/ }).closest("form")!));
+    expect(await screen.findByText("For Alya, Bilal")).toBeTruthy();
+  });
+});

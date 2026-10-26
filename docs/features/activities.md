@@ -538,12 +538,10 @@ suggestions, profiles and invitations cannot reach them
 
 Not built: a coach's lesson asked for with an application (a slot is court
 time; a lesson is booked once approved); previews of PDFs (a PDF is
-downloaded, never shown in the app); booking for a participant on the
-waiting list, at the counter, through the venue's API key, on several
-courts at once, or for several participants online (those book for the
-adult, or need the library's `participants` on `createBookingSeries`);
-another guardian seeing an application the first one made (each guardian
-sees their own).
+downloaded, never shown in the app); another guardian seeing an
+application the first one made (each guardian sees their own). Booking for
+a participant on every path is in
+[booking for somebody else](booking.md#booking-for-somebody-else).
 
 ## Countries and languages
 

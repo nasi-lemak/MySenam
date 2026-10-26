@@ -1525,6 +1525,8 @@ function ConfirmationModal({
   const unpaidTotal = unpaid.reduce((sum, b) => sum + b.totalPrice, 0);
   // Held until paid, at a venue that asks for payment online to hold it.
   const holdUntil = bookings.find((b) => b.holdUntil)?.holdUntil ?? null;
+  // Who it is for, where it names somebody other than the customer: said, so a guardian booking for a child sees whom.
+  const forNames = [...new Set(bookings.map((b) => b.participantName).filter((n): n is string => !!n))].join(", ");
   const shareInfo = {
     siteName: t.site,
     code: seriesCode ?? booking.code,
@@ -1566,6 +1568,7 @@ function ConfirmationModal({
               {seriesCode ?? booking.code}
             </div>
           )}
+          {forNames && <p className="mt-2 text-sm font-medium text-slate-700">{t("guard.forLine", { name: forNames })}</p>}
         </div>
         <dl className="mt-5 space-y-1.5 text-sm">
           {[
@@ -1806,6 +1809,13 @@ function SlotWaitlistModal({
                 time: formatMinute(minute),
               })}
             </p>
+            {forIds.length > 0 && (
+              <p className="mt-2 text-sm font-medium text-slate-700">
+                {t("guard.forLine", {
+                  name: [...(meToo ? [t("pbk2.me")] : []), ...people.filter((p) => forIds.includes(p.id)).map((p) => p.displayName)].join(", "),
+                })}
+              </p>
+            )}
             <p className="mt-3 text-xs text-slate-500">
               {t("queue.onNote")}
             </p>
