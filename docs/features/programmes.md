@@ -95,8 +95,11 @@ On each coach under *Coaches* (`lib/coach-schedule.ts`):
   `/coach/<token>`, with their lessons for the next 30 days, each student's
   name and number (to call), and whether it is paid, plus a calendar feed of
   the same, `/api/coach-calendar/<token>.ics`, for their phone. The page says
-  it is private and not to be shared. *Withdraw link* stops it at once; a new
-  link replaces the old. Neither is listed for search engines. The link
+  it is private and not to be shared. The link is shown to staff once, when
+  made, to copy and send: only its hash is kept (`coaches.link_hash`), so the
+  dashboard afterwards says only until when it works. It lapses a year after
+  it is made (`LINK_DAYS`); *New link* replaces it, and *Withdraw link*
+  stops it at once. Neither is listed for search engines. The link
   decides no [approval application](activities.md#registering-online-for-approval):
   a coach the venue names to review those does so signed in to their own
   MySenam account, which a manager links to the coach record.
@@ -122,7 +125,9 @@ and add time off, a day or a stretch of days up to a year ahead
 lesson with them in time off; lessons already booked then stand, and the
 coach is told how many, to ask the venue to move them. Staff see the time
 off beside the coach. The link is the coach's key: the venue replaces or
-withdraws it as before, and a withdrawn link changes nothing.
+withdraws it as before, and a withdrawn or lapsed link changes nothing. Each
+change made at the link is written to the venue's activity log under the
+coach's name (no staff account), so staff can see who changed the hours.
 
 ## Women-only and men-only
 

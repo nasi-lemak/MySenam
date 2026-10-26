@@ -42,8 +42,7 @@ beforeAll(async () => {
   const coach = await saveCoach(venueId, { name: "Ana Lim", sports: ["tennis"], rate: 80, hours: [{ weekday: 1, from: 9 * 60, until: 12 * 60 }] });
   if (!coach.ok) throw new Error(coach.error);
   coachId = coach.coach.id;
-  expect(await setCoachLink(coachId, venueId, true)).toBe(true);
-  token = ((await getDb().prepare("SELECT calendar_token FROM coaches WHERE id = ?").get(coachId)) as { calendar_token: string }).calendar_token;
+  token = (await setCoachLink(coachId, venueId, true))!.link!.pageUrl.split("/coach/")[1];
 });
 
 describe("a coach's own week", () => {
@@ -74,6 +73,16 @@ describe("a coach's own week", () => {
     const id = off.body.timeOff[0].id;
     expect((await call(backOn, "DELETE", undefined, `?id=${id}`)).status).toBe(200);
     expect(coachWorks((await coachById(coachId))!, monday, { start: 18 * 60, end: 19 * 60 })).toBe(true);
+  });
+
+  it("records each change made at the link in the venue's activity log, under the coach's name", async () => {
+    const logged = (await getDb()
+      .prepare("SELECT admin_id, admin_name, detail FROM staff_actions WHERE venue_id = ? AND admin_name = 'Ana Lim' ORDER BY id")
+      .all(venueId)) as { admin_id: number | null; admin_name: string; detail: string }[];
+    expect(logged.map((l) => l.detail)).toEqual(
+      expect.arrayContaining(["Ana Lim, at their own link: hours", `Ana Lim, at their own link: days off from ${monday}`, "Ana Lim, at their own link: days off withdrawn"])
+    );
+    expect(logged.every((l) => l.admin_id === null)).toBe(true);
   });
 
   it("stops working when the venue withdraws the link", async () => {

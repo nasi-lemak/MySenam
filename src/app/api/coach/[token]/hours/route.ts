@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { coachForToken } from "@/lib/coach-schedule";
+import { coachForToken, logCoachChange } from "@/lib/coach-schedule";
 import { setCoachHours } from "@/lib/coaching";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -18,5 +18,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   const body = (await req.json().catch(() => null)) as { hours?: unknown } | null;
   const set = await setCoachHours(found.coach.id, body?.hours);
   if (!set.ok) return NextResponse.json(set, { status: 400 });
+  await logCoachChange(found, "hours");
   return NextResponse.json({ coach: { hours: set.coach.hours, timeOff: set.coach.timeOff } });
 }

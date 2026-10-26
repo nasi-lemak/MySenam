@@ -149,6 +149,11 @@ const en = {
   "coach.to": "to",
   "coach.save": "Save coach",
   "coach.add": "Add a coach",
+  "coach.linkUntil": "link works until {date}",
+  "coach.newLink": "New link",
+  "coach.newLinkConfirm": "Make a new link for {name}? The old one stops working at once, its calendar feed too.",
+  "coach.shownOnce": "This link is shown once: copy it and send it to the coach now. Only its hash is kept, so it cannot be shown again.",
+  "coach.copyCalendar": "Copy calendar feed link",
 
   // Customer report
   "cust.title": "Customers",
@@ -432,6 +437,11 @@ const ms: Record<keyof typeof en, string> = {
   "coach.to": "hingga",
   "coach.save": "Simpan jurulatih",
   "coach.add": "Tambah jurulatih",
+  "coach.linkUntil": "pautan sah hingga {date}",
+  "coach.newLink": "Pautan baharu",
+  "coach.newLinkConfirm": "Buat pautan baharu untuk {name}? Pautan lama berhenti berfungsi serta-merta, termasuk langganan kalendarnya.",
+  "coach.shownOnce": "Pautan ini dipaparkan sekali sahaja: salin dan hantar kepada jurulatih sekarang. Kami hanya menyimpan cincangannya, jadi ia tidak boleh dipaparkan lagi.",
+  "coach.copyCalendar": "Salin pautan kalendar",
 
   // Customer report
   "cust.title": "Pelanggan",
@@ -715,6 +725,11 @@ const zh: Record<keyof typeof en, string> = {
   "coach.to": "至",
   "coach.save": "保存教练",
   "coach.add": "添加教练",
+  "coach.linkUntil": "链接有效至 {date}",
+  "coach.newLink": "新链接",
+  "coach.newLinkConfirm": "为 {name} 生成新链接？旧链接会立即失效，包括其日历订阅。",
+  "coach.shownOnce": "这个链接只显示一次：现在就复制并发给教练。我们只保存它的哈希值，之后无法再显示。",
+  "coach.copyCalendar": "复制日历订阅链接",
 
   // Customer report
   "cust.title": "顾客",

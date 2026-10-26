@@ -38,7 +38,12 @@ the original in `X-Forwarded-Host`, or `MYSENAM_URL` must name the site.
 ## Private links and who decides approvals
 
 A private link (a coach's schedule, `/coach/<token>`; a tournament official's)
-grants only what its page shows, never a venue-management power. Deciding an
+grants only what its page shows, never a venue-management power. Both are 24
+random bytes, kept only as a SHA-256 hash, shown once when made, and lapse
+(a coach's a year after it is made, an official's on the tournament's last day or an earlier one the organiser gives);
+the venue withdraws or replaces either at once, and what is done at a coach's
+link is in the activity log under the coach's name
+([coaching](../features/programmes.md#one-to-one-coaching)). Deciding an
 application to be approved for an activity, where identity matters, needs an
 account: the venue's staff signed in to the dashboard, or a coach signed in to
 their own account that a manager linked to the coach record. Each decision is

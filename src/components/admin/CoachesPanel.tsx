@@ -3,7 +3,7 @@
 import { sportsOf } from "@/lib/court-activities";
 import { useCallback, useEffect, useState } from "react";
 import type { Coach, CoachHours } from "@/lib/coaching";
-import type { CoachContact } from "@/lib/coach-schedule";
+import type { CoachContact, NewCoachLink } from "@/lib/coach-schedule";
 import { type Sport } from "@/lib/types";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
@@ -39,6 +39,8 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [contacts, setContacts] = useState<Record<number, CoachContact>>({});
   const [emails, setEmails] = useState<Record<number, string>>({});
+  // A link just made: shown this once, since only its hash is kept.
+  const [fresh, setFresh] = useState<Record<number, NewCoachLink>>({});
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +63,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
     if (!res.ok) return setError(t.err(data, t("coach.saveFailed")));
     setCoaches(data.coaches);
     setContacts(data.contacts ?? {});
+    setFresh(data.link ? { ...fresh, [id]: data.link } : Object.fromEntries(Object.entries(fresh).filter(([k]) => Number(k) !== id)));
   }
   useEffect(() => {
     void load();
@@ -151,10 +154,17 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                   <button type="button" className="font-medium text-teal-700 underline" onClick={() => void contact(c.id, { action: "email", email: emails[c.id] ?? contacts[c.id]?.email ?? "" })}>
                     {t("coach.saveEmail")}
                   </button>
-                  {contacts[c.id]?.pageUrl ? (
+                  {contacts[c.id]?.linkUntil ? (
                     <>
-                      <button type="button" className="font-medium text-teal-700 underline" onClick={() => void navigator.clipboard?.writeText(contacts[c.id]!.pageUrl!)}>
-                        {t("coach.copyLink")}
+                      <span className="text-slate-500">{t("coach.linkUntil", { date: contacts[c.id]!.linkUntil!.slice(0, 10) })}</span>
+                      <button
+                        type="button"
+                        className="font-medium text-teal-700 underline"
+                        onClick={() => {
+                          if (confirm(t("coach.newLinkConfirm", { name: c.name }))) void contact(c.id, { action: "link", on: true });
+                        }}
+                      >
+                        {t("coach.newLink")}
                       </button>
                       <button
                         type="button"
@@ -171,6 +181,18 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                       {t("coach.makeLink")}
                     </button>
                   )}
+                </span>
+              )}
+              {c.active && fresh[c.id] && (
+                <span className="mt-1 block rounded-md bg-amber-50 p-2 text-xs text-amber-900">
+                  {t("coach.shownOnce")}
+                  <input readOnly aria-label={t("coach.copyLink")} value={fresh[c.id].pageUrl} className={`mt-1 block w-full ${input}`} onFocus={(e) => e.target.select()} />
+                  <button type="button" className="mr-3 font-medium text-teal-700 underline" onClick={() => void navigator.clipboard?.writeText(fresh[c.id].pageUrl)}>
+                    {t("coach.copyLink")}
+                  </button>
+                  <button type="button" className="font-medium text-teal-700 underline" onClick={() => void navigator.clipboard?.writeText(fresh[c.id].calendarUrl)}>
+                    {t("coach.copyCalendar")}
+                  </button>
                 </span>
               )}
             </span>

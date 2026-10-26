@@ -145,8 +145,7 @@ beforeAll(async () => {
 
   const coach = await saveCoach(venueA, { name: "Ida Instructor", sports: ["climbing", "archery"], rate: 50, hours: [] });
   if (!coach.ok) throw new Error(coach.error);
-  await setCoachLink(coach.coach.id, venueA, true);
-  const token = ((await getDb().prepare("SELECT calendar_token FROM coaches WHERE id = ?").get(coach.coach.id)) as { calendar_token: string }).calendar_token;
+  const token = (await setCoachLink(coach.coach.id, venueA, true))!.link!.pageUrl.split("/coach/")[1];
   // The coach's own account, linked by a manager: the only way a coach reviews (ADR 0020).
   const own = await registerUser({ name: "Ida Instructor", email: "ida@apr.test", phone: phone(), password: "a long enough password" });
   if (!own.ok) throw new Error(own.error);

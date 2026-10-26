@@ -168,7 +168,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET    | `/api/admin/data-request`  | `?venueId&phone` → what the venue holds against a number, as a file (managers) |
-| GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches |
+| GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches; `contacts` says until when each coach's private link works, never the link. `{venueId, id, action: "link", on}`: a new link, returned once as `link` (`pageUrl`, `calendarUrl`, `until`), or withdrawn |
 | GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address; on makes a new one |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |

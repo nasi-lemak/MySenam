@@ -21,9 +21,9 @@ export type { StaffAction } from "./activity-labels";
 export { ACTION_LABELS } from "./activity-labels";
 import type { StaffAction } from "./activity-labels";
 
-/** Write one entry. Never throws: a log that fails must not undo what was done. */
+/** Write one entry. Never throws: a log that fails must not undo what was done. No `id`: somebody without a staff account (a coach at their own link), by name. */
 export async function logAction(
-  admin: Pick<Admin, "id" | "name">,
+  admin: Pick<Admin, "name"> & { id: number | null },
   entry: { venueId: number | null; action: string; bookingCode?: string | null; detail?: string | null }
 ): Promise<void> {
   try {

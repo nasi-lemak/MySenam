@@ -8,10 +8,11 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined }),
 }));
 
+import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { createAdmin } from "../src/lib/admin-auth";
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
-import { coachCalendar, coachContacts, coachForToken, coachPayouts, coachPayoutsCsv, notifyCoaches, setCoachEmail, setCoachLink } from "../src/lib/coach-schedule";
+import { coachCalendar, coachContacts, coachForToken, coachPayouts, coachPayoutsCsv, LINK_DAYS, notifyCoaches, setCoachEmail, setCoachLink } from "../src/lib/coach-schedule";
 import { saveCoach, type Coach } from "../src/lib/coaching";
 import { getDb } from "../src/lib/db";
 import { createBooking, createCourt, createVenue, issuePass, payBookingWithPass } from "../src/lib/store";
@@ -109,16 +110,39 @@ describe("a pack of lessons", () => {
 
 describe("a coach's own schedule", () => {
   it("is at a private link and in a calendar feed, until withdrawn", async () => {
-    expect(await setCoachLink(coach.id, venueId, true)).toBe(true);
-    const url = (await coachContacts(venueId)).get(coach.id)!.pageUrl!;
-    const token = url.split("/coach/")[1];
+    const made = (await setCoachLink(coach.id, venueId, true))!.link!;
+    const token = made.pageUrl.split("/coach/")[1];
+    expect(made.calendarUrl).toContain(`/api/coach-calendar/${token}.ics`);
+    // Shown once: the venue's list says until when it works, never the link.
+    expect((await coachContacts(venueId)).get(coach.id)).toMatchObject({ linkUntil: made.until });
+    expect(JSON.stringify(Object.fromEntries(await coachContacts(venueId)))).not.toContain(token);
     const found = (await coachForToken(token))!;
     expect(found.coach.name).toBe("Ana Lim");
     const ics = await coachCalendar(found, venueId);
     expect(ics).toContain("SUMMARY:Lesson: Pupil Tan\\, Court");
     expect(ics).toContain("0123456700");
-    expect(await setCoachLink(coach.id, venueId, false)).toBe(true);
+    expect(await setCoachLink(coach.id, venueId, false)).toEqual({ link: null });
     expect(await coachForToken(token)).toBeNull();
+    expect((await coachContacts(venueId)).get(coach.id)!.linkUntil).toBeNull();
+    expect(await setCoachLink(999999, venueId, true)).toBeNull();
+  });
+
+  it("keeps only the link's hash, and stops working once it lapses or another is made", async () => {
+    const first = (await setCoachLink(coach.id, venueId, true))!.link!;
+    const token = first.pageUrl.split("/coach/")[1];
+    const row = (await getDb().prepare("SELECT calendar_token, link_hash FROM coaches WHERE id = ?").get(coach.id)) as { calendar_token: string | null; link_hash: string };
+    expect(row.calendar_token).toBeNull();
+    expect(row.link_hash).toBe(crypto.createHash("sha256").update(token).digest("hex"));
+    expect(row.link_hash).not.toContain(token);
+    expect(new Date(first.until).getTime() - Date.now()).toBeGreaterThan((LINK_DAYS - 1) * 86_400_000);
+    // Lapsed: refused, though the hash is still there.
+    await getDb().prepare("UPDATE coaches SET link_expires_at = now() - interval '1 minute' WHERE id = ?").run(coach.id);
+    expect(await coachForToken(token)).toBeNull();
+    expect((await coachContacts(venueId)).get(coach.id)!.linkUntil).toBeNull();
+    // A new one replaces it; the old one stays dead.
+    const second = (await setCoachLink(coach.id, venueId, true))!.link!;
+    expect(await coachForToken(token)).toBeNull();
+    expect((await coachForToken(second.pageUrl.split("/coach/")[1]))!.coach.id).toBe(coach.id);
   });
 
   it("emails the coach of lessons booked and cancelled, once each", async () => {

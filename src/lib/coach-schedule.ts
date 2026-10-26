@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { logAction } from "./activity";
 import { hoursOf } from "./interval";
 import { icsText, toUtcStamp } from "./booking-links";
 import { coachById, type Coach } from "./coaching";
@@ -17,7 +18,11 @@ import { venueZoneOf } from "./zones";
  * - **Their schedule** at a private link, `/coach/<token>`, and the same as a
  *   calendar feed for their phone. A manager turns it on, which makes the
  *   link, and can replace or withdraw it. It shows each student's name and
- *   number, so the coach can reach them; nothing else of the venue's.
+ *   number, so the coach can reach them; nothing else of the venue's. The
+ *   link is shown once, when made: only its hash is kept, and it lapses after
+ *   `LINK_DAYS` unless replaced. It sets the coach's own hours and days off,
+ *   each change recorded in the venue's activity log under the coach's name;
+ *   it decides no applications (that needs an account: lib/approvals.ts).
  * - **An email** when a lesson is booked with them, and when one is
  *   cancelled, where the venue has given their address.
  * - **What they are owed**: the coach's fee on each lesson in a period that
@@ -27,30 +32,23 @@ import { venueZoneOf } from "./zones";
 const DAYS_BACK = 7;
 const DAYS_AHEAD = 90;
 
+/** How long a coach's private link works once made. */
+export const LINK_DAYS = 365;
+
+const linkHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+const iso = (v: unknown) => (v == null ? null : new Date(v as string).toISOString());
+
 export interface CoachContact {
   email: string | null;
-  /** Their schedule page, when the link is on. */
-  pageUrl: string | null;
-  calendarUrl: string | null;
+  /** Until when their private link works, when one is on; the link itself was shown once, when made. */
+  linkUntil: string | null;
 }
 
 export async function coachContacts(venueId: number): Promise<Map<number, CoachContact>> {
-  const rows = (await getDb().prepare("SELECT id, email, calendar_token FROM coaches WHERE venue_id = ?").all(venueId)) as {
-    id: number;
-    email: string | null;
-    calendar_token: string | null;
-  }[];
-  const base = await venueBaseUrl(venueId);
-  return new Map(
-    rows.map((r) => [
-      r.id,
-      {
-        email: r.email,
-        pageUrl: r.calendar_token ? `${base}/coach/${r.calendar_token}` : null,
-        calendarUrl: r.calendar_token ? `${base}/api/coach-calendar/${r.calendar_token}.ics` : null,
-      },
-    ])
-  );
+  const rows = (await getDb()
+    .prepare("SELECT id, email, CASE WHEN link_hash IS NOT NULL AND link_expires_at > now() THEN link_expires_at END AS link_until FROM coaches WHERE venue_id = ?")
+    .all(venueId)) as { id: number; email: string | null; link_until: unknown }[];
+  return new Map(rows.map((r) => [r.id, { email: r.email, linkUntil: iso(r.link_until) }]));
 }
 
 export async function setCoachEmail(coachId: number, venueId: number, email: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -60,11 +58,28 @@ export async function setCoachEmail(coachId: number, venueId: number, email: unk
   return done.changes === 1 ? { ok: true } : { ok: false, error: "Coach not found." };
 }
 
-/** A fresh private link (the old one stops working), or none. */
-export async function setCoachLink(coachId: number, venueId: number, on: boolean): Promise<boolean> {
+export interface NewCoachLink {
+  pageUrl: string;
+  calendarUrl: string;
+  until: string;
+}
+
+/**
+ * A fresh private link (the old one stops working), shown this once; or, with
+ * `on` false, none. Null when the venue has no such coach.
+ */
+export async function setCoachLink(coachId: number, venueId: number, on: boolean): Promise<{ link: NewCoachLink | null } | null> {
   const token = on ? crypto.randomBytes(24).toString("base64url") : null;
-  const done = await getDb().prepare("UPDATE coaches SET calendar_token = ? WHERE id = ? AND venue_id = ?").run(token, coachId, venueId);
-  return done.changes === 1;
+  const row = (await getDb()
+    .prepare(
+      `UPDATE coaches SET link_hash = ?, link_expires_at = ${on ? `now() + interval '${LINK_DAYS} days'` : "NULL"}, calendar_token = NULL
+        WHERE id = ? AND venue_id = ? RETURNING link_expires_at`
+    )
+    .get(token ? linkHash(token) : null, coachId, venueId)) as { link_expires_at: unknown } | undefined;
+  if (!row) return null;
+  if (!token) return { link: null };
+  const base = await venueBaseUrl(venueId);
+  return { link: { pageUrl: `${base}/coach/${token}`, calendarUrl: `${base}/api/coach-calendar/${token}.ics`, until: iso(row.link_expires_at)! } };
 }
 
 export interface CoachByToken {
@@ -78,12 +93,18 @@ export async function coachForToken(token: string): Promise<CoachByToken | null>
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
   const row = (await getDb()
     .prepare(
-      `SELECT k.id, v.name, v.address, v.time_zone, v.lat, v.lng FROM coaches k JOIN venues v ON v.id = k.venue_id WHERE k.calendar_token = ?`
+      `SELECT k.id, v.name, v.address, v.time_zone, v.lat, v.lng FROM coaches k JOIN venues v ON v.id = k.venue_id
+        WHERE k.link_hash = ? AND k.link_expires_at > now()`
     )
-    .get(token)) as { id: number; name: string; address: string; time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+    .get(linkHash(token))) as { id: number; name: string; address: string; time_zone: string | null; lat: number | null; lng: number | null } | undefined;
   if (!row) return null;
   const coach = await coachById(row.id);
   return coach ? { coach, venueName: row.name, venueAddress: row.address, zone: venueZoneOf(row) } : null;
+}
+
+/** A change the coach made at their own link, in the venue's activity log under their name. */
+export async function logCoachChange(found: CoachByToken, detail: string): Promise<void> {
+  await logAction({ id: null, name: found.coach.name }, { venueId: found.coach.venueId, action: "settings.changed", detail: `${found.coach.name}, at their own link: ${detail}` });
 }
 
 export interface Lesson {
