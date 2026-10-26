@@ -295,6 +295,13 @@ export interface Booking {
   name: string;
   phone: string;
   email: string | null;
+  /**
+   * Who takes part, where the account's adult booked for somebody they manage
+   * (lib/managed-people.ts): the booking rules and door codes use that
+   * person's eligibility; `name` is the adult who booked.
+   */
+  participantId?: number | null;
+  participantName?: string | null;
   totalPrice: number;
   status: BookingStatus;
   createdAt: string;

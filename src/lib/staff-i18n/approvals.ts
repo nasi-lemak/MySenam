@@ -192,6 +192,23 @@ const en = {
   "apr.ret.role.manager": "manager",
   "apr.ret.act.hold": "Kept an application past its time (legal, safety or dispute hold)",
   "apr.ret.act.released": "Released a hold on an application",
+  // Applications an adult makes for somebody they manage (lib/managed-people.ts; ADR 0022).
+  "apr.child.appliedBy": "Applied by {adult} (declared {relationship}) for {name}",
+  "apr.child.rel.parent": "parent",
+  "apr.child.rel.guardian": "legal guardian",
+  "apr.child.rel.other": "other person with authority",
+  "apr.child.bornYear": "declared born {year}",
+  "apr.child.declaredNote": "declared by the adult, not verified",
+  "apr.child.authorityDeclared": "Authority declared {date}",
+  "apr.child.reviewAuthority": "Record authority reviewed",
+  "apr.child.authorityPrompt": "How did you review {adult}'s authority to apply for {name}? (optional)",
+  "apr.child.authorityReviewed": "Authority reviewed by {name}, {date}",
+  "apr.child.authorityNeeded": "Approval waits for a reviewer to record that they reviewed the adult's authority.",
+  "apr.child.evReviewed": "authority reviewed",
+  "apr.child.guardianCheck": "When an adult applies for somebody they manage (a child), a reviewer who may approve records that they reviewed the adult's authority before approving",
+  "apr.child.guardianCheckHint": "A MySenam account proves nobody's guardianship. Off: the adult's declaration is recorded as declared, and the review is optional.",
+  "apr.child.bookedFor": "{name} · booked by {adult}",
+  "apr.child.actReviewed": "Reviewed an adult's authority to apply for somebody they manage",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -380,6 +397,23 @@ const ms: Record<keyof typeof en, string> = {
   "apr.ret.role.manager": "pengurus",
   "apr.ret.act.hold": "Menyimpan permohonan melebihi tempohnya (tahanan undang-undang, keselamatan atau pertikaian)",
   "apr.ret.act.released": "Melepaskan tahanan pada permohonan",
+  // Applications an adult makes for somebody they manage (lib/managed-people.ts; ADR 0022).
+  "apr.child.appliedBy": "Dimohon oleh {adult} (diakui sebagai {relationship}) untuk {name}",
+  "apr.child.rel.parent": "ibu bapa",
+  "apr.child.rel.guardian": "penjaga yang sah",
+  "apr.child.rel.other": "orang lain yang berkuasa",
+  "apr.child.bornYear": "diakui lahir {year}",
+  "apr.child.declaredNote": "diakui oleh orang dewasa, tidak disahkan",
+  "apr.child.authorityDeclared": "Kuasa diakui {date}",
+  "apr.child.reviewAuthority": "Rekod kuasa telah disemak",
+  "apr.child.authorityPrompt": "Bagaimanakah anda menyemak kuasa {adult} untuk memohon bagi {name}? (pilihan)",
+  "apr.child.authorityReviewed": "Kuasa disemak oleh {name}, {date}",
+  "apr.child.authorityNeeded": "Kelulusan menunggu penyemak merekodkan bahawa mereka telah menyemak kuasa orang dewasa itu.",
+  "apr.child.evReviewed": "kuasa disemak",
+  "apr.child.guardianCheck": "Apabila orang dewasa memohon bagi orang yang diuruskannya (anak), penyemak yang boleh meluluskan merekodkan bahawa mereka telah menyemak kuasa orang dewasa itu sebelum meluluskan",
+  "apr.child.guardianCheckHint": "Akaun MySenam tidak membuktikan penjagaan sesiapa. Jika dimatikan: akuan orang dewasa direkodkan seperti yang diakui, dan semakan adalah pilihan.",
+  "apr.child.bookedFor": "{name} · ditempah oleh {adult}",
+  "apr.child.actReviewed": "Menyemak kuasa orang dewasa untuk memohon bagi orang yang diuruskannya",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -568,6 +602,23 @@ const zh: Record<keyof typeof en, string> = {
   "apr.ret.role.manager": "经理",
   "apr.ret.act.hold": "超期保留了一份申请（法律、安全或纠纷保留）",
   "apr.ret.act.released": "解除了申请的保留",
+  // Applications an adult makes for somebody they manage (lib/managed-people.ts; ADR 0022).
+  "apr.child.appliedBy": "由 {adult}（声明为{relationship}）为 {name} 申请",
+  "apr.child.rel.parent": "父母",
+  "apr.child.rel.guardian": "法定监护人",
+  "apr.child.rel.other": "其他有权代表的人",
+  "apr.child.bornYear": "声明出生于 {year} 年",
+  "apr.child.declaredNote": "由成年人声明，未经核实",
+  "apr.child.authorityDeclared": "于 {date} 声明代表权限",
+  "apr.child.reviewAuthority": "记录已审核代表权限",
+  "apr.child.authorityPrompt": "您是如何审核 {adult} 代 {name} 申请的权限的？（可选）",
+  "apr.child.authorityReviewed": "代表权限由 {name} 于 {date} 审核",
+  "apr.child.authorityNeeded": "须由审核人记录已审核该成年人的代表权限后才能批准。",
+  "apr.child.evReviewed": "已审核代表权限",
+  "apr.child.guardianCheck": "成年人为其管理的人（孩子）申请时，可批准的审核人须先记录已审核该成年人的代表权限，再批准",
+  "apr.child.guardianCheckHint": "MySenam 账户不能证明任何人的监护权。关闭时：按成年人的声明记录，审核为可选。",
+  "apr.child.bookedFor": "{name} · 由 {adult} 预订",
+  "apr.child.actReviewed": "审核了成年人代其管理的人申请的权限",
 };
 
 const area = { en, ms, zh };

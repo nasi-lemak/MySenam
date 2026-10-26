@@ -13,6 +13,7 @@ import { isPastSlot } from "@/lib/time";
 import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import { passCost } from "@/lib/pass-rules";
 import WaiverTick from "@/components/WaiverTick";
+import { explainGuard } from "@/components/ManagedPeople";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -853,6 +854,9 @@ function BookingForm({
   const [chargeTo, setChargeTo] = useState<number | null>(null);
   // The venue's waiver, where it has one (lib/waivers.ts).
   const [agreeWaiver, setAgreeWaiver] = useState(false);
+  // Somebody the signed-in adult manages, booked for by them (lib/managed-people.ts; ADR 0022).
+  const [people, setPeople] = useState<{ id: number; displayName: string }[]>([]);
+  const [participantId, setParticipantId] = useState<number | null>(null);
   const [skipConflicts, setSkipConflicts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -885,6 +889,10 @@ function BookingForm({
         fetch(`/api/my/accounts?venueId=${court.venueId}`, { cache: "no-store" })
           .then((res) => (res.ok ? res.json() : null))
           .then((data) => data && setAccounts(data.accounts))
+          .catch(() => {});
+        fetch("/api/my/people", { cache: "no-store" })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => data && setPeople(data.people))
           .catch(() => {});
         return fetch(`/api/my/wallet?venueId=${court.venueId}`, { cache: "no-store" });
       })
@@ -935,6 +943,7 @@ function BookingForm({
           payWithPass: (chargeTo === null && !hasExtras && passCode.trim()) || undefined,
           ...(chargeTo !== null ? { chargeTo } : {}),
           ...(agreeWaiver ? { agreeWaiver: true } : {}),
+          ...(participantId !== null ? { participantId } : {}),
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
@@ -952,6 +961,7 @@ function BookingForm({
       )
         return;
       if (!res.ok && accountDetour(data)) return;
+      if (!res.ok && typeof data?.code === "string" && data.code.startsWith("GUARD_")) throw new Error(explainGuard(t, data));
       if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
       if (!signedIn) rememberGuest({ name, phone, email });
       onBooked(data);
@@ -1179,6 +1189,23 @@ function BookingForm({
         onChange={setPicked}
         onList={setOffered}
       />
+      )}
+      {people.length > 0 && more.length === 0 && (
+        <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          {t("guard.whoPlays")}
+          <select
+            value={participantId ?? ""}
+            onChange={(e) => setParticipantId(e.target.value === "" ? null : Number(e.target.value))}
+            className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+          >
+            <option value="">{t("guard.me")}</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {t("guard.bookFor", { name: p.displayName })}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
       <WaiverTick venueId={court.venueId} venueName={venueName} checked={agreeWaiver} onChange={setAgreeWaiver} />
       {accounts.length > 0 && (

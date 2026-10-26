@@ -347,6 +347,7 @@ const en = {
   "srv.tn.replay.firstAt": "{match} is to be replayed with {right} in place of {wrong} on {date} at {time}.",
   "srv.tn.replay.next": "{match} is to be replayed, with the winner of the replay before.",
   "srv.tn.replay.nextAt": "{match} is to be replayed, with the winner of the replay before on {date} at {time}.",
+  "srv.ret.managedPeople": "People an adult no longer manages from their account, once no application, sign-off in force or booking to come rests on them",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -692,6 +693,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.tn.replay.firstAt": "{match} akan dimainkan semula dengan {right} menggantikan {wrong} pada {date} jam {time}.",
   "srv.tn.replay.next": "{match} akan dimainkan semula, dengan pemenang perlawanan ulangan sebelumnya.",
   "srv.tn.replay.nextAt": "{match} akan dimainkan semula, dengan pemenang perlawanan ulangan sebelumnya, pada {date} jam {time}.",
+  "srv.ret.managedPeople": "Orang yang tidak lagi diurus oleh orang dewasa dari akaunnya, apabila tiada permohonan, pengesahan yang berkuat kuasa atau tempahan akan datang bergantung padanya",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1037,6 +1039,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.tn.replay.firstAt": "{match} 将于 {date} {time} 重赛，由 {right} 替换 {wrong}。",
   "srv.tn.replay.next": "{match} 将重赛，由上一场重赛的胜者参赛。",
   "srv.tn.replay.nextAt": "{match} 将于 {date} {time} 重赛，由上一场重赛的胜者参赛。",
+  "srv.ret.managedPeople": "成年人已不再通过其账户管理的人员（在没有申请、有效的确认或待进行的预订依赖于他们之后）",
 };
 
 const area = { en, ms, zh };

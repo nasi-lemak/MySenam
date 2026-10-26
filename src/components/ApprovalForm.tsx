@@ -24,12 +24,23 @@ export interface ApplyInfo {
   courts: { id: number; name: string }[];
   waiverText: string | null;
   adult: boolean | null;
+  /** The waiver, to agree on behalf of somebody the account manages (ADR 0022). */
+  waiverForOthers?: string | null;
+  /** People the account's adult manages, who may be applied for. */
+  people?: { id: number; displayName: string; relationship: "parent" | "guardian" | "other" }[];
 }
 
 /** A refusal about an application, in the customer's language: by its code where it has one. */
 export function explainApproval(t: T, body: { error?: string; code?: string } | null | undefined): string {
-  // Document refusals (lib/approval-documents.ts) have their own words.
-  const key = body?.code ? (body.code.startsWith("APRDOC_") ? `aprdoc.err.${body.code}` : `apr.err.${body.code}`) : "";
+  // Document refusals (lib/approval-documents.ts) have their own words; so do those about somebody managed.
+  const code = body?.code ?? "";
+  const key = code
+    ? code.startsWith("APRDOC_")
+      ? `aprdoc.err.${code}`
+      : code.startsWith("GUARD_") || code.startsWith("APR_CHILD_")
+        ? `guard.err.${code}`
+        : `apr.err.${code}`
+    : "";
   if (key && hasPhrase(key)) return t(key as Phrase);
   return translateError(t, body) || t("apr.failed");
 }
@@ -91,8 +102,14 @@ export function slotBody(v: { courtId: string; date: string; start: string; end:
  * Applying to be approved for an activity: what the venue asks, the
  * declarations, a document where it needs one, and a slot if wanted.
  */
-export function ApprovalForm({ info, onDone }: { info: ApplyInfo; onDone: () => void }) {
+export function ApprovalForm({ info, onDone, initialFor }: { info: ApplyInfo; onDone: () => void; initialFor?: number | null }) {
   const t = useT();
+  // Who it is for: the account's adult, or somebody they manage (applied for, and agreed for, by the adult).
+  const people = info.people ?? [];
+  const [forId, setForId] = useState<number | null>(initialFor && people.some((p) => p.id === initialFor) ? initialFor : null);
+  const person = people.find((p) => p.id === forId) ?? null;
+  const [authority, setAuthority] = useState(false);
+  const waiverShown = person ? (info.waiverForOthers ?? null) : info.waiverText;
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [declaration, setDeclaration] = useState(false);
   const [watched, setWatched] = useState(false);
@@ -119,9 +136,13 @@ export function ApprovalForm({ info, onDone }: { info: ApplyInfo; onDone: () => 
       declaration,
       videoWatched: watched,
       waiver,
-      adult,
-      guardianName: adult === false ? guardianName : undefined,
-      guardianDeclaration: adult === false ? guardianDeclaration : undefined,
+      ...(person
+        ? { forPerson: person.id, authority }
+        : {
+            adult,
+            guardianName: adult === false ? guardianName : undefined,
+            guardianDeclaration: adult === false ? guardianDeclaration : undefined,
+          }),
       certReference: info.kind === "certification" ? certReference : undefined,
       certExpiresOn: info.kind === "certification" ? certExpiresOn : undefined,
       slot: slotBody(slot),
@@ -149,6 +170,27 @@ export function ApprovalForm({ info, onDone }: { info: ApplyInfo; onDone: () => 
         <p className="mt-1 text-sm text-slate-600">{t("apr.applyIntro")}</p>
         {info.intro && <p className="mt-2 whitespace-pre-line text-sm text-slate-700">{info.intro}</p>}
       </div>
+      {people.length > 0 && (
+        <label className={`block text-sm ${box}`}>
+          {t("guard.whoFor")}
+          <select
+            value={forId ?? ""}
+            onChange={(e) => {
+              setForId(e.target.value === "" ? null : Number(e.target.value));
+              setAuthority(false);
+              setWaiver(false);
+            }}
+            className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+          >
+            <option value="">{t("guard.me")}</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {info.questions.length > 0 && (
         <div className={box}>
           {info.questions.map((q) => (
@@ -210,15 +252,25 @@ export function ApprovalForm({ info, onDone }: { info: ApplyInfo; onDone: () => 
           <span className="whitespace-pre-line">{info.declaration}</span>
         </label>
       )}
-      {info.waiverText && (
+      {waiverShown && (
         <div className={box}>
-          <div className="max-h-40 overflow-y-auto whitespace-pre-line rounded bg-slate-50 p-2 text-xs text-slate-700">{info.waiverText}</div>
+          <div className="max-h-40 overflow-y-auto whitespace-pre-line rounded bg-slate-50 p-2 text-xs text-slate-700">{waiverShown}</div>
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" checked={waiver} onChange={(e) => setWaiver(e.target.checked)} className="mt-1" required />
-            {t("apr.waiverAgree")}
+            {person ? t("guard.waiverOnBehalf", { name: person.displayName }) : t("apr.waiverAgree")}
           </label>
         </div>
       )}
+      {person && (
+        <div className={box}>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={authority} onChange={(e) => setAuthority(e.target.checked)} className="mt-1" required />
+            {t("guard.authorityApply", { name: person.displayName, relationship: t(`guard.rel.${person.relationship}`) })}
+          </label>
+          <p className="text-xs text-slate-500">{t("guard.declaredNote")}</p>
+        </div>
+      )}
+      {!person && (
       <fieldset className={box}>
         <legend className="px-1 text-sm font-medium">{t("apr.ageTitle")}</legend>
         <label className="flex items-center gap-2 text-sm">
@@ -246,6 +298,7 @@ export function ApprovalForm({ info, onDone }: { info: ApplyInfo; onDone: () => 
         )}
         <p className="text-xs text-slate-500">{t("apr.declaredNote")}</p>
       </fieldset>
+      )}
       {info.inPerson && <p className="rounded-lg bg-violet-50 p-3 text-sm text-violet-900">{t("apr.inPersonNote", { step: info.inPerson })}</p>}
       {info.courts.length > 0 && (
         <div className={box}>

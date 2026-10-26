@@ -17,6 +17,10 @@ import type { Refusal } from "./types";
  * A signature is the venue's record of consent, so it is kept when a customer
  * erases their account (like the money on their bookings), and goes out with
  * their data when they ask.
+ *
+ * An adult may agree on behalf of somebody they manage (lib/managed-people.ts):
+ * the adult signs (their name and number), the person takes part, and that
+ * agreement is the person's alone, apart from the adult's own.
  */
 
 export const MAX_WAIVER = 8000;
@@ -61,44 +65,77 @@ export async function setWaiver(venueId: number, text: unknown): Promise<{ ok: t
   return { ok: true, waiver: await currentWaiver(venueId) };
 }
 
-/** Has this number agreed to the venue's waiver as it stands? True where there is none. */
+/** Has this number agreed to the venue's waiver as it stands, for themselves? True where there is none. */
 export async function waiverSigned(venueId: number, phone: string): Promise<boolean> {
   const waiver = await currentWaiver(venueId);
   if (!waiver) return true;
-  return !!(await getDb().prepare("SELECT 1 FROM waiver_signatures WHERE waiver_id = ? AND phone_key = ?").get(waiver.id, phoneKey(phone)));
+  return !!(await getDb()
+    .prepare("SELECT 1 FROM waiver_signatures WHERE waiver_id = ? AND phone_key = ? AND participant_name IS NULL")
+    .get(waiver.id, phoneKey(phone)));
 }
 
-/** Record an agreement to the waiver in force: by the customer ticking it, or by staff from paper. */
+/** Has an adult agreed to the venue's waiver as it stands on behalf of this person they manage? True where there is none. */
+export async function waiverSignedFor(venueId: number, managedPersonId: number): Promise<boolean> {
+  const waiver = await currentWaiver(venueId);
+  if (!waiver) return true;
+  return !!(await getDb().prepare("SELECT 1 FROM waiver_signatures WHERE waiver_id = ? AND managed_person_id = ?").get(waiver.id, managedPersonId));
+}
+
+/**
+ * Record an agreement to the waiver in force: by the customer ticking it, or
+ * by staff from paper. With `participant`, the customer (the adult signing)
+ * agrees on behalf of somebody they manage.
+ */
 export async function signWaiver(
   venueId: number,
-  input: { phone: string; name: string; bookingId?: number | null; adminId?: number | null }
+  input: { phone: string; name: string; bookingId?: number | null; adminId?: number | null; participant?: { id: number; name: string } | null }
 ): Promise<boolean> {
   const waiver = await currentWaiver(venueId);
   if (!waiver) return false;
+  if (input.participant) {
+    await getDb()
+      .prepare(
+        `INSERT INTO waiver_signatures (waiver_id, phone_key, name, booking_id, recorded_by, managed_person_id, participant_name) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (waiver_id, managed_person_id) WHERE managed_person_id IS NOT NULL DO NOTHING`
+      )
+      .run(
+        waiver.id, phoneKey(input.phone), input.name.trim().slice(0, 80), input.bookingId ?? null, input.adminId ?? null,
+        input.participant.id, input.participant.name.trim().slice(0, 80)
+      );
+    return true;
+  }
   await getDb()
     .prepare(
       `INSERT INTO waiver_signatures (waiver_id, phone_key, name, booking_id, recorded_by) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (waiver_id, phone_key) DO NOTHING`
+       ON CONFLICT (waiver_id, phone_key) WHERE participant_name IS NULL DO NOTHING`
     )
     .run(waiver.id, phoneKey(input.phone), input.name.trim().slice(0, 80), input.bookingId ?? null, input.adminId ?? null);
   return true;
 }
 
-/** Which of these numbers have signed each venue's waiver, by `venueId:phoneKey`; venues with none count as signed. */
-export async function signaturesFor(pairs: { venueId: number; phone: string }[]): Promise<Map<string, boolean>> {
+/**
+ * Which of these numbers have signed each venue's waiver, by `venueId:phoneKey`;
+ * venues with none count as signed. A pair with `participant` asks about an
+ * agreement on behalf of somebody managed, keyed `venueId:p<id>`.
+ */
+export async function signaturesFor(pairs: { venueId: number; phone: string; participant?: number | null }[]): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
   if (pairs.length === 0) return result;
   const venues = [...new Set(pairs.map((p) => p.venueId))];
   const rows = (await getDb()
     .prepare(
-      `SELECT w.venue_id, s.phone_key FROM venue_waivers w LEFT JOIN waiver_signatures s ON s.waiver_id = w.id
+      `SELECT w.venue_id, s.phone_key, s.managed_person_id, s.participant_name FROM venue_waivers w LEFT JOIN waiver_signatures s ON s.waiver_id = w.id
         WHERE w.retired_at IS NULL AND w.venue_id IN (${venues.map(() => "?").join(",")})`
     )
-    .all(...venues)) as { venue_id: number; phone_key: string | null }[];
+    .all(...venues)) as { venue_id: number; phone_key: string | null; managed_person_id: number | null; participant_name: string | null }[];
   const asks = new Set(rows.map((r) => r.venue_id));
-  const signed = new Set(rows.filter((r) => r.phone_key).map((r) => `${r.venue_id}:${r.phone_key}`));
+  const signed = new Set(
+    rows
+      .filter((r) => r.phone_key)
+      .map((r) => (r.participant_name === null ? `${r.venue_id}:${r.phone_key}` : r.managed_person_id !== null ? `${r.venue_id}:p${r.managed_person_id}` : ""))
+  );
   for (const p of pairs) {
-    const key = `${p.venueId}:${phoneKey(p.phone)}`;
+    const key = p.participant ? `${p.venueId}:p${p.participant}` : `${p.venueId}:${phoneKey(p.phone)}`;
     result.set(key, !asks.has(p.venueId) || signed.has(key));
   }
   return result;
@@ -108,7 +145,7 @@ export async function signaturesFor(pairs: { venueId: number; phone: string }[])
  * For a booking or enrolment from the venue's page: refused until the box is
  * ticked, where the venue has a waiver this number has not agreed to.
  */
-export async function waiverRefusal(venueId: number, phone: string, agreed: unknown): Promise<Refusal | null> {
-  if (agreed === true || (await waiverSigned(venueId, phone))) return null;
+export async function waiverRefusal(venueId: number, phone: string, agreed: unknown, participant?: number | null): Promise<Refusal | null> {
+  if (agreed === true || (participant ? await waiverSignedFor(venueId, participant) : await waiverSigned(venueId, phone))) return null;
   return { ok: false, error: errorText(translator("en"), "WAIVER_NEEDED"), code: "WAIVER_NEEDED" };
 }

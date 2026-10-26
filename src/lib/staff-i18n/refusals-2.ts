@@ -548,4 +548,7 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Say why the hold is no longer needed.": { ms: "Nyatakan mengapa tahanan tidak lagi diperlukan.", zh: "请说明为何不再需要保留。" },
   "Hold not found.": { ms: "Tahanan tidak dijumpai.", zh: "找不到该保留。" },
   "turnover is place, unit or facility.": { ms: "turnover ialah place, unit atau facility.", zh: "turnover 须为 place、unit 或 facility。" },
+  "action is approve, reject, ask, in_person, check, revoke or authority.": { ms: "action ialah approve, reject, ask, in_person, check, revoke atau authority.", zh: "action 须为 approve、reject、ask、in_person、check、revoke 或 authority。" },
+  "Record that you reviewed the authority of the adult who applied before approving.": { ms: "Rekodkan bahawa anda telah menyemak kuasa orang dewasa yang memohon sebelum meluluskan.", zh: "请先记录您已审核提交申请的成年人的代表权限，再批准。" },
+  "This application is the applicant's own: there is no authority to review.": { ms: "Permohonan ini milik pemohon sendiri: tiada kuasa untuk disemak.", zh: "这份申请是申请人本人的：没有需要审核的代表权限。" },
 };

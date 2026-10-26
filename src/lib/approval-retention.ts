@@ -166,7 +166,7 @@ export async function pruneApprovals(today = todayISO()): Promise<void> {
       `UPDATE approval_requests SET name = '${ANONYMOUS}', phone = '', answers = '{}', declared_at = NULL, video_watched_at = NULL,
          waiver_signed_at = NULL, guardian_name = CASE WHEN declared_adult = 1 THEN NULL ELSE '${ANONYMOUS}' END,
          cert_reference = NULL, cert_expires_on = NULL, court_id = NULL, slot_date = NULL, slot_start = NULL, slot_end = NULL,
-         hold_until = NULL, slot_status = NULL, booking_id = NULL, minimised_at = now()
+         hold_until = NULL, slot_status = NULL, booking_id = NULL, authority_declared_at = NULL, minimised_at = now()
         WHERE id IN (${minimise})`
     )
     .run();

@@ -47,6 +47,7 @@ const EMPTY = {
   reviewLevel: "safety" as ReviewLevel,
   delegateIds: [] as number[],
   payHours: "24",
+  guardianCheck: false,
 };
 
 function formOf(r: ApprovalRequirement): typeof EMPTY {
@@ -68,6 +69,7 @@ function formOf(r: ApprovalRequirement): typeof EMPTY {
     reviewLevel: r.reviewLevel,
     delegateIds: r.delegateIds,
     payHours: String(r.payHours),
+    guardianCheck: r.guardianCheck,
   };
 }
 
@@ -132,6 +134,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
       reviewLevel: form.reviewLevel,
       delegateIds: form.reviewLevel === "safety" ? form.delegateIds : [],
       payHours: Number(form.payHours),
+      guardianCheck: form.guardianCheck,
       ...retentionBody(kept),
     };
     try {
@@ -290,6 +293,13 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.waiver} onChange={(e) => setForm({ ...form, waiver: e.target.checked })} />
           {t("apr.set.waiver")}
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={form.guardianCheck} onChange={(e) => setForm({ ...form, guardianCheck: e.target.checked })} className="mt-1" />
+          <span>
+            {t("apr.child.guardianCheck")}
+            <span className="block text-xs text-slate-400">{t("apr.child.guardianCheckHint")}</span>
+          </span>
         </label>
         {coaches.length > 0 && (
           <fieldset className="text-sm">

@@ -5,7 +5,7 @@ import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-const DECISIONS: Decision[] = ["approve", "reject", "ask", "in_person", "check", "revoke"];
+const DECISIONS: Decision[] = ["approve", "reject", "ask", "in_person", "check", "revoke", "authority"];
 
 /**
  * A coach's review of applications, signed in to their own account
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ id, action: "approve" | "reject" | "ask" | "in_person" | "check" | "revoke", reason? }`:
+ * `{ id, action: "approve" | "reject" | "ask" | "in_person" | "check" | "revoke" | "authority", reason? }`:
  * the coach's decision on an application they may review, under their name
  * and this account; refused for any other (`APR_NOT_REVIEWER`).
  */
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   const id = Number(body.id);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Application not found." }, { status: 404 });
   if (!DECISIONS.includes(body.action as Decision))
-    return NextResponse.json({ error: "action is approve, reject, ask, in_person, check or revoke." }, { status: 400 });
+    return NextResponse.json({ error: "action is approve, reject, ask, in_person, check, revoke or authority." }, { status: 400 });
   const reviewer = await coachReviewerFor(user.id, id);
   if (!reviewer) return NextResponse.json({ error: "You may not review applications for this activity.", code: "APR_NOT_REVIEWER" }, { status: 403 });
   const done = await decide(reviewer, id, body.action as Decision, { reason: body.reason });

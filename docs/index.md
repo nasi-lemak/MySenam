@@ -87,7 +87,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0018 Moving open games by consent](architecture/decisions/0018-moving-open-games-by-consent.md) ·
 [0019 Approval applications apart from bookings](architecture/decisions/0019-approval-requests-apart-from-bookings.md) ·
 [0020 Approval to booking, payment and authority](architecture/decisions/0020-approval-to-booking-payment-and-authority.md) ·
-[0021 Approval retention by purpose; PDF documents](architecture/decisions/0021-approval-retention-and-pdf-documents.md)
+[0021 Approval retention by purpose; PDF documents](architecture/decisions/0021-approval-retention-and-pdf-documents.md) ·
+[0022 Children managed from an adult's account](architecture/decisions/0022-children-managed-from-an-adults-account.md)
 
 ## Integrations
 

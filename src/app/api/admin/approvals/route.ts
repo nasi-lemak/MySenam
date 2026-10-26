@@ -4,7 +4,7 @@ import { decide, flaggedBookings, refusalBody, resolveFlag, venueApprovals, wait
 
 export const dynamic = "force-dynamic";
 
-const DECISIONS: Decision[] = ["approve", "reject", "ask", "in_person", "check", "revoke"];
+const DECISIONS: Decision[] = ["approve", "reject", "ask", "in_person", "check", "revoke", "authority"];
 
 /**
  * Applications to be approved for an activity here (lib/approvals.ts).
@@ -27,14 +27,18 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ venueId, id, action: "approve" | "reject" | "ask" | "in_person" | "check" | "revoke", reason?, payLater? }`:
+ * `{ venueId, id, action: "approve" | "reject" | "ask" | "in_person" | "check" | "revoke" | "authority", reason?, payLater? }`:
  * a decision, by whoever is signed in. Rejecting, asking and revoking need a
  * reason. Approving writes the sign-off the booking rules check (once any
  * in-person step is recorded too) and books a slot asked for, if it is still
  * free, held for payment where the venue asks payment to hold (`payLater`:
  * an exception, paid at the counter, on record). For a safety-assessed
  * activity only a manager or front desk delegated for it approves or records
- * the in-person step (`APR_SAFETY_AUTHORITY`). Recorded in the application's
+ * the in-person step (`APR_SAFETY_AUTHORITY`). `authority`: for an
+ * application an adult made for somebody they manage, record that the
+ * adult's authority was reviewed (by those who may grant it); where the
+ * activity asks for that review, approval waits for it
+ * (`APR_CHILD_AUTHORITY_UNREVIEWED`). Recorded in the application's
  * history and the activity log.
  *
  * `{ venueId, flagId, action: "resolve_flag", note }`: a booking flagged
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, flags: await flaggedBookings(venueId) });
   }
   if (!DECISIONS.includes(body.action as Decision))
-    return NextResponse.json({ error: "action is approve, reject, ask, in_person, check or revoke." }, { status: 400 });
+    return NextResponse.json({ error: "action is approve, reject, ask, in_person, check, revoke or authority." }, { status: 400 });
   const done = await decide({ kind: "staff", admin }, id, body.action as Decision, { reason: body.reason, venueId, payLater: body.payLater });
   if (!done.ok) return NextResponse.json(refusalBody(done), { status: done.status });
   return NextResponse.json({ request: done.request, bookingCode: done.booking?.code ?? null });
