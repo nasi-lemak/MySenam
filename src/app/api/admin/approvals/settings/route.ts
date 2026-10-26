@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
-import { closeRequirement, requirementsAt, saveRequirement } from "@/lib/approvals";
+import { closeRequirement, coachAccounts, requirementsAt, saveRequirement } from "@/lib/approvals";
 import { listCoaches } from "@/lib/coaching";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 /**
  * What a venue asks before approving somebody for an activity online
- * (lib/approvals.ts). `?venueId` → each activity's requirements, and the
- * venue's coaches who could be authorised to review.
+ * (lib/approvals.ts). `?venueId` → each activity's requirements, the
+ * venue's coaches who could be authorised to review (with the account each
+ * is linked to, `account`: the email, or null), and its front-desk staff
+ * who could be delegated safety decisions (`desk`).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -19,8 +22,14 @@ export async function GET(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
   const coaches = await listCoaches(venueId, { activeOnly: true });
+  const accounts = await coachAccounts(venueId);
+  const desk = (await getDb().prepare("SELECT id, name FROM admins WHERE venue_id = ? AND role = 'desk' ORDER BY name").all(venueId)) as { id: number; name: string }[];
   return NextResponse.json(
-    { requirements: await requirementsAt(venueId), coaches: coaches.map((c) => ({ id: c.id, name: c.name, sports: c.sports })) },
+    {
+      requirements: await requirementsAt(venueId),
+      coaches: coaches.map((c) => ({ id: c.id, name: c.name, sports: c.sports, account: accounts[c.id] ?? null })),
+      desk,
+    },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
@@ -28,8 +37,9 @@ export async function GET(req: NextRequest) {
 /**
  * `{ venueId, sport, kind?, intro?, declaration?, documentLabel?, videoUrl?,
  * inPerson?, questions?: [{ text, required? }], waiver?, validDays?,
- * pendingDays?, holdHours?, open?, coachIds? }`: take applications online for
- * an activity, or change what is asked (managers). Recorded.
+ * pendingDays?, holdHours?, payHours?, open?, coachIds?, reviewLevel?:
+ * "safety" | "administrative", delegateIds? }`: take applications online for
+ * an activity, or change what is asked and who may grant it (managers). Recorded.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -49,7 +59,7 @@ export async function POST(req: NextRequest) {
     action: "approval.settings",
     detail: `Online applications for ${r.sport}: ${r.open ? "open" : "closed"}; ${methods.join(", ")}; ${r.questions.length} questions; ${
       r.validDays ? `lasting ${r.validDays} days` : "until taken back"
-    }; ${r.coachIds.length} coaches may review`,
+    }; ${r.coachIds.length} coaches may review; ${r.reviewLevel === "safety" ? `a safety assessment (${r.delegateIds.length} front-desk staff delegated)` : "an administrative check"}; ${r.payHours} hours to pay`,
   });
   return NextResponse.json({ requirement: r });
 }

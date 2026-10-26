@@ -20,6 +20,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/activities$/, methods: ["POST", "PATCH"] },
   // What a venue asks before approving somebody online; deciding applications is the desk's too, as sign-offs are.
   { path: /^\/api\/admin\/approvals\/settings$/, methods: ["POST", "DELETE"] },
+  // Which coach account reviews, and staff-supervised attendance past a safety rule, are a manager's (ADR 0020).
+  { path: /^\/api\/admin\/approvals\/(reviewers|supervised)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/billing$/, methods: ["POST"] },
   { path: /^\/api\/admin\/courts(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/classes(\/\d+)?$/, methods: ["POST", "DELETE"] },

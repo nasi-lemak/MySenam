@@ -4,23 +4,25 @@ import { activityName } from "./activity-registry";
 import { venueMayOffer } from "./activities";
 import type { Admin } from "./admin-auth";
 import { policyBreaches } from "./booking-policy";
-import { claim, isConflict, release } from "./claims";
+import { claim, isConflict, release, releaseBooking } from "./claims";
 import { courtFor, courtOffers } from "./court-activities";
 import { getDb, withTransaction } from "./db";
+import { holdNewBookings, holdPolicy } from "./holds";
 import { venueAheadDays } from "./house-rules";
 import { instantOf } from "./interval";
 import { customerMayBook } from "./limits";
 import { accountLocale, emailPlain, emailPlayer } from "./outbox";
 import { phoneRefusal } from "./phone-check";
 import { MAX_PIXELS, sniff } from "./photos";
-import { addSignOff, signOffHolds, type SignOffKind } from "./sign-offs";
-import { courtDay, createBookingSeries, getBookingById, getCourt, spanFor } from "./store";
+import { addSignOff, revokeSignOff, signOffHolds, type SignOffKind } from "./sign-offs";
+import { courtDay, createBookingSeries, getBookingById, getCourt, offerSlotPlace, settleCancelled, spanFor } from "./store";
 import { venueBaseUrl } from "./storefront";
 import { addDays, isBookableDate, isValidDateString, todayISO } from "./time";
 import { GUARDIAN_AGE } from "./tournaments";
 import type { Phrase } from "./i18n";
 import type { Booking, Sport } from "./types";
 import { currentWaiver, signWaiver, waiverSigned } from "./waivers";
+import { venueZoneOf } from "./zones";
 
 /**
  * Registering online for an activity that needs a sign-off or certification
@@ -46,14 +48,35 @@ import { currentWaiver, signWaiver, waiverSigned } from "./waivers";
  * path, under the same constraints as any booking: the hold is let go and the
  * booking claimed in one transaction. If the hold had lapsed and the slot is
  * gone, nothing is overbooked: the customer is offered the waiting list or
- * another time. Nothing is charged while an application waits; a booking it
- * becomes is paid, refunded and cancelled like any other.
+ * another time. Nothing is charged while an application waits.
+ *
+ * Approval establishes eligibility, never payment (ADR 0020). Where the
+ * venue asks payment online to hold a booking, the booking made on approval
+ * is held by the ordinary booking hold (lib/holds.ts) for the activity's
+ * payment hours, confirmed when paid and let go when not; the approval
+ * stands either way. A payment that lands after the hold was let go becomes
+ * the booking again if the slot is still free, or stays owed back.
+ *
+ * Who may grant an approval is the venue's to say per activity: a safety
+ * assessment only a manager, a coach it names (signed in to their own
+ * account) or front-desk staff it delegates; an administrative check any of
+ * its staff. Revoking takes the sign-off back, lets go of a booking still
+ * waiting for its payment, and flags the person's confirmed bookings for
+ * staff rather than cancelling them.
  */
 
 export type ApprovalStatus = "pending" | "info_requested" | "in_person_due" | "approved" | "rejected" | "withdrawn" | "expired";
 /** Statuses an application is still open in. */
 export const LIVE_STATUSES: ApprovalStatus[] = ["pending", "info_requested", "in_person_due"];
-export type SlotStatus = "held" | "lapsed" | "released" | "booked" | "taken";
+/**
+ * A slot asked for: held while the application waits; then booked,
+ * `awaiting_payment` (booked and held by the ordinary booking hold until paid,
+ * where the venue asks payment to hold), `payment_lapsed` (not paid in time,
+ * let go), or gone (`lapsed`, `released`, `taken`).
+ */
+export type SlotStatus = "held" | "lapsed" | "released" | "booked" | "taken" | "awaiting_payment" | "payment_lapsed";
+/** Whose decision an approval is: a safety assessment, or an administrative check (ADR 0020). */
+export type ReviewLevel = "administrative" | "safety";
 
 export interface ApprovalQuestion {
   id: string;
@@ -77,8 +100,14 @@ export interface ApprovalRequirement {
   pendingDays: number;
   holdHours: number;
   open: boolean;
-  /** Coaches the venue lists who may review these applications at their own link. */
+  /** Coaches the venue lists who may review these applications, signed in to their own account. */
   coachIds: number[];
+  /** A safety assessment (the default) or an administrative check. */
+  reviewLevel: ReviewLevel;
+  /** Front-desk staff delegated by name to make this activity's safety decisions. */
+  delegateIds: number[];
+  /** Hours an approved customer has to pay for the slot booked, where the venue asks payment to hold. */
+  payHours: number;
 }
 
 export interface ApprovalEvent {
@@ -122,6 +151,9 @@ export interface ApprovalRequest {
   certExpiresOn: string | null;
   onlineOkAt: string | null;
   onlineOkBy: string | null;
+  /** The administrative check (complete; a membership held), by whom: apart from the safety decision. */
+  adminCheckedAt: string | null;
+  adminCheckedBy: string | null;
   inPersonAt: string | null;
   inPersonBy: string | null;
   expiresAt: string;
@@ -131,17 +163,35 @@ export interface ApprovalRequest {
   lapsed: boolean;
   /** Approved, then taken back by the venue (the sign-off it wrote was withdrawn). */
   revoked: boolean;
-  slot: { courtId: number; courtName: string; date: string; start: number; end: number; holdUntil: string | null; status: SlotStatus } | null;
+  /** Why it was taken back, where the venue said. */
+  revokeReason: string | null;
+  slot: {
+    courtId: number;
+    courtName: string;
+    date: string;
+    start: number;
+    end: number;
+    holdUntil: string | null;
+    status: SlotStatus;
+    /** Booked and waiting for payment: pay by then (UTC, `YYYY-MM-DD HH:MM:SS`), or it is let go. */
+    payBy: string | null;
+    /** What is left to pay on the booking. */
+    due: number | null;
+  } | null;
   bookingCode: string | null;
   documents: ApprovalDocumentInfo[];
   events: ApprovalEvent[];
   createdAt: string;
 }
 
-/** Who decides: the venue's staff, or a coach it authorised, at their own link. */
+/**
+ * Who decides: the venue's staff, or a coach it authorised, signed in to the
+ * account the venue linked to the coach record (`userId`). What each may do
+ * is read from the database, never from this object.
+ */
 export type Reviewer =
   | { kind: "staff"; admin: Pick<Admin, "id" | "name"> }
-  | { kind: "coach"; coach: { id: number; name: string; venueId: number; active: boolean } };
+  | { kind: "coach"; coach: { id: number; name: string; venueId: number; active: boolean }; userId: number };
 
 export type Refused = { ok: false; error: string; code: string; status: number; vars?: Record<string, string | number> };
 const refused = (code: string, error: string, status = 400): Refused => ({ ok: false, error, code, status });
@@ -179,6 +229,8 @@ interface RequirementRow {
   pending_days: number;
   hold_hours: number;
   open: number;
+  review_level: ReviewLevel;
+  pay_hours: number;
 }
 
 function parseQuestions(raw: string | null): ApprovalQuestion[] {
@@ -195,6 +247,9 @@ async function toRequirements(rows: RequirementRow[]): Promise<ApprovalRequireme
   const reviewers = (await getDb()
     .prepare(`SELECT requirement_id, coach_id FROM approval_reviewers WHERE requirement_id IN (${rows.map(() => "?").join(",")}) ORDER BY coach_id`)
     .all(...rows.map((r) => r.id))) as { requirement_id: number; coach_id: number }[];
+  const delegates = (await getDb()
+    .prepare(`SELECT requirement_id, admin_id FROM approval_delegates WHERE requirement_id IN (${rows.map(() => "?").join(",")}) ORDER BY admin_id`)
+    .all(...rows.map((r) => r.id))) as { requirement_id: number; admin_id: number }[];
   return rows.map((r) => ({
     id: r.id,
     venueId: r.venue_id,
@@ -212,6 +267,9 @@ async function toRequirements(rows: RequirementRow[]): Promise<ApprovalRequireme
     holdHours: r.hold_hours,
     open: r.open === 1,
     coachIds: reviewers.filter((x) => x.requirement_id === r.id).map((x) => x.coach_id),
+    reviewLevel: r.review_level === "administrative" ? "administrative" : "safety",
+    delegateIds: delegates.filter((x) => x.requirement_id === r.id).map((x) => x.admin_id),
+    payHours: r.pay_hours ?? 24,
   }));
 }
 
@@ -280,7 +338,12 @@ export async function saveRequirement(
   if (pendingDays === "bad" || pendingDays === null) return { ok: false, error: "An application nobody acts on lapses after 1 to 90 days." };
   const holdHours = num(input.holdHours, 48, 1, 336);
   if (holdHours === "bad" || holdHours === null) return { ok: false, error: "A slot asked for is held 1 to 336 hours." };
+  const payHours = num(input.payHours, 24, 1, 168);
+  if (payHours === "bad" || payHours === null) return { ok: false, error: "An approved customer has 1 to 168 hours to pay for the slot booked." };
+  const reviewLevel = input.reviewLevel ?? "safety";
+  if (reviewLevel !== "safety" && reviewLevel !== "administrative") return { ok: false, error: "A safety assessment or an administrative check." };
   const coachIds = Array.isArray(input.coachIds) ? [...new Set(input.coachIds.map(Number))] : [];
+  const delegateIds = Array.isArray(input.delegateIds) ? [...new Set(input.delegateIds.map(Number))] : [];
   const db = getDb();
   if (coachIds.length > 0) {
     const ours = (await db
@@ -288,23 +351,32 @@ export async function saveRequirement(
       .all(venueId, ...coachIds)) as { id: number }[];
     if (ours.length !== coachIds.length) return { ok: false, error: "Coach not found." };
   }
+  // Delegated by name: the venue's own front desk (a manager decides already).
+  if (delegateIds.length > 0) {
+    const desk = (await db
+      .prepare(`SELECT id FROM admins WHERE venue_id = ? AND role = 'desk' AND id IN (${delegateIds.map(() => "?").join(",")})`)
+      .all(venueId, ...delegateIds)) as { id: number }[];
+    if (desk.length !== delegateIds.length) return { ok: false, error: "Only this venue's front-desk staff can be delegated." };
+  }
   const id = await withTransaction(async () => {
     const row = (await db
       .prepare(
-        `INSERT INTO approval_requirements (venue_id, sport, kind, intro, declaration, document_label, video_url, in_person, questions, waiver, valid_days, pending_days, hold_hours, open)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO approval_requirements (venue_id, sport, kind, intro, declaration, document_label, video_url, in_person, questions, waiver, valid_days, pending_days, hold_hours, open, review_level, pay_hours)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (venue_id, sport) DO UPDATE SET kind = excluded.kind, intro = excluded.intro, declaration = excluded.declaration,
            document_label = excluded.document_label, video_url = excluded.video_url, in_person = excluded.in_person, questions = excluded.questions,
            waiver = excluded.waiver, valid_days = excluded.valid_days, pending_days = excluded.pending_days, hold_hours = excluded.hold_hours,
-           open = excluded.open, updated_at = now()
+           open = excluded.open, review_level = excluded.review_level, pay_hours = excluded.pay_hours, updated_at = now()
          RETURNING id`
       )
       .get(
         venueId, sport, kind, intro, declaration, documentLabel, videoUrl, inPerson, JSON.stringify(questions),
-        input.waiver === true ? 1 : 0, validDays, pendingDays, holdHours, input.open === false ? 0 : 1
+        input.waiver === true ? 1 : 0, validDays, pendingDays, holdHours, input.open === false ? 0 : 1, reviewLevel, payHours
       )) as { id: number };
     await db.prepare("DELETE FROM approval_reviewers WHERE requirement_id = ?").run(row.id);
     for (const coach of coachIds) await db.prepare("INSERT INTO approval_reviewers (requirement_id, coach_id) VALUES (?, ?)").run(row.id, coach);
+    await db.prepare("DELETE FROM approval_delegates WHERE requirement_id = ?").run(row.id);
+    for (const admin of delegateIds) await db.prepare("INSERT INTO approval_delegates (requirement_id, admin_id) VALUES (?, ?)").run(row.id, admin);
     return row.id;
   });
   const saved = (await getDb().prepare("SELECT * FROM approval_requirements WHERE id = ?").get(id)) as RequirementRow;
@@ -362,10 +434,16 @@ interface RequestRow {
   in_person: string | null;
   sign_off_revoked: unknown;
   sign_off_reason: string | null;
+  admin_checked_at: unknown;
+  admin_checked_by: string | null;
+  booking_hold_until: string | null;
+  booking_due: number | string | null;
 }
 
 const REQUEST_SELECT = `
   SELECT r.*, v.name AS venue_name, c.name AS court_name, b.code AS booking_code,
+         b.hold_until AS booking_hold_until,
+         CASE WHEN b.status = 'confirmed' AND b.payment_status = 'unpaid' THEN b.total_price - b.shares_paid END AS booking_due,
          q.questions, q.kind, q.in_person,
          -- Taken back by the venue; not merely replaced by a renewal.
          CASE WHEN s.revoked_at IS NOT NULL AND s.revoke_reason IS DISTINCT FROM 'Replaced' THEN s.revoked_at END AS sign_off_revoked,
@@ -421,6 +499,8 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
       certExpiresOn: r.cert_expires_on,
       onlineOkAt: iso(r.online_ok_at),
       onlineOkBy: r.online_ok_by,
+      adminCheckedAt: iso(r.admin_checked_at),
+      adminCheckedBy: r.admin_checked_by,
       inPersonAt: iso(r.in_person_at),
       inPersonBy: r.in_person_by,
       expiresAt: isoOf(r.expires_at),
@@ -428,6 +508,7 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
       validUntil: r.valid_until,
       lapsed: r.status === "approved" && r.valid_until !== null && r.valid_until < today,
       revoked: r.status === "approved" && (r.sign_off_revoked !== null || (r.sign_off_id === null && r.sign_off_reason === null)),
+      revokeReason: r.status === "approved" && r.sign_off_revoked !== null ? r.sign_off_reason : null,
       slot:
         r.court_id !== null && r.slot_date !== null && r.slot_start !== null && r.slot_end !== null && r.slot_status !== null
           ? {
@@ -438,6 +519,8 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
               end: r.slot_end,
               holdUntil: iso(r.hold_until),
               status: r.slot_status,
+              payBy: r.slot_status === "awaiting_payment" ? r.booking_hold_until : null,
+              due: r.slot_status === "awaiting_payment" && r.booking_due !== null ? Math.round(Number(r.booking_due) * 100) / 100 : null,
             }
           : null,
       bookingCode: r.booking_code,
@@ -485,6 +568,114 @@ export async function coachApprovals(coachId: number): Promise<ApprovalRequest[]
     )
     .all(coachId)) as RequestRow[];
   return toRequests(rows);
+}
+
+// ------------------------------------------------------------ coaches, signed in to their own account
+
+export interface ReviewerCoach {
+  id: number;
+  name: string;
+  venueId: number;
+  venueName: string;
+  active: boolean;
+}
+
+/** The coach records, at any venue, a manager linked to this account: active ones only. */
+export async function reviewerCoaches(userId: number): Promise<ReviewerCoach[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT k.id, k.name, k.venue_id, v.name AS venue_name FROM coaches k JOIN venues v ON v.id = k.venue_id
+        WHERE k.user_id = ? AND k.active = 1 ORDER BY k.id`
+    )
+    .all(userId)) as { id: number; name: string; venue_id: number; venue_name: string }[];
+  return rows.map((r) => ({ id: r.id, name: r.name, venueId: r.venue_id, venueName: r.venue_name, active: true }));
+}
+
+/** Applications a signed-in coach may review: for the activities each venue that linked them named them for. */
+export async function accountReviews(userId: number): Promise<ApprovalRequest[]> {
+  const out: ApprovalRequest[] = [];
+  for (const coach of await reviewerCoaches(userId)) out.push(...(await coachApprovals(coach.id)));
+  return out;
+}
+
+/** The coach record (linked to this account) that may review this application, if any. */
+export async function coachReviewerFor(userId: number, requestId: number): Promise<Reviewer | null> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT k.id, k.name, k.venue_id FROM approval_requests r
+         JOIN approval_reviewers ar ON ar.requirement_id = r.requirement_id
+         JOIN coaches k ON k.id = ar.coach_id AND k.venue_id = r.venue_id
+        WHERE r.id = ? AND k.user_id = ? AND k.active = 1 LIMIT 1`
+    )
+    .get(requestId, userId)) as { id: number; name: string; venue_id: number } | undefined;
+  return row ? { kind: "coach", coach: { id: row.id, name: row.name, venueId: row.venue_id, active: true }, userId } : null;
+}
+
+/** The coach records linked to this account that may see this document's application. */
+export async function coachIdsFor(userId: number): Promise<number[]> {
+  return (await reviewerCoaches(userId)).map((c) => c.id);
+}
+
+/**
+ * Link a coach record to the coach's own MySenam account (named by its
+ * email), or unlink it (`email` null): from then on that account, signed
+ * in, reviews what the venue names the coach for. Managers only.
+ */
+export async function linkCoachAccount(
+  venueId: number,
+  coachId: number,
+  email: unknown
+): Promise<{ ok: true; coachName: string; email: string | null } | { ok: false; error: string; status: number }> {
+  const db = getDb();
+  const coach = (await db.prepare("SELECT name FROM coaches WHERE id = ? AND venue_id = ?").get(coachId, venueId)) as { name: string } | undefined;
+  if (!coach) return { ok: false, error: "Coach not found.", status: 404 };
+  if (email === null || email === "") {
+    await db.prepare("UPDATE coaches SET user_id = NULL WHERE id = ?").run(coachId);
+    return { ok: true, coachName: coach.name, email: null };
+  }
+  if (typeof email !== "string") return { ok: false, error: "No account has that email.", status: 400 };
+  const user = (await db.prepare("SELECT id, email FROM users WHERE lower(email) = lower(?)").get(email.trim())) as { id: number; email: string } | undefined;
+  if (!user) return { ok: false, error: "No account has that email.", status: 400 };
+  const taken = await db.prepare("SELECT 1 FROM coaches WHERE venue_id = ? AND user_id = ? AND id <> ?").get(venueId, user.id, coachId);
+  if (taken) return { ok: false, error: "That account is already linked to another coach here.", status: 409 };
+  await db.prepare("UPDATE coaches SET user_id = ? WHERE id = ?").run(user.id, coachId);
+  return { ok: true, coachName: coach.name, email: user.email };
+}
+
+/** The account email each of a venue's coaches is linked to, for the settings screen. */
+export async function coachAccounts(venueId: number): Promise<Record<number, string | null>> {
+  const rows = (await getDb()
+    .prepare("SELECT k.id, u.email FROM coaches k LEFT JOIN users u ON u.id = k.user_id WHERE k.venue_id = ?")
+    .all(venueId)) as { id: number; email: string | null }[];
+  return Object.fromEntries(rows.map((r) => [r.id, r.email]));
+}
+
+// ------------------------------------------------------------ who may grant
+
+/**
+ * May this member of staff grant (approve, or record the in-person
+ * assessment of) an approval for this activity here? A manager (or whoever
+ * runs the business or the platform) may; front desk only where the activity
+ * is an administrative check, or where a manager delegated them by name.
+ * Read from the database, never from the session object alone.
+ */
+async function staffGrants(adminId: number, req: Pick<ApprovalRequirement, "reviewLevel" | "delegateIds">): Promise<boolean> {
+  const row = (await getDb().prepare("SELECT role, venue_id FROM admins WHERE id = ?").get(adminId)) as { role: string | null; venue_id: number | null } | undefined;
+  if (!row) return false;
+  if (row.venue_id === null || row.role !== "desk") return true;
+  return req.reviewLevel === "administrative" || req.delegateIds.includes(adminId);
+}
+
+/**
+ * May this member of staff record a sign-off directly (the Sign-offs tab)
+ * for this activity (null: anything here)? Not past what the venue's
+ * approval settings say: front desk records one for a safety-assessed
+ * activity only where delegated for it.
+ */
+export async function staffMayGrant(adminId: number, venueId: number, sport: string | null): Promise<boolean> {
+  const reqs = (await requirementsAt(venueId)).filter((r) => sport === null || r.sport === sport);
+  for (const r of reqs) if (!(await staffGrants(adminId, r))) return false;
+  return true;
 }
 
 /** How many applications wait on the venue (to review, or an in-person step to record). */
@@ -563,19 +754,19 @@ async function coachMayReview(coachId: number, requirementId: number, venueId: n
 
 async function addEvent(
   requestId: number,
-  actor: { kind: ApprovalEvent["actor"]; name: string; adminId?: number | null; coachId?: number | null },
+  actor: { kind: ApprovalEvent["actor"]; name: string; adminId?: number | null; coachId?: number | null; userId?: number | null },
   action: string,
   reason?: string | null
 ): Promise<void> {
   await getDb()
-    .prepare("INSERT INTO approval_events (request_id, actor, admin_id, coach_id, actor_name, action, reason) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(requestId, actor.kind, actor.adminId ?? null, actor.coachId ?? null, actor.name, action, reason?.slice(0, 1000) ?? null);
+    .prepare("INSERT INTO approval_events (request_id, actor, admin_id, coach_id, user_id, actor_name, action, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(requestId, actor.kind, actor.adminId ?? null, actor.coachId ?? null, actor.userId ?? null, actor.name, action, reason?.slice(0, 1000) ?? null);
 }
 
 const reviewerActor = (r: Reviewer) =>
   r.kind === "staff"
     ? { kind: "staff" as const, name: r.admin.name, adminId: r.admin.id }
-    : { kind: "coach" as const, name: r.coach.name, coachId: r.coach.id };
+    : { kind: "coach" as const, name: r.coach.name, coachId: r.coach.id, userId: r.userId };
 const reviewerName = (r: Reviewer) => (r.kind === "staff" ? r.admin.name : `${r.coach.name} (coach)`);
 
 /**
@@ -587,7 +778,7 @@ async function logDecision(by: Reviewer | "system", venueId: number, action: str
   try {
     await getDb()
       .prepare("INSERT INTO staff_actions (admin_id, admin_name, venue_id, booking_code, action, detail) VALUES (NULL, ?, ?, ?, ?, ?)")
-      .run(by === "system" ? "Automatic" : `${by.coach.name} (coach link)`, venueId, bookingCode ?? null, action, detail.slice(0, 500));
+      .run(by === "system" ? "Automatic" : `${by.coach.name} (coach, own account)`, venueId, bookingCode ?? null, action, detail.slice(0, 500));
   } catch (err) {
     console.error("[mysenam] could not write the staff activity log:", err);
   }
@@ -601,38 +792,74 @@ type CustomerMail =
   | "rejected"
   | "expired"
   | "holdLapsed"
-  | "renew";
+  | "renew"
+  | "revoked"
+  | "paymentLapsed"
+  | "latePaymentBooked"
+  | "latePaymentRefund";
 
-/** An email to the customer, in the language their account last used, with a link to their applications. */
+/** A booking hold's end (UTC, as lib/holds.ts writes it) as the venue's local date and time. */
+async function venueTime(venueId: number, utc: string): Promise<string> {
+  const row = (await getDb().prepare("SELECT time_zone, lat, lng FROM venues WHERE id = ?").get(venueId)) as
+    | { time_zone: string | null; lat: number | null; lng: number | null }
+    | undefined;
+  const at = new Date(`${utc.replace(" ", "T").replace(/Z?$/, "Z")}`);
+  if (Number.isNaN(at.getTime())) return utc;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: venueZoneOf(row ?? {}),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const p = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
+  return `${p("year")}-${p("month")}-${p("day")} ${p("hour")}:${p("minute")}`;
+}
+
+/**
+ * An email to the customer, in the language their account last used, with a
+ * link to their applications. Through the outbox (lib/outbox.ts), which
+ * retries a failed delivery itself; a failure even to queue it never undoes
+ * the decision it reports, which their account page shows anyway.
+ */
 async function tellCustomer(
   req: Pick<ApprovalRequest, "id" | "userId" | "venueId" | "venueName" | "sport">,
   mail: CustomerMail,
-  extra: { reason?: string | null; until?: string | null; code?: string | null; slotTaken?: boolean; step?: string | null } = {},
+  extra: { reason?: string | null; until?: string | null; code?: string | null; slotTaken?: boolean; step?: string | null; payBy?: string | null } = {},
   dedupe?: string
 ): Promise<void> {
-  const link = `${await venueBaseUrl(req.venueId)}/account/approvals`;
-  const vars = (t: { locale: string }) => ({ venue: req.venueName, activity: activityName(req.sport, t.locale) });
-  await emailPlayer({
-    venueId: req.venueId,
-    userId: req.userId,
-    subject: (t) => t(`apr.mail.${mail}Subject` as Phrase, vars(t)),
-    body: (t) =>
-      [
-        t(`apr.mail.${mail}` as Phrase, {
-          ...vars(t),
-          reason: extra.reason ?? "",
-          // Approved: "until <date>", or until taken back; a renewal reminder names the day itself.
-          until: extra.until ? (mail === "approved" ? t("apr.untilDate", { date: extra.until }) : extra.until) : t("apr.untilTakenBack"),
-          step: extra.step ?? "",
-        }),
-        extra.code ? t("apr.mail.booked", { code: extra.code }) : null,
-        extra.slotTaken ? t("apr.mail.slotTaken") : null,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-    link,
-    dedupeKey: dedupe ?? `approval:${req.id}:${mail}:${Date.now()}`,
-  });
+  try {
+    const link = `${await venueBaseUrl(req.venueId)}/account/approvals`;
+    const payBy = extra.payBy ? await venueTime(req.venueId, extra.payBy) : null;
+    const vars = (t: { locale: string }) => ({ venue: req.venueName, activity: activityName(req.sport, t.locale) });
+    await emailPlayer({
+      venueId: req.venueId,
+      userId: req.userId,
+      subject: (t) => t(`apr.mail.${mail}Subject` as Phrase, vars(t)),
+      body: (t) =>
+        [
+          t(`apr.mail.${mail}` as Phrase, {
+            ...vars(t),
+            reason: extra.reason ?? "",
+            // Approved: "until <date>", or until taken back; a renewal reminder names the day itself.
+            until: extra.until ? (mail === "approved" ? t("apr.untilDate", { date: extra.until }) : extra.until) : t("apr.untilTakenBack"),
+            step: extra.step ?? "",
+            code: extra.code ?? "",
+          }),
+          // Booked and held for payment: not theirs until paid, by then.
+          extra.code && payBy ? t("apr.mail.payBy", { code: extra.code, time: payBy }) : extra.code && mail !== "latePaymentBooked" ? t("apr.mail.booked", { code: extra.code }) : null,
+          extra.slotTaken ? t("apr.mail.slotTaken") : null,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      link,
+      dedupeKey: dedupe ?? `approval:${req.id}:${mail}:${Date.now()}`,
+    });
+  } catch (err) {
+    console.error(`[mysenam] could not queue the approval email (${mail}) for application ${req.id}:`, err);
+  }
 }
 
 /** Tell the venue's reviewers (its booking-alert address and the coaches it authorised) that an application needs them. */
@@ -655,7 +882,7 @@ async function tellReviewers(req: ApprovalRequest, what: "new" | "answered"): Pr
       subject: what === "new" ? `New application: ${activity} at ${req.venueName}` : `Application answered: ${activity} at ${req.venueName}`,
       text:
         what === "new"
-          ? `${req.name} has applied online to be approved for ${activity} at ${req.venueName}. Review it in the dashboard (the bookings tab, or Courts & rates → Online applications), or at your coach link.`
+          ? `${req.name} has applied online to be approved for ${activity} at ${req.venueName}. Review it in the dashboard (the bookings tab, or Courts & rates → Online applications), or, as a coach, signed in to your own MySenam account (your account's approvals page).`
           : `${req.name} has answered your question about their application for ${activity} at ${req.venueName}. It is waiting for review again.`,
       dedupeKey: `approval:${req.id}:reviewers:${what}:${address}:${Date.now()}`,
     });
@@ -733,23 +960,41 @@ async function releaseHold(requestId: number, status: "released" | "lapsed"): Pr
 }
 
 /**
+ * How the booking a slot becomes is paid, by the venue's own policy: held for
+ * payment (`deadline`: the activity's payment hours, for a customer told by
+ * email; `present`: the venue's own minutes, for a customer booking it there
+ * and then), or, on a member of staff's say, an exception paid at the counter.
+ */
+type PayMode = "deadline" | "present" | "exception";
+
+/**
  * Book the slot a request asked for, through the ordinary booking path: its
  * hold let go and the booking claimed in one transaction, under the same
  * constraints as any booking. If its time is gone (the hold lapsed and
  * somebody took it), nothing is overbooked: the request says so.
+ *
+ * Where the venue asks payment online to hold a booking (lib/holds.ts), the
+ * booking is held by the ordinary booking hold until paid, never confirmed
+ * unpaid: `payBy` says until when. Elsewhere it stands unpaid, to be paid as
+ * the venue takes payment (at the counter), as any booking there does.
  */
-async function bookSlot(requestId: number, assessment: boolean): Promise<{ booking: Booking | null; why: string | null }> {
+async function bookSlot(
+  requestId: number,
+  assessment: boolean,
+  pay: PayMode = "deadline",
+  payHours = 24
+): Promise<{ booking: Booking | null; why: string | null; payBy: string | null }> {
   const db = getDb();
   const r = (await db
     .prepare(
-      `SELECT r.court_id, r.slot_date, r.slot_start, r.slot_end, r.slot_status, r.booking_id, r.sport, r.user_id, u.name, u.phone, u.email
+      `SELECT r.court_id, r.slot_date, r.slot_start, r.slot_end, r.slot_status, r.booking_id, r.sport, r.user_id, r.venue_id, u.name, u.phone, u.email
          FROM approval_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?`
     )
     .get(requestId)) as
-    | { court_id: number | null; slot_date: string | null; slot_start: number | null; slot_end: number | null; slot_status: SlotStatus | null; booking_id: number | null; sport: Sport; user_id: number; name: string; phone: string; email: string }
+    | { court_id: number | null; slot_date: string | null; slot_start: number | null; slot_end: number | null; slot_status: SlotStatus | null; booking_id: number | null; sport: Sport; user_id: number; venue_id: number; name: string; phone: string; email: string }
     | undefined;
-  if (!r || r.court_id === null || r.slot_date === null || r.slot_start === null || r.slot_end === null || r.booking_id !== null) return { booking: null, why: null };
-  if (r.slot_status !== "held" && r.slot_status !== "lapsed") return { booking: null, why: null };
+  if (!r || r.court_id === null || r.slot_date === null || r.slot_start === null || r.slot_end === null || r.booking_id !== null) return { booking: null, why: null, payBy: null };
+  if (r.slot_status !== "held" && r.slot_status !== "lapsed") return { booking: null, why: null, payBy: null };
   const made = await createBookingSeries({
     courtId: r.court_id,
     date: r.slot_date,
@@ -766,14 +1011,27 @@ async function bookSlot(requestId: number, assessment: boolean): Promise<{ booki
   });
   if (made.ok) {
     const booking = made.bookings[0];
-    await db.prepare("UPDATE approval_requests SET slot_status = 'booked', booking_id = ? WHERE id = ?").run(booking.id, requestId);
+    let payBy: string | null = null;
+    if (pay !== "exception" && booking.totalPrice > 0 && booking.paymentStatus === "unpaid") {
+      const hold = await holdPolicy(r.venue_id);
+      if (hold.active) {
+        // Never held past the slot's own start.
+        const toStart = Math.floor((new Date(booking.startsAt ?? Date.now()).getTime() - Date.now()) / 60_000);
+        const minutes = Math.max(1, Math.min(pay === "present" ? hold.minutes : payHours * 60, toStart));
+        payBy = await holdNewBookings([booking.id], minutes);
+      }
+    }
+    await db
+      .prepare("UPDATE approval_requests SET slot_status = ?, booking_id = ?, slot_assessment = ? WHERE id = ?")
+      .run(payBy ? "awaiting_payment" : "booked", booking.id, assessment, requestId);
     await addEvent(requestId, { kind: "system", name: "MySenam" }, assessment ? "session_booked" : "slot_booked", booking.code);
-    return { booking, why: null };
+    if (payBy) await addEvent(requestId, { kind: "system", name: "MySenam" }, "payment_requested", payBy);
+    return { booking: payBy ? { ...booking, holdUntil: payBy } : booking, why: null, payBy };
   }
   await release({ kind: "approval", approvalId: requestId });
   await db.prepare("UPDATE approval_requests SET slot_status = 'taken' WHERE id = ?").run(requestId);
   await addEvent(requestId, { kind: "system", name: "MySenam" }, "slot_taken", made.error);
-  return { booking: null, why: made.error };
+  return { booking: null, why: made.error, payBy: null };
 }
 
 // ------------------------------------------------------------ applying
@@ -981,7 +1239,8 @@ export async function customerAct(
     await addEvent(id, { kind: "customer", name: user.name }, "slot_requested");
     // The online part already accepted: this is the in-person session, booked now.
     if (row.status === "in_person_due") {
-      const made = await bookSlot(id, true);
+      // Booked there and then: held for payment for the venue's own minutes, where it asks payment to hold.
+      const made = await bookSlot(id, true, "present", req.payHours);
       if (!made.booking) throw refused("APR_SLOT_TAKEN", "That slot is taken. Pick another time, or apply without one.", 409);
       booked = made.booking;
       await extendForSession(id, made.booking);
@@ -993,7 +1252,8 @@ export async function customerAct(
   });
   if (!outcome.ok) return outcome;
   if (tell) await (tell as () => Promise<void>)();
-  if (booked) await confirmBooking(booked as Booking, user.id);
+  // Held for payment: confirmed when paid (lib/payments.ts), as any held booking.
+  if (booked && !(booked as Booking).holdUntil) await confirmBooking(booked as Booking, user.id);
   return { ok: true, request: (await requestById(id))!, booking: booked };
 }
 
@@ -1010,13 +1270,26 @@ async function extendForSession(id: number, booking: Booking): Promise<void> {
 
 /** The ordinary confirmation of a booking made from an application, in the customer's language (lib/notify.ts). */
 async function confirmBooking(booking: Booking, userId: number): Promise<void> {
-  const { notifyBookingConfirmed } = await import("./notify");
-  await notifyBookingConfirmed([(await getBookingById(booking.id)) ?? booking], await accountLocale(userId), null);
+  try {
+    const { notifyBookingConfirmed } = await import("./notify");
+    await notifyBookingConfirmed([(await getBookingById(booking.id)) ?? booking], await accountLocale(userId), null);
+  } catch (err) {
+    // The booking stands; its account page and the booking lookup show it.
+    console.error(`[mysenam] could not queue the confirmation of booking ${booking.code}:`, err);
+  }
 }
 
 // ------------------------------------------------------------ deciding
 
-export type Decision = "approve" | "reject" | "ask" | "in_person";
+/**
+ * What a reviewer can do: approve (the online part, where an in-person step
+ * is still to come; otherwise the whole of it), reject, ask the customer for
+ * more, record the in-person step, record the administrative check, or
+ * revoke an approval in force.
+ */
+export type Decision = "approve" | "reject" | "ask" | "in_person" | "check" | "revoke";
+/** The decisions that grant eligibility: for a safety-assessed activity, only those authorised for it (ADR 0020). */
+const GRANTS: Decision[] = ["approve", "in_person"];
 
 /** The last day an approval holds: the venue's period, never past a certification's own end. */
 function validUntilFor(req: ApprovalRequirement, certExpiresOn: string | null): string | null {
@@ -1029,22 +1302,43 @@ function validUntilFor(req: ApprovalRequirement, certExpiresOn: string | null): 
 }
 
 /**
- * A reviewer's decision: approve (the online part, where an in-person step
- * is still to come; otherwise the whole of it), reject, ask the customer for
- * more, or record the in-person step. Staff of the venue may decide any of
- * its applications; a coach only those for the activities the venue
- * authorised them for, and nothing else. Every decision is in the
- * application's history and the staff activity log, with who, when and why.
+ * Is this coach, as the database has it, linked to the account deciding,
+ * active, of the application's venue, and named for its activity? Nothing
+ * a caller passes in counts but the ids.
+ */
+async function coachDecides(reviewer: Extract<Reviewer, { kind: "coach" }>, requirementId: number, venueId: number): Promise<boolean> {
+  const k = (await getDb().prepare("SELECT venue_id, active, user_id FROM coaches WHERE id = ?").get(reviewer.coach.id)) as
+    | { venue_id: number; active: number; user_id: number | null }
+    | undefined;
+  if (!k || k.active !== 1 || k.venue_id !== venueId || k.user_id === null || k.user_id !== reviewer.userId) return false;
+  return coachMayReview(reviewer.coach.id, requirementId, venueId);
+}
+
+/**
+ * A reviewer's decision. Staff of the venue may review any of its
+ * applications, a coach (signed in to their own account) only those for the
+ * activities the venue named them for, and nothing else. Granting (approve,
+ * the in-person step) a safety-assessed activity needs a manager, a named
+ * coach or front-desk staff delegated for it; asking, the administrative
+ * check, refusing and revoking grant nothing, and any reviewer may. Every
+ * decision is in the application's history and the staff activity log, with
+ * who, when and why.
+ *
+ * `payLater` (staff only): the booking a slot becomes is not held for
+ * payment, where the venue asks payment to hold; an exception, recorded as
+ * one, paid at the counter.
  */
 export async function decide(
   reviewer: Reviewer,
   id: number,
   action: Decision,
-  input: { reason?: unknown; venueId?: number } = {}
+  input: { reason?: unknown; venueId?: number; payLater?: unknown } = {}
 ): Promise<{ ok: true; request: ApprovalRequest; booking: Booking | null } | Refused> {
   const reason = typeof input.reason === "string" && input.reason.trim() !== "" ? input.reason.trim().slice(0, 1000) : null;
-  if ((action === "reject" || action === "ask") && !reason)
-    return refused("APR_REASON_NEEDED", action === "ask" ? "Say what you need to know." : "Say why it is refused.");
+  if ((action === "reject" || action === "ask" || action === "revoke") && !reason)
+    return refused("APR_REASON_NEEDED", action === "ask" ? "Say what you need to know." : action === "revoke" ? "Say why it is taken back." : "Say why it is refused.");
+  const payLater = input.payLater === true;
+  if (payLater && reviewer.kind !== "staff") return refused("APR_NOT_REVIEWER", "You may not review applications for this activity.", 403);
   const db = getDb();
   let mail: { kind: CustomerMail; extra: Parameters<typeof tellCustomer>[2] } | null = null;
   let booked: Booking | null = null;
@@ -1056,15 +1350,38 @@ export async function decide(
     const row = await lockRequest(id);
     if (!row) return notFound();
     if (reviewer.kind === "staff" && input.venueId !== undefined && row.venue_id !== input.venueId) return notFound();
-    if (reviewer.kind === "coach" && (!reviewer.coach.active || reviewer.coach.venueId !== row.venue_id || !(await coachMayReview(reviewer.coach.id, row.requirement_id, row.venue_id))))
+    if (reviewer.kind === "coach" && !(await coachDecides(reviewer, row.requirement_id, row.venue_id)))
       return refused("APR_NOT_REVIEWER", "You may not review applications for this activity.", 403);
     const req = (await requirementById(row.requirement_id))!;
+    if (GRANTS.includes(action) && reviewer.kind === "staff" && !(await staffGrants(reviewer.admin.id, req)))
+      return refused(
+        "APR_SAFETY_AUTHORITY",
+        "This is a safety assessment: a manager, a coach named for this activity, or staff delegated for it decides. You can ask for more, record the administrative check, or refuse.",
+        403
+      );
     const r = (await db
-      .prepare("SELECT name, cert_expires_on, cert_reference, online_ok_at, in_person_at, slot_status FROM approval_requests WHERE id = ?")
-      .get(id)) as { name: string; cert_expires_on: string | null; cert_reference: string | null; online_ok_at: unknown; in_person_at: unknown; slot_status: SlotStatus | null };
+      .prepare(
+        "SELECT name, cert_expires_on, cert_reference, online_ok_at, in_person_at, admin_checked_at, slot_status, sign_off_id, booking_id, user_id, phone, sport, venue_id FROM approval_requests WHERE id = ?"
+      )
+      .get(id)) as {
+      name: string;
+      cert_expires_on: string | null;
+      cert_reference: string | null;
+      online_ok_at: unknown;
+      in_person_at: unknown;
+      admin_checked_at: unknown;
+      slot_status: SlotStatus | null;
+      sign_off_id: number | null;
+      booking_id: number | null;
+      user_id: number;
+      phone: string;
+      sport: Sport;
+      venue_id: number;
+    };
     const who = reviewerName(reviewer);
     const actor = reviewerActor(reviewer);
     const activity = activityName(req.sport, "en");
+    const pay: PayMode = payLater ? "exception" : "deadline";
 
     if (action === "ask") {
       if (row.status !== "pending" && row.status !== "info_requested") return wrongStatus();
@@ -1083,6 +1400,15 @@ export async function decide(
       logged = { action: "approval.rejected", detail: `Refused ${r.name}'s application for ${activity}: ${reason}` };
       return { ok: true };
     }
+    if (action === "check") {
+      // The administrative check: complete, a membership held. It grants nothing on its own.
+      if (!LIVE_STATUSES.includes(row.status) || r.admin_checked_at !== null) return wrongStatus();
+      await db.prepare("UPDATE approval_requests SET admin_checked_at = now(), admin_checked_by = ? WHERE id = ?").run(who, id);
+      await addEvent(id, actor, "checked", reason);
+      logged = { action: "approval.checked", detail: `Checked ${r.name}'s application for ${activity} (administrative)` };
+      return { ok: true };
+    }
+    if (action === "revoke") return revokeInside(reviewer, id, row.status, r, req, reason!, (m, l) => ((mail = m), (logged = l)));
 
     const onlineOk = r.online_ok_at !== null;
     let inPersonDone = r.in_person_at !== null;
@@ -1104,13 +1430,17 @@ export async function decide(
         await db.prepare("UPDATE approval_requests SET status = 'in_person_due', expires_at = ? WHERE id = ?").run(later(req.pendingDays * DAY), id);
         await addEvent(id, actor, "online_accepted", reason);
         logged = { action: "approval.online_accepted", detail: `Accepted the online part of ${r.name}'s application for ${activity}; the in-person step is still to come` };
-        const session = r.slot_status === "held" || r.slot_status === "lapsed" ? await bookSlot(id, true) : null;
+        const session = r.slot_status === "held" || r.slot_status === "lapsed" ? await bookSlot(id, true, pay, req.payHours) : null;
         if (session?.booking) {
           booked = session.booking;
           await extendForSession(id, session.booking);
           logged.code = session.booking.code;
+          if (payLater) await notePayException(id, actor, who, session.booking, logged, req.venueId);
         }
-        mail = { kind: "inPersonDue", extra: { step: req.inPerson, code: session?.booking?.code ?? null, slotTaken: session !== null && !session.booking } };
+        mail = {
+          kind: "inPersonDue",
+          extra: { step: req.inPerson, code: session?.booking?.code ?? null, payBy: session?.payBy ?? null, slotTaken: session !== null && !session.booking },
+        };
         return { ok: true };
       }
     }
@@ -1136,11 +1466,12 @@ export async function decide(
       .prepare("UPDATE approval_requests SET status = 'approved', decided_at = now(), valid_until = ?, sign_off_id = ?, renew_notice_at = NULL WHERE id = ?")
       .run(validUntil, signed.signOff.id, id);
     await addEvent(id, actor, "approved", action === "approve" ? reason : null);
-    const made = await bookSlot(id, false);
+    const made = await bookSlot(id, false, pay, req.payHours);
     booked = made.booking;
     const detail = `Approved ${r.name} for ${activity}${validUntil ? ` until ${validUntil}` : ""}${action === "in_person" ? " on recording the in-person step" : ""}`;
     logged = { action: "approval.approved", detail, code: made.booking?.code ?? null };
-    mail = { kind: "approved", extra: { until: validUntil, code: made.booking?.code ?? null, slotTaken: made.why !== null } };
+    if (payLater && made.booking) await notePayException(id, actor, who, made.booking, logged, req.venueId);
+    mail = { kind: "approved", extra: { until: validUntil, code: made.booking?.code ?? null, payBy: made.payBy, slotTaken: made.why !== null } };
     return { ok: true };
   }).catch((err: unknown) => {
     if (err && typeof err === "object" && (err as Refused).ok === false) return err as Refused;
@@ -1152,8 +1483,232 @@ export async function decide(
   if (l) await logDecision(reviewer, request.venueId, l.action, l.detail, l.code);
   const m = mail as { kind: CustomerMail; extra: Parameters<typeof tellCustomer>[2] } | null;
   if (m) await tellCustomer(request, m.kind, m.extra);
-  if (booked) await confirmBooking(booked as Booking, request.userId);
+  // Held for payment: confirmed when paid (lib/payments.ts), as any held booking.
+  if (booked && !(booked as Booking).holdUntil) await confirmBooking(booked as Booking, request.userId);
+  if (action === "revoke") await offerFreedSlot(request);
   return { ok: true, request, booking: booked };
+}
+
+/** A member of staff let a booking made on approval go unheld at a venue asking payment to hold: on record. */
+async function notePayException(
+  id: number,
+  actor: ReturnType<typeof reviewerActor>,
+  who: string,
+  booking: Booking,
+  logged: { action: string; detail: string; code?: string | null },
+  venueId: number
+): Promise<void> {
+  if (booking.paymentStatus !== "unpaid" || booking.totalPrice <= 0 || !(await holdPolicy(venueId)).active) return;
+  await addEvent(id, actor, "pay_exception", booking.code);
+  logged.detail += `; not held for payment, on ${who}'s say (paid at the counter)`;
+}
+
+/**
+ * Take an approval back: the sign-off it wrote is revoked (online booking of
+ * the activity and its door codes stop at once); a booking it made that is
+ * still waiting for its payment is let go (it was never confirmed); the
+ * person's confirmed bookings of the activity here from today on are flagged
+ * for staff to decide (cancel, supervise, or keep), never cancelled silently.
+ */
+async function revokeInside(
+  reviewer: Reviewer,
+  id: number,
+  status: ApprovalStatus,
+  r: { name: string; sign_off_id: number | null; booking_id: number | null; slot_status: SlotStatus | null; user_id: number; phone: string; sport: Sport; venue_id: number },
+  req: ApprovalRequirement,
+  reason: string,
+  done: (mail: { kind: CustomerMail; extra: Parameters<typeof tellCustomer>[2] }, logged: { action: string; detail: string }) => void
+): Promise<{ ok: true } | Refused> {
+  if (status !== "approved" || r.sign_off_id === null) return wrongStatus();
+  const taken = await revokeSignOff(r.venue_id, r.sign_off_id, { adminId: reviewer.kind === "staff" ? reviewer.admin.id : null, reason });
+  if (!taken) return wrongStatus();
+  await addEvent(id, reviewerActor(reviewer), "revoked", reason);
+  const flagged = await afterRevocation(id, r);
+  done(
+    { kind: "revoked", extra: { reason } },
+    {
+      action: "approval.revoked",
+      detail: `Revoked ${r.name}'s approval for ${activityName(req.sport, "en")}: ${reason}${flagged ? `; ${flagged} booking(s) flagged for staff` : ""}`,
+    }
+  );
+  return { ok: true };
+}
+
+type RevokedRow = { booking_id: number | null; slot_status: SlotStatus | null; user_id: number; phone: string; sport: Sport; venue_id: number };
+
+/** What follows a revocation, however it was made: returns how many bookings were flagged for staff. */
+async function afterRevocation(id: number, r: RevokedRow): Promise<number> {
+  const db = getDb();
+  // Its own booking, still held for payment: not confirmed, so let go (a payment landing later is owed back).
+  if (r.slot_status === "awaiting_payment" && r.booking_id !== null) {
+    const let_go = await db
+      .prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed' AND payment_status = 'unpaid' AND hold_until IS NOT NULL")
+      .run(r.booking_id);
+    if (let_go.changes > 0) {
+      await releaseBooking(r.booking_id);
+      await settleCancelled(r.booking_id);
+      await db.prepare("UPDATE approval_requests SET slot_status = 'released' WHERE id = ?").run(id);
+      await addEvent(id, { kind: "system", name: "MySenam" }, "booking_released");
+    }
+  }
+  // Confirmed bookings of this activity here, from today on: for staff to decide.
+  const future = (await db
+    .prepare(
+      `SELECT b.id FROM bookings b JOIN courts c ON c.id = b.court_id
+        WHERE c.venue_id = ? AND b.sport = ? AND b.status = 'confirmed' AND b.date >= ?
+          AND (b.user_id = ? OR b.phone_key = phone_key(?))`
+    )
+    .all(r.venue_id, r.sport, todayISO(), r.user_id, r.phone)) as { id: number }[];
+  for (const b of future)
+    await db
+      .prepare("INSERT INTO approval_booking_flags (request_id, booking_id, venue_id) VALUES (?, ?, ?) ON CONFLICT (request_id, booking_id) DO NOTHING")
+      .run(id, b.id, r.venue_id);
+  if (future.length > 0) await addEvent(id, { kind: "system", name: "MySenam" }, "bookings_flagged", String(future.length));
+  return future.length;
+}
+
+/**
+ * A sign-off an approval wrote was taken back in the Sign-offs tab
+ * (lib/sign-offs.ts): the same follows as for revoking the approval itself,
+ * so no path takes eligibility back without it.
+ */
+export async function signOffRevoked(signOffId: number, admin: Pick<Admin, "id" | "name">, reason: string | null): Promise<void> {
+  const db = getDb();
+  const found = (await db.prepare("SELECT id FROM approval_requests WHERE sign_off_id = ? AND status = 'approved'").get(signOffId)) as { id: number } | undefined;
+  if (!found) return;
+  const id = found.id;
+  await withTransaction(async () => {
+    await lockRequest(id);
+    const r = (await db
+      .prepare("SELECT booking_id, slot_status, user_id, phone, sport, venue_id FROM approval_requests WHERE id = ?")
+      .get(id)) as RevokedRow;
+    await addEvent(id, { kind: "staff", name: admin.name, adminId: admin.id }, "revoked", reason ?? "Taken back in Sign-offs");
+    await afterRevocation(id, r);
+  });
+  const request = await requestById(id);
+  if (request) {
+    await tellCustomer(request, "revoked", { reason: reason ?? "" });
+    await offerFreedSlot(request);
+  }
+}
+
+/** A booking let go on revocation frees its slot: offered to whoever waits for it, as a hold let go is. */
+async function offerFreedSlot(request: ApprovalRequest): Promise<void> {
+  if (request.slot?.status !== "released" || !request.events.some((e) => e.action === "booking_released")) return;
+  try {
+    await offerSlotPlace(request.slot.courtId, request.slot.date);
+  } catch (err) {
+    console.error(`[mysenam] could not offer the place freed by application ${request.id}:`, err);
+  }
+}
+
+// ------------------------------------------------------------ bookings flagged after a revocation
+
+export interface FlaggedBooking {
+  id: number;
+  requestId: number;
+  name: string;
+  sport: Sport;
+  bookingCode: string;
+  date: string;
+  start: number;
+  end: number;
+  courtName: string;
+  bookingStatus: string;
+  supervised: boolean;
+  revokeReason: string | null;
+  createdAt: string;
+}
+
+/** Bookings still to be decided after an approval was revoked, at a venue. */
+export async function flaggedBookings(venueId: number): Promise<FlaggedBooking[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT f.id, f.request_id, r.name, r.sport, b.code, b.date, b.start_min, b.end_min, c.name AS court_name, b.status, b.staff_supervised,
+              s.revoke_reason, f.created_at
+         FROM approval_booking_flags f
+         JOIN approval_requests r ON r.id = f.request_id
+         JOIN bookings b ON b.id = f.booking_id
+         JOIN courts c ON c.id = b.court_id
+         LEFT JOIN sign_offs s ON s.id = r.sign_off_id
+        WHERE f.venue_id = ? AND f.resolved_at IS NULL
+        ORDER BY b.date, b.start_min LIMIT 200`
+    )
+    .all(venueId)) as {
+    id: number;
+    request_id: number;
+    name: string;
+    sport: Sport;
+    code: string;
+    date: string;
+    start_min: number;
+    end_min: number;
+    court_name: string;
+    status: string;
+    staff_supervised: boolean;
+    revoke_reason: string | null;
+    created_at: unknown;
+  }[];
+  return rows.map((f) => ({
+    id: f.id,
+    requestId: f.request_id,
+    name: f.name,
+    sport: f.sport,
+    bookingCode: f.code,
+    date: f.date,
+    start: f.start_min,
+    end: f.end_min,
+    courtName: f.court_name,
+    bookingStatus: f.status,
+    supervised: f.staff_supervised === true,
+    revokeReason: f.revoke_reason,
+    createdAt: isoOf(f.created_at),
+  }));
+}
+
+/** Staff have dealt with a flagged booking (cancelled it, arranged supervision, or kept it): on record, with a note. */
+export async function resolveFlag(admin: Pick<Admin, "id" | "name">, venueId: number, flagId: number, note: unknown): Promise<boolean> {
+  const text = typeof note === "string" && note.trim() !== "" ? note.trim().slice(0, 300) : null;
+  if (!text) return false;
+  const done = await getDb()
+    .prepare("UPDATE approval_booking_flags SET resolved_at = now(), resolved_by = ?, resolution = ? WHERE id = ? AND venue_id = ? AND resolved_at IS NULL")
+    .run(admin.name, text, flagId, venueId);
+  return done.changes === 1;
+}
+
+// ------------------------------------------------------------ supervised attendance
+
+/**
+ * A manager arranges (or stops) staff-supervised attendance on a booking: on
+ * record in the activity log. A supervised booking is never given a door
+ * code, and it is no sign-off: it authorises no unmanned use, then or later
+ * (lib/store.ts `accessCodeFor`).
+ */
+export async function setSupervised(
+  admin: Pick<Admin, "id" | "name">,
+  venueId: number,
+  code: unknown,
+  on: boolean,
+  note: unknown
+): Promise<{ ok: true; code: string } | Refused> {
+  if (typeof code !== "string" || code.trim() === "") return refused("APR_BOOKING_NOT_FOUND", "Booking not found.", 404);
+  const why = typeof note === "string" && note.trim() !== "" ? note.trim().slice(0, 300) : null;
+  if (on && !why) return refused("APR_REASON_NEEDED", "Say who supervises, under which procedure.");
+  const row = (await getDb()
+    .prepare(
+      `SELECT b.id, b.code FROM bookings b JOIN courts c ON c.id = b.court_id
+        WHERE UPPER(b.code) = UPPER(?) AND c.venue_id = ? AND b.status = 'confirmed'`
+    )
+    .get(code.trim(), venueId)) as { id: number; code: string } | undefined;
+  if (!row) return refused("APR_BOOKING_NOT_FOUND", "Booking not found.", 404);
+  await getDb().prepare("UPDATE bookings SET staff_supervised = ? WHERE id = ?").run(on, row.id);
+  await logAction(admin, {
+    venueId,
+    action: on ? "booking.supervised" : "booking.unsupervised",
+    detail: on ? `Arranged staff-supervised attendance for ${row.code}: ${why}` : `No longer staff-supervised: ${row.code}${why ? ` (${why})` : ""}`,
+    bookingCode: row.code,
+  });
+  return { ok: true, code: row.code };
 }
 
 // ------------------------------------------------------------ the clock
@@ -1201,6 +1756,11 @@ export async function expireApprovals(): Promise<{ holds: number; expired: numbe
     await tellCustomer(r, "expired", {}, `approval:${id}:expired`);
   }
 
+  // Bookings made on approval and held for payment: paid, let go, or cancelled since.
+  await syncApprovalBookings();
+  // Payments that landed after their hold was let go and were not yet turned back into the booking.
+  await recoverLatePayments();
+
   let reminded = 0;
   const today = todayISO();
   const ending = (await db
@@ -1221,6 +1781,219 @@ export async function expireApprovals(): Promise<{ holds: number; expired: numbe
   }
   return { holds, expired, reminded };
 }
+
+// ------------------------------------------------------------ payment after approval
+
+/**
+ * Bring applications whose booking was held for payment up to date with
+ * that booking: paid (or a deposit paid, which stands it) → `booked`; let go
+ * unpaid → `payment_lapsed`, the customer told their approval stands and the
+ * slot is free again; cancelled otherwise (by staff, or on revocation) →
+ * `released`. Each moves once, under the application's row lock. Called as
+ * a payment settles (lib/payments.ts) and on the scheduler's tick.
+ */
+export async function syncApprovalBookings(bookingIds?: number[]): Promise<number> {
+  const db = getDb();
+  if (bookingIds && bookingIds.length === 0) return 0;
+  const rows = (await db
+    .prepare(
+      `SELECT r.id FROM approval_requests r JOIN bookings b ON b.id = r.booking_id
+        WHERE r.slot_status = 'awaiting_payment'
+          AND (b.status = 'cancelled' OR b.hold_until IS NULL OR b.payment_status = 'paid' OR b.deposit_paid > 0)
+          ${bookingIds ? `AND r.booking_id IN (${bookingIds.map(() => "?").join(",")})` : ""}
+        ORDER BY r.id LIMIT 200`
+    )
+    .all(...(bookingIds ?? []))) as { id: number }[];
+  let moved = 0;
+  for (const { id } of rows) {
+    let told: { mail: CustomerMail; code: string } | null = null;
+    await withTransaction(async () => {
+      await lockRequest(id);
+      const b = (await db
+        .prepare(
+          `SELECT b.code, b.status, b.payment_status, b.hold_until, b.released_unpaid, b.deposit_paid::float AS deposit_paid
+             FROM approval_requests r JOIN bookings b ON b.id = r.booking_id
+            WHERE r.id = ? AND r.slot_status = 'awaiting_payment'`
+        )
+        .get(id)) as { code: string; status: string; payment_status: string; hold_until: string | null; released_unpaid: number; deposit_paid: number } | undefined;
+      if (!b) return;
+      const sys = { kind: "system" as const, name: "MySenam" };
+      // Paid, a deposit paid (which stands it), or no longer held at all (staff took it off hold).
+      if (b.status === "confirmed" && (b.hold_until === null || b.payment_status === "paid" || Number(b.deposit_paid) > 0)) {
+        await db.prepare("UPDATE approval_requests SET slot_status = 'booked' WHERE id = ?").run(id);
+        await addEvent(id, sys, "paid", b.code);
+      } else if (b.status === "cancelled" && b.released_unpaid === 1) {
+        await db.prepare("UPDATE approval_requests SET slot_status = 'payment_lapsed' WHERE id = ?").run(id);
+        await addEvent(id, sys, "payment_lapsed", b.code);
+        told = { mail: "paymentLapsed", code: b.code };
+      } else if (b.status === "cancelled") {
+        await db.prepare("UPDATE approval_requests SET slot_status = 'released' WHERE id = ?").run(id);
+        await addEvent(id, sys, "booking_cancelled", b.code);
+      } else return;
+      moved++;
+    });
+    const t = told as { mail: CustomerMail; code: string } | null;
+    if (t) {
+      const r = await requestById(id);
+      if (r) await tellCustomer(r, t.mail, { code: t.code }, `approval:${id}:${t.mail}:${t.code}`);
+    }
+  }
+  return moved;
+}
+
+/**
+ * A payment that landed after its booking's hold was let go (the gateway's
+ * page could not be closed, or the money came late). Never left as money
+ * without anything for it: if the approval still stands and the slot is
+ * still free, the booking is made again through the ordinary booking path,
+ * paid with that payment, and what was owed back is reduced by what it now
+ * costs, all in one transaction; if not, it stays owed back (lib/payments.ts
+ * *Refunds owed*) and the customer is told. A full payment only: a late
+ * deposit stays owed back. Once per payment and booking, whoever asks
+ * (the payment settling, or the scheduler after an interruption): the
+ * outcome is in the application's history, keyed to the payment.
+ */
+export async function recoverLatePayments(paymentId?: number): Promise<{ booked: number; owed: number }> {
+  const db = getDb();
+  const candidates = (await db
+    .prepare(
+      `SELECT p.id AS payment_id, pb.booking_id, pb.amount::float AS billed, r.id AS request_id
+         FROM online_payments p
+         JOIN online_payment_bookings pb ON pb.payment_id = p.id
+         JOIN bookings b ON b.id = pb.booking_id AND b.status = 'cancelled' AND b.released_unpaid = 1
+         JOIN approval_requests r ON r.booking_id = b.id AND r.slot_status IN ('awaiting_payment', 'payment_lapsed')
+        WHERE p.status = 'paid' AND p.purpose = 'booking' AND p.deposit = 0 AND p.refund_due > p.refunded
+          ${paymentId !== undefined ? "AND p.id = ?" : "AND p.paid_at > datetime('now', '-2 days')"}
+          AND NOT EXISTS (SELECT 1 FROM approval_events e WHERE e.request_id = r.id
+                           AND e.action IN ('late_payment_booked', 'late_payment_refund') AND e.reason = 'payment:' || p.id)
+        ORDER BY p.id LIMIT 100`
+    )
+    .all(...(paymentId !== undefined ? [paymentId] : []))) as { payment_id: number; booking_id: number; billed: number | null; request_id: number }[];
+  let booked = 0;
+  let owed = 0;
+  for (const c of candidates) {
+    const key = `payment:${c.payment_id}`;
+    let made: Booking | null = null;
+    const why = await withTransaction(async (): Promise<string | null> => {
+      const row = await lockRequest(c.request_id);
+      if (!row) return "gone";
+      const seen = await db
+        .prepare("SELECT 1 FROM approval_events WHERE request_id = ? AND action IN ('late_payment_booked', 'late_payment_refund') AND reason = ?")
+        .get(c.request_id, key);
+      if (seen) return "seen";
+      const r = (await db
+        .prepare(
+          `SELECT r.booking_id, r.slot_status, r.slot_assessment, r.court_id, r.slot_date, r.slot_start, r.slot_end, r.sport, r.user_id, r.venue_id,
+                  u.name, u.phone, u.email
+             FROM approval_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?`
+        )
+        .get(c.request_id)) as {
+        booking_id: number;
+        slot_status: SlotStatus;
+        slot_assessment: boolean;
+        court_id: number | null;
+        slot_date: string;
+        slot_start: number;
+        slot_end: number;
+        sport: Sport;
+        user_id: number;
+        venue_id: number;
+        name: string;
+        phone: string;
+        email: string;
+      };
+      if (r.booking_id !== c.booking_id || r.court_id === null) return "moved on";
+      // Still eligible: an approval in force for that day, or (the in-person session) the application still waiting on it.
+      const eligible =
+        r.slot_assessment === true
+          ? row.status === "in_person_due"
+          : row.status === "approved" &&
+            (await signOffHolds({ venueId: r.venue_id, sport: r.sport, until: r.slot_date, phone: r.phone, userId: r.user_id, channel: "customer", need: "any" }));
+      const owedBack = async (why: string) => {
+        await addEvent(c.request_id, { kind: "system", name: "MySenam" }, "late_payment_refund", key);
+        return why;
+      };
+      if (!eligible) return owedBack("not eligible");
+      const pay = (await db.prepare("SELECT refund_due::float AS due, refunded::float AS refunded FROM online_payments WHERE id = ? FOR UPDATE").get(c.payment_id)) as {
+        due: number;
+        refunded: number;
+      };
+      const again = await createBookingSeries({
+        courtId: r.court_id,
+        date: r.slot_date,
+        start: r.slot_start,
+        end: r.slot_end,
+        weeks: 1,
+        name: r.name,
+        phone: r.phone,
+        email: r.email,
+        userId: r.user_id,
+        sport: r.sport,
+        by: "customer",
+        approval: { id: c.request_id, assessment: r.slot_assessment === true },
+      });
+      if (!again.ok) return owedBack("taken");
+      const booking = again.bookings[0];
+      const cost = Math.round((booking.totalPrice - (booking.sharesPaid ?? 0)) * 100) / 100;
+      const billed = c.billed ?? cost;
+      // Only what this payment covers, and only out of what is still owed back on it.
+      if (cost > billed + 0.005 || pay.due - pay.refunded < cost - 0.005) throw new LateRecoveryRefused();
+      await db.prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = 'online' WHERE id = ?").run(new Date().toISOString(), booking.id);
+      await db.prepare("INSERT INTO online_payment_bookings (payment_id, booking_id, amount) VALUES (?, ?, ?)").run(c.payment_id, booking.id, cost);
+      const cut = await db
+        .prepare("UPDATE online_payments SET refund_due = refund_due - ? WHERE id = ? AND refund_due - ? >= refunded - 0.005")
+        .run(cost, c.payment_id, cost);
+      if (cut.changes !== 1) throw new LateRecoveryRefused();
+      await db.prepare("UPDATE approval_requests SET booking_id = ?, slot_status = 'booked' WHERE id = ?").run(booking.id, c.request_id);
+      await addEvent(c.request_id, { kind: "system", name: "MySenam" }, "late_payment_booked", key);
+      made = booking;
+      return null;
+    }).catch((err: unknown) => {
+      if (err instanceof LateRecoveryRefused) return "price";
+      throw err;
+    });
+    if (why === "seen" || why === "gone" || why === "moved on") continue;
+    const request = await requestById(c.request_id);
+    if (!request) continue;
+    if (why === null && made) {
+      booked++;
+      const b = made as Booking;
+      await logDecision("system", request.venueId, "approval.late_payment", `${request.name}'s payment came after their hold was let go; booked again as ${b.code}, paid`, b.code);
+      await tellCustomer(request, "latePaymentBooked", { code: b.code }, `approval:${c.request_id}:latePaymentBooked:${key}`);
+      await confirmBooking((await getBookingById(b.id)) ?? b, request.userId);
+      continue;
+    }
+    // Stays owed back: written down once (the price case after its rollback), and the customer told.
+    if (why === "price") await addEvent(c.request_id, { kind: "system", name: "MySenam" }, "late_payment_refund", key);
+    owed++;
+    await logDecision("system", request.venueId, "approval.late_payment", `${request.name}'s payment came after their hold was let go and could not become the booking (${why}); it is owed back`);
+    await tellCustomer(request, "latePaymentRefund", {}, `approval:${c.request_id}:latePaymentRefund:${key}`);
+  }
+  return { booked, owed };
+}
+
+/**
+ * A booking payment has just settled (lib/payments.ts `settleBill`): bring
+ * any application whose booking it paid up to date, and turn a late one back
+ * into its booking where it still can be. Never throws: the payment is
+ * recorded already, and the scheduler does the same on its next tick.
+ */
+export async function approvalPaymentSettled(paymentId: number): Promise<void> {
+  try {
+    const ids = (
+      (await getDb().prepare("SELECT booking_id FROM online_payment_bookings WHERE payment_id = ?").all(paymentId)) as { booking_id: number }[]
+    ).map((r) => r.booking_id);
+    if (ids.length === 0) return;
+    if (!(await getDb().prepare(`SELECT 1 FROM approval_requests WHERE booking_id IN (${ids.map(() => "?").join(",")}) LIMIT 1`).get(...ids))) return;
+    await syncApprovalBookings(ids);
+    await recoverLatePayments(paymentId);
+  } catch (err) {
+    console.error(`[mysenam] approval follow-up of payment ${paymentId} failed (the scheduler retries it):`, err);
+  }
+}
+
+/** Rolls back a late payment's booking that the payment does not cover. */
+class LateRecoveryRefused extends Error {}
 
 // ------------------------------------------------------------ personal data
 

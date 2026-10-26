@@ -1,6 +1,10 @@
 # ADR 0019: Approval applications are their own record; a slot is held, not booked; nothing pending opens a door
 
-- **Status:** current, decided 2026-10-25 by the product owner. How customers,
+- **Status:** current, decided 2026-10-25 by the product owner; amended by
+  [ADR 0020](0020-approval-to-booking-payment-and-authority.md) (a booking
+  made on approval is held for payment where the venue asks it; a coach
+  decides signed in to their own account, not at a link; who may grant a
+  safety assessment; revoking). How customers,
   staff and coaches use it is
   [registering online for approval](../../features/activities.md#registering-online-for-approval).
 - **Context:** an activity whose booking rules ask for a sign-off or a

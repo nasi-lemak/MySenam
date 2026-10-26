@@ -521,4 +521,18 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "This activity has no in-person step to record.": { ms: "Aktiviti ini tiada langkah bersemuka untuk direkodkan.", zh: "此活动没有需要记录的现场环节。" },
   "action is approve, reject, ask or in_person.": { ms: "action ialah approve, reject, ask atau in_person.", zh: "action 须为 approve、reject、ask 或 in_person。" },
   "venueId and sport are required.": { ms: "venueId dan sport diperlukan.", zh: "需要 venueId 和 sport。" },
+  "This is a safety assessment: a manager, a coach named for this activity, or staff delegated for it decides. You can ask for more, record the administrative check, or refuse.": {
+    ms: "Ini penilaian keselamatan: pengurus, jurulatih yang dinamakan untuk aktiviti ini, atau kakitangan yang diwakilkan untuknya yang memutuskan. Anda boleh meminta maklumat lanjut, merekodkan semakan pentadbiran, atau menolak.",
+    zh: "这是安全评估：须由经理、此活动的指定教练或获授权的员工决定。您可以要求补充资料、记录行政核对，或拒绝。",
+  },
+  "Say why it is taken back.": { ms: "Nyatakan mengapa ia ditarik balik.", zh: "请说明撤销的原因。" },
+  "Say who supervises, under which procedure.": { ms: "Nyatakan siapa yang menyelia, di bawah prosedur mana.", zh: "请说明由谁监督，依据哪项程序。" },
+  "Booking not found.": { ms: "Tempahan tidak dijumpai.", zh: "找不到该预订。" },
+  "Say what was done with this booking.": { ms: "Nyatakan apa yang dilakukan dengan tempahan ini.", zh: "请说明如何处理了这项预订。" },
+  "That account is already linked to another coach here.": { ms: "Akaun itu sudah dipautkan kepada jurulatih lain di sini.", zh: "该账户已关联到这里的另一位教练。" },
+  "Only this venue's front-desk staff can be delegated.": { ms: "Hanya kakitangan kaunter pusat ini boleh diwakilkan.", zh: "只能授权本场馆的前台员工。" },
+  "An approved customer has 1 to 168 hours to pay for the slot booked.": { ms: "Pelanggan yang diluluskan mempunyai 1 hingga 168 jam untuk membayar slot yang ditempah.", zh: "获批准的顾客须在 1 至 168 小时内为已预订的时段付款。" },
+  "A safety assessment or an administrative check.": { ms: "Penilaian keselamatan atau semakan pentadbiran.", zh: "安全评估或行政核对。" },
+  "venueId and coachId are required.": { ms: "venueId dan coachId diperlukan.", zh: "需要 venueId 和 coachId。" },
+  "action is approve, reject, ask, in_person, check or revoke.": { ms: "action ialah approve, reject, ask, in_person, check atau revoke.", zh: "action 须为 approve、reject、ask、in_person、check 或 revoke。" },
 };

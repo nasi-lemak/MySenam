@@ -3,7 +3,7 @@ import { serverT } from "@/lib/locale";
 import { coachForToken, coachLessons } from "@/lib/coach-schedule";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import CoachSelfService from "@/components/CoachSelfService";
-import CoachApprovals from "@/components/CoachApprovals";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,13 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
       <a href={`/api/coach-calendar/${token}.ics`} className="inline-block text-sm font-semibold text-teal-700 underline">
         📅 {t("coachpage.subscribe")}
       </a>
-      <CoachApprovals token={token} />
+      {/* Applications are reviewed signed in to the coach's own account, never at this link (ADR 0020). */}
+      <p className="text-sm text-slate-600">
+        {t("apr.coachSignIn")}{" "}
+        <Link href="/account/approvals" className="font-semibold text-teal-700 underline">
+          {t("apr.coachSignInLink")}
+        </Link>
+      </p>
       <CoachSelfService token={token} hours={found.coach.hours} timeOff={found.coach.timeOff} />
       {lessons.length === 0 ? (
         <p className="text-sm text-slate-600">{t("coachpage.none")}</p>

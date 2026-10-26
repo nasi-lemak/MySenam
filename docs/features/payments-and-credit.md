@@ -40,6 +40,29 @@ it is let go for somebody else and the customer is charged nothing.
   Bookings staff make at the counter, ones paid at once from credit or a
   pass, and free ones are never held. It needs the venue's own payment
   gateway account (Billplz or Stripe); without one it cannot be turned on.
+- A held booking with a deposit paid on it is never let go as unpaid, even in
+  the moment before its hold is cleared.
+
+**A booking made on approval** ([registering online for approval](activities.md#registering-online-for-approval);
+[ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md)).
+Approval is eligibility, never payment. At a venue asking payment to hold,
+the slot booked on approval is held by this same hold for the activity's
+*hours to pay once approved* (24 unless set, never past the slot's start; the
+venue's own minutes when the customer books the in-person session there and
+then), and the customer is emailed the booking code and the deadline and pays
+from their account's approvals page. Paid, it is confirmed as any held
+booking; not paid in time, it is let go and the customer told that the
+approval stands. A payment that lands after the hold was let go becomes the
+booking again, paid, if the approval still stands and the slot is still free
+(what was owed back on it reduced by what the booking now costs, in the same
+transaction); otherwise it stays under *Refunds owed* and the customer is
+told. That happens once per payment, whether the gateway reports it once or
+twice or the scheduler retries after an interruption; a booking staff
+cancelled, or let go when the approval was revoked, is never revived, and a
+late deposit stays owed back. Staff approving may let the booking stand
+unheld, paid at the counter, as an exception on record. At a venue that takes
+payment at the counter, a booking made on approval stands unpaid as any
+booking there does.
 
 **A deposit instead of the whole price.** The same setting can let the
 customer hold it with a share of the price (10, 20, 25, 30, 40 or 50 percent)

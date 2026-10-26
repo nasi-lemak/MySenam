@@ -130,7 +130,8 @@ export async function releaseExpiredHolds(): Promise<number> {
       // Paid, or let go by another caller, since the read: leave it.
       const claimed = await db
         .prepare(
-          "UPDATE bookings SET status = 'cancelled', released_unpaid = 1 WHERE id = ? AND status = 'confirmed' AND payment_status = 'unpaid' AND hold_until < datetime('now')"
+          // A deposit paid stands it, even in the moment before its hold is cleared (lib/payments.ts).
+          "UPDATE bookings SET status = 'cancelled', released_unpaid = 1 WHERE id = ? AND status = 'confirmed' AND payment_status = 'unpaid' AND deposit_paid = 0 AND hold_until < datetime('now')"
         )
         .run(b.id);
       if (claimed.changes === 0) return false;

@@ -4150,13 +4150,30 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
         "Before using this outside staffed hours you need a one-off run-through at the desk. Drop in while the counter is open and it takes a few minutes.",
     };
 
+  // Attendance a manager arranged under staff supervision is met by staff:
+  // never a door code, whatever else the person holds (ADR 0020).
+  const supervised = (await db.prepare("SELECT staff_supervised FROM bookings WHERE id = ?").get(booking.id)) as { staff_supervised: boolean } | undefined;
+  if (supervised?.staff_supervised === true)
+    return {
+      ok: false,
+      reason: "supervised",
+      message: "Staff will meet you for this booking and let you in. There is no door code for it.",
+    };
+
   // An activity whose rules ask for a sign-off or a certification opens no
   // door to a booking without one in force that day: a session booked for an
   // approval's in-person step (lib/approvals.ts), or one a manager booked
-  // past the rules, waits for somebody to be there. A pending approval is
-  // not one.
-  const rules = await policyFor(court);
-  const need = rules.certification ? "certification" : rules.signOff ? "any" : null;
+  // past the rules, waits for somebody to be there. A pending, refused,
+  // lapsed or revoked approval is not one. The rules are the booked
+  // activity's, on a resource that offers several, and an activity the venue
+  // takes approval applications for needs its approval here whatever its
+  // booking rules say (ADR 0020).
+  const rules = await policyFor(courtFor(court, courtOffers(court, booking.sport) ? booking.sport : court.sport));
+  const asked = (await db
+    .prepare("SELECT kind FROM approval_requirements WHERE venue_id = ? AND sport = ?")
+    .get(venue.id, booking.sport)) as { kind: string } | undefined;
+  const need =
+    rules.certification || asked?.kind === "certification" ? "certification" : rules.signOff || asked ? "any" : null;
   if (need && !(await signOffHolds({ venueId: venue.id, sport: booking.sport, until: booking.date, phone: booking.phone, channel: "staff", need })))
     return {
       ok: false,

@@ -32,6 +32,15 @@ scrypt-hashed password, or Google sign-in, and an HTTP-only session cookie.
 A booking needs no account; a weekly series, stored credit, passes bought
 online and the personal-data export do.
 
+**Coaches reviewing approval applications** do so signed in to their own
+customer account, which a manager links to the coach record by the account's
+email (`coaches.user_id`, *Courts & rates → Online applications*); the
+account's approvals page lists what that venue named them for, and every
+decision records the coach and the account. A coach's private schedule link
+(`/coach/<token>`) shows their lessons and takes their hours, and decides no
+application ([ADR 0020](decisions/0020-approval-to-booking-payment-and-authority.md)).
+Customer accounts have no two-factor sign-in.
+
 ## Two-factor sign-in
 
 Staff accounts can change payment keys, refund money and read every
