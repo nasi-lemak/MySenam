@@ -201,7 +201,11 @@ activity can ask for one. Customers are told before they pick a time: the
 venue's grid and search say *needs the venue's sign-off* (or *needs a
 recorded certification*) beside each resource whose rules ask for one
 (`needs` in its public rules, `needsOf` in `src/lib/court-activities.ts`);
-the booking is where it is enforced.
+the booking is where it is enforced. A signed-in account that says on the
+search page who is taking part sees each one's own status there instead
+(approved, application pending, approval expired and so on), worked out by
+the same rule and scope booking uses; informational only
+([who is taking part](discovery.md#who-is-taking-part)).
 
 **Each record keeps** the person (name, phone number, and their account
 where one is linked), the activity (or anything there), its scope (this

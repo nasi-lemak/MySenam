@@ -9,7 +9,7 @@ import { CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_COURT_HOURS, MAX_VENUE_AHEAD_DAYS, OP
 import { usualMinutes } from "@/lib/booking-rules";
 import { formatMinute } from "@/lib/interval";
 import { lengthLabel } from "@/lib/length-label";
-import type { SearchKind, SearchResult, SearchSort } from "@/lib/store";
+import type { SearchResult, SearchSort } from "@/lib/store";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -20,6 +20,7 @@ import { Highlights } from "@/components/VenueFacilities";
 import { FILTER_ICONS, highlights, type AmenityFilter, type CourtFilter } from "@/lib/facilities";
 import { photoAt, type Photo } from "@/lib/photos-shared";
 import { money, shortDate } from "@/lib/region";
+import { NeedsLabel, TakingPicker, takingParam, useTaking, type Person } from "@/components/WhoTakesPart";
 
 // Every hour a booking could start at, across all venues. Each venue's own
 // trading hours narrow this further when the search runs.
@@ -141,6 +142,9 @@ export default function SearchClient({
   const [needsArea, setNeedsArea] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Who is taking part, for an account signed in: this tab only (components/WhoTakesPart.tsx).
+  const { chosen, setChosen, signedIn, people } = useTaking();
+  const taking = takingParam(chosen);
 
   const search = useCallback(async () => {
     setLoading(true);
@@ -160,6 +164,7 @@ export default function SearchClient({
       } else if (area) params.set("area", area);
       if (has.length > 0) params.set("has", has.join(","));
       if (sort !== "soonest") params.set("sort", sort);
+      if (taking) params.set("taking", taking);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
@@ -173,7 +178,7 @@ export default function SearchClient({
     } finally {
       setLoading(false);
     }
-  }, [sport, date, fromHour, toHour, duration, area, near, has, sort, t]);
+  }, [sport, date, fromHour, toHour, duration, area, near, has, sort, taking, t]);
 
   useEffect(() => {
     search();
@@ -346,6 +351,7 @@ export default function SearchClient({
             );
           })}
         </div>
+        {signedIn && <TakingPicker t={t} people={people} chosen={chosen} onChange={setChosen} />}
       </div>
 
       {error && (
@@ -365,7 +371,7 @@ export default function SearchClient({
       ) : results && results.length > 0 && sort !== "soonest" ? (
         <div>
           <SortBar t={t} sort={sort} onSort={setSort} near={near !== null} />
-          <VenueResults t={t} results={results} covers={covers} bookHref={bookHref} kindHref={kindHref} />
+          <VenueResults t={t} results={results} covers={covers} bookHref={bookHref} kindHref={kindHref} people={people} />
         </div>
       ) : results && results.length > 0 ? (
         (() => {
@@ -422,7 +428,7 @@ export default function SearchClient({
                           📍 {g.area}
                           {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
                           {activityIcon(cheapest.court.sport)} {cheapest.court.heading ? `${cheapest.court.heading} · ${cheapest.court.name}` : cheapest.court.name}
-                          {cheapest.needs && <NeedsBadge t={t} needs={cheapest.needs} />}
+                          {cheapest.needs && <NeedsLabel t={t} needs={cheapest.needs} lines={cheapest.eligibility} people={people} />}
                           {others > 0 && (
                             <span className="text-slate-400">
                               {" "}
@@ -431,7 +437,7 @@ export default function SearchClient({
                           )}
                         </div>
                         <Highlights t={t} items={highlights([cheapest.court], cheapest.venue.amenities ?? [])} />
-                        <KindGroups t={t} result={cheapest} href={kindHref} />
+                        <KindGroups t={t} result={cheapest} href={kindHref} people={people} />
                       </div>
                       <div className="text-right">
                         <div className="font-bold">{money(cheapest.totalPrice)}</div>
@@ -486,22 +492,26 @@ function SortBar({ t, sort, onSort, near }: { t: T; sort: SearchSort; onSort: (s
 /** A link to the venue's grid at a result's time, with a heading shown: a kind picked (`courtId`), or none. */
 type KindHref = (r: SearchResult, courtId: number | null, heading: string | null) => string;
 
-/** What a resource's rules ask for first, beside its name. */
-function NeedsBadge({ t, needs }: { t: T; needs: NonNullable<SearchKind["needs"]> }) {
-  return (
-    <span className="ml-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700" data-needs={needs}>
-      {t(needs === "certification" ? "grp.certification" : "grp.signOff")}
-    </span>
-  );
-}
-
 /**
  * Kinds of kit under one heading at a result's venue and time: the heading,
  * then each kind as itself, with its own price and places left (never added
  * up) and what its rules ask for first; a free one goes straight to booking
  * it, and the heading to the venue's grid with all of them.
  */
-function KindGroups({ t, result, href, withTime = false }: { t: T; result: SearchResult; href: KindHref; withTime?: boolean }) {
+function KindGroups({
+  t,
+  result,
+  href,
+  withTime = false,
+  people = [],
+}: {
+  t: T;
+  result: SearchResult;
+  href: KindHref;
+  withTime?: boolean;
+  /** Who the account manages, to name each one's status. */
+  people?: Person[];
+}) {
   if (!result.groups || result.groups.length === 0) return null;
   return (
     <div className="mt-2 space-y-1.5">
@@ -532,7 +542,7 @@ function KindGroups({ t, result, href, withTime = false }: { t: T; result: Searc
                   ) : (
                     <span className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-400">{words}</span>
                   )}
-                  {k.needs && <NeedsBadge t={t} needs={k.needs} />}
+                  {k.needs && <NeedsLabel t={t} needs={k.needs} lines={k.eligibility} people={people} />}
                 </li>
               );
             })}
@@ -556,12 +566,14 @@ function VenueResults({
   covers,
   bookHref,
   kindHref,
+  people,
 }: {
   t: T;
   results: SearchResult[];
   covers: Record<string, Photo>;
   bookHref: (r: SearchResult) => string;
   kindHref: KindHref;
+  people: Person[];
 }) {
   const venues = new Map<number, SearchResult[]>();
   for (const r of results) venues.set(r.venue.id, [...(venues.get(r.venue.id) ?? []), r]);
@@ -602,9 +614,10 @@ function VenueResults({
                   <div className="text-sm text-slate-500">
                     📍 {first.venue.area}
                     {first.distanceKm !== undefined && ` · ${t("near.away", { km: first.distanceKm })}`}
+                    {first.needs && <NeedsLabel t={t} needs={first.needs} lines={first.eligibility} people={people} />}
                   </div>
                   <Highlights t={t} items={highlights([first.court], first.venue.amenities ?? [])} />
-                  <KindGroups t={t} result={first} href={kindHref} withTime />
+                  <KindGroups t={t} result={first} href={kindHref} withTime people={people} />
                 </div>
                 <div className="text-right text-sm">
                   <span className="text-slate-400">{t("search.fromPrice")}</span> <span className="font-bold">{money(from)}</span>

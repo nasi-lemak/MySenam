@@ -309,6 +309,13 @@ linked to their own login is, through that account, as discoverable as that
 account chooses to be (matchmaking stays opt-in and for declared adults,
 [ADR 0016](decisions/0016-matchmaking-on-open-games.md)).
 
+Whether somebody may book an activity that needs approval is shown in
+search only to the signed-in account that chose them as taking part, and
+only for itself and participants it acts for: a status per person, never an
+application's details, declarations or documents, sent marked private so no
+shared cache keeps it. The choice stays in that browser tab; nothing about it
+is stored ([who is taking part](../features/discovery.md#who-is-taking-part)).
+
 An account's export holds the participants it manages (`managedPeople`: what
 is held, its relationship, and their sign-offs, inductions, places on
 bookings and waivers), the relationships it ended (`guardianshipsEnded`,

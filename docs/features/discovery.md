@@ -32,7 +32,9 @@ activity asks for its usual length (padel's 90 minutes). A result is a start eac
 length they allow, free for all of it, buffers included. A resource whose
 rules ask for a staff sign-off or a recorded certification first
 ([sign-offs](activities.md#sign-offs)) says so on the result
-(*needs the venue's sign-off*), as on the venue's grid.
+(*needs the venue's sign-off*), as on the venue's grid; for a signed-in
+account that says who is taking part, it says each one's status instead
+([who is taking part](#who-is-taking-part)).
 
 **Kinds of kit under one heading** ([activities](activities.md#pricing-a-booking-with-places))
 show in search under it: a result at a venue with *Kayaks* over *Single
@@ -60,6 +62,64 @@ an account, the name, phone and email are kept in that browser only
 Aisyah? Clear* forgets them. Nothing is sent anywhere for this, nothing is
 kept on the server beyond the booking itself, and a browser that refuses
 storage (private windows, blocked site data) just asks again.
+
+### Who is taking part
+
+Until a signed-in account says who is taking part, the badge on a resource
+that needs approval is the same for everybody: the requirement
+(*needs the venue's sign-off*, *needs a recorded certification*), never a
+suggestion that anybody's eligibility was looked at. Signed in, the search
+page offers *Who is taking part?*: *Myself* and each person the account
+manages ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)),
+any one of them or several. Nobody chosen, the account holder is not assumed
+to be the one taking part: the badge stays the requirement and the page asks
+them to choose. With somebody chosen, each badge names each one's status for
+that activity there: *approved*; *approval required* (*certification
+required*); *application pending*; *more information required*; *in-person
+assessment due*; or *approval expired* (*certification expired*). One taken
+back reads *approval required*. Several are each named (*Aisha: approved;
+Ben: approval required*), and the badge is green only when every one of them
+is approved, so a booking for several is never shown as possible when one of
+them is not. The venue's grid labels its resources the same way, from the
+same choice. The choice is kept for that browser tab only
+(`sessionStorage`), never on the server or in the address, and forgotten
+once the account is signed out (`src/components/WhoTakesPart.tsx`).
+
+Statuses are worked out from what is already recorded, never stored
+(`src/lib/eligibility.ts`). First, a sign-off or certification in force on
+the day searched, by the rule booking uses for whose one counts
+(`signOffWho` in `src/lib/sign-offs.ts`, shared by both): the account
+holder's own, or a participant's own, online only for an account that acts
+for them now; in the scope booking uses: the branch that gave it, or every
+branch of its business where it was given for all of them; for that
+activity (or anything there); of the kind the resource asks for (a sign-off
+does not meet a certification). Otherwise an application this account made
+that is still open at that venue for that activity (one another guardian
+made stays theirs to see). Otherwise *expired* where one ran out before the
+day, and *required*. Nothing from one venue counts at another, nothing for
+one activity counts for another, and a participant the account does not
+act for (another family's, or after a guardian's relationship was revoked)
+gets no line at all. The answer is a status per person per resource only:
+never an application's details, declarations or documents.
+
+It is a guide. Booking, the door code and every other path check again at
+the time, so a badge that said *approved* before the sign-off ran out or was
+taken back books nothing.
+
+What it costs: one query for the page, for the people chosen over the venues
+on it whose resources ask for anything; none when nothing on the page asks or
+nobody is chosen, and anonymous search reads nothing more than before.
+Sign-offs are found by account, participant or proved number, each through an
+index (migration 0150 added the number's), never by reading the table. A
+personalised answer is sent `Cache-Control: private, no-store` with
+`Vary: Cookie`, so no shared cache keeps it or gives it to anybody else; a
+search without `taking` is the public one, as before
+([HTTP API](../architecture/http-api.md)). Tests:
+`tests/search-eligibility.test.ts` (every status, guardians and several
+children, recognition by venue and business, a stale badge refused at
+booking, cache isolation, query count and index use, on PGlite and
+Postgres) and `tests/components/who-takes-part.test.tsx` (the choice and the
+badges, the grid's label, each language).
 
 ## Courts near me
 
