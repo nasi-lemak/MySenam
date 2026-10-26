@@ -167,7 +167,7 @@ changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
 | [An operator's own activity](#activities) named in English unless given; [catalogue changes](#activities) take a minute; [`sport` column name](#activities); [integrity check](#activities) window | 5 | Operators | Kept |
-| [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional, PDFs checked not scanned; booking for a child on the waiting list, the counter, the API key and several courts | 5 / 7 / 2 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction; the other booking paths for a child when a venue needs them |
+| [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional pending legal review, failed scans not re-queued, the erasure ledger kept on the server only; booking for a child on the waiting list, the counter, the API key and several courts | 5 / 7 / 2 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction; the other booking paths for a child when a venue needs them |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
@@ -332,21 +332,28 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   booked once approved (P3). A group of places on such an activity is booked
   at the counter, since one sign-off covers one person.
 - **Approval applications are kept for provisional periods**: documents
-  at most 90 days after the decision and closed records 365 days, accepted
-  by the owner as defaults, not statutory periods, until a lawyer reviews
-  them per activity and jurisdiction; deleted rows stay in backups until
-  those age out (about two weeks) ([privacy](../architecture/privacy.md#applications-to-be-approved-for-an-activity)) (P3).
-- **A supporting PDF is checked by its structure, not scanned for
-  malware**: scripts, actions, attachments, rich media, XFA and encryption
-  are refused and it is never rendered, but a flaw in a reviewer's own PDF
-  reader is not caught ([security](../architecture/security.md#supporting-documents)) (P3, deliberate: no paid scanning service).
+  90 days after the decision, the review window 30, closed records 365 and
+  refused or unscannable documents 7, product policy the owner accepted, not
+  legal requirements; the platform owner can change them within bounds, and
+  the dashboard and privacy notice say they are provisional until a legal
+  review is recorded, which needs a Malaysian and a Singaporean lawyer's
+  answers to the questions in [privacy](../architecture/privacy.md); deleted rows
+  stay in backups until those age out (about two weeks) (P3, kind 7).
+- **A document that failed malware scanning cannot be re-queued**: after
+  seven tries over about 20 hours it is `failed`, never released, and the
+  applicant is asked to send it again ([security](../architecture/security.md#malware-scanning)) (P3).
+- **The erasure ledger is not copied off-site**: after a restore the app
+  erases again accounts erased since the backup, from the ledger kept on the
+  server beside the backup sets; if the server itself is lost, erasures since
+  the last off-site set must be redone by hand, and one the restored copy
+  blocks (credit, a pass, a hold) is raised to the owners rather than forced
+  ([backups](../operations/backups.md#after-a-restore)) (P3).
 - **Booking for a child works on the approval's slot and on one court
   online**: a parent, legal guardian or other person with authority applies,
   books and agrees to waivers for a child from their own account
   ([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage)),
   but the waiting list, the counter, the venue's API key and bookings of
-  several courts at once book for the adult only, and a child's unstaffed
-  access rests on the adult's induction (P3). The relationship and authority
+  several courts at once book for the adult only (P3). The relationship and authority
   are the adult's declaration, reviewed by staff only where an activity asks
   it, never verified (by design).
 - **Search and the venue's grid say a resource needs a sign-off or
@@ -491,6 +498,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | S15 | Saving a venue's details left the set-up checklist and the go-live banner showing what was missing until the tab changed; both now refresh on save. Found by the browser scenario *Venue 1* | `tests/components/setup-checklist.test.tsx`, `tests/uat/venue-setup.uat.ts` |
 | S16 | A coach's private link was kept in the database as it was given, with no end: a copy of the database opened every coach's page and changed their hours. Now only its hash is kept, it is shown once when made and lapses after a year, links already given keep working by their hash (migration 0137), and each change made at the link is in the activity log under the coach's name. Found in the review of instructor links | `tests/coaching-two.test.ts`, `tests/coach-link-migration.test.ts`, `tests/coach-self.test.ts` |
 | B18 | A competition's draw scheduled each division around the others' matches by the players already in them, so a final or third-place match still to be decided counted as nobody's: a player in two divisions could be put on court in one at the time of a final they could reach in the other. A side still to be decided now counts as everybody who could still reach it, in the draw and when a fixture is moved or replayed. Found writing the tournament browser scenarios | `tests/divisions.test.ts` |
+| S17 | A child's unstaffed access rested on the adult's induction: inductions were one per venue and phone number, staff could record one only for the number's holder, and the door checked the booking's number, so a child (or a sibling) booked on a parent's number opened on the parent's induction. Inductions now belong to the person inducted, the number holder's own or a participant's; the door asks for each person taking part; older family inductions stay the number holder's, flagged where ambiguous, and are given to a participant only by a manager with a reason ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)). Found investigating the owner's report | `tests/participants.test.ts`, `tests/participants-migration.test.ts`, `tests/guardian-applications.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -538,6 +546,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A heading over kinds of kit showed on the grid but not in search | Search lists each kind under its heading as itself (price, places left, sign-off need), links to the venue's grid with the heading marked, with no extra queries | `tests/search-groups.test.ts`, `tests/components/search-groups.test.tsx` |
 | A tournament's set-up and draw, and corrections, were not driven in a browser | Acceptance scenarios *Tournament 3–6*: set-up from a template with divisions (refused to another venue's manager), entries and draws with the public fixtures checked, results by the desk and an official through the final and third place, and a correction after the third-place match held under review until the organiser lets it stand | `tests/uat/competition.uat.ts` |
 | A parent could not apply for a child from their own account: a minor applied from their own, typing a guardian's name | People an adult manages, held minimally under the adult's account; applications, sign-offs, bookings, door codes and waivers per person, the child's eligibility never the parent's or a sibling's, nor the parent's the child's ([ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md)) | `tests/guardian-applications.test.ts` |
+| Supporting documents were checked by their structure but not scanned for malware | Each document is quarantined and scanned by ClamAV's clamd before anybody can open it, never released unscanned, refused or unscannable files wiped; uploads refused where no scanner is configured unless the operator explicitly opts out, visibly ([ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)) | `tests/document-scanning.test.ts`, `tests/document-scanning-engine.test.ts` |
+| A restore brought back accounts erased since the backup, and records retention had already deleted | Erasures are kept in a ledger and re-applied, and retention re-run, before the app serves after a restore | `tests/backup-scripts.test.ts` |
 
 ## Production readiness
 
@@ -574,6 +584,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Stripe Checkout, webhooks, refunds, disputes, renewals | Needs test-mode verification | A Singapore install; renewals; the platform's invoices through Stripe |
 | WhatsApp Cloud API (templates must be approved by Meta) | Needs approval and a live send | Only where switched on: email works without it |
 | Email (SMTP), including SPF/DKIM and calendar invites | Needs a live send | Any launch: confirmations go by email |
+| Malware scanner (ClamAV's clamd and freshclam on the droplet) | Tested with ClamAV 1.5.4 in the build container against a locally generated test signature only; the official signatures could not be downloaded there, and the kit, memory, start-up and scan time are unmeasured on a real droplet, which needs 4 GB (USD 24 a month, USD 12 more than now) | Any install taking supporting documents: without a scanner, uploads are refused |
 | SMS (Twilio or HTTP gateway) for phone codes | Needs a live send | Only where phone checks use SMS |
 | LHDN MyInvois | Needs sandbox (preprod) verification | Only for venues (or a platform) that must e-invoice |
 | Google sign-in | Needs a registered redirect URI | Only where switched on: password sign-in works |
