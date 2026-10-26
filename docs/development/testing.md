@@ -216,6 +216,10 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | -------- | ------------ |
 | Booking 1–4 | Booked from the venue page and found under the account; two people racing for one court and hour, one getting it; a cancellation freeing the court; a manager seeing none of another venue's bookings and refused its report |
 | Tournament 1–2 | Players enter on the page; one reports a result, the other confirms it to a winner; a disputed result settled by staff; a stranger refused reporting |
+| Tournament 3 | A manager sets up a competition and two divisions from the badminton template on the dashboard; another venue's manager can neither see nor run it |
+| Tournament 4 | Players enter two divisions; the organiser closes entries and makes the draws; the public fixtures are checked for court and player clashes and against what is on sale |
+| Tournament 5 | The front desk and an official's link enter results; winners reach the final, losers the third-place match, and the tournament finishes |
+| Tournament 6 | A semi-final corrected after the third-place match was played: reviewed, kept on the record only, the tournament under review, finished only once the organiser lets the results stand |
 | Community | A group started, asked to join, let in, and invited to a private game in one go; the member says yes |
 | Matchmaking A | A player's preferences set on the page; the game suggested with its reasons; asked to join from the suggestion |
 | Matchmaking B | A request accepted by the host; the player in |
