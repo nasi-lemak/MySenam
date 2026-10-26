@@ -2246,6 +2246,21 @@ const EN = {
   "ptc.err.PTC_ALREADY_LINKED": "They already have their own login linked.",
   "ptc.err.PTC_ACCOUNT_LINKED": "This account is already somebody's own login.",
   "ptc.err.PTC_PURPOSE": "A code for another guardian, or for their own login.",
+  "elig.who": "Who is taking part?",
+  "elig.me": "Myself",
+  "elig.choose": "Choose who is taking part to see whether they can book what needs the venue's approval.",
+  "elig.note": "A guide only: the venue checks again when you book.",
+  "elig.you": "You",
+  "elig.other": "Someone you manage",
+  "elig.line": "{name}: {status}",
+  "elig.eligible": "approved",
+  "elig.required": "approval required",
+  "elig.requiredCert": "certification required",
+  "elig.pending": "application pending",
+  "elig.info": "more information required",
+  "elig.inPerson": "in-person assessment due",
+  "elig.expired": "approval expired",
+  "elig.expiredCert": "certification expired",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4445,6 +4460,21 @@ const MS: Record<Phrase, string> = {
   "ptc.err.PTC_ALREADY_LINKED": "Mereka sudah mempunyai log masuk sendiri yang dipautkan.",
   "ptc.err.PTC_ACCOUNT_LINKED": "Akaun ini sudah menjadi log masuk seseorang.",
   "ptc.err.PTC_PURPOSE": "Kod untuk penjaga lain, atau untuk log masuk mereka sendiri.",
+  "elig.who": "Siapa yang menyertai?",
+  "elig.me": "Saya sendiri",
+  "elig.choose": "Pilih siapa yang menyertai untuk melihat sama ada mereka boleh menempah apa yang memerlukan kelulusan pusat.",
+  "elig.note": "Panduan sahaja: pusat menyemak semula semasa anda menempah.",
+  "elig.you": "Anda",
+  "elig.other": "Seseorang yang anda urus",
+  "elig.line": "{name}: {status}",
+  "elig.eligible": "diluluskan",
+  "elig.required": "perlu kelulusan",
+  "elig.requiredCert": "perlu pensijilan",
+  "elig.pending": "permohonan menunggu semakan",
+  "elig.info": "maklumat lanjut diperlukan",
+  "elig.inPerson": "penilaian bersemuka belum dibuat",
+  "elig.expired": "kelulusan telah tamat tempoh",
+  "elig.expiredCert": "pensijilan telah tamat tempoh",
 };
 
 /** Exported so a test can hold the two languages against each other. */

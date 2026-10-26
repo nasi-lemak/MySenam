@@ -1,5 +1,6 @@
 import { activity, activityName, activityKeys } from "./activity-registry";
 import { courtFor, courtOffers, groupByHeading, mostPerBookingAllowed, mostSpots, needsOf, placesPerBooking, type KindNeeds } from "./court-activities";
+import { eligibilityAt, type EligibilityLine, type Taking } from "./eligibility";
 import { signOffHolds, type SignOffChannel } from "./sign-offs";
 import { bookingPlaces, placeParticipants, placesInducted } from "./participants";
 export { courtFor, courtOffers } from "./court-activities";
@@ -1076,6 +1077,12 @@ export interface SearchResult {
   /** What the shown court's booking rules ask for first: a staff sign-off or a certification. */
   needs: KindNeeds;
   /**
+   * Where it needs something and the search was for who is taking part
+   * (`taking`): each one's status for it (lib/eligibility.ts). Informational:
+   * booking checks again. Absent otherwise.
+   */
+  eligibility?: EligibilityLine[];
+  /**
    * Kinds of kit the venue lists under one heading ("Kayaks" over "Single
    * kayak" and "Double kayak"; lib/resources.ts `setCourtHeading`), for each
    * heading with a kind free at this time: every kind under it, each as
@@ -1104,6 +1111,8 @@ export interface SearchKind {
   /** Its own places left over that time; null on one booked whole, or when it cannot start then. */
   placesLeft: number | null;
   needs: KindNeeds;
+  /** As `SearchResult.eligibility`, for this kind. */
+  eligibility?: EligibilityLine[];
 }
 
 export interface SearchInput {
@@ -1132,6 +1141,12 @@ export interface SearchInput {
    * first, which needs `near`; or the cheapest hour first.
    */
   sort?: SearchSort;
+  /**
+   * A signed-in account's choice of who is taking part: results that need a
+   * sign-off or certification then say each one's status, from one query
+   * for the page (lib/eligibility.ts). Left out, nothing personal is read.
+   */
+  taking?: Taking;
 }
 
 export const SEARCH_SORTS = ["soonest", "nearest", "cheapest"] as const;
@@ -1649,6 +1664,22 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     for (const g of headed.get(r.venue.id) ?? []) {
       const kinds = g.items.map((row) => searchKind(row.id, r.startMin, r.endMin));
       if (kinds.some((k) => k.free)) r.groups.push({ heading: g.heading!, kinds });
+    }
+  }
+  // Who is taking part, where anything shown asks for a sign-off: one query for the page, none otherwise.
+  if (input.taking) {
+    const asking = page.filter((r) => r.needs || r.groups.some((g) => g.kinds.some((k) => k.needs)));
+    if (asking.length > 0) {
+      const status = await eligibilityAt({ taking: input.taking, sport: input.sport, date: input.date, venueIds: asking.map((r) => r.venue.id) });
+      for (const r of asking) {
+        const own = status.lines(r.venue.id, r.needs);
+        if (own) r.eligibility = own;
+        for (const g of r.groups)
+          for (const k of g.kinds) {
+            const theirs = status.lines(r.venue.id, k.needs);
+            if (theirs) k.eligibility = theirs;
+          }
+      }
     }
   }
   return page;

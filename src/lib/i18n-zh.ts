@@ -2086,6 +2086,21 @@ export const ZH: Record<Phrase, string> = {
   "ptc.err.PTC_ALREADY_LINKED": "其本人的登录账户已关联。",
   "ptc.err.PTC_ACCOUNT_LINKED": "此账户已是某人本人的登录账户。",
   "ptc.err.PTC_PURPOSE": "代码可给另一位监护人，或给其本人的登录账户。",
+  "elig.who": "谁参加？",
+  "elig.me": "我自己",
+  "elig.choose": "选择参加者，即可查看他们能否预订需经场馆批准的项目。",
+  "elig.note": "仅供参考：预订时场馆会再次核对。",
+  "elig.you": "您",
+  "elig.other": "您管理的人",
+  "elig.line": "{name}：{status}",
+  "elig.eligible": "已批准",
+  "elig.required": "需要批准",
+  "elig.requiredCert": "需要证书",
+  "elig.pending": "申请等待审核",
+  "elig.info": "需补充资料",
+  "elig.inPerson": "待完成现场评估",
+  "elig.expired": "批准已到期",
+  "elig.expiredCert": "证书已到期",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

@@ -9,7 +9,8 @@ import { shows, storefrontForRequest } from "@/lib/storefront";
 import { mayShowVenue } from "@/lib/listing";
 import { releaseExpiredHolds } from "@/lib/holds";
 import { isValidDateString, todayISO } from "@/lib/time";
-import { Sport } from "@/lib/types";
+import { Sport, type CourtAvailability } from "@/lib/types";
+import { eligibilityAt, readTaking } from "@/lib/eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -53,11 +54,25 @@ export async function GET(req: NextRequest) {
   const held = user ? await activeMembership(venueId, user.phone, date) : null;
   const membership = held && user && (await memberNumberTrusted(user.phone, { userId: user.id, by: "customer" })) ? held : null;
 
+  // A tier with its own price level prices the grid at that.
+  // Rooms run as classes are the venue's own staff's to hire out; customers book their classes.
+  const availability: CourtAvailability[] = await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false, await (async () => { const staff = await getSessionAdmin(req); return staff !== null && canAccessVenue(staff, venueId); })());
+  // Who is taking part (`taking=self,12`, as search was asked): each one's
+  // status for what a court here asks for first, informational (lib/eligibility.ts).
+  // That answer is the account's own: kept by no shared cache.
+  const asked = params.get("taking");
+  const taking = user && sport ? readTaking(asked, user.id) : null;
+  const needs = [...new Set(availability.map((a) => a.policy.needs).filter((n): n is "signOff" | "certification" => !!n))];
+  let eligibility: Record<string, unknown> | undefined;
+  if (taking && needs.length > 0) {
+    const status = await eligibilityAt({ taking, sport: sport!, date, venueIds: [venueId] });
+    eligibility = Object.fromEntries(needs.map((n) => [n, status.lines(venueId, n) ?? []]));
+  }
+
   return NextResponse.json({
     date,
-    // A tier with its own price level prices the grid at that.
-    // Rooms run as classes are the venue's own staff's to hire out; customers book their classes.
-    availability: await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false, await (async () => { const staff = await getSessionAdmin(req); return staff !== null && canAccessVenue(staff, venueId); })()),
+    availability,
+    ...(eligibility ? { eligibility } : {}),
     closure: await getVenueClosure(venueId, date),
     memberRates: membership !== null,
     timeZone: venue.timeZone,
@@ -70,5 +85,5 @@ export async function GET(req: NextRequest) {
       const admin = await getSessionAdmin(req);
       return !!admin && admin.role !== "desk" && canAccessVenue(admin, venueId);
     })(),
-  });
+  }, asked !== null ? { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } } : undefined);
 }

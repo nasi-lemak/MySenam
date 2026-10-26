@@ -14,6 +14,8 @@ import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import { passCost } from "@/lib/pass-rules";
 import WaiverTick from "@/components/WaiverTick";
 import { explainGuard } from "@/components/ManagedPeople";
+import { NeedsLabel, takingParam, useTaking } from "@/components/WhoTakesPart";
+import type { EligibilityLine } from "@/lib/eligibility";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -171,6 +173,10 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     initial?.courtId && initial.start !== undefined ? { courtId: initial.courtId, start: initial.start, minutes: initial.minutes } : null
   );
   const [availability, setAvailability] = useState<CourtAvailability[] | null>(null);
+  // Who is taking part, as chosen on the search page in this tab: each one's status beside what a court asks for.
+  const { chosen, people } = useTaking({ lazy: true });
+  const taking = takingParam(chosen);
+  const [eligibility, setEligibility] = useState<Partial<Record<"signOff" | "certification", EligibilityLine[]>> | null>(null);
   const [closure, setClosure] = useState<VenueClosure | null>(null);
   const [memberRates, setMemberRates] = useState(false);
   // The venue's clock, which the times and "already passed" go by.
@@ -234,13 +240,14 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     setError(null);
     try {
       const res = await fetch(
-        `/api/availability?venueId=${venueId}&date=${date}&sport=${sport}`,
+        `/api/availability?venueId=${venueId}&date=${date}&sport=${sport}${taking ? `&taking=${taking}` : ""}`,
         { cache: "no-store" }
       );
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("board.loadFailed"));
       const courts: CourtAvailability[] = data.availability;
       setAvailability(courts);
+      setEligibility(data.eligibility ?? null);
       setClosure(data.closure ?? null);
       setMemberRates(data.memberRates === true);
       setMayOverride(data.mayOverride === true);
@@ -267,7 +274,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     } finally {
       setLoading(false);
     }
-  }, [venueId, date, sport, t]);
+  }, [venueId, date, sport, taking, t]);
 
   useEffect(() => {
     setSelection(null);
@@ -574,9 +581,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                     </div>
                     {/* What its rules ask for first, as search says it. */}
                     {policy.needs && (
-                      <div className="text-xs font-normal text-violet-700" data-needs={policy.needs}>
-                        {t(policy.needs === "certification" ? "grp.certification" : "grp.signOff")}
-                      </div>
+                      <NeedsLabel t={t} needs={policy.needs} lines={eligibility?.[policy.needs]} people={people} variant="line" />
                     )}
                   </td>
                   {slots.map((slot) => {

@@ -101,6 +101,42 @@ async function businessOf(venueId: number): Promise<number | null> {
 }
 
 /**
+ * SQL: sign-off `s` is one this person may use — the "whose" half of
+ * `signOffHolds`, shared with search's eligibility summary
+ * (lib/eligibility.ts) so the two agree by construction. `participant` is a
+ * participant's id (bound), a column naming one (`{ column: "ep.id" }`, for a
+ * batch), or null for the customer themself; see `signOffHolds` for the rule.
+ */
+export function signOffWho(
+  channel: SignOffChannel,
+  participant: { id: number } | { column: string } | null,
+  person: { phone: string; userId?: number | null }
+): { sql: string; args: unknown[] } {
+  const userId = person.userId ?? null;
+  if (participant !== null) {
+    const pe = "id" in participant ? "?" : participant.column;
+    const pa = "id" in participant ? [participant.id] : [];
+    // A participant's own, or their linked login's own (managed_person_id NULL, on that account).
+    const theirs = `(s.managed_person_id = ${pe} OR (s.managed_person_id IS NULL AND s.user_id IS NOT NULL AND s.user_id = (SELECT pl.linked_user_id FROM participants pl WHERE pl.id = ${pe})))`;
+    return channel === "customer"
+      ? { sql: `EXISTS (SELECT 1 FROM participants p WHERE p.id = ${pe} AND ${ACTS_FOR("p")}) AND ${theirs}`, args: [...pa, userId, userId, ...pa, ...pa] }
+      : { sql: theirs, args: [...pa, ...pa] };
+  }
+  // The participant whose own login this account is: theirs count for it.
+  const asOwnLogin = `s.managed_person_id IN (SELECT po.id FROM participants po WHERE po.linked_user_id = ?)`;
+  return channel === "customer"
+    ? {
+        sql: `((s.managed_person_id IS NULL AND (s.user_id = ? OR (s.user_id IS NULL AND EXISTS (
+            SELECT 1 FROM users u WHERE u.id = ? AND u.phone_verified_at IS NOT NULL AND phone_key(u.phone) = phone_key(s.phone))))) OR ${asOwnLogin})`,
+        args: [userId, userId, userId],
+      }
+    : {
+        sql: `((s.managed_person_id IS NULL AND (phone_key(s.phone) = phone_key(?) OR s.user_id = ?)) OR ${asOwnLogin})`,
+        args: [person.phone, userId ?? -1, userId ?? -1],
+      };
+}
+
+/**
  * Does whoever is booking hold a sign-off (or, with `need: "certification"`,
  * a certification) for this activity at this venue, good until `until` (the
  * last day booked)?
@@ -129,27 +165,7 @@ export async function signOffHolds(input: {
   if (input.channel === "customer" && !input.userId) return false;
   const business = await businessOf(input.venueId);
   const participant = input.participant ?? null;
-  // A participant's own, or their linked login's own (managed_person_id NULL, on that account).
-  const theirs = `(s.managed_person_id = ? OR (s.managed_person_id IS NULL AND s.user_id IS NOT NULL AND s.user_id = (SELECT pl.linked_user_id FROM participants pl WHERE pl.id = ?)))`;
-  // The participant whose own login this account is: theirs count for it.
-  const asOwnLogin = `s.managed_person_id IN (SELECT po.id FROM participants po WHERE po.linked_user_id = ?)`;
-  const who =
-    participant !== null
-      ? input.channel === "customer"
-        ? `EXISTS (SELECT 1 FROM participants p WHERE p.id = ? AND ${ACTS_FOR("p")}) AND ${theirs}`
-        : theirs
-      : input.channel === "customer"
-        ? `((s.managed_person_id IS NULL AND (s.user_id = ? OR (s.user_id IS NULL AND EXISTS (
-            SELECT 1 FROM users u WHERE u.id = ? AND u.phone_verified_at IS NOT NULL AND phone_key(u.phone) = phone_key(s.phone))))) OR ${asOwnLogin})`
-        : `((s.managed_person_id IS NULL AND (phone_key(s.phone) = phone_key(?) OR s.user_id = ?)) OR ${asOwnLogin})`;
-  const whoArgs =
-    participant !== null
-      ? input.channel === "customer"
-        ? [participant, input.userId, input.userId, participant, participant]
-        : [participant, participant]
-      : input.channel === "customer"
-        ? [input.userId, input.userId, input.userId]
-        : [input.phone, input.userId ?? -1, input.userId ?? -1];
+  const who = signOffWho(input.channel, participant !== null ? { id: participant } : null, input);
   return !!(await getDb()
     .prepare(
       `SELECT 1 FROM sign_offs s
@@ -157,10 +173,10 @@ export async function signOffHolds(input: {
           AND (s.sport = ? OR s.sport IS NULL)
           AND s.revoked_at IS NULL AND (s.expires_on IS NULL OR s.expires_on >= ?)
           AND (? = 'any' OR s.kind = 'certification')
-          AND ${who}
+          AND ${who.sql}
         LIMIT 1`
     )
-    .get(input.venueId, business ?? -1, input.sport, input.until, input.need, ...whoArgs));
+    .get(input.venueId, business ?? -1, input.sport, input.until, input.need, ...who.args));
 }
 
 /** Sign-offs in force at a venue (its own and its business's), newest first, with who gave them. */

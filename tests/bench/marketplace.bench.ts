@@ -203,6 +203,33 @@ describe.skipIf(!url)("a marketplace at scale", () => {
       store.searchAvailability({ sport: "badminton", date: date(i), fromMin: 17 * 60, toMin: 22 * 60, minutes: 60, near: { lat: pick(i).lat, lng: pick(i).lng, km: 5 }, sort: "nearest", limit: 200 }), out);
     await time("search: a rarer activity nationwide (archery)", RUNS, (i) =>
       store.searchAvailability({ sport: "archery", date: date(i), fromMin: 9 * 60, toMin: 21 * 60, minutes: 60 }), out);
+    // The same, for a signed-in account and two children it manages (lib/eligibility.ts): archery asks for a
+    // sign-off, so each result says each one's status, from one more query, among 6,000 other people's sign-offs.
+    {
+      const { registerUser } = await import("../../src/lib/auth");
+      const { addManaged } = await import("../../src/lib/managed-people");
+      const email = "bench-taking@bench.test";
+      let user = (await db.prepare("SELECT id FROM users WHERE email = ?").get(email)) as { id: number } | undefined;
+      if (!user) {
+        const made = await registerUser({ name: "Bench Parent", email, phone: "0179990001", password: "a long enough password" });
+        if (!made.ok) throw new Error(made.error);
+        user = { id: made.user.id };
+        await db.prepare("UPDATE users SET phone_verified_at = datetime('now') WHERE id = ?").run(user.id);
+        for (const name of ["Bench Child A", "Bench Child B"]) await addManaged(user.id, { displayName: name, relationship: "parent", authority: true });
+        await db
+          .prepare(
+            `INSERT INTO sign_offs (venue_id, sport, phone, name, kind)
+             SELECT v.id, 'archery', '0178' || lpad(g::text, 6, '0'), 'Bench Archer', 'operational'
+               FROM (SELECT id, row_number() OVER (ORDER BY id) AS k FROM venues WHERE name LIKE 'Bench %') v
+               JOIN generate_series(1, 6000) g ON g % 400 = v.k % 400`
+          )
+          .run();
+        await db.prepare("ANALYZE sign_offs").run();
+      }
+      const kids = ((await db.prepare("SELECT participant_id AS id FROM participant_guardians WHERE user_id = ? ORDER BY id").all(user.id)) as { id: number }[]).map((k) => k.id);
+      await time("search: archery nationwide, for who is taking part (account and two children)", RUNS, (i) =>
+        store.searchAvailability({ sport: "archery", date: date(i), fromMin: 9 * 60, toMin: 21 * 60, minutes: 60, taking: { userId: user.id, self: true, participants: kids } }), out);
+    }
     await time("search: courts counted nationwide (needs-area check)", RUNS, () => store.countSearchCourts({ sport: "badminton" }), out);
     await time("home: activities by popularity, nationwide", RUNS, () => store.activitiesByPopularity({}), out);
     await time("home: venue list, first page", RUNS, (i) => store.listVenuePage({ area: i % 2 ? pick(i).area : undefined, page: 1 }), out);
