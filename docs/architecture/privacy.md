@@ -288,6 +288,7 @@ participant record: their account and its own records are them.
 | Codes one guardian gave another, or the participant's own login, to accept: their hash, purpose, who gave and who used them (`participant_invites`) | So both sides agree to a second guardian or to a login taking them over | With the participant |
 | Who did what to the record, on whose behalf, at which venue (`participant_events`) | Accountability | With the participant |
 | The participant on bookings (`booking_participants`), applications, sign-offs, inductions and waiver signatures | To keep their eligibility theirs alone, and the venue's records straight | As each of those records is kept (above); a booking's places stop naming anybody when the booking does |
+| The participants a waiting-list entry is for (`waitlist_participants`, migration 0146), and who of a booking's people arrived or did not (`place_attendance`, 0147) | To offer a place to the people it was asked for, never somebody else; to say who came | With the entry (its queue's retention); an arrival with the booking's check-in, a no-show as long as the booking's own no-show flag; an erased participant's entry stops naming them and is offered to nobody |
 
 No email, phone, photo, school or identity number of the participant is
 held: the account-side code refuses those fields, and a venue records only a

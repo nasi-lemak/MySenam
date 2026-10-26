@@ -1,5 +1,7 @@
 "use client";
 
+import { useManagedPeople, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
+import { explainGuard } from "@/components/ManagedPeople";
 import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import WaiverTick from "@/components/WaiverTick";
@@ -204,6 +206,10 @@ function EnrolModal({
   const [queued, setQueued] = useState<number | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [confirmWho, setConfirmWho] = useState(false);
+  // Who takes the places: the adult, and people they manage, each a place of their own (lib/participant-bookings.ts).
+  const people = useManagedPeople(signedIn);
+  const [forIds, setForIds] = useState<number[]>([]);
+  const [meToo, setMeToo] = useState(true);
   // The venue's waiver, where it has one (lib/waivers.ts).
   const [agreeWaiver, setAgreeWaiver] = useState(false);
   const [remembered, setRemembered] = useState<string | null>(null);
@@ -261,12 +267,14 @@ function EnrolModal({
           phone,
           email,
           confirmWho,
+          ...whoBody(forIds, meToo),
           ...(agreeWaiver ? { agreeWaiver: true } : {}),
           ...(isFull ? {} : wholeTerm ? { term: true } : { addons: pickedList(picked) }),
         }),
       });
       const data = await res.json();
       if (!res.ok && accountDetour(data)) return;
+      if (!res.ok && typeof data?.code === "string" && (data.code.startsWith("GUARD_") || data.code.startsWith("PBK_"))) throw new Error(explainGuard(t, data));
       if (!res.ok)
         throw new Error(
           translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
@@ -390,6 +398,16 @@ function EnrolModal({
                 {t("form.emailOptional")}
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
               </label>
+              <WhoTakesPart
+                t={t}
+                people={people}
+                ids={forIds}
+                meToo={meToo}
+                onChange={(ids, me) => {
+                  setForIds(ids);
+                  setMeToo(me);
+                }}
+              />
               <WaiverTick venueId={session.venueId} venueName={session.venueName} checked={agreeWaiver} onChange={setAgreeWaiver} />
               {/* A guest says it for themselves; an account has said it already. */}
               {session.who !== "anyone" && !signedIn && (

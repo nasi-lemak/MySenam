@@ -2101,6 +2101,13 @@ export const ZH: Record<Phrase, string> = {
   "elig.inPerson": "待完成现场评估",
   "elig.expired": "批准已到期",
   "elig.expiredCert": "证书已到期",
+  "pbk.msg.for": "{what}（为 {names}）",
+  "pbk.placesNote": "每位勾选的人各占一个名额；如该活动要求，每人需有各自的确认。",
+  "pbk.nobody": "请至少勾选一位参加者。",
+  "pbk.err.PBK_PARTICIPANTS": "请从您管理的人中选择参加者。",
+  "pbk.err.PBK_TOO_MANY": "每个预订最多 {n} 人。",
+  "pbk.err.PBK_TWICE": "每人只需列出一次。",
+  "pbk.err.PBK_NOT_GUARDIAN": "此号码下没有代 {name} 行事的人。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

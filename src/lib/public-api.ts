@@ -1,4 +1,4 @@
-import { apiBooking } from "./api-keys";
+import { apiBooking, apiParticipants } from "./api-keys";
 import { getDb } from "./db";
 import { findBookingByCode, getCourt } from "./store";
 import type { Booking } from "./types";
@@ -31,7 +31,8 @@ export async function bookingForVenue(venueId: number, code: string): Promise<Re
   if (!b) return null;
   const court = await getCourt(b.courtId);
   if (!court || court.venueId !== venueId) return null;
-  return apiBooking({ ...b, courtName: court.name, sport: court.sport });
+  // Who takes part, where it names somebody other than its customer (additive; ADR 0023).
+  return { ...apiBooking({ ...b, courtName: court.name, sport: court.sport }), participants: await apiParticipants(b.id) };
 }
 
 /** Days between two dates, inclusive of both. */

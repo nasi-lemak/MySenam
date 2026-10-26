@@ -149,7 +149,13 @@ are not announced back to the desk.
 - They are written in the install's first language.
 
 A lesson's confirmation names the coach where it names the court (*Court 1,
-lesson with Ana Lim*). A customer's cancellation says what happened to the
+lesson with Ana Lim*). A booking, class enrolment or waiting-list offer made for
+somebody else ([booking for somebody else](../features/booking.md#booking-for-somebody-else))
+goes to the customer who made it (the guardian), through their usual
+channels and preferences, and names who it is for in the same place (*Court
+1, for Alya*; *Kids gym, for Alya*); the participant needs no email or phone
+of their own, and nothing else about them is said. The templates are
+unchanged: the name is part of the place they already carry. A customer's cancellation says what happened to the
 money: the late-cancellation fee kept, refunds on their way and how, or that
 nothing is owed. That changed the `mysenam_booking_cancelled` template (a new
 `{{5}}`), which has to be submitted to Meta again. A gift voucher bought online

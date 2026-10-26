@@ -2104,6 +2104,13 @@ export const TA: Record<Phrase, string> = {
   "elig.inPerson": "நேரில் மதிப்பீடு செய்ய வேண்டியுள்ளது",
   "elig.expired": "ஒப்புதல் காலாவதியானது",
   "elig.expiredCert": "சான்றிதழ் காலாவதியானது",
+  "pbk.msg.for": "{what}, {names} க்காக",
+  "pbk.placesNote": "குறிக்கப்பட்ட ஒவ்வொருவரும் ஒரு இடத்தைப் பெறுவர்; செயல்பாடு கேட்டால் ஒவ்வொருவருக்கும் தனி ஒப்புதல் தேவை.",
+  "pbk.nobody": "பங்கேற்கும் குறைந்தது ஒருவரைக் குறியுங்கள்.",
+  "pbk.err.PBK_PARTICIPANTS": "நீங்கள் நிர்வகிக்கும் நபர்களில் இருந்து பங்கேற்பவரைத் தேர்ந்தெடுங்கள்.",
+  "pbk.err.PBK_TOO_MANY": "ஒரு முன்பதிவில் {n} நபர்கள் வரை.",
+  "pbk.err.PBK_TWICE": "ஒவ்வொருவரையும் ஒருமுறை மட்டும் குறிப்பிடுங்கள்.",
+  "pbk.err.PBK_NOT_GUARDIAN": "இந்த எண்ணில் {name} சார்பாகச் செயல்படுபவர் யாரும் இல்லை.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

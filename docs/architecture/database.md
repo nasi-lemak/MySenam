@@ -63,7 +63,10 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   who may act for them is `participant_guardians` (migration 0138). Who takes
   a place on a booking is `booking_participants` (migration 0139):
   `bookings.participant_id` and `participant_name` are a summary a trigger
-  keeps in step with it, never written by code. Inductions, sign-offs and
+  keeps in step with it, never written by code. A waiting-list entry names its people
+  the same way (`waitlist_participants`, with `waitlist.places`, migration
+  0146), and attendance per person hangs off a booking's places
+  (`place_attendance`, 0147). Inductions, sign-offs and
   waiver signatures name a participant by id, a flag keeping a participant's
   record a participant's when their row goes (migration 0140). A phone number
   finds the number holder's own records, or candidates for staff to choose

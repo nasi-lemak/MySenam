@@ -368,6 +368,23 @@ export function BookingsTab() {
     }
   }
 
+  /** One person a booking names arrived, did not, or clear it (lib/store.ts `markPlace`). */
+  async function markPerson(code: string, placeId: number, mark: "arrived" | "no_show" | "clear") {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, placeId, mark }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("bk.checkInFailed")));
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bk.checkInFailed"));
+    }
+  }
+
   async function toggleNoShow(code: string, noShow: boolean) {
     // A no-show can cost the customer: past the venue's strike limit, they pay online to book.
     if (noShow && !confirm(t("bk.noShowConfirm", { code }))) return;
@@ -414,6 +431,7 @@ export function BookingsTab() {
     togglePaid,
     toggleCheckIn,
     toggleNoShow,
+    markPerson,
     openKit,
     openMove,
     openChange,
@@ -813,6 +831,7 @@ export function BookingsTab() {
                   <AttendanceChip b={b} act={act} />
                   <KitChip b={b} act={act} />
                 </div>
+                <PeopleChips b={b} act={act} />
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <RowActions b={b} act={act} />
                 </div>
@@ -875,6 +894,7 @@ export function BookingsTab() {
                     </td>
                     <td className="px-3 py-2">
                       <AttendanceChip b={b} act={act} />
+                      <PeopleChips b={b} act={act} />
                     </td>
                     <td className="px-3 py-2">
                       <KitChip b={b} act={act} />
@@ -908,6 +928,7 @@ interface Act {
   togglePaid: (code: string, paid: boolean, via?: CounterMethod) => void;
   toggleCheckIn: (code: string, out: boolean) => void;
   toggleNoShow: (code: string, noShow: boolean) => void;
+  markPerson: (code: string, placeId: number, mark: "arrived" | "no_show" | "clear") => void;
   openKit: (b: AdminBookingRow, mode: "take" | "return") => void;
   openMove: (code: string) => void;
   openChange: (b: AdminBookingRow) => void;
@@ -1319,6 +1340,38 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         {b.noShow ? t("bk.noShow") : t("bk.noShowQ")}
       </button>
     </span>
+  );
+}
+
+/**
+ * Each person a booking names (lib/participant-bookings.ts), and whether they
+ * came: arrived, a no-show, or not yet said. Pressing moves one person on;
+ * the booking counts as a no-show only when nobody it names came.
+ */
+function PeopleChips({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
+  if (b.status !== "confirmed" || b.people.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1" aria-label={t("pbk.att.title")}>
+      <span className="text-xs text-slate-500">{t("pbk.att.title")}</span>
+      {b.people.map((p) => {
+        const name = p.name ?? t("pbk.att.someone");
+        const next = p.arrivedAt ? "no_show" : p.noShow ? "clear" : "arrived";
+        return (
+          <button
+            key={p.placeId}
+            type="button"
+            onClick={() => act.markPerson(b.code, p.placeId, next)}
+            title={t(next === "arrived" ? "pbk.att.markArrived" : next === "no_show" ? "pbk.att.markNoShow" : "pbk.att.clear", { name })}
+            className={`${CHIP} ${
+              p.arrivedAt ? "bg-emerald-100 text-emerald-700" : p.noShow ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            {t(p.arrivedAt ? "pbk.att.in" : p.noShow ? "pbk.att.noShow" : "pbk.att.unknown", { name })}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

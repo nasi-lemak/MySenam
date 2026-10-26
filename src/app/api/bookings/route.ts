@@ -43,7 +43,8 @@ import { reviewable, reviewPath } from "@/lib/reviews";
 import { recordConsent } from "@/lib/marketing";
 import { accountsForUser, chargeToAccount } from "@/lib/accounts";
 import { signWaiver, waiverRefusal } from "@/lib/waivers";
-import { managedPerson } from "@/lib/managed-people";
+import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
+import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Named, type Selection } from "@/lib/participant-bookings";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override, participantId } =
+  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -100,15 +101,19 @@ export async function POST(req: NextRequest) {
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
   // Other courts booked with this one, at the same time, as one (lib/store.ts `createGroupBooking`).
-  // Each a court id, or { courtId, places } for a number of places on a shared resource (a kind of kit of its own).
-  const isPlaces = (c: unknown): c is { courtId: number; places: number } =>
-    typeof c === "object" && c !== null && Number.isInteger((c as { courtId: unknown }).courtId) && Number.isInteger((c as { places: unknown }).places) &&
-    (c as { courtId: number }).courtId > 0 && (c as { places: number }).places > 0;
-  if (moreCourts !== undefined && moreCourts !== null && (!Array.isArray(moreCourts) || !moreCourts.every((c) => (Number.isInteger(c) && c > 0) || isPlaces(c))))
+  // Each a court id, or { courtId, places?, participantIds?, customerTakesPart? }: a number of places on a
+  // shared resource (a kind of kit of its own), and who takes part on that one (lib/participant-bookings.ts).
+  type More = { courtId: number; places?: number; participantIds?: unknown; customerTakesPart?: unknown };
+  const isMore = (c: unknown): c is More =>
+    typeof c === "object" && c !== null && Number.isInteger((c as More).courtId) && (c as More).courtId > 0 &&
+    ((c as More).places === undefined || (Number.isInteger((c as More).places) && (c as More).places! > 0));
+  if (moreCourts !== undefined && moreCourts !== null && (!Array.isArray(moreCourts) || !moreCourts.every((c) => (Number.isInteger(c) && c > 0) || isMore(c))))
     return NextResponse.json({ error: "moreCourts must be a list of court ids, or of { courtId, places }." }, { status: 400 });
-  const moreList = (Array.isArray(moreCourts) ? moreCourts : []) as (number | { courtId: number; places: number })[];
+  const moreList = (Array.isArray(moreCourts) ? moreCourts : []) as (number | More)[];
   const group = moreList.length > 0 ? [courtId as number, ...moreList.map((c) => (typeof c === "number" ? c : c.courtId))] : null;
-  const placesByCourt = Object.fromEntries(moreList.filter((c): c is { courtId: number; places: number } => typeof c !== "number").map((c) => [c.courtId, c.places]));
+  const placesByCourt = Object.fromEntries(
+    moreList.filter((c): c is More & { places: number } => typeof c !== "number" && c.places !== undefined).map((c) => [c.courtId, c.places])
+  );
   if (group && (anyCourt || ((weeks as number) ?? 1) > 1 || (coachId !== undefined && coachId !== null) || chosen.length > 0))
     return refusal({ ok: false, error: "A booking of several courts is for one date, without extras or a coach.", code: "GROUP_ONE_COURT_ONLY" });
 
@@ -138,17 +143,47 @@ export async function POST(req: NextRequest) {
     if (noPhone) return refusal(noPhone, 403);
   }
 
-  // For somebody the signed-in adult manages (lib/managed-people.ts): only
-  // their own, not archived; one court, so the person's eligibility is what
-  // the booking rules and the door check.
-  let participant: { id: number; name: string } | undefined;
-  if (participantId !== undefined && participantId !== null) {
-    const person = user ? await managedPerson(user.id, participantId, { live: true }) : null;
-    // Their own refusal codes (`guard.err.*` in the customer dictionaries).
-    if (!person) return NextResponse.json({ error: "Not one of the people you manage.", code: "GUARD_NOT_FOUND" }, { status: 404 });
-    if (group) return NextResponse.json({ error: "Book one court at a time for somebody you manage.", code: "GUARD_ONE_COURT" }, { status: 409 });
-    participant = { id: person.id, name: person.displayName };
+  // Who takes part, where that is somebody other than (or as well as) the
+  // customer (lib/participant-bookings.ts): online, only people this account
+  // acts for now; at the counter, people the venue knows with a guardian on
+  // the booking's number (staff record somebody new first, with the
+  // guardian's declaration). Each is then checked on their own eligibility.
+  // On several courts, each court's own people (`moreCourts`).
+  const refusedPeople = (r: ParticipantRefusal) =>
+    NextResponse.json({ error: r.error, code: r.code, ...(r.vars ? { vars: r.vars } : {}) }, { status: r.status });
+  const resolve = async (ids: number[], takesPart: boolean): Promise<Selection | ParticipantRefusal> =>
+    byStaff && venueBooked !== undefined
+      ? selectionAtVenue(venueBooked, phone.trim(), ids, takesPart)
+      : user
+        ? selectionForAccount(user.id, ids, takesPart)
+        : refused("GUARD_NOT_FOUND", "Not one of the people you manage.", 404);
+  const asked = readSelection((body ?? {}) as Record<string, unknown>);
+  if (asked && isRefusal(asked)) return refusedPeople(asked);
+  let selection: Selection | null = null;
+  if (asked) {
+    const resolved = await resolve(asked.ids, asked.customerTakesPart);
+    if (isRefusal(resolved)) return refusedPeople(resolved);
+    selection = resolved;
   }
+  // Courts of a group, each with its own people (none named: the customer's party, a count of places).
+  const assign: Record<number, Selection> = {};
+  if (group) {
+    if (selection) assign[courtId as number] = selection;
+    for (const c of moreList) {
+      if (typeof c === "number") continue;
+      const more = readSelection(c as Record<string, unknown>);
+      if (more && isRefusal(more)) return refusedPeople(more);
+      if (!more) continue;
+      const resolved = await resolve(more.ids, more.customerTakesPart);
+      if (isRefusal(resolved)) return refusedPeople(resolved);
+      assign[c.courtId] = resolved;
+    }
+  }
+  const named: Named[] = group ? Object.values(assign).flatMap((a) => a.participants) : (selection?.participants ?? []);
+  // Does the customer take a place anywhere: alone, alongside the people named, or as a court of the group nobody is named on.
+  const customerTakesPart = group
+    ? group.some((id) => !assign[id] || assign[id].customerTakesPart)
+    : !selection || selection.customerTakesPart;
 
   // Charged to a company or school account (lib/accounts.ts): only by somebody
   // signed in whose proved number the account lists.
@@ -182,9 +217,11 @@ export async function POST(req: NextRequest) {
       canPayOnline: await takesPaymentOnline(venueOfBooking),
     });
     if (refused) return refusal(refused);
-    // The venue's waiver, agreed to once per version (lib/waivers.ts).
-    const unsigned = await waiverRefusal(venueOfBooking, phone, agreeWaiver, participant?.id ?? null);
-    if (unsigned) return refusal(unsigned);
+    // The venue's waiver, agreed to once per version (lib/waivers.ts): for everybody taking part, each their own.
+    for (const who of [...(customerTakesPart ? [null] : []), ...named.map((p) => p.id)]) {
+      const unsigned = await waiverRefusal(venueOfBooking, phone, agreeWaiver, who);
+      if (unsigned) return refusal(unsigned);
+    }
   }
 
   // A lesson: a coach of this sport, here, working then (lib/coaching.ts),
@@ -242,18 +279,21 @@ export async function POST(req: NextRequest) {
     ...(players !== undefined ? { players: Number(players) } : {}),
     // The activity, on a court that offers several (checked there).
     ...(typeof sport === "string" && sport !== "" ? { sport: sport as Sport } : {}),
-    ...(participant ? { participant } : {}),
+    // Who put the people named on it: the member of staff at the counter, or the account.
+    addedBy: byStaff && desk ? { adminId: desk.id } : { userId: user?.id ?? null },
   };
+  const forPeople = selection && selection.participants.length > 0 ? { participants: selection.participants, customerTakesPart: selection.customerTakesPart } : {};
 
   const result = anyCourt
     ? await createBookingOnAnyCourt({
         ...common,
+        ...forPeople,
         venueId: venueId as number,
         sport: sport as Sport,
       })
     : group
-      ? await createGroupBooking({ ...common, courtIds: group, placesByCourt })
-      : await createBookingSeries({ ...common, courtId: courtId as number });
+      ? await createGroupBooking({ ...common, courtIds: group, placesByCourt, ...(Object.keys(assign).length > 0 ? { assign } : {}) })
+      : await createBookingSeries({ ...common, ...forPeople, courtId: courtId as number });
 
   if (!result.ok) return refusal(result);
 
@@ -381,7 +421,28 @@ export async function POST(req: NextRequest) {
 
   const court = (await getCourt(result.bookings[0].courtId))!;
   const venue = (await getVenue(court.venueId))!;
-  if (agreeWaiver === true) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id, participant: participant ?? null });
+  if (agreeWaiver === true) {
+    // Agreed by the customer for themself where they take part, and on behalf of each person named.
+    if (customerTakesPart) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id });
+    for (const p of named) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id, participant: p });
+  }
+  // Who did it, for whom, where: in each participant's history, and staff's in the activity log.
+  if (named.length > 0) {
+    const codes = result.bookings.map((b) => b.code);
+    await recordBookedFor(named, byStaff && desk ? { adminId: desk.id, name: desk.name } : { userId: user!.id, name: user!.name }, {
+      venueId: venue.id,
+      codes,
+      how: byStaff ? "counter" : "online",
+    });
+    if (byStaff && desk)
+      for (const booking of result.bookings)
+        await logAction(desk, {
+          venueId: venue.id,
+          action: "booking.for_participant",
+          bookingCode: booking.code,
+          detail: `Booked at the counter for ${(booking.participantName ?? named.map((p) => p.name).join(", "))} (participant${named.length > 1 ? "s" : ""} ${named.map((p) => p.id).join(", ")}), with ${(name as string).trim()} on ${(phone as string).trim()}`,
+        });
+  }
 
   // A venue asking for payment online to hold a booking: what is still
   // unpaid is held for a few minutes, and confirmed once it is paid.

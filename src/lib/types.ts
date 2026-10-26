@@ -578,6 +578,8 @@ export interface HireRecord {
   /** What the customer's name was on the booking, for the open-hires list. */
   name: string;
   phone: string;
+  /** Who takes part, where the booking names somebody other than its customer (the customer holds the deposit). */
+  participantName?: string | null;
   deposit: number;
   takenAt: string;
   returnedAt: string | null;
@@ -622,6 +624,12 @@ export interface WaitlistEntry {
   label?: string;
   /** Seconds left to claim, when offered. */
   expiresInSeconds?: number;
+  /** Places it waits for (each participant, and the customer where they take part); an offer holds them all. */
+  places?: number;
+  /** Who it is for, where it names somebody other than (or as well as) its customer. */
+  participantNames?: string[];
+  /** Its customer takes one of the places. */
+  customerTakesPart?: boolean;
 }
 
 /**

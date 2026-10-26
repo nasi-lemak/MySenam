@@ -2261,6 +2261,13 @@ const EN = {
   "elig.inPerson": "in-person assessment due",
   "elig.expired": "approval expired",
   "elig.expiredCert": "certification expired",
+  "pbk.msg.for": "{what}, for {names}",
+  "pbk.placesNote": "Each person ticked takes a place, and needs their own sign-off where the activity asks for one.",
+  "pbk.nobody": "Tick at least one person taking part.",
+  "pbk.err.PBK_PARTICIPANTS": "Choose who is taking part from the people you manage.",
+  "pbk.err.PBK_TOO_MANY": "Up to {n} people on one booking.",
+  "pbk.err.PBK_TWICE": "Name each person once.",
+  "pbk.err.PBK_NOT_GUARDIAN": "Nobody acting for {name} is on this number.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4475,6 +4482,13 @@ const MS: Record<Phrase, string> = {
   "elig.inPerson": "penilaian bersemuka belum dibuat",
   "elig.expired": "kelulusan telah tamat tempoh",
   "elig.expiredCert": "pensijilan telah tamat tempoh",
+  "pbk.msg.for": "{what}, untuk {names}",
+  "pbk.placesNote": "Setiap orang yang ditanda mengambil satu tempat, dan memerlukan pengesahan mereka sendiri jika aktiviti memintanya.",
+  "pbk.nobody": "Tandakan sekurang-kurangnya seorang yang menyertai.",
+  "pbk.err.PBK_PARTICIPANTS": "Pilih siapa yang menyertai daripada orang yang anda urus.",
+  "pbk.err.PBK_TOO_MANY": "Sehingga {n} orang bagi satu tempahan.",
+  "pbk.err.PBK_TWICE": "Namakan setiap orang sekali sahaja.",
+  "pbk.err.PBK_NOT_GUARDIAN": "Tiada sesiapa yang bertindak bagi pihak {name} menggunakan nombor ini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

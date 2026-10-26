@@ -9,7 +9,7 @@ const RELATIONSHIPS: Relationship[] = ["parent", "guardian", "other"];
 
 /** A refusal about somebody managed, in the customer's language: by its code where it has one. */
 export function explainGuard(t: T, body: { error?: string; code?: string; vars?: Record<string, string | number> } | null | undefined): string {
-  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`] : [])
+  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`, `pbk.err.${body.code}`] : [])
     if (hasPhrase(key)) return t(key as Phrase, body?.vars);
   return body?.error || t("guard.failed");
 }

@@ -30,23 +30,24 @@ export async function POST(req: NextRequest) {
 
   // From here, as any booking: held until paid where the venue asks that (or
   // the number has too many no-shows), confirmed otherwise, in their language.
+  // Every place the entry waited for: a class enrolment each, or one booking of them all.
   const booking = result.booking;
+  const bookings = result.bookings;
   const court = (await getCourt(booking.courtId))!;
   const policy = await holdPolicy(court.venueId);
   const mustPay = (await struckOut(court.venueId, booking.phone)).out && (await takesPaymentOnline(court.venueId));
-  const holdUntil =
-    booking.paymentStatus === "unpaid" && booking.totalPrice > 0 && (policy.active || mustPay)
-      ? await holdNewBookings([booking.id], policy.minutes)
-      : null;
-  if (holdUntil) booking.holdUntil = holdUntil;
+  const unpaid = bookings.filter((b) => b.paymentStatus === "unpaid" && b.totalPrice > 0);
+  const holdUntil = unpaid.length > 0 && (policy.active || mustPay) ? await holdNewBookings(unpaid.map((b) => b.id), policy.minutes) : null;
+  if (holdUntil) for (const b of unpaid) b.holdUntil = holdUntil;
   const locale = result.entry.locale && isLocale(result.entry.locale) ? result.entry.locale : await currentLocale();
-  await rememberLocale([booking.id], locale);
-  if (!holdUntil) await notifyBookingConfirmed([booking], locale, null);
+  await rememberLocale(bookings.map((b) => b.id), locale);
+  if (!holdUntil) for (const b of bookings) await notifyBookingConfirmed([b], locale, null);
   await tickOutbox();
 
   return NextResponse.json({
     holdUntil,
     booking: result.booking,
+    bookings,
     session: result.booking.classId ? await getClass(result.booking.classId) : null,
   });
 }

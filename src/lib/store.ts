@@ -2,7 +2,7 @@ import { activity, activityName, activityKeys } from "./activity-registry";
 import { courtFor, courtOffers, groupByHeading, mostPerBookingAllowed, mostSpots, needsOf, placesPerBooking, type KindNeeds } from "./court-activities";
 import { eligibilityAt, type EligibilityLine, type Taking } from "./eligibility";
 import { signOffHolds, type SignOffChannel } from "./sign-offs";
-import { bookingPlaces, placeParticipants, placesInducted } from "./participants";
+import { bookingPlaces, CUSTOMER_TAKES_PART, guardianshipOf, PARTICIPANT_TAKES_PART, placeParticipants, placesInducted } from "./participants";
 export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
 import { randomBytes, randomInt } from "crypto";
@@ -254,11 +254,11 @@ function withHours(row: HoursRow | undefined, date?: string): VenueHours {
   };
 }
 
-/** Class places held by live waiting-list offers, other than `except`. */
+/** Class places held by live waiting-list offers (each offer every place its entry waits for), other than `except`. */
 async function classOfferHolds(classId: number, except?: number): Promise<number> {
   const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
   const r = (await getDb()
-    .prepare("SELECT COUNT(*) AS n FROM waitlist WHERE class_id = ? AND status = 'offered' AND offered_at > ? AND id <> ?")
+    .prepare("SELECT COALESCE(SUM(places), 0) AS n FROM waitlist WHERE class_id = ? AND status = 'offered' AND offered_at > ? AND id <> ?")
     .get(classId, since, except ?? 0)) as { n: number | string };
   return Number(r.n);
 }
@@ -342,6 +342,8 @@ export const adminCancelBooking = busyAware(adminCancelBookingOnce);
 export const rescheduleBooking = busyAware(rescheduleBookingOnce);
 export const moveBooking = busyAware(moveBookingOnce);
 export const enrolInClass = busyAware(enrolInClassOnce);
+/** Several people in a class at once, all or none (lib/participant-bookings.ts). */
+export const enrolPeople = busyAware(enrolPeopleOnce);
 export const claimWaitlistOffer = busyAware(claimWaitlistOfferOnce);
 
 /** The store speaks English; the page translates. */
@@ -756,6 +758,10 @@ export async function createBookingOnAnyCourt(input: {
   by?: SignOffChannel;
   /** Who takes part, for somebody the signed-in adult manages (createBookingSeries). */
   participant?: { id: number; name: string };
+  /** Who takes part, where that is not (only) the customer (createBookingSeries). */
+  participants?: { id: number; name: string }[];
+  customerTakesPart?: boolean;
+  addedBy?: { userId?: number | null; adminId?: number | null };
 } & WhenInput): Promise<CreateSeriesResult> {
   const { venueId, sport, date, ...rest } = input;
 
@@ -828,9 +834,25 @@ export async function createGroupBooking(input: {
   sport?: Sport;
   staff?: StaffOverride;
   by?: SignOffChannel;
+  /**
+   * Who takes part on which court, where people are named (lib/participant-bookings.ts):
+   * each court's own participants, and whether the customer takes a place
+   * there. A court not named here is taken by the customer's party, as a
+   * count of places with nobody assigned. Somebody is on one court of a
+   * group at most: they are all at the same time.
+   */
+  assign?: Record<number, { participants: { id: number; name: string }[]; customerTakesPart: boolean }>;
+  addedBy?: { userId?: number | null; adminId?: number | null };
 } & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
+  const { assign, ...shared } = input;
+  if (assign) {
+    const everyone = Object.entries(assign).flatMap(([courtId, a]) => (courtIds.includes(Number(courtId)) ? a.participants.map((p) => p.id) : [NaN]));
+    if (everyone.some((id) => Number.isNaN(id)) || new Set(everyone).size !== everyone.length) return refuse("PLAYERS_RANGE", { max: everyone.length });
+    // The customer is one person too: at one court of the group at most.
+    if (Object.values(assign).filter((a) => a.customerTakesPart).length > 1) return refuse("PLAYERS_RANGE", { max: 1 });
+  }
   // In one order, so two groups sharing courts queue rather than deadlock.
   const courts = await Promise.all(courtIds.sort((a, b) => a - b).map((id) => getCourt(id)));
   if (courts.some((c) => !c)) return refuse("COURT_NOT_FOUND");
@@ -849,8 +871,16 @@ export async function createGroupBooking(input: {
       await lockCourts(courts.map((c) => c!));
       const made: Booking[] = [];
       for (const court of courts) {
-        const players = input.placesByCourt?.[court!.id] ?? input.players;
-        const result = await createBookingSeries({ ...input, courtId: court!.id, weeks: 1, ...(players !== undefined ? { players } : {}) });
+        const people = assign?.[court!.id];
+        // Where people are named on a court, it takes a place each unless the places are said.
+        const players = input.placesByCourt?.[court!.id] ?? (people && people.participants.length > 0 ? undefined : input.players);
+        const result = await createBookingSeries({
+          ...shared,
+          courtId: court!.id,
+          weeks: 1,
+          ...(players !== undefined ? { players } : {}),
+          ...(people && people.participants.length > 0 ? { participants: people.participants, customerTakesPart: people.customerTakesPart } : {}),
+        });
         if (!result.ok) throw new Refused({ ...result, error: `${court!.name}: ${result.error}` });
         made.push(...result.bookings);
       }
@@ -1882,6 +1912,10 @@ export async function createBooking(
     staff?: StaffOverride;
     /** Who is booking (createBookingSeries). */
     by?: SignOffChannel;
+    /** Who takes part, where that is not (only) the customer (createBookingSeries). */
+    participants?: { id: number; name: string }[];
+    customerTakesPart?: boolean;
+    addedBy?: { userId?: number | null; adminId?: number | null };
   } & WhenInput
 ): Promise<CreateBookingResult> {
   const result = await createBookingSeries({ ...input, weeks: 1 });
@@ -2050,7 +2084,11 @@ export async function createBookingSeries(
   // on: a membership that lapses part-way through a weekly series discounts
   // the weeks it covers and no more.
   // Online (`by: "customer"`, as the booking route says) a member's number counts only when it is the account's own, proved or linked.
-  const memberOn = (weekDate: string) => memberPricing(court.venueId, phone, weekDate, input.by ? { userId, by: input.by } : undefined);
+  // A membership prices a booking its holder takes part in: one made only for
+  // others (a parent booking their children) is at the public rate, whoever's
+  // number it is on (docs/features/pricing.md#memberships-and-member-rates).
+  const memberOn = async (weekDate: string): Promise<MemberPricing> =>
+    customerPlays ? memberPricing(court.venueId, phone, weekDate, input.by ? { userId, by: input.by } : undefined) : false;
   const rules = await peakRules(court.venueId);
   // A last-minute price is for time nobody wanted, not for a number that
   // cancelled at this venue on this day and is booking again at the lower price.
@@ -3809,6 +3847,12 @@ export interface AdminBookingRow extends Booking {
   staffNote: string | null;
   /** Agreed to the venue's waiver as it stands; true where it asks for none (lib/waivers.ts). */
   waiverSigned: boolean;
+  /**
+   * Where the booking names who takes part (lib/participant-bookings.ts):
+   * each of them, and whether staff saw them arrive (`markPlace`). Empty for
+   * a booking its customer takes alone.
+   */
+  people: { placeId: number; name: string | null; customer: boolean; arrivedAt: string | null; noShow: boolean }[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -4500,10 +4544,11 @@ interface HireRow {
   venue_id: number;
   name: string;
   phone: string;
+  participant_name: string | null;
 }
 
 const HIRE_SELECT = `
-  SELECT h.*, b.code, b.court_id, b.name, b.phone, c.name AS court_name, c.venue_id
+  SELECT h.*, b.code, b.court_id, b.name, b.phone, b.participant_name, c.name AS court_name, c.venue_id
   FROM hire_records h
   JOIN bookings b ON b.id = h.booking_id
   JOIN courts c ON c.id = b.court_id
@@ -4519,6 +4564,8 @@ function toHire(r: HireRow): HireRecord {
     venueId: r.venue_id,
     name: r.name,
     phone: r.phone,
+    // Who has the kit, where the booking is for somebody else; the customer holds the deposit.
+    participantName: r.participant_name ?? null,
     deposit: r.deposit,
     takenAt: r.taken_at,
     returnedAt: r.returned_at,
@@ -4792,6 +4839,120 @@ export async function setNoShow(code: string, noShow: boolean): Promise<NoShowRe
   });
 }
 
+/** One person taking a place on a booking, and whether staff saw them arrive (lib/participant-bookings.ts; migration 0147). */
+export interface PlaceAttendance {
+  placeId: number;
+  /** The participant, by id (null for the customer, or once erased). */
+  participantId: number | null;
+  /** The booking's own customer, taking a place alongside others. */
+  customer: boolean;
+  name: string | null;
+  arrivedAt: string | null;
+  noShow: boolean;
+  /** Staff who recorded it, by name as it was. */
+  recordedBy: string | null;
+}
+
+/**
+ * Who of the people a booking names arrived, did not, or is not yet known;
+ * nothing for a booking taken by its customer alone (its check-in is theirs).
+ */
+export async function placeAttendance(bookingId: number): Promise<PlaceAttendance[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT bp.id, bp.takes_part_as, bp.participant_id, bp.name, pa.arrived_at, pa.no_show, pa.recorded_by_name
+         FROM booking_participants bp LEFT JOIN place_attendance pa ON pa.place_id = bp.id
+        WHERE bp.booking_id = ? ORDER BY bp.id`
+    )
+    .all(bookingId)) as {
+    id: number;
+    takes_part_as: "customer" | "participant";
+    participant_id: number | null;
+    name: string | null;
+    arrived_at: unknown;
+    no_show: boolean | null;
+    recorded_by_name: string | null;
+  }[];
+  if (!rows.some((r) => r.takes_part_as === "participant")) return [];
+  return rows.map((r) => ({
+    placeId: r.id,
+    participantId: r.participant_id,
+    customer: r.takes_part_as === "customer",
+    name: r.name,
+    arrivedAt: r.arrived_at === null || r.arrived_at === undefined ? null : r.arrived_at instanceof Date ? r.arrived_at.toISOString() : String(r.arrived_at),
+    noShow: r.no_show === true,
+    recordedBy: r.recorded_by_name,
+  }));
+}
+
+export type PlaceMarkResult = { ok: true; booking: Booking; places: PlaceAttendance[] } | Refusal;
+
+/**
+ * Staff record that one person a booking names arrived, did not, or clear
+ * what was recorded (`clear`). An arrival checks the booking in (it counts
+ * as checked in once anybody on it arrived), within the check-in window; a
+ * no-show only once it has started, and never for somebody seen to arrive.
+ * The booking is a no-show (the strike its customer may carry) only when
+ * everybody it names was one and nobody checked it in. Who recorded it is
+ * kept.
+ */
+export async function markPlace(code: string, placeId: number, mark: "arrived" | "no_show" | "clear", admin: { id: number | null; name: string }): Promise<PlaceMarkResult> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const found = await bookingByCode(code);
+    if (!found) return refuse("BOOKING_NOT_FOUND");
+    // One change at a time to a booking's attendance.
+    await db.prepare("SELECT id FROM bookings WHERE id = ? FOR UPDATE").get(found.id);
+    const booking = (await bookingByCode(code))!;
+    if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+    const place = (await db
+      .prepare("SELECT id FROM booking_participants WHERE id = ? AND booking_id = ?")
+      .get(placeId, booking.id)) as { id: number } | undefined;
+    if (!place || (await placeAttendance(booking.id)).length === 0) return { ok: false, error: "No such person on this booking." };
+    const before = (await db.prepare("SELECT check_in_id FROM place_attendance WHERE place_id = ?").get(place.id)) as { check_in_id: number | null } | undefined;
+    const zone = await courtZone(booking.courtId);
+
+    if (mark === "arrived") {
+      if (!booking.checkedInAt) {
+        const windowError = checkInWindowError(booking, zone);
+        if (windowError) return { ok: false, error: windowError };
+        await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+      }
+      const checkIn = (await db.prepare("SELECT id FROM check_ins WHERE booking_id = ?").get(booking.id)) as { id: number };
+      await db
+        .prepare(
+          `INSERT INTO place_attendance (place_id, booking_id, check_in_id, arrived_at, no_show, recorded_by_admin_id, recorded_by_name)
+           VALUES (?, ?, ?, now(), false, ?, ?)
+           ON CONFLICT (place_id) DO UPDATE SET check_in_id = EXCLUDED.check_in_id, arrived_at = EXCLUDED.arrived_at, no_show = false,
+             recorded_by_admin_id = EXCLUDED.recorded_by_admin_id, recorded_by_name = EXCLUDED.recorded_by_name, recorded_at = now()`
+        )
+        .run(place.id, booking.id, checkIn.id, admin.id, admin.name);
+      // Arriving contradicts a no-show, so clear any stale flag.
+      if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+    } else if (mark === "no_show") {
+      if (!isPastSlot(booking.date, booking.startHour, zone)) return { ok: false, error: "This booking has not started yet." };
+      if (before?.check_in_id) return { ok: false, error: "They checked in, so they were not a no-show." };
+      await db
+        .prepare(
+          `INSERT INTO place_attendance (place_id, booking_id, check_in_id, arrived_at, no_show, recorded_by_admin_id, recorded_by_name)
+           VALUES (?, ?, NULL, NULL, true, ?, ?)
+           ON CONFLICT (place_id) DO UPDATE SET check_in_id = NULL, arrived_at = NULL, no_show = true,
+             recorded_by_admin_id = EXCLUDED.recorded_by_admin_id, recorded_by_name = EXCLUDED.recorded_by_name, recorded_at = now()`
+        )
+        .run(place.id, booking.id, admin.id, admin.name);
+    } else {
+      await db.prepare("DELETE FROM place_attendance WHERE place_id = ?").run(place.id);
+    }
+
+    // The booking's own no-show: everybody it names was one, and nobody checked it in.
+    const places = await placeAttendance(booking.id);
+    const allAway = places.every((p) => p.noShow) && !booking.checkedInAt;
+    if (allAway !== booking.noShow && (allAway || mark !== "arrived"))
+      await db.prepare("UPDATE bookings SET no_show = ? WHERE id = ?").run(allAway ? 1 : 0, booking.id);
+    return { ok: true as const, booking: (await bookingByCode(code))!, places };
+  });
+}
+
 /** How many times this phone number has been flagged a no-show. */
 export async function countNoShows(phone: string): Promise<number> {
   const row = await getDb()
@@ -5061,13 +5222,37 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
   // Each person taking part: the customer's own agreement, or each participant's (lib/participants.ts).
   const places = new Map<number, (number | null)[]>();
+  // And who of them arrived, for the counter to say person by person (`markPlace`).
+  const people = new Map<number, AdminBookingRow["people"]>();
   if (rows.length > 0) {
     const named = (await db
       .prepare(
-        `SELECT booking_id, takes_part_as, participant_id FROM booking_participants WHERE booking_id IN (${rows.map(() => "?").join(",")}) ORDER BY id`
+        `SELECT bp.id, bp.booking_id, bp.takes_part_as, bp.participant_id, bp.name, pa.arrived_at, pa.no_show
+           FROM booking_participants bp LEFT JOIN place_attendance pa ON pa.place_id = bp.id
+          WHERE bp.booking_id IN (${rows.map(() => "?").join(",")}) ORDER BY bp.id`
       )
-      .all(...rows.map((r) => r.id))) as { booking_id: number; takes_part_as: string; participant_id: number | null }[];
-    for (const n of named) places.set(n.booking_id, [...(places.get(n.booking_id) ?? []), n.takes_part_as === "customer" ? null : (n.participant_id ?? -1)]);
+      .all(...rows.map((r) => r.id))) as {
+      id: number;
+      booking_id: number;
+      takes_part_as: string;
+      participant_id: number | null;
+      name: string | null;
+      arrived_at: unknown;
+      no_show: boolean | null;
+    }[];
+    for (const n of named) {
+      places.set(n.booking_id, [...(places.get(n.booking_id) ?? []), n.takes_part_as === "customer" ? null : (n.participant_id ?? -1)]);
+      people.set(n.booking_id, [
+        ...(people.get(n.booking_id) ?? []),
+        {
+          placeId: n.id,
+          name: n.name,
+          customer: n.takes_part_as === "customer",
+          arrivedAt: n.arrived_at === null || n.arrived_at === undefined ? null : n.arrived_at instanceof Date ? n.arrived_at.toISOString() : String(n.arrived_at),
+          noShow: n.no_show === true,
+        },
+      ]);
+    }
   }
   const placesOf = (r: { id: number }) => places.get(r.id) ?? [null];
   const waivers = await signaturesFor(
@@ -5136,6 +5321,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       invoiced: r.account_invoice_id !== null,
       staffNote: notes.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? null,
       waiverSigned: placesOf(r).every((p) => waivers.get(p !== null ? `${r.venue_id}:p${p}` : `${r.venue_id}:${phoneKey(booking.phone)}`) ?? true),
+      people: (people.get(booking.id) ?? []).some((p) => !p.customer) ? people.get(booking.id)! : [],
     });
   }
   return list;
@@ -5374,6 +5560,34 @@ async function enrolInClassOnce(input: {
   /** The waiting-list offer being claimed, whose own hold does not count. */
   waitlistId?: number;
 }): Promise<EnrolResult> {
+  const made = await enrolPeopleOnce({ ...input, people: [null] });
+  return made.ok ? { ok: true, booking: made.bookings[0] } : made;
+}
+
+export type EnrolPeopleResult = { ok: true; bookings: Booking[] } | Refusal;
+
+/**
+ * Enrol several people in a class at once, all or none: the customer
+ * (`null`) and each participant (lib/participant-bookings.ts) a place and an
+ * enrolment of their own, so each is on the roster, checked in, cancelled
+ * and refunded as themself. The class is locked while its places are
+ * counted, so two guardians cannot take its last places for different
+ * children. Somebody already enrolled is refused, by who they are: the
+ * customer by their number taking part themself, a participant by their id
+ * (two children on one parent's number are two people).
+ */
+async function enrolPeopleOnce(input: {
+  classId: number;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+  waitlistId?: number;
+  /** Who takes each place: `null` the customer themself, or a participant. */
+  people: ({ id: number; name: string } | null)[];
+  addedBy?: { userId?: number | null; adminId?: number | null };
+}): Promise<EnrolPeopleResult> {
+  if (input.people.length === 0) return refuse("PLAYERS_RANGE", { max: 1 });
   return withTransaction(async () => {
     await getDb().prepare("SELECT id FROM classes WHERE id = ? FOR UPDATE").get(input.classId);
     const session = await getClass(input.classId);
@@ -5381,39 +5595,59 @@ async function enrolInClassOnce(input: {
     if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
     if (minutesUntil(session.date, session.startMin, (await venueHours(session.venueId)).zone) <= 0)
       return refuse("CLASS_STARTED");
-    if (session.enrolled + (await classOfferHolds(session.id, input.waitlistId)) >= session.capacity)
+    // Every place asked for, or none: never some of a family and not the rest.
+    if (session.enrolled + (await classOfferHolds(session.id, input.waitlistId)) + input.people.length > session.capacity)
       return refuse("CLASS_FULL");
     // The day may have been closed after the class was put in the diary.
     if (await getVenueClosure(session.venueId, session.date))
       return refuse("VENUE_CLOSED");
 
-    const already = await getDb()
-      .prepare(
-        "SELECT id FROM bookings WHERE class_id = ? AND phone_key = phone_key(?) AND status = 'confirmed'"
-      )
-      .get(session.id, input.phone.trim());
-    if (already) return refuse("ALREADY_ENROLLED");
+    for (const person of input.people) {
+      const already = person
+        ? await getDb()
+            .prepare(`SELECT b.id FROM bookings b WHERE b.class_id = ? AND b.status = 'confirmed' AND ${PARTICIPANT_TAKES_PART("b")}`)
+            .get(session.id, person.id)
+        : await getDb()
+            .prepare(`SELECT b.id FROM bookings b WHERE b.class_id = ? AND b.phone_key = phone_key(?) AND b.status = 'confirmed' AND ${CUSTOMER_TAKES_PART("b")}`)
+            .get(session.id, input.phone.trim());
+      if (already) return refuse("ALREADY_ENROLLED");
+    }
 
-    const result = await createBookingSeries({
-      courtId: session.courtId,
-      date: session.date,
-      start: session.startMin,
-      end: session.endMin,
-      weeks: 1,
-      name: input.name,
-      phone: input.phone,
-      email: input.email,
-      userId: input.userId,
-      classId: session.id,
-    });
-    if (!result.ok) return { ok: false, error: result.error };
+    const bookings: Booking[] = [];
+    for (const person of input.people) {
+      const result = await createBookingSeries({
+        courtId: session.courtId,
+        date: session.date,
+        start: session.startMin,
+        end: session.endMin,
+        weeks: 1,
+        name: input.name,
+        phone: input.phone,
+        email: input.email,
+        userId: input.userId,
+        classId: session.id,
+        ...(person ? { participants: [person], addedBy: input.addedBy ?? { userId: input.userId ?? null } } : {}),
+      });
+      // One place not had takes the others back with it (the transaction).
+      if (!result.ok) throw new EnrolRefused({ ok: false, error: result.error });
 
-    // Price the enrolment at the class rate, not the court's.
-    await getDb()
-      .prepare("UPDATE bookings SET total_price = ?, fee_amount = 0 WHERE id = ?")
-      .run(session.price, result.bookings[0].id);
-    return { ok: true, booking: { ...result.bookings[0], totalPrice: session.price, feeAmount: 0 } };
+      // Price the enrolment at the class rate, not the court's.
+      await getDb()
+        .prepare("UPDATE bookings SET total_price = ?, fee_amount = 0 WHERE id = ?")
+        .run(session.price, result.bookings[0].id);
+      bookings.push({ ...result.bookings[0], totalPrice: session.price, feeAmount: 0 });
+    }
+    return { ok: true as const, bookings };
+  }).catch((err: unknown) => {
+    if (err instanceof EnrolRefused) return err.result;
+    throw err;
   });
+}
+
+class EnrolRefused extends Error {
+  constructor(readonly result: Refusal) {
+    super("ENROL_REFUSED");
+  }
 }
 
 export interface TermInfo {
@@ -5449,18 +5683,29 @@ export type TermResult =
  * confirmed and paid as one, at the term's share off. A session that has
  * filled, or that this number is in already, is skipped and said.
  */
-export async function enrolInTerm(input: { classId: number; name: string; phone: string; email?: string; userId?: number }): Promise<TermResult> {
+export async function enrolInTerm(input: {
+  classId: number;
+  name: string;
+  phone: string;
+  email?: string;
+  userId?: number;
+  /** Who takes each place in every session (`enrolPeople`): the customer alone unless said. */
+  people?: ({ id: number; name: string } | null)[];
+  addedBy?: { userId?: number | null; adminId?: number | null };
+}): Promise<TermResult> {
   const term = await classTerm(input.classId);
   if (!term) return refuse("CLASS_NO_TERM");
   const bookings: Booking[] = [];
   const skipped: SeriesSkip[] = [];
+  const { people, ...who } = input;
   for (const session of term.sessions) {
-    const made = await enrolInClass({ ...input, classId: session.id });
+    // Everybody named in each session, or that session is skipped and said: never some of them.
+    const made = await enrolPeople({ ...who, classId: session.id, people: people ?? [null] });
     if (!made.ok) {
       skipped.push({ date: session.date, reason: made.error });
       continue;
     }
-    bookings.push(made.booking);
+    bookings.push(...made.bookings);
   }
   if (bookings.length === 0) return { ok: false, error: skipped[0]?.reason ?? "No session left to join.", code: "CLASS_FULL" } as Refusal;
   const seriesCode = generateSeriesCode();
@@ -6903,6 +7148,8 @@ interface WaitlistRow {
   offer_token: string | null;
   locale: string;
   created_at: string;
+  places?: number;
+  customer_takes_part?: boolean;
 }
 
 function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
@@ -6922,12 +7169,131 @@ function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
     offerToken: includeToken ? r.offer_token : null,
     locale: r.locale,
     createdAt: r.created_at,
+    places: r.places ?? 1,
+    customerTakesPart: r.customer_takes_part !== false,
   };
   if (r.status === "offered" && r.offered_at) {
     const deadline = parseUtc(r.offered_at) + WAITLIST_OFFER_MINUTES * 60_000;
     entry.expiresInSeconds = Math.max(0, Math.round((deadline - Date.now()) / 1000));
   }
   return entry;
+}
+
+/** An entry as read back, with who it is for. */
+async function readEntry(id: number, includeToken = false): Promise<WaitlistEntry> {
+  const entry = toWaitlistEntry((await getDb().prepare("SELECT * FROM waitlist WHERE id = ?").get(id)) as WaitlistRow, includeToken);
+  const names = (await entryPeople(id)).map((p) => p.name ?? "");
+  if (names.length > 0) entry.participantNames = names;
+  return entry;
+}
+
+/**
+ * Who a waiting-list entry is for, besides (or instead of) its customer
+ * (lib/participant-bookings.ts): each participant by id, null once their
+ * record was erased.
+ */
+async function entryPeople(waitlistId: number): Promise<{ id: number | null; name: string | null }[]> {
+  return (await getDb()
+    .prepare("SELECT participant_id AS id, name FROM waitlist_participants WHERE waitlist_id = ? ORDER BY id")
+    .all(waitlistId)) as { id: number | null; name: string | null }[];
+}
+
+/**
+ * Is an entry still for whom it was made, by whoever made it? Each
+ * participant's record still there, and the account that queued still
+ * acting for each (a guardian who ended or lost the relationship queues for
+ * nobody). Never resolved by putting the customer in a child's place.
+ */
+async function entryStillTheirs(row: WaitlistRow): Promise<{ id: number; name: string }[] | null> {
+  const people = await entryPeople(row.id);
+  const named: { id: number; name: string }[] = [];
+  for (const p of people) {
+    if (p.id === null || row.user_id === null) return null;
+    const mine = await guardianshipOf(row.user_id, p.id, { live: true });
+    if (!mine) return null;
+    named.push({ id: p.id, name: mine.participant.displayName });
+  }
+  return named;
+}
+
+/** An entry that is no longer for whom it was made: taken out of the queue, its hold let go. */
+async function dropEntry(id: number): Promise<void> {
+  await getDb().prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ? AND status IN ('waiting','offered')").run(id);
+  await release({ kind: "offer", waitlistId: id });
+}
+
+/** Who an entry is for, as the queue asks it (lib/participant-bookings.ts). */
+interface Queuer {
+  /** Participants named. */
+  participants: { id: number; name: string }[];
+  /** The customer takes a place too (always, where nobody is named). */
+  customerTakesPart: boolean;
+}
+const queuerOf = (s: { participants: { id: number; name: string }[]; customerTakesPart: boolean } | undefined): Queuer =>
+  !s || s.participants.length === 0 ? { participants: [], customerTakesPart: true } : s;
+const placesFor = (q: Queuer): number => q.participants.length + (q.customerTakesPart ? 1 : 0);
+
+/**
+ * Is anybody this entry would be for already waiting (or, `enrolled`, in the
+ * class)? The customer by their number, where they take part themself; each
+ * participant by their id. Two children on one parent's number are two
+ * people, and the parent a third.
+ */
+async function alreadyQueued(
+  q: Queuer,
+  phone: string,
+  where: { sql: string; params: unknown[] }
+): Promise<boolean> {
+  const db = getDb();
+  if (
+    q.customerTakesPart &&
+    (await db
+      .prepare(`SELECT 1 FROM waitlist w WHERE ${where.sql} AND phone_key(w.phone) = phone_key(?) AND w.customer_takes_part AND w.status IN ('waiting','offered')`)
+      .get(...where.params, phone.trim()))
+  )
+    return true;
+  for (const p of q.participants)
+    if (
+      await db
+        .prepare(
+          `SELECT 1 FROM waitlist w JOIN waitlist_participants wp ON wp.waitlist_id = w.id
+            WHERE ${where.sql} AND wp.participant_id = ? AND w.status IN ('waiting','offered')`
+        )
+        .get(...where.params, p.id)
+    )
+      return true;
+  return false;
+}
+
+/** Write an entry and who it is for, in the caller's transaction. */
+async function insertEntry(
+  cols: { class_id?: number; court_id?: number; date?: string; start_min?: number; end_min?: number },
+  input: { name: string; phone: string; email?: string; userId?: number; locale?: string },
+  q: Queuer
+): Promise<number> {
+  const db = getDb();
+  const row = (await db
+    .prepare(
+      `INSERT INTO waitlist (class_id, court_id, date, start_min, end_min, name, phone, email, user_id, locale, places, customer_takes_part)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+    )
+    .get(
+      cols.class_id ?? null,
+      cols.court_id ?? null,
+      cols.date ?? null,
+      cols.start_min ?? null,
+      cols.end_min ?? null,
+      input.name.trim(),
+      input.phone.trim(),
+      input.email?.trim() ?? null,
+      input.userId ?? null,
+      input.locale ?? "en",
+      placesFor(q),
+      q.customerTakesPart
+    )) as { id: number };
+  for (const p of q.participants)
+    await db.prepare("INSERT INTO waitlist_participants (waitlist_id, participant_id, name) VALUES (?, ?, ?)").run(row.id, p.id, p.name);
+  return row.id;
 }
 
 /** datetime('now') is UTC without a zone marker. */
@@ -6986,7 +7352,13 @@ export type WaitlistResult =
   | { ok: true; entry: WaitlistEntry; position: number }
   | Refusal;
 
-/** Queue for a class place. Only possible while the class is actually full. */
+/**
+ * Queue for a class place. Only possible while the class cannot take
+ * everybody asked for. With `people`, for participants the signed-in account
+ * acts for (lib/participant-bookings.ts, checked by the caller), and the
+ * customer too where they take part: the entry keeps them all, and waits for
+ * a place for each.
+ */
 export async function joinClassWaitlist(input: {
   classId: number;
   name: string;
@@ -6995,6 +7367,7 @@ export async function joinClassWaitlist(input: {
   locale?: string;
   email?: string;
   userId?: number;
+  people?: { participants: { id: number; name: string }[]; customerTakesPart: boolean };
 }): Promise<WaitlistResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
@@ -7003,37 +7376,26 @@ export async function joinClassWaitlist(input: {
     if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
     if (minutesUntil(session.date, session.startMin, (await venueHours(session.venueId)).zone) <= 0)
       return refuse("CLASS_STARTED");
-    if (session.enrolled < session.capacity)
+    const q = queuerOf(input.people);
+    const places = placesFor(q);
+    if (places > session.capacity) return refuse("PLAYERS_RANGE", { max: session.capacity });
+    if (session.capacity - session.enrolled >= places)
       return refuse("CLASS_HAS_PLACES");
 
     const db = getDb();
-    const already = await db
-      .prepare(
-        "SELECT id FROM waitlist WHERE class_id = ? AND phone_key(phone) = phone_key(?) AND status IN ('waiting','offered')"
-      )
-      .get(input.classId, input.phone.trim());
-    if (already) return refuse("ALREADY_WAITING");
-    const enrolled = await db
-      .prepare("SELECT id FROM bookings WHERE class_id = ? AND phone_key = phone_key(?) AND status = 'confirmed'")
-      .get(input.classId, input.phone.trim());
-    if (enrolled) return refuse("ALREADY_ENROLLED");
+    if (await alreadyQueued(q, input.phone, { sql: "w.class_id = ?", params: [input.classId] })) return refuse("ALREADY_WAITING");
+    if (q.customerTakesPart) {
+      const enrolled = await db
+        .prepare(`SELECT b.id FROM bookings b WHERE b.class_id = ? AND b.phone_key = phone_key(?) AND b.status = 'confirmed' AND ${CUSTOMER_TAKES_PART("b")}`)
+        .get(input.classId, input.phone.trim());
+      if (enrolled) return refuse("ALREADY_ENROLLED");
+    }
+    for (const p of q.participants)
+      if (await db.prepare(`SELECT b.id FROM bookings b WHERE b.class_id = ? AND b.status = 'confirmed' AND ${PARTICIPANT_TAKES_PART("b")}`).get(input.classId, p.id))
+        return refuse("ALREADY_ENROLLED");
 
-    const info = await db
-      .prepare(
-        "INSERT INTO waitlist (class_id, name, phone, email, user_id, locale) VALUES (?, ?, ?, ?, ?, ?)"
-      )
-      .run(
-        input.classId,
-        input.name.trim(),
-        input.phone.trim(),
-        input.email?.trim() ?? null,
-        input.userId ?? null,
-        input.locale ?? "en"
-      );
-    const entry = toWaitlistEntry(
-      await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
-    );
-    return { ok: true, entry, position: (await classQueue(input.classId)).length };
+    const id = await insertEntry({ class_id: input.classId }, input, q);
+    return { ok: true, entry: await readEntry(id), position: (await classQueue(input.classId)).length };
   });
 }
 
@@ -7046,7 +7408,11 @@ async function classQueue(classId: number): Promise<WaitlistRow[]> {
 }
 
 /**
- * A place in a class opened up: offer it to the person who has waited longest.
+ * Places came free in a class: offer them to the person who has waited
+ * longest and whose places they all are (an entry for two children is
+ * offered two places, never one; an entry that does not fit waits, as a
+ * time that is not free does on the slot queue). Each entry is checked
+ * again first: still for whom it was made, by an account acting for them.
  * Does nothing if someone already holds a live offer for it.
  */
 export async function offerClassPlace(classId: number): Promise<WaitlistEntry | null> {
@@ -7057,27 +7423,35 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
 
     const session = await getClass(classId);
     if (!session || session.status === "cancelled") return null;
-    if (session.enrolled >= session.capacity) return null;
-
-    const next = queue.find((row) => row.status === "waiting");
-    if (!next) return null;
+    const free = session.capacity - session.enrolled - (await classOfferHolds(classId));
+    if (free <= 0) return null;
 
     const db = getDb();
-    await db.prepare(
-      "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
-    ).run(randomBytes(16).toString("hex"), next.id);
-    return toWaitlistEntry(
-      await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(next.id) as WaitlistRow,
-      true
-    );
+    for (const next of queue) {
+      if (next.status !== "waiting" || (next.places ?? 1) > free) continue;
+      if ((await entryStillTheirs(next)) === null) {
+        await dropEntry(next.id);
+        continue;
+      }
+      await db.prepare(
+        "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
+      ).run(randomBytes(16).toString("hex"), next.id);
+      return await readEntry(next.id, true);
+    }
+    return null;
   });
 }
 
 export type ClaimResult =
-  | { ok: true; booking: Booking; entry: WaitlistEntry }
+  | { ok: true; booking: Booking; bookings: Booking[]; entry: WaitlistEntry }
   | Refusal;
 
-/** Take up an offered place. The offer token is the only way in. */
+/**
+ * Take up an offered place. The offer token is the only way in. Booked for
+ * whom the entry was made, each checked again as any booking is (their own
+ * sign-offs, the account still acting for them, the price as it stands now):
+ * never the customer in a child's place, never fewer places than asked.
+ */
 async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
@@ -7089,18 +7463,30 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
     if (row.status !== "offered")
       return refuse("OFFER_EXPIRED");
 
-    let booking: Booking;
+    // Still for whom it was made, by somebody acting for them: else it goes, and the place to the next.
+    const named = await entryStillTheirs(row);
+    if (named === null) {
+      await dropEntry(row.id);
+      if (row.class_id) await offerClassPlace(row.class_id);
+      else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
+      return refuse("OFFER_INVALID");
+    }
+    const takesPart = row.customer_takes_part !== false || named.length === 0;
+
+    let bookings: Booking[];
     if (row.class_id) {
-      const enrolled = await enrolInClass({
+      const enrolled = await enrolPeople({
         classId: row.class_id,
         name: row.name,
         phone: row.phone,
         email: row.email ?? undefined,
         userId: row.user_id ?? undefined,
         waitlistId: row.id,
+        people: [...(takesPart ? [null] : []), ...named],
+        addedBy: { userId: row.user_id },
       });
-      if (!enrolled.ok) return { ok: false, error: enrolled.error };
-      booking = enrolled.booking;
+      if (!enrolled.ok) return { ok: false, error: enrolled.error, ...(enrolled.code ? { code: enrolled.code } : {}) } as Refusal;
+      bookings = enrolled.bookings;
     } else if (row.court_id && row.date && row.start_min !== null && row.end_min !== null) {
       // Booked as the customer would book it; the offer's own hold becomes the booking's.
       const created = await createBookingSeries({
@@ -7114,6 +7500,8 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
         email: row.email ?? undefined,
         userId: row.user_id ?? undefined,
         waitlistId: row.id,
+        ...(named.length > 0 ? { participants: named, customerTakesPart: takesPart, addedBy: { userId: row.user_id } } : {}),
+        ...((row.places ?? 1) > 1 ? { players: row.places } : {}),
       });
       if (!created.ok) {
         // Somebody beat them to it. Keep their place rather than burning it.
@@ -7121,21 +7509,15 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
           "UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ?"
         ).run(row.id);
         await release({ kind: "offer", waitlistId: row.id });
-        return { ok: false, error: created.error };
+        return { ok: false, error: created.error, ...(created.code ? { code: created.code } : {}) } as Refusal;
       }
-      booking = created.bookings[0];
+      bookings = created.bookings;
     } else {
       return refuse("OFFER_INVALID");
     }
 
     await db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
-    return {
-      ok: true,
-      booking,
-      entry: toWaitlistEntry(
-        await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow
-      ),
-    };
+    return { ok: true, booking: bookings[0], bookings, entry: await readEntry(row.id) };
   });
 }
 
@@ -7166,7 +7548,9 @@ export async function listClassWaitlist(classId: number): Promise<WaitlistEntry[
       "SELECT * FROM waitlist WHERE class_id = ? AND status IN ('waiting','offered') ORDER BY id"
     )
     .all(classId) as WaitlistRow[];
-  return rows.map((r) => toWaitlistEntry(r));
+  const out: WaitlistEntry[] = [];
+  for (const r of rows) out.push(await readEntry(r.id));
+  return out;
 }
 
 /** What this person is queuing for, with any live offer's token. */
@@ -7193,7 +7577,7 @@ async function listWaitlist(where: string, params: unknown[]): Promise<WaitlistE
     .all(...params) as WaitlistRow[];
   const entries: WaitlistEntry[] = [];
   for (const row of rows) {
-    const entry = toWaitlistEntry(row, row.status === "offered");
+    const entry = await readEntry(row.id, row.status === "offered");
     if (row.class_id) {
       const session = await getClass(row.class_id);
       if (session) {
@@ -7212,13 +7596,18 @@ async function listWaitlist(where: string, params: unknown[]): Promise<WaitlistE
 
 /* ---------------- Waitlists for ordinary time ---------------- */
 
-/** Is this time free on this resource right now, with its buffers, for one more? */
-async function slotTimeFree(court: Court, date: string, span: Span, policy: BookingPolicy, zone: string): Promise<boolean> {
+/** Is this time free on this resource right now, with its buffers, for `places` more? */
+async function slotTimeFree(court: Court, date: string, span: Span, policy: BookingPolicy, zone: string, places = 1): Promise<boolean> {
   const held = (await occupantsOn([court], date, zone)).get(court.id)!;
-  return fits(held, court.capacity, span, policyBuffers(policy));
+  return fits(held, court.capacity, span, policyBuffers(policy), undefined, court.capacity > 1 ? places : 1);
 }
 
-/** Queue for court or facility time that is currently taken. */
+/**
+ * Queue for court or facility time that is currently taken. With `people`,
+ * for participants the signed-in account acts for (checked by the caller):
+ * each must be able to book it (their own sign-off), and the entry waits
+ * for a place for each on a shared facility.
+ */
 export async function joinSlotWaitlist(input: {
   courtId: number;
   date: string;
@@ -7233,6 +7622,7 @@ export async function joinSlotWaitlist(input: {
   phone: string;
   email?: string;
   userId?: number;
+  people?: { participants: { id: number; name: string }[]; customerTakesPart: boolean };
 }): Promise<WaitlistResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
@@ -7253,39 +7643,28 @@ export async function joinSlotWaitlist(input: {
     if (breaches.length > 0) return breachRefusal(day.policy, span, breaches[0]);
     if (!isBookableDate(date, day.zone, await venueAheadDays(waitCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
     if (minutesUntil(date, start, day.zone) <= 0) return refuse("TIME_PAST");
+    const q = queuerOf(input.people);
+    const places = placesFor(q);
+    // Places sold one by one (a shared facility, a court priced per player): one each. A court booked whole takes any party.
+    if (placesPerBooking(waitCourt) > 1 && places > placesPerBooking(waitCourt)) return refuse("PLAYERS_RANGE", { max: placesPerBooking(waitCourt) });
     // Only somebody who could book it waits for it: an offer they could not take would go round for nothing.
+    // Each taking part on their own sign-off: the customer's own where they take part, each participant's.
     const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
-    if (need && !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: "customer", need })))
-      return refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(waitCourt.sport) });
+    if (need)
+      for (const who of [...(q.customerTakesPart ? [null] : []), ...q.participants.map((p) => p.id)])
+        if (
+          !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: "customer", need, participant: who }))
+        )
+          return refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(waitCourt.sport) });
 
-    if (await slotTimeFree(waitCourt, date, span, day.policy, day.zone))
+    if (await slotTimeFree(waitCourt, date, span, day.policy, day.zone, places))
       return refuse("SLOT_FREE_BOOK_IT");
 
-    const db = getDb();
-    const already = await db
-      .prepare(`
-        SELECT id FROM waitlist
-        WHERE court_id = ? AND date = ? AND start_min = ? AND phone_key(phone) = phone_key(?)
-          AND status IN ('waiting','offered')
-      `)
-      .get(courtId, date, start, input.phone.trim());
-    if (already) return refuse("ALREADY_WAITING");
+    if (await alreadyQueued(q, input.phone, { sql: "w.court_id = ? AND w.date = ? AND w.start_min = ?", params: [courtId, date, start] }))
+      return refuse("ALREADY_WAITING");
 
-    const info = await db
-      .prepare(`
-        INSERT INTO waitlist (court_id, date, start_min, end_min, name, phone, email, user_id, locale)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        courtId, date, start, end,
-        input.name.trim(), input.phone.trim(), input.email?.trim() ?? null,
-        input.userId ?? null, input.locale ?? "en"
-      );
-
-    const entry = toWaitlistEntry(
-      await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(info.lastInsertRowid) as WaitlistRow
-    );
-    return { ok: true, entry, position: (await slotQueue(courtId, date)).length };
+    const id = await insertEntry({ court_id: courtId, date, start_min: start, end_min: end }, input, q);
+    return { ok: true, entry: await readEntry(id), position: (await slotQueue(courtId, date)).length };
   });
 }
 
@@ -7299,10 +7678,13 @@ async function slotQueue(courtId: number, date: string): Promise<WaitlistRow[]> 
 
 /**
  * Time freed up on a resource: offer it to the longest waiter whose wanted
- * time is now entirely free. The offer claims that time until it is taken up
- * or runs out, so nobody else can book it meanwhile; one live offer per
- * resource and day, so overlapping windows cannot be promised to two people
- * at once.
+ * time is now entirely free, for every place they wait for. The offer claims
+ * that time (and those places) until it is taken up or runs out, so nobody
+ * else can book it meanwhile; one live offer per resource and day, so
+ * overlapping windows cannot be promised to two people at once. Each entry
+ * is checked again first: still for whom it was made, by an account acting
+ * for them (else it leaves the queue), and each of them still able to book
+ * it (else it waits).
  */
 export async function offerSlotPlace(courtId: number, date: string): Promise<WaitlistEntry | null> {
   return withTransaction(async () => {
@@ -7312,12 +7694,28 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
     const court = await getCourt(courtId);
     if (!court) return null;
     const day = await courtDay(court, date);
+    const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
 
     for (const row of queue) {
       if (row.status !== "waiting" || row.start_min === null || row.end_min === null) continue;
       const span = { start: row.start_min, end: row.end_min };
       if (minutesUntil(date, span.start, day.zone) <= 0) continue;
-      if (!(await slotTimeFree(court, date, span, day.policy, day.zone))) continue;
+      const places = row.places ?? 1;
+      if (!(await slotTimeFree(court, date, span, day.policy, day.zone, places))) continue;
+      const named = await entryStillTheirs(row);
+      if (named === null) {
+        await dropEntry(row.id);
+        continue;
+      }
+      // Eligibility as it stands now, each on their own: a sign-off that lapsed while they waited.
+      if (need) {
+        let eligible = true;
+        for (const who of [...(row.customer_takes_part !== false ? [null] : []), ...named.map((p) => p.id)])
+          eligible =
+            eligible &&
+            (await signOffHolds({ venueId: court.venueId, sport: court.sport, until: date, phone: row.phone, userId: row.user_id, channel: "customer", need, participant: who }));
+        if (!eligible) continue;
+      }
 
       const db = getDb();
       try {
@@ -7332,6 +7730,8 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
             span,
             zone: day.zone,
             ...claimBuffers(day.policy),
+            // Every place it waits for, or no offer at all.
+            places,
             expiresAt: new Date(Date.now() + WAITLIST_OFFER_MINUTES * 60_000),
           });
         });
@@ -7340,10 +7740,7 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
         if (isConflict(err)) continue;
         throw err;
       }
-      return toWaitlistEntry(
-        await db.prepare("SELECT * FROM waitlist WHERE id = ?").get(row.id) as WaitlistRow,
-        true
-      );
+      return await readEntry(row.id, true);
     }
     return null;
   });

@@ -222,6 +222,15 @@ with a 20% code pays RM16.
 Cancelling a membership stops future discounts; bookings already made keep the
 price they were given.
 
+**A membership is its holder's.** It prices a booking its holder takes part
+in. A booking made only for somebody else on the member's number (a parent
+booking their child, [booking for somebody else](booking.md#booking-for-somebody-else))
+is at the public rate: a membership held against a number never covers a
+participant who is not its holder. Where the member takes part alongside
+others, the booking is at the member rate as before (a member's court, their
+guests on it). Who may book a members-only venue, and how far ahead a member
+may book, stay the booker's.
+
 ### Joining online
 
 A club that takes payment online can list up to six **membership plans** (a
@@ -324,7 +333,9 @@ cannot spend the same entry:
 - the booking is at the pass's venue, and for its sport if it names one;
 - the booking's phone number matches the holder's. Malaysian numbers are
   compared on digits with the country code folded away, so `+60 12-345 6789`
-  and `012-345 6789` are the same person;
+  and `012-345 6789` are the same person. The holder spends it on bookings
+  they make, as they would credit: on a booking for their child, the holder
+  pays with it. An entry pays for the booking, not for each person on it;
 - the booking is no longer than the pass allows, and enough remains for the
   whole of it. A pass pays in full or not at all — there is no part-paying a
   booking and owing the rest.

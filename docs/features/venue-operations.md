@@ -20,6 +20,49 @@ Check-in and no-show are mutually exclusive and self-correcting: a customer who
 checked in cannot be flagged a no-show, and checking someone in clears a
 no-show the desk had already recorded when they turn up late.
 
+**Person by person.** Where a booking names the people taking part (two
+children booked by a parent; [booking for somebody else](booking.md#booking-for-somebody-else)),
+the Attendance column also lists each of them, and staff mark who arrived,
+who did not, or clear it (`POST /api/admin/check-in` with `placeId` and
+`mark`; `markPlace` in `src/lib/store.ts`; `place_attendance`, migration
+0147). An arrival checks the booking in, within the same window; a no-show
+only once the booking has started, and never for somebody seen to arrive.
+The booking is a no-show (a strike against its customer's number) only when
+everybody it names was one and nobody checked it in. Who recorded each is
+kept and logged. A class roster is already one person per enrolment. An
+arrival goes with the booking's check-in when check-ins are pruned
+([privacy](../architecture/privacy.md)).
+
+## Booking at the counter
+
+Staff book on the venue's own booking page while signed in to the dashboard
+(the counter): the customer is whoever stands in front of them, by name and
+number, and sign-offs are checked as the venue's staff see them
+([sign-offs](activities.md#sign-offs)). For a child or anybody else taking
+part other than that person ([booking for somebody else](booking.md#booking-for-somebody-else)):
+
+- Staff type the guardian's number and choose *for somebody on this number*:
+  the participants the venue knows whose guardian is on that number are
+  offered as candidates (`GET /api/admin/participants`), each ticked takes a
+  place, and *the number holder takes part too* adds theirs. The number finds
+  candidates; it never decides who anybody is.
+- Somebody new is added there with the guardian's name, number, declared
+  relationship and the declaration of authority made to the member of staff
+  (`POST /api/admin/participants`), recorded as declared, never verified.
+  A number with no guardian of that participant on it is refused
+  (`PBK_NOT_GUARDIAN`): typing a number never makes anybody a guardian.
+- The booking is the guardian's (told and paying as any customer); the child
+  stays the participant, and their own eligibility is what the booking and
+  the door check. The member of staff is recorded on each place
+  (`booking_participants.added_by_admin_id`), in the participant's history
+  and in the activity log (`booking.for_participant`). Classes enrolled at
+  the counter the same way are logged as `class.enrol_participant`.
+- **Corrections.** Under *Venues → Participants: guardians and own logins*, a
+  manager finds the people the venue knows by a guardian's number, ends a
+  guardian's relationship, or links a participant's own login by its email,
+  each with a reason kept in the participant's history and the activity log
+  (`PATCH /api/admin/participants/[id]`; front desk cannot).
+
 ### Self-service check-in
 
 Every booking carries a random 128-bit `check_in_token`, separate from the short
@@ -167,7 +210,10 @@ anything fixed, means the resource is not handed over at all and no hire
 appears anywhere in the flow. Above zero turns on the counter workflow:
 
 - **Handing over** records the deposit held against that booking and checks the
-  customer in, since those are one action at the desk. The check-in window
+  customer in, since those are one action at the desk. On a booking for
+  somebody else (a child's kayak), the customer (the guardian) holds the
+  deposit and is told about it, and the hire record names who has the kit
+  (`participantName`, from the booking). The check-in window
   applies unchanged, so kit cannot leave an hour before the slot it belongs to.
   Staff may override the amount, including waiving it — the record is worth
   keeping either way, because the kayak is out.

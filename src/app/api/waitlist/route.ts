@@ -9,6 +9,8 @@ import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist 
 import { isValidDateString } from "@/lib/time";
 import { isMinute } from "@/lib/interval";
 import { currentLocale } from "@/lib/locale";
+import { isRefusal } from "@/lib/participants";
+import { readSelection, selectionForAccount, type Selection } from "@/lib/participant-bookings";
 
 export const dynamic = "force-dynamic";
 
@@ -56,11 +58,28 @@ export async function POST(req: NextRequest) {
     locale: await currentLocale(),
   };
 
+  // Who the entry is for (lib/participant-bookings.ts): the customer, and
+  // people this account acts for. The entry keeps them, and waits for a
+  // place for each; the offer is booked for them, never the customer instead.
+  const asked = readSelection((body ?? {}) as Record<string, unknown>);
+  if (asked && isRefusal(asked)) return NextResponse.json({ error: asked.error, code: asked.code, ...(asked.vars ? { vars: asked.vars } : {}) }, { status: asked.status });
+  let people: Selection | undefined;
+  if (asked) {
+    const resolved = user ? await selectionForAccount(user.id, asked.ids, asked.customerTakesPart) : null;
+    if (!resolved) return NextResponse.json({ error: "Not one of the people you manage.", code: "GUARD_NOT_FOUND" }, { status: 404 });
+    if (isRefusal(resolved)) return NextResponse.json({ error: resolved.error, code: resolved.code }, { status: resolved.status });
+    people = resolved;
+  }
+
   // Nor does somebody a women-only or men-only class is not for.
   if (forClass) {
     const session = await getClass(classId as number);
-    const notFor = session ? await classRefusal(session.who, user?.id ?? null, confirmWho === true) : null;
+    const forSelf = !people || people.customerTakesPart;
+    const notFor = session && forSelf ? await classRefusal(session.who, user?.id ?? null, confirmWho === true) : null;
     if (notFor) return refusal(notFor, 403);
+    // For somebody else, the adult says so on their behalf.
+    const notForThem = session && people && people.participants.length > 0 ? await classRefusal(session.who, null, confirmWho === true) : null;
+    if (notForThem) return refusal(notForThem, 403);
   }
 
   // Whoever could not book it cannot queue for it either: a refused number, a
@@ -80,13 +99,14 @@ export async function POST(req: NextRequest) {
   }
 
   const result = forClass
-    ? await joinClassWaitlist({ classId: classId as number, ...person })
+    ? await joinClassWaitlist({ classId: classId as number, ...person, ...(people ? { people } : {}) })
     : await joinSlotWaitlist({
         courtId: courtId as number,
         date: date as string,
         start,
         end,
         ...person,
+        ...(people ? { people } : {}),
       });
   if (!result.ok) return refusal(result);
 

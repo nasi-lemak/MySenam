@@ -35,6 +35,7 @@ import { TimeZoneEditor } from "./TimeZoneEditor";
 import { CancelPolicyEditor } from "./CancelPolicyEditor";
 import { CalendarFeedEditor } from "./CalendarFeedEditor";
 import { DataRequestPanel } from "./DataRequestPanel";
+import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { region } from "@/lib/region";
@@ -164,6 +165,8 @@ export function VenuesTab({
       <BlockedPhonesPanel venues={venues} />
 
       <DataRequestPanel venues={venues} />
+
+      {admin.role !== "desk" && <ParticipantsPanel venues={venues} />}
 
       <MessagesPanel venues={venues} isOwner={isOwner} />
 

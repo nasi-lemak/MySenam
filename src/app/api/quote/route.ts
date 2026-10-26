@@ -18,7 +18,9 @@ export const dynamic = "force-dynamic";
  * prices other courts for the same time, to book with it (`others`). The answer:
  * `total`, the court time and any setup or cleanup `fees` apart, the minutes
  * billed, and each part's rate (`lines`). Member rates for a signed-in
- * member. `allowed` says whether the court's booking rules take that time;
+ * member, unless `forOthers=1`: a booking only for people the member books
+ * for is at the public rate (docs/features/pricing.md#memberships-and-member-rates).
+ * `allowed` says whether the court's booking rules take that time;
  * when not, `error` says why. Whether it is free is found by booking it.
  */
 export async function GET(req: NextRequest) {
@@ -54,7 +56,9 @@ export async function GET(req: NextRequest) {
   const players = q.get("players") !== null ? Number(q.get("players")) : undefined;
   // On a court that offers several activities, which one (its main one if not said).
   const activity = q.get("sport") ? (q.get("sport") as Sport) : undefined;
-  const priced = await quoteFor({ courtId, date, ...time.when, phone: user?.phone ?? null, userId: user?.id ?? null, by: "customer", players, ...(activity ? { sport: activity } : {}) });
+  // A membership prices only a booking its holder takes part in.
+  const memberPhone = q.get("forOthers") === "1" ? null : (user?.phone ?? null);
+  const priced = await quoteFor({ courtId, date, ...time.when, phone: memberPhone, userId: user?.id ?? null, by: "customer", players, ...(activity ? { sport: activity } : {}) });
   if (!priced.ok) return refusal(priced, 400);
 
   // Other courts at the same venue, for the same time.
@@ -73,7 +77,7 @@ export async function GET(req: NextRequest) {
       date,
       start: priced.span.start,
       end: priced.span.end,
-      phone: user?.phone ?? null,
+      phone: memberPhone,
       userId: user?.id ?? null,
       by: "customer",
       players: places ?? players,
