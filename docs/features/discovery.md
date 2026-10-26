@@ -29,7 +29,28 @@ and `?q=` does the same in the address
 75, 90, 120, 150 or 180 minutes, or whole hours up to twelve, and picking an
 activity asks for its usual length (padel's 90 minutes). A result is a start each court's
 [booking rules](booking.md#booking-rules-starts-lengths-buffers) allow, for a
-length they allow, free for all of it, buffers included. On a phone, *Area* and the
+length they allow, free for all of it, buffers included. A resource whose
+rules ask for a staff sign-off or a recorded certification first
+([sign-offs](activities.md#sign-offs)) says so on the result
+(*needs the venue's sign-off*), as on the venue's grid.
+
+**Kinds of kit under one heading** ([activities](activities.md#pricing-a-booking-with-places))
+show in search under it: a result at a venue with *Kayaks* over *Single
+kayak* and *Double kayak* says *Kayaks: pick a kind* and lists every kind
+under it that takes the length asked for, each as itself: its own price for
+that time (each, for one place), its own places left, *not free then* where
+it is full or cannot start then, and what its rules ask for first. Nothing
+adds the kinds up: two single kayaks and three doubles are never *5 kayaks*.
+A heading shows only when one of its kinds is free at that time; the result
+itself is still the venue's cheapest free resource, its others counted as
+before, less the kinds already listed. A free kind goes straight to booking
+it on the venue's page; *See all Kayaks here* opens the venue's page at
+that date and time with the heading marked and every kind under it, each
+with its own availability and price. The venue's page reads `heading=` from
+the address for this, beside `court`, `start` and `minutes`. It costs the
+search no queries: the kinds are worked out from the courts, claims and
+prices it has already read (`searchAvailability` in `src/lib/store.ts`,
+`tests/search-groups.test.ts`). On a phone, *Area* and the
 must-haves (showers, parking and so on) fold under *More filters*, which says
 how many are on; *Near me* stays in view.
 

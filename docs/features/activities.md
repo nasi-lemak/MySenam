@@ -156,9 +156,12 @@ wherever the first of them comes, the booking form names the heading
 other kinds of Kayaks at the same time*). A heading typed again in other
 capitals joins the one already at the venue; a blank takes the resource out
 from under it. It is only how they are shown: each kind is still booked,
-priced, counted and found in search as itself, several kinds still go in one
-booking all or nothing, and availability is each kind's own
-(`groupByHeading` and `headedRows` in `src/lib/court-activities.ts`).
+priced and counted as itself, several kinds still go in one booking all or
+nothing, and availability is each kind's own
+(`groupByHeading` and `headedRows` in `src/lib/court-activities.ts`). Search
+shows the heading too, with each kind under it as itself — its price, places
+left and any sign-off it needs — and links to the venue's page with the
+heading marked ([discovery](discovery.md#finding-a-court-from-the-front-page)).
 
 Quantity prices apply equally to a court priced per player. A court booked
 whole cannot be priced flat (it already is one booking) and a resource with
@@ -182,7 +185,11 @@ kept apart (`src/lib/sign-offs.ts`):
 The booking rules ask for either at any level: `signOff` (either kind
 counts) or `certification` (only a certification counts). Climbing and
 archery ask for a sign-off by default; a venue can turn it off, and any
-activity can ask for one.
+activity can ask for one. Customers are told before they pick a time: the
+venue's grid and search say *needs the venue's sign-off* (or *needs a
+recorded certification*) beside each resource whose rules ask for one
+(`needs` in its public rules, `needsOf` in `src/lib/court-activities.ts`);
+the booking is where it is enforced.
 
 **Each record keeps** the person (name, phone number, and their account
 where one is linked), the activity (or anything there), its scope (this

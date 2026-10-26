@@ -136,7 +136,10 @@ student card"), and optionally one sport or off-peak hours only.
   *OKU*, each with its proof) are shown to staff in the dashboard's language.
   One saved as it is keeps its key (`concessions.preset`, migration 0122), and
   every customer reads its name and proof in their own language, on the
-  booking form, the confirmation and `/my-booking`; staff screens show it in
+  booking form, the confirmation, `/my-booking`, the refusal when it is
+  off-peak only (the refusal names it by its key, `vars.nameKey`) and the
+  receipt (*Harga Pelajar*;
+  [regions and tax](../product/regions-and-tax.md#tax-sst-and-gst)); staff screens show it in
   the staff member's language. Once staff change its name or proof it is the
   venue's own text, shown to everybody as typed. The server keeps the key only
   while the name and proof are word for word the preset's in one of the

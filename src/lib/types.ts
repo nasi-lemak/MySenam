@@ -683,6 +683,8 @@ export interface PublicPolicy {
   lengths: number[] | null;
   defaultLength: number;
   noticeMinutes: number;
+  /** A staff sign-off or a recorded certification its rules ask for first (lib/court-activities.ts `needsOf`). */
+  needs?: "signOff" | "certification" | null;
 }
 
 /** Where a booking may start on a court, and the longest it may run from there. */

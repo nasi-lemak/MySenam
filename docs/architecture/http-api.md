@@ -37,7 +37,9 @@ These hold for every route below unless its row says otherwise.
 - **Answers** are JSON. A refusal is `{ error, code?, vars? }`: `error` in
   English for logs and staff, `code` a stable name the customer pages
   translate (the `err.*` phrases in `src/lib/i18n.ts`), `vars` what the
-  message quotes.
+  message quotes. A name quoted by its key as well (`nameKey`, such as
+  `pre.con.student` for a built-in concession) is said in the reader's
+  language; `name` is its English.
 
   | Status | Means |
   | ------ | ----- |
@@ -96,7 +98,7 @@ have the fields.
 | ------ | --------------------- | -------------------------------------------------- |
 | GET    | `/api/health`         | `{ok}` while the database answers, `503` when it does not |
 | GET    | `/api/venues`         | All venues with their courts                        |
-| GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → each court's day: `starts` (each minute a booking may start, and the longest it may run from there), its booking `policy`, and `slots`, the day in columns of `grid` minutes (free, `partly` held, held, with price); `mayOverride` for a manager; rooms run as classes only for the venue's own staff |
+| GET    | `/api/availability`   | `?venueId=&date=YYYY-MM-DD&sport=` → each court's day: `starts` (each minute a booking may start, and the longest it may run from there), its booking `policy` (with `needs`: a sign-off or certification its rules ask for first, or null), and `slots`, the day in columns of `grid` minutes (free, `partly` held, held, with price); `mayOverride` for a manager; rooms run as classes only for the venue's own staff |
 | GET    | `/api/quote`          | `?courtId&date&start&end` (or `minutes`), or `venueId&sport` for any court, `[&sport]` for one activity on a court offering several, `[&players]` (players, or places on a shared facility) `[&also=2,3]` (`2:4` for four places on a shared resource) → the price before booking: `total`, `court`, `fees`, `billedMinutes`, each part (`lines`), whether the court's rules allow it (`allowed`, `error`), and `others` for `also` |
 | GET    | `/api/venues/:id/live`| Who is inside each shared facility right now        |
 | GET    | `/api/classes`        | `?venueId=&sport=&from=&to=` → upcoming classes     |
@@ -259,7 +261,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/receipts/einvoice` | `{ ref, t, name, tin, idType, idNumber, sst?, email, phone, addressLine, city, postcode, stateCode }` → an LHDN e-invoice made out to the customer for this receipt, sent at once. The receipt's signed link is the proof they hold it |
 | POST | `/api/reviews` | `{ code, t, rating, body? }` → this number's review of the venue, written or written again |
 | GET | `/api/sports` | The sports somebody here offers, in the usual order (on a storefront, its venues'), for the sport choices on search, classes and games |
-| GET | `/api/search` | `?sport=&date=&from=&to=&minutes=&area=`, or `&near=lat,lng&km=` in place of an area; `q=` in place of `sport` finds the activity by any of its names (404 when none) → free courts, one result per venue and start time. `from` and `to` are the earliest and latest start (HH:MM, or hours); `minutes` the length (or `duration` in hours), found on courts whose booking rules take it |
+| GET | `/api/search` | `?sport=&date=&from=&to=&minutes=&area=`, or `&near=lat,lng&km=` in place of an area; `q=` in place of `sport` finds the activity by any of its names (404 when none) → free courts, one result per venue and start time. `from` and `to` are the earliest and latest start (HH:MM, or hours); `minutes` the length (or `duration` in hours), found on courts whose booking rules take it. Each result has `needs` (`signOff`, `certification` or null: what the shown court's rules ask for first) and `groups`: for each heading at the venue with a kind free then, `{ heading, kinds }`, each kind `{ courtId, name, free, totalPrice, perPlayer, capacity, placesLeft, needs }` as itself, never summed ([discovery](../features/discovery.md#finding-a-court-from-the-front-page)) |
 | POST | `/api/split/:token/pay` | `{ name, phone, email? }` → the venue's payment page for one share of a split booking |
 | GET | `/api/tournaments` | Tournaments coming up, or just played: `?sport=` |
 | GET | `/api/tournaments/:id` | The draw, the groups, the bracket and the times; and, signed in, your entry and the results waiting on your matches (`reports`) |

@@ -297,6 +297,19 @@ describe("kinds of kit under one heading", () => {
     const offered = screen.getAllByRole("checkbox").map((b) => b.closest("label")?.textContent ?? "");
     expect(offered.findIndex((l) => l.startsWith("Double kayak"))).toBeLessThan(offered.findIndex((l) => l.startsWith("Paddleboards")));
   });
+
+  it("arriving from search, marks the heading searched for and says what each kind's rules ask first", async () => {
+    const SINGLES = { ...COURT, id: 31, name: "Single kayak", sport: "kayak" as const, capacity: 6, heading: "Kayaks" };
+    const DOUBLES = { ...COURT, id: 32, name: "Double kayak", sport: "kayak" as const, capacity: 3, heading: "Kayaks" };
+    const BOARDS = { ...COURT, id: 33, name: "Paddleboards", sport: "kayak" as const, capacity: 4, heading: "Boards" };
+    const shared = (court: { capacity: number }, policy = HOURLY) => row({ court, policy, slots: slots(HOURS, true, { capacity: court.capacity, booked: 0 }) });
+    availability = [shared(SINGLES), shared(DOUBLES, { ...HOURLY, needs: "signOff" } as typeof HOURLY), shared(BOARDS)];
+    await act(async () => void board({ sport: "badminton", date: DAY, start: 9 * 60, minutes: 60, heading: "kayaks" }));
+    expect(screen.getByTestId("heading-31").getAttribute("data-focus")).toBe("true");
+    expect(screen.getByTestId("heading-33").getAttribute("data-focus")).toBeNull();
+    const needs = screen.getByRole("table").querySelectorAll("[data-needs]");
+    expect([...needs].map((n) => n.textContent)).toEqual(["needs the venue's sign-off"]);
+  });
 });
 
 describe("a built-in concession", () => {

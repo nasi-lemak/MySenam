@@ -229,7 +229,9 @@ one of those hours (and that take a booking that long), with what each costs.
   how many, up to what one booking may take. Each kind is its own booking at
   its own price; all or none are kept. Whole courts and shared resources are
   not mixed in one. Kinds the venue put under one heading are listed together
-  under it and offered first ([activities](activities.md#pricing-a-booking-with-places)).
+  under it and offered first ([activities](activities.md#pricing-a-booking-with-places)),
+  in search as on the grid; arriving from a search result for the heading,
+  the grid marks it ([discovery](discovery.md#finding-a-court-from-the-front-page)).
 
 ## Operating hours and closed days
 

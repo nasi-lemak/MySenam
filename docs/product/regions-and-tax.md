@@ -90,7 +90,8 @@ table in `src/lib/region.ts`:
   tournament corrections from before migration 0120 show their English. New
   ones keep their phrase beside the English (migration 0120; a receipt's
   line and a progression issue's affected matches inside their own JSON).
-  A receipt itself, as printed, says its English.
+  A receipt itself, as printed, says its lines' English, except a built-in
+  concession's price ([receipts](#tax-sst-and-gst)).
 - **The Tamil is a machine translation awaiting a native speaker's review**
   before a venue relies on it: in particular the words chosen for venue
   (மையம்) and court (கோர்ட்), sports terms such as walkover and bye, and the
@@ -143,7 +144,23 @@ details → Tax* (managers only).
   phone number. Where the venue charges tax it is titled *Tax invoice* and
   shows the amount before tax, the tax at its rate, the total and the venue's
   registration number. The receipt email links to it and says how much tax
-  the payment included; My Booking links to it too.
+  the payment included; My Booking links to it too. Its headings are in the
+  reader's language and its lines as written, except the price of a built-in
+  concession (student, senior, child, OKU; [pricing](../features/pricing.md#concession-prices)):
+  that line keeps the concession's key beside its words (`concessionPreset`
+  on the line), and the receipt says it in the reader's language (*Student
+  price*, *Harga Pelajar*, *学生优惠价*, *மாணவர் விலை*), or as written in a
+  language with no words for it, or one the install does not offer, which
+  reads in the install's own. A concession the venue named itself is shown
+  as typed. Only the words change: the amounts, the number, the tax and the
+  line as stored are the same for every reader, and the sales journal,
+  exports and e-invoices keep the words as written. A receipt from before
+  lines kept the key reads in the customer's language only where it can be
+  told for certain: a booking whose concession is still that built-in one,
+  word for word, under the same name; a credit note or kept receipt whose
+  booking's own line today has the same words and amount. Anything else
+  shows as stored, and nothing stored is rewritten (`receiptLineText` in
+  `src/lib/receipts.ts`, `tests/receipt-languages.test.ts`).
 - **Receipts for everything else sold.** A membership, a pass, a credit
   top-up, a tournament entry, a league fee or a share of a game gets a
   receipt as it is paid, at the counter or online: a document written once

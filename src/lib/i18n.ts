@@ -2094,6 +2094,15 @@ const EN = {
   "apr.privacyWhat": "Applications to be approved for an activity: your answers and declarations, a parent or guardian's name for under-18s, and any document you send",
   "apr.privacyWhy": "So the venue, and the coaches it names, can decide whether you may do the activity, and keep who decided",
   "apr.privacyHow": "Documents {n} days after the decision; the rest {m} days after it is decided or the approval ends",
+  "rcpt.concessionPrice": "{name} price",
+  "grp.choose": "{heading}: pick a kind",
+  "grp.left_one": "{n} left",
+  "grp.left_other": "{n} left",
+  "grp.each": "each",
+  "grp.full": "not free then",
+  "grp.signOff": "needs the venue's sign-off",
+  "grp.certification": "needs a recorded certification",
+  "grp.seeAll": "See all {heading} here",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4141,6 +4150,15 @@ const MS: Record<Phrase, string> = {
   "apr.privacyWhat": "Permohonan kelulusan aktiviti: jawapan dan akuan anda, nama ibu bapa atau penjaga bagi bawah 18 tahun, dan sebarang dokumen yang anda hantar",
   "apr.privacyWhy": "Supaya pusat, dan jurulatih yang dinamakannya, boleh memutuskan sama ada anda boleh melakukan aktiviti itu, dan menyimpan rekod siapa yang memutuskan",
   "apr.privacyHow": "Dokumen {n} hari selepas keputusan; selebihnya {m} hari selepas ia diputuskan atau kelulusan tamat",
+  "rcpt.concessionPrice": "Harga {name}",
+  "grp.choose": "{heading}: pilih jenis",
+  "grp.left_one": "tinggal {n}",
+  "grp.left_other": "tinggal {n}",
+  "grp.each": "setiap satu",
+  "grp.full": "tidak kosong pada masa itu",
+  "grp.signOff": "perlu pengesahan kakitangan pusat",
+  "grp.certification": "perlu pensijilan yang direkodkan",
+  "grp.seeAll": "Lihat semua {heading} di sini",
 };
 
 /** Exported so a test can hold the two languages against each other. */
@@ -4357,6 +4375,10 @@ export function translateError(t: T, body: string | RefusalBody | null | undefin
  */
 export function errorText(t: T, code: ErrorCode, vars?: Vars): string {
   const key = `err.${code}`;
+  // A name the refusal quotes by its key (a built-in concession's, `pre.con.student`): said in this language, the English kept where there is none.
+  const nameKey = vars?.nameKey;
+  if (typeof nameKey === "string" && nameKey.startsWith("pre.") && hasPhrase(nameKey) && DICTIONARIES[t.locale]?.[nameKey])
+    vars = { ...vars, name: t(nameKey) };
   if (hasPhrase(key)) return t(key, vars);
   return t.plural(key, Number(vars?.n ?? 0), vars);
 }

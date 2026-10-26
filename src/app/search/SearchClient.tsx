@@ -9,7 +9,7 @@ import { CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_COURT_HOURS, MAX_VENUE_AHEAD_DAYS, OP
 import { usualMinutes } from "@/lib/booking-rules";
 import { formatMinute } from "@/lib/interval";
 import { lengthLabel } from "@/lib/length-label";
-import type { SearchResult, SearchSort } from "@/lib/store";
+import type { SearchKind, SearchResult, SearchSort } from "@/lib/store";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
@@ -183,8 +183,12 @@ export default function SearchClient({
   const nearQuery = near
     ? `&near=${near.lat.toFixed(5)},${near.lng.toFixed(5)}${near.where ? `&where=${encodeURIComponent(near.where)}` : ""}`
     : "";
-  const bookHref = (r: SearchResult) =>
-    `/venue/${r.venue.id}?date=${date}&sport=${r.court.sport}&court=${r.court.id}&start=${r.startMin}&minutes=${r.endMin - r.startMin}${nearQuery}`;
+  const bookHref = (r: SearchResult) => kindHref(r, r.court.id, r.court.heading ?? null);
+  // To the venue's grid at that time, with the heading shown: one kind picked to book, or none to look at them all.
+  const kindHref = (r: SearchResult, courtId: number | null, heading: string | null) =>
+    `/venue/${r.venue.id}?date=${date}&sport=${r.court.sport}${courtId === null ? "" : `&court=${courtId}`}&start=${r.startMin}&minutes=${r.endMin - r.startMin}${
+      heading ? `&heading=${encodeURIComponent(heading)}` : ""
+    }${nearQuery}`;
 
   const selectClass =
     "mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -361,7 +365,7 @@ export default function SearchClient({
       ) : results && results.length > 0 && sort !== "soonest" ? (
         <div>
           <SortBar t={t} sort={sort} onSort={setSort} near={near !== null} />
-          <VenueResults t={t} results={results} covers={covers} bookHref={bookHref} />
+          <VenueResults t={t} results={results} covers={covers} bookHref={bookHref} kindHref={kindHref} />
         </div>
       ) : results && results.length > 0 ? (
         (() => {
@@ -377,8 +381,10 @@ export default function SearchClient({
               <ul className="space-y-2">
                 {groups.map((g) => {
                   const cheapest = g.courts[0];
-                  // The server sends one court per venue and time, and counts the rest.
-                  const others = cheapest.alsoFree ?? g.courts.length - 1;
+                  // The server sends one court per venue and time, and counts the rest;
+                  // kinds listed under their heading below are not counted again.
+                  const listed = (cheapest.groups ?? []).flatMap((x) => x.kinds).filter((k) => k.free && k.courtId !== cheapest.court.id).length;
+                  const others = Math.max((cheapest.alsoFree ?? g.courts.length - 1) - listed, 0);
                   return (
                     <li
                       key={g.key}
@@ -415,7 +421,8 @@ export default function SearchClient({
                         <div className="text-sm text-slate-500">
                           📍 {g.area}
                           {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
-                          {activityIcon(cheapest.court.sport)} {cheapest.court.name}
+                          {activityIcon(cheapest.court.sport)} {cheapest.court.heading ? `${cheapest.court.heading} · ${cheapest.court.name}` : cheapest.court.name}
+                          {cheapest.needs && <NeedsBadge t={t} needs={cheapest.needs} />}
                           {others > 0 && (
                             <span className="text-slate-400">
                               {" "}
@@ -424,6 +431,7 @@ export default function SearchClient({
                           )}
                         </div>
                         <Highlights t={t} items={highlights([cheapest.court], cheapest.venue.amenities ?? [])} />
+                        <KindGroups t={t} result={cheapest} href={kindHref} />
                       </div>
                       <div className="text-right">
                         <div className="font-bold">{money(cheapest.totalPrice)}</div>
@@ -475,6 +483,69 @@ function SortBar({ t, sort, onSort, near }: { t: T; sort: SearchSort; onSort: (s
   );
 }
 
+/** A link to the venue's grid at a result's time, with a heading shown: a kind picked (`courtId`), or none. */
+type KindHref = (r: SearchResult, courtId: number | null, heading: string | null) => string;
+
+/** What a resource's rules ask for first, beside its name. */
+function NeedsBadge({ t, needs }: { t: T; needs: NonNullable<SearchKind["needs"]> }) {
+  return (
+    <span className="ml-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700" data-needs={needs}>
+      {t(needs === "certification" ? "grp.certification" : "grp.signOff")}
+    </span>
+  );
+}
+
+/**
+ * Kinds of kit under one heading at a result's venue and time: the heading,
+ * then each kind as itself, with its own price and places left (never added
+ * up) and what its rules ask for first; a free one goes straight to booking
+ * it, and the heading to the venue's grid with all of them.
+ */
+function KindGroups({ t, result, href, withTime = false }: { t: T; result: SearchResult; href: KindHref; withTime?: boolean }) {
+  if (!result.groups || result.groups.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-1.5">
+      {result.groups.map((g) => (
+        <div key={g.heading} className="text-sm" data-testid={`group-${g.heading}`}>
+          <span className="font-medium text-slate-700">
+            {t("grp.choose", { heading: g.heading })}
+            {withTime && ` · ${formatMinute(result.startMin)}`}
+          </span>
+          <ul className="mt-1 flex flex-wrap gap-1.5">
+            {g.kinds.map((k) => {
+              const words = (
+                <>
+                  {k.name} · {money(k.totalPrice)}
+                  {k.capacity > 1 ? ` ${t("grp.each")}` : k.perPlayer ? ` ${t("search.perPlayer")}` : ""}
+                  {k.free ? (k.placesLeft !== null ? ` · ${t.plural("grp.left", k.placesLeft)}` : "") : ` · ${t("grp.full")}`}
+                </>
+              );
+              return (
+                <li key={k.courtId} data-testid={`kind-${k.courtId}`}>
+                  {k.free ? (
+                    <Link
+                      href={href(result, k.courtId, g.heading)}
+                      className="inline-block rounded-lg border border-teal-200 bg-teal-50 px-2 py-0.5 text-teal-800 hover:border-teal-500"
+                    >
+                      {words}
+                    </Link>
+                  ) : (
+                    <span className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-400">{words}</span>
+                  )}
+                  {k.needs && <NeedsBadge t={t} needs={k.needs} />}
+                </li>
+              );
+            })}
+          </ul>
+          <Link href={href(result, null, g.heading)} className="text-xs font-medium text-teal-700 underline">
+            {t("grp.seeAll", { heading: g.heading })}
+          </Link>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * One row per venue, in the order the server sent its best hour — nearest or
  * cheapest — with every free start time under it, each straight to booking.
@@ -484,11 +555,13 @@ function VenueResults({
   results,
   covers,
   bookHref,
+  kindHref,
 }: {
   t: T;
   results: SearchResult[];
   covers: Record<string, Photo>;
   bookHref: (r: SearchResult) => string;
+  kindHref: KindHref;
 }) {
   const venues = new Map<number, SearchResult[]>();
   for (const r of results) venues.set(r.venue.id, [...(venues.get(r.venue.id) ?? []), r]);
@@ -531,6 +604,7 @@ function VenueResults({
                     {first.distanceKm !== undefined && ` · ${t("near.away", { km: first.distanceKm })}`}
                   </div>
                   <Highlights t={t} items={highlights([first.court], first.venue.amenities ?? [])} />
+                  <KindGroups t={t} result={first} href={kindHref} withTime />
                 </div>
                 <div className="text-right text-sm">
                   <span className="text-slate-400">{t("search.fromPrice")}</span> <span className="font-bold">{money(from)}</span>

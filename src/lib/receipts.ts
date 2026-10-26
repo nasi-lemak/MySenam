@@ -4,6 +4,8 @@ import { findBookingByCode, getVenue } from "./store";
 import { taxIncluded, taxName, venueTax } from "./tax";
 import { bookingSale, documentById, documentFor, documentId, paidVia, type Document, type Line } from "./documents";
 import { siteName } from "./site";
+import { DICTIONARIES, type Phrase, type T } from "./i18n";
+import { isConcessionPreset } from "./concessions-shared";
 
 /**
  * Receipts as the customer sees them: a page to keep or print, and — when
@@ -70,6 +72,40 @@ async function issuer(venueId: number | null): Promise<Receipt["venue"] | null> 
   return venue ? { name: venue.name, address: venue.address, phone: venue.phone } : null;
 }
 
+/**
+ * A line as this reader sees it. A built-in concession's price (*Student
+ * price*) is said in their language; everything else, and a concession the
+ * venue named itself, as written. Only the words change: the amount, and
+ * the line kept in the venue's books, are the same in every language. A
+ * language with no words for it says it as written.
+ */
+export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset">): string {
+  const preset = line.concessionPreset;
+  if (!isConcessionPreset(preset)) return line.description;
+  const words = DICTIONARIES[t.locale];
+  const name = `pre.con.${preset}` as Phrase;
+  if (!words?.[name] || !words["rcpt.concessionPrice"]) return line.description;
+  return t("rcpt.concessionPrice", { name: t(name) });
+}
+
+/**
+ * The lines of a document kept from a booking (its credit note, or its
+ * receipt written down when it stopped being paid), with the concession's
+ * key where one written before lines kept it can be told for certain: the
+ * booking's own line today says the same words and amount, and knows its key.
+ */
+async function withConcessionKeys(doc: Document): Promise<Line[]> {
+  const from = /^booking(?:-paid)?:(\d+)(?::|$)/.exec(doc.source);
+  if (!from || !doc.lines.some((l) => l.amount < 0 && !l.concessionPreset)) return doc.lines;
+  const keyed = ((await bookingSale(Number(from[1])))?.lines ?? []).filter((l) => l.concessionPreset);
+  if (keyed.length === 0) return doc.lines;
+  return doc.lines.map((l) => {
+    if (l.concessionPreset || l.amount >= 0) return l;
+    const same = keyed.find((k) => k.description === l.description && k.amount === l.amount);
+    return same ? { ...l, concessionPreset: same.concessionPreset } : l;
+  });
+}
+
 async function fromDocument(code: string, doc: Document): Promise<Receipt | null> {
   const venue = await issuer(doc.venueId);
   if (!venue) return null;
@@ -81,7 +117,7 @@ async function fromDocument(code: string, doc: Document): Promise<Receipt | null
     customer: doc.customerName,
     paidAt: doc.issuedAt,
     paidVia: doc.paidVia,
-    lines: doc.lines,
+    lines: await withConcessionKeys(doc),
     total: doc.total,
     tax: doc.tax,
     cancelled: false,

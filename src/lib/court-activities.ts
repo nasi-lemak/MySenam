@@ -91,6 +91,18 @@ export function groupByHeading<T>(items: T[], headingOf: (item: T) => string | n
   return groups;
 }
 
+/**
+ * What a resource's booking rules ask of a customer before they may book it
+ * (lib/sign-offs.ts): a recorded certification, a staff sign-off, or nothing.
+ * Shown beside it in search and on the venue's grid; the booking itself is
+ * where it is enforced.
+ */
+export type KindNeeds = "signOff" | "certification" | null;
+
+export function needsOf(policy: { signOff?: boolean; certification?: boolean }): KindNeeds {
+  return policy.certification ? "certification" : policy.signOff ? "signOff" : null;
+}
+
 /** A day's rows as shown: grouped by heading, `heading` on the first of each group, `under` on all of one. */
 export function headedRows<R extends { court: Pick<Court, "heading"> }>(rows: R[]): (R & { heading: string | null; under: boolean })[] {
   return groupByHeading(rows, (r) => r.court.heading).flatMap((g) =>

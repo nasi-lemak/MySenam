@@ -1934,6 +1934,15 @@ export const ZH: Record<Phrase, string> = {
   "apr.privacyWhat": "活动批准申请：您的回答和声明、未满 18 岁者的父母或监护人姓名，以及您提交的任何文件",
   "apr.privacyWhy": "让场馆及其指定的教练决定您是否可参加该活动，并保留由谁决定的记录",
   "apr.privacyHow": "文件在决定后保留 {n} 天；其余在决定或批准结束后保留 {m} 天",
+  "rcpt.concessionPrice": "{name}优惠价",
+  "grp.choose": "{heading}：选择类型",
+  "grp.left_one": "剩 {n} 个",
+  "grp.left_other": "剩 {n} 个",
+  "grp.each": "每个",
+  "grp.full": "该时段不可订",
+  "grp.signOff": "需先经场馆工作人员确认",
+  "grp.certification": "需有场馆登记的证书",
+  "grp.seeAll": "查看此处所有{heading}",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

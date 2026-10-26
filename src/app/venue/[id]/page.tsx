@@ -380,7 +380,8 @@ export default async function VenuePage({
 /**
  * Turn ?date=&sport=&court=&start=&minutes= from a search result (or "Book
  * again") into a selection: `start` in minutes of the day or HH:MM, `minutes`
- * its length. The older `hour=&duration=` (hours) reads the same way. Whether
+ * its length; `heading` the kinds of kit to show together. The older
+ * `hour=&duration=` (hours) reads the same way. Whether
  * the court takes that time is the board's to check against its starts.
  */
 function parseInitialSelection(query: Record<string, string | string[] | undefined>, sports: Sport[], dates: string[]) {
@@ -411,5 +412,10 @@ function parseInitialSelection(query: Record<string, string | string[] | undefin
     courtId: Number.isInteger(courtId) && courtId > 0 ? courtId : undefined,
     start: isMinute(start) ? start : undefined,
     minutes: minutes !== undefined && Number.isInteger(minutes) && minutes > 0 ? minutes : undefined,
+    // Kinds of kit under one heading, from search: shown on the grid.
+    heading: (() => {
+      const h = one("heading")?.trim();
+      return h && h.length >= 2 && h.length <= 40 ? h : undefined;
+    })(),
   };
 }

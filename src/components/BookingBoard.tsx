@@ -34,7 +34,7 @@ interface Props {
   sports: Sport[];
   dates: string[];
   /** A booking to pre-select, e.g. when arriving from a search result: its start and length in minutes. */
-  initial?: { sport?: Sport; date?: string; courtId?: number; start?: number; minutes?: number };
+  initial?: { sport?: Sport; date?: string; courtId?: number; start?: number; minutes?: number; heading?: string };
 }
 
 /** A selection on the "Any court" row, rather than on a named court. */
@@ -182,6 +182,15 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     length: number;
   } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  // Kinds of kit under one heading, arriving from search: that heading marked on the grid, and in view.
+  const focusHeading = initial?.heading?.toLowerCase() ?? null;
+  const startAsked = useRef(initial?.start);
+  const headingShown = useRef(false);
+  const showHeading = useCallback((row: HTMLTableRowElement | null) => {
+    if (!row || headingShown.current) return;
+    headingShown.current = true;
+    row.scrollIntoView?.({ block: "nearest" });
+  }, []);
 
   // Open the grid on the first time there is something to book (or on the
   // time already chosen, arriving from search), not on the venue's opening
@@ -194,7 +203,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     const cells = availability[0]?.slots ?? [];
     const width = availability[0]?.grid ?? 60;
     const firstFree = cells.find((c) => availability.some((a) => a.slots.find((s) => s.minute === c.minute)?.available))?.minute;
-    const chosen = selection ? cells.find((c) => c.minute <= selection.start && selection.start < c.minute + width)?.minute : undefined;
+    const at = selection?.start ?? startAsked.current;
+    startAsked.current = undefined;
+    const chosen = at !== undefined ? cells.find((c) => c.minute <= at && at < c.minute + width)?.minute : undefined;
     const target = chosen ?? firstFree;
     if (target === undefined) return;
     const column = grid.querySelector<HTMLElement>(`th[data-minute="${target}"]`);
@@ -513,12 +524,23 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                   })}
                 </tr>
               )}
-              {headed.map(({ court, slots, heading, under }) => (
+              {headed.map(({ court, slots, heading, under, policy }) => (
                 <Fragment key={court.id}>
                 {heading && (
                   // Kinds of the same thing under one heading: "Kayaks", then each kind.
-                  <tr className="border-b border-slate-100 bg-slate-50/60" data-testid={`heading-${court.id}`}>
-                    <th scope="rowgroup" colSpan={slots.length + 1} className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <tr
+                    className="border-b border-slate-100 bg-slate-50/60"
+                    data-testid={`heading-${court.id}`}
+                    data-focus={focusHeading === heading.toLowerCase() ? "true" : undefined}
+                    ref={focusHeading === heading.toLowerCase() ? showHeading : undefined}
+                  >
+                    <th
+                      scope="rowgroup"
+                      colSpan={slots.length + 1}
+                      className={`sticky left-0 z-10 px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide ${
+                        focusHeading === heading.toLowerCase() ? "bg-amber-100 text-amber-900" : "bg-slate-50 text-slate-600"
+                      }`}
+                    >
                       {heading}
                     </th>
                   </tr>
@@ -533,6 +555,12 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
+                    {/* What its rules ask for first, as search says it. */}
+                    {policy.needs && (
+                      <div className="text-xs font-normal text-violet-700" data-needs={policy.needs}>
+                        {t(policy.needs === "certification" ? "grp.certification" : "grp.signOff")}
+                      </div>
+                    )}
                   </td>
                   {slots.map((slot) => {
                     const isSelected =

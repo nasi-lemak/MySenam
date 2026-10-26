@@ -8,9 +8,9 @@ import { getBookingById as bookingById, getCourt } from "./store";
 import { addDays, forSport, isValidDateString, todayISO } from "./time";
 import { touchesPeak } from "./pricing";
 import { type Booking, type Refusal, type Sport } from "./types";
-import { DICTIONARIES, errorText, translator, type ErrorCode, type Phrase } from "./i18n";
-import { STAFF_DICTIONARIES, type StaffPhrase } from "./staff-i18n";
+import { errorText, translator, type ErrorCode, type Phrase } from "./i18n";
 import { isConcessionPreset, type ConcessionPreset } from "./concessions-shared";
+import { unchangedPreset } from "./concession-presets";
 
 /**
  * Concession prices: a student, senior, child or OKU price, as a share off.
@@ -69,18 +69,6 @@ const toConcession = (r: Row): Concession => ({
   offPeakOnly: r.off_peak_only === 1,
   preset: isConcessionPreset(r.preset) ? r.preset : null,
 });
-
-/**
- * Is this the built-in one, word for word, as any staff language or any
- * customer language writes it? Then it is kept by its key. Anything else
- * staff typed is the venue's own text.
- */
-function unchangedPreset(preset: unknown, name: string, proof: string): ConcessionPreset | null {
-  if (!isConcessionPreset(preset)) return null;
-  const staff = Object.values(STAFF_DICTIONARIES).map((d) => [d[`con.preset.${preset}` as StaffPhrase], d[`con.proof.${preset}` as StaffPhrase]]);
-  const customer = Object.values(DICTIONARIES).map((d) => [d[`pre.con.${preset}` as Phrase], d[`pre.con.${preset}.proof` as Phrase]]);
-  return [...staff, ...customer].some(([n, p]) => n === name && p === proof) ? preset : null;
-}
 
 const ENGLISH = translator("en");
 function refuse(code: ErrorCode, vars: Record<string, string | number> = {}): Refusal {
@@ -175,7 +163,13 @@ export async function applyConcession(
   if (concession.offPeakOnly) {
     const rules = forSport(await peakRules(court.venueId), booking.sport);
     if (touchesPeak(booking.date, { start: booking.startMin, end: booking.endMin }, rules))
-      return refuse("CONCESSION_OFF_PEAK", { name: concession.name });
+      // A built-in one is named by its key too, so each customer reads it in their own language.
+      return refuse(
+        "CONCESSION_OFF_PEAK",
+        concession.preset
+          ? { name: ENGLISH(`pre.con.${concession.preset}` as Phrase), nameKey: `pre.con.${concession.preset}` }
+          : { name: concession.name }
+      );
   }
   // Off the court time only: not a coach's fee, nor a setup or cleanup fee.
   const off = roundMoney(((booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0)) * concession.percent) / 100);

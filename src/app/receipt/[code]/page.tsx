@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { receiptFor } from "@/lib/receipts";
+import { receiptFor, receiptLineText } from "@/lib/receipts";
 import { serverT } from "@/lib/locale";
 import { money, region } from "@/lib/region";
 import { einvoiceForReceipt } from "@/lib/myinvois";
@@ -69,7 +69,7 @@ export default async function ReceiptPage({
         <tbody>
           {receipt.lines.map((line, i) => (
             <tr key={i} className="border-b border-slate-100">
-              <td className="py-2 pr-3">{line.description}</td>
+              <td className="py-2 pr-3">{receiptLineText(t, line)}</td>
               <td className="py-2 text-right tabular-nums">{line.amount < 0 ? `−${money(-line.amount)}` : money(line.amount)}</td>
             </tr>
           ))}

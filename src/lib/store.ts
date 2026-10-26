@@ -1,5 +1,5 @@
 import { activity, activityName, activityKeys } from "./activity-registry";
-import { courtFor, courtOffers, mostPerBookingAllowed, mostSpots, placesPerBooking } from "./court-activities";
+import { courtFor, courtOffers, groupByHeading, mostPerBookingAllowed, mostSpots, needsOf, placesPerBooking, type KindNeeds } from "./court-activities";
 import { signOffHolds, type SignOffChannel } from "./sign-offs";
 export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
@@ -894,6 +894,7 @@ function publicPolicy(p: BookingPolicy): CourtAvailability["policy"] {
     lengths: p.lengths,
     defaultLength: p.defaultLength,
     noticeMinutes: p.noticeMinutes,
+    needs: needsOf(p),
   };
 }
 
@@ -1054,6 +1055,37 @@ export interface SearchResult {
   alsoFree: number;
   /** Whether those others cost more than this one. */
   pricesVary: boolean;
+  /** What the shown court's booking rules ask for first: a staff sign-off or a certification. */
+  needs: KindNeeds;
+  /**
+   * Kinds of kit the venue lists under one heading ("Kayaks" over "Single
+   * kayak" and "Double kayak"; lib/resources.ts `setCourtHeading`), for each
+   * heading with a kind free at this time: every kind under it, each as
+   * itself. Never added up: a single kayak is not a double one.
+   */
+  groups: SearchGroup[];
+}
+
+/** One heading's kinds at a search result's venue and time (`SearchResult.groups`). */
+export interface SearchGroup {
+  heading: string;
+  kinds: SearchKind[];
+}
+
+/** One kind under a heading, from the result's start for its length: its own price, places and rules. */
+export interface SearchKind {
+  courtId: number;
+  name: string;
+  /** Free then, by itself (it may still be the only one of its heading that is). */
+  free: boolean;
+  /** One booking of it then: one place on a resource with places, the court on one booked whole. */
+  totalPrice: number;
+  perPlayer: boolean;
+  /** Places it has (1: booked whole). */
+  capacity: number;
+  /** Its own places left over that time; null on one booked whole, or when it cannot start then. */
+  placesLeft: number | null;
+  needs: KindNeeds;
 }
 
 export interface SearchInput {
@@ -1548,6 +1580,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
         totalPrice: priceBooking({ court, date: input.date, span, rules: rulesOf.get(row.v_id), pricing: day.policy.pricing, at: Date.now() }).total,
         alsoFree: 0,
         pricesVary: false,
+        needs: needsOf(day.policy),
+        groups: [],
         ...(distanceKm !== undefined ? { distanceKm } : {}),
       });
     }
@@ -1585,7 +1619,44 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     fair.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id || a.startMin - b.startMin);
   else if (input.sort === "cheapest")
     fair.sort((a, b) => a.totalPrice - b.totalPrice || a.startMin - b.startMin || (a.distanceKm ?? 0) - (b.distanceKm ?? 0) || a.venue.id - b.venue.id);
-  return fair.slice(0, limit);
+  const page = fair.slice(0, limit);
+
+  // Kinds under one heading, for the results shown: each kind at that time as
+  // itself, from what was read above (no more queries), in the venue grid's order.
+  const headed = new Map<number, { heading: string | null; items: typeof candidates }[]>();
+  for (const row of candidates) if (row.heading) headed.set(row.v_id, []);
+  for (const venueId of headed.keys())
+    headed.set(venueId, groupByHeading(candidates.filter((r) => r.v_id === venueId), (r) => r.heading).filter((g) => g.heading !== null));
+  for (const r of page) {
+    for (const g of headed.get(r.venue.id) ?? []) {
+      const kinds = g.items.map((row) => searchKind(row.id, r.startMin, r.endMin));
+      if (kinds.some((k) => k.free)) r.groups.push({ heading: g.heading!, kinds });
+    }
+  }
+  return page;
+
+  /** One kind from `start` to `end`, by its own rules, places and prices. */
+  function searchKind(courtId: number, start: number, end: number): SearchKind {
+    const day = days.get(courtId)!;
+    const court = day.court;
+    const span = { start, end };
+    const buffers = policyBuffers(day.policy);
+    const occupants = held.get(courtId) ?? [];
+    const ahead = minutesUntil(input.date, start, zones.get(court.venueId)!);
+    const startsThen =
+      start >= day.openMin && end <= day.closeMin && ahead > 0 && ahead >= day.policy.noticeMinutes && startsWithin(day.policy, start, start + 1).length > 0;
+    const shared = court.capacity > 1;
+    return {
+      courtId,
+      name: court.name,
+      free: startsThen && fits(occupants, court.capacity, span, buffers),
+      totalPrice: priceBooking({ court, date: input.date, span, rules: rulesOf.get(court.venueId), pricing: day.policy.pricing, at: Date.now() }).total,
+      perPlayer: court.perPlayer === true,
+      capacity: court.capacity,
+      placesLeft: startsThen && shared ? Math.max(court.capacity - peakPlaces(occupants, occupiedFor(court.capacity, span, buffers)), 0) : null,
+      needs: needsOf(day.policy),
+    };
+  }
 }
 
 /**

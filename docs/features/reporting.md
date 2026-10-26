@@ -99,7 +99,11 @@ marked *not takings*: **stored credit** and **gift vouchers** are owed to
 customers until they are spent, so the booking they pay for is the sale (shown
 as paid by *Stored credit*). A **booking paid with a pass** is not a row: the
 pass was the sale, taxed when it was sold. *Sales summary* totals it by
-category, the takings, and what was received each way.
+category, the takings, and what was received each way. The journal and the
+exports are the same whatever language the reader uses: each receipt's lines
+are as written, even where the customer's own receipt says a built-in
+concession's price in their language
+([regions and tax](../product/regions-and-tax.md#tax-sst-and-gst)).
 
 **The staff activity log** (*Reports → Staff activity*, `src/lib/activity.ts`)
 writes down who did what, when, at which venue and to which booking:

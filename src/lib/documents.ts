@@ -6,6 +6,8 @@ import { formatHour } from "./time";
 import { hoursOf } from "./interval";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
 import { englishOf, said, type StaffText } from "./staff-text";
+import { derivedPreset } from "./concession-presets";
+import type { ConcessionPreset } from "./concessions-shared";
 
 /**
  * Receipts and credit notes kept as documents (migration 0040): one for each
@@ -24,6 +26,12 @@ export interface Line {
   amount: number;
   /** The description as a phrase a staff screen says in the staff language, where MySenam wrote it; the receipt itself says the English. */
   phrase?: StaffText;
+  /**
+   * A line for a built-in concession's price (*Student price*): its key, so
+   * the receipt says it in the reader's language (lib/receipts.ts
+   * `receiptLineText`). `description` stays as written, for the books.
+   */
+  concessionPreset?: ConcessionPreset;
 }
 
 /** A line MySenam words: the receipt's English, with its phrase kept beside it. */
@@ -337,8 +345,10 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
               b.shares_paid::float AS shares_paid, b.deposit_paid::float AS deposit_paid, b.tax_rate, b.status, b.payment_status, b.paid_via,
               b.coach_fee::float AS coach_fee, k.name AS coach_name,
               b.concession_name, b.concession_off::float AS concession_off, b.concession_check, b.players,
+              b.concession_preset, cn.name AS cn_name, cn.proof AS cn_proof, cn.preset AS cn_preset,
               c.name AS court_name, b.sport, c.venue_id
-         FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id WHERE b.id = ?`
+         FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id
+         LEFT JOIN concessions cn ON cn.id = b.concession_id WHERE b.id = ?`
     )
     .get(bookingId)) as
     | {
@@ -347,6 +357,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
         paid_via: string | null; court_name: string; sport: string; venue_id: number;
         coach_fee: number; coach_name: string | null;
         concession_name: string | null; concession_off: number; concession_check: string | null; players: number;
+        concession_preset: string | null; cn_name: string | null; cn_proof: string | null; cn_preset: string | null;
       }
     | undefined;
   if (!b) return null;
@@ -361,6 +372,12 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   // A concession price stands as a line of its own; charged in full when no proof was shown.
   const concession = b.concession_name && b.concession_check !== "refused" ? Number(b.concession_off) : 0;
   const discount = (promo?.discount ?? 0) + concession;
+  // A built-in one is said in the reader's language; the venue's own name stays as typed.
+  const preset = derivedPreset({
+    concessionName: b.concession_name,
+    concessionPreset: b.concession_preset,
+    concession: b.cn_name === null ? null : { name: b.cn_name, proof: b.cn_proof ?? "", preset: b.cn_preset },
+  });
   const lines: Line[] = [
     {
       description: `${b.court_name} (${activityName(b.sport)}), ${b.date} ${formatHour(hoursOf(b.start_min))}–${formatHour(hoursOf(b.end_min))}${
@@ -371,7 +388,15 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),
     ...extras.map((e) => ({ description: `${e.quantity} × ${e.name}`, amount: roundMoney(e.quantity * e.unit_price) })),
     ...(promo ? [{ description: `Promo ${promo.code}`, amount: -promo.discount }] : []),
-    ...(concession > 0 ? [{ description: `${b.concession_name} price`, amount: -concession }] : []),
+    ...(concession > 0
+      ? [
+          {
+            description: `${b.concession_name} price`,
+            amount: -concession,
+            ...(preset ? { concessionPreset: preset } : {}),
+          },
+        ]
+      : []),
     ...(b.deposit_paid > 0 ? [{ description: "Deposit paid online, on its own receipt", amount: -b.deposit_paid }] : []),
     ...(b.shares_paid - b.deposit_paid > 0.005
       ? [{ description: "Paid by other players, on their own receipts", amount: -roundMoney(b.shares_paid - b.deposit_paid) }]
