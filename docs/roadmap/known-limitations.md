@@ -175,24 +175,28 @@ changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **79 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17, B18 and
-S12–S16, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (39
+began on 24 October 2026, **84 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B19 and
+S12–S17, found and fixed in the same work) and
+[resolved without a number](#resolved-limitations-without-a-number) (48
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
-facilities, approval applications). Some were added, each narrower than
-what it replaced: the access list matching a typed number, split out when
-member identity was fixed; the native review of the newly translated text;
-and what the owner's decisions of 25 and 26 October 2026 left when built
-(exact shared separation on fungible places, gaps across a change of the
-clocks, the provisional retention periods, PDFs checked rather than
-scanned, search not telling a customer they already hold a sign-off,
-booking for a child on paths other than the approval's slot and one court). The
-owner's decisions of 24 October 2026 (the launch languages, backups abroad)
-moved a decision into the launch blockers rather than closing it: native
-review is now required, and the transfer steps remain. In the table above,
-no row is a defect; one is of kinds 2 to 4 (booking for a child on the remaining paths).
+facilities, approval applications, booking for a child). Some were added,
+each narrower than what it replaced or newly found and recorded rather than
+left unsaid: the access list matching a typed number; the native review of
+newly translated text; what the owner's decisions of 25 and 26 October 2026
+left when built (exact shared separation on fungible places, gaps across a
+change of the clocks, the provisional retention periods); and what building
+participants and scanning left (a booking for several people changed as a
+whole, pass entries and concessions per booking, rules counted for the
+booker, guardians not told of another guardian, coaches seeing the child's
+name, search showing only the account's own applications, failed scans not
+re-queued, the erasure ledger kept on the server, ClamAV's production set-up
+unverified). The owner's decisions of 24 October 2026 (the launch languages,
+backups abroad) moved a decision into the launch blockers rather than
+closing it: native review is now required, and the transfer steps remain.
+In the table above, no row is a defect; one is partly of kind 3 (removing
+one person from a booking for several).
 
 ## Suspected defects
 
@@ -512,6 +516,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | S16 | A coach's private link was kept in the database as it was given, with no end: a copy of the database opened every coach's page and changed their hours. Now only its hash is kept, it is shown once when made and lapses after a year, links already given keep working by their hash (migration 0137), and each change made at the link is in the activity log under the coach's name. Found in the review of instructor links | `tests/coaching-two.test.ts`, `tests/coach-link-migration.test.ts`, `tests/coach-self.test.ts` |
 | B18 | A competition's draw scheduled each division around the others' matches by the players already in them, so a final or third-place match still to be decided counted as nobody's: a player in two divisions could be put on court in one at the time of a final they could reach in the other. A side still to be decided now counts as everybody who could still reach it, in the draw and when a fixture is moved or replayed. Found writing the tournament browser scenarios | `tests/divisions.test.ts` |
 | S17 | A child's unstaffed access rested on the adult's induction: inductions were one per venue and phone number, staff could record one only for the number's holder, and the door checked the booking's number, so a child (or a sibling) booked on a parent's number opened on the parent's induction. Inductions now belong to the person inducted, the number holder's own or a participant's; the door asks for each person taking part; older family inductions stay the number holder's, flagged where ambiguous, and are given to a participant only by a manager with a reason ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)). Found investigating the owner's report | `tests/participants.test.ts`, `tests/participants-migration.test.ts`, `tests/guardian-applications.test.ts` |
+| B19 | The staff bookings tab could show one day's list under another day's heading: a slower answer for an earlier date overwrote the newer one, so it read *No bookings* over a day that had them. Stale answers are now dropped. Found by the acceptance scenarios (*Participants C*, and *Change time 1* and *3* in two runs) | `tests/components/bookings-tab.test.tsx` |
 
 ### Resolved limitations without a number
 
@@ -565,6 +570,9 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A second adult at the counter for a child the venue knew could only be handled by recording the child again | Staff add the adult as a guardian on their declaration, to the same participant, recorded and audited; an account only by a manager with a reason | `tests/counter-guardians.test.ts` |
 | Search and the venue's grid said a resource needs a sign-off whoever was looking | Each person chosen as taking part sees their own status, privately, in one batched query; nobody chosen or signed out, the requirement only | `tests/search-eligibility.test.ts`, `tests/components/who-takes-part.test.tsx` |
 | Answers to the venue's grid for a signed-in account (member rates, staff-only rooms) carried no cache rule | Private and never kept by a shared cache, every answer varying by cookie | `tests/search-eligibility.test.ts` |
+| A guardian's own pages (bookings on the account, *My booking*, a waiting-list offer), the booking confirmation and the waiting-list dialog did not say which child a booking was for | Each names the participant | `tests/components/participant-named.test.tsx`, `tests/components/booking-board.test.tsx` |
+| A refusal for want of a sign-off did not say which of several people lacked one, and told a guardian to sign in as the child | It names the participant, on booking, a change of time and the waiting list, in four languages | `tests/participant-bookings.test.ts`, `tests/uat/participants.uat.ts` |
+| Nine kinds of activity-log entry showed staff a raw name (`tournament.match_moved` and others), and the choice of who takes part was a 16-pixel tap target on a phone | Each has words in English, Malay and Chinese, a test failing on any logged action without; the choices are at least 24 pixels | `tests/activity-labels.test.ts`, `tests/components/participant-named.test.tsx` |
 
 ## Production readiness
 

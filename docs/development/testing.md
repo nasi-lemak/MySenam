@@ -236,12 +236,24 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Change time 1 | A customer changes their booking's time from *My booking* (same code, a free hour); the account page and the venue's day list show the new time |
 | Change time 2 | A time taken meanwhile by someone else is refused and the booking stays; inside the venue's cut-off no time is offered and the panel says why |
 | Change time 3 | The venue's manager changes a customer's booking time from the dashboard, through the preview; the customer's account shows the new time |
+| Participants A | A parent adds two children and applies for each; staff approve one. Each child's status stays their own on the approvals page, the booking form (one refused by name, one booked) and the door (one through to payment, one asked for his own sign-off); the day list names each child, booked by the parent |
+| Participants B | A guardian books a child, may not queue for themself without a sign-off, queues both children for a full lane; one's approval is taken back; the freed place goes to the child still eligible, is claimed and booked for her, never the parent |
+| Participants C | The front desk registers a walk-in's child at the counter; booking her is refused, naming her, until she has her own sign-off, which the desk may not grant (safety assessment) and a manager does; the desk books her; the activity log shows who registered and booked her, for whom, on whose number |
+| Participants D | Search for an activity needing approval: anonymous and nobody-chosen show the requirement only; each child, both together, and the parent each show their own statuses, never "approved" while one is not; the venue grid follows; signing out forgets the choice |
+| Documents E | A parent's certificate waits for its scan and cannot be opened or approved; once released the reviewer downloads it unchanged and approves; a file the scan refuses cannot be opened by any path or approved. Uses a scanner stand-in, not ClamAV, so it is skipped against a deployment |
+| Participants F | On a phone: add a child, apply, read the approval, choose her on search, book her; every page fits, controls are within reach (24px targets) and text is readable |
 
 The acceptance server runs as a marketplace (`MYSENAM_MARKETPLACE=on`, in
 `tests/uat/setup.ts`), since only a marketplace has `/list-your-venue`; a
-staging deployment that is not one skips *Venue 1*.
+staging deployment that is not one skips *Venue 1*. It also points
+`MYSENAM_CLAMD` at a stand-in on the loopback (`tests/uat/scanner.ts`): it
+speaks clamd's protocol, refuses the EICAR test string, and holds a document
+marked `UAT-HOLD-SCAN` until the scenario releases it. It is not ClamAV and
+proves nothing about the engine (`tests/document-scanning-engine.test.ts`
+does); it is not used against a deployment, nor where `MYSENAM_CLAMD` is set,
+and *Documents E* is then skipped.
 
-Last run: all 22 of 22 against the production build on PGlite (25 October
+Last run: all 32 of 32 against the production build on PGlite (26 October
 2026); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from
@@ -530,3 +542,35 @@ legal review; `tests/backup-scripts.test.ts` assumed the booking it makes
 four days ahead was off-peak and failed on days it was not, on the base
 commit too; it now reads the booking's price.
 
+
+#### 26 October 2026, commit `8f62ccf`
+
+Participants apart from accounts (ADR 0023), booking for somebody else on
+every path, a second guardian at the counter, approval status for who is
+taking part in search, supporting documents scanned for malware before
+release and install retention periods provisional until reviewed (ADR 0024),
+erasures re-applied after a restore. Not a launch. Run on one cloud
+container, Node 22. The suites, build and end-to-end tests ran on commit
+`6fc3bd8`; `8f62ccf` changed only two acceptance scenarios' expected wording
+(the refusal now names the child), after which their file was run again
+against the same build.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 102 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 229 files; 2602 passed, 4 skipped (Postgres-only tests) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 229 files; 2606 passed |
+| ClamAV engine (`tests/document-scanning-engine.test.ts`, inside both suites) | clamd 1.5.4 from Ubuntu's packages in this container, with a locally generated test signature; ClamAV's official signatures could not be downloaded here |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Participants A–F and Documents E among them | 11 files; 30 of 32 at `6fc3bd8` (Participants A and C waited for the refusal's old wording), then the participants file 5 of 5 at `8f62ccf`: 32 of 32 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways, messages through the outbox only, documents scanned by a stand-in in the acceptance scenarios |
+
+Gaps: ClamAV's official signatures, freshclam and the scanner on a real
+droplet are unverified; no live integration has passed its check;
+machine-assisted Malay, Chinese and Tamil (the participant, guardian,
+scanning and eligibility text among them) await native review; the
+retention periods are product policy awaiting Malaysian and Singaporean
+legal review.
