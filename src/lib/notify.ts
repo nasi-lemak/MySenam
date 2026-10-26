@@ -119,7 +119,8 @@ export async function notifyBookingConfirmed(
   // A lesson says who is coaching it, where the court is named.
   const coach = first.coachId ? (await coachNames([first.id])).get(first.id) : undefined;
   const courtNames = group ? [...new Set(bookings.map((b) => names.get(b.courtId)!))].join(", ") : court.name;
-  const where = coach ? translator(locale)("msg.lesson", { court: court.name, coach }) : courtNames;
+  // Who it is for, where it names somebody other than its customer, who is told (lib/participant-bookings.ts).
+  const where = forWhom(locale, coach ? translator(locale)("msg.lesson", { court: court.name, coach }) : courtNames, namesOn(bookings));
 
   await alertVenue(bookings, code, courtNames, venue);
   return await deliver(first, {
@@ -307,7 +308,7 @@ export async function notifyClassEnrolled(
     dedupeKey: `enrolled:${booking.code}`,
     vars: {
       name: firstName(booking.name),
-      what: session.name,
+      what: forWhom(locale, session.name, namesOn([booking])),
       instructor: session.instructor,
       code: booking.code,
       venue: venue.name,
@@ -374,6 +375,7 @@ interface OfferRow {
   class_name: string | null;
   court_name: string | null;
   venue_id: number | null;
+  for_names: string | null;
 }
 
 /**
@@ -396,6 +398,7 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
               COALESCE(c.start_min, w.start_min) AS start_min,
               c.name AS class_name,
               ct.name AS court_name,
+              (SELECT string_agg(wp.name, ', ' ORDER BY wp.id) FROM waitlist_participants wp WHERE wp.waitlist_id = w.id AND wp.name IS NOT NULL) AS for_names,
               COALESCE(cc.venue_id, ct.venue_id) AS venue_id
          FROM waitlist w
          LEFT JOIN classes c  ON c.id  = w.class_id
@@ -412,8 +415,10 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
   const written: OutboxMessage[] = [];
   for (const row of rows) {
     if (row.venue_id === null) continue;
-    const what = row.class_name ?? row.court_name;
-    if (!what || !row.date || row.start_min === null) continue;
+    const place = row.class_name ?? row.court_name;
+    if (!place || !row.date || row.start_min === null) continue;
+    // The entry's people, kept from when it was made: the offer says who it is for.
+    const what = forWhom(isLocale(row.locale) ? row.locale : "en", place, row.for_names);
     const message = await notifyWaitlistOffer({
       venueId: row.venue_id,
       name: row.name,
@@ -504,6 +509,22 @@ async function totalLine(locale: Locale, amount: number, paid: boolean, venueId:
 }
 
 /** "Nurul Hana" → "Nurul". A message is not a form. */
+/**
+ * What a message is about, and who it is for where the booking names
+ * somebody other than its customer: "Court 1, for Alya". The account holder
+ * or guardian is the one told; a participant needs no email or phone of
+ * their own, and only their name is said.
+ */
+function forWhom(locale: Locale, what: string, names: string | null | undefined): string {
+  return names ? translator(locale)("pbk.msg.for", { what, names }) : what;
+}
+
+/** Everybody the bookings name (their summary, lib/participants.ts), once each. */
+function namesOn(bookings: { participantName?: string | null }[]): string | null {
+  const names = [...new Set(bookings.flatMap((b) => (b.participantName ? b.participantName.split(", ") : [])))];
+  return names.length > 0 ? names.join(", ") : null;
+}
+
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name.trim();
 }

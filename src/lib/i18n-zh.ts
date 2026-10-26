@@ -2086,6 +2086,13 @@ export const ZH: Record<Phrase, string> = {
   "ptc.err.PTC_ALREADY_LINKED": "其本人的登录账户已关联。",
   "ptc.err.PTC_ACCOUNT_LINKED": "此账户已是某人本人的登录账户。",
   "ptc.err.PTC_PURPOSE": "代码可给另一位监护人，或给其本人的登录账户。",
+  "pbk.msg.for": "{what}（为 {names}）",
+  "pbk.placesNote": "每位勾选的人各占一个名额；如该活动要求，每人需有各自的确认。",
+  "pbk.nobody": "请至少勾选一位参加者。",
+  "pbk.err.PBK_PARTICIPANTS": "请从您管理的人中选择参加者。",
+  "pbk.err.PBK_TOO_MANY": "每个预订最多 {n} 人。",
+  "pbk.err.PBK_TWICE": "每人只需列出一次。",
+  "pbk.err.PBK_NOT_GUARDIAN": "此号码下没有代 {name} 行事的人。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

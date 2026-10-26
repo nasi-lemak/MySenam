@@ -2246,6 +2246,13 @@ const EN = {
   "ptc.err.PTC_ALREADY_LINKED": "They already have their own login linked.",
   "ptc.err.PTC_ACCOUNT_LINKED": "This account is already somebody's own login.",
   "ptc.err.PTC_PURPOSE": "A code for another guardian, or for their own login.",
+  "pbk.msg.for": "{what}, for {names}",
+  "pbk.placesNote": "Each person ticked takes a place, and needs their own sign-off where the activity asks for one.",
+  "pbk.nobody": "Tick at least one person taking part.",
+  "pbk.err.PBK_PARTICIPANTS": "Choose who is taking part from the people you manage.",
+  "pbk.err.PBK_TOO_MANY": "Up to {n} people on one booking.",
+  "pbk.err.PBK_TWICE": "Name each person once.",
+  "pbk.err.PBK_NOT_GUARDIAN": "Nobody acting for {name} is on this number.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4445,6 +4452,13 @@ const MS: Record<Phrase, string> = {
   "ptc.err.PTC_ALREADY_LINKED": "Mereka sudah mempunyai log masuk sendiri yang dipautkan.",
   "ptc.err.PTC_ACCOUNT_LINKED": "Akaun ini sudah menjadi log masuk seseorang.",
   "ptc.err.PTC_PURPOSE": "Kod untuk penjaga lain, atau untuk log masuk mereka sendiri.",
+  "pbk.msg.for": "{what}, untuk {names}",
+  "pbk.placesNote": "Setiap orang yang ditanda mengambil satu tempat, dan memerlukan pengesahan mereka sendiri jika aktiviti memintanya.",
+  "pbk.nobody": "Tandakan sekurang-kurangnya seorang yang menyertai.",
+  "pbk.err.PBK_PARTICIPANTS": "Pilih siapa yang menyertai daripada orang yang anda urus.",
+  "pbk.err.PBK_TOO_MANY": "Sehingga {n} orang bagi satu tempahan.",
+  "pbk.err.PBK_TWICE": "Namakan setiap orang sekali sahaja.",
+  "pbk.err.PBK_NOT_GUARDIAN": "Tiada sesiapa yang bertindak bagi pihak {name} menggunakan nombor ini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

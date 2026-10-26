@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { apiBooking, apiCaller } from "@/lib/api-keys";
+import { apiBooking, apiCaller, apiParticipants } from "@/lib/api-keys";
+import { isRefusal } from "@/lib/participants";
+import { readSelection, recordBookedFor, selectionAtVenue } from "@/lib/participant-bookings";
+import { waiverSignedFor } from "@/lib/waivers";
 import { notifyBookingConfirmed } from "@/lib/notify";
 import { bookingsBetween, MAX_RANGE_DAYS, spanDays } from "@/lib/public-api";
 import { createBooking, getCourt } from "@/lib/store";
@@ -21,14 +24,24 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ courtId, date, start, end, name, phone, email?, players? }` → a booking, as the
- * venue's own system makes it (write keys). `start` and `end` are minutes of
+ * `{ courtId, date, start, end, name, phone, email?, players?, participantIds?,
+ * customerTakesPart? }` → a booking, as the venue's own system makes it (write
+ * keys). `start` and `end` are minutes of
  * the business day or HH:MM (`minutes` may stand for `end`; `hours`, a list
  * of grid times, is the older form). `players` is how many places it takes
  * on a resource with places, or how many play on a court priced per player,
  * up to the most the venue lets one booking take. The court's booking policy applies as
  * to any customer. The customer is sent the usual confirmation. Unpaid; the
  * venue settles it as any other.
+ *
+ * `participantIds` books for people other than (or, with `customerTakesPart`,
+ * as well as) the customer, each taking a place and checked on their own
+ * sign-offs (lib/participant-bookings.ts; docs/integrations/external-api.md).
+ * Only participants this venue already knows, whose guardian is on `phone`
+ * (the booking is made with, and told to, that guardian), and whose
+ * guardian's agreement to the venue's waiver is on record: a key creates no
+ * participant, reaches no other venue's, and attaches nobody else's
+ * eligibility.
  */
 export async function POST(req: NextRequest) {
   const caller = await apiCaller(req, "write");
@@ -45,9 +58,20 @@ export async function POST(req: NextRequest) {
   // How many places (or players, on a court priced per player), up to the most the venue lets one booking take: checked there.
   if (body.players !== undefined && !Number.isInteger(body.players))
     return NextResponse.json({ error: "players must be a whole number." }, { status: 400 });
+  // Who takes part, where that is somebody other than the customer (refused, never guessed, otherwise).
+  const asked = readSelection(body);
+  if (asked && isRefusal(asked)) return NextResponse.json({ error: asked.error, code: asked.code }, { status: asked.status });
+  const selection = asked ? await selectionAtVenue(caller.venueId, body.phone.trim(), asked.ids, asked.customerTakesPart) : null;
+  if (selection && isRefusal(selection)) return NextResponse.json({ error: selection.error, code: selection.code }, { status: selection.status });
+  // The guardian's agreement to the venue's waiver for each of them is already on record: a key cannot give it.
+  if (selection)
+    for (const p of selection.participants)
+      if (!(await waiverSignedFor(caller.venueId, p.id)))
+        return NextResponse.json({ error: `${p.name}'s guardian has not agreed to the venue's waiver for them.`, code: "WAIVER_NEEDED" }, { status: 409 });
   const made = await createBooking({
     // The venue's own system answers for who it books, as its counter does (lib/sign-offs.ts).
     by: "api",
+    ...(selection ? { participants: selection.participants, customerTakesPart: selection.customerTakesPart, addedBy: {} } : {}),
     courtId: court.id,
     date: body.date,
     ...time.when,
@@ -57,6 +81,11 @@ export async function POST(req: NextRequest) {
     ...(body.players !== undefined ? { players: body.players as number } : {}),
   });
   if (!made.ok) return NextResponse.json({ error: made.error, code: made.code }, { status: 409 });
+  if (selection)
+    await recordBookedFor(selection.participants, { adminId: null, name: `API key ${caller.keyId}` }, { venueId: caller.venueId, codes: [made.booking.code], how: "api" });
   await notifyBookingConfirmed([made.booking], "en", null);
-  return NextResponse.json({ booking: apiBooking({ ...made.booking, courtName: court.name, sport: court.sport }) }, { status: 201 });
+  return NextResponse.json(
+    { booking: { ...apiBooking({ ...made.booking, courtName: court.name, sport: court.sport }), participants: await apiParticipants(made.booking.id) } },
+    { status: 201 }
+  );
 }

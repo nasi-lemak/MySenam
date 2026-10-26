@@ -7,7 +7,11 @@ import { customerMayBook } from "@/lib/limits";
 import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { classTerm, enrolInClass, enrolInTerm, getClass, payBookingFromWallet } from "@/lib/store";
+import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet } from "@/lib/store";
+import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
+import { logAction } from "@/lib/activity";
+import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
+import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Selection } from "@/lib/participant-bookings";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, notifyClassEnrolled, rememberLocale, tickOutbox } from "@/lib/notify";
 import { chatNumber } from "@/lib/outbox";
@@ -51,10 +55,39 @@ export async function POST(req: NextRequest) {
     if (noPhone) return refusal(noPhone, 403);
   }
   const forClass = await getClass(classId as number);
+  // Enrolled by the venue's own staff (the counter), or by the customer online.
+  const desk = await getSessionAdmin(req);
+  const byStaff = desk !== null && forClass !== null && canAccessVenue(desk, forClass.venueId);
+  // Who takes the places (lib/participant-bookings.ts): the customer, and
+  // people this account acts for (online) or the venue knows with a guardian
+  // on this number (at the counter). Each their own place and enrolment.
+  const asked = readSelection((body ?? {}) as Record<string, unknown>);
+  const refusedPeople = (r: ParticipantRefusal) => NextResponse.json({ error: r.error, code: r.code, ...(r.vars ? { vars: r.vars } : {}) }, { status: r.status });
+  if (asked && isRefusal(asked)) return refusedPeople(asked);
+  let selection: Selection | null = null;
+  if (asked) {
+    const resolved =
+      byStaff && forClass
+        ? await selectionAtVenue(forClass.venueId, phone.trim(), asked.ids, asked.customerTakesPart)
+        : user
+          ? await selectionForAccount(user.id, asked.ids, asked.customerTakesPart)
+          : refused("GUARD_NOT_FOUND", "Not one of the people you manage.", 404);
+    if (isRefusal(resolved)) return refusedPeople(resolved);
+    selection = resolved;
+  }
+  const customerTakesPart = !selection || selection.customerTakesPart;
+  const people = [...(customerTakesPart ? [null] : []), ...(selection?.participants ?? [])];
   if (forClass) {
-    // A women-only or men-only class: by the account, or a guest saying so.
-    const notFor = await classRefusal(forClass.who, user?.id ?? null, confirmWho === true);
-    if (notFor) return refusal(notFor, 403);
+    // A women-only or men-only class: by the account, or a guest saying so; for
+    // somebody else, the adult booking says so on their behalf.
+    if (customerTakesPart) {
+      const notFor = await classRefusal(forClass.who, user?.id ?? null, confirmWho === true);
+      if (notFor) return refusal(notFor, 403);
+    }
+    if (selection && selection.participants.length > 0) {
+      const notFor = await classRefusal(forClass.who, null, confirmWho === true);
+      if (notFor) return refusal(notFor, 403);
+    }
     // The whole term counts as a booking a session, as a weekly series does.
     const termInfo = term === true ? await classTerm(forClass.id) : null;
     const refused = await customerMayBook({
@@ -66,10 +99,12 @@ export async function POST(req: NextRequest) {
       ...(termInfo ? { dates: termInfo.sessions.map((c) => c.date) } : {}),
     });
     if (refused) return refusal(refused);
-    // The venue's waiver, agreed to once per version (lib/waivers.ts).
-    const unsigned = await waiverRefusal(forClass.venueId, phone, agreeWaiver);
-    if (unsigned) return refusal(unsigned);
-    if (agreeWaiver === true) await signWaiver(forClass.venueId, { phone, name });
+    // The venue's waiver, agreed to once per version (lib/waivers.ts): for each person taking a place.
+    for (const who of people) {
+      const unsigned = await waiverRefusal(forClass.venueId, phone, agreeWaiver, who?.id ?? null);
+      if (unsigned) return refusal(unsigned);
+    }
+    if (agreeWaiver === true) for (const who of people) await signWaiver(forClass.venueId, { phone, name, participant: who });
     // A mat or a towel that has run out is said before the place is taken.
     if (chosen.length > 0) {
       const priced = await priceChoice(chosen, {
@@ -81,6 +116,23 @@ export async function POST(req: NextRequest) {
       if (!priced.ok) return refusal(priced);
     }
   }
+  // Who did it, for whom, where: each participant's history, and staff's in the activity log.
+  const recordEnrolled = async (codes: string[]) => {
+    if (!selection || selection.participants.length === 0 || !forClass) return;
+    await recordBookedFor(selection.participants, byStaff ? { adminId: desk!.id, name: desk!.name } : { userId: user!.id, name: user!.name }, {
+      venueId: forClass.venueId,
+      codes,
+      how: "class",
+    });
+    if (byStaff)
+      await logAction(desk!, {
+        venueId: forClass.venueId,
+        action: "class.enrol_participant",
+        bookingCode: codes[0] ?? null,
+        detail: `Enrolled ${selection.participants.map((p) => `${p.name} (participant ${p.id})`).join(", ")} in ${forClass.name} at the counter: ${codes.join(", ")}`,
+      });
+  };
+
   // Every session left, at once: one confirmation, one bill (lib/store.ts `enrolInTerm`). Extras go on one session at a time.
   if (term === true) {
     const joined = await enrolInTerm({
@@ -89,8 +141,11 @@ export async function POST(req: NextRequest) {
       phone: phone.trim(),
       email: typeof email === "string" && email !== "" ? email.trim() : undefined,
       userId: user?.id,
+      people,
+      addedBy: byStaff ? { adminId: desk!.id } : { userId: user?.id ?? null },
     });
     if (!joined.ok) return refusal(joined);
+    await recordEnrolled(joined.bookings.map((b) => b.code));
     let walletError: string | null = null;
     if (payFromWallet === true && user)
       for (const b of joined.bookings) {
@@ -108,14 +163,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await enrolInClass({
+  const enrolled = await enrolPeople({
     classId: classId as number,
     name: name.trim(),
     phone: phone.trim(),
     email: typeof email === "string" && email !== "" ? email.trim() : undefined,
     userId: user?.id,
+    people,
+    addedBy: byStaff ? { adminId: desk!.id } : { userId: user?.id ?? null },
   });
-  if (!result.ok) return refusal(result);
+  if (!enrolled.ok) return refusal(enrolled);
+  await recordEnrolled(enrolled.bookings.map((b) => b.code));
+  // The first enrolment answers as one always did; every one is in `bookings`.
+  const result = { ok: true as const, booking: enrolled.bookings[0] };
+  const others = enrolled.bookings.slice(1);
 
   // On the enrolment's price, before it is paid from credit.
   let addonError: { error: string; code?: string; vars?: Record<string, string | number> } | null = null;
@@ -130,19 +191,23 @@ export async function POST(req: NextRequest) {
 
   let walletError: string | null = null;
   if (payFromWallet === true && user) {
-    const paid = await payBookingFromWallet(result.booking.id);
-    if (paid.ok) result.booking.paymentStatus = "paid";
-    else walletError = paid.error;
+    for (const b of [result.booking, ...others]) {
+      const paid = await payBookingFromWallet(b.id);
+      if (paid.ok) b.paymentStatus = "paid";
+      else walletError ??= paid.error;
+    }
   }
 
   const session = await getClass(classId as number);
   const locale = await currentLocale();
-  await rememberLocale([result.booking.id], locale);
-  if (session) await notifyClassEnrolled(result.booking, locale, session);
+  await rememberLocale([result.booking, ...others].map((b) => b.id), locale);
+  // Each enrolment told to the customer (the guardian), naming who it is for.
+  if (session) for (const b of [result.booking, ...others]) await notifyClassEnrolled(b, locale, session);
   await tickOutbox();
 
   return NextResponse.json({
       booking: result.booking,
+      bookings: [result.booking, ...others],
       session,
       walletError,
       addons: addonLines,

@@ -119,6 +119,20 @@ export async function apiCaller(req: NextRequest, need: ApiScope = "read"): Prom
   return { keyId: row.id, venueId: row.venue_id, scope: row.scope };
 }
 
+/**
+ * Who takes part in a booking, as the API gives it (lib/participant-bookings.ts):
+ * each participant by id and name, and the customer where they take a place
+ * alongside them. Empty for a booking its customer takes alone, as every
+ * booking before participants was.
+ */
+export async function apiParticipants(bookingId: number): Promise<{ participantId: number | null; name: string | null; customer: boolean }[]> {
+  const rows = (await getDb()
+    .prepare("SELECT takes_part_as, participant_id, name FROM booking_participants WHERE booking_id = ? ORDER BY id")
+    .all(bookingId)) as { takes_part_as: "customer" | "participant"; participant_id: number | null; name: string | null }[];
+  if (!rows.some((r) => r.takes_part_as === "participant")) return [];
+  return rows.map((r) => ({ participantId: r.participant_id, name: r.name, customer: r.takes_part_as === "customer" }));
+}
+
 /** A booking as the API and webhooks give it. */
 export function apiBooking(b: Booking & { courtName?: string; sport?: string }): Record<string, unknown> {
   return {

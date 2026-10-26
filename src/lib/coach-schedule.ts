@@ -122,7 +122,7 @@ export interface Lesson {
 export async function coachLessons(coachId: number, from: string, until: string): Promise<Lesson[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.date, b.start_min, b.end_min, b.name, b.phone, b.payment_status, c.name AS court
+      `SELECT b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.phone, b.payment_status, c.name AS court
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE b.coach_id = ? AND b.status = 'confirmed' AND b.date BETWEEN ? AND ?
         ORDER BY b.date, b.start_min`
@@ -188,7 +188,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - 2 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
   const rows = (await db
     .prepare(
-      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, b.name, b.status, k.id AS coach_id, k.name AS coach, k.email,
+      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.status, k.id AS coach_id, k.name AS coach, k.email,
               c.name AS court, v.id AS venue_id, v.name AS venue,
               EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
@@ -318,7 +318,7 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
 export async function coachPayoutsCsv(venueId: number, from: string, to: string): Promise<string> {
   const rows = (await getDb()
     .prepare(
-      `SELECT k.name AS coach, b.date, b.start_min, b.end_min, b.code, b.name AS student, c.name AS court,
+      `SELECT k.name AS coach, b.date, b.start_min, b.end_min, b.code, COALESCE(b.participant_name, b.name) AS student, c.name AS court,
               b.coach_fee::float AS fee, b.payment_status, b.no_show
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id
         WHERE k.venue_id = ? AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
