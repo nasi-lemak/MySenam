@@ -14,8 +14,9 @@ interface Found {
 
 /**
  * A manager's corrections to a participant this venue knows (ADR 0023;
- * `PATCH /api/admin/participants/[id]`): end a guardian's relationship, or
- * link the participant's own login named by its email, each with a reason
+ * `PATCH /api/admin/participants/[id]`): end a guardian's relationship,
+ * link the participant's own login named by its email, or add a guardian's
+ * account on its holder's declaration made in person, each with a reason
  * kept in the participant's history and the activity log. Found only by a
  * guardian's number, as the counter finds them: no browsing.
  */
@@ -28,6 +29,9 @@ export function ParticipantsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [notice, setNotice] = useState<string | null>(null);
   const input = "rounded-md border border-slate-300 px-3 py-2 text-sm";
   const ready = phone.replace(/\D/g, "").length >= 7;
+  // Adding a guardian's account, on its holder's declaration made in person (lib/participants.ts addGuardianAtVenue).
+  const [addingFor, setAddingFor] = useState<number | null>(null);
+  const [account, setAccount] = useState({ email: "", relationship: "parent", authority: false, reason: "" });
 
   async function look() {
     setError(null);
@@ -42,7 +46,7 @@ export function ParticipantsPanel({ venues }: { venues: ManagedVenue[] }) {
     }
   }
 
-  async function change(participantId: number, body: Record<string, unknown>) {
+  async function change(participantId: number, body: Record<string, unknown>): Promise<boolean> {
     setError(null);
     setNotice(null);
     try {
@@ -55,8 +59,10 @@ export function ParticipantsPanel({ venues }: { venues: ManagedVenue[] }) {
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("pbk.pp.done"));
       await look();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
+      return false;
     }
   }
 
@@ -64,6 +70,12 @@ export function ParticipantsPanel({ venues }: { venues: ManagedVenue[] }) {
     const reason = window.prompt(t("pbk.pp.revokeReason", { guardian: g.name, name: p.displayName }));
     if (reason === null) return;
     void change(p.id, { action: "revokeGuardian", guardianId: g.id, reason });
+  }
+
+  async function addAccount(p: Found) {
+    if (!(await change(p.id, { action: "addGuardian", ...account }))) return;
+    setAddingFor(null);
+    setAccount({ email: "", relationship: "parent", authority: false, reason: "" });
   }
 
   function link(p: Found) {
@@ -124,6 +136,56 @@ export function ParticipantsPanel({ venues }: { venues: ManagedVenue[] }) {
                 <button type="button" onClick={() => link(p)} className="mt-1 text-xs font-medium text-teal-700 underline">
                   {t("pbk.pp.link")}
                 </button>
+              )}
+              {addingFor !== p.id ? (
+                <button type="button" onClick={() => setAddingFor(p.id)} className="mt-1 block text-xs font-medium text-teal-700 underline">
+                  {t("pbk2.pp.addAccount")}
+                </button>
+              ) : (
+                <div className="mt-2 space-y-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="email"
+                      aria-label={t("pbk2.pp.email")}
+                      placeholder={t("pbk2.pp.email")}
+                      value={account.email}
+                      onChange={(e) => setAccount({ ...account, email: e.target.value })}
+                      className={`w-full max-w-xs ${input}`}
+                    />
+                    <select
+                      aria-label={t("ptc.pick.relationship")}
+                      value={account.relationship}
+                      onChange={(e) => setAccount({ ...account, relationship: e.target.value })}
+                      className={input}
+                    >
+                      {(["parent", "guardian", "other"] as const).map((r) => (
+                        <option key={r} value={r}>
+                          {t("ptc.pick.guardianIs", { relationship: t(`apr.child.rel.${r}`) })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={account.authority} onChange={(e) => setAccount({ ...account, authority: e.target.checked })} className="mt-0.5" />
+                    {t("pbk2.pp.declared", { name: p.displayName })}
+                  </label>
+                  <input
+                    aria-label={t("pbk2.pp.reason")}
+                    placeholder={t("pbk2.pp.reason")}
+                    value={account.reason}
+                    onChange={(e) => setAccount({ ...account, reason: e.target.value })}
+                    className={`w-full ${input}`}
+                  />
+                  <p className="text-slate-500">{t("pbk2.pp.accountNote", { name: p.displayName })}</p>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => void addAccount(p)} className="rounded-md bg-teal-600 px-3 py-1 font-semibold text-white hover:bg-teal-700">
+                      {t("pbk2.pp.add")}
+                    </button>
+                    <button type="button" onClick={() => setAddingFor(null)} className="text-slate-600 underline">
+                      {t("pbk2.g.cancel")}
+                    </button>
+                  </div>
+                </div>
               )}
             </li>
           ))}

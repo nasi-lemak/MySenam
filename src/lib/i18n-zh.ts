@@ -2108,6 +2108,13 @@ export const ZH: Record<Phrase, string> = {
   "pbk.err.PBK_TOO_MANY": "每个预订最多 {n} 人。",
   "pbk.err.PBK_TWICE": "每人只需列出一次。",
   "pbk.err.PBK_NOT_GUARDIAN": "此号码下没有代 {name} 行事的人。",
+  "pbk2.legend": "谁在哪个场地？",
+  "pbk2.courtFor": "{name} 的场地",
+  "pbk2.on": "{court}：{names}",
+  "pbk2.party": "{court}：未指定人员，按人数为同行者预订",
+  "pbk2.note": "每人只在一个场地：大家同时进行。",
+  "pbk2.me": "您",
+  "pbk2.holder": "该号码的持有人",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

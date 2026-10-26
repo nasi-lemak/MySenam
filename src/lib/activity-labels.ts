@@ -95,6 +95,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "approval.hold_released": "Released a hold on an application",
   "participant.created": "Added a participant at the counter",
   "participant.guardian_revoked": "Revoked a participant's guardian",
+  "participant.guardian_added": "Added a guardian to a participant at the counter",
   "participant.linked": "Linked a participant to their own login",
   "induction.assigned": "Gave an induction to the participant it was for",
   "induction.kept": "Confirmed an induction is the number holder's own",

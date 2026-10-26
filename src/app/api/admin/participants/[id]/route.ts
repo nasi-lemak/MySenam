@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
-import { linkByStaff, participantAtVenue, revokeGuardianship } from "@/lib/participants";
+import { addGuardianAtVenue, linkByStaff, participantAtVenue, revokeGuardianship } from "@/lib/participants";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,10 @@ export const dynamic = "force-dynamic";
  *   relationship ends; whoever held it makes nothing new for the participant.
  * - `{ venueId, action: "link", email, reason }`: the participant's own
  *   login from now on, the account named by its email.
+ * - `{ venueId, action: "addGuardian", email, relationship, authority: true, reason }`:
+ *   the account named by its email becomes a guardian, on its holder's
+ *   declaration made in person (provenance `counter`). A guardian named by
+ *   contact details only is the desk's too: `POST .../guardians`.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin(req);
@@ -44,5 +48,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     await logAction(admin, { venueId, action: "participant.linked", detail: `Linked ${participant.displayName} (participant ${participant.id}) to their own login: ${String(body.reason).slice(0, 200)}` });
     return NextResponse.json({ participant: done.participant });
   }
-  return NextResponse.json({ error: "action is revokeGuardian or link." }, { status: 400 });
+  if (body.action === "addGuardian") {
+    const email = typeof body.email === "string" ? body.email : "";
+    const done = await addGuardianAtVenue({
+      venueId,
+      participantId,
+      admin: by,
+      guardian: { email, relationship: body.relationship, authority: body.authority },
+      reason: body.reason,
+    });
+    if (!done.ok) return NextResponse.json({ error: done.error, code: done.code, ...(done.vars ? { vars: done.vars } : {}) }, { status: done.status });
+    await logAction(admin, {
+      venueId,
+      action: "participant.guardian_added",
+      detail: `Added ${done.guardianName}'s account as a guardian of ${participant.displayName} (participant ${participant.id}) on their declaration at the counter: ${String(body.reason).slice(0, 200)}`,
+    });
+    return NextResponse.json({ ok: true, guardianId: done.guardianshipId }, { status: 201 });
+  }
+  return NextResponse.json({ error: "action is revokeGuardian, link or addGuardian." }, { status: 400 });
 }

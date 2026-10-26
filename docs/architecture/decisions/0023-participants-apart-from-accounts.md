@@ -18,6 +18,11 @@
   and coaching, equipment hire, check-in and no-shows, booking emails and
   the counter and API key no longer assume the account is the person;
   memberships price only a booking their holder takes part in.
+  A second guardian may also be added at a venue's counter, on the adult's
+  own declaration made in person (2026-10-26, the owner's decision): by
+  name and number by front desk or a manager, as an account by a manager
+  with a reason; no second record of the child
+  ([a second guardian at the counter](../../features/venue-operations.md#a-second-guardian-at-the-counter)).
 - **Context:** a reported defect: inductions stayed with the adult's phone
   number. The cause was in the model, the staff workflow and the lookup
   together. `inductions` was `UNIQUE (venue_id, phone)` (migration 0001), so a

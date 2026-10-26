@@ -88,6 +88,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "approval.authority_reviewed": "apr.child.actReviewed",
   "participant.created": "ptc.act.created",
   "participant.guardian_revoked": "ptc.act.guardianRevoked",
+  "participant.guardian_added": "pbk2.act.guardianAdded",
   "participant.linked": "ptc.act.linked",
   "induction.assigned": "ptc.act.inductionAssigned",
   "induction.kept": "ptc.act.inductionKept",

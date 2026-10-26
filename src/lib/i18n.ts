@@ -2268,6 +2268,13 @@ const EN = {
   "pbk.err.PBK_TOO_MANY": "Up to {n} people on one booking.",
   "pbk.err.PBK_TWICE": "Name each person once.",
   "pbk.err.PBK_NOT_GUARDIAN": "Nobody acting for {name} is on this number.",
+  "pbk2.legend": "Who is on which court?",
+  "pbk2.courtFor": "Court for {name}",
+  "pbk2.on": "{court}: {names}",
+  "pbk2.party": "{court}: nobody named, so it is booked for the party as a number of places",
+  "pbk2.note": "Each person is on one court: they all play at the same time.",
+  "pbk2.me": "You",
+  "pbk2.holder": "The number holder",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4489,6 +4496,13 @@ const MS: Record<Phrase, string> = {
   "pbk.err.PBK_TOO_MANY": "Sehingga {n} orang bagi satu tempahan.",
   "pbk.err.PBK_TWICE": "Namakan setiap orang sekali sahaja.",
   "pbk.err.PBK_NOT_GUARDIAN": "Tiada sesiapa yang bertindak bagi pihak {name} menggunakan nombor ini.",
+  "pbk2.legend": "Siapa di gelanggang mana?",
+  "pbk2.courtFor": "Gelanggang untuk {name}",
+  "pbk2.on": "{court}: {names}",
+  "pbk2.party": "{court}: tiada nama, jadi ditempah untuk kumpulan sebagai bilangan tempat",
+  "pbk2.note": "Setiap orang berada di satu gelanggang sahaja: semuanya bermain pada masa yang sama.",
+  "pbk2.me": "Anda",
+  "pbk2.holder": "Pemegang nombor ini",
 };
 
 /** Exported so a test can hold the two languages against each other. */

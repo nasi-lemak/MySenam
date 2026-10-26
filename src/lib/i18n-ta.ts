@@ -2111,6 +2111,13 @@ export const TA: Record<Phrase, string> = {
   "pbk.err.PBK_TOO_MANY": "ஒரு முன்பதிவில் {n} நபர்கள் வரை.",
   "pbk.err.PBK_TWICE": "ஒவ்வொருவரையும் ஒருமுறை மட்டும் குறிப்பிடுங்கள்.",
   "pbk.err.PBK_NOT_GUARDIAN": "இந்த எண்ணில் {name} சார்பாகச் செயல்படுபவர் யாரும் இல்லை.",
+  "pbk2.legend": "யார் எந்த கோர்ட்டில்?",
+  "pbk2.courtFor": "{name} க்கான கோர்ட்",
+  "pbk2.on": "{court}: {names}",
+  "pbk2.party": "{court}: யாரும் பெயரிடப்படவில்லை, எனவே குழுவுக்கு இடங்களின் எண்ணிக்கையாக முன்பதிவு செய்யப்படுகிறது",
+  "pbk2.note": "ஒவ்வொருவரும் ஒரு கோர்ட்டில் மட்டும்: அனைவரும் ஒரே நேரத்தில் விளையாடுகிறார்கள்.",
+  "pbk2.me": "நீங்கள்",
+  "pbk2.holder": "இந்த எண்ணின் உரிமையாளர்",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

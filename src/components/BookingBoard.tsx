@@ -14,7 +14,8 @@ import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import { passCost } from "@/lib/pass-rules";
 import WaiverTick from "@/components/WaiverTick";
 import { explainGuard } from "@/components/ManagedPeople";
-import { NeedsLabel, takingParam, useManagedPeople, useTaking, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
+import { NeedsLabel, PeoplePerCourt, takingParam, useManagedPeople, useTaking, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
+import { customerAnywhere, groupRequest, namedOn, splitByCourt, type CourtOf } from "@/lib/people-per-court";
 import type { EligibilityLine } from "@/lib/eligibility";
 import { ParticipantPicker, type PickedParticipant } from "@/components/admin/ParticipantPicker";
 import { useT } from "@/components/Language";
@@ -835,9 +836,14 @@ function BookingForm({
   const [holderToo, setHolderToo] = useState(false);
   const named = atCounter ? counterPeople.map((p) => p.id) : forIds;
   const customerTakesPart = atCounter ? holderToo : meToo;
-  const persons = named.length + (named.length === 0 || customerTakesPart ? 1 : 0);
+  // Several courts: who is on which (lib/people-per-court.ts), each person on one, the first court unless moved.
+  const [courtOf, setCourtOf] = useState<CourtOf>({});
+  const groupIds = moreChosen.length > 0 ? [court.id, ...moreChosen.map((c) => c.id)] : null;
+  const split = groupIds ? splitByCourt({ courtIds: groupIds, named, customerTakesPart, courtOf }) : null;
+  // On this court: everybody named, or in a group those on it (nobody named there: the party, as many as said).
+  const persons = split ? Math.max(1, namedOn(split[0])) : named.length + (named.length === 0 || customerTakesPart ? 1 : 0);
   // Booked only for others: a membership does not price it (docs/features/pricing.md#memberships-and-member-rates).
-  const forOthers = named.length > 0 && !customerTakesPart;
+  const forOthers = named.length > 0 && (split ? !customerAnywhere(split) : !customerTakesPart);
   // The price, as the server will charge it: worked out there, shown before booking.
   const [quote, setQuote] = useState<Quote | null>(null);
   const moreKey = moreChosen.map((c) => (c.capacity > 1 ? `${c.id}:${countOf(c)}` : String(c.id))).join(",");
@@ -944,6 +950,18 @@ function BookingForm({
   useEffect(() => {
     if (counted && players < persons) setPlayers(Math.min(persons, mostPlayers));
   }, [counted, persons, players, mostPlayers]);
+  // On another shared resource of a group, likewise for those put on it.
+  const splitKey = split ? split.map((c) => `${c.courtId}:${namedOn(c)}`).join(",") : "";
+  useEffect(() => {
+    if (!split) return;
+    const short = moreChosen.filter((c) => c.capacity > 1 && countOf(c) < namedOn(split.find((x) => x.courtId === c.id)!));
+    if (short.length > 0)
+      setMoreCount((was) => ({
+        ...was,
+        ...Object.fromEntries(short.map((c) => [c.id, Math.min(placesPerBooking(c), namedOn(split.find((x) => x.courtId === c.id)!))])),
+      }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitKey]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -975,11 +993,21 @@ function BookingForm({
           payWithPass: (chargeTo === null && !hasExtras && passCode.trim()) || undefined,
           ...(chargeTo !== null ? { chargeTo } : {}),
           ...(agreeWaiver ? { agreeWaiver: true } : {}),
-          ...(named.length > 0 ? { participantIds: named, customerTakesPart } : {}),
+          // On several courts, each court's own people; otherwise everybody on this one.
+          ...(groupIds
+            ? groupRequest({
+                courtIds: groupIds,
+                named,
+                customerTakesPart,
+                courtOf,
+                places: Object.fromEntries(moreChosen.filter((c) => c.capacity > 1).map((c) => [c.id, countOf(c)])),
+              })
+            : named.length > 0
+              ? { participantIds: named, customerTakesPart }
+              : {}),
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
-          ...(moreChosen.length > 0 ? { moreCourts: moreChosen.map((c) => (c.capacity > 1 ? { courtId: c.id, places: countOf(c) } : c.id)) } : {}),
           ...(concession ? { concessionId: concession.id } : {}),
           ...(counted ? { players } : {}),
         }),
@@ -1222,7 +1250,7 @@ function BookingForm({
         onList={setOffered}
       />
       )}
-      {!atCounter && more.length === 0 && (
+      {!atCounter && (
         <WhoTakesPart
           t={t}
           people={people}
@@ -1234,7 +1262,7 @@ function BookingForm({
           }}
         />
       )}
-      {atCounter && more.length === 0 && (
+      {atCounter && (
         <ParticipantPicker
           venueId={court.venueId}
           phone={phone}
@@ -1247,6 +1275,17 @@ function BookingForm({
               setHolderToo(holder);
             },
           }}
+        />
+      )}
+      {groupIds && (
+        <PeoplePerCourt
+          t={t}
+          courts={[court, ...moreChosen].map((c) => ({ id: c.id, name: c.name }))}
+          people={atCounter ? counterPeople : people.filter((p) => forIds.includes(p.id))}
+          customer={customerTakesPart}
+          customerLabel={t(atCounter ? "pbk2.holder" : "pbk2.me")}
+          courtOf={courtOf}
+          onChange={setCourtOf}
         />
       )}
       <WaiverTick venueId={court.venueId} venueName={venueName} checked={agreeWaiver} onChange={setAgreeWaiver} />

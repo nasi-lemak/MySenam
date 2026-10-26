@@ -584,7 +584,7 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Only somebody this venue knows, whose guardian is on this number, can be given it.": { ms: "Hanya seseorang yang dikenali pusat ini, yang penjaganya menggunakan nombor ini, boleh diberikannya.", zh: "只能转给本场馆认识、且其监护人使用此号码的人。" },
   "They already have their own induction here.": { ms: "Mereka sudah mempunyai taklimat sendiri di sini.", zh: "其本人已在此完成入场说明。" },
   "participantId is a participant's id, or null.": { ms: "participantId ialah id peserta, atau null.", zh: "participantId 须为参与者的 id，或 null。" },
-  "action is revokeGuardian or link.": { ms: "action ialah revokeGuardian atau link.", zh: "action 须为 revokeGuardian 或 link。" },
+  "action is revokeGuardian, link or addGuardian.": { ms: "action ialah revokeGuardian, link atau addGuardian.", zh: "action 须为 revokeGuardian、link 或 addGuardian。" },
   "guardianId is required.": { ms: "guardianId diperlukan.", zh: "必须提供 guardianId。" },
   "Invalid participant id.": { ms: "Id peserta tidak sah.", zh: "参与者 id 无效。" },
   "No such person on this booking.": { ms: "Tiada orang sedemikian dalam tempahan ini.", zh: "此预订中没有这个人。" },
@@ -598,4 +598,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Name each person once.": { ms: "Namakan setiap orang sekali sahaja.", zh: "每人只需列出一次。" },
   "Up to {0} people on one booking.": { ms: "Sehingga {0} orang bagi satu tempahan.", zh: "每个预订最多 {0} 人。" },
   "placeId and mark (arrived, no_show or clear) are required.": { ms: "placeId dan mark (arrived, no_show atau clear) diperlukan.", zh: "必须提供 placeId 和 mark（arrived、no_show 或 clear）。" },
+  "Give the email of the guardian's account.": { ms: "Berikan e-mel akaun penjaga.", zh: "请填写监护人账户的电子邮箱。" },
+  "That account is their own login: it cannot be their guardian too.": { ms: "Akaun itu ialah log masuk mereka sendiri: ia tidak boleh menjadi penjaga mereka juga.", zh: "该账户是其本人的登录账户，不能同时作为其监护人。" },
+  "That account already acts for them.": { ms: "Akaun itu sudah bertindak bagi pihak mereka.", zh: "该账户已代其行事。" },
+  "Somebody on this number already acts for them.": { ms: "Seseorang yang menggunakan nombor ini sudah bertindak bagi pihak mereka.", zh: "此号码下已有人代其行事。" },
 };

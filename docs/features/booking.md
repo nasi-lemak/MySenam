@@ -262,7 +262,10 @@ taking part in the same way, and books them through the same engine
   the booking's number: the booking is made with, and told to, somebody who
   acts for them. A number typed in never makes anybody a guardian
   (`PBK_NOT_GUARDIAN`); somebody new is recorded first with the guardian's
-  declaration to the member of staff ([inductions](venue-operations.md#inductions)).
+  declaration to the member of staff ([inductions](venue-operations.md#inductions)),
+  and an adult not yet on record for a child the venue knows is added as a
+  guardian of that same child on their own declaration
+  ([a second guardian at the counter](venue-operations.md#a-second-guardian-at-the-counter)).
 - **Places.** Each person takes a place: a parent booking two children on a
   shared facility takes two, and takes a third only when ticked as taking
   part; a court booked whole is one booking whoever plays. The same person
@@ -283,8 +286,14 @@ taking part in the same way, and books them through the same engine
   people (`moreCourts: [{ courtId, participantIds, customerTakesPart }]`): a
   child is on one court of the group at most, and the guardian is not on
   every court because they placed the order. A court nobody is named on is
-  the customer's party, a count of places with nobody assigned. The booking
-  page names people on one court at a time.
+  the customer's party, a count of places with nobody assigned. On the
+  booking page (online, and at the counter) the people ticked are put on
+  courts under *Who is on which court?*: one choice each, so nobody is on two
+  courts; everybody starts on the court picked first; the customer, where
+  they take part, is on one court too; each court says who is on it, or that
+  nobody is named and it is booked for the party. A court dropped from the
+  booking sends its people back to the first. A shared resource's places
+  rise to at least the people put on it (`src/lib/people-per-court.ts`).
 - **On record.** Each participant's history says who made the booking for
   them, where and how (online, at the counter, through the API, a class, a
   waiting list); staff bookings for a participant are also in the activity
@@ -299,7 +308,10 @@ taking part in the same way, and books them through the same engine
   ([open games](matchmaking.md)).
 
 Tests: `tests/participant-bookings.test.ts` (each path, refusals, and races
-on Postgres), `tests/participants.test.ts` (the model).
+on Postgres), `tests/participants.test.ts` (the model),
+`tests/components/people-per-court.test.tsx` (people per court on the
+booking page) and `tests/people-per-court.test.ts` (what the page sends, as
+the route books it, online and at the counter).
 
 ## Operating hours and closed days
 

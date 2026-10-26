@@ -24,7 +24,10 @@ const input = "rounded-md border border-slate-300 px-2 py-1 text-sm focus:border
  * Who something recorded at the counter is for (lib/participants.ts; ADR
  * 0023): the holder of the number typed, or a participant this venue knows
  * whose guardian is on that number (a child, most often), or somebody new,
- * added with the guardian's declaration made to the member of staff. Staff
+ * added with the guardian's declaration made to the member of staff. Or a
+ * child the venue knows whose recorded guardian is on another number: found
+ * by that number, the adult here then becomes a guardian too on their own
+ * declaration, rather than a second record of the same child. Staff
  * choose; the number only finds candidates and never decides whose it is.
  */
 export function ParticipantPicker({
@@ -55,6 +58,47 @@ export function ParticipantPicker({
   const [form, setForm] = useState({ displayName: "", birthYear: "", relationship: "parent", authority: false });
   const [error, setError] = useState<string | null>(null);
   const tooShort = phone.replace(/\D/g, "").length < 7;
+  // A child the venue knows whose recorded guardian is on another number: the adult here
+  // becomes a guardian too, on their own declaration (lib/participants.ts addGuardianAtVenue).
+  const [other, setOther] = useState<{ phone: string; found: Candidate[] | null; chosen: number | null; relationship: string; authority: boolean } | null>(null);
+  const adult = guardianName.trim();
+
+  async function findOther() {
+    if (!other) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/participants?venueId=${venueId}&phone=${encodeURIComponent(other.phone)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data));
+      setOther({ ...other, found: data.participants, chosen: null });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("c.failed"));
+    }
+  }
+
+  async function addAsGuardian() {
+    if (!other || other.chosen === null) return;
+    const child = other.found?.find((c) => c.id === other.chosen);
+    if (!child) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/participants/${child.id}/guardians`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, guardianName: adult, guardianPhone: phone, relationship: other.relationship, authority: other.authority }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data));
+      setOther(null);
+      await look();
+      // Now on this number: chosen for what is being recorded.
+      const picked = { id: child.id, displayName: child.displayName };
+      if (many) many.onChange([...many.values.filter((v) => v.id !== child.id), picked], many.holderTakesPart);
+      else onChange(picked);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("c.failed"));
+    }
+  }
 
   async function look() {
     setError(null);
@@ -145,6 +189,84 @@ export function ParticipantPicker({
           ))}
           {candidates.length === 0 && <p className="text-xs text-slate-500">{t("ptc.pick.none")}</p>}
           {many && <p className="text-xs text-slate-500">{t("pbk.counter.note")}</p>}
+          {other === null ? (
+            <button
+              type="button"
+              onClick={() => setOther({ phone: "", found: null, chosen: null, relationship: "parent", authority: false })}
+              className="block text-xs font-medium text-teal-700 underline"
+            >
+              {t("pbk2.g.open")}
+            </button>
+          ) : (
+            <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs" data-testid="add-guardian">
+              {adult.length < 2 ? (
+                <p className="text-amber-700">{t("pbk2.g.needName")}</p>
+              ) : (
+                <>
+                  <p className="text-slate-600">{t("pbk2.g.intro", { adult })}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      aria-label={t("pbk2.g.otherPhone")}
+                      placeholder={t("pbk2.g.otherPhone")}
+                      inputMode="tel"
+                      value={other.phone}
+                      onChange={(e) => setOther({ ...other, phone: e.target.value, found: null, chosen: null })}
+                      className={`w-44 ${input}`}
+                    />
+                    <button
+                      type="button"
+                      disabled={other.phone.replace(/\D/g, "").length < 7}
+                      onClick={() => void findOther()}
+                      className="font-medium text-teal-700 underline disabled:text-slate-400"
+                    >
+                      {t("pbk2.g.find")}
+                    </button>
+                  </div>
+                  {other.found !== null && other.found.length === 0 && <p className="text-slate-500">{t("pbk2.g.none")}</p>}
+                  {other.found?.map((c) => (
+                    <label key={c.id} className="flex items-center gap-2">
+                      <input type="radio" name="add-guardian-child" checked={other.chosen === c.id} onChange={() => setOther({ ...other, chosen: c.id })} />
+                      <span>
+                        <span className="font-medium">{c.displayName}</span>
+                        {c.birthYear ? ` · ${t("ptc.pick.born", { year: c.birthYear })}` : ""}
+                      </span>
+                    </label>
+                  ))}
+                  {other.chosen !== null && (
+                    <>
+                      <select
+                        aria-label={t("ptc.pick.relationship")}
+                        value={other.relationship}
+                        onChange={(e) => setOther({ ...other, relationship: e.target.value })}
+                        className={input}
+                      >
+                        {RELATIONSHIPS.map((r) => (
+                          <option key={r} value={r}>
+                            {t("pbk2.g.adultIs", { adult, relationship: t(`apr.child.rel.${r}`) })}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="flex items-start gap-2">
+                        <input type="checkbox" checked={other.authority} onChange={(e) => setOther({ ...other, authority: e.target.checked })} className="mt-0.5" />
+                        {t("pbk2.g.declared", { adult, name: other.found?.find((c) => c.id === other.chosen)?.displayName ?? "" })}
+                      </label>
+                      <p className="text-slate-500">{t("pbk2.g.note")}</p>
+                      <button
+                        type="button"
+                        onClick={() => void addAsGuardian()}
+                        className="rounded-lg bg-teal-600 px-3 py-1 font-semibold text-white hover:bg-teal-700"
+                      >
+                        {t("pbk2.g.add", { adult })}
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+              <button type="button" onClick={() => setOther(null)} className="block text-slate-600 underline">
+                {t("pbk2.g.cancel")}
+              </button>
+            </div>
+          )}
           {!adding ? (
             <button type="button" onClick={() => setAdding(true)} className="text-xs font-medium text-teal-700 underline">
               {t("ptc.pick.addNew")}

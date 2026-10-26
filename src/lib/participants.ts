@@ -1,5 +1,5 @@
 import { createHash, randomInt } from "crypto";
-import { getDb, withTransaction } from "./db";
+import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { phoneKey } from "./phone";
 
 /**
@@ -591,6 +591,103 @@ export async function linkByStaff(input: {
     await participantEvent(input.participantId, "linked_by_staff", { adminId: input.admin.id, name: input.admin.name }, { venueId: input.venueId, detail: why });
     const row = (await db.prepare("SELECT * FROM participants WHERE id = ?").get(input.participantId)) as ParticipantRow;
     return { ok: true as const, participant: toParticipant(row) };
+  });
+}
+
+/**
+ * Another adult becomes a guardian of a participant this venue already
+ * knows, on their own declaration of relationship and authority made in
+ * person to the member of staff signed in (docs/features/venue-operations.md#a-second-guardian-at-the-counter):
+ * the adult at the counter who is not yet a recorded guardian, instead of a
+ * second record of the same child. Named by contact details (`name`,
+ * `phone`: front desk or a manager), or by a MySenam account (`email`, with
+ * a reason: a manager only, as the route decides, because an account then
+ * reaches the participant online, which otherwise takes an existing
+ * guardian's code). Provenance `counter`, the staff member and the venue
+ * recorded; never `staff_review`, so an activity that asks for the adult's
+ * authority to be reviewed (`guardianCheck`) still asks. A number typed in
+ * makes nobody a guardian: only this declaration does. Nothing is merged,
+ * moved or matched; the existing guardians stay as they are.
+ */
+export async function addGuardianAtVenue(input: {
+  venueId: number;
+  participantId: number;
+  admin: { id: number | null; name: string };
+  guardian: { name?: unknown; phone?: unknown; email?: unknown; relationship: unknown; authority: unknown };
+  reason?: unknown;
+  note?: unknown;
+}): Promise<{ ok: true; guardianshipId: number; guardianName: string; account: boolean; otherGuardians: number } | ParticipantRefusal> {
+  const relationship = readRelationship(input.guardian.relationship);
+  if (isRefusal(relationship)) return relationship;
+  const byAccount = input.guardian.email !== undefined && input.guardian.email !== null;
+  let guardianName = "";
+  let phone = "";
+  let email = "";
+  if (byAccount) {
+    email = typeof input.guardian.email === "string" ? input.guardian.email.trim() : "";
+    if (!email) return refused("PTC_GUARDIAN_EMAIL", "Give the email of the guardian's account.");
+  } else {
+    guardianName = typeof input.guardian.name === "string" ? input.guardian.name.trim().replace(/\s+/g, " ") : "";
+    if (guardianName.length < 2 || guardianName.length > 80) return refused("PTC_GUARDIAN_NAME", "Give the guardian's name.");
+    phone = typeof input.guardian.phone === "string" ? phoneKey(input.guardian.phone) : "";
+    if (phone.length < 7) return refused("PTC_GUARDIAN_PHONE", "Give a number to reach the guardian on.");
+  }
+  if (input.guardian.authority !== true)
+    return refused("PTC_COUNTER_AUTHORITY", "Confirm the guardian declared to you that they are the parent, legal guardian or another person with authority to act for them.");
+  const why = reasonOf(input.reason);
+  if (byAccount && !why) return refused("PTC_REASON_NEEDED", "Say why, in a few words.");
+  const note = why ?? (typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null);
+  const db = getDb();
+  const added = withTransaction(async () => {
+    if (!(await visibleToVenue(input.venueId, input.participantId))) return refused("PTC_NOT_FOUND", "No such participant here.", 404);
+    // One change to who acts for them at a time: the record itself is written, so a counter
+    // adding the same adult at the same moment waits, then reads again what this one added.
+    const p = (await db
+      .prepare("UPDATE participants SET updated_at = now() WHERE id = ? RETURNING id, display_name, linked_user_id")
+      .get(input.participantId)) as { id: number; display_name: string; linked_user_id: number | null } | undefined;
+    if (!p) return refused("PTC_NOT_FOUND", "No such participant here.", 404);
+    let userId: number | null = null;
+    if (byAccount) {
+      const account = (await db.prepare("SELECT id, name FROM users WHERE email = ?").get(email)) as { id: number; name: string } | undefined;
+      if (!account) return refused("PTC_NO_ACCOUNT", "No account has that email.", 404);
+      if (p.linked_user_id === account.id) return refused("PTC_GUARDIAN_OWN_LOGIN", "That account is their own login: it cannot be their guardian too.", 409);
+      if (await db.prepare("SELECT 1 FROM participant_guardians WHERE participant_id = ? AND user_id = ? AND revoked_at IS NULL").get(p.id, account.id))
+        return refused("PTC_GUARDIAN_ALREADY", "That account already acts for them.", 409);
+      const limit = await underLimit(account.id);
+      if (limit) return limit;
+      userId = account.id;
+      guardianName = account.name;
+    } else if (
+      await db
+        .prepare(
+          `SELECT 1 FROM participant_guardians g LEFT JOIN users u ON u.id = g.user_id
+            WHERE g.participant_id = ? AND g.revoked_at IS NULL AND (phone_key(u.phone) = ? OR phone_key(g.contact_phone) = ?)`
+        )
+        .get(p.id, phone, phone)
+    )
+      return refused("PTC_GUARDIAN_ON_NUMBER", "Somebody on this number already acts for them.", 409);
+    const otherGuardians = ((await db
+      .prepare("SELECT COUNT(*)::int AS n FROM participant_guardians WHERE participant_id = ? AND revoked_at IS NULL")
+      .get(p.id)) as { n: number }).n;
+    const g = (await db
+      .prepare(
+        `INSERT INTO participant_guardians (participant_id, user_id, contact_name, contact_phone, relationship, authority_declared_at, provenance,
+           recorded_by_admin_id, recorded_by_name, venue_id, note)
+         VALUES (?, ?, ?, ?, ?, now(), 'counter', ?, ?, ?, ?) RETURNING id`
+      )
+      .get(p.id, userId, userId === null ? guardianName : null, userId === null ? phone : null, relationship, input.admin.id, input.admin.name, input.venueId, note)) as {
+      id: number;
+    };
+    await participantEvent(p.id, "guardian.added", { adminId: input.admin.id, name: input.admin.name }, {
+      venueId: input.venueId,
+      detail: `at the counter; ${guardianName}${userId !== null ? " (their account)" : ""} declared ${relationship} to staff${why ? `: ${why}` : ""}`,
+    });
+    return { ok: true as const, guardianshipId: g.id, guardianName, account: userId !== null, otherGuardians };
+  });
+  // The same account added twice at once: one relationship (uq_participant_guardians_live), the other refused.
+  return added.catch((err) => {
+    if (isUniqueViolation(err, "participant_guardians")) return refused("PTC_GUARDIAN_ALREADY", "That account already acts for them.", 409);
+    throw err;
   });
 }
 

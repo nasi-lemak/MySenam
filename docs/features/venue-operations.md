@@ -51,6 +51,9 @@ part other than that person ([booking for somebody else](booking.md#booking-for-
   (`POST /api/admin/participants`), recorded as declared, never verified.
   A number with no guardian of that participant on it is refused
   (`PBK_NOT_GUARDIAN`): typing a number never makes anybody a guardian.
+  An adult bringing a child the venue already knows, but not on record as
+  their guardian, is added as a guardian of that same participant
+  ([below](#a-second-guardian-at-the-counter)), never as a second record.
 - The booking is the guardian's (told and paying as any customer); the child
   stays the participant, and their own eligibility is what the booking and
   the door check. The member of staff is recorded on each place
@@ -62,6 +65,65 @@ part other than that person ([booking for somebody else](booking.md#booking-for-
   guardian's relationship, or links a participant's own login by its email,
   each with a reason kept in the participant's history and the activity log
   (`PATCH /api/admin/participants/[id]`; front desk cannot).
+
+### A second guardian at the counter
+
+A child the venue knows (their mother registered them, say) is brought by an
+adult who is not on record as their guardian (their father, on his own
+number). The adult's declaration is recorded on the existing participant
+(`src/lib/participants.ts` `addGuardianAtVenue`), never as a new record of the
+same child:
+
+- **Finding the child.** In the counter's *for somebody on this number*, staff
+  choose *A child we know, whose guardian on record has another number?*,
+  type the number of a guardian on record (the adult gives it), and choose
+  the child among the participants the venue knows on that number. No
+  browsing, no match on names: the number only finds candidates.
+- **The declaration.** The adult's name and number (as typed for the
+  booking), the relationship they declare (parent, legal guardian, another
+  person with authority) and the tick that they declared to the member of
+  staff that they have the authority to act for the child
+  (`POST /api/admin/participants/[id]/guardians`). Without the tick it is
+  refused (`PTC_COUNTER_AUTHORITY`); a number that already has a guardian of
+  the child is refused (`PTC_GUARDIAN_ON_NUMBER`). Recorded as declared,
+  never verified, and no documents are taken.
+- **Who may.** Front desk or a manager, for a participant their venue knows
+  (another venue's staff get *not found*). A guardian named this way acts
+  only through a venue's staff and its API key, on their own number: they
+  see nothing online. Adding a MySenam account as a guardian is a
+  manager's, with a reason, under *Participants: guardians and own logins*
+  (`PATCH /api/admin/participants/[id]`, `addGuardian` with the account's
+  email): the account then sees and acts for the child online as any
+  guardian does, which online otherwise takes a code from an existing
+  guardian, so it carries the weight of linking a login. A participant's own
+  login cannot be their guardian (`PTC_GUARDIAN_OWN_LOGIN`).
+- **No manager confirmation when another guardian exists.** The child
+  almost always has a guardian on another number already, so asking a
+  manager to confirm each time would stop the desk doing this at all, and
+  the desk's alternative until now (a new participant) took no confirmation
+  and duplicated the child. What the desk records reaches no more than the
+  counter, every step names the member of staff, and a manager can end the
+  relationship at any time with a reason. An account, which reaches more,
+  is the manager's.
+- **On record.** The relationship is provenance `counter`, with the member
+  of staff and the venue (`participant_guardians.recorded_by_*`,
+  `venue_id`); the participant's history has `guardian.added`, and the
+  activity log `participant.guardian_added`, naming the member of staff, the
+  participant and the venue. The other guardians stay exactly as they were.
+- **Not told.** The existing guardians are not told: nothing in the product
+  tells a guardian about a change to who else acts for a participant (online
+  codes and revocations do not either). One with an account sees only the
+  count of other guardians in their list of the people they manage go up.
+- **What it does not settle.** A counter declaration is not a staff review
+  of authority: an activity that asks for one before approving an
+  application (`guardianCheck`, [sign-offs](activities.md#sign-offs)) still
+  asks, whoever applies.
+
+Tests: `tests/counter-guardians.test.ts` (added, then the booking goes
+through; no new participant; refusals; another venue; the account route a
+manager's; history and activity log; nobody messaged; the authority review
+still asked; two counters at once on Postgres) and
+`tests/components/counter-guardian-picker.test.tsx` (the counter's screen).
 
 ### Self-service check-in
 

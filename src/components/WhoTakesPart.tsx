@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { EligibilityLine, EligibilityStatus } from "@/lib/eligibility";
 import type { KindNeeds } from "@/lib/court-activities";
 import type { Phrase, T } from "@/lib/i18n";
+import { CUSTOMER, splitByCourt, type CourtOf } from "@/lib/people-per-court";
 
 /**
  * Who is taking part, as a signed-in account chooses it on the search page
@@ -244,3 +245,68 @@ export function useManagedPeople(signedIn: boolean): ManagedChoice[] {
 
 /** What a request says about who takes part: nothing for the adult alone. */
 export const whoBody = (ids: number[], meToo: boolean): Record<string, unknown> => (ids.length > 0 ? { participantIds: ids, customerTakesPart: meToo } : {});
+
+/**
+ * On a booking of several courts, who is on which (lib/people-per-court.ts;
+ * docs/features/booking.md#booking-for-somebody-else): each person ticked
+ * on exactly one court, the court picked first unless moved; the customer,
+ * where they take part, on one court too; a court with nobody named is the
+ * customer's party, and says so. The same rules the server holds.
+ */
+export function PeoplePerCourt({
+  t,
+  courts,
+  people,
+  customer,
+  customerLabel,
+  courtOf,
+  onChange,
+}: {
+  t: T;
+  courts: { id: number; name: string }[];
+  people: ManagedChoice[];
+  /** The customer takes part (ticked themself, or the number holder at the counter). */
+  customer: boolean;
+  customerLabel: string;
+  courtOf: CourtOf;
+  onChange: (next: CourtOf) => void;
+}) {
+  if (people.length === 0 || courts.length < 2) return null;
+  const ids = courts.map((c) => c.id);
+  const split = splitByCourt({ courtIds: ids, named: people.map((p) => p.id), customerTakesPart: customer, courtOf });
+  const where = (key: string) => (ids.includes(courtOf[key]) ? courtOf[key] : ids[0]);
+  const rows = [...people.map((p) => ({ key: String(p.id), name: p.displayName })), ...(customer ? [{ key: CUSTOMER, name: customerLabel }] : [])];
+  return (
+    <fieldset className="mt-2 min-w-0 text-xs text-slate-600" data-testid="people-per-court">
+      <legend className="font-medium">{t("pbk2.legend")}</legend>
+      <div className="mt-1 space-y-1">
+        {rows.map((r) => (
+          <label key={r.key} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="min-w-0 break-words font-medium text-slate-700">{r.name}</span>
+            <select
+              aria-label={t("pbk2.courtFor", { name: r.name })}
+              value={where(r.key)}
+              onChange={(e) => onChange({ ...courtOf, [r.key]: Number(e.target.value) })}
+              className="max-w-full rounded-md border border-slate-300 px-1.5 py-0.5 text-xs text-slate-900"
+            >
+              {courts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+      <ul className="mt-1 space-y-0.5 text-slate-500">
+        {split.map((c) => {
+          const name = courts.find((x) => x.id === c.courtId)?.name ?? "";
+          const names = people.filter((p) => c.participantIds.includes(p.id)).map((p) => p.displayName);
+          if (c.customerTakesPart) names.push(customerLabel);
+          return <li key={c.courtId}>{names.length > 0 ? t("pbk2.on", { court: name, names: names.join(", ") }) : t("pbk2.party", { court: name })}</li>;
+        })}
+      </ul>
+      <p className="mt-1 text-slate-500">{t("pbk2.note")}</p>
+    </fieldset>
+  );
+}
