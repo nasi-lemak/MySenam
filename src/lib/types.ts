@@ -694,6 +694,12 @@ export interface StartOption {
   minute: number;
   /** The longest booking from here that fits what is free and the court's hours. */
   maxLength: number;
+  /**
+   * Only where not every length the court allows up to `maxLength` fits: the
+   * lengths that do (on a facility turned over whole, joining a session fits
+   * where a shorter booking, cleaned while the session runs on, does not).
+   */
+  lengths?: number[];
 }
 
 export interface CourtAvailability {

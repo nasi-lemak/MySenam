@@ -6,11 +6,13 @@ import { parseWeekHours } from "./week-hours";
 import { lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
   SETTING_KEYS,
+  TURNOVERS,
   resolvePolicy,
   type BookingPolicy,
   type FixedPrice,
   type PolicyScope,
   type PolicySettings,
+  type Turnover,
 } from "./booking-rules";
 
 export * from "./booking-rules";
@@ -66,6 +68,7 @@ interface Row {
   buffer_after: number | null;
   operational_before: number | null;
   operational_after: number | null;
+  turnover: Turnover | null;
   week_hours: string | null;
   notice_minutes: number | null;
   rate_mode: "split" | "start" | null;
@@ -113,6 +116,7 @@ function toSettings(r: Row): PolicySettings {
     bufferAfter: r.buffer_after,
     operationalBefore: r.operational_before ?? null,
     operationalAfter: r.operational_after ?? null,
+    turnover: r.turnover ?? null,
     weekHours: parseWeekHours(r.week_hours),
     noticeMinutes: r.notice_minutes,
     rateMode: r.rate_mode,
@@ -285,6 +289,10 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         set(key, week);
         break;
       }
+      case "turnover":
+        if (!TURNOVERS.includes(v as Turnover)) return { ok: false, error: "turnover is place, unit or facility." };
+        set(key, v as Turnover);
+        break;
       case "rateMode":
         if (v !== "split" && v !== "start") return { ok: false, error: "Price each part at its own rate, or all at the rate when it starts." };
         set(key, v);
@@ -341,6 +349,7 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.bufferAfter ?? null,
     settings.operationalBefore ?? null,
     settings.operationalAfter ?? null,
+    settings.turnover ?? null,
     json(settings.weekHours),
     settings.noticeMinutes ?? null,
     settings.rateMode ?? null,
@@ -354,7 +363,7 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.certification ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
-    default_length = ?, buffer_before = ?, buffer_after = ?, operational_before = ?, operational_after = ?, week_hours = ?,
+    default_length = ?, buffer_before = ?, buffer_after = ?, operational_before = ?, operational_after = ?, turnover = ?, week_hours = ?,
     notice_minutes = ?, rate_mode = ?, bill_step = ?,
     min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
@@ -371,9 +380,9 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     .prepare(
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
          min_length, max_length, lengths, default_length, buffer_before, buffer_after, operational_before, operational_after,
-         week_hours, notice_minutes, rate_mode, bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee, sign_off,
-         needs_certification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         turnover, week_hours, notice_minutes, rate_mode, bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee,
+         sign_off, needs_certification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }

@@ -547,4 +547,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "A manager can keep an application at most 180 days in all. Ask the platform owner to keep it longer.": { ms: "Pengurus boleh menyimpan permohonan paling lama 180 hari kesemuanya. Minta pemilik platform untuk menyimpannya lebih lama.", zh: "经理保留一份申请合计最多 180 天。如需更久，请联系平台所有者。" },
   "Say why the hold is no longer needed.": { ms: "Nyatakan mengapa tahanan tidak lagi diperlukan.", zh: "请说明为何不再需要保留。" },
   "Hold not found.": { ms: "Tahanan tidak dijumpai.", zh: "找不到该保留。" },
+  "turnover is place, unit or facility.": { ms: "turnover ialah place, unit atau facility.", zh: "turnover 须为 place、unit 或 facility。" },
 };

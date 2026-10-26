@@ -61,6 +61,7 @@ import {
 import {
   asShown,
   claim,
+  clearZones,
   fits,
   inTheWayOf,
   isConflict,
@@ -909,10 +910,13 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
   const out: StartOption[] = [];
   const buffers = policyBuffers(policy);
   const lengths = policy.lengths ?? null;
+  // On a facility turned over whole, a booking that joins a session fits where a shorter one, cleaned while the
+  // session runs on, does not: every length is tried, and those that fit are listed when they are not all up to the longest.
+  const wide = court.capacity > 1 && buffers.turnover === "facility";
   for (const start of startsWithin(policy, day.openMin, day.closeMin)) {
     const ahead = minutesUntil(date, start, day.zone);
     if (ahead <= 0 || ahead < policy.noticeMinutes) continue;
-    let longest = 0;
+    const fitting: number[] = [];
     const candidates = lengths ?? lengthsBetween(policy);
     for (const length of candidates) {
       if (start + length > day.closeMin) break;
@@ -920,11 +924,15 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
       if (crossesClockChange(day.date, start, start + length, day.zone)) break;
       if (!fits(occupants, court.capacity, { start, end: start + length }, buffers, ignore)) {
         // Fixed lengths need not fit in order, but anything longer than one that does not fit will not either.
+        if (wide) continue;
         break;
       }
-      longest = length;
+      fitting.push(length);
     }
-    if (longest > 0) out.push({ minute: start, maxLength: longest });
+    if (fitting.length === 0) continue;
+    const longest = fitting[fitting.length - 1];
+    // Every length up to the longest, unless some in between do not fit.
+    out.push(candidates[fitting.length - 1] === longest ? { minute: start, maxLength: longest } : { minute: start, maxLength: longest, lengths: fitting });
   }
   return out;
 }
@@ -981,6 +989,8 @@ export async function getAvailability(
     const occupants = held.get(court.id)!;
     // Cells show what each holds and keeps free around it, separation included; starts are worked out exactly (startOptions).
     const shown = asShown(occupants);
+    // A shared facility turned over whole is closed to everybody while it is.
+    const clear = occupants.flatMap(clearZones);
     const own = forSport(rules, court.sport);
     // The rate of a column of time, without fixed prices or minimum charges, which belong to whole bookings.
     const timeOnly = { ...day.policy.pricing, fixedPrices: null, minCharge: null, minBilled: null, billStep: null, setupFee: 0, cleanupFee: 0 };
@@ -996,9 +1006,10 @@ export async function getAvailability(
       const out = peakPlaces(inCell.filter((o) => o.kind === "block" || o.kind === "outage"), cell);
       const load = peakPlaces(inCell, cell);
       const session = inCell.find((o) => o.kind === "class" && overlaps(o.span, cell));
-      const full = day.closed || load >= court.capacity;
-      // Held for some of it, not all: a booking from 18:07, or a buffer.
-      const partly = !full && court.capacity === 1 && inCell.length > 0;
+      const cleared = clear.filter((z) => overlaps(z, cell));
+      const full = day.closed || load >= court.capacity || cleared.some((z) => z.start <= cell.start && z.end >= cell.end);
+      // Held for some of it, not all: a booking from 18:07, or a buffer (on a shared facility, its turnover).
+      const partly = !full && (court.capacity === 1 ? inCell.length > 0 : cleared.length > 0);
       const past = minutesUntil(date, minute, zone) <= 0;
       const lastMinute = full || session ? 0 : lastMinuteOffAt(date, minute, own, now);
       slots.push({
@@ -2482,6 +2493,8 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
   return courts.map((court) => {
     // As held, separation included: what each keeps free around it reads as a buffer.
     const occupants = asShown(held.get(court.id)!);
+    // A shared facility turned over whole is closed to everybody while it is.
+    const clear = occupants.flatMap(clearZones);
     const entries: ScheduleEntry[] = [];
     for (const o of occupants) {
       const clip = (n: number) => Math.min(Math.max(n, 0), LATEST_MINUTE);
@@ -2552,9 +2565,15 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
       // a partial block only reads as "blocked" once it has taken the last one.
       const shutByBlock = closure !== null || (block !== undefined && count + out >= court.capacity);
       const booking = inCell.find((o) => o.kind === "booking" && o.bookingId !== null);
+      // While a facility turned over whole is kept clear, it reads as held, as a buffer does on a court of one place.
+      const cleared = clear.filter((z) => overlaps(z, cell));
+      const turning = cleared.some((z) => z.start <= cell.start && z.end >= cell.end);
       const status: AdminSlotStatus =
-        count >= court.capacity ? "booked" : shutByBlock ? "blocked" : minutesUntil(date, minute, zone) <= 0 ? "past" : "free";
-      const covered = court.capacity === 1 && inCell.length > 0 && !inCell.some((o) => o.occupied.start <= cell.start && o.occupied.end >= cell.end);
+        count >= court.capacity || turning ? "booked" : shutByBlock ? "blocked" : minutesUntil(date, minute, zone) <= 0 ? "past" : "free";
+      const covered =
+        court.capacity === 1
+          ? inCell.length > 0 && !inCell.some((o) => o.occupied.start <= cell.start && o.occupied.end >= cell.end)
+          : !turning && cleared.length > 0;
       slots.push({
         minute,
         hour: hoursOf(minute),
@@ -2714,7 +2733,7 @@ export async function blockSlots(
     const occupants = asShown((await occupantsOn([court], date, zone)).get(court.id)!);
     for (const span of spans) {
       // Where the time asked for can take this block: between what holds it, and where enough places are free.
-      const edges = [...new Set([span.start, span.end, ...occupants.flatMap((o) => [o.occupied.start, o.occupied.end])])]
+      const edges = [...new Set([span.start, span.end, ...occupants.flatMap((o) => [o.occupied.start, o.occupied.end, ...clearZones(o).flatMap((z) => [z.start, z.end])])])]
         .filter((m) => m >= span.start && m <= span.end)
         .sort((a, b) => a - b);
       let run: Span | null = null;
@@ -2724,6 +2743,11 @@ export async function blockSlots(
       };
       for (let i = 0; i + 1 < edges.length; i++) {
         const piece = { start: edges[i], end: edges[i + 1] };
+        // Nothing is held while a facility turned over whole is kept clear: the block goes either side.
+        if (occupants.some((o) => clearZones(o).some((z) => overlaps(z, piece)))) {
+          await flush();
+          continue;
+        }
         const used = peakPlaces(occupants, piece);
         if (used + wanted <= court.capacity) {
           run = run && run.end === piece.start ? { start: run.start, end: piece.end } : (await flush(), piece);
@@ -3139,6 +3163,31 @@ async function rescheduleBookingOnce(
           } else if (court.capacity === 1) {
             const parts = court.id === fromCourt.id && sameDay ? outside(newSpan, ownSpan) : [newSpan];
             for (const part of parts) await claim({ court, source, date: to.date, span: part, zone, expiresAt: to.hold.expiresAt, ...edge(part) });
+          } else if (p.turnover === "facility") {
+            // A facility turned over whole: the hold keeps it clear on its outer edges as a booking would, except
+            // where its own booking already keeps it (newSpan is the time alone here).
+            const beside = court.id === fromCourt.id && sameDay;
+            const parts = beside ? outside(newSpan, ownSpan) : [newSpan];
+            const roomBefore = beside && newSpan.start >= ownSpan.end ? newSpan.start - ownSpan.end : Infinity;
+            const roomAfter = beside && newSpan.end <= ownSpan.start ? ownSpan.start - newSpan.end : Infinity;
+            for (const part of parts) {
+              const first = part.start === newSpan.start;
+              const last = part.end === newSpan.end;
+              await claim({
+                court,
+                source,
+                date: to.date,
+                span: part,
+                zone,
+                places: players,
+                expiresAt: to.hold.expiresAt,
+                turnover: "facility",
+                bufferBefore: first ? Math.min(p.before, roomBefore) : 0,
+                separationBefore: first ? Math.min(p.sepBefore, roomBefore) : 0,
+                bufferAfter: last ? Math.min(p.after, roomAfter) : 0,
+                separationAfter: last ? Math.min(p.sepAfter, roomAfter) : 0,
+              });
+            }
           } else {
             const parts = court.id === fromCourt.id && sameDay ? outside(newSpan, ownSpan) : [newSpan];
             for (const part of parts) await claim({ court, source, date: to.date, span: part, zone, places: players, expiresAt: to.hold.expiresAt });

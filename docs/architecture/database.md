@@ -43,8 +43,10 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
 - **Court time is claims.** `claims` and `coach_claims` carry the database's
   own refusals of overlapping time (exclusion constraints), of time within a
   neighbour's minimum separation (`claim_gaps_apart` on `claim_gaps`, rows
-  triggers keep in step with `claims`, migration 0119) and of a shared
-  facility over capacity (trigger `claims_capacity`); triggers keep a claim's
+  triggers keep in step with `claims`, migration 0119), of a shared
+  facility over capacity (trigger `claims_capacity`) and of anyone in a
+  facility while it is turned over whole (`facility_gaps_clear` and
+  `facility_gaps_work` on `facility_gaps`, migration 0131); triggers keep a claim's
   court, space and venue consistent and a court's own space in step with its
   capacity (migrations 0089 and 0090).
 - **Activities are a table.** Every column naming an activity (`sport`, kept

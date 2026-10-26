@@ -344,8 +344,9 @@ async function inTheWay(held: Occupant[], outageId: number, gaps: Span[]): Promi
   const busy: Span[] = [];
   const seen = new Set<string>();
   for (const o of held) {
-    if ((o.kind === "outage" && o.outageId === outageId) || !gaps.some((g) => overlaps(o.occupied, g))) continue;
-    busy.push(o.occupied);
+    // What it keeps, not only what it holds: no outage's time may go into a separation, or into a facility's turnover.
+    if ((o.kind === "outage" && o.outageId === outageId) || !gaps.some((g) => overlaps(o.kept, g))) continue;
+    busy.push(o.kept);
     if (o.kind === "booking" && o.bookingId !== null && !seen.has(`b${o.bookingId}`)) {
       seen.add(`b${o.bookingId}`);
       const b = (await db.prepare("SELECT code, date, start_min, name FROM bookings WHERE id = ? AND status = 'confirmed'").get(o.bookingId)) as

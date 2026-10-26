@@ -365,6 +365,12 @@ const en = {
   "wa.void": "Void",
   "wa.messagesToGive": "Messages to give",
   "wa.give": "Give messages (trial, goodwill)",
+  "pol.turnover": "On a shared facility, setup, cleaning and gaps are for",
+  "pol.turnoverNote": "Only for resources with places (a gym floor, a kayak fleet). Each place: the places a booking takes are held, the others stay bookable. Whole facility: nobody is in it during setup, cleaning or the gap; bookings in the same session share it.",
+  "pol.turnoverPlace": "Each place: setup, cleaning and gap added together",
+  "pol.turnoverUnit": "Each place: the longer of setup or cleaning and the gap",
+  "pol.turnoverFacility": "The whole facility, cleared between sessions",
+  "pol.inheritsTurnover": "inherits: {mode}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -726,6 +732,12 @@ const ms: Record<keyof typeof en, string> = {
   "wa.void": "Batalkan",
   "wa.messagesToGive": "Mesej untuk diberi",
   "wa.give": "Beri mesej (percubaan, muhibah)",
+  "pol.turnover": "Pada kemudahan dikongsi, persediaan, pembersihan dan jarak adalah untuk",
+  "pol.turnoverNote": "Hanya untuk sumber yang mempunyai tempat (lantai gim, armada kayak). Setiap tempat: tempat yang diambil oleh tempahan ditahan, yang lain masih boleh ditempah. Seluruh kemudahan: tiada sesiapa di dalamnya semasa persediaan, pembersihan atau jarak; tempahan dalam sesi yang sama berkongsi kemudahan itu.",
+  "pol.turnoverPlace": "Setiap tempat: persediaan, pembersihan dan jarak dijumlahkan",
+  "pol.turnoverUnit": "Setiap tempat: yang lebih panjang antara persediaan atau pembersihan dan jarak",
+  "pol.turnoverFacility": "Seluruh kemudahan, dikosongkan antara sesi",
+  "pol.inheritsTurnover": "ikut atas: {mode}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1087,6 +1099,12 @@ const zh: Record<keyof typeof en, string> = {
   "wa.void": "作废",
   "wa.messagesToGive": "赠送消息数",
   "wa.give": "赠送消息（试用、善意补偿）",
+  "pol.turnover": "共享设施的布置、清洁和间隔适用于",
+  "pol.turnoverNote": "仅适用于有名额的资源（健身房、皮划艇队）。每个名额：只占用预订所用的名额，其余名额仍可预订。整个设施：布置、清洁或间隔期间设施内不留任何人；同一场次的预订共用设施。",
+  "pol.turnoverPlace": "每个名额：布置、清洁和间隔相加",
+  "pol.turnoverUnit": "每个名额：取布置或清洁与间隔中较长者",
+  "pol.turnoverFacility": "整个设施，场次之间清场",
+  "pol.inheritsTurnover": "沿用：{mode}",
 };
 
 const area = { en, ms, zh };

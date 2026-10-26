@@ -33,6 +33,14 @@ export interface FixedPrice {
   peakPrice: number | null;
 }
 
+/**
+ * What a shared facility's separation and operational time apply to: each
+ * place a booking takes, added together ("place", the default) or the longer
+ * of the two ("unit"), or the whole facility ("facility").
+ */
+export type Turnover = "place" | "unit" | "facility";
+export const TURNOVERS: readonly Turnover[] = ["place", "unit", "facility"];
+
 export interface PricingPolicy {
   /**
    * "split": each part of a booking at the rate in force then (peak from
@@ -83,6 +91,15 @@ export interface BookingPolicy {
    */
   operationalBefore: number;
   operationalAfter: number;
+  /**
+   * On a resource with places, what the separation and operational time apply
+   * to (docs/architecture/booking-time-model.md#shared-facilities-how-they-are-turned-over):
+   * "place", each place a booking takes, the two added together (the
+   * default, as before); "unit", each place, the longer of the two on each
+   * side; "facility", the whole facility, kept clear between sessions. A court
+   * of one place is the whole of itself whatever this says.
+   */
+  turnover: Turnover;
   /** The court's own hours, weekday by weekday (minutes); null: the venue's. */
   weekHours: WeekHours | null;
   /** How long before it starts a customer may book, at the latest. */
@@ -108,6 +125,7 @@ export type PolicySettings = {
   bufferAfter?: number | null;
   operationalBefore?: number | null;
   operationalAfter?: number | null;
+  turnover?: Turnover | null;
   weekHours?: WeekHours | null;
   noticeMinutes?: number | null;
   rateMode?: "split" | "start" | null;
@@ -134,6 +152,7 @@ export const SETTING_KEYS = [
   "bufferAfter",
   "operationalBefore",
   "operationalAfter",
+  "turnover",
   "weekHours",
   "noticeMinutes",
   "rateMode",
@@ -161,6 +180,7 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   bufferAfter: 0,
   operationalBefore: 0,
   operationalAfter: 0,
+  turnover: "place",
   weekHours: null,
   noticeMinutes: 0,
   rateMode: "split",
@@ -214,6 +234,7 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     bufferAfter: pick("bufferAfter")!,
     operationalBefore: pick("operationalBefore")!,
     operationalAfter: pick("operationalAfter")!,
+    turnover: pick("turnover")!,
     weekHours: pick("weekHours"),
     noticeMinutes: pick("noticeMinutes")!,
     signOff: pick("signOff") === true,
@@ -237,23 +258,31 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
  * checks it (`fits` in lib/claims.ts): operational time, which adds up with a
  * neighbour's, and minimum separation, which does not.
  */
-export function policyBuffers(p: Pick<BookingPolicy, "bufferBefore" | "bufferAfter" | "operationalBefore" | "operationalAfter">): {
+export function policyBuffers(p: Pick<BookingPolicy, "bufferBefore" | "bufferAfter" | "operationalBefore" | "operationalAfter"> & { turnover?: Turnover }): {
   before: number;
   after: number;
   sepBefore: number;
   sepAfter: number;
+  turnover: Turnover;
 } {
-  return { before: p.operationalBefore, after: p.operationalAfter, sepBefore: p.bufferBefore, sepAfter: p.bufferAfter };
+  return { before: p.operationalBefore, after: p.operationalAfter, sepBefore: p.bufferBefore, sepAfter: p.bufferAfter, turnover: p.turnover ?? "place" };
 }
 
 /** The same, as `claim` in lib/claims.ts takes it. */
-export function claimBuffers(p: Pick<BookingPolicy, "bufferBefore" | "bufferAfter" | "operationalBefore" | "operationalAfter">): {
+export function claimBuffers(p: Pick<BookingPolicy, "bufferBefore" | "bufferAfter" | "operationalBefore" | "operationalAfter"> & { turnover?: Turnover }): {
   bufferBefore: number;
   bufferAfter: number;
   separationBefore: number;
   separationAfter: number;
+  turnover: Turnover;
 } {
-  return { bufferBefore: p.operationalBefore, bufferAfter: p.operationalAfter, separationBefore: p.bufferBefore, separationAfter: p.bufferAfter };
+  return {
+    bufferBefore: p.operationalBefore,
+    bufferAfter: p.operationalAfter,
+    separationBefore: p.bufferBefore,
+    separationAfter: p.bufferAfter,
+    turnover: p.turnover ?? "place",
+  };
 }
 
 /** Is `start` a minute bookings may start at? */
@@ -278,6 +307,24 @@ export function lengthsUpTo(
   const first = Math.ceil(policy.minLength / policy.lengthStep) * policy.lengthStep;
   for (let l = first; l <= Math.min(policy.maxLength, fit); l += policy.lengthStep) out.push(l);
   return out;
+}
+
+/**
+ * The lengths a booking may be from one of the board's starts (`StartOption`
+ * in lib/types.ts): those it lists, where not every length up to its longest
+ * fits (joining a session on a facility turned over whole), else every length
+ * the policy allows up to its longest.
+ */
+export function startLengths(
+  policy: Pick<BookingPolicy, "lengths" | "minLength" | "maxLength" | "lengthStep">,
+  option: { maxLength: number; lengths?: number[] }
+): number[] {
+  return option.lengths ? [...option.lengths] : lengthsUpTo(policy, option.maxLength);
+}
+
+/** Does this start take a booking of `length` (one the policy allows)? */
+export function startTakes(option: { maxLength: number; lengths?: number[] }, length: number): boolean {
+  return option.lengths ? option.lengths.includes(length) : length <= option.maxLength;
 }
 
 /** The starts a policy allows within [from, to). */

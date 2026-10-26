@@ -20,7 +20,7 @@ are limited to 120 a minute per key.
 | Call | Scope | What |
 | --- | --- | --- |
 | `GET /venue` | read | The venue, its hours and courts with rates |
-| `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
+| `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`; a start lists the `lengths` that fit where not every one up to its longest does, as when joining a session on a facility turned over whole), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
 | `GET /bookings?from=&to=` | read | Bookings in up to 31 days, cancelled ones too |
 | `GET /bookings/<code>` | read | One booking |
 | `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it) |

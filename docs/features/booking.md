@@ -108,11 +108,20 @@ the [booking time model](../architecture/booking-time-model.md#booking-policies)
   Customers just see the time as taken; the staff schedule shows what each
   booking keeps free and what for. Buffers are not charged; a setup or
   cleanup **fee** is a separate rule, shown to the customer apart from the
-  time ([pricing](pricing.md#prices-to-the-minute)). On a shared facility a
-  gap is held as places and adds up, since places are not told apart. Each
-  booking keeps the buffers it was made with when the rules change; the
-  details are in the
+  time ([pricing](pricing.md#prices-to-the-minute)). Each booking keeps the
+  buffers it was made with when the rules change; the details are in the
   [booking time model](../architecture/booking-time-model.md#buffers-separation-and-operational-time).
+- **On a shared facility, what the buffers are for** (*turnover*): each
+  place a booking takes, held over its setup, cleaning and gap added together
+  (the default, as before), or over the longer of them each side (a kayak
+  rinsed for 10 minutes is out until 11:10 while the rest of the fleet stays
+  bookable); or the **whole facility**, cleared between sessions: bookings in
+  the same session share its places, nobody is let in while it is set up,
+  cleaned or kept free, and between sessions the larger gap applies and setup
+  and cleaning add up, as on a court. Per place, a gap still adds up with the
+  next booking's, since places are not told apart; the
+  [booking time model](../architecture/booking-time-model.md#shared-facilities-how-they-are-turned-over)
+  says why, and which is exact.
 - **Notice**: how long before it starts a booking may be made at the latest.
 - **The court's own hours**, weekday by weekday, inside the venue's: the
   venue's, closed, or its own opening and closing time for each day.

@@ -10,7 +10,7 @@ import { concessionWords } from "@/lib/concessions-shared";
 import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
 import { isPastSlot } from "@/lib/time";
-import { lengthsUpTo } from "@/lib/booking-rules";
+import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import { passCost } from "@/lib/pass-rules";
 import WaiverTick from "@/components/WaiverTick";
 import { useT } from "@/components/Language";
@@ -112,16 +112,29 @@ const BUSY_STYLES: Record<string, string> = {
   full: "bg-slate-100 text-slate-300",
 };
 
-/** The starts on the "Any court" row: every court's, each with the longest any court allows from there. */
+/**
+ * The starts on the "Any court" row: every court's, each with the longest any
+ * court allows from there, and the lengths any court takes where some court
+ * lists them (joining a session on a facility turned over whole).
+ */
 function anyStarts(availability: CourtAvailability[]): StartOption[] {
   const best = new Map<number, number>();
-  for (const a of availability) for (const s of a.starts) best.set(s.minute, Math.max(best.get(s.minute) ?? 0, s.maxLength));
-  return [...best].sort((x, y) => x[0] - y[0]).map(([minute, maxLength]) => ({ minute, maxLength }));
+  const listed = new Set<number>();
+  for (const a of availability)
+    for (const s of a.starts) {
+      best.set(s.minute, Math.max(best.get(s.minute) ?? 0, s.maxLength));
+      if (s.lengths) listed.add(s.minute);
+    }
+  const lengthsAt = (minute: number) =>
+    [...new Set(availability.flatMap((a) => a.starts.filter((s) => s.minute === minute).flatMap((s) => startLengths(a.policy, s))))].sort((x, y) => x - y);
+  return [...best]
+    .sort((x, y) => x[0] - y[0])
+    .map(([minute, maxLength]) => (listed.has(minute) ? { minute, maxLength, lengths: lengthsAt(minute) } : { minute, maxLength }));
 }
 
 /** The length to start with: the policy's usual one where it fits, else the longest that does. */
-function firstLength(policy: PublicPolicy, maxLength: number): number | null {
-  const lengths = lengthsUpTo(policy, maxLength);
+function firstLength(policy: PublicPolicy, option: StartOption): number | null {
+  const lengths = startLengths(policy, option);
   if (lengths.length === 0) return null;
   return lengths.includes(policy.defaultLength) ? policy.defaultLength : lengths[lengths.length - 1];
 }
@@ -240,8 +253,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         const court = courts.find((a) => a.court.id === pending.courtId);
         const option = court?.starts.find((s) => s.minute === pending.start);
         if (court && option) {
-          const allowed = lengthsUpTo(court.policy, option.maxLength);
-          const length = pending.minutes !== undefined && allowed.includes(pending.minutes) ? pending.minutes : firstLength(court.policy, option.maxLength);
+          const allowed = startLengths(court.policy, option);
+          const length = pending.minutes !== undefined && allowed.includes(pending.minutes) ? pending.minutes : firstLength(court.policy, option);
           if (length) setSelection({ courtId: court.court.id, start: option.minute, length });
         }
       }
@@ -344,7 +357,10 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     const free = headed
       .filter((a) => a.court.id !== selection.courtId && (a.court.capacity > 1) === shared)
       .filter((a) => lengthsUpTo(a.policy, selection.length).includes(selection.length))
-      .filter((a) => (a.starts.find((s) => s.minute === selection.start)?.maxLength ?? 0) >= selection.length)
+      .filter((a) => {
+        const option = a.starts.find((s) => s.minute === selection.start);
+        return option !== undefined && startTakes(option, selection.length);
+      })
       .map((a) => a.court);
     return [...free.filter(sameHeading), ...free.filter((c) => !sameHeading(c))];
   }, [selection, availability, headed]);
@@ -381,8 +397,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       if (prev && prev.courtId === courtId) {
         if (minute < prev.start + prev.length && minute + grid > prev.start) return null;
         if (minute >= prev.start + prev.length) {
-          const most = starts.find((s) => s.minute === prev.start)?.maxLength ?? prev.length;
-          const allowed = lengthsUpTo(policy, most);
+          const from = starts.find((s) => s.minute === prev.start);
+          const allowed = from ? startLengths(policy, from) : lengthsUpTo(policy, prev.length);
           const wanted = minute + grid - prev.start;
           const length = allowed.find((l) => l >= wanted) ?? allowed[allowed.length - 1];
           return length ? { ...prev, length } : prev;
@@ -392,7 +408,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         starts.find((s) => s.minute >= minute && s.minute < minute + grid) ??
         [...starts].reverse().find((s) => s.minute < minute && s.minute + s.maxLength > minute);
       if (!option) return prev;
-      const length = firstLength(policy, option.maxLength);
+      const length = firstLength(policy, option);
       return length ? { courtId, start: option.minute, length } : prev;
     });
   }
@@ -824,7 +840,7 @@ function BookingForm({
     ? Math.round((quote.court * (1 - off) + quote.fees + othersTotal * (1 - off)) * 100) / 100
     : null;
   const optionAt = starts.find((s) => s.minute === start);
-  const lengths = lengthsUpTo(policy, optionAt?.maxLength ?? length);
+  const lengths = optionAt ? startLengths(policy, optionAt) : lengthsUpTo(policy, length);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
   const [passCode, setPassCode] = useState("");
@@ -1323,7 +1339,8 @@ function TimePicker({
               const m = typed(e.target.value);
               if (m === null) return;
               const option = starts.find((s) => s.minute === m);
-              const length = override || !option ? selection.length : Math.min(selection.length, option.maxLength);
+              const takes = option ? lengths.filter((l) => l <= selection.length && startTakes(option, l)) : [];
+              const length = override || !option ? selection.length : startTakes(option, selection.length) ? selection.length : (takes[takes.length - 1] ?? Math.min(selection.length, option.maxLength));
               onChange({ ...selection, start: m, length });
             }}
             className={field}
@@ -1334,7 +1351,7 @@ function TimePicker({
             onChange={(e) => {
               const m = Number(e.target.value);
               const option = starts.find((s) => s.minute === m);
-              const fits = option ? lengths.filter((l) => l <= option.maxLength) : [];
+              const fits = option ? lengths.filter((l) => startTakes(option, l)) : [];
               onChange({ ...selection, start: m, length: fits.includes(selection.length) ? selection.length : (fits[fits.length - 1] ?? selection.length) });
             }}
             className={field}
