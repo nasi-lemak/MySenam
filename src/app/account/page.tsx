@@ -19,6 +19,7 @@ import { ChangePassword } from "@/components/ChangePassword";
 import { BookAgain } from "@/components/BookAgain";
 import { MyVenues } from "@/components/MyVenues";
 import { GuestInvites } from "@/components/GuestInvites";
+import ManagedPeople from "@/components/ManagedPeople";
 import { useT } from "@/components/Language";
 import { SeriesCancel } from "@/components/SeriesCancel";
 import { translateError } from "@/lib/i18n";
@@ -177,6 +178,7 @@ export default function AccountPage() {
       <Link href="/account/approvals" className="block rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-teal-700 shadow-sm hover:bg-slate-50">
         {t("apr.accountLink")} →
       </Link>
+      <ManagedPeople />
       <GuestInvites />
 
       {regulars.length > 0 && (

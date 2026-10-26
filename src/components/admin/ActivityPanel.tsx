@@ -85,6 +85,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   export: "act.a.export",
   "approval.hold": "apr.ret.act.hold",
   "approval.hold_released": "apr.ret.act.released",
+  "approval.authority_reviewed": "apr.child.actReviewed",
 };
 
 /**

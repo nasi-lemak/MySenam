@@ -242,6 +242,11 @@ desk, say) with *No waiver yet: signed on paper?*, which records a paper
 signature in the name of the member of staff. Managers write the waiver; the
 desk records paper ones, which go in the activity log.
 
+An adult booking or applying for somebody they manage agrees on that
+person's behalf: the signature records the adult as signer and the person as
+participant, and counts for that person only, apart from the adult's own
+([applying for somebody you manage](activities.md#applying-for-somebody-you-manage)).
+
 A signature is the venue's record of consent, so like the money on a booking
 it is kept when a customer erases their account; it goes out with what the
 venue holds against the number and with the customer's own data.

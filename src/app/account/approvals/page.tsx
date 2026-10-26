@@ -7,7 +7,7 @@ import { activityIcon } from "@/lib/activity-registry";
 import { sportLabel, type Phrase, type T } from "@/lib/i18n";
 import { useT } from "@/components/Language";
 import { ApprovalForm, SlotFields, explainApproval, slotBody, type ApplyInfo } from "@/components/ApprovalForm";
-import { History, StatusBadge, slotText, when, type Say } from "@/components/ApprovalReview";
+import { History, StatusBadge, customerKey, slotText, when, type Say } from "@/components/ApprovalReview";
 import CoachApprovals from "@/components/CoachApprovals";
 import PayOnline from "@/components/PayOnline";
 import { DocumentLink } from "@/components/ApprovalDocumentLink";
@@ -22,7 +22,7 @@ import { DocumentLink } from "@/components/ApprovalDocumentLink";
  */
 export default function ApprovalsPage() {
   const t = useT();
-  const say: Say = useCallback((key, vars) => t(key as Phrase, vars), [t]);
+  const say: Say = useCallback((key, vars) => t(customerKey(key) as Phrase, vars), [t]);
   const [requests, setRequests] = useState<ApprovalRequest[] | null>(null);
   const [courts, setCourts] = useState<Record<string, { id: number; name: string }[]>>({});
   const [info, setInfo] = useState<ApplyInfo | null | undefined>(undefined);
@@ -34,7 +34,9 @@ export default function ApprovalsPage() {
     const q = new URLSearchParams(window.location.search);
     const venueId = Number(q.get("venueId"));
     const sport = q.get("sport");
-    return Number.isInteger(venueId) && venueId > 0 && sport ? { venueId, sport } : null;
+    // A renewal for somebody the account manages names them (ADR 0022).
+    const forPerson = Number(q.get("for")) || null;
+    return Number.isInteger(venueId) && venueId > 0 && sport ? { venueId, sport, forPerson } : null;
   }, []);
 
   const load = useCallback(async () => {
@@ -61,7 +63,11 @@ export default function ApprovalsPage() {
       </div>
     );
   if (requests === null) return error ? <p className="text-sm text-red-600">{error}</p> : null;
-  const live = asked ? requests.find((r) => r.venueId === asked.venueId && r.sport === asked.sport && ["pending", "info_requested", "in_person_due"].includes(r.status)) : undefined;
+  // One live application per person: the form stays for somebody else the account manages.
+  const live = asked
+    ? requests.find((r) => r.venueId === asked.venueId && r.sport === asked.sport && ["pending", "info_requested", "in_person_due"].includes(r.status)) &&
+      !(info && (info.people?.length ?? 0) > 0)
+    : undefined;
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div>
@@ -74,6 +80,7 @@ export default function ApprovalsPage() {
       {asked && info && !live && (
         <ApprovalForm
           info={info}
+          initialFor={asked?.forPerson ?? null}
           onDone={() => {
             setNotice(t("apr.sent"));
             window.history.replaceState(null, "", "/account/approvals");
@@ -162,6 +169,7 @@ function RequestCard({
         </span>
         <StatusBadge say={say} request={r} />
       </div>
+      {r.forPerson && <p className="text-xs font-medium text-slate-600">{t("guard.forLine", { name: r.forPerson.name })}</p>}
       <p className="text-slate-700">{explainStatus(t, r)}</p>
       {r.status === "info_requested" && question?.reason && (
         <div className="space-y-2 rounded-lg bg-sky-50 p-3">
@@ -246,7 +254,10 @@ function RequestCard({
           </button>
         )}
         {renewable && (
-          <Link href={`/account/approvals?venueId=${r.venueId}&sport=${encodeURIComponent(r.sport)}`} className="font-medium text-teal-700 underline">
+          <Link
+            href={`/account/approvals?venueId=${r.venueId}&sport=${encodeURIComponent(r.sport)}${r.forPerson?.id ? `&for=${r.forPerson.id}` : ""}`}
+            className="font-medium text-teal-700 underline"
+          >
             {r.status === "approved" ? t("apr.renew") : t("apr.applyAgain")}
           </Link>
         )}

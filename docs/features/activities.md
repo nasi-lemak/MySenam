@@ -207,8 +207,10 @@ the booking is where it is enforced.
 where one is linked), the activity (or anything there), its scope (this
 branch, or every branch of the business, which only whoever runs the
 business may give or take back), who gave it and when, when it runs out,
-and, once taken back, who did it and why. Every change is in the activity
-log. Front desk cannot record one for an activity whose approval the venue
+and, once taken back, who did it and why. A sign-off an approval wrote for
+somebody an adult manages also names that person, and counts for them alone
+([applying for somebody you manage](#applying-for-somebody-you-manage)). Every
+change is in the activity log. Front desk cannot record one for an activity whose approval the venue
 set as a safety assessment unless a manager delegated them for it
 ([who may grant](#registering-online-for-approval)); taking back one an
 approval wrote revokes that approval.
@@ -293,7 +295,9 @@ number the venue can reach as for booking. The venue's page lists the
 activities it takes applications for. The customer answers what is asked,
 declares whether they are 18 or over, and, if not, gives a parent or
 guardian's name and their declaration that they agree; this is recorded as
-declared, never as verified, and no identity document is asked for. They may
+declared, never as verified, and no identity document is asked for. A parent
+or guardian can instead apply for a child from their own account
+([below](#applying-for-somebody-you-manage)). They may
 ask for a slot at the same time: a time the court's booking rules allow,
 checked against the venue's own limits as a booking would be. One application
 per person, activity and venue may be open at a time; somebody approved with
@@ -415,10 +419,73 @@ the approval itself while it is valid, whatever happens to the application;
 a manager or the platform owner can keep one longer under a recorded hold
 ([privacy](../architecture/privacy.md#applications-to-be-approved-for-an-activity)).
 
-Not built: a parent applying for a child from the parent's own account (a
-minor applies from their own, with the guardian's declaration); a coach's
-lesson asked for with an application (a slot is court time; a lesson is booked
-once approved); previews of PDFs (a PDF is downloaded, never shown in the app).
+### Applying for somebody you manage
+
+A parent, legal guardian or other person with authority applies, books,
+agrees to waivers and is told for a child (or anybody else they act for)
+from their own account, without the child needing a login, email or phone
+(`src/lib/managed-people.ts`;
+[ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md)).
+
+**People you manage** (`/account`, `/api/my/people`). The adult adds each
+person with a first name or what the family calls them, a birth year only if
+an activity needs an age, the relationship (parent, legal guardian, or
+another person with authority) and a declaration that they have the
+authority to act for them, its time recorded. Nothing else is held: an
+email, phone, photo, school or identity number sent is refused. All of it
+is the adult's word, recorded as declared and never verified; MySenam makes
+no claim about the age at which a guardian is needed, which is the
+activity's own configuration. The adult can change a person (a changed
+relationship needs the declaration again), stop managing them (nothing is
+deleted: an application under review, a hold, an approval or a booking
+stays, and can still be withdrawn or cancelled) and bring them back. No
+other account can see or act on them.
+
+**Applying.** The application form asks *who is this application for*: the
+adult, or one of their people. For a person, the adult declares that they
+have the authority to apply for them and agrees to it on their behalf; the
+guardian on the application is the adult, from their account, not typed.
+The application is the person's (one live application per person, activity
+and venue, the adult's own apart), and everything about it is the adult's:
+documents, status, history, payment and every email, which says which person
+it is about. Staff and coaches see *applied by {adult} (declared parent) for
+{child}*, marked declared, not verified.
+
+**Reviewing the adult's authority.** A MySenam account proves nobody's
+guardianship. Where an activity's setting asks for it (*staff review the
+authority of an adult applying for somebody they manage*, off unless set),
+approval waits until a reviewer records that they reviewed the adult's
+authority, with an optional note of how (`authority`; an event in its
+history and the activity log). Only those who may grant the activity may
+record it (manager, named coach, or front desk delegated for a safety
+assessment); it is never automatic, and nothing is uploaded or kept for it.
+
+**Eligibility is the person's.** Approval writes the sign-off for that
+person alone (linked to the adult's account, on the adult's number, so staff
+can reach them): it counts for the child, never for the parent or a sibling,
+and the parent's never counts for the child, online, at the counter and at
+the door. Revoking it stops the child's bookings and door codes and flags
+the child's bookings for staff, not the parent's.
+
+**Booking and attendance.** A slot asked for with the application is booked
+for the person on approval. Later, the booking form asks *who is taking
+part* where the signed-in adult manages anybody (one court at a time): the
+booking records the participant, whose sign-off the booking rules,
+rescheduling and the door code check, and whose waiver the adult agrees to
+on their behalf. Staff see the child's name, *booked by* the adult, on the
+day's bookings and at check-in. A booking for a managed person cannot be
+opened as an open game.
+
+**Never discovered.** A managed person has no user record, so player search,
+suggestions, profiles and invitations cannot reach them
+([matchmaking](../architecture/decisions/0016-matchmaking-on-open-games.md)).
+
+Not built: a coach's lesson asked for with an application (a slot is court
+time; a lesson is booked once approved); previews of PDFs (a PDF is
+downloaded, never shown in the app); booking for a managed person on the
+waiting list, at the counter, through the venue's API key, or on several
+courts at once (those book for the adult); an induction of the person's own
+for unstaffed use (inductions are filed against the adult's number).
 
 ## Countries and languages
 

@@ -795,7 +795,7 @@ export function BookingsTab() {
                 </div>
 
                 <div className="mt-2 text-sm">
-                  {b.name}
+                  {b.participantName ? t("apr.child.bookedFor", { name: b.participantName, adult: b.name }) : b.name}
                   <NoShowBadge b={b} />
                   <StrikesBadge b={b} act={act} />
                   <a href={`tel:${b.phone}`} className="ml-2 text-slate-500 underline">
@@ -846,7 +846,7 @@ export function BookingsTab() {
                       {formatHour(b.startHour)} – {formatHour(b.endHour)}
                     </td>
                     <td className="px-3 py-2">
-                      {b.name}
+                      {b.participantName ? t("apr.child.bookedFor", { name: b.participantName, adult: b.name }) : b.name}
                       <NoShowBadge b={b} />
                   <StrikesBadge b={b} act={act} />
                       <Extras b={b} act={act} />

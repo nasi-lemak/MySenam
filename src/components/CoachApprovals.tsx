@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { sportLabel, type Phrase } from "@/lib/i18n";
 import { useT } from "@/components/Language";
-import { ApprovalReview, type Say } from "@/components/ApprovalReview";
+import { ApprovalReview, customerKey, type Say } from "@/components/ApprovalReview";
 import { explainApproval } from "@/components/ApprovalForm";
 
 /**
@@ -14,7 +14,7 @@ import { explainApproval } from "@/components/ApprovalForm";
  */
 export default function CoachApprovals() {
   const t = useT();
-  const say: Say = useCallback((key, vars) => t(key as Phrase, vars), [t]);
+  const say: Say = useCallback((key, vars) => t(customerKey(key) as Phrase, vars), [t]);
   const explain = useCallback((body: unknown) => explainApproval(t, body as { error?: string; code?: string }), [t]);
   const activityLabel = useCallback((sport: string) => sportLabel(t, sport), [t]);
   return (

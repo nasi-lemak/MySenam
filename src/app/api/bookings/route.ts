@@ -43,6 +43,7 @@ import { reviewable, reviewPath } from "@/lib/reviews";
 import { recordConsent } from "@/lib/marketing";
 import { accountsForUser, chargeToAccount } from "@/lib/accounts";
 import { signWaiver, waiverRefusal } from "@/lib/waivers";
+import { managedPerson } from "@/lib/managed-people";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override } =
+  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override, participantId } =
     (body ?? {}) as Record<string, unknown>;
 
   // Either name a court, or name a venue and sport and let us pick the
@@ -137,6 +138,18 @@ export async function POST(req: NextRequest) {
     if (noPhone) return refusal(noPhone, 403);
   }
 
+  // For somebody the signed-in adult manages (lib/managed-people.ts): only
+  // their own, not archived; one court, so the person's eligibility is what
+  // the booking rules and the door check.
+  let participant: { id: number; name: string } | undefined;
+  if (participantId !== undefined && participantId !== null) {
+    const person = user ? await managedPerson(user.id, participantId, { live: true }) : null;
+    // Their own refusal codes (`guard.err.*` in the customer dictionaries).
+    if (!person) return NextResponse.json({ error: "Not one of the people you manage.", code: "GUARD_NOT_FOUND" }, { status: 404 });
+    if (group) return NextResponse.json({ error: "Book one court at a time for somebody you manage.", code: "GUARD_ONE_COURT" }, { status: 409 });
+    participant = { id: person.id, name: person.displayName };
+  }
+
   // Charged to a company or school account (lib/accounts.ts): only by somebody
   // signed in whose proved number the account lists.
   let account: { id: number; name: string } | null = null;
@@ -170,7 +183,7 @@ export async function POST(req: NextRequest) {
     });
     if (refused) return refusal(refused);
     // The venue's waiver, agreed to once per version (lib/waivers.ts).
-    const unsigned = await waiverRefusal(venueOfBooking, phone, agreeWaiver);
+    const unsigned = await waiverRefusal(venueOfBooking, phone, agreeWaiver, participant?.id ?? null);
     if (unsigned) return refusal(unsigned);
   }
 
@@ -229,6 +242,7 @@ export async function POST(req: NextRequest) {
     ...(players !== undefined ? { players: Number(players) } : {}),
     // The activity, on a court that offers several (checked there).
     ...(typeof sport === "string" && sport !== "" ? { sport: sport as Sport } : {}),
+    ...(participant ? { participant } : {}),
   };
 
   const result = anyCourt
@@ -367,7 +381,7 @@ export async function POST(req: NextRequest) {
 
   const court = (await getCourt(result.bookings[0].courtId))!;
   const venue = (await getVenue(court.venueId))!;
-  if (agreeWaiver === true) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id });
+  if (agreeWaiver === true) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id, participant: participant ?? null });
 
   // A venue asking for payment online to hold a booking: what is still
   // unpaid is held for a few minutes, and confirmed once it is paid.

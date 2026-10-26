@@ -59,6 +59,12 @@ export const RETENTION = {
   /** Withdrawn out-of-hours access, kept a while in case it is disputed. */
   revokedInductionDays: 365,
   /**
+   * Somebody an adult no longer manages from their account (archived), once
+   * nothing still rests on them: no application, no sign-off in force and no
+   * booking to come (lib/managed-people.ts).
+   */
+  archivedManagedDays: 365,
+  /**
    * A venue application whose emailed link was never followed: somebody's
    * name, email and password hash, with nobody shown to want it kept.
    */
@@ -196,8 +202,8 @@ const RULES: Rule[] = [
     // that holds only bookings still naming somebody.
     where: `date < ? AND name <> '${ANONYMOUS}'`,
     // The booking survives — its price is the venue's record. The person in
-    // it does not.
-    set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL`,
+    // it does not, nor anybody it was booked for.
+    set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL, participant_name = NULL`,
   },
   {
     what: said("srv.ret.receiptNames"),
@@ -221,6 +227,16 @@ const RULES: Rule[] = [
     action: "deleted",
     table: "sign_offs",
     where: "revoked_at IS NOT NULL AND revoked_at < ?",
+  },
+  {
+    what: said("srv.ret.managedPeople"),
+    days: RETENTION.archivedManagedDays,
+    action: "deleted",
+    table: "managed_people",
+    where: `archived_at IS NOT NULL AND archived_at < ?
+      AND NOT EXISTS (SELECT 1 FROM approval_requests r WHERE r.managed_person_id = managed_people.id)
+      AND NOT EXISTS (SELECT 1 FROM sign_offs s WHERE s.managed_person_id = managed_people.id AND s.revoked_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.participant_id = managed_people.id AND b.status = 'confirmed' AND b.date >= to_char(now() - interval '1 day', 'YYYY-MM-DD'))`,
   },
   {
     what: said("srv.ret.applications"),
@@ -397,6 +413,8 @@ export interface CustomerExport {
   messages: unknown[];
   /** Applications to be approved for an activity: answers, declarations, history and documents still held (lib/approvals.ts). */
   approvals: unknown[];
+  /** People this account manages (lib/managed-people.ts): what is held of each, and the sign-offs written for them. */
+  managedPeople: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -434,7 +452,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
     signIns: await all("SELECT provider, email, created_at FROM user_identities WHERE user_id = ?", userId),
     bookings: await all(
       `SELECT b.code, b.date, b.start_min, b.end_min, b.total_price, b.status,
-              b.payment_status, b.created_at, c.name AS court, v.name AS venue
+              b.payment_status, b.created_at, c.name AS court, v.name AS venue, b.participant_name AS booked_for
        FROM bookings b
        JOIN courts c ON c.id = b.court_id
        JOIN venues v ON v.id = c.venue_id
@@ -570,7 +588,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       account.email
     ),
     waivers: await all(
-      `SELECT v.name AS venue, s.name, s.signed_at, w.text
+      `SELECT v.name AS venue, s.name, s.participant_name AS on_behalf_of, s.signed_at, w.text
          FROM waiver_signatures s JOIN venue_waivers w ON w.id = s.waiver_id JOIN venues v ON v.id = w.venue_id
         WHERE s.phone_key = phone_key(?) ORDER BY s.signed_at`,
       account.phone
@@ -584,6 +602,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       account.email
     ),
     approvals: await (await import("./approvals")).approvalsExport(userId),
+    managedPeople: await (await import("./managed-people")).managedExport(userId),
     heldAtACounter:
       "A pass, membership, waiting-list place, induction, sign-off or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
   };
@@ -883,6 +902,8 @@ export async function eraseCustomer(userId: number): Promise<EraseResult> {
     await forgetLeaguePlayer(userId, ANONYMOUS);
     // Their applications to be approved for an activity: answers, documents and any slot held. A sign-off already given stays the venue's record.
     await (await import("./approvals")).eraseApprovals(userId);
+    // The people they managed go with the account; a sign-off still in force for one of them is taken back first.
+    await (await import("./managed-people")).eraseManaged(userId);
     // Nor a concession proof remembered against the account's number.
     await db.prepare("DELETE FROM concession_proofs WHERE phone_key = phone_key((SELECT phone FROM users WHERE id = ?))").run(userId);
     // Nor their enquiries about private hire.

@@ -92,6 +92,10 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
   each, linked to nobody ([below](#applications-to-be-approved-for-an-activity));
   a sign-off already given stays, as the venue's record, no longer linked to
   anybody's account;
+- deletes the people it managed ([below](#people-an-adult-manages)), first
+  taking back any sign-off still in force for one of them, so nothing left
+  behind counts for anybody; waivers signed on their behalf stay, as every
+  signature does;
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
@@ -116,6 +120,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
+| Somebody an adult no longer manages (archived), once no application, sign-off in force or booking to come rests on them | 365 days after archiving | deleted |
 | Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision | deleted; what was seen stays on the sign-off it wrote |
 | An approved application's answers, declarations and history detail, its approval still standing | 365 days after the decision | removed; the approval and the bare facts stay |
 | Applications to be approved for an activity, once closed (refused, withdrawn, lapsed, or the approval ended) | 365 days after closing | deleted; the bare facts kept |
@@ -213,6 +218,28 @@ also expects a named person to write to: with `OPERATOR_NAME` and
 `OPERATOR_EMAIL` set (and `OPERATOR_ADDRESS`, if there is one), the notice
 names them under *Who to write to*; without them it says there is nobody yet.
 Have a lawyer read it before taking a real customer's booking.
+
+## People an adult manages
+
+A parent, legal guardian or other person with authority can manage somebody
+(usually a child) from their own account
+([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage);
+[ADR 0022](decisions/0022-children-managed-from-an-adults-account.md)).
+
+| What is held | Why | How long |
+| ------------ | --- | -------- |
+| A first name or what the family calls them; a birth year, only if the adult gives one because an activity needs an age; the relationship and the adult's declaration of authority, with its time (`managed_people`) | To apply, agree to waivers and book on their behalf without a login of their own | While the adult's account manages them; archived, 365 days later once nothing rests on them; erased with the adult's account |
+| The person on applications, sign-offs, bookings and waiver signatures made for them | To keep their eligibility theirs alone, and the venue's records straight | As each of those records is kept (above); a booking stops naming them when it stops naming anybody |
+
+No email, phone, photo, school or identity number is held: the code refuses
+those fields. Everything is the adult's word, recorded as declared and never
+as verified. The person has no user record, so nothing that finds or
+contacts players reaches them. Their data goes out with the adult's export
+(`managedPeople`, the sign-offs written for them, the applications made for
+them and the waivers agreed on their behalf) and is erased with the adult's
+account; an application made for them follows the
+[application periods](#applications-to-be-approved-for-an-activity), its
+minimised form dropping the authority declaration.
 
 ## Where personal data is kept
 

@@ -4,7 +4,9 @@
   [ADR 0020](0020-approval-to-booking-payment-and-authority.md) (a booking
   made on approval is held for payment where the venue asks it; a coach
   decides signed in to their own account, not at a link; who may grant a
-  safety assessment; revoking). How customers,
+  safety assessment; revoking), and by
+  [ADR 0022](0022-children-managed-from-an-adults-account.md) (a parent
+  applies for a child from their own account). How customers,
   staff and coaches use it is
   [registering online for approval](../../features/activities.md#registering-online-for-approval).
 - **Context:** an activity whose booking rules ask for a sign-off or a

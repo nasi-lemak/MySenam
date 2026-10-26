@@ -414,6 +414,8 @@ interface BookingRow {
   hold_until?: string | null;
   released_unpaid?: number;
   tax_rate?: number | string | null;
+  participant_id?: number | null;
+  participant_name?: string | null;
   sport: Sport;
 }
 
@@ -485,6 +487,8 @@ function toBooking(r: BookingRow): Booking {
     name: r.name,
     phone: r.phone,
     email: r.email,
+    participantId: r.participant_id ?? null,
+    participantName: r.participant_name ?? null,
     totalPrice: r.total_price,
     status: r.status,
     createdAt: r.created_at,
@@ -748,6 +752,8 @@ export async function createBookingOnAnyCourt(input: {
   players?: number;
   staff?: StaffOverride;
   by?: SignOffChannel;
+  /** Who takes part, for somebody the signed-in adult manages (createBookingSeries). */
+  participant?: { id: number; name: string };
 } & WhenInput): Promise<CreateSeriesResult> {
   const { venueId, sport, date, ...rest } = input;
 
@@ -1898,6 +1904,12 @@ export async function createBookingSeries(
      */
     approval?: { id: number; assessment: boolean };
     /**
+     * Who takes part, where the signed-in adult books for somebody they
+     * manage (lib/managed-people.ts): the sign-off checked is that person's
+     * alone. Set by callers that checked the person is the account's own.
+     */
+    participant?: { id: number; name: string };
+    /**
      * How many: players on a court priced per player, or places on a shared
      * facility (people on a gym floor, kayaks from a fleet).
      */
@@ -1966,6 +1978,7 @@ export async function createBookingSeries(
       userId,
       channel,
       need: signOffNeed,
+      participant: input.participant?.id ?? null,
     });
     if (!held && !override)
       return refuse(signOffNeed === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(court.sport) });
@@ -2047,6 +2060,9 @@ export async function createBookingSeries(
                   input.classId ?? null, players, breaches.length > 0,
                   quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0
                 )) as { id: number };
+              // Who takes part, where an adult booked for somebody they manage.
+              if (input.participant)
+                await db.prepare("UPDATE bookings SET participant_id = ?, participant_name = ? WHERE id = ?").run(input.participant.id, input.participant.name, id.id);
               // An enrolment holds a place in its class; the class holds the court.
               if (!input.classId)
                 await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, ...claimBuffers(policy) });
@@ -3089,6 +3105,8 @@ async function rescheduleBookingOnce(
         userId: ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id,
         channel: by,
         need,
+        // Booked for somebody an adult manages: still theirs alone.
+        participant: booking.participantId ?? null,
       });
       if (!held && !(by === "staff" && to.override === true)) {
         firstRefusal ??= refuse(need === "certification" ? "CERTIFICATION_NEEDED" : "SIGN_OFF_NEEDED", { sport: activityName(booking.sport) });
@@ -4223,7 +4241,8 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
     .get(venue.id, booking.sport)) as { kind: string } | undefined;
   const need =
     rules.certification || asked?.kind === "certification" ? "certification" : rules.signOff || asked ? "any" : null;
-  if (need && !(await signOffHolds({ venueId: venue.id, sport: booking.sport, until: booking.date, phone: booking.phone, channel: "staff", need })))
+  // Booked for somebody an adult manages: their own sign-off, never the adult's or a sibling's.
+  if (need && !(await signOffHolds({ venueId: venue.id, sport: booking.sport, until: booking.date, phone: booking.phone, channel: "staff", need, participant: booking.participantId ?? null })))
     return {
       ok: false,
       reason: "approval-needed",
@@ -4899,7 +4918,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   }
   const extras = await addonsFor(rows.map((r) => r.id));
   const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
-  const waivers = await signaturesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
+  const waivers = await signaturesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone, participant: r.participant_id ?? null })));
   const policies = new Map<number, Awaited<ReturnType<typeof cancelPolicy>>>();
   for (const r of rows) if (!policies.has(r.venue_id)) policies.set(r.venue_id, await cancelPolicy(r.venue_id));
 
@@ -4962,7 +4981,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       accountName: r.account_name,
       invoiced: r.account_invoice_id !== null,
       staffNote: notes.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? null,
-      waiverSigned: waivers.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? true,
+      waiverSigned: waivers.get(r.participant_id ? `${r.venue_id}:p${r.participant_id}` : `${r.venue_id}:${phoneKey(booking.phone)}`) ?? true,
     });
   }
   return list;

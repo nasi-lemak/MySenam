@@ -11,7 +11,9 @@ import { DocumentLink } from "@/components/ApprovalDocumentLink";
  * Reviewing applications to be approved for an activity (lib/approvals.ts):
  * the same screen for the venue's staff in the dashboard and for a coach
  * signed in to their own account, each reading it in their own dictionary
- * (the keys below are in both the staff and the customer dictionaries).
+ * (the keys below are in both the staff and the customer dictionaries; those
+ * about somebody an adult manages are `apr.child.*` for staff and
+ * `guard.rv.*` for customers, see `customerKey`).
  */
 
 export type ReviewKey =
@@ -97,7 +99,24 @@ export type ReviewKey =
   | "apr.ev.booking_released"
   | "apr.ev.bookings_flagged"
   | "apr.ev.late_payment_booked"
-  | "apr.ev.late_payment_refund";
+  | "apr.ev.late_payment_refund"
+  | "apr.child.appliedBy"
+  | "apr.child.rel.parent"
+  | "apr.child.rel.guardian"
+  | "apr.child.rel.other"
+  | "apr.child.bornYear"
+  | "apr.child.declaredNote"
+  | "apr.child.authorityDeclared"
+  | "apr.child.reviewAuthority"
+  | "apr.child.authorityPrompt"
+  | "apr.child.authorityReviewed"
+  | "apr.child.authorityNeeded"
+  | "apr.child.evReviewed";
+
+/** A review key as the customer dictionary has it: those about somebody managed are `guard.rv.*` there. */
+export function customerKey(key: string): string {
+  return key.startsWith("apr.child.") ? `guard.rv.${key.slice("apr.child.".length)}` : key;
+}
 
 export type Say = (key: ReviewKey, vars?: Record<string, string | number>) => string;
 
@@ -143,6 +162,7 @@ export function statusOf(say: Say, r: Pick<ApprovalRequest, "status" | "lapsed" 
 }
 
 export function eventText(say: Say, action: string): string {
+  if (action === "authority_reviewed") return say("apr.child.evReviewed");
   return EVENT_KEYS.has(action) ? say(`apr.ev.${action}` as ReviewKey) : action;
 }
 
@@ -231,10 +251,18 @@ export function ApprovalReview({
 
   async function act(r: ApprovalRequest, action: Decision) {
     let reason: string | null = null;
-    if (action === "ask" || action === "reject" || action === "in_person" || action === "revoke") {
+    if (action === "ask" || action === "reject" || action === "in_person" || action === "revoke" || action === "authority") {
       const prompt: ReviewKey =
-        action === "ask" ? "apr.r.askPrompt" : action === "reject" ? "apr.r.rejectPrompt" : action === "revoke" ? "apr.r.revokePrompt" : "apr.r.inPersonPrompt";
-      reason = window.prompt(say(prompt, { name: r.name }));
+        action === "ask"
+          ? "apr.r.askPrompt"
+          : action === "reject"
+            ? "apr.r.rejectPrompt"
+            : action === "revoke"
+              ? "apr.r.revokePrompt"
+              : action === "authority"
+                ? "apr.child.authorityPrompt"
+                : "apr.r.inPersonPrompt";
+      reason = window.prompt(say(prompt, { name: r.name, adult: r.appliedBy ?? "" }));
       if (reason === null) return;
       if ((action === "ask" || action === "reject" || action === "revoke") && reason.trim() === "") return;
     }
@@ -300,10 +328,30 @@ export function ApprovalReview({
                 {r.declaredAt && <li>✓ {say("apr.r.declared", { date: when(r.declaredAt, locale) })}</li>}
                 {r.videoWatchedAt && <li>✓ {say("apr.r.watched", { date: when(r.videoWatchedAt, locale) })}</li>}
                 {r.waiverSignedAt && <li>✓ {say("apr.r.waiverAgreed")}</li>}
-                <li>
-                  {r.declaredAdult ? say("apr.r.adult") : say("apr.r.minor", { name: r.guardianName ?? "", date: r.guardianDeclaredAt ? when(r.guardianDeclaredAt, locale) : "" })}{" "}
-                  <span className="text-slate-400">({say("apr.r.declaredNote")})</span>
-                </li>
+                {r.forPerson ? (
+                  <>
+                    <li className="font-medium text-slate-700">
+                      {say("apr.child.appliedBy", {
+                        adult: r.appliedBy ?? r.guardianName ?? "",
+                        relationship: say(`apr.child.rel.${r.forPerson.relationship ?? "other"}` as ReviewKey),
+                        name: r.forPerson.name,
+                      })}
+                      {r.forPerson.birthYear ? ` · ${say("apr.child.bornYear", { year: r.forPerson.birthYear })}` : ""}{" "}
+                      <span className="font-normal text-slate-400">({say("apr.child.declaredNote")})</span>
+                    </li>
+                    {r.authorityDeclaredAt && <li>{say("apr.child.authorityDeclared", { date: when(r.authorityDeclaredAt, locale) })}</li>}
+                    {r.authorityReviewedAt ? (
+                      <li>✓ {say("apr.child.authorityReviewed", { name: r.authorityReviewedBy ?? "", date: when(r.authorityReviewedAt, locale) })}</li>
+                    ) : (
+                      r.guardianCheck && live && <li className="text-amber-700">{say("apr.child.authorityNeeded")}</li>
+                    )}
+                  </>
+                ) : (
+                  <li>
+                    {r.declaredAdult ? say("apr.r.adult") : say("apr.r.minor", { name: r.guardianName ?? "", date: r.guardianDeclaredAt ? when(r.guardianDeclaredAt, locale) : "" })}{" "}
+                    <span className="text-slate-400">({say("apr.r.declaredNote")})</span>
+                  </li>
+                )}
                 {r.certReference && <li>📜 {say("apr.r.cert", { reference: r.certReference, date: r.certExpiresOn ?? "" })}</li>}
                 {r.inPersonStep && (
                   <li>
@@ -351,6 +399,11 @@ export function ApprovalReview({
                   {!r.adminCheckedAt && (
                     <button type="button" disabled={busy === r.id} onClick={() => act(r, "check")} className="rounded-md border border-slate-300 px-3 py-1 text-xs disabled:opacity-50">
                       {say("apr.r.check")}
+                    </button>
+                  )}
+                  {r.forPerson && !r.authorityReviewedAt && (
+                    <button type="button" disabled={busy === r.id} onClick={() => act(r, "authority")} className="rounded-md border border-slate-300 px-3 py-1 text-xs disabled:opacity-50">
+                      {say("apr.child.reviewAuthority")}
                     </button>
                   )}
                   <button type="button" disabled={busy === r.id} onClick={() => act(r, "reject")} className="rounded-md border border-red-200 px-3 py-1 text-xs text-red-700 disabled:opacity-50">

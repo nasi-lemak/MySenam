@@ -21,7 +21,8 @@ import { addDays, isBookableDate, isValidDateString, todayISO } from "./time";
 import { GUARDIAN_AGE } from "./tournaments";
 import type { Phrase } from "./i18n";
 import type { Booking, Sport } from "./types";
-import { currentWaiver, signWaiver, waiverSigned } from "./waivers";
+import { currentWaiver, signWaiver, waiverSigned, waiverSignedFor } from "./waivers";
+import { managedPerson, type Relationship } from "./managed-people";
 import { venueZoneOf } from "./zones";
 
 /**
@@ -114,6 +115,12 @@ export interface ApprovalRequirement {
   reviewDays: number | null;
   documentDays: number | null;
   recordDays: number | null;
+  /**
+   * An adult applying for somebody they manage needs staff to record that
+   * they reviewed the adult's authority before approval (ADR 0022). Off
+   * unless the venue sets it; never automatic.
+   */
+  guardianCheck: boolean;
 }
 
 export interface ApprovalEvent {
@@ -192,6 +199,19 @@ export interface ApprovalRequest {
   documents: ApprovalDocumentInfo[];
   events: ApprovalEvent[];
   createdAt: string;
+  /**
+   * Made by the account's adult for somebody they manage (ADR 0022): who it
+   * is for, the relationship the adult declared, and when they declared
+   * their authority for it. Declared, never verified. Null: the adult's own.
+   */
+  forPerson: { id: number | null; name: string; relationship: Relationship | null; birthYear: number | null } | null;
+  /** The account that applied: the adult, for somebody they manage. */
+  appliedBy: string | null;
+  authorityDeclaredAt: string | null;
+  /** Where the activity asks for it, the staff review of the adult's authority. */
+  guardianCheck: boolean;
+  authorityReviewedAt: string | null;
+  authorityReviewedBy: string | null;
 }
 
 /**
@@ -245,6 +265,7 @@ interface RequirementRow {
   review_days: number | null;
   document_days: number | null;
   record_days: number | null;
+  guardian_check?: number | null;
 }
 
 function parseQuestions(raw: string | null): ApprovalQuestion[] {
@@ -288,6 +309,7 @@ async function toRequirements(rows: RequirementRow[]): Promise<ApprovalRequireme
     reviewDays: r.review_days,
     documentDays: r.document_days,
     recordDays: r.record_days,
+    guardianCheck: r.guardian_check === 1,
   }));
 }
 
@@ -398,6 +420,8 @@ export async function saveRequirement(
     await db.prepare("DELETE FROM approval_delegates WHERE requirement_id = ?").run(row.id);
     for (const admin of delegateIds) await db.prepare("INSERT INTO approval_delegates (requirement_id, admin_id) VALUES (?, ?)").run(row.id, admin);
     await writeDocumentRules(row.id, documentRules);
+    // An adult applying for somebody they manage: staff review their authority first, where the venue asks.
+    await db.prepare("UPDATE approval_requirements SET guardian_check = ? WHERE id = ?").run(input.guardianCheck === true ? 1 : 0, row.id);
     return row.id;
   });
   const saved = (await getDb().prepare("SELECT * FROM approval_requirements WHERE id = ?").get(id)) as RequirementRow;
@@ -459,10 +483,19 @@ interface RequestRow {
   admin_checked_by: string | null;
   booking_hold_until: string | null;
   booking_due: number | string | null;
+  managed_person_id: number | null;
+  relationship: Relationship | null;
+  authority_declared_at: unknown;
+  authority_reviewed_at: unknown;
+  authority_reviewed_by: string | null;
+  applied_by: string | null;
+  guardian_check: number | null;
+  person_birth_year: number | null;
 }
 
 const REQUEST_SELECT = `
   SELECT r.*, v.name AS venue_name, c.name AS court_name, b.code AS booking_code,
+         au.name AS applied_by, q.guardian_check, mp.birth_year AS person_birth_year,
          b.hold_until AS booking_hold_until,
          CASE WHEN b.status = 'confirmed' AND b.payment_status = 'unpaid' THEN b.total_price - b.shares_paid END AS booking_due,
          q.questions, q.kind, q.in_person,
@@ -474,7 +507,9 @@ const REQUEST_SELECT = `
     JOIN approval_requirements q ON q.id = r.requirement_id
     LEFT JOIN courts c ON c.id = r.court_id
     LEFT JOIN bookings b ON b.id = r.booking_id
-    LEFT JOIN sign_offs s ON s.id = r.sign_off_id`;
+    LEFT JOIN sign_offs s ON s.id = r.sign_off_id
+    LEFT JOIN users au ON au.id = r.user_id
+    LEFT JOIN managed_people mp ON mp.id = r.managed_person_id`;
 
 async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
   if (rows.length === 0) return [];
@@ -552,6 +587,15 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
         .filter((e) => e.request_id === r.id)
         .map((e) => ({ at: isoOf(e.at), actor: e.actor, actorName: e.actor_name, action: e.action, reason: e.reason })),
       createdAt: isoOf(r.created_at),
+      forPerson:
+        r.managed_person_id !== null || r.relationship !== null
+          ? { id: r.managed_person_id, name: r.name, relationship: r.relationship, birthYear: r.person_birth_year ?? null }
+          : null,
+      appliedBy: r.applied_by ?? null,
+      authorityDeclaredAt: iso(r.authority_declared_at),
+      guardianCheck: r.guardian_check === 1,
+      authorityReviewedAt: iso(r.authority_reviewed_at),
+      authorityReviewedBy: r.authority_reviewed_by ?? null,
     };
   });
 }
@@ -923,7 +967,7 @@ async function venueTime(venueId: number, utc: string): Promise<string> {
  * the decision it reports, which their account page shows anyway.
  */
 async function tellCustomer(
-  req: Pick<ApprovalRequest, "id" | "userId" | "venueId" | "venueName" | "sport">,
+  req: Pick<ApprovalRequest, "id" | "userId" | "venueId" | "venueName" | "sport"> & { forPerson?: ApprovalRequest["forPerson"] },
   mail: CustomerMail,
   extra: { reason?: string | null; until?: string | null; code?: string | null; slotTaken?: boolean; step?: string | null; payBy?: string | null } = {},
   dedupe?: string
@@ -938,6 +982,8 @@ async function tellCustomer(
       subject: (t) => t(`apr.mail.${mail}Subject` as Phrase, vars(t)),
       body: (t) =>
         [
+          // Applied for by the adult for somebody they manage: which of them it is about.
+          req.forPerson ? t("guard.mail.about", { name: req.forPerson.name }) : null,
           t(`apr.mail.${mail}` as Phrase, {
             ...vars(t),
             reason: extra.reason ?? "",
@@ -972,6 +1018,10 @@ async function tellReviewers(req: ApprovalRequest, what: "new" | "answered"): Pr
     .all(req.requirementId)) as { email: string }[];
   const to = [...new Set([venue?.alert_email, ...coaches.map((c) => c.email)].filter((e): e is string => !!e))];
   const activity = activityName(req.sport, "en");
+  // An adult applying for somebody they manage: both named, the relationship as declared (not verified).
+  const applicant = req.forPerson
+    ? `${req.appliedBy ?? "An adult"} (declared ${req.forPerson.relationship ?? "guardian"}, not verified), for ${req.name},`
+    : req.name;
   for (const address of to)
     await emailPlain({
       to: address,
@@ -980,8 +1030,8 @@ async function tellReviewers(req: ApprovalRequest, what: "new" | "answered"): Pr
       subject: what === "new" ? `New application: ${activity} at ${req.venueName}` : `Application answered: ${activity} at ${req.venueName}`,
       text:
         what === "new"
-          ? `${req.name} has applied online to be approved for ${activity} at ${req.venueName}. Review it in the dashboard (the bookings tab, or Courts & rates → Online applications), or, as a coach, signed in to your own MySenam account (your account's approvals page).`
-          : `${req.name} has answered your question about their application for ${activity} at ${req.venueName}. It is waiting for review again.`,
+          ? `${applicant} has applied online to be approved for ${activity} at ${req.venueName}. Review it in the dashboard (the bookings tab, or Courts & rates → Online applications), or, as a coach, signed in to your own MySenam account (your account's approvals page).`
+          : `${applicant} has answered your question about their application for ${activity} at ${req.venueName}. It is waiting for review again.`,
       dedupeKey: `approval:${req.id}:reviewers:${what}:${address}:${Date.now()}`,
     });
 }
@@ -1085,11 +1135,12 @@ async function bookSlot(
   const db = getDb();
   const r = (await db
     .prepare(
-      `SELECT r.court_id, r.slot_date, r.slot_start, r.slot_end, r.slot_status, r.booking_id, r.sport, r.user_id, r.venue_id, u.name, u.phone, u.email
-         FROM approval_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?`
+      `SELECT r.court_id, r.slot_date, r.slot_start, r.slot_end, r.slot_status, r.booking_id, r.sport, r.user_id, r.venue_id, u.name, u.phone, u.email,
+              r.managed_person_id, mp.display_name AS person_name
+         FROM approval_requests r JOIN users u ON u.id = r.user_id LEFT JOIN managed_people mp ON mp.id = r.managed_person_id WHERE r.id = ?`
     )
     .get(requestId)) as
-    | { court_id: number | null; slot_date: string | null; slot_start: number | null; slot_end: number | null; slot_status: SlotStatus | null; booking_id: number | null; sport: Sport; user_id: number; venue_id: number; name: string; phone: string; email: string }
+    | { court_id: number | null; slot_date: string | null; slot_start: number | null; slot_end: number | null; slot_status: SlotStatus | null; booking_id: number | null; sport: Sport; user_id: number; venue_id: number; name: string; phone: string; email: string; managed_person_id: number | null; person_name: string | null }
     | undefined;
   if (!r || r.court_id === null || r.slot_date === null || r.slot_start === null || r.slot_end === null || r.booking_id !== null) return { booking: null, why: null, payBy: null };
   if (r.slot_status !== "held" && r.slot_status !== "lapsed") return { booking: null, why: null, payBy: null };
@@ -1106,6 +1157,8 @@ async function bookSlot(
     sport: r.sport,
     by: "customer",
     approval: { id: requestId, assessment },
+    // For somebody the adult manages: booked by the adult, for them, on their eligibility.
+    ...(r.managed_person_id !== null ? { participant: { id: r.managed_person_id, name: r.person_name ?? "" } } : {}),
   });
   if (made.ok) {
     const booking = made.bookings[0];
@@ -1147,6 +1200,10 @@ export interface ApplyInput {
   certReference?: unknown;
   certExpiresOn?: unknown;
   slot?: unknown;
+  /** For somebody the account's adult manages (lib/managed-people.ts): their id. */
+  forPerson?: unknown;
+  /** The adult's declaration of their authority to apply for that person, for this application. */
+  authority?: unknown;
 }
 
 /** Answers to the venue's questions: every needed one given, each kept to a sensible length. */
@@ -1165,6 +1222,13 @@ function readAnswers(questions: ApprovalQuestion[], raw: unknown): Record<string
  * Apply to be approved for an activity at a venue, from a signed-in account.
  * Everything the venue asks is checked here; a slot asked for is held. The
  * application, its documents and its hold are written together, or not at all.
+ *
+ * With `forPerson`, the account's adult applies for somebody they manage
+ * (ADR 0022): the application is that person's (one live per person), the
+ * adult is its applicant and the guardian on it (from their account, not
+ * typed), declaring their authority for this application; documents, status
+ * and email all go to the adult, and the waiver is agreed on the person's
+ * behalf.
  */
 export async function apply(
   user: { id: number; name: string; email: string; phone: string },
@@ -1175,10 +1239,18 @@ export async function apply(
   if (!req || !req.open) return refused("APR_NOT_OFFERED", "This venue does not take applications for that activity online.", 404);
   const noPhone = await phoneRefusal(user.id);
   if (noPhone) return { ...noPhone, code: noPhone.code ?? "PHONE_NEEDED", status: 403 };
+  // For somebody this adult manages: only their own, not archived, and with the adult's authority declared for it.
+  const person = input.forPerson === undefined || input.forPerson === null ? null : await managedPerson(user.id, input.forPerson, { live: true });
+  if (input.forPerson !== undefined && input.forPerson !== null && !person) return refused("GUARD_NOT_FOUND", "Not one of the people you manage.", 404);
+  if (person && input.authority !== true)
+    return refused("GUARD_AUTHORITY_NEEDED", "Confirm that you are their parent, legal guardian or another person with authority to apply for them.");
+  const forId = person?.id ?? null;
   const db = getDb();
   const live = await db
-    .prepare("SELECT 1 FROM approval_requests WHERE user_id = ? AND venue_id = ? AND sport = ? AND status IN ('pending', 'info_requested', 'in_person_due')")
-    .get(user.id, req.venueId, req.sport);
+    .prepare(
+      "SELECT 1 FROM approval_requests WHERE user_id = ? AND venue_id = ? AND sport = ? AND managed_person_id IS NOT DISTINCT FROM ? AND status IN ('pending', 'info_requested', 'in_person_due')"
+    )
+    .get(user.id, req.venueId, req.sport, forId);
   if (live) return refused("APR_ALREADY_LIVE", "You already have an application waiting for this activity here.", 409);
   // Already approved for long enough: nothing to apply for until it is close to running out.
   if (
@@ -1190,6 +1262,7 @@ export async function apply(
       userId: user.id,
       channel: "customer",
       need: req.kind === "certification" ? "certification" : "any",
+      participant: forId,
     })
   )
     return refused("APR_ALREADY_APPROVED", "You are already approved for this activity here.", 409);
@@ -1197,9 +1270,10 @@ export async function apply(
   if (isRefused(answers)) return answers;
   if (req.declaration && input.declaration !== true) return refused("APR_DECLARATION_NEEDED", "Tick the declaration to go on.");
   if (req.videoUrl && input.videoWatched !== true) return refused("APR_VIDEO_NEEDED", "Watch the briefing video and confirm you have.");
-  if (input.adult !== true && input.adult !== false) return refused("APR_ADULT_NEEDED", "Say whether you are 18 or over.");
-  let guardianName: string | null = null;
-  if (input.adult === false) {
+  // The adult applying for somebody they manage is the guardian on it: from their account, not typed.
+  if (!person && input.adult !== true && input.adult !== false) return refused("APR_ADULT_NEEDED", "Say whether you are 18 or over.");
+  let guardianName: string | null = person ? user.name : null;
+  if (!person && input.adult === false) {
     guardianName = typeof input.guardianName === "string" ? input.guardianName.trim() : "";
     if (guardianName.length < 2 || guardianName.length > 80 || input.guardianDeclaration !== true)
       return refused(
@@ -1219,7 +1293,7 @@ export async function apply(
   if (!req.documentLabel && files.length > 0) return refused("APR_NO_DOCUMENTS", "This venue asks for no documents for this activity.");
   if (files.length > MAX_DOCUMENTS) return refused("APR_TOO_MANY_DOCUMENTS", `Up to ${MAX_DOCUMENTS} documents.`);
   const waiver = req.waiver ? await currentWaiver(req.venueId) : null;
-  if (waiver && input.waiver !== true && !(await waiverSigned(req.venueId, user.phone)))
+  if (waiver && input.waiver !== true && !(person ? await waiverSignedFor(req.venueId, person.id) : await waiverSigned(req.venueId, user.phone)))
     return refused("APR_WAIVER_NEEDED", "Agree to the venue's waiver to go on.");
   const slot = readSlot(input.slot);
   if (slot === "bad") return refused("APR_SLOT_BAD", "That slot cannot be asked for: pick a time the venue takes bookings for this activity.");
@@ -1230,25 +1304,31 @@ export async function apply(
   }
   // The approval this renews, if it is one.
   const previous = (await db
-    .prepare("SELECT id FROM approval_requests WHERE user_id = ? AND venue_id = ? AND sport = ? AND status = 'approved' ORDER BY id DESC LIMIT 1")
-    .get(user.id, req.venueId, req.sport)) as { id: number } | undefined;
+    .prepare(
+      "SELECT id FROM approval_requests WHERE user_id = ? AND venue_id = ? AND sport = ? AND managed_person_id IS NOT DISTINCT FROM ? AND status = 'approved' ORDER BY id DESC LIMIT 1"
+    )
+    .get(user.id, req.venueId, req.sport, forId)) as { id: number } | undefined;
 
   const outcome = await withTransaction(async (): Promise<{ ok: true; id: number } | Refused> => {
     const row = (await db
       .prepare(
         `INSERT INTO approval_requests (requirement_id, venue_id, sport, user_id, name, phone, status, renewal_of, answers, declared_at, video_watched_at,
-           waiver_signed_at, declared_adult, guardian_name, guardian_declared_at, cert_reference, cert_expires_on, expires_at)
+           waiver_signed_at, declared_adult, guardian_name, guardian_declared_at, cert_reference, cert_expires_on, expires_at,
+           managed_person_id, relationship, authority_declared_at)
          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ${req.declaration ? "now()" : "NULL"}, ${req.videoUrl ? "now()" : "NULL"},
-           ${waiver ? "now()" : "NULL"}, ?, ?, ${guardianName ? "now()" : "NULL"}, ?, ?, ?)
+           ${waiver ? "now()" : "NULL"}, ?, ?, ${guardianName ? "now()" : "NULL"}, ?, ?, ?, ?, ?, ${person ? "now()" : "NULL"})
          RETURNING id`
       )
       .get(
-        req.id, req.venueId, req.sport, user.id, user.name, user.phone, previous?.id ?? null, JSON.stringify(answers),
-        input.adult === true ? 1 : 0, guardianName, certReference, certExpiresOn, later(req.pendingDays * DAY)
+        req.id, req.venueId, req.sport, user.id, person ? person.displayName : user.name, user.phone, previous?.id ?? null, JSON.stringify(answers),
+        // For somebody managed, the adult applies as their guardian: no declaration of the person's own age.
+        !person && input.adult === true ? 1 : 0, guardianName, certReference, certExpiresOn, later(req.pendingDays * DAY),
+        forId, person?.relationship ?? null
       )) as { id: number };
     const docs = await storeDocuments(row.id, files);
     if (docs) throw docs;
-    if (waiver) await signWaiver(req.venueId, { phone: user.phone, name: user.name });
+    // The adult signs; for somebody they manage, on that person's behalf.
+    if (waiver) await signWaiver(req.venueId, { phone: user.phone, name: user.name, participant: person ? { id: person.id, name: person.displayName } : null });
     await addEvent(row.id, { kind: "customer", name: user.name }, previous ? "renewal_submitted" : "submitted");
     if (slot) {
       const held = await holdSlot(row.id, req.venueId, req.sport, slot, req.holdHours);
@@ -1383,9 +1463,10 @@ async function confirmBooking(booking: Booking, userId: number): Promise<void> {
  * What a reviewer can do: approve (the online part, where an in-person step
  * is still to come; otherwise the whole of it), reject, ask the customer for
  * more, record the in-person step, record the administrative check, or
- * revoke an approval in force.
+ * revoke an approval in force; and, for an application an adult made for
+ * somebody they manage, record that the adult's authority was reviewed.
  */
-export type Decision = "approve" | "reject" | "ask" | "in_person" | "check" | "revoke";
+export type Decision = "approve" | "reject" | "ask" | "in_person" | "check" | "revoke" | "authority";
 /** The decisions that grant eligibility: for a safety-assessed activity, only those authorised for it (ADR 0020). */
 const GRANTS: Decision[] = ["approve", "in_person"];
 
@@ -1425,6 +1506,12 @@ async function coachDecides(reviewer: Extract<Reviewer, { kind: "coach" }>, requ
  * `payLater` (staff only): the booking a slot becomes is not held for
  * payment, where the venue asks payment to hold; an exception, recorded as
  * one, paid at the counter.
+ *
+ * An application an adult made for somebody they manage (ADR 0022): where
+ * the activity asks for it (`guardianCheck`), granting waits until a
+ * reviewer who may grant it records that they reviewed the adult's
+ * authority (`authority`), never automatically; the sign-off approval writes
+ * is that person's alone.
  */
 export async function decide(
   reviewer: Reviewer,
@@ -1451,7 +1538,8 @@ export async function decide(
     if (reviewer.kind === "coach" && !(await coachDecides(reviewer, row.requirement_id, row.venue_id)))
       return refused("APR_NOT_REVIEWER", "You may not review applications for this activity.", 403);
     const req = (await requirementById(row.requirement_id))!;
-    if (GRANTS.includes(action) && reviewer.kind === "staff" && !(await staffGrants(reviewer.admin.id, req)))
+    // Reviewing the authority of an adult applying for somebody else is part of granting: the same people.
+    if ((GRANTS.includes(action) || action === "authority") && reviewer.kind === "staff" && !(await staffGrants(reviewer.admin.id, req)))
       return refused(
         "APR_SAFETY_AUTHORITY",
         "This is a safety assessment: a manager, a coach named for this activity, or staff delegated for it decides. You can ask for more, record the administrative check, or refuse.",
@@ -1459,9 +1547,14 @@ export async function decide(
       );
     const r = (await db
       .prepare(
-        "SELECT name, cert_expires_on, cert_reference, online_ok_at, in_person_at, admin_checked_at, slot_status, sign_off_id, booking_id, user_id, phone, sport, venue_id FROM approval_requests WHERE id = ?"
+        `SELECT name, cert_expires_on, cert_reference, online_ok_at, in_person_at, admin_checked_at, slot_status, sign_off_id, booking_id, user_id, phone, sport, venue_id,
+                managed_person_id, authority_reviewed_at, (SELECT u.name FROM users u WHERE u.id = approval_requests.user_id) AS applicant_name
+           FROM approval_requests WHERE id = ?`
       )
       .get(id)) as {
+      managed_person_id: number | null;
+      authority_reviewed_at: unknown;
+      applicant_name: string | null;
       name: string;
       cert_expires_on: string | null;
       cert_reference: string | null;
@@ -1480,13 +1573,28 @@ export async function decide(
     const actor = reviewerActor(reviewer);
     const activity = activityName(req.sport, "en");
     const pay: PayMode = payLater ? "exception" : "deadline";
+    // For somebody an adult manages: named with who applied, in the activity log.
+    const forPerson = r.managed_person_id !== null;
+    const named = forPerson ? `${r.name} (applied for by ${r.applicant_name ?? "their adult"})` : r.name;
+
+    if (action === "authority") {
+      if (!forPerson) return refused("APR_CHILD_OWN", "This application is the applicant's own: there is no authority to review.", 409);
+      if (!LIVE_STATUSES.includes(row.status) || r.authority_reviewed_at !== null) return wrongStatus();
+      await db.prepare("UPDATE approval_requests SET authority_reviewed_at = now(), authority_reviewed_by = ? WHERE id = ?").run(who, id);
+      await addEvent(id, actor, "authority_reviewed", reason);
+      logged = { action: "approval.authority_reviewed", detail: `Reviewed the authority of ${r.applicant_name ?? "the adult"} to apply for ${r.name} (${activity})` };
+      return { ok: true };
+    }
+    // The venue asks staff to review an adult's authority before approving somebody they manage: never skipped.
+    if (GRANTS.includes(action) && forPerson && req.guardianCheck && r.authority_reviewed_at === null)
+      return refused("APR_CHILD_AUTHORITY_UNREVIEWED", "Record that you reviewed the authority of the adult who applied before approving.", 409);
 
     if (action === "ask") {
       if (row.status !== "pending" && row.status !== "info_requested") return wrongStatus();
       await db.prepare("UPDATE approval_requests SET status = 'info_requested', expires_at = ? WHERE id = ?").run(later(req.pendingDays * DAY), id);
       await addEvent(id, actor, "asked", reason);
       mail = { kind: "asked", extra: { reason } };
-      logged = { action: "approval.asked", detail: `Asked ${r.name} for more about their application for ${activity}: ${reason}` };
+      logged = { action: "approval.asked", detail: `Asked ${named} for more about their application for ${activity}: ${reason}` };
       return { ok: true };
     }
     if (action === "reject") {
@@ -1495,7 +1603,7 @@ export async function decide(
       await releaseHold(id, "released");
       await addEvent(id, actor, "rejected", reason);
       mail = { kind: "rejected", extra: { reason } };
-      logged = { action: "approval.rejected", detail: `Refused ${r.name}'s application for ${activity}: ${reason}` };
+      logged = { action: "approval.rejected", detail: `Refused ${named}'s application for ${activity}: ${reason}` };
       return { ok: true };
     }
     if (action === "check") {
@@ -1503,10 +1611,10 @@ export async function decide(
       if (!LIVE_STATUSES.includes(row.status) || r.admin_checked_at !== null) return wrongStatus();
       await db.prepare("UPDATE approval_requests SET admin_checked_at = now(), admin_checked_by = ? WHERE id = ?").run(who, id);
       await addEvent(id, actor, "checked", reason);
-      logged = { action: "approval.checked", detail: `Checked ${r.name}'s application for ${activity} (administrative)` };
+      logged = { action: "approval.checked", detail: `Checked ${named}'s application for ${activity} (administrative)` };
       return { ok: true };
     }
-    if (action === "revoke") return revokeInside(reviewer, id, row.status, r, req, reason!, (m, l) => ((mail = m), (logged = l)));
+    if (action === "revoke") return revokeInside(reviewer, id, row.status, { ...r, name: named }, req, reason!, (m, l) => ((mail = m), (logged = l)));
 
     const onlineOk = r.online_ok_at !== null;
     let inPersonDone = r.in_person_at !== null;
@@ -1516,7 +1624,7 @@ export async function decide(
       await db.prepare("UPDATE approval_requests SET in_person_at = now(), in_person_by = ? WHERE id = ?").run(who, id);
       await addEvent(id, actor, "in_person_recorded", reason);
       inPersonDone = true;
-      logged = { action: "approval.in_person", detail: `Recorded the in-person step (${req.inPerson}) for ${r.name}, ${activity}` };
+      logged = { action: "approval.in_person", detail: `Recorded the in-person step (${req.inPerson}) for ${named}, ${activity}` };
       // The online part still to be reviewed: it waits for that.
       if (!onlineOk) return { ok: true };
     } else {
@@ -1527,7 +1635,7 @@ export async function decide(
         // An online declaration never stands in for an in-person step: the approval stays incomplete until staff record it.
         await db.prepare("UPDATE approval_requests SET status = 'in_person_due', expires_at = ? WHERE id = ?").run(later(req.pendingDays * DAY), id);
         await addEvent(id, actor, "online_accepted", reason);
-        logged = { action: "approval.online_accepted", detail: `Accepted the online part of ${r.name}'s application for ${activity}; the in-person step is still to come` };
+        logged = { action: "approval.online_accepted", detail: `Accepted the online part of ${named}'s application for ${activity}; the in-person step is still to come` };
         const session = r.slot_status === "held" || r.slot_status === "lapsed" ? await bookSlot(id, true, pay, req.payHours) : null;
         if (session?.booking) {
           booked = session.booking;
@@ -1547,17 +1655,19 @@ export async function decide(
       .prepare("SELECT u.name, u.email, u.phone FROM approval_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?")
       .get(id)) as { name: string; email: string; phone: string };
     const validUntil = validUntilFor(req, r.cert_expires_on);
+    // For somebody the adult manages: theirs alone, linked to the adult's account and reached on the adult's number.
     const signed = await addSignOff({
       venueId: req.venueId,
       sport: req.sport,
       phone: user.phone,
-      name: user.name,
+      name: forPerson ? r.name : user.name,
       email: user.email,
       kind: req.kind,
       reference: req.kind === "certification" ? r.cert_reference : null,
-      note: `Approved online (application ${id}) by ${who}`,
+      note: `Approved online (application ${id}) by ${who}${forPerson ? `; for somebody ${user.name} manages` : ""}`,
       expiresOn: validUntil,
       adminId: reviewer.kind === "staff" ? reviewer.admin.id : null,
+      managedPersonId: r.managed_person_id,
     });
     if (!signed.ok) throw new Error(`approval ${id}: ${signed.error}`);
     await db
@@ -1566,7 +1676,7 @@ export async function decide(
     await addEvent(id, actor, "approved", action === "approve" ? reason : null);
     const made = await bookSlot(id, false, pay, req.payHours);
     booked = made.booking;
-    const detail = `Approved ${r.name} for ${activity}${validUntil ? ` until ${validUntil}` : ""}${action === "in_person" ? " on recording the in-person step" : ""}`;
+    const detail = `Approved ${named} for ${activity}${validUntil ? ` until ${validUntil}` : ""}${action === "in_person" ? " on recording the in-person step" : ""}`;
     logged = { action: "approval.approved", detail, code: made.booking?.code ?? null };
     if (payLater && made.booking) await notePayException(id, actor, who, made.booking, logged, req.venueId);
     mail = { kind: "approved", extra: { until: validUntil, code: made.booking?.code ?? null, payBy: made.payBy, slotTaken: made.why !== null } };
@@ -1612,7 +1722,7 @@ async function revokeInside(
   reviewer: Reviewer,
   id: number,
   status: ApprovalStatus,
-  r: { name: string; sign_off_id: number | null; booking_id: number | null; slot_status: SlotStatus | null; user_id: number; phone: string; sport: Sport; venue_id: number },
+  r: { name: string; sign_off_id: number | null; booking_id: number | null; slot_status: SlotStatus | null; user_id: number; phone: string; sport: Sport; venue_id: number; managed_person_id: number | null },
   req: ApprovalRequirement,
   reason: string,
   done: (mail: { kind: CustomerMail; extra: Parameters<typeof tellCustomer>[2] }, logged: { action: string; detail: string }) => void
@@ -1632,7 +1742,7 @@ async function revokeInside(
   return { ok: true };
 }
 
-type RevokedRow = { booking_id: number | null; slot_status: SlotStatus | null; user_id: number; phone: string; sport: Sport; venue_id: number };
+type RevokedRow = { booking_id: number | null; slot_status: SlotStatus | null; user_id: number; phone: string; sport: Sport; venue_id: number; managed_person_id: number | null };
 
 /** What follows a revocation, however it was made: returns how many bookings were flagged for staff. */
 async function afterRevocation(id: number, r: RevokedRow): Promise<number> {
@@ -1649,14 +1759,15 @@ async function afterRevocation(id: number, r: RevokedRow): Promise<number> {
       await addEvent(id, { kind: "system", name: "MySenam" }, "booking_released");
     }
   }
-  // Confirmed bookings of this activity here, from today on: for staff to decide.
+  // Confirmed bookings of this activity here, from today on: for staff to decide. The person's own:
+  // for somebody an adult manages, those booked for them; for the adult, none booked for anybody else.
   const future = (await db
     .prepare(
       `SELECT b.id FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.sport = ? AND b.status = 'confirmed' AND b.date >= ?
-          AND (b.user_id = ? OR b.phone_key = phone_key(?))`
+          AND (b.user_id = ? OR b.phone_key = phone_key(?)) AND b.participant_id IS NOT DISTINCT FROM ?`
     )
-    .all(r.venue_id, r.sport, todayISO(), r.user_id, r.phone)) as { id: number }[];
+    .all(r.venue_id, r.sport, todayISO(), r.user_id, r.phone, r.managed_person_id)) as { id: number }[];
   for (const b of future)
     await db
       .prepare("INSERT INTO approval_booking_flags (request_id, booking_id, venue_id) VALUES (?, ?, ?) ON CONFLICT (request_id, booking_id) DO NOTHING")
@@ -1678,7 +1789,7 @@ export async function signOffRevoked(signOffId: number, admin: Pick<Admin, "id" 
   await withTransaction(async () => {
     await lockRequest(id);
     const r = (await db
-      .prepare("SELECT booking_id, slot_status, user_id, phone, sport, venue_id FROM approval_requests WHERE id = ?")
+      .prepare("SELECT booking_id, slot_status, user_id, phone, sport, venue_id, managed_person_id FROM approval_requests WHERE id = ?")
       .get(id)) as RevokedRow;
     await addEvent(id, { kind: "staff", name: admin.name, adminId: admin.id }, "revoked", reason ?? "Taken back in Sign-offs");
     await afterRevocation(id, r);
@@ -1982,8 +2093,8 @@ export async function recoverLatePayments(paymentId?: number): Promise<{ booked:
       const r = (await db
         .prepare(
           `SELECT r.booking_id, r.slot_status, r.slot_assessment, r.court_id, r.slot_date, r.slot_start, r.slot_end, r.sport, r.user_id, r.venue_id,
-                  u.name, u.phone, u.email
-             FROM approval_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?`
+                  u.name, u.phone, u.email, r.managed_person_id, mp.display_name AS person_name
+             FROM approval_requests r JOIN users u ON u.id = r.user_id LEFT JOIN managed_people mp ON mp.id = r.managed_person_id WHERE r.id = ?`
         )
         .get(c.request_id)) as {
         booking_id: number;
@@ -1999,6 +2110,8 @@ export async function recoverLatePayments(paymentId?: number): Promise<{ booked:
         name: string;
         phone: string;
         email: string;
+        managed_person_id: number | null;
+        person_name: string | null;
       };
       if (r.booking_id !== c.booking_id || r.court_id === null) return "moved on";
       // Still eligible: an approval in force for that day, or (the in-person session) the application still waiting on it.
@@ -2006,7 +2119,16 @@ export async function recoverLatePayments(paymentId?: number): Promise<{ booked:
         r.slot_assessment === true
           ? row.status === "in_person_due"
           : row.status === "approved" &&
-            (await signOffHolds({ venueId: r.venue_id, sport: r.sport, until: r.slot_date, phone: r.phone, userId: r.user_id, channel: "customer", need: "any" }));
+            (await signOffHolds({
+              venueId: r.venue_id,
+              sport: r.sport,
+              until: r.slot_date,
+              phone: r.phone,
+              userId: r.user_id,
+              channel: "customer",
+              need: "any",
+              participant: r.managed_person_id,
+            }));
       const owedBack = async (why: string) => {
         await addEvent(c.request_id, { kind: "system", name: "MySenam" }, "late_payment_refund", key);
         return why;
@@ -2029,6 +2151,7 @@ export async function recoverLatePayments(paymentId?: number): Promise<{ booked:
         sport: r.sport,
         by: "customer",
         approval: { id: c.request_id, assessment: r.slot_assessment === true },
+        ...(r.managed_person_id !== null ? { participant: { id: r.managed_person_id, name: r.person_name ?? "" } } : {}),
       });
       if (!again.ok) return owedBack("taken");
       const booking = again.bookings[0];
@@ -2121,6 +2244,10 @@ export async function approvalsExport(userId: number): Promise<unknown[]> {
       guardianName: r.guardianName,
       guardianDeclaredAt: r.guardianDeclaredAt,
       certification: r.certReference ? { reference: r.certReference, expiresOn: r.certExpiresOn } : null,
+      // Made for somebody this account manages: who, the relationship and authority as declared, and any staff review of it.
+      forPerson: r.forPerson ? { name: r.forPerson.name, declaredRelationship: r.forPerson.relationship } : null,
+      authorityDeclaredAt: r.authorityDeclaredAt,
+      authorityReviewedAt: r.authorityReviewedAt,
       onlinePartAcceptedAt: r.onlineOkAt,
       inPersonStepAt: r.inPersonAt,
       decidedAt: r.decidedAt,
@@ -2160,6 +2287,7 @@ export async function approvalsForPhone(venueIds: number[], phone: string): Prom
     answers: r.questions.map((q) => ({ question: q.text, answer: r.answers[q.id] ?? null })),
     declaredAdult: r.declaredAdult,
     guardianName: r.guardianName,
+    forPerson: r.forPerson ? { name: r.forPerson.name, appliedBy: r.appliedBy, declaredRelationship: r.forPerson.relationship } : null,
     decidedAt: r.decidedAt,
     validUntil: r.validUntil,
     documents: r.documents.length,

@@ -6,6 +6,7 @@ import { declaredAdult } from "@/lib/player-profiles";
 import { rateLimit } from "@/lib/rate-limit";
 import { getVenue } from "@/lib/store";
 import { currentWaiver, waiverSigned } from "@/lib/waivers";
+import { listManaged } from "@/lib/managed-people";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,8 @@ export const dynamic = "force-dynamic";
  * (lib/approvals.ts), newest first. With `?venueId&sport`, also what that
  * venue asks before approving somebody for it, to fill in. `courts`: where a
  * slot can be asked for, for each live application (by `venueId:sport`).
+ * `apply.people`: those the account's adult manages, who may be applied for
+ * (ADR 0022), and `apply.waiverForOthers`, the waiver to agree on their behalf.
  */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
@@ -44,7 +47,9 @@ export async function GET(req: NextRequest) {
         venueName: venue.name,
         courts: venue.courts.filter((c) => courtOffers(c, sport)).map((c) => ({ id: c.id, name: c.name })),
         waiverText: waiver && !(await waiverSigned(venueId, user.phone)) ? waiver.text : null,
+        waiverForOthers: waiver ? waiver.text : null,
         adult: await declaredAdult(user.id),
+        people: (await listManaged(user.id)).map((p) => ({ id: p.id, displayName: p.displayName, relationship: p.relationship })),
       },
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -55,8 +60,10 @@ export async function GET(req: NextRequest) {
  * Apply: a form upload with `data` (JSON: `{ venueId, sport, answers?,
  * declaration?, videoWatched?, waiver?, adult, guardianName?,
  * guardianDeclaration?, certReference?, certExpiresOn?, slot?: { courtId,
- * date, start, end } }`) and up to three `document` files where the venue
- * asks for one; or the same JSON alone.
+ * date, start, end }, forPerson?, authority? }`) and up to three `document`
+ * files where the venue asks for one; or the same JSON alone. `forPerson`:
+ * for somebody the account's adult manages, with `authority: true`, the
+ * adult's declaration for this application.
  */
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
