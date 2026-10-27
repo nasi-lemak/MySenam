@@ -279,6 +279,9 @@ describe("a venue not open, or no longer admitting the account", () => {
     const neighbour = await registerUser({ name: "Neighbour Ng", email: `ng${++n}@wl5b.test`, phone: nextPhone, password: "a long enough password" });
     if (!neighbour.ok) throw new Error(neighbour.error);
     expect((await addAccess(gated, [{ phone: residentPhone }, { phone: nextPhone }], null)).ok).toBe(true);
+    // Staff link each entry to the resident's account: a typed number alone admits nobody online (lib/access.ts).
+    for (const [p, userId] of [[residentPhone, reg.user.id], [nextPhone, neighbour.user.id]] as const)
+      await getDb().prepare("UPDATE venue_access_list SET user_id = ? WHERE venue_id = ? AND phone_key = phone_key(?)").run(userId, gated, p);
     // Queued as the online route queues a signed-in resident (its own checks passed while on the list).
     const first = await joinSlotWaitlist({ courtId: gatedCourt, date, start: at(19), end: at(20), name: "Resident Rina", phone: residentPhone, userId: reg.user.id });
     const second = await joinSlotWaitlist({ courtId: gatedCourt, date, start: at(19), end: at(20), name: "Neighbour Ng", phone: nextPhone, userId: neighbour.user.id });
