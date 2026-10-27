@@ -232,8 +232,8 @@ describe("guardians by verified consent", () => {
         expect(mails).toHaveLength(1);
         const text = mails[0].text;
         expect(text).toMatch(/^Hi Mother,/);
-        expect(text).toMatch(/On \d{4}-\d{2}-\d{2} \d{2}:\d{2}, another adult asked to become Aisyah's guardian\. Nothing changes unless you agree, or the venue's manager records an exception\./);
-        expect(text).toContain(`If this is not right, report it as a mistake on your people page: ${url}/account#people`);
+        expect(text).toMatch(/On \d{4}-\d{2}-\d{2} \d{1,2}:\d{2} [AP]M, another adult asked to become Aisyah's guardian\. Nothing changes unless you agree, or the venue's manager records an exception\./);
+        expect(text).toContain(`If this is not right, report it as a mistake on your people page: ${url}/account?lang=en#people`);
         expect(text).toContain(`You can also contact ${range.name} on 03-7877 3000.`);
         for (const never of ["Father", father.email, father.phone, range.desk.name]) expect(text).not.toContain(never);
       }
@@ -901,7 +901,7 @@ describe("places: one person's place on a booking of several", () => {
       expect(await body.getByText(/price, Bella/).count()).toBe(0);
       expect(await body.getByText(/Promo/).count()).toBe(0);
       const text = (await body.textContent())!;
-      for (const shown of [/2 playersRM20/, /Junior swimmer price, Amani−RM5/, /TotalRM15Paid: Cash/]) expect(text).toMatch(shown);
+      for (const shown of [/2 players, for Amani, BellaRM20/, /Junior swimmer price, Amani−RM5/, /TotalRM15Paid: Cash/]) expect(text).toMatch(shown);
     });
 
     // The next week, both again, Amani on her junior price (setup through the API, as the venue's app would).

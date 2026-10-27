@@ -13,6 +13,14 @@ MYSENAM_DB=":memory:" npx vitest run tests/booking-rules.test.ts   # one file
 npm run coverage                           # with a coverage report in coverage/
 ```
 
+The Postgres server the suite runs against needs `max_locks_per_transaction`
+of 256 or more (the deployment kit's setting,
+[`deploy/digitalocean/postgresql.conf`](../../deploy/digitalocean/postgresql.conf)):
+files run side by side, each in its own database, and the backup tests'
+restores lock every table, index and sequence at once, so the default of 64
+runs out of shared memory (`ALTER SYSTEM SET max_locks_per_transaction = 256`,
+then restart the server).
+
 The suite is Vitest (`vitest.config.mts`, `tests/setup-db.ts`). Route
 handlers are called directly with `NextRequest`s, so most tests exercise the
 real route, its authorisation and the database together. Component tests
