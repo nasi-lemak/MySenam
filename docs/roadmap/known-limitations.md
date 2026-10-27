@@ -192,8 +192,8 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **85 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B37, M16–M18 and
-S12–S22, found and fixed in the same work) and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B38, M16–M18 and
+S12–S23, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (75
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -257,6 +257,14 @@ by whoever sent it; it lapses (a guest's visit, 48 hours or the game's start,
 tests that show sign-in and password reset take as long for an unknown
 address use generous bounds on one machine: they show an unknown address is
 not systematically faster, not equal timing in production (P3).
+
+Also: an e-invoice already sent to LHDN keeps the names its lines said, as
+sent; coaches' names on lesson receipts, and receipts naming a participant
+whom retention deleted rather than erased, keep those names until the
+receipt's own retention period; where a name is cleared by matching it as a
+word, a matching word elsewhere on that receipt is cleared too (amounts never
+change) ([privacy](../architecture/privacy.md)) (P3). For the owner: whether
+e-invoice descriptions should leave people's names out altogether.
 
 Also: a waiting-list offer and claim ask what the booking would ask on the
 path the entry was made (a refused number, the venue open, an online entry's
@@ -616,9 +624,11 @@ IDs are not reused. Each fix came with the test recommended above.
 | B35 | Withdrawing a company account's invoice while a booking on it was being changed could deadlock: the invoice's delete cascaded onto bookings another transaction held; the invoice now locks its bookings first | `tests/place-withdrawals-money.test.ts` ("a withdrawal racing the month's invoice…", Postgres) |
 | B36 | A review of the retention periods dated the day they were changed was refused as "before the periods were last changed" when the change was made between midnight and 08:00 in Malaysia: the change's date was its UTC date | `tests/retention-policy.test.ts` ("judge a review's date against the day the periods changed where the install is…") |
 | B37 | A receipt's and a platform invoice's paid date was printed as the UTC date of the payment, so one paid between midnight and 08:00 in Malaysia showed the day before; both now show the install's date | `tests/receipts.test.ts` (unchanged; the date is `localDateOf`, tested in `tests/time.test.ts`) |
+| B38 | Two places nobody was named on, taken off one booking held by a deposit paid online, shared one deposit credit note's key: the second credit note was not written though the refund owed went up; the key is now the withdrawal | `tests/receipt-names.test.ts` ("a deposit's part credited for places nobody was named on") |
 | M18 | The venue's API key booked with no discount at all, though ADR 0025 and the pricing document said every path took them; it now takes `concessionId`, `placeConcessions` and `promoCode` through the one calculation the form and the counter use | `tests/benefits-paths.test.ts` |
 | S21 | A resident inviting a guest by email could learn whether an account held that address (`GUEST_ACCOUNT_UNKNOWN`, and an entry linked at once); the address is now never looked up, a single-use, hashed, expiring invitation is emailed either way, and it links only its entry to the account that accepts it signed in with that address | `tests/guest-invitations.test.ts`, `tests/components/guest-invitations.test.tsx` |
 | S22 | Inviting a player to a game or a group by email revealed whether the address had an account (the host's or organiser's roster named them at once, the daily invite counter counted only real accounts, and an email was queued only for one), and sign-in and password reset answered measurably faster for an unknown address; invitations are now emailed either way and accepted signed in, every attempt counts, and sign-in and reset do the same work either way | `tests/player-invitations.test.ts`, `tests/no-enumeration-timing.test.ts` |
+| S23 | Receipts and credit notes kept the names of whom their lines were for (a guardian's children, a child taken off a booking, a family membership's dependants) after the retention period and after an erasure, and a participant's erasure did not reach receipts; names are now kept apart from a line's words and cleared by retention, account erasure and participant erasure (older lines by their known shapes and the names known for the receipt), and again after a restore | `tests/receipt-names.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
