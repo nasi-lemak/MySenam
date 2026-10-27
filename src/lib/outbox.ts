@@ -628,6 +628,24 @@ export async function retryMessage(
 }
 
 /**
+ * Give up messages that have not gone yet (queued, or failed and waiting to be
+ * tried again), by their dedupe keys (`%` matches the rest of one, as in SQL
+ * LIKE): what they carry no longer stands. Marked abandoned with the reason, as
+ * the outbox gives up any message, so staff see why it never went; one already
+ * sent, or being sent this moment, goes as it would have. How many.
+ */
+export async function abandonUnsent(dedupeKeys: string[], why: string): Promise<number> {
+  if (dedupeKeys.length === 0) return 0;
+  const done = await getDb()
+    .prepare(
+      `UPDATE messages SET status = 'abandoned', last_error = ?
+        WHERE status IN ('queued','failed') AND (${dedupeKeys.map(() => "dedupe_key LIKE ?").join(" OR ")})`
+    )
+    .run(why, ...dedupeKeys);
+  return done.changes;
+}
+
+/**
  * What Meta later says about a WhatsApp message it accepted: delivered to the
  * phone, read, or failed after all (a number not on WhatsApp, say). Matched by
  * the id Meta gave it; one we never sent is ignored.

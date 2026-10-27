@@ -272,10 +272,25 @@ concession and a code go together only where both say yes; otherwise the one
 asked for second is refused, the booking standing at the first, and it is
 refused the same way on every path: the booking form (which then takes the
 code's field away and says why), the counter (staff book through the same
-form and route), the API, several courts at once and lessons. The refusal's
+form and route), the venue's API key (`POST /api/v1/bookings`), several
+courts at once and lessons. The refusal's
 code is `ONE_DISCOUNT` where the venue gives one discount at a time and
-`STK_NOT_COMBINABLE` where the code does not combine; the API returns it as
+`STK_NOT_COMBINABLE` where the code does not combine; each route returns it as
 `promoErrorCode` beside `promoError`. A class enrolment takes neither.
+
+**The same request, the same price.** The form, the counter and the venue's
+API key put the discounts asked for on through one function
+(`applyAskedDiscounts`, `src/lib/booking-discounts.ts`), with the same
+fields: `concessionId` (the booking's concession), `placeConcessions` (one
+person's own, `[{ participantId, concessionId }]`, `null` for the
+customer's place) and `promoCode`. So the stacking rule, the order, the
+rounding, each place's share of a code, a code's limits (its last use, one
+customer's uses) and the refusals are the same whichever path booked it. A
+concession is taken on the word of whoever booked, the customer online or
+the venue at its counter or through its system, and proof is looked at when
+the person arrives (*Concession prices*, above), as for any concession.
+Each is best-effort: a discount refused leaves the booking at the price
+before it, with `concessionError` or `promoError` saying why.
 
 **The order**, in whole sen:
 
@@ -313,6 +328,27 @@ the discounts as they were given (their amounts), repricing only the court
 time. A cancellation gives the code's use back, with its shares. A booking
 made before shares were recorded keeps every stored amount; its code is shared
 evenly between its places, as it was.
+
+**Decided, and kept** (confirmed 27 October 2026 against the owner's rule
+that history is not recalculated):
+
+- **A last-minute price takes no other discount**, on every path (the form,
+  the counter, the venue's API key): it is already the venue's discount for
+  time nobody wanted, so a concession is refused (`ONE_DISCOUNT`) and a code
+  too (`PROMO_NOT_LAST_MINUTE`). A member's rate is not a discount and is
+  discounted the same way ([last-minute prices](#last-minute-prices)).
+- **A move keeps what was charged.** The concession and the code stay at
+  the amounts they took off when given, and are not worked out again on the
+  new time's price; the court time follows the existing price-difference
+  rule ([changing the date or time](booking.md#changing-the-date-or-time)): an unpaid booking
+  changes by the difference between what the court time cost when booked
+  and what it costs at the new time (RM20 less a RM4 concession and a RM2
+  code is RM14; moved to a RM30 court it is RM24); a paid one keeps what was
+  paid, the customer unable to move it somewhere dearer and staff choosing
+  not to charge the difference. A last-minute price stays with the time it
+  was given for: moving away from it costs the difference, and a move never
+  earns one. A booking keeps its last-minute mark when moved; no discount
+  can be added after booking on any path, so it decides nothing more.
 
 ## Memberships and member rates
 
@@ -359,6 +395,15 @@ price they were given.
   guardian on the holder's number at the counter, or one the buying account
   is an active guardian of online. Nothing is inferred from a shared number
   or surname, and the holder's own membership covers nobody it does not name.
+- **Nobody covered twice, at the counter as online.** A participant who
+  already holds, or is covered by, a membership for any of the same days
+  (here, or at a branch of the same business) is refused, whether the new one
+  would be their own or a family membership naming them: *Alya is already a
+  member here until 2027-01-01*, the reason buying online gives
+  (`coveredUntil` in `src/lib/membership-purchases.ts`, asked by
+  `sellMembership`). There is no override: an overlap would make which
+  membership prices a place ambiguous. Staff sell the new one from the day
+  after the old one ends, or cancel the old one first.
 - **What its price covers**, the plan's (*and the price covers*, under *Plans
   and tiers*): the whole booking its member takes part in (as every plan
   before: a member reserving a court pays the member's price whoever else

@@ -6616,6 +6616,19 @@ export async function sellMembership(input: {
             ? `That number already has a membership here until ${clash.expires_on}.`
             : `That number already has a membership at ${clash.venue_name}, which covers this venue too, until ${clash.expires_on}.`,
       };
+    // Nobody covered twice, the same rule as buying online (lib/membership-purchases.ts `coveredUntil`): the
+    // participant it is for, or a dependant it covers, already holding or covered by a membership for any of these
+    // days. Two sales naming one person at once: the transaction is serializable, so the second sees the first.
+    const named = [...(participantHolder !== null ? [participantHolder] : []), ...covers];
+    if (named.length > 0) {
+      const { coveredUntil } = await import("./membership-purchases");
+      for (const id of named) {
+        const until = await coveredUntil(input.venueId, id, input.startsOn, input.expiresOn);
+        if (!until) continue;
+        const who = ((await db.prepare("SELECT display_name FROM participants WHERE id = ?").get(id)) as { display_name: string } | undefined)?.display_name ?? "That person";
+        return { ok: false, error: `${who} is already a member here until ${until}.` };
+      }
+    }
 
     const info = await db
       .prepare(`
@@ -7710,37 +7723,67 @@ async function dropEntry(id: number): Promise<void> {
 }
 
 /**
- * May the entry still book at its venue, as joining asked it
- * (lib/limits.ts `customerMayBook`), now that a place is offered or claimed?
- * Asked of every channel. `leaves`: the venue refuses its number now
- * (lib/limits.ts `isBlocked`), and the entry leaves the queue, as one no
- * longer for whom it was made does. Otherwise it waits, keeping its place:
- * the venue not open to customers (a draft, or unlisted), or, for an entry
- * made online, the venue's access no longer admitting the account (members
- * only, a private list; not asked of the counter or the API, as at the join).
- * Null: it may.
+ * May the entry still book at its venue, now that a place is offered or
+ * claimed? Asked as the booking the claim makes would be asked on the path
+ * the entry was made (lib/limits.ts `mayBookOn`, the function the booking
+ * routes' checks are): online, the counter or the API. `leaves`: the venue
+ * refuses its number now (lib/limits.ts `isBlocked`), and the entry leaves
+ * the queue, as one no longer for whom it was made does. Otherwise it waits,
+ * keeping its place: the venue not open to customers (a draft, or unlisted);
+ * for an entry made online, the venue's access no longer admitting the
+ * account (members only, a private list; not asked of the counter or the
+ * API, as at their bookings); the house rules (court time only: a class
+ * place is limited by the class, as an enrolment is); the unpaid-bookings
+ * limit; no-show strikes where the venue takes nothing online (where it
+ * does, the claimed booking is held until paid instead). Null: it may.
  */
 async function entryRefused(row: WaitlistRow, named: { id: number; name: string }[]): Promise<{ refusal: Refusal; leaves: boolean } | null> {
   const venueId = await entryVenue(row);
   if (venueId === null) return { refusal: refuse("OFFER_INVALID"), leaves: true };
-  const { isBlocked } = await import("./limits");
+  const { isBlocked, mayBookOn } = await import("./limits");
   if (await isBlocked(venueId, row.phone)) return { refusal: refuse("PHONE_BLOCKED"), leaves: true };
-  const { venueIsOpen } = await import("./listing");
-  if (!(await venueIsOpen(venueId))) return { refusal: refuse("VENUE_NOT_OPEN"), leaves: false };
-  if (channelOf(row) === "customer") {
-    const { accessRefusal, accessSettings } = await import("./access");
-    const notHere = await accessRefusal(venueId, row.user_id);
+  const refused = await mayBookOn(channelOf(row), {
+    venueId,
+    phone: row.phone,
+    userId: row.user_id,
+    ...(row.class_id === null && row.date ? { dates: [row.date] } : {}),
     // As at the join: places only for people a parent books for, each a member themself, at a members-only venue.
-    const forOthers =
-      notHere !== null &&
+    placesForOthers:
       row.customer_takes_part === false &&
       named.length > 0 &&
-      row.user_id !== null &&
-      (row.class_id !== null || ((row.court_id ? await getCourt(row.court_id) : null)?.capacity ?? 1) > 1) &&
-      (await accessSettings(venueId)).access === "members";
-    if (notHere && !forOthers) return { refusal: notHere, leaves: false };
-  }
-  return null;
+      (row.class_id !== null || ((row.court_id ? await getCourt(row.court_id) : null)?.capacity ?? 1) > 1),
+  });
+  return refused ? { refusal: refused, leaves: false } : null;
+}
+
+/**
+ * An offer's messages not yet gone (lib/outbox.ts), given up: the offer they
+ * carry no longer stands for that number. One already sent stays as it was;
+ * its link then says why the offer cannot be taken. How many were given up.
+ */
+async function withdrawOfferMessages(token: string | null, why: string): Promise<number> {
+  if (!token) return 0;
+  const { abandonUnsent } = await import("./outbox");
+  return abandonUnsent([`offer:${token}`, `offer:${token}:%`], why);
+}
+
+/**
+ * A number the venue has just refused (lib/limits.ts `blockPhone`): any
+ * live offer of a place there to that number has its messages still waiting
+ * to go taken out of the outbox, so nothing more is sent to it. The offer
+ * itself stands (it may be on the account's own page) until its claim is
+ * refused (`PHONE_BLOCKED`), the entry leaving and the place passing on, or
+ * it runs out. How many messages were given up.
+ */
+export async function withdrawOffersTo(venueId: number, phone: string): Promise<number> {
+  const rows = (await getDb()
+    .prepare("SELECT * FROM waitlist WHERE status = 'offered' AND phone_key(phone) = phone_key(?) ORDER BY id")
+    .all(phone.trim())) as WaitlistRow[];
+  let messages = 0;
+  for (const row of rows)
+    if ((await entryVenue(row)) === venueId)
+      messages += await withdrawOfferMessages(row.offer_token, "Not sent: the venue refused this number after the offer was made.");
+  return messages;
 }
 
 /** Who an entry is for, as the queue asks it (lib/participant-bookings.ts). */

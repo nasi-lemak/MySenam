@@ -132,6 +132,50 @@ export async function customerMayBook(input: {
   return null;
 }
 
+/** Who makes a booking: its customer online, the venue's staff at its counter, or the venue's own system through its API key. */
+export type BookingPath = "customer" | "staff" | "api";
+
+/**
+ * What a booking made on this path asks of the number before it is made
+ * (`customerMayBook`), as the booking routes ask it: online the whole of it;
+ * at the counter (app/api/bookings with a staff session) and through the
+ * venue's API key (app/api/v1/bookings) the same, except who may book a
+ * members-only or private venue, which the venue's own staff and system are
+ * not asked. A waiting-list claim asks it again for the booking it makes, on
+ * the path its entry was made (lib/store.ts `entryRefused`), so a queue is
+ * never a way round what the booking would have asked.
+ */
+export async function mayBookOn(
+  path: BookingPath,
+  input: {
+    venueId: number;
+    phone: string;
+    /** The account booking (online), or null. */
+    userId?: number | null;
+    /** The dates booked, for the house rules; none for a class place, which the class limits. */
+    dates?: string[];
+    weeks?: number;
+    preview?: boolean;
+    placesForOthers?: boolean;
+  }
+): Promise<Refusal | null> {
+  // Imported here, not at the top: lib/payments.ts reads lib/store.ts, which reads this module.
+  const { takesPaymentOnline } = await import("./payments");
+  const userId = path === "customer" ? (input.userId ?? null) : null;
+  return customerMayBook({
+    venueId: input.venueId,
+    phone: input.phone,
+    weeks: input.weeks ?? 1,
+    signedIn: userId !== null,
+    userId,
+    ...(input.dates ? { dates: input.dates } : {}),
+    ...(input.preview ? { preview: true } : {}),
+    canPayOnline: await takesPaymentOnline(input.venueId),
+    atCounter: path !== "customer",
+    ...(input.placesForOthers ? { placesForOthers: true } : {}),
+  });
+}
+
 /** What a customer is told about a draft, or a venue off the marketplace. */
 export function venueNotOpen(): Refusal {
   return refuse("VENUE_NOT_OPEN");
@@ -181,6 +225,9 @@ export async function blockPhone(input: {
        ON CONFLICT (venue_id, phone_key) DO UPDATE SET reason = EXCLUDED.reason`
     )
     .run(input.venueId, phone, phone, reason, input.adminId);
+  // A place already offered to the number from a waiting list: its messages still waiting to go are taken
+  // back, and an offer nobody has been told of passes to the next (lib/store.ts `withdrawOffersTo`).
+  await (await import("./store")).withdrawOffersTo(input.venueId, phone);
   return { ok: true };
 }
 

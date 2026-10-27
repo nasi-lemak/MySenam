@@ -111,7 +111,7 @@ async function actsFor(userId: number, participantId: number): Promise<Named | P
  * `from`–`to`, here or anywhere in the same business: the day it ends.
  * `except`: a membership whose own cover is being changed.
  */
-async function coveredUntil(venueId: number, participantId: number, from: string, to: string, except: number | null = null): Promise<string | null> {
+export async function coveredUntil(venueId: number, participantId: number, from: string, to: string, except: number | null = null): Promise<string | null> {
   const row = (await getDb()
     .prepare(
       `SELECT MAX(m.expires_on) AS until FROM memberships m

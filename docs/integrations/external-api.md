@@ -23,7 +23,7 @@ are limited to 120 a minute per key.
 | `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`; a start lists the `lengths` that fit where not every one up to its longest does, as when joining a session on a facility turned over whole), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
 | `GET /bookings?from=&to=` | read | Bookings in up to 31 days, cancelled ones too |
 | `GET /bookings/<code>` | read | One booking |
-| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players?, participantIds?, customerTakesPart? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it). `participantIds`: for people other than the customer (see below) |
+| `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players?, participantIds?, customerTakesPart?, concessionId?, placeConcessions?, promoCode? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it). `participantIds`: for people other than the customer (see below). Discounts and the number's checks: see below |
 | `POST /bookings/<code>/cancel` | write | Cancels as staff would; the customer is told |
 | `GET /waitlist?date=` | read | The venue's waiting lists that day: court time on its resources and its classes, each entry with who made it (`madeBy`); never an offer's token |
 | `POST /waitlist` | write | `{ courtId, date, start, end }` or `{ classId }`, with `name, phone, email?, participantIds?, customerTakesPart?, confirmWho?, locale?`: queues somebody for taken time or a full class, as the counter does (see below) |
@@ -69,6 +69,39 @@ bounded so that it never stands in for a guardian:
 - The booking is recorded as made by the venue's system: in each
   participant's history as the key (`API key <id>`), and on each place.
 
+**Discounts and the number** (added 2026-10-27; additive: a request
+without the new fields books as before, at the same price). A booking
+through the API takes the discounts the booking form and the counter take,
+through the same function, so the same request gives the same price
+([discounts together](../features/pricing.md#discounts-together)):
+
+- `concessionId`: one of the venue's concessions for the whole booking (or
+  the only place on it), on the venue's word as its counter takes it: the
+  booking says what proof to bring, and staff look at it when the person
+  arrives.
+- `placeConcessions`: `[{ participantId, concessionId }]`, one person's own
+  concession on their place (`participantId: null` for the customer's), on a
+  booking priced by the place.
+- `promoCode`: a code, as a customer would type it.
+
+They go on in the one order (concessions, then the code on what is left),
+with the venue's rule on discounts together, the same rounding, each place's
+share of a code recorded, and the code's limits counting every path's uses.
+Each is best-effort: one refused leaves the booking standing at the price
+before it, and the response says why beside `booking`: `concessionError`
+(`{ error, code }`), `promoError` and `promoErrorCode` (`ONE_DISCOUNT`,
+`STK_NOT_COMBINABLE`, `PROMO_NOT_LAST_MINUTE`, `PROMO_YOUR_LIMIT`…), and
+`discount`, what the code took off. A malformed field is refused whole (400).
+
+The number is asked what the venue's counter asks of it (`mayBookOn` in
+`src/lib/limits.ts`): a number the venue refuses (`PHONE_BLOCKED`), the
+venue open, its house rules (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`,
+`LIMIT_AHEAD`), the unpaid-bookings limit (`PHONE_LIMIT_VENUE`,
+`PHONE_LIMIT_ALL`) and no-show strikes where the venue takes nothing online
+(`STRIKES_COUNTER`), each 409 with nothing booked. Who may book a
+members-only or private venue is not asked of the venue's own system, as it
+is not of its staff.
+
 Every booking the API returns (`POST`, `GET /bookings`, `GET /bookings/<code>`)
 now also carries `participants`: `[{ participantId, name, customer }]`, each
 person taking a place where the booking names somebody other than its
@@ -91,10 +124,10 @@ with the place in the queue (`position`). When the place frees, the offer
 goes to that number and email by the usual messages, in `locale` (English if
 not given), and is claimed by its link; the key never sees the offer's
 token. The entry is checked again at the offer and the claim as the API
-checks a booking, and against the venue's refused numbers and its being
-open, as when it joined (a number refused since leaves the queue; see
-[waitlists](../features/booking.md#waitlists)); the booking claimed from it
-is made as the API makes one. Each join and removal is in the staff activity log as the key
+checks a booking: the number's checks above (a number refused since leaves
+the queue; the house rules, the unpaid-bookings limit or strikes make it
+wait; see [waitlists](../features/booking.md#waitlists)); the booking
+claimed from it is made as the API makes one. Each join and removal is in the staff activity log as the key
 (`API key <id>`). Another venue's court, class or entry is *not found*.
 
 **Webhooks.** Up to 5 HTTPS addresses per venue. Each gets a signing secret,

@@ -408,6 +408,11 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
           AND w.offer_token IS NOT NULL
           AND NOT EXISTS (
                 SELECT 1 FROM messages m WHERE m.dedupe_key = 'offer:' || w.offer_token
+              )
+          -- Nothing to a number the venue has refused since the offer was made (its claim is refused).
+          AND NOT EXISTS (
+                SELECT 1 FROM venue_blocked_phones bp
+                 WHERE bp.venue_id = COALESCE(cc.venue_id, ct.venue_id) AND bp.phone_key = phone_key(w.phone)
               )`
     )
     .all() as OfferRow[];
