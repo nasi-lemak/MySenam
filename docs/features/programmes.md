@@ -80,7 +80,8 @@ and hours they take lessons. The venue page shows them under *🎓 Coaching*.
 *Book a lesson* (`/venue/:id/coach/:coachId`) offers the times that day when
 the coach is working, not already taken, and a court of the sport is free. The
 customer picks a length, gives their name and number, and pays the way any
-booking is paid.
+booking is paid. A venue can instead assign the coach itself
+([who chooses the coach](#who-chooses-the-coach)).
 
 - **A lesson is a booking.** It goes through `POST /api/bookings` with
   `coachId`, on any free court of the sport, so the house rules, blocked
@@ -131,16 +132,9 @@ A lesson moves the way any booking changes its date or time
 - **The customer** moves their own from `/my-booking` up to the venue's
   cancellation cutoff, as any booking; the panel says the lesson keeps its
   coach. They cannot choose another coach (`RESCHEDULE_COACH`).
-- **Staff** use *Change time*: front desk or a manager, keeping the coach,
-  or choosing another active coach of the venue for the sport (*Coach* above
-  the times, `coachId`), whose hours and lessons then decide the times
-  offered. Another coach only while nothing is paid on the lesson
-  (`RESCHEDULE_COACH_PAID`: a payment or a lesson pack was for the coach
-  booked; cancel and book again instead); the new coach's fee for its
-  length replaces the old one, and the price changes by the difference,
-  shown before it is made. A retired coach, or one who does not coach the
-  sport, is refused (`COACH_NOT_FOUND`). The activity log names the new
-  coach.
+- **Staff** use *Change time*: front desk or a manager, keeping the coach.
+  Giving the lesson to another coach is a manager's change of its own
+  ([giving a lesson to another coach](#giving-a-lesson-to-another-coach)).
 - **The price** follows the court time as for any booking: unpaid, repriced
   at the new time; paid, kept, the customer unable to move somewhere dearer.
   The coach's fee stays as booked with the same coach.
@@ -155,6 +149,107 @@ A lesson moves the way any booking changes its date or time
 Tests: `tests/lesson-moves.test.ts` (with the coach, refusals, another coach,
 paid, the coach told, and a move racing a new lesson for the coach's time),
 `tests/coaching.test.ts`, `tests/components/lesson-coach.test.tsx`.
+
+### Giving a lesson to another coach
+
+A manager can give a booked lesson to another active coach of the venue who
+coaches its sport, at the same time or with a new one (owner's decision, 27
+October 2026; `lib/lesson-coaches.ts`). Customers never change the coach of
+a lesson they booked (`RESCHEDULE_COACH`), and the front desk moves a lesson
+only with its own coach (`COACH_CHANGE_MANAGER`; no delegation to the desk
+fits this, so it is not offered).
+
+- **How.** Under *Change time*, *Coach* above the times: the new coach's
+  hours, time off and other lessons decide the times offered, and the change
+  goes through the same path as any move (`POST
+  /api/admin/bookings/reschedule` with `coachId`), so the court and the new
+  coach are claimed in one transaction under the constraint that keeps a
+  coach in one lesson at a time: a lesson booked with that coach for the same
+  time at the same moment refuses one of the two (`COACH_TAKEN`), and the
+  loser is left as it was. A retired coach, or one who does not coach the
+  sport, is refused (`COACH_NOT_FOUND`); a coach not taking lessons then,
+  `COACH_NOT_WORKING`.
+- **The fee.** The new coach's hourly fee for the lesson's minutes replaces
+  the old one on the booking (`bookings.coach_fee`, what the coach is owed in
+  [what coaches are owed](#a-coachs-own-schedule-no-account-needed)). Before
+  anything is changed, the screen shows both fees and the difference
+  (`GET /api/admin/bookings/lesson-coach`), and the preview of the move says
+  the same.
+- **Not yet paid**, the price changes by the difference, up or down.
+- **Paid**, the manager chooses (`coachMoney`; refused without,
+  `RESCHEDULE_COACH_PAID`):
+  - *Keep it as paid*: the price stays; the venue absorbs a dearer coach's
+    difference, or keeps a cheaper coach's, and the amount is recorded
+    (`lesson_coach_changes.absorbed`).
+  - *Adjust it*: a dearer coach's difference becomes an amount owed on the
+    booking, shown at the counter beside the lesson (*RM 20 owed for Ben
+    Tan's fee*) and taken there once, by cash, QR, transfer or card, on a
+    receipt of its own filed under *Coaching* (`POST
+    /api/admin/bookings/lesson-coach`); a cheaper coach's goes back the way
+    the lesson was paid, through the existing refund paths: to the stored
+    credit it came from, owed back on the online payment and sent through the
+    venue's refund path, or given back by hand at the counter; each with a
+    credit note of its own ([refunds for a cheaper coach](payments-and-credit.md#refunds-for-a-cheaper-coach)).
+  The money is settled in the change's own transaction, under the booking's
+  row lock: two managers at once settle it once, and a lesson paid meanwhile
+  is refused (`RESCHEDULE_CHANGED`) rather than settled on the wrong terms.
+- **Refused for money that is not simply the customer's**: a lesson paid with
+  a lesson pack (`LESSON_COACH_PASS`: the pack pays only its coach's lessons;
+  cancel it, which returns the pack's entry, and book again with the other
+  coach paid another way), and one with a deposit or shares others paid
+  (`LESSON_COACH_PART_PAID`: cancel and book again).
+- **Receipts are not rewritten.** A paid lesson's receipt keeps the coach and
+  fee it was sold with; an adjustment is its own receipt or credit note. A
+  later cancellation gives back only what is left of what was paid (what went
+  back for a cheaper coach is left out), credits a difference taken for a
+  dearer coach as it credits the lesson (given back by hand, as it was
+  taken), and a difference not yet taken is no longer owed.
+- **On the record.** The activity log (`lesson.coach_changed`) names who did
+  it, from and to which coach, the fees and the money effect; the change
+  itself is kept in `lesson_coach_changes` (migration 0188).
+- **Who is told.** The customer, by one email in the language they booked in,
+  through the outbox: the new coach, the time, and what happened to the
+  money; given a new time or court as well, also the venue's usual change of
+  time, which they acknowledge. The coaches as for any move: the new one hears of a lesson booked
+  with them, the old one that it is no longer theirs.
+
+The court-time part of a paid lesson moved to a dearer time stays as for any
+booking moved by staff: kept as paid, the difference not charged.
+
+Tests: `tests/lesson-coach-changes.test.ts` (unpaid, paid kept, paid adjusted
+dearer with the difference taken and credited on cancelling, cheaper back to
+credit, online and by hand, the refusals, the desk refused, notifications and
+their recipients, a change racing a new lesson for the new coach, two
+managers at once), on PGlite and Postgres; the screens in
+`tests/components/lesson-coach.test.tsx` and
+`tests/components/bookings-tab-coach.test.tsx`.
+
+### Who chooses the coach
+
+A venue setting under *Classes → Coaches* (`venues.lesson_coach_choice`,
+migration 0189; `GET`/`POST /api/admin/coaches`, managers):
+
+- **The customer chooses** (the default, as before): the venue page lists the
+  coaches, and the customer books a named one.
+- **The venue assigns**: the venue page lists the coaches for who they are,
+  and offers *Book a tennis lesson* for each sport they coach
+  (`/venue/:id/lesson?sport=`). The times shown are those when any coach of
+  the sport is free (`GET /api/coaching/slots?venueId&sport&date`, every
+  coach's own lesson starts together, with the range of their fees). Booking
+  (`POST /api/bookings` with `assignCoach: true`) puts on the lesson a coach
+  who coaches the sport and takes lessons through its time, the one with the
+  fewest lessons that day first, then the lowest id; each is tried under
+  their own lock, so two lessons booked for the same time at once get
+  different coaches, or, with one coach free, one of them is refused
+  (`LESSON_NO_COACH`) and nothing is left booked. The coach given is shown on
+  the confirmation. Each week of a weekly lesson keeps the first week's coach
+  where they are free. A customer cannot book a coach by name there
+  (`LESSON_VENUE_ASSIGNS`; the coach's own page leads to the lesson page);
+  staff at the counter still can. A lesson paid with a lesson pack goes only
+  to the pack's coach.
+
+Tests: `tests/lesson-venue-assigns.test.ts`, `tests/components/coach-booking-assign.test.tsx`,
+`tests/components/coaches-choice.test.tsx`.
 
 ### Lesson packs
 

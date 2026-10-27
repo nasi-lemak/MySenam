@@ -6,6 +6,7 @@ import { money } from "./region";
 import { changeDeadline, rescheduleBooking, type RescheduleResult } from "./store";
 import { gameById, gamePlayers, gameTimeChanged, moveOf, pendingMove, resumeGame, type GameMove, type OpenGame } from "./games";
 import type { Refusal } from "./types";
+import type { CoachChange } from "./lesson-coaches";
 
 /**
  * Moving an open game to another time.
@@ -42,7 +43,16 @@ export const PROPOSAL_HOURS = 24;
 /** A proposal needs at least this long for players to answer before its deadline. */
 const MIN_ANSWER_MINUTES = 30;
 
-type To = { date: string; start: number; courtId?: number; override?: boolean; coachId?: number };
+type To = {
+  date: string;
+  start: number;
+  courtId?: number;
+  override?: boolean;
+  coachId?: number;
+  /** A paid lesson to another coach: the manager's word on the money (lib/lesson-coaches.ts). */
+  coachMoney?: "keep" | "adjust";
+  changedBy?: { adminId: number | null; name: string };
+};
 
 export interface MovePreview {
   from: { date: string; startMin: number; endMin: number; courtId: number; courtName: string };
@@ -64,6 +74,8 @@ export interface MovePreview {
   sharesPaid: number;
   /** A proposal holds the new time until then. */
   expiresAt?: string;
+  /** A lesson to another coach: who from and to, and what it would do to the money (lib/lesson-coaches.ts). */
+  coachChange?: CoachChange;
 }
 
 export type MoveResult =
@@ -157,6 +169,7 @@ export async function previewMove(bookingCode: string, to: To, by: "customer" | 
     pending,
     clashes: game && players.length > 0 ? await clashesAt(game, r.to) : 0,
     sharesPaid: game ? await sharesPaid(game.id) : 0,
+    ...(r.coachChange ? { coachChange: r.coachChange } : {}),
   };
   if (outcome === "proposal" && game) {
     const until = await proposalDeadline(game, r.to);

@@ -43,6 +43,8 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   const [fresh, setFresh] = useState<Record<number, NewCoachLink>>({});
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Who chooses the coach of a new lesson here: the customer (the default), or the venue (lib/lesson-coaches.ts).
+  const [choice, setChoice] = useState<"customer" | "venue">("customer");
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/coaches?venueId=${venue.id}`, { cache: "no-store" });
@@ -50,7 +52,20 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
     const data = await res.json();
     setCoaches(data.coaches);
     setContacts(data.contacts ?? {});
+    setChoice(data.choice === "venue" ? "venue" : "customer");
   }, [venue.id]);
+
+  async function choose(next: "customer" | "venue") {
+    setError(null);
+    const res = await fetch("/api/admin/coaches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId: venue.id, action: "choice", choice: next }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setError(t.err(data, t("co6.ch.failed")));
+    setChoice(data.choice);
+  }
 
   async function contact(id: number, body: Record<string, unknown>) {
     setError(null);
@@ -120,6 +135,15 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       <p className="mt-1 text-xs text-slate-500">
         {t("coach.intro")}
       </p>
+      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-slate-700">{t("co6.ch.title")}</span>
+        <select value={choice} onChange={(e) => void choose(e.target.value === "venue" ? "venue" : "customer")} className={input}>
+          <option value="customer">{t("co6.ch.customer")}</option>
+          <option value="venue">{t("co6.ch.venue")}</option>
+        </select>
+      </label>
+      <p className="mt-1 text-xs text-slate-500">{t("co6.ch.help")}</p>
+      {error && !draft && <p className="mt-1 text-xs font-medium text-red-700">{error}</p>}
       <ul className="mt-2 divide-y divide-slate-100">
         {coaches.map((c) => (
           <li key={c.id} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${c.active ? "" : "opacity-50"}`}>

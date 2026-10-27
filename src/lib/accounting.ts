@@ -107,6 +107,9 @@ async function categoryOf(source: string): Promise<Category> {
         | undefined;
       return b?.class_id ? "Classes" : b?.coach_id ? "Coaching" : "Court hire";
     }
+    // The difference for a dearer coach, taken on its own receipt (lib/lesson-coaches.ts).
+    case "lesson-coach":
+      return "Coaching";
     case "membership":
       return "Memberships";
     case "pass": {

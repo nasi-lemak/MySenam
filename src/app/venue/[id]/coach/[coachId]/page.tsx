@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { coachChoice } from "@/lib/lesson-coaches";
 import { coachById } from "@/lib/coaching";
 import { aheadFor } from "@/lib/house-rules";
 import { mayShowVenue, pageViewer } from "@/lib/listing";
@@ -25,6 +26,8 @@ export default async function CoachPage({ params }: { params: Promise<{ id: stri
   if (!Number.isInteger(id) || !shows(await currentStorefront(), id) || !(await mayShowVenue(id, viewer)).show) notFound();
   const [venue, coach] = await Promise.all([getVenue(id), coachById(Number(coachId))]);
   if (!venue || !coach || !coach.active || coach.venueId !== id) notFound();
+  // A venue that assigns the coach takes lessons for a sport, not a coach by name.
+  if ((await coachChoice(id)) === "venue") redirect(`/venue/${id}/lesson?sport=${coach.sports[0]}`);
   const t = await serverT();
   const { zone } = await venueHours(id);
   // What the coach's first sport is sold by; the form follows the sport picked.

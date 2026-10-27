@@ -16,6 +16,7 @@ import {
   getBookingById,
   findBooking,
   getCourt,
+  getPass,
   getVenue,
   payBookingFromWallet,
   payBookingWithPasses,
@@ -23,6 +24,7 @@ import {
   requestedSpan,
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
+import { assignLessonCoach, coachChoice, lessonRefusal, lessonSports } from "@/lib/lesson-coaches";
 import { customerMayBook, guestSurge } from "@/lib/limits";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override, placeConcessions, payWithPasses } =
+  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, assignCoach, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override, placeConcessions, payWithPasses } =
     (body ?? {}) as Record<string, unknown>;
   // One person's own concession on their place, and one person's own pass for each place (lib/entitlements.ts).
   const perPlace = readPlaceConcessions(placeConcessions);
@@ -122,7 +124,7 @@ export async function POST(req: NextRequest) {
   const placesByCourt = Object.fromEntries(
     moreList.filter((c): c is More & { places: number } => typeof c !== "number" && c.places !== undefined).map((c) => [c.courtId, c.places])
   );
-  if (group && (anyCourt || ((weeks as number) ?? 1) > 1 || (coachId !== undefined && coachId !== null) || chosen.length > 0))
+  if (group && (anyCourt || ((weeks as number) ?? 1) > 1 || (coachId !== undefined && coachId !== null) || assignCoach === true || chosen.length > 0))
     return refusal({ ok: false, error: "A booking of several courts is for one date, without extras or a coach.", code: "GROUP_ONE_COURT_ONLY" });
 
   const limited = await rateLimit(req, "booking");
@@ -240,6 +242,24 @@ export async function POST(req: NextRequest) {
   // weekly too for a signed-in customer, as a court is. Whether they are free
   // is settled week by week when they are put on it.
   let coach: Coach | null = null;
+  // Or the venue assigns the coach (lib/lesson-coaches.ts), where it says so: a lesson for the sport and time, and a
+  // coach of the sport who is free then is put on it once it is booked. A customer there books no coach by name.
+  const venueAssigns = assignCoach === true;
+  let assignOnly: number | undefined;
+  if (venueAssigns || (coachId !== undefined && coachId !== null)) {
+    const choice = venueOfBooking !== undefined ? await coachChoice(venueOfBooking) : "customer";
+    if (venueAssigns) {
+      if (coachId !== undefined && coachId !== null) return NextResponse.json({ error: "Give a coachId or assignCoach, not both." }, { status: 400 });
+      if (choice !== "venue") return refusal(lessonRefusal("LESSON_CHOOSE_COACH"));
+      const lessonSport = anyCourt ? (sport as Sport) : (await getCourt(courtId as number))?.sport;
+      if (!lessonSport || venueOfBooking === undefined || !(await lessonSports(venueOfBooking)).includes(lessonSport)) return refusal(lessonRefusal("LESSON_NO_COACH"));
+      // A lesson pack pays only its own coach's lessons: paid with one, its coach is the one.
+      for (const c of passCodes) {
+        const pack = await getPass(c);
+        if (pack?.coachId && pack.venueId === venueOfBooking) assignOnly = pack.coachId;
+      }
+    } else if (choice === "venue" && !byStaff) return refusal(lessonRefusal("LESSON_VENUE_ASSIGNS"));
+  }
   if (coachId !== undefined && coachId !== null) {
     if (!Number.isInteger(coachId)) return NextResponse.json({ error: "coachId must be a number." }, { status: 400 });
     coach = await coachById(coachId as number);
@@ -346,6 +366,30 @@ export async function POST(req: NextRequest) {
       kept.push(booking);
     }
     if (kept.length === 0) return refusal({ ok: false, error: `${coach.name} has just been booked for that time. Pick another.`, code: "COACH_TAKEN", vars: { name: coach.name } });
+    result.bookings.splice(0, result.bookings.length, ...kept);
+  }
+  // The venue's choice of coach, week by week, the first week's coach kept where they are free (lib/lesson-coaches.ts).
+  let lessonCoach: { id: number; name: string } | null = coach ? { id: coach.id, name: coach.name } : null;
+  if (venueAssigns) {
+    const kept: typeof result.bookings = [];
+    for (const booking of result.bookings) {
+      const put = await assignLessonCoach(booking.id, assignOnly !== undefined ? { only: assignOnly } : lessonCoach ? { prefer: lessonCoach.id } : {});
+      if (!put.ok) {
+        if (result.bookings.length > 1 && skipConflicts === true) {
+          await discardBooking(booking.id);
+          result.skipped.push({ date: booking.date, reason: "no coach is free" });
+          continue;
+        }
+        for (const b of result.bookings) await discardBooking(b.id);
+        return refusal(put);
+      }
+      lessonCoach ??= { id: put.coach.id, name: put.coach.name };
+      booking.totalPrice = Math.round((booking.totalPrice + put.fee) * 100) / 100;
+      booking.coachId = put.coach.id;
+      booking.coachFee = put.fee;
+      kept.push(booking);
+    }
+    if (kept.length === 0) return refusal(lessonRefusal("LESSON_NO_COACH"));
     result.bookings.splice(0, result.bookings.length, ...kept);
   }
 
@@ -539,6 +583,8 @@ export async function POST(req: NextRequest) {
       // Courts booked together: each one's name, for the confirmation's list.
       ...(group ? { courtNames: Object.fromEntries(await Promise.all(group.map(async (id) => [id, (await getCourt(id))?.name ?? ""]))) } : {}),
       venue: { id: venue.id, name: venue.name, area: venue.area, timeZone: venue.timeZone },
+      // A lesson: its coach, named or assigned by the venue, for the confirmation.
+      lessonCoach,
       payOnline: !account && (await takesPaymentOnline(venue.id)),
       // Charged to this account, on its monthly invoice.
       account: account ? { name: account.name } : null,

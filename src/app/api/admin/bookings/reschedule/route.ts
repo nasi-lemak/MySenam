@@ -3,11 +3,14 @@ import { formatLength, formatMinute, isMinute, parseClock } from "@/lib/interval
 import { breachMessage } from "@/lib/booking-rules";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
-import { getCourt, getVenueIdForBookingCode, policyForCourt, rescheduleOptions } from "@/lib/store";
+import { findBookingByCode, getCourt, getVenueIdForBookingCode, policyForCourt, rescheduleOptions } from "@/lib/store";
 import { previewMove, staffMove } from "@/lib/game-moves";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
 import { coachNames } from "@/lib/coaching";
+import { coachChangeDetail, notifyCoachChanged } from "@/lib/lesson-coaches";
+import { bookingLocale } from "@/lib/place-withdrawals";
+import { refundCancelled } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +32,15 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ code, date, start, courtId?, coachId?, override?, preview?, reason? }` →
+ * `{ code, date, start, courtId?, coachId?, coachMoney?, override?, preview?, reason? }` →
  * the booking at its new time (`start` in minutes of the day or HH:MM;
  * `startHour` the older form); the customer is told. A lesson moves with its
- * coach, who is told; `coachId` gives it to another of the venue's coaches
- * while nothing is paid on it (lib/store.ts rescheduleBooking). `override`: a manager
+ * coach, who is told; `coachId` (a manager only) gives it to another of the
+ * venue's coaches, at the same time or another; a paid one needs `coachMoney`,
+ * `keep` (the price stays as paid) or `adjust` (the difference owed, or given
+ * back with a credit note), and the preview shows both (lib/lesson-coaches.ts).
+ * The customer and both coaches are told, and the change is in the activity
+ * log with who did it, from and to which coach, and the money. `override`: a manager
  * going past the court's booking rules, recorded in the activity log.
  * `preview`: what it would do, changing nothing (lib/game-moves.ts). A
  * booking whose open game has players moves only as the venue's change: a
@@ -48,7 +55,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, date, startHour, courtId, coachId, override, preview, reason } = body ?? {};
+  const { code, date, startHour, courtId, coachId, coachMoney, override, preview, reason } = body ?? {};
   const start =
     body.start !== undefined ? (typeof body.start === "string" ? parseClock(body.start) : body.start) : typeof startHour === "number" ? Math.round(startHour * 60) : null;
   if (typeof code !== "string" || typeof date !== "string" || !isMinute(start))
@@ -59,6 +66,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "courtId must be a court's id." }, { status: 400 });
   if (coachId !== undefined && coachId !== null && !Number.isInteger(coachId))
     return NextResponse.json({ error: "coachId must be a coach's id." }, { status: 400 });
+  if (coachMoney !== undefined && coachMoney !== null && coachMoney !== "keep" && coachMoney !== "adjust")
+    return NextResponse.json({ error: "coachMoney is keep or adjust." }, { status: 400 });
   const venueId = await getVenueIdForBookingCode(code);
   if (venueId === null) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   const denied = denyVenue(admin, venueId);
@@ -69,7 +78,20 @@ export async function POST(req: NextRequest) {
     const deniedTarget = denyVenue(admin, target.venueId);
     if (deniedTarget) return deniedTarget;
   }
-  const to = { date, start, ...(typeof courtId === "number" ? { courtId } : {}), ...(typeof coachId === "number" ? { coachId } : {}), override: override === true };
+  // Another coach for a lesson is a manager's decision (owner's decision, 27 October 2026); the desk moves it with its own.
+  const lessonCoach = typeof coachId === "number" ? ((await findBookingByCode(code))?.coachId ?? null) : null;
+  const coachChanging = lessonCoach !== null && coachId !== lessonCoach;
+  if (coachChanging && admin.role === "desk")
+    return NextResponse.json({ error: "Only a manager can give a lesson to another coach.", code: "COACH_CHANGE_MANAGER" }, { status: 403 });
+  const to = {
+    date,
+    start,
+    ...(typeof courtId === "number" ? { courtId } : {}),
+    ...(typeof coachId === "number" ? { coachId } : {}),
+    ...(coachMoney === "keep" || coachMoney === "adjust" ? { coachMoney: coachMoney as "keep" | "adjust" } : {}),
+    changedBy: { adminId: admin.id, name: admin.name },
+    override: override === true,
+  };
   if (preview === true) {
     const seen = await previewMove(code, to, "staff");
     if (!seen.ok) return NextResponse.json(seen, { status: 409 });
@@ -89,6 +111,14 @@ export async function POST(req: NextRequest) {
       typeof coachId === "number" && result.booking.coachId === coachId ? `; lesson with ${(await coachNames([result.booking.id])).get(result.booking.id) ?? `coach ${coachId}`}` : ""
     }`,
   });
+  const change = result.coachChange;
+  if (change)
+    await logAction(admin, {
+      venueId,
+      action: "lesson.coach_changed",
+      bookingCode: result.booking.code,
+      detail: `${change.fromCoach.name} → ${change.toCoach.name}; ${coachChangeDetail(change)}`,
+    });
   if (result.overrides && result.overrides.length > 0) {
     const rules = await policyForCourt(result.booking.courtId);
     await logAction(admin, {
@@ -100,11 +130,20 @@ export async function POST(req: NextRequest) {
         .join("; ")}`,
     });
   }
-  await notifyRescheduled(result.booking, "staff", result.priceChange);
+  const timeChanged = result.from.date !== result.booking.date || result.from.startMin !== result.booking.startMin || result.from.courtId !== result.booking.courtId;
+  if (change) {
+    // Given back on the online payment: through the venue's refund path now, as when staff cancel.
+    if (change.refund > 0 && change.refundHow === "online") await refundCancelled([result.booking.id], { byVenue: true });
+    // The customer hears of the new coach (with the time, and the money) by email, in the language they booked in.
+    await notifyCoachChanged(result.booking, change, await bookingLocale(result.booking.id));
+  }
+  // A new time or court is the venue's change of time as ever: the notice the customer acknowledges.
+  if (!change || timeChanged) await notifyRescheduled(result.booking, "staff", result.priceChange);
   await tickOutbox();
   return NextResponse.json({
     booking: result.booking,
     priceChange: result.priceChange,
     unchargedDifference: result.unchargedDifference,
+    ...(change ? { coachChange: change } : {}),
   });
 }

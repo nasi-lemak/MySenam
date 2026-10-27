@@ -12,7 +12,12 @@ import { formatMinute } from "@/lib/interval";
 import { lengthsUpTo } from "@/lib/booking-rules";
 import { MAX_RECUR_WEEKS, type Booking, type PublicPolicy, type Sport, type StartOption } from "@/lib/types";
 
-/** A day, a free time with the coach, a length, and who is coming: then a lesson booked. */
+/**
+ * A day, a free time with the coach, a length, and who is coming: then a
+ * lesson booked. With no coach named (`coach.id` null), at a venue that
+ * assigns the coach (lib/lesson-coaches.ts): the times any of its coaches of
+ * the sport is free, and the coach given is shown on the confirmation.
+ */
 export default function CoachBooking({
   venueId,
   coach,
@@ -21,13 +26,16 @@ export default function CoachBooking({
   timeZone,
 }: {
   venueId: number;
-  coach: { id: number; name: string; sports: Sport[] };
+  coach: { id: number | null; name: string; sports: Sport[] };
   dates: string[];
   payOnline: boolean;
   timeZone: string;
 }) {
   const t = useT();
   const [sport, setSport] = useState<Sport>(coach.sports[0]);
+  // The venue assigns the coach: who it gave, once booked.
+  const assigns = coach.id === null;
+  const [given, setGiven] = useState<string | null>(null);
   const [date, setDate] = useState(dates[0]);
   // Where a lesson can start that day, and the longest from each; the sport's lengths here.
   const [starts, setStarts] = useState<StartOption[] | null>(null);
@@ -66,13 +74,13 @@ export default function CoachBooking({
   useEffect(() => {
     setStarts(null);
     setStart(null);
-    void fetch(`/api/coaching/slots?coachId=${coach.id}&date=${date}&sport=${sport}`, { cache: "no-store" })
+    void fetch(assigns ? `/api/coaching/slots?venueId=${venueId}&date=${date}&sport=${sport}` : `/api/coaching/slots?coachId=${coach.id}&date=${date}&sport=${sport}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: { starts?: StartOption[]; policy?: PublicPolicy }) => {
         setPolicy(d.policy ?? null);
         setStarts(d.starts ?? []);
       });
-  }, [coach.id, date, sport]);
+  }, [assigns, venueId, coach.id, date, sport]);
 
   // Lengths the courts allow that fit from the chosen start, the coach free throughout.
   const option = starts?.find((s) => s.minute === start);
@@ -87,10 +95,11 @@ export default function CoachBooking({
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, sport, date, start, minutes: length, coachId: coach.id, ...who, ...whoBody(forIds, meToo), weeks, skipConflicts: weeks > 1 }),
+        body: JSON.stringify({ venueId, sport, date, start, minutes: length, ...(assigns ? { assignCoach: true } : { coachId: coach.id }), ...who, ...whoBody(forIds, meToo), weeks, skipConflicts: weeks > 1 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
+      setGiven(data.lessonCoach?.name ?? null);
       setBooked(data.booking);
       setAll(data.bookings ?? [data.booking]);
       setHoldUntil(data.holdUntil ?? null);
@@ -123,7 +132,8 @@ export default function CoachBooking({
           </p>
         )}
         <p>
-          {booked.date} {formatMinute(booked.startMin)}–{formatMinute(booked.endMin)} · {t("coach.with", { name: coach.name })} ·{" "}
+          {booked.date} {formatMinute(booked.startMin)}–{formatMinute(booked.endMin)} ·{" "}
+          {assigns ? t("co6.yourCoach", { name: given ?? "" }) : t("coach.with", { name: coach.name })} ·{" "}
           {money(booked.totalPrice)}
           {all.length > 1 && <> · {t("done.total")} {money(total)}</>}
         </p>
@@ -168,7 +178,7 @@ export default function CoachBooking({
         {starts === null ? (
           <p className="mt-1 text-sm text-slate-400">…</p>
         ) : starts.length === 0 ? (
-          <p className="mt-1 text-sm text-slate-500">{t("coach.none", { name: coach.name })}</p>
+          <p className="mt-1 text-sm text-slate-500">{assigns ? t("co6.noneFree") : t("coach.none", { name: coach.name })}</p>
         ) : (
           <div className="mt-1 flex flex-wrap gap-2">
             {starts.map((s) => (
@@ -235,7 +245,9 @@ export default function CoachBooking({
           <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           <button disabled={busy} className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
-            {t("coach.confirm", { length: t("coach.minutes", { n: length }), name: coach.name, time: formatMinute(start!) })}
+            {assigns
+              ? t("co6.confirm", { length: t("coach.minutes", { n: length }), time: formatMinute(start!) })
+              : t("coach.confirm", { length: t("coach.minutes", { n: length }), name: coach.name, time: formatMinute(start!) })}
           </button>
         </>
       )}
